@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #F0C9A8;
+  --foreground: #1e1810;
+  --card: #e8d4c0;
+  --card-foreground: #1e1810;
+  --border: rgba(30, 24, 16, 0.10);
+  --border-strong: rgba(30, 24, 16, 0.18);
+  --muted: rgba(30, 24, 16, 0.06);
+  --muted-foreground: rgba(30, 24, 16, 0.50);
+  --primary: #c4a882;
+  --primary-hover: #b09470;
+  --primary-light: rgba(196, 168, 130, 0.15);
+  --primary-foreground: #1e1810;
+  --surface: #e0cdb8;
+  --destructive: #a0453a;
+  --destructive-hover: #8c3930;
+  --success: #6b8f5e;
+  --warning: #b8923e;
+  --ring: rgba(196, 168, 130, 0.40);
+  --radius: 6px;
+  --shadow-sm: 0 1px 2px 0 rgba(30, 24, 16, 0.04);
+  --shadow: 0 1px 3px 0 rgba(30, 24, 16, 0.06);
+  --shadow-md: 0 2px 6px 0 rgba(30, 24, 16, 0.08);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-light: var(--primary-light);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --radius-base: var(--radius);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: "Bebas Neue", "Arial Narrow", sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  border-color: var(--border);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="search"],
+select,
+textarea {
+  font-size: 14px;
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgba(196, 168, 130, 0.30);
+}
+
+.font-heading {
+  font-family: var(--font-bebas, "Bebas Neue"), "Arial Narrow", sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
