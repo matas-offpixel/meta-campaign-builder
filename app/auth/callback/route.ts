@@ -1,18 +1,63 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-export async function GET(request: Request) {
+/** Only allow same-app relative redirects after login (no open redirects). */
+function safeNextPath(next: string | null): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/";
+  return next;
+}
+
+export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
+  const next = safeNextPath(searchParams.get("next"));
+
+  // Supabase may redirect here with error in query (e.g. access_denied)
+  const authError = searchParams.get("error_description") ?? searchParams.get("error");
+  if (!code && authError) {
+    const errorUrl = new URL("/login", origin);
+    errorUrl.searchParams.set("error", "auth");
+    return NextResponse.redirect(errorUrl);
+  }
 
   if (code) {
-    const supabase = await createClient();
+    // Build the redirect response BEFORE creating the Supabase client.
+    // This is critical: Supabase's setAll() callback must write the session
+    // cookies directly onto the response object that the browser will receive.
+    // Returning a new NextResponse.redirect() after the fact loses those cookies,
+    // causing the session never to be established and looping back to /login.
+    const redirectResponse = NextResponse.redirect(`${origin}${next}`);
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            // Read the PKCE code verifier (and any other cookies) from the
+            // incoming request, where the browser stored them.
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            // Write the new session tokens onto the redirect response so the
+            // browser receives them as Set-Cookie headers on this response.
+            cookiesToSet.forEach(({ name, value, options }) =>
+              redirectResponse.cookies.set(name, value, options),
+            );
+          },
+        },
+      },
+    );
+
     const { error } = await supabase.auth.exchangeCodeForSession(code);
+
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return redirectResponse;
     }
   }
 
-  return NextResponse.redirect(`${origin}/login`);
+  // Code missing or exchange failed — send back to login with an error hint
+  const errorUrl = new URL("/login", origin);
+  errorUrl.searchParams.set("error", "auth");
+  return NextResponse.redirect(errorUrl);
 }

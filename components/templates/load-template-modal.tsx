@@ -8,6 +8,8 @@ import type { CampaignTemplate } from "@/lib/types";
 interface LoadTemplateModalProps {
   open: boolean;
   templates: CampaignTemplate[];
+  loading?: boolean;
+  deletingId?: string | null;
   onClose: () => void;
   onSelect: (template: CampaignTemplate) => void;
   onDelete: (id: string) => void;
@@ -33,7 +35,15 @@ const OBJECTIVE_LABELS: Record<string, string> = {
   engagement: "Engagement",
 };
 
-export function LoadTemplateModal({ open, templates, onClose, onSelect, onDelete }: LoadTemplateModalProps) {
+export function LoadTemplateModal({
+  open,
+  templates,
+  loading = false,
+  deletingId = null,
+  onClose,
+  onSelect,
+  onDelete,
+}: LoadTemplateModalProps) {
   const [search, setSearch] = useState("");
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
@@ -91,7 +101,16 @@ export function LoadTemplateModal({ open, templates, onClose, onSelect, onDelete
 
         {/* List */}
         <div className="flex-1 overflow-y-auto px-6 pb-4">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="space-y-2 mt-2">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="rounded-md border border-border bg-card p-4 animate-pulse">
+                  <div className="h-3 w-40 rounded bg-muted mb-2" />
+                  <div className="h-2.5 w-56 rounded bg-muted/60" />
+                </div>
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="py-12 text-center">
               <FileText className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">
@@ -108,11 +127,12 @@ export function LoadTemplateModal({ open, templates, onClose, onSelect, onDelete
                   t.snapshot.audiences.interestGroups.length;
                 const creativeCount = t.snapshot.creatives.length;
                 const ruleCount = t.snapshot.optimisationStrategy?.rules?.filter((r) => r.enabled).length ?? 0;
+                const isDeleting = deletingId === t.id;
 
                 return (
                   <div
                     key={t.id}
-                    className="group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong"
+                    className={`group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong ${isDeleting ? "opacity-50" : ""}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -146,7 +166,7 @@ export function LoadTemplateModal({ open, templates, onClose, onSelect, onDelete
                       </div>
 
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <Button size="sm" onClick={() => onSelect(t)}>
+                        <Button size="sm" onClick={() => onSelect(t)} disabled={isDeleting}>
                           Load
                         </Button>
                         {confirmId === t.id ? (
@@ -170,7 +190,8 @@ export function LoadTemplateModal({ open, templates, onClose, onSelect, onDelete
                           <button
                             type="button"
                             onClick={() => setConfirmId(t.id)}
-                            className="rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                            disabled={isDeleting}
+                            className="rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all disabled:pointer-events-none"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>

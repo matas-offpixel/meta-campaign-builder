@@ -10,6 +10,8 @@ interface WizardFooterProps {
   currentStep: WizardStep;
   canContinue: boolean;
   saveStatus: SaveStatus;
+  /** True while the Meta campaign creation API call is in flight */
+  launching?: boolean;
   onBack: () => void;
   onContinue: () => void;
   onSaveDraft: () => void;
@@ -22,6 +24,7 @@ export function WizardFooter({
   currentStep,
   canContinue,
   saveStatus,
+  launching = false,
   onBack,
   onContinue,
   onSaveDraft,
@@ -76,9 +79,13 @@ export function WizardFooter({
           </Button>
 
           {isLastStep ? (
-            <Button onClick={onLaunch} disabled={!canContinue}>
-              <Rocket className="h-4 w-4" />
-              Launch Campaign
+            <Button onClick={onLaunch} disabled={!canContinue || launching}>
+              {launching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="h-4 w-4" />
+              )}
+              {launching ? "Creating campaign…" : "Launch Campaign"}
             </Button>
           ) : (
             <Button onClick={onContinue} disabled={!canContinue}>

@@ -1,3 +1,47 @@
+// ─── Meta Graph API response types ──────────────────────────────────────────
+// These mirror what the API actually returns (snake_case field names preserved
+// where it helps clarity). Used by lib/meta/client.ts and /api/meta/* routes.
+
+/** Returned by GET /me/adaccounts */
+export interface MetaAdAccount {
+  /** "act_1234567890" */
+  id: string;
+  name: string;
+  /** Numeric portion of the id without the "act_" prefix */
+  account_id: string;
+  currency: string;
+  /**
+   * 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 7 = PENDING_RISK_REVIEW,
+   * 9 = IN_GRACE_PERIOD, 100 = PENDING_CLOSURE, 101 = CLOSED
+   */
+  account_status: number;
+  timezone_name: string;
+  business?: { id: string; name: string };
+}
+
+/** Returned by GET /me/accounts (pages the token user manages) */
+export interface MetaApiPage {
+  id: string;
+  name: string;
+  picture?: { data: { url: string } };
+  instagram_business_account?: { id: string };
+  access_token?: string;
+}
+
+/** Returned by GET /{ad_account_id}/adspixels */
+export interface MetaApiPixel {
+  id: string;
+  name: string;
+}
+
+/** Returned when expanding instagram_business_account on a page */
+export interface MetaInstagramAccount {
+  id: string;
+  username?: string;
+  name?: string;
+  profile_picture_url?: string;
+}
+
 // ─── Entity types (represent data from Meta API / database) ───
 
 export interface AdAccount {
@@ -162,16 +206,32 @@ export interface AudienceSettings {
 
 // ─── Creative types ───
 
-export interface CreativeAssetSet {
-  "1:1"?: string;
-  "4:5"?: string;
-  "9:16"?: string;
+export type AssetUploadStatus = "pending" | "uploading" | "uploaded" | "error";
+
+/**
+ * One aspect-ratio slot inside an AssetVariation.
+ * Carries both the upload state and the Meta-specific IDs populated after upload.
+ */
+export interface Asset {
+  id: string;
+  aspectRatio: AssetRatio;
+  /** Public CDN URL — used for preview and as image_url fallback */
+  uploadedUrl?: string;
+  /** Thumbnail shown in the UI after upload (same as uploadedUrl for images) */
+  thumbnailUrl?: string;
+  /** Meta image hash — preferred over image_url in ad creative API calls */
+  assetHash?: string;
+  /** Meta video ID — required for video_data creative spec */
+  videoId?: string;
+  uploadStatus: AssetUploadStatus;
+  error?: string;
 }
 
 export interface AssetVariation {
   id: string;
   name: string;
-  assets: CreativeAssetSet;
+  /** One slot per aspect ratio required by the creative's assetMode */
+  assets: Asset[];
 }
 
 export interface CaptionVariant {
@@ -224,6 +284,8 @@ export interface AdCreativeDraft {
   cta: CTAType;
   existingPost?: ExistingPostSelection;
   enhancements: CreativeEnhancementSettings;
+  /** Set after a successful POST to Meta — the live ad creative ID */
+  metaCreativeId?: string;
 }
 
 // ─── Budget & schedule types ───
@@ -259,6 +321,8 @@ export interface AdSetSuggestion {
   budgetPerDay: number;
   advantagePlus: boolean;
   enabled: boolean;
+  /** Set after a successful POST to Meta — the live ad set ID */
+  metaAdSetId?: string;
 }
 
 // ─── Creative assignment ───
@@ -335,12 +399,39 @@ export interface OptimisationStrategySettings {
 
 export interface CampaignSettings {
   clientId?: string;
+  /** Real Meta ad account ID, e.g. "act_1234567890" */
   adAccountId: string;
   pixelId?: string;
   campaignCode: string;
   campaignName: string;
   objective: CampaignObjective;
   optimisationGoal: OptimisationGoal;
+  // ── Meta-resolved identities (set in Account Setup step) ──────────────────
+  /** Mirrors adAccountId once the user picks a real Meta account */
+  metaAdAccountId?: string;
+  /** Primary Facebook Page for this campaign */
+  metaPageId?: string;
+  /** Primary Meta Pixel for this campaign */
+  metaPixelId?: string;
+  /** Primary Instagram Business Account for this campaign */
+  metaIGAccountId?: string;
+}
+
+// ─── Launch summary (populated after a successful launch) ───
+
+export interface LaunchSummary {
+  metaCampaignId: string;
+  adSetsCreated: { name: string; metaAdSetId: string }[];
+  adSetsFailed: { name: string; error: string }[];
+  creativesCreated: {
+    name: string;
+    metaCreativeId: string;
+    ads: { adSetName: string; metaAdId: string }[];
+    adsFailed: { adSetName: string; error: string }[];
+  }[];
+  creativesFailed: { name: string; error: string }[];
+  adsCreated: number;
+  adsFailed: number;
 }
 
 // ─── Top-level campaign draft ───
@@ -354,7 +445,23 @@ export interface CampaignDraft {
   budgetSchedule: BudgetScheduleSettings;
   adSetSuggestions: AdSetSuggestion[];
   creativeAssignments: CreativeAssignmentMatrix;
-  status: "draft" | "ready" | "launched";
+  status: "draft" | "published" | "archived";
+  /** Set after a successful POST to Meta — the live campaign ID (e.g. "23849562890000") */
+  metaCampaignId?: string;
+  /** Populated after launch — records what was created and what failed */
+  launchSummary?: LaunchSummary;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Campaign list item (lightweight, for library view) ───
+
+export interface CampaignListItem {
+  id: string;
+  name: string | null;
+  objective: string | null;
+  status: CampaignDraft["status"];
+  adAccountId: string | null;
   createdAt: string;
   updatedAt: string;
 }

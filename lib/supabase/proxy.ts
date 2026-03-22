@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isPublicPath } from "@/lib/auth/public-routes";
 
+/**
+ * Supabase SSR session refresh + route protection.
+ * Uses getUser() (JWT validation via Supabase) — never raw cookie names like
+ * sb-access-token.
+ */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -29,16 +35,16 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isLoginPage = request.nextUrl.pathname === "/login";
-  const isAuthCallback = request.nextUrl.pathname.startsWith("/auth/");
+  const pathname = request.nextUrl.pathname;
+  const publicRoute = isPublicPath(pathname);
 
-  if (!user && !isLoginPage && !isAuthCallback) {
+  if (!user && !publicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && isLoginPage) {
+  if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);

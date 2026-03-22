@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, useId } from "react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -11,51 +11,85 @@ import {
   Plus, Copy, Trash2, ImageIcon, Video, Upload,
   ClipboardCopy, Check, FileText, ShieldOff,
   Heart, MessageCircle, Share2, ChevronDown, ChevronUp,
+  AlertCircle,
 } from "lucide-react";
 import type {
   AdCreativeDraft, CTAType, AssetMode, AssetRatio,
-  AdSourceType, AssetVariation, CaptionVariant,
+  AdSourceType, AssetVariation, Asset, CaptionVariant,
 } from "@/lib/types";
+import { useUploadAsset } from "@/lib/hooks/useUploadAsset";
+import { getAspectRatioSlots } from "@/lib/meta/upload";
+import { CTA_OPTIONS, MOCK_PAGE_POSTS } from "@/lib/mock-data";
+import { useFetchPages, useFetchInstagramAccounts } from "@/lib/hooks/useMeta";
 import {
-  CTA_OPTIONS, MOCK_FACEBOOK_PAGES, MOCK_INSTAGRAM_ACCOUNTS,
-  MOCK_PAGE_POSTS,
-} from "@/lib/mock-data";
-import {
-  createDefaultCreative, createDefaultAssetVariation, createDefaultCaption,
+  createDefaultCreative,
+  createDefaultAssetVariation,
+  createDefaultAsset,
+  createDefaultCaption,
 } from "@/lib/campaign-defaults";
 
 interface CreativesProps {
   creatives: AdCreativeDraft[];
   onChange: (creatives: AdCreativeDraft[]) => void;
+  /** Meta ad account ID — required for real asset uploads */
+  adAccountId?: string;
 }
 
-const ASSET_MODES: { value: AssetMode; label: string; desc: string; ratios: AssetRatio[] }[] = [
-  { value: "single", label: "Single", desc: "9:16 only", ratios: ["9:16"] },
-  { value: "dual", label: "Dual", desc: "4:5 + 9:16", ratios: ["4:5", "9:16"] },
-  { value: "full", label: "Full", desc: "1:1 + 4:5 + 9:16", ratios: ["1:1", "4:5", "9:16"] },
+const ASSET_MODES: { value: AssetMode; label: string; desc: string }[] = [
+  { value: "single", label: "Single", desc: "9:16 Story / Reel" },
+  { value: "dual",   label: "Dual",   desc: "4:5 + 9:16" },
+  { value: "full",   label: "Full",   desc: "4:5 + 9:16 + 1:1" },
 ];
 
-const RATIO_META: Record<AssetRatio, { label: string; desc: string }> = {
+const RATIO_LABELS: Record<AssetRatio, { label: string; desc: string }> = {
   "1:1": { label: "1:1", desc: "Square" },
   "4:5": { label: "4:5", desc: "Feed" },
-  "9:16": { label: "9:16", desc: "Story/Reel" },
+  "9:16": { label: "9:16", desc: "Story / Reel" },
 };
 
 type BulkField = "headline" | "description" | "destinationUrl" | "cta";
 
-function getRatiosForMode(mode: AssetMode): AssetRatio[] {
-  return ASSET_MODES.find((m) => m.value === mode)?.ratios ?? ["4:5", "9:16"];
+// ─── Inline loading/error helpers ────────────────────────────────────────────
+
+function Spinner() {
+  return (
+    <span
+      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent opacity-60"
+      aria-label="Loading"
+    />
+  );
 }
 
-export function Creatives({ creatives, onChange }: CreativesProps) {
+function FieldStatus({ loading, error }: { loading: boolean; error: string | null }) {
+  if (loading) return (
+    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+      <Spinner /> Loading…
+    </p>
+  );
+  if (error) return (
+    <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+      <AlertCircle className="h-3 w-3 flex-shrink-0" /> {error}
+    </p>
+  );
+  return null;
+}
+
+export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) {
   const [activeId, setActiveId] = useState<string | null>(creatives[0]?.id ?? null);
   const [appliedField, setAppliedField] = useState<BulkField | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bulkVariationInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [postSearch, setPostSearch] = useState("");
+  // Keep a fresh reference for async upload callbacks that run after state updates
+  const creativesRef = useRef(creatives);
+  useEffect(() => { creativesRef.current = creatives; }, [creatives]);
+
+  // ── Real Meta identity data ────────────────────────────────────────────────
+  const pages = useFetchPages();
+  const igAccounts = useFetchInstagramAccounts();
 
   const active = creatives.find((c) => c.id === activeId);
-  const activeRatios = active ? getRatiosForMode(active.assetMode ?? "dual") : [];
 
   const addAd = () => {
     const c = createDefaultCreative();
@@ -75,7 +109,7 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
       assetVariations: (source.assetVariations ?? []).map((v) => ({
         ...v,
         id: crypto.randomUUID(),
-        assets: { ...v.assets },
+        assets: v.assets.map((a) => ({ ...a, id: crypto.randomUUID() })),
       })),
       captions: (source.captions ?? []).map((c) => ({ ...c, id: crypto.randomUUID() })),
       enhancements: { ...(source.enhancements ?? createDefaultCreative().enhancements) },
@@ -98,8 +132,8 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
   );
 
   const handlePageChange = (adId: string, pageId: string) => {
-    const page = MOCK_FACEBOOK_PAGES.find((p) => p.id === pageId);
-    const linkedIg = page?.linkedInstagramId || "";
+    // Auto-link the Instagram account associated with this page
+    const linkedIg = igAccounts.data.find((ig) => ig.linkedPageId === pageId)?.id ?? "";
     updateAd(adId, {
       identity: { pageId, instagramAccountId: linkedIg },
     });
@@ -110,9 +144,25 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
     const ad = creatives.find((c) => c.id === adId);
     if (!ad) return;
     const vars = ad.assetVariations ?? [];
-    const v = createDefaultAssetVariation();
+    const ratios = getAspectRatioSlots(ad.mediaType ?? "image", ad.assetMode ?? "dual");
+    const v = createDefaultAssetVariation(ratios);
     v.name = `Variation ${vars.length + 1}`;
     updateAd(adId, { assetVariations: [...vars, v] });
+  };
+
+  // When asset mode changes, regenerate slots on all variations (preserve already-uploaded assets)
+  const handleAssetModeChange = (adId: string, mode: AssetMode) => {
+    const ad = creatives.find((c) => c.id === adId);
+    if (!ad) return;
+    const ratios = getAspectRatioSlots(ad.mediaType ?? "image", mode);
+    const updatedVariations = (ad.assetVariations ?? []).map((v) => ({
+      ...v,
+      assets: ratios.map((ratio) => {
+        const existing = v.assets.find((a) => a.aspectRatio === ratio);
+        return existing ?? createDefaultAsset(ratio);
+      }),
+    }));
+    updateAd(adId, { assetMode: mode, assetVariations: updatedVariations });
   };
 
   const removeAssetVariation = (adId: string, varId: string) => {
@@ -170,10 +220,10 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
         c.destinationUrl = template.destinationUrl;
         c.cta = template.cta;
       }
-      const ratios = getRatiosForMode(c.assetMode);
-      const assets: Record<string, string> = {};
-      ratios.forEach((r) => { assets[r] = `mock_${r}_file${i + 1}_${Date.now()}`; });
-      c.assetVariations = [{ id: crypto.randomUUID(), name: `Variation 1`, assets }];
+      const ratios = getAspectRatioSlots(c.mediaType, c.assetMode);
+      const variation = createDefaultAssetVariation(ratios);
+      variation.name = "Variation 1";
+      c.assetVariations = [variation];
       newAds.push(c);
     }
     onChange([...creatives, ...newAds]);
@@ -191,6 +241,109 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
     const count = e.target.files?.length ?? 0;
     if (count > 0) handleBulkUpload(count);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // ─── Bulk variation upload (one variation per file, within the active ad) ───
+  const handleBulkVariationFiles = async (files: FileList) => {
+    if (!active || !adAccountId) return;
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    // Determine media type from first file; validate all are the same
+    const firstMediaType = fileArray[0].type.startsWith("video/") ? "video" : "image";
+    const allSameType = fileArray.every(
+      (f) => (f.type.startsWith("video/") ? "video" : "image") === firstMediaType,
+    );
+    if (!allSameType) {
+      alert("All files must be the same type (all images or all videos).");
+      return;
+    }
+
+    const ratios = getAspectRatioSlots(active.mediaType ?? "image", active.assetMode ?? "dual");
+    const currentVarCount = (active.assetVariations ?? []).length;
+
+    // Build variation stubs — primary slot marked as uploading immediately
+    type Entry = { variationId: string; assetId: string; file: File };
+    const entries: (Entry & { variation: AssetVariation })[] = fileArray.map((file, i) => {
+      const variation = createDefaultAssetVariation(ratios);
+      variation.name = `Variation ${currentVarCount + i + 1}`;
+      variation.assets[0] = { ...variation.assets[0], uploadStatus: "uploading" };
+      return { variationId: variation.id, assetId: variation.assets[0].id, file, variation };
+    });
+
+    // Add all stubs to draft at once for instant UI feedback
+    onChange(
+      creativesRef.current.map((c) =>
+        c.id === active.id
+          ? { ...c, assetVariations: [...(c.assetVariations ?? []), ...entries.map((e) => e.variation)] }
+          : c,
+      ),
+    );
+
+    // Upload sequentially; update each slot after its upload resolves
+    for (const entry of entries) {
+      try {
+        const fd = new FormData();
+        fd.append("file", entry.file);
+        fd.append("type", firstMediaType);
+        fd.append("adAccountId", adAccountId);
+        const res = await fetch("/api/meta/upload-asset", { method: "POST", body: fd });
+        const json = (await res.json()) as Record<string, unknown>;
+
+        const patch: Partial<Asset> = res.ok
+          ? {
+              uploadedUrl: json.url as string,
+              thumbnailUrl: (json.previewUrl ?? json.url) as string,
+              assetHash: json.hash as string | undefined,
+              videoId: json.videoId as string | undefined,
+              uploadStatus: "uploaded",
+            }
+          : {
+              uploadStatus: "error",
+              error: (json.error as string) ?? `HTTP ${res.status}`,
+            };
+
+        onChange(
+          creativesRef.current.map((c) => {
+            if (c.id !== active.id) return c;
+            return {
+              ...c,
+              assetVariations: (c.assetVariations ?? []).map((v) =>
+                v.id !== entry.variationId
+                  ? v
+                  : {
+                      ...v,
+                      assets: v.assets.map((a) =>
+                        a.id === entry.assetId ? { ...a, ...patch } : a,
+                      ),
+                    },
+              ),
+            };
+          }),
+        );
+      } catch {
+        onChange(
+          creativesRef.current.map((c) => {
+            if (c.id !== active.id) return c;
+            return {
+              ...c,
+              assetVariations: (c.assetVariations ?? []).map((v) =>
+                v.id !== entry.variationId
+                  ? v
+                  : {
+                      ...v,
+                      assets: v.assets.map((a) =>
+                        a.id === entry.assetId
+                          ? { ...a, uploadStatus: "error", error: "Network error" }
+                          : a,
+                      ),
+                    },
+              ),
+            };
+          }),
+        );
+      }
+    }
   };
 
   // ─── Bulk apply ───
@@ -283,7 +436,7 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
             </div>
             <div className="max-h-[560px] space-y-1 overflow-y-auto">
               {creatives.map((c, i) => {
-                const page = MOCK_FACEBOOK_PAGES.find((p) => p.id === c.identity?.pageId);
+                const page = pages.data.find((p) => p.id === c.identity?.pageId);
                 const isActive = activeId === c.id;
                 const varCount = (c.assetVariations ?? []).length;
                 return (
@@ -365,25 +518,63 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
 
                   {/* Identity: Page + IG */}
                   <div className="grid grid-cols-2 gap-4">
-                    <Select
-                      label="Facebook Page"
-                      value={active.identity?.pageId ?? ""}
-                      onChange={(e) => handlePageChange(active.id, e.target.value)}
-                      placeholder="Select page..."
-                      options={MOCK_FACEBOOK_PAGES.map((p) => ({ value: p.id, label: p.name }))}
-                    />
-                    <Select
-                      label="Instagram Account"
-                      value={active.identity?.instagramAccountId ?? ""}
-                      onChange={(e) => updateAd(active.id, {
-                        identity: { ...(active.identity ?? { pageId: "", instagramAccountId: "" }), instagramAccountId: e.target.value },
-                      })}
-                      placeholder="Select account..."
-                      options={MOCK_INSTAGRAM_ACCOUNTS.map((a) => ({
-                        value: a.id,
-                        label: `${a.name} (${a.username})`,
-                      }))}
-                    />
+                    <div>
+                      <Select
+                        label="Facebook Page"
+                        value={active.identity?.pageId ?? ""}
+                        onChange={(e) => handlePageChange(active.id, e.target.value)}
+                        placeholder={
+                          pages.loading ? "Loading pages…" : "Select page…"
+                        }
+                        disabled={pages.loading}
+                        options={[
+                          { value: "", label: "— Select page —" },
+                          ...pages.data.map((p) => ({ value: p.id, label: p.name })),
+                        ]}
+                      />
+                      <FieldStatus loading={pages.loading} error={pages.error} />
+                    </div>
+                    <div>
+                      {/* Filter IG accounts to those linked to the selected page */}
+                      {(() => {
+                        const selectedPageId = active.identity?.pageId;
+                        const filteredIG = selectedPageId
+                          ? igAccounts.data.filter((ig) => ig.linkedPageId === selectedPageId)
+                          : igAccounts.data;
+                        return (
+                          <>
+                            <Select
+                              label="Instagram Account"
+                              value={active.identity?.instagramAccountId ?? ""}
+                              onChange={(e) =>
+                                updateAd(active.id, {
+                                  identity: {
+                                    ...(active.identity ?? { pageId: "", instagramAccountId: "" }),
+                                    instagramAccountId: e.target.value,
+                                  },
+                                })
+                              }
+                              placeholder={
+                                igAccounts.loading
+                                  ? "Loading…"
+                                  : !selectedPageId
+                                    ? "Select a page first…"
+                                    : "Select account…"
+                              }
+                              disabled={igAccounts.loading || !selectedPageId}
+                              options={[
+                                { value: "", label: "— None —" },
+                                ...filteredIG.map((ig) => ({
+                                  value: ig.id,
+                                  label: ig.username ? `@${ig.username}` : (ig.name ?? ig.id),
+                                })),
+                              ]}
+                            />
+                            <FieldStatus loading={igAccounts.loading} error={igAccounts.error} />
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -419,7 +610,7 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
                               <button
                                 key={mode.value}
                                 type="button"
-                                onClick={() => updateAd(active.id, { assetMode: mode.value })}
+                                onClick={() => handleAssetModeChange(active.id, mode.value)}
                                 className={`rounded-md border px-3 py-2 text-xs font-medium transition-colors
                                   ${(active.assetMode ?? "dual") === mode.value ? "border-foreground bg-foreground text-background" : "border-border-strong hover:bg-card"}`}
                               >
@@ -436,9 +627,36 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
                           <label className="text-sm font-medium">
                             Asset Variations ({(active.assetVariations ?? []).length})
                           </label>
-                          <Button variant="outline" size="sm" onClick={() => addAssetVariation(active.id)}>
-                            <Plus className="h-3 w-3" /> Add Variation
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            {adAccountId && (
+                              <>
+                                <input
+                                  ref={bulkVariationInputRef}
+                                  type="file"
+                                  multiple
+                                  accept="image/jpeg,image/png,video/mp4"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    if (e.target.files && e.target.files.length > 0) {
+                                      void handleBulkVariationFiles(e.target.files);
+                                    }
+                                    e.target.value = "";
+                                  }}
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => bulkVariationInputRef.current?.click()}
+                                  title="Upload multiple files — one variation per file"
+                                >
+                                  <Upload className="h-3 w-3" /> Bulk Upload
+                                </Button>
+                              </>
+                            )}
+                            <Button variant="outline" size="sm" onClick={() => addAssetVariation(active.id)}>
+                              <Plus className="h-3 w-3" /> Add Variation
+                            </Button>
+                          </div>
                         </div>
                         <div className="space-y-3">
                           {(active.assetVariations ?? []).map((variation, vi) => (
@@ -446,7 +664,8 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
                               key={variation.id}
                               variation={variation}
                               index={vi}
-                              ratios={activeRatios}
+                              mediaType={active.mediaType ?? "image"}
+                              adAccountId={adAccountId}
                               canRemove={(active.assetVariations ?? []).length > 1}
                               onUpdate={(patch) => updateAssetVariation(active.id, variation.id, patch)}
                               onRemove={() => removeAssetVariation(active.id, variation.id)}
@@ -661,23 +880,208 @@ export function Creatives({ creatives, onChange }: CreativesProps) {
 
 // ─── Asset Variation Sub-component ───
 
+// ─── Single asset upload slot ─────────────────────────────────────────────────
+
+function AssetSlot({
+  asset,
+  mediaType,
+  adAccountId,
+  onUpdate,
+}: {
+  asset: Asset;
+  mediaType: "image" | "video";
+  adAccountId?: string;
+  onUpdate: (patch: Partial<Asset>) => void;
+}) {
+  const { mutate: upload } = useUploadAsset();
+  const inputId = useId();
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const ratioInfo = RATIO_LABELS[asset.aspectRatio];
+  const accept = "image/jpeg,image/png,video/mp4";
+  const isUploading = asset.uploadStatus === "uploading";
+  const isUploaded = asset.uploadStatus === "uploaded";
+  const isError = asset.uploadStatus === "error";
+
+  async function handleFile(file: File) {
+    if (!adAccountId || isUploading) return;
+    onUpdate({ uploadStatus: "uploading", error: undefined });
+    try {
+      const result = await upload({ file, type: mediaType, adAccountId });
+      onUpdate({
+        uploadedUrl: result.url,
+        thumbnailUrl: result.previewUrl ?? result.url,
+        assetHash: result.hash,
+        videoId: result.videoId,
+        uploadStatus: "uploaded",
+      });
+    } catch (err) {
+      onUpdate({
+        uploadStatus: "error",
+        error: err instanceof Error ? err.message : "Upload failed",
+      });
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void handleFile(file);
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void handleFile(file);
+    e.target.value = "";
+  }
+
+  function handleRemove() {
+    onUpdate({
+      uploadedUrl: undefined,
+      thumbnailUrl: undefined,
+      assetHash: undefined,
+      videoId: undefined,
+      uploadStatus: "pending",
+      error: undefined,
+    });
+  }
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={handleDrop}
+      className={`relative flex flex-col items-center rounded-xl border-2 border-dashed transition-colors overflow-hidden
+        ${isUploaded
+          ? "border-primary bg-primary-light"
+          : isDragOver
+            ? "border-primary bg-primary-light/50"
+            : isError
+              ? "border-destructive/50 bg-destructive/5"
+              : "border-border bg-muted/30 hover:border-border-strong"
+        }`}
+    >
+      {/* Ratio label */}
+      <div className="flex w-full items-center justify-between px-2.5 pt-2 pb-1">
+        <span className="text-xs font-semibold">{ratioInfo.label}</span>
+        <span className="text-[10px] text-muted-foreground">{ratioInfo.desc}</span>
+      </div>
+
+      {/* Content area */}
+      {isUploading ? (
+        <div className="flex flex-col items-center gap-1.5 py-5">
+          <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-[10px] text-muted-foreground">Uploading…</span>
+        </div>
+      ) : isUploaded ? (
+        <div className="flex w-full flex-col items-center gap-1.5 pb-2">
+          {asset.thumbnailUrl ? (
+            <img
+              src={asset.thumbnailUrl}
+              alt={`${asset.aspectRatio} preview`}
+              className="h-20 w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-20 w-full items-center justify-center bg-muted/40">
+              <Check className="h-6 w-6 text-primary" />
+            </div>
+          )}
+          <div className="flex items-center gap-2 px-2">
+            <Badge variant="success" className="text-[10px]">Uploaded</Badge>
+            <button
+              type="button"
+              onClick={handleRemove}
+              className="text-[10px] text-destructive hover:underline"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : adAccountId ? (
+        <label
+          htmlFor={inputId}
+          className="flex w-full cursor-pointer flex-col items-center gap-2 px-2 pb-4 pt-2"
+        >
+          <input
+            id={inputId}
+            type="file"
+            accept={accept}
+            className="sr-only"
+            onChange={handleInputChange}
+          />
+          <Upload className="h-5 w-5 text-muted-foreground" />
+          <span className="text-center text-[11px] leading-tight text-muted-foreground">
+            Drop or click<br />
+            <span className="font-medium text-foreground">
+              {mediaType === "video" ? "MP4" : "JPEG / PNG"}
+            </span>
+          </span>
+        </label>
+      ) : (
+        <div className="flex flex-col items-center gap-1 px-2 pb-4 pt-2">
+          <Upload className="h-4 w-4 text-muted-foreground/50" />
+          <span className="text-center text-[10px] leading-tight text-muted-foreground/60">
+            Select ad account<br />to enable upload
+          </span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="w-full px-2 pb-2">
+          <p className="text-center text-[10px] text-destructive leading-tight">
+            {asset.error ?? "Upload failed"}
+          </p>
+          {adAccountId && (
+            <label
+              htmlFor={`${inputId}-retry`}
+              className="block cursor-pointer text-center text-[10px] font-medium text-primary hover:underline mt-0.5"
+            >
+              <input
+                id={`${inputId}-retry`}
+                type="file"
+                accept={accept}
+                className="sr-only"
+                onChange={handleInputChange}
+              />
+              Retry
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Asset variation card ─────────────────────────────────────────────────────
+
 function AssetVariationCard({
   variation,
   index,
-  ratios,
+  mediaType,
+  adAccountId,
   canRemove,
   onUpdate,
   onRemove,
 }: {
   variation: AssetVariation;
   index: number;
-  ratios: AssetRatio[];
+  mediaType: "image" | "video";
+  adAccountId?: string;
   canRemove: boolean;
   onUpdate: (patch: Partial<AssetVariation>) => void;
   onRemove: () => void;
 }) {
   const [expanded, setExpanded] = useState(index === 0);
-  const assetCount = Object.keys(variation.assets).length;
+  const slots = variation.assets ?? [];
+  const uploadedCount = slots.filter((a) => a.uploadStatus === "uploaded").length;
+  const allDone = slots.length > 0 && uploadedCount === slots.length;
+
+  function updateAsset(assetId: string, patch: Partial<Asset>) {
+    onUpdate({
+      assets: slots.map((a) => (a.id === assetId ? { ...a, ...patch } : a)),
+    });
+  }
 
   return (
     <div className="rounded-lg border border-border">
@@ -685,13 +1089,15 @@ function AssetVariationCard({
         role="button"
         tabIndex={0}
         onClick={() => setExpanded(!expanded)}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!expanded); } }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!expanded); }
+        }}
         className="flex w-full cursor-pointer items-center justify-between px-3 py-2.5 text-left hover:bg-muted/50"
       >
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{variation.name || `Variation ${index + 1}`}</span>
-          <Badge variant={assetCount > 0 ? "success" : "outline"} className="text-[10px]">
-            {assetCount}/{ratios.length} uploaded
+          <Badge variant={allDone ? "success" : "outline"} className="text-[10px]">
+            {uploadedCount}/{slots.length} uploaded
           </Badge>
         </div>
         <div className="flex items-center gap-1.5">
@@ -704,7 +1110,9 @@ function AssetVariationCard({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
-          {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+          {expanded
+            ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+            : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
         </div>
       </div>
 
@@ -716,49 +1124,22 @@ function AssetVariationCard({
             onChange={(e) => onUpdate({ name: e.target.value })}
             placeholder={`Variation ${index + 1}`}
           />
-          <div className={`grid gap-3 ${ratios.length === 1 ? "grid-cols-1 max-w-[200px]" : ratios.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-            {ratios.map((ratio) => {
-              const meta = RATIO_META[ratio];
-              const hasAsset = !!variation.assets[ratio];
-              return (
-                <div
-                  key={ratio}
-                  className={`flex flex-col items-center gap-2 rounded-xl border-2 border-dashed p-3
-                    ${hasAsset ? "border-primary bg-primary-light" : "border-border bg-muted/30"}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-semibold">{meta.label}</span>
-                    <span className="text-xs text-muted-foreground">{meta.desc}</span>
-                  </div>
-                  {hasAsset ? (
-                    <div className="flex items-center gap-2">
-                      <Badge variant="success">Uploaded</Badge>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = { ...variation.assets };
-                          delete next[ratio];
-                          onUpdate({ assets: next });
-                        }}
-                        className="text-xs text-destructive hover:underline"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onUpdate({ assets: { ...variation.assets, [ratio]: `mock_${ratio}_v${variation.id}_${Date.now()}` } });
-                      }}
-                      className="text-xs font-medium text-primary hover:underline"
-                    >
-                      Upload {meta.label}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+          <div className={`grid gap-3 ${
+            slots.length === 1
+              ? "max-w-[180px] grid-cols-1"
+              : slots.length === 2
+                ? "grid-cols-2"
+                : "grid-cols-3"
+          }`}>
+            {slots.map((asset) => (
+              <AssetSlot
+                key={asset.id}
+                asset={asset}
+                mediaType={mediaType}
+                adAccountId={adAccountId}
+                onUpdate={(patch) => updateAsset(asset.id, patch)}
+              />
+            ))}
           </div>
         </div>
       )}

@@ -21,7 +21,12 @@ export function validateStep(step: WizardStep, draft: CampaignDraft): Validation
 
 function validateAccountSetup(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
-  if (!draft.settings.adAccountId) errors.push("Ad account is required");
+  // metaAdAccountId is set when the user picks a real Meta account.
+  // Fall back to adAccountId for any legacy/mock drafts still in storage.
+  const hasAccount =
+    !!draft.settings.metaAdAccountId || !!draft.settings.adAccountId;
+  if (!hasAccount) errors.push("Ad account is required");
+  // Facebook page and Instagram account are selected per ad in the Creatives step.
   return { valid: errors.length === 0, errors };
 }
 
@@ -72,9 +77,26 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
       const hasCaption = captions.some((cap) => cap.text?.trim());
       if (!hasCaption) errors.push(`${label}: At least one caption is required`);
       if (!c.destinationUrl?.trim()) errors.push(`${label}: Destination URL is required`);
-      const assetVariations = c.assetVariations ?? [];
-      const hasAssets = assetVariations.some((v) => Object.keys(v.assets ?? {}).length > 0);
-      if (!hasAssets) errors.push(`${label}: At least one asset variation needs uploads`);
+
+      const variations = c.assetVariations ?? [];
+      if (variations.length === 0) {
+        errors.push(`${label}: At least one asset variation is required`);
+      } else {
+        for (const v of variations) {
+          const slots = v.assets ?? [];
+          if (slots.length === 0) {
+            errors.push(`${label} "${v.name || "Variation"}": No asset slots found`);
+          } else {
+            const notUploaded = slots.filter((a) => a.uploadStatus !== "uploaded");
+            if (notUploaded.length > 0) {
+              errors.push(
+                `${label} "${v.name || "Variation"}": ` +
+                  `${notUploaded.length} of ${slots.length} asset slot(s) not yet uploaded`,
+              );
+            }
+          }
+        }
+      }
     }
 
     if (sourceType === "existing_post") {

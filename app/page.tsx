@@ -1,5 +1,5 @@
-import { WizardShell } from "@/components/wizard/wizard-shell";
+import { CampaignLibrary } from "@/components/library/campaign-library";
 
 export default function Home() {
-  return <WizardShell />;
+  return <CampaignLibrary />;
 }

@@ -3,14 +3,21 @@
 import { useMemo } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, ShieldOff, Zap, Shield } from "lucide-react";
-import type { CampaignDraft } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { AlertTriangle, CheckCircle2, ShieldOff, Zap, Shield, XCircle, X, Rocket, ArrowRight } from "lucide-react";
+import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
-import { MOCK_AD_ACCOUNTS, MOCK_CUSTOM_AUDIENCES, MOCK_SAVED_AUDIENCES, MOCK_FACEBOOK_PAGES } from "@/lib/mock-data";
+import { MOCK_AD_ACCOUNTS, MOCK_SAVED_AUDIENCES, MOCK_FACEBOOK_PAGES } from "@/lib/mock-data";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 
 interface ReviewLaunchProps {
   draft: CampaignDraft;
+  /** Set when the Meta campaign creation call fails */
+  launchError?: string | null;
+  onDismissLaunchError?: () => void;
+  /** Populated after a successful launch — triggers the success state */
+  launchSummary?: LaunchSummary | null;
+  onGoToLibrary?: () => void;
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -22,7 +29,13 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ReviewLaunch({ draft }: ReviewLaunchProps) {
+export function ReviewLaunch({
+  draft,
+  launchError,
+  onDismissLaunchError,
+  launchSummary,
+  onGoToLibrary,
+}: ReviewLaunchProps) {
   const allValidation = validateStep(7, draft);
   const adAccount = MOCK_AD_ACCOUNTS.find((a) => a.id === draft.settings.adAccountId);
   const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
@@ -52,6 +65,111 @@ export function ReviewLaunch({ draft }: ReviewLaunchProps) {
           Review your campaign configuration before launching.
         </p>
       </div>
+
+      {/* ── Launch success summary ───────────────────────────────────────────── */}
+      {launchSummary && (
+        <Card className="border-success bg-success/10">
+          <div className="flex items-start gap-3">
+            <Rocket className="mt-0.5 h-5 w-5 shrink-0 text-success" />
+            <div className="flex-1">
+              <p className="font-heading text-lg tracking-wide text-success">
+                Campaign Created
+              </p>
+              <div className="mt-2 space-y-1">
+                <p className="text-sm text-muted-foreground">
+                  Meta campaign ID:{" "}
+                  <span className="font-mono text-xs text-foreground">
+                    {launchSummary.metaCampaignId}
+                  </span>
+                </p>
+                {/* Ad set results */}
+                {launchSummary.adSetsCreated.length > 0 && (
+                  <p className="text-sm text-success">
+                    ✓ {launchSummary.adSetsCreated.length} ad set
+                    {launchSummary.adSetsCreated.length !== 1 ? "s" : ""} created
+                  </p>
+                )}
+                {launchSummary.adSetsFailed.length > 0 && (
+                  <div>
+                    <p className="text-sm text-warning">
+                      ⚠ {launchSummary.adSetsFailed.length} ad set
+                      {launchSummary.adSetsFailed.length !== 1 ? "s" : ""} failed
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {launchSummary.adSetsFailed.map((f) => (
+                        <li key={f.name} className="text-xs text-muted-foreground">
+                          {f.name}: {f.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {launchSummary.adSetsCreated.length === 0 &&
+                  launchSummary.adSetsFailed.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No ad sets were enabled — create them manually in Ads Manager.
+                    </p>
+                  )}
+
+                {/* Creative results */}
+                {(launchSummary.creativesCreated?.length > 0 ||
+                  launchSummary.creativesFailed?.length > 0) && (
+                  <div className="mt-2 border-t border-border pt-2">
+                    {launchSummary.creativesCreated?.length > 0 && (
+                      <p className="text-sm text-success">
+                        ✓ {launchSummary.creativesCreated.length} creative
+                        {launchSummary.creativesCreated.length !== 1 ? "s" : ""} created
+                      </p>
+                    )}
+                    {launchSummary.creativesFailed?.length > 0 && (
+                      <div>
+                        <p className="text-sm text-warning">
+                          ⚠ {launchSummary.creativesFailed.length} creative
+                          {launchSummary.creativesFailed.length !== 1 ? "s" : ""} failed
+                        </p>
+                        <ul className="mt-1 space-y-0.5">
+                          {launchSummary.creativesFailed.map((f) => (
+                            <li key={f.name} className="text-xs text-muted-foreground">
+                              {f.name}: {f.error}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Ad results */}
+                {((launchSummary.adsCreated ?? 0) > 0 ||
+                  (launchSummary.adsFailed ?? 0) > 0) && (
+                  <div className="mt-1">
+                    {(launchSummary.adsCreated ?? 0) > 0 && (
+                      <p className="text-sm text-success">
+                        ✓ {launchSummary.adsCreated} ad
+                        {launchSummary.adsCreated !== 1 ? "s" : ""} created
+                      </p>
+                    )}
+                    {(launchSummary.adsFailed ?? 0) > 0 && (
+                      <p className="text-sm text-warning">
+                        ⚠ {launchSummary.adsFailed} ad
+                        {launchSummary.adsFailed !== 1 ? "s" : ""} failed to create
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          {onGoToLibrary && (
+            <div className="mt-4 flex justify-end">
+              <Button onClick={onGoToLibrary}>
+                Go to Campaign Library
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Validation */}
       {allValidation.errors.length > 0 ? (
@@ -305,6 +423,57 @@ export function ReviewLaunch({ draft }: ReviewLaunchProps) {
           <SummaryRow label="Total Assigned" value={String(totalAds)} />
         </div>
       </Card>
+
+      {/* ── Launch error modal ─────────────────────────────────────────────── */}
+      {launchError && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Campaign launch failed"
+        >
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                <div>
+                  <p className="font-heading text-lg tracking-wide">Launch Failed</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Meta returned an error. Your draft has not been changed.
+                  </p>
+                </div>
+              </div>
+              {onDismissLaunchError && (
+                <button
+                  type="button"
+                  onClick={onDismissLaunchError}
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+              <p className="text-sm text-destructive">{launchError}</p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              {onDismissLaunchError && (
+                <>
+                  <Button variant="outline" onClick={onDismissLaunchError}>
+                    Go Back
+                  </Button>
+                  <Button variant="outline" onClick={onDismissLaunchError}>
+                    Retry
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

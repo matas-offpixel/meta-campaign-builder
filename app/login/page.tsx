@@ -26,16 +26,18 @@ export default function LoginPage() {
     setStatus("sending");
     setErrorMsg("");
 
-    const redirectUrl =
+    // Magic links must land on /auth/callback (not the homepage) so the server
+    // can exchange the code for a session and set cookies on the response.
+    const emailRedirectTo =
       process.env.NODE_ENV === "development"
-        ? "http://localhost:3000"
-        : "https://app.offpixel.co.uk";
+        ? "http://localhost:3000/auth/callback"
+        : "https://app.offpixel.co.uk/auth/callback";
 
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${redirectUrl}/auth/callback`,
+        emailRedirectTo,
       },
     });
 

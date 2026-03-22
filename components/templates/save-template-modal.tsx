@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 
 interface SaveTemplateModalProps {
   open: boolean;
+  saving?: boolean;
   onClose: () => void;
   onSave: (name: string, description: string, tags: string[]) => void;
 }
 
-export function SaveTemplateModal({ open, onClose, onSave }: SaveTemplateModalProps) {
+export function SaveTemplateModal({ open, saving = false, onClose, onSave }: SaveTemplateModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -130,12 +131,12 @@ export function SaveTemplateModal({ open, onClose, onSave }: SaveTemplateModalPr
         </div>
 
         <div className="mt-6 flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button
             onClick={() => onSave(name.trim(), description.trim(), tags)}
-            disabled={!name.trim()}
+            disabled={!name.trim() || saving}
           >
-            Save Template
+            {saving ? "Saving…" : "Save Template"}
           </Button>
         </div>
       </div>

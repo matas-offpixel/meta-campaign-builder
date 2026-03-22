@@ -2,6 +2,8 @@ import type {
   CampaignDraft,
   AdCreativeDraft,
   AssetVariation,
+  Asset,
+  AssetRatio,
   CaptionVariant,
   CreativeEnhancementSettings,
   OptimisationStrategySettings,
@@ -26,6 +28,10 @@ export function createDefaultDraft(): CampaignDraft {
       campaignName: "",
       objective: "purchase",
       optimisationGoal: "conversions",
+      metaAdAccountId: undefined,
+      metaPageId: undefined,
+      metaPixelId: undefined,
+      metaIGAccountId: undefined,
     },
     audiences: {
       pageGroups: [],
@@ -52,11 +58,24 @@ export function createDefaultDraft(): CampaignDraft {
   };
 }
 
-export function createDefaultAssetVariation(): AssetVariation {
+/** Create one Asset slot for a given aspect ratio, starting at "pending". */
+export function createDefaultAsset(aspectRatio: AssetRatio): Asset {
+  return {
+    id: crypto.randomUUID(),
+    aspectRatio,
+    uploadStatus: "pending",
+  };
+}
+
+/**
+ * Create an AssetVariation pre-populated with the correct slots for the given ratios.
+ * Always call with the ratios returned by getAspectRatioSlots(mediaType, assetMode).
+ */
+export function createDefaultAssetVariation(ratios: AssetRatio[]): AssetVariation {
   return {
     id: crypto.randomUUID(),
     name: "",
-    assets: {},
+    assets: ratios.map(createDefaultAsset),
   };
 }
 
@@ -85,6 +104,10 @@ export function createDefaultOptimisationStrategy(): OptimisationStrategySetting
 }
 
 export function createDefaultCreative(): AdCreativeDraft {
+  // Default mode is "dual" → 4:5 + 9:16
+  const defaultVariation = createDefaultAssetVariation(["4:5", "9:16"]);
+  defaultVariation.name = "Variation 1";
+
   return {
     id: crypto.randomUUID(),
     name: "",
@@ -95,7 +118,7 @@ export function createDefaultCreative(): AdCreativeDraft {
     },
     mediaType: "image",
     assetMode: "dual",
-    assetVariations: [createDefaultAssetVariation()],
+    assetVariations: [defaultVariation],
     captions: [createDefaultCaption()],
     headline: "",
     description: "",
