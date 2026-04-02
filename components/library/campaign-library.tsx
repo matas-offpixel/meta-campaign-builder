@@ -103,6 +103,14 @@ export function CampaignLibrary() {
     setTemplatesLoaded(true);
   }, [userId]);
 
+  // Reset templatesLoaded when navigating away from the templates tab
+  // so re-entering always fetches fresh data.
+  useEffect(() => {
+    if (tab !== "templates") {
+      setTemplatesLoaded(false);
+    }
+  }, [tab]);
+
   useEffect(() => {
     if (tab === "templates" && !templatesLoaded && userId) {
       loadTemplatesList();

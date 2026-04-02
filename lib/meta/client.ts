@@ -9,6 +9,7 @@
 import type {
   MetaAdAccount,
   MetaApiPage,
+  MetaApiPageBatch,
   MetaApiPixel,
   MetaInstagramAccount,
   CampaignObjective,
@@ -34,6 +35,10 @@ export class MetaApiError extends Error {
     public readonly code?: number,
     public readonly type?: string,
     public readonly fbtraceId?: string,
+    public readonly subcode?: number,
+    public readonly userMsg?: string,
+    /** Full raw error object from Meta — may contain error_data with replacements */
+    public readonly rawErrorData?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "MetaApiError";
@@ -46,6 +51,8 @@ export class MetaApiError extends Error {
       code: this.code,
       type: this.type,
       fbtrace_id: this.fbtraceId,
+      ...(this.subcode !== undefined && { error_subcode: this.subcode }),
+      ...(this.userMsg && { error_user_msg: this.userMsg }),
     };
   }
 }
@@ -65,7 +72,7 @@ interface GraphPagedResponse<T> {
  * Throws `MetaApiError` on API-level errors and on missing token.
  * Throws generic `Error` on network failure.
  */
-async function graphGet<T>(
+export async function graphGet<T>(
   path: string,
   params: Record<string, string> = {},
 ): Promise<T> {
@@ -141,11 +148,27 @@ async function graphPost<T>(
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
+    // Log both the request payload and the full Meta error for easy debugging.
+    // error_user_msg / error_user_title contain human-readable context from Meta.
+    console.error(
+      "[graphPost] Meta API error on", path,
+      "\nRequest body:", JSON.stringify(body, null, 2),
+      "\nMeta error response:", JSON.stringify(json, null, 2),
+    );
+    if (e.error_user_msg || e.error_user_title) {
+      console.error(
+        "[graphPost] Meta user message:",
+        (e.error_user_msg ?? e.error_user_title) as string,
+      );
+    }
     throw new MetaApiError(
       (e.message as string) ?? `HTTP ${response.status}`,
       e.code as number | undefined,
       e.type as string | undefined,
       e.fbtrace_id as string | undefined,
+      e.error_subcode as number | undefined,
+      (e.error_user_msg ?? e.error_user_title) as string | undefined,
+      e as Record<string, unknown>,
     );
   }
 
@@ -172,17 +195,77 @@ export async function fetchAdAccounts(): Promise<MetaAdAccount[]> {
 }
 
 /**
- * Fetch all Facebook Pages managed by the token owner.
- * Requires: pages_show_list permission.
- *
- * GET /me/accounts
+ * Fetch the Business Manager ID that owns a given ad account.
+ * Returns null if the account has no linked Business Manager or the lookup fails.
+ * Requires: ads_read or ads_management permission.
  */
-export async function fetchPages(): Promise<MetaApiPage[]> {
+export async function fetchBusinessIdForAccount(
+  adAccountId: string,
+): Promise<string | null> {
+  try {
+    const res = await graphGet<{ business?: { id: string } }>(`/${adAccountId}`, {
+      fields: "business",
+    });
+    return res.business?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch Facebook Pages for a Business Manager (if `businessId` is supplied)
+ * or all pages the token owner personally manages via /me/accounts.
+ *
+ * Business pages: Requires business_management permission.
+ * Personal pages: Requires pages_show_list permission.
+ *
+ * Returns up to 200 pages.
+ */
+export async function fetchPages(businessId?: string): Promise<MetaApiPage[]> {
+  const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
+
+  if (businessId) {
+    const res = await graphGet<GraphPagedResponse<MetaApiPage>>(
+      `/${businessId}/owned_pages`,
+      { fields, limit: "200" },
+    );
+    return res.data;
+  }
+
   const res = await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", {
-    fields: "id,name,picture{url},instagram_business_account",
-    limit: "100",
+    fields,
+    limit: "200",
   });
   return res.data;
+}
+
+/**
+ * Cursor-paginated personal pages from /me/accounts.
+ * Designed for the "Load more" flow — call repeatedly with the cursor returned
+ * by each batch until `hasMore` is false.
+ *
+ * Requires: pages_show_list permission.
+ *
+ * @param after  Cursor string from the previous response (omit for the first batch).
+ * @param limit  Page size — capped at 100.
+ */
+export async function fetchAdditionalPages(
+  after?: string,
+  limit = 50,
+): Promise<MetaApiPageBatch> {
+  const params: Record<string, string> = {
+    fields: "id,name,fan_count,category,picture{url},instagram_business_account",
+    limit: String(Math.min(limit, 100)),
+  };
+  if (after) params.after = after;
+
+  const res = await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", params);
+
+  return {
+    data: res.data,
+    nextCursor: res.paging?.cursors?.after ?? null,
+    hasMore: !!res.paging?.next,
+  };
 }
 
 /**
@@ -206,34 +289,373 @@ export async function fetchPixels(adAccountId: string): Promise<MetaApiPixel[]> 
 
 /**
  * Fetch Instagram Business Accounts linked to all pages the token owner
- * manages. Returns one entry per page that has a linked IG account.
+ * manages — including BM-owned pages. Returns one entry per page that
+ * has a linked IG account, deduplicated by IG ID.
  * Requires: pages_show_list + instagram_basic permissions.
  */
 export async function fetchInstagramAccounts(): Promise<
   Array<MetaInstagramAccount & { linkedPageId: string }>
 > {
-  const pages = await graphGet<GraphPagedResponse<MetaApiPage>>(
-    "/me/accounts",
-    {
-      fields:
-        "id,instagram_business_account{id,username,name,profile_picture_url}",
-      limit: "100",
-    },
-  );
+  type IgResult = MetaInstagramAccount & { linkedPageId: string };
+  const seen = new Map<string, IgResult>();
 
-  const results: Array<MetaInstagramAccount & { linkedPageId: string }> = [];
+  const extractIg = (pages: MetaApiPage[]) => {
+    for (const page of pages) {
+      const igRaw = page.instagram_business_account as
+        | (MetaInstagramAccount & { linkedPageId?: string })
+        | undefined;
+      if (igRaw?.id && !seen.has(igRaw.id)) {
+        seen.set(igRaw.id, { ...igRaw, linkedPageId: page.id });
+      }
+    }
+  };
 
-  for (const page of pages.data) {
-    const igRaw = page.instagram_business_account as
-      | (MetaInstagramAccount & { linkedPageId?: string })
-      | undefined;
+  // Source 1: personal token pages
+  try {
+    const personal = await graphGet<GraphPagedResponse<MetaApiPage>>(
+      "/me/accounts",
+      {
+        fields:
+          "id,instagram_business_account{id,username,name,profile_picture_url}",
+        limit: "100",
+      },
+    );
+    extractIg(personal.data);
+  } catch (err) {
+    console.warn("[fetchInstagramAccounts] /me/accounts failed:", err);
+  }
 
-    if (igRaw?.id) {
-      results.push({ ...igRaw, linkedPageId: page.id });
+  // Source 2: BM-owned pages (requires business_management permission)
+  const businessId = process.env.META_BUSINESS_ID;
+  if (businessId) {
+    try {
+      const bmPages = await graphGet<GraphPagedResponse<MetaApiPage>>(
+        `/${businessId}/owned_pages`,
+        {
+          fields:
+            "id,instagram_business_account{id,username,name,profile_picture_url}",
+          limit: "100",
+        },
+      );
+      extractIg(bmPages.data);
+    } catch (err) {
+      console.warn("[fetchInstagramAccounts] BM owned_pages failed (may lack permission):", err);
     }
   }
 
-  return results;
+  return Array.from(seen.values());
+}
+
+// ─── Engagement custom audience creation ────────────────────────────────────
+
+export type EngagementAudienceType =
+  | "fb_likes"
+  | "fb_engagement_365d"
+  | "ig_followers"
+  | "ig_engagement_365d";
+
+interface EngagementAudienceSpec {
+  type: EngagementAudienceType;
+  name: string;
+  /** Facebook Page ID (for fb_* types) or Instagram Account ID (for ig_* types) */
+  sourceId: string;
+  sourceType: "page" | "ig_business";
+}
+
+/**
+ * Sanitize an audience name for Meta's Custom Audience API.
+ * Must be ≤ 50 chars, alphanumeric + underscores + spaces only.
+ */
+function sanitizeAudienceName(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9_ ]/g, "").slice(0, 50).trim();
+}
+
+/**
+ * Build the rule JSON for engagement custom audiences.
+ *
+ * Based on the official Meta docs:
+ *   https://developers.facebook.com/docs/marketing-api/audiences/guides/engagement-custom-audiences/
+ *
+ * Key requirements:
+ *   1. Every rule MUST have a `filter` block with `field: "event"`.
+ *   2. Do NOT include `object_id` in the rule — it's not part of the JSON schema.
+ *   3. Do NOT include `subtype` — deprecated since Sep 2018 for engagement audiences.
+ *   4. Send via form-encoded POST (`-F` / `application/x-www-form-urlencoded`).
+ */
+
+/** Map our internal engagement type → Meta event value + source type */
+function getEngagementEventConfig(spec: EngagementAudienceSpec): {
+  eventValue: string;
+  retentionSeconds: number;
+  supported: true;
+} | { supported: false; reason: string } {
+  switch (spec.type) {
+    case "fb_likes":
+      return { eventValue: "page_liked", retentionSeconds: 0, supported: true };
+    case "fb_engagement_365d":
+      return { eventValue: "page_engaged", retentionSeconds: 31536000, supported: true };
+    case "ig_followers":
+      return { eventValue: "ig_business_profile_all", retentionSeconds: 0, supported: true };
+    case "ig_engagement_365d":
+      return { eventValue: "ig_business_profile_all", retentionSeconds: 31536000, supported: true };
+  }
+}
+
+function buildEngagementFormParams(
+  spec: EngagementAudienceSpec,
+): Record<string, string> | { unsupported: true; reason: string } {
+  const config = getEngagementEventConfig(spec);
+  if (!config.supported) return { unsupported: true, reason: config.reason };
+
+  const safeName = sanitizeAudienceName(spec.name);
+
+  const ruleObj = {
+    inclusions: {
+      operator: "or",
+      rules: [{
+        event_sources: [{ type: spec.sourceType, id: spec.sourceId }],
+        retention_seconds: config.retentionSeconds,
+        filter: {
+          operator: "and",
+          filters: [{
+            field: "event",
+            operator: "eq",
+            value: config.eventValue,
+          }],
+        },
+      }],
+    },
+  };
+
+  return {
+    name: safeName,
+    rule: JSON.stringify(ruleObj),
+    prefill: "1",
+  };
+}
+
+/**
+ * Create an Engagement Custom Audience in the given ad account.
+ *
+ * Uses form-encoded POST (application/x-www-form-urlencoded) because the
+ * Graph API custom audience endpoint requires `rule` as a URL-encoded JSON
+ * string. Sending it via JSON body (Content-Type: application/json) causes
+ * "Invalid rule JSON format" errors.
+ *
+ * POST /{adAccountId}/customaudiences
+ *
+ * Returns the created audience ID, or throws if creation fails.
+ * Requires: ads_management permission.
+ */
+export async function createEngagementAudience(
+  adAccountId: string,
+  spec: EngagementAudienceSpec,
+): Promise<{ id: string }> {
+  const token = process.env.META_ACCESS_TOKEN;
+  if (!token) {
+    throw new MetaApiError("META_ACCESS_TOKEN is not configured. Add it to .env.local.");
+  }
+
+  const paramsOrUnsupported = buildEngagementFormParams(spec);
+  if ("unsupported" in paramsOrUnsupported) {
+    throw new MetaApiError(
+      `Audience type "${spec.type}" is not supported: ${paramsOrUnsupported.reason}`,
+    );
+  }
+
+  const params = paramsOrUnsupported;
+
+  console.log(
+    `[createEngagementAudience] Creating "${spec.name}" (${spec.type}) ` +
+    `for ${spec.sourceType}=${spec.sourceId} in ${adAccountId}`,
+    `\n  Outgoing form params:`,
+    `\n    name: ${params.name}`,
+    `\n    prefill: ${params.prefill}`,
+    `\n    rule: ${params.rule}`,
+  );
+
+  const url = new URL(`${BASE}/${adAccountId}/customaudiences`);
+  url.searchParams.set("access_token", token);
+
+  const formBody = new URLSearchParams(params);
+
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formBody.toString(),
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new Error(`Network error calling Meta API: ${String(err)}`);
+  }
+
+  const json = (await response.json()) as Record<string, unknown>;
+
+  if (!response.ok || json.error) {
+    const e = (json.error ?? {}) as Record<string, unknown>;
+    console.error(
+      "[createEngagementAudience] Meta API error:",
+      "\n  adAccountId:", adAccountId,
+      "\n  Form params:", JSON.stringify(params, null, 2),
+      "\n  Meta error response:", JSON.stringify(json, null, 2),
+    );
+    throw new MetaApiError(
+      (e.message as string) ?? `HTTP ${response.status}`,
+      e.code as number | undefined,
+      e.type as string | undefined,
+      e.fbtrace_id as string | undefined,
+      e.error_subcode as number | undefined,
+      (e.error_user_msg ?? e.error_user_title) as string | undefined,
+    );
+  }
+
+  const result = json as { id: string };
+  console.log(
+    `[createEngagementAudience] ✓ Created "${params.name}" → ${result.id} in ${adAccountId}`,
+  );
+
+  return result;
+}
+
+// ─── Lookalike Audience Creation ────────────────────────────────────────────
+
+export interface LookalikeAudienceSpec {
+  name: string;
+  originAudienceId: string;
+  /** e.g. "0-1%" → startingRatio=0, endingRatio=0.01 */
+  startingRatio: number;
+  endingRatio: number;
+  /** ISO-2 country code for lookalike seed expansion, e.g. "GB" */
+  country: string;
+}
+
+export async function createLookalikeAudience(
+  adAccountId: string,
+  spec: LookalikeAudienceSpec,
+): Promise<{ id: string }> {
+  const token = process.env.META_ACCESS_TOKEN;
+  if (!token) {
+    throw new MetaApiError("META_ACCESS_TOKEN is not configured. Add it to .env.local.");
+  }
+
+  const params: Record<string, string> = {
+    name: spec.name,
+    subtype: "LOOKALIKE",
+    origin_audience_id: spec.originAudienceId,
+    lookalike_spec: JSON.stringify({
+      type: "custom_ratio",
+      starting_ratio: spec.startingRatio,
+      ending_ratio: spec.endingRatio,
+      country: spec.country,
+    }),
+  };
+
+  console.log(
+    `[createLookalikeAudience] Creating "${spec.name}" from origin ${spec.originAudienceId}` +
+    ` (${spec.startingRatio}-${spec.endingRatio}, ${spec.country}) in ${adAccountId}` +
+    `\n  Full params: ${JSON.stringify(params, null, 2)}`,
+  );
+
+  const url = new URL(`${BASE}/${adAccountId}/customaudiences`);
+  url.searchParams.set("access_token", token);
+
+  const formBody = new URLSearchParams(params);
+
+  // Hard 8-second timeout per request — fail fast instead of blocking launch
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formBody.toString(),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new MetaApiError("Lookalike creation timed out (8s limit — source audience likely not ready)");
+    }
+    throw new Error(`Network error calling Meta API: ${String(err)}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const json = (await response.json()) as Record<string, unknown>;
+
+  if (!response.ok || json.error) {
+    const e = (json.error ?? {}) as Record<string, unknown>;
+    const code = e.code as number | undefined;
+    const subcode = e.error_subcode as number | undefined;
+    const msg = (e.message as string) ?? `HTTP ${response.status}`;
+
+    console.error(
+      "[createLookalikeAudience] Meta API error:",
+      "\n  adAccountId:", adAccountId,
+      "\n  code:", code, "subcode:", subcode,
+      "\n  Meta error response:", JSON.stringify(json, null, 2),
+    );
+
+    // Subcode 1713007 = duplicate lookalike (same source + country + size)
+    if (subcode === 1713007) {
+      throw new MetaApiError(
+        `Duplicate lookalike already exists for this source/country/size: ${msg}`,
+        code, e.type as string | undefined, e.fbtrace_id as string | undefined,
+        subcode, (e.error_user_msg ?? e.error_user_title) as string | undefined,
+      );
+    }
+
+    // Code 2654 = source audience not ready — fail fast, no retries
+    if (code === 2654) {
+      throw new MetaApiError(
+        `Source audience not ready for lookalike creation: ${msg}`,
+        code, e.type as string | undefined, e.fbtrace_id as string | undefined,
+        subcode, (e.error_user_msg ?? e.error_user_title) as string | undefined,
+      );
+    }
+
+    throw new MetaApiError(
+      msg, code, e.type as string | undefined, e.fbtrace_id as string | undefined,
+      subcode, (e.error_user_msg ?? e.error_user_title) as string | undefined,
+    );
+  }
+
+  const result = json as { id: string };
+  console.log(
+    `[createLookalikeAudience] ✓ Created "${spec.name}" → ${result.id} in ${adAccountId}`,
+  );
+  return result;
+}
+
+/** Parse a LookalikeRange like "0-1%" into { startingRatio, endingRatio } */
+export function parseLookalikeRange(range: string): { startingRatio: number; endingRatio: number } {
+  const m = range.match(/^(\d+)-(\d+)%$/);
+  if (!m) return { startingRatio: 0, endingRatio: 0.01 };
+  return {
+    startingRatio: parseInt(m[1], 10) / 100,
+    endingRatio: parseInt(m[2], 10) / 100,
+  };
+}
+
+/**
+ * Create a single ad set under the given ad account.
+ * Requires: ads_management permission.
+ *
+ * POST /{adAccountId}/adsets
+ */
+export async function createMetaAdSet(
+  adAccountId: string,
+  payload: MetaAdSetPayload,
+): Promise<{ id: string }> {
+  return graphPost<{ id: string }>(
+    `/${adAccountId}/adsets`,
+    payload as unknown as Record<string, unknown>,
+  );
 }
 
 /**
@@ -305,7 +727,18 @@ export async function createMetaAd(
 
 /**
  * Upload an image file to a Meta ad account's image library.
- * Uses multipart/form-data with field name `images[{filename}]`.
+ *
+ * Matches the working curl pattern exactly:
+ *   curl -F "access_token=TOKEN" -F "filename=@photo.jpg" .../adimages
+ *
+ * Field name is the literal string "filename" — Meta reads the actual image
+ * name from the Content-Disposition `filename=` attribute, not from the field
+ * name. Using `images[name]` bracket notation can be mishandled by Node.js's
+ * FormData serialiser.
+ *
+ * The access token goes in the form body (not the URL) to match curl and to
+ * keep the token out of server access logs.
+ *
  * Requires: ads_management permission.
  *
  * POST /{adAccountId}/adimages
@@ -316,31 +749,49 @@ export async function uploadImageAsset(
   filename: string,
 ): Promise<Pick<UploadAssetResult, "url" | "hash">> {
   const token = process.env.META_ACCESS_TOKEN;
+
+  // ── Debug logging ───────────────────────────────────────────────────────
+  const fileTyped = file as { type?: string; name?: string };
+  console.log("[uploadImageAsset] pre-upload:", {
+    filename,
+    mimeType: fileTyped.type ?? "(unknown)",
+    sizeBytes: file.size,
+    adAccountId,
+    token_present: !!token,
+    token_prefix: token ? token.slice(0, 12) : "(missing)",
+  });
+
   if (!token) {
     throw new MetaApiError(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
   }
 
-  const formData = new FormData();
-  // Meta requires the field name to include the filename: images[filename]
-  formData.append(`images[${filename}]`, file, filename);
+  // Sanitise filename — keep only URL-safe characters so it survives as a
+  // multipart Content-Disposition attribute without encoding issues.
+  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_") || "upload.jpg";
 
-  const url = new URL(`${BASE}/${adAccountId}/adimages`);
-  url.searchParams.set("access_token", token);
+  const formData = new FormData();
+  // access_token in the form body — matches curl -F "access_token=TOKEN"
+  formData.append("access_token", token);
+  // "filename" as the literal field name — matches curl -F "filename=@photo.jpg"
+  // The real image name travels in Content-Disposition; field name is irrelevant.
+  formData.append("filename", file, safeFilename);
+
+  const endpoint = `${BASE}/${adAccountId}/adimages`;
 
   let response: Response;
   try {
-    response = await fetch(url.toString(), {
-      method: "POST",
-      body: formData,
-      cache: "no-store",
-    });
+    // No `cache` option — POST requests are not cached by default and passing
+    // cache options on FormData bodies can corrupt the multipart stream in
+    // Next.js's extended fetch layer.
+    response = await fetch(endpoint, { method: "POST", body: formData });
   } catch (err) {
     throw new Error(`Network error uploading image to Meta: ${String(err)}`);
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  console.log("[uploadImageAsset] Meta response:", JSON.stringify(json, null, 2));
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
@@ -352,12 +803,15 @@ export async function uploadImageAsset(
     );
   }
 
-  // Response: { images: { [filename]: { hash, url, width, height } } }
+  // Response shape: { images: { "<filename>": { hash, url, width, height } } }
   const images = json.images as Record<string, { hash: string; url: string }>;
   const imageData = Object.values(images)[0];
   if (!imageData) {
+    console.error("[uploadImageAsset] Unexpected response — no images key:", json);
     throw new MetaApiError("Meta returned an empty images response");
   }
+
+  console.log("[uploadImageAsset] success — hash:", imageData.hash);
   return { hash: imageData.hash, url: imageData.url };
 }
 
@@ -374,31 +828,48 @@ export async function uploadVideoAsset(
   filename: string,
 ): Promise<Pick<UploadAssetResult, "videoId" | "previewUrl">> {
   const token = process.env.META_ACCESS_TOKEN;
+
+  // ── Debug logging ───────────────────────────────────────────────────────
+  const fileTyped = file as { type?: string; name?: string };
+  console.log("[uploadVideoAsset] pre-upload:", {
+    filename,
+    mimeType: fileTyped.type ?? "(unknown)",
+    sizeBytes: file.size,
+    sizeMB: (file.size / 1024 / 1024).toFixed(2),
+    adAccountId,
+    token_present: !!token,
+    token_prefix: token ? token.slice(0, 12) : "(missing)",
+  });
+
   if (!token) {
     throw new MetaApiError(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
   }
 
-  const formData = new FormData();
-  formData.append("video_data", file, filename);
-  formData.append("title", filename.replace(/\.[^.]+$/, ""));
+  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_") || "upload.mp4";
 
-  const url = new URL(`${BASE}/${adAccountId}/advideos`);
-  url.searchParams.set("access_token", token);
+  // ── Build multipart payload ────────────────────────────────────────────
+  // Meta /advideos expects:
+  //   - access_token in the form body (same pattern as /adimages)
+  //   - source      as the video file field (NOT "video_data")
+  //   - title       optional display name
+  const formData = new FormData();
+  formData.append("access_token", token);
+  formData.append("source", file, safeFilename);
+  formData.append("title", safeFilename.replace(/\.[^.]+$/, ""));
+
+  const endpoint = `${BASE}/${adAccountId}/advideos`;
 
   let response: Response;
   try {
-    response = await fetch(url.toString(), {
-      method: "POST",
-      body: formData,
-      cache: "no-store",
-    });
+    response = await fetch(endpoint, { method: "POST", body: formData });
   } catch (err) {
     throw new Error(`Network error uploading video to Meta: ${String(err)}`);
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  console.log("[uploadVideoAsset] Meta response:", JSON.stringify(json, null, 2));
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
@@ -410,9 +881,10 @@ export async function uploadVideoAsset(
     );
   }
 
+  console.log("[uploadVideoAsset] success — videoId:", json.id ?? json.video_id);
   return {
-    videoId: json.video_id as string,
-    previewUrl: (json.preview_image_url as string) ?? "",
+    videoId: (json.id ?? json.video_id) as string,
+    previewUrl: (json.picture as string) ?? (json.preview_image_url as string) ?? "",
   };
 }
 
@@ -431,11 +903,24 @@ export async function createMetaCampaign(params: {
 }): Promise<{ id: string }> {
   const { adAccountId, name, objective, status = "PAUSED" } = params;
 
-  return graphPost<{ id: string }>(`/${adAccountId}/campaigns`, {
+  // Minimal valid payload — only fields that belong at campaign level.
+  // buying_type is required by Meta; omitting it triggers code 100 "Invalid parameter".
+  // is_adset_budget_sharing_enabled: false = ad-set-level budgets (not campaign budget optimisation).
+  // special_ad_categories must be present (empty array = no special category restrictions).
+  const payload = {
     name,
     objective: mapObjectiveToMeta(objective),
+    buying_type: "AUCTION",
     status,
-    // Required by Meta's API — empty array for standard event promotion
+    is_adset_budget_sharing_enabled: false,
     special_ad_categories: [],
-  });
+  };
+
+  console.log(
+    "[createMetaCampaign] Sending payload to",
+    `/${adAccountId}/campaigns`,
+    JSON.stringify(payload, null, 2),
+  );
+
+  return graphPost<{ id: string }>(`/${adAccountId}/campaigns`, payload);
 }

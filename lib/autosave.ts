@@ -1,6 +1,94 @@
-import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio } from "./types";
+import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, LocationTargetingGroup, LocationPreset } from "./types";
 
 const STORAGE_KEY = "campaign_draft";
+
+/**
+ * Deterministically resolve a geo object back to its known preset label.
+ * Returns undefined if the geo doesn't match any known preset.
+ */
+function resolvePresetLabelFromGeo(geo: AdSetGeoLocations | undefined): string | undefined {
+  if (!geo) return undefined;
+  const cities = geo.cities ?? [];
+  const countries = geo.countries ?? [];
+  if (cities.length === 1 && cities[0]?.key === "2421178") return "London +40km";
+  if (countries.length === 1 && countries[0] === "GB" && cities.length === 0) {
+    const excl = (geo as Record<string, unknown>).excluded_geo_locations;
+    if (excl) return "UK excl London +40km";
+    return "UK";
+  }
+  return undefined;
+}
+
+/**
+ * Convert legacy LocationPreset values to the new LocationTargetingGroup model.
+ */
+function migrateLocationPresets(presets: LocationPreset[]): LocationTargetingGroup[] {
+  const groups: LocationTargetingGroup[] = [];
+  for (const p of presets) {
+    switch (p) {
+      case "london_40km":
+        groups.push({
+          id: "preset_london_40km",
+          label: "London, England +40 km",
+          source: "preset",
+          selections: [{
+            id: "london_include",
+            source: "preset",
+            label: "London, England, United Kingdom",
+            mode: "include",
+            locationType: "city",
+            locationKey: "2421178",
+            radius: 40,
+            distanceUnit: "kilometer",
+          }],
+        });
+        break;
+      case "uk_excl_london_40km":
+        groups.push({
+          id: "preset_uk_excl_london",
+          label: "UK excluding London +40 km",
+          source: "preset",
+          selections: [
+            {
+              id: "gb_include",
+              source: "preset",
+              label: "United Kingdom",
+              mode: "include",
+              locationType: "country",
+              countryCode: "GB",
+            },
+            {
+              id: "london_exclude",
+              source: "preset",
+              label: "London, England, United Kingdom",
+              mode: "exclude",
+              locationType: "city",
+              locationKey: "2421178",
+              radius: 40,
+              distanceUnit: "kilometer",
+            },
+          ],
+        });
+        break;
+      case "gb_nationwide":
+        groups.push({
+          id: "preset_gb_nationwide",
+          label: "UK (nationwide)",
+          source: "preset",
+          selections: [{
+            id: "gb_nationwide_include",
+            source: "preset",
+            label: "United Kingdom",
+            mode: "include",
+            locationType: "country",
+            countryCode: "GB",
+          }],
+        });
+        break;
+    }
+  }
+  return groups;
+}
 
 const DEFAULT_ENHANCEMENTS = {
   enabled: false as const,
@@ -140,6 +228,20 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
 export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
   const draft = raw as unknown as CampaignDraft;
 
+  // ── Reconcile the two ad account ID fields ─────────────────────────────────
+  // adAccountId (legacy) and metaAdAccountId (current) must always be in sync.
+  // Older drafts may have only one set; ensure both are populated from whichever
+  // has a value, so the launch pipeline always has a consistent source.
+  if (draft.settings) {
+    const a = draft.settings.adAccountId;
+    const b = draft.settings.metaAdAccountId;
+    const canonical = b || a || "";  // prefer metaAdAccountId as the source of truth
+    draft.settings.adAccountId = canonical;
+    draft.settings.metaAdAccountId = canonical || undefined;
+
+    console.log("[migrateDraft] adAccountId:", a, "| metaAdAccountId:", b, "→ canonical:", canonical || "(empty)");
+  }
+
   if (Array.isArray(draft.creatives)) {
     draft.creatives = draft.creatives.map((c) => migrateCreative(c));
   } else {
@@ -152,6 +254,17 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     savedAudiences: { audienceIds: [] },
     interestGroups: [],
   };
+
+  // Migrate lookalikeRange → lookalikeRanges on page groups
+  if (Array.isArray(draft.audiences.pageGroups)) {
+    for (const g of draft.audiences.pageGroups) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const legacy = (g as any).lookalikeRange as string | undefined;
+      if (!g.lookalikeRanges) {
+        g.lookalikeRanges = legacy ? [legacy as import("./types").LookalikeRange] : ["0-1%"];
+      }
+    }
+  }
   draft.budgetSchedule = draft.budgetSchedule ?? {
     budgetLevel: "ad_set",
     budgetType: "daily",
@@ -161,6 +274,12 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     endDate: "",
     timezone: "Europe/London",
   };
+
+  // Migrate old locationPresets → new locationGroups
+  if (draft.budgetSchedule.locationPresets?.length && !draft.budgetSchedule.locationGroups?.length) {
+    draft.budgetSchedule.locationGroups = migrateLocationPresets(draft.budgetSchedule.locationPresets);
+    console.log("[migrateDraft] Migrated locationPresets →", draft.budgetSchedule.locationGroups.length, "locationGroups");
+  }
   const defaultGuardrails = {
     baseCampaignBudget: draft.budgetSchedule?.budgetAmount ?? 50,
     maxExpansionPercent: 100,
@@ -177,8 +296,49 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
       guardrails: defaultGuardrails,
     };
   }
-  draft.adSetSuggestions = draft.adSetSuggestions ?? [];
+  draft.adSetSuggestions = (draft.adSetSuggestions ?? []).map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (s: any) => {
+      let label: string | undefined = s.locationLabel ?? undefined;
+      let name: string = s.name ?? "";
+
+      // Fix stale location labels from old drafts that used fuzzy search
+      // (e.g. "United States: Oxnard (+40 km) California" instead of "London +40km")
+      if (label && !["London +40km", "UK excl London +40km", "UK"].includes(label)) {
+        label = resolvePresetLabelFromGeo(s.geoLocations) ?? label;
+      }
+      if (name && (name.includes("Oxnard") || name.includes("United States"))) {
+        const baseName = name.replace(/ — .*$/, "");
+        name = label ? `${baseName} — ${label}` : baseName;
+      }
+
+      return {
+        ...s,
+        name,
+        advantagePlus: s.advantagePlus ?? false,
+        geoLocations: s.geoLocations ?? undefined,
+        locationLabel: label,
+      };
+    },
+  ) as CampaignDraft["adSetSuggestions"];
   draft.creativeAssignments = draft.creativeAssignments ?? {};
+
+  // Migrate: move any launch-injected engagement audience IDs from
+  // customAudienceIds → engagementAudienceIds so the UI doesn't show
+  // them as user-selected. This only affects drafts saved by older code
+  // that injected engagement IDs into customAudienceIds during launch.
+  if (Array.isArray(draft.audiences?.pageGroups)) {
+    for (const g of draft.audiences.pageGroups) {
+      if (!g.engagementAudienceIds && g.customAudienceIds?.length > 0 && draft.status === "published") {
+        // Published drafts with IDs in customAudienceIds but no engagementAudienceIds
+        // field were saved by the old code. Move all IDs to engagementAudienceIds
+        // and clear customAudienceIds since the user never manually selected them.
+        g.engagementAudienceIds = g.customAudienceIds;
+        g.customAudienceIds = [];
+        console.log(`[migrateDraft] Moved ${g.engagementAudienceIds.length} engagement IDs out of customAudienceIds for group "${g.name}"`);
+      }
+    }
+  }
 
   return draft;
 }

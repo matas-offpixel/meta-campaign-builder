@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import {
-  Plus, Copy, Trash2, ImageIcon, Video, Upload,
+  Plus, Copy, Trash2, ImageIcon, Video, Upload, Play,
   ClipboardCopy, Check, FileText, ShieldOff,
   Heart, MessageCircle, Share2, ChevronDown, ChevronUp,
-  AlertCircle,
+  AlertCircle, Maximize2, X,
 } from "lucide-react";
 import type {
   AdCreativeDraft, CTAType, AssetMode, AssetRatio,
@@ -571,6 +571,14 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                               ]}
                             />
                             <FieldStatus loading={igAccounts.loading} error={igAccounts.error} />
+                            {selectedPageId && !igAccounts.loading && filteredIG.length === 0 && (
+                              <p className="mt-1 text-[11px] text-warning">
+                                No linked Instagram account found for this page. Ads will use the Facebook Page identity only.
+                              </p>
+                            )}
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Using Facebook Page identity only. Instagram actor verification is pending.
+                            </p>
                           </>
                         );
                       })()}
@@ -880,6 +888,19 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
 
 // ─── Asset Variation Sub-component ───
 
+// CSS aspect-ratio class per slot ratio
+const SLOT_ASPECT: Record<string, string> = {
+  "1:1":  "aspect-square",
+  "4:5":  "aspect-[4/5]",
+  "9:16": "aspect-[9/16]",
+};
+
+// Module-level registry: maps asset.id → local blob URL.
+// Lives outside the component so blob URLs survive React remounts when the
+// user switches between ads. Only revoked when the asset is explicitly removed
+// or replaced, never on component unmount.
+const blobUrlRegistry = new Map<string, string>();
+
 // ─── Single asset upload slot ─────────────────────────────────────────────────
 
 function AssetSlot({
@@ -896,15 +917,40 @@ function AssetSlot({
   const { mutate: upload } = useUploadAsset();
   const inputId = useId();
   const [isDragOver, setIsDragOver] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+
+  // Initialise from registry so video previews persist when the user
+  // switches to another ad and back (component unmounts / remounts).
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(
+    () => blobUrlRegistry.get(asset.id) ?? null,
+  );
 
   const ratioInfo = RATIO_LABELS[asset.aspectRatio];
-  const accept = "image/jpeg,image/png,video/mp4";
+  const aspectClass = SLOT_ASPECT[asset.aspectRatio] ?? "aspect-[4/5]";
+
+  const accept = mediaType === "video"
+    ? "video/mp4,video/quicktime,video/*"
+    : "image/jpeg,image/png";
+
   const isUploading = asset.uploadStatus === "uploading";
-  const isUploaded = asset.uploadStatus === "uploaded";
-  const isError = asset.uploadStatus === "error";
+  const isUploaded  = asset.uploadStatus === "uploaded";
+  const isError     = asset.uploadStatus === "error";
+  const isVideo     = mediaType === "video";
 
   async function handleFile(file: File) {
     if (!adAccountId || isUploading) return;
+
+    // For video files create a local blob preview immediately so the slot
+    // renders a real video frame before (and even if) Meta returns a thumbnail.
+    if (file.type.startsWith("video/")) {
+      // Revoke any previous blob URL for this asset before creating a new one.
+      const prev = blobUrlRegistry.get(asset.id);
+      if (prev) URL.revokeObjectURL(prev);
+      const blobUrl = URL.createObjectURL(file);
+      blobUrlRegistry.set(asset.id, blobUrl);
+      setLocalPreviewUrl(blobUrl);
+    }
+
     onUpdate({ uploadStatus: "uploading", error: undefined });
     try {
       const result = await upload({ file, type: mediaType, adAccountId });
@@ -937,6 +983,13 @@ function AssetSlot({
   }
 
   function handleRemove() {
+    // Clean up blob URL from the registry and revoke it.
+    const blobUrl = blobUrlRegistry.get(asset.id);
+    if (blobUrl) {
+      URL.revokeObjectURL(blobUrl);
+      blobUrlRegistry.delete(asset.id);
+    }
+    setLocalPreviewUrl(null);
     onUpdate({
       uploadedUrl: undefined,
       thumbnailUrl: undefined,
@@ -948,107 +1001,201 @@ function AssetSlot({
   }
 
   return (
-    <div
-      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={handleDrop}
-      className={`relative flex flex-col items-center rounded-xl border-2 border-dashed transition-colors overflow-hidden
-        ${isUploaded
-          ? "border-primary bg-primary-light"
-          : isDragOver
-            ? "border-primary bg-primary-light/50"
-            : isError
-              ? "border-destructive/50 bg-destructive/5"
-              : "border-border bg-muted/30 hover:border-border-strong"
-        }`}
-    >
-      {/* Ratio label */}
-      <div className="flex w-full items-center justify-between px-2.5 pt-2 pb-1">
-        <span className="text-xs font-semibold">{ratioInfo.label}</span>
+    <div className="flex flex-col gap-1.5">
+      {/* ── Ratio label row ── */}
+      <div className="flex items-center justify-between px-0.5">
+        <span className="text-[11px] font-semibold">{ratioInfo.label}</span>
         <span className="text-[10px] text-muted-foreground">{ratioInfo.desc}</span>
       </div>
 
-      {/* Content area */}
-      {isUploading ? (
-        <div className="flex flex-col items-center gap-1.5 py-5">
-          <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span className="text-[10px] text-muted-foreground">Uploading…</span>
-        </div>
-      ) : isUploaded ? (
-        <div className="flex w-full flex-col items-center gap-1.5 pb-2">
-          {asset.thumbnailUrl ? (
-            <img
-              src={asset.thumbnailUrl}
-              alt={`${asset.aspectRatio} preview`}
-              className="h-20 w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-20 w-full items-center justify-center bg-muted/40">
-              <Check className="h-6 w-6 text-primary" />
-            </div>
-          )}
-          <div className="flex items-center gap-2 px-2">
-            <Badge variant="success" className="text-[10px]">Uploaded</Badge>
-            <button
-              type="button"
-              onClick={handleRemove}
-              className="text-[10px] text-destructive hover:underline"
-            >
-              Remove
-            </button>
+      {/* ── Aspect-ratio preview / upload zone ─────────────────────────────
+          group/slot enables the X remove button to appear on hover without
+          conflicting with the inner group used for the expand overlay.        ── */}
+      <div
+        onDragOver={(e) => { if (!isUploaded) { e.preventDefault(); setIsDragOver(true); } }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={(e) => { if (!isUploaded) handleDrop(e); }}
+        className={`group/slot relative ${aspectClass} w-full overflow-hidden rounded-xl border-2 border-dashed transition-colors
+          ${isUploaded
+            ? "border-primary/40 bg-primary-light"
+            : isDragOver
+              ? "border-primary bg-primary-light/50"
+              : isError
+                ? "border-destructive/40 bg-destructive/5"
+                : "border-border bg-muted/30 hover:border-border-strong"
+          }`}
+      >
+        {/* ── Uploading spinner ── */}
+        {isUploading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span className="text-[10px] text-muted-foreground">Uploading…</span>
           </div>
-        </div>
-      ) : adAccountId ? (
-        <label
-          htmlFor={inputId}
-          className="flex w-full cursor-pointer flex-col items-center gap-2 px-2 pb-4 pt-2"
-        >
-          <input
-            id={inputId}
-            type="file"
-            accept={accept}
-            className="sr-only"
-            onChange={handleInputChange}
-          />
-          <Upload className="h-5 w-5 text-muted-foreground" />
-          <span className="text-center text-[11px] leading-tight text-muted-foreground">
-            Drop or click<br />
-            <span className="font-medium text-foreground">
-              {mediaType === "video" ? "MP4" : "JPEG / PNG"}
+        )}
+
+        {/* ── Uploaded: unified preview with expand-on-hover ── */}
+        {isUploaded && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="View full asset"
+            onClick={() => setViewerOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewerOpen(true); }
+            }}
+            className="group/expand absolute inset-0 cursor-pointer outline-none"
+          >
+            {/* Image media */}
+            {!isVideo && (asset.thumbnailUrl ?? asset.uploadedUrl) && (
+              <img
+                src={asset.thumbnailUrl ?? asset.uploadedUrl}
+                alt={`${asset.aspectRatio} preview`}
+                className="absolute inset-0 h-full w-full object-cover"
+                loading="lazy"
+                draggable={false}
+              />
+            )}
+
+            {/* Video media — local blob first (shows real first frame),
+                fall back to Meta thumbnail, then dark placeholder */}
+            {isVideo && (
+              <>
+                {localPreviewUrl ? (
+                  <video
+                    key={localPreviewUrl}
+                    src={localPreviewUrl}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    muted
+                    preload="metadata"
+                    playsInline
+                  />
+                ) : asset.thumbnailUrl ? (
+                  <img
+                    src={asset.thumbnailUrl}
+                    alt={`${asset.aspectRatio} video thumbnail`}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    loading="lazy"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-foreground/10" />
+                )}
+                {/* Play indicator — fades out when expand hover appears */}
+                <div className="absolute inset-0 flex items-center justify-center transition-opacity group-hover/expand:opacity-0">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                    <Play className="h-4 w-4 fill-white text-white" style={{ marginLeft: 2 }} />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Fallback: no media URLs at all */}
+            {!isVideo && !asset.thumbnailUrl && !asset.uploadedUrl && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Check className="h-7 w-7 text-primary" />
+              </div>
+            )}
+
+            {/* Expand hover overlay */}
+            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 transition-all duration-150 group-hover/expand:bg-black/45 group-hover/expand:opacity-100">
+              <div className="flex flex-col items-center gap-1.5 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
+                <Maximize2 className="h-5 w-5 drop-shadow" />
+                <span className="text-[10px] font-semibold tracking-wide">View</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── X remove button (top-right corner, above expand area) ─────────
+            Uses group/slot so it appears on hover independently of the expand
+            overlay. stopPropagation prevents the viewer from opening.         ── */}
+        {isUploaded && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleRemove(); }}
+            aria-label="Remove asset"
+            className="absolute right-1.5 top-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover/slot:opacity-100 hover:bg-destructive"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        )}
+
+        {/* ── Idle: upload zone ── */}
+        {!isUploading && !isUploaded && !isError && adAccountId && (
+          <label
+            htmlFor={inputId}
+            className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-1.5 p-3"
+          >
+            <input
+              id={inputId}
+              type="file"
+              accept={accept}
+              className="sr-only"
+              onChange={handleInputChange}
+            />
+            <Upload className="h-5 w-5 text-muted-foreground" />
+            <span className="text-center text-[11px] leading-snug text-muted-foreground">
+              Drop or click<br />
+              <span className="font-medium text-foreground">
+                {isVideo ? "MP4 / MOV" : "JPEG / PNG"}
+              </span>
             </span>
-          </span>
-        </label>
-      ) : (
-        <div className="flex flex-col items-center gap-1 px-2 pb-4 pt-2">
-          <Upload className="h-4 w-4 text-muted-foreground/50" />
-          <span className="text-center text-[10px] leading-tight text-muted-foreground/60">
-            Select ad account<br />to enable upload
-          </span>
+          </label>
+        )}
+
+        {/* ── No ad account ── */}
+        {!isUploading && !isUploaded && !isError && !adAccountId && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-3">
+            <Upload className="h-4 w-4 text-muted-foreground/40" />
+            <span className="text-center text-[10px] leading-snug text-muted-foreground/50">
+              Select ad account<br />to enable upload
+            </span>
+          </div>
+        )}
+
+        {/* ── Error state ── */}
+        {isError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3">
+            <p className="text-center text-[10px] leading-snug text-destructive">
+              {asset.error ?? "Upload failed"}
+            </p>
+            {adAccountId && (
+              <label
+                htmlFor={`${inputId}-retry`}
+                className="cursor-pointer text-[10px] font-medium text-primary hover:underline"
+              >
+                <input
+                  id={`${inputId}-retry`}
+                  type="file"
+                  accept={accept}
+                  className="sr-only"
+                  onChange={handleInputChange}
+                />
+                Retry
+              </label>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Footer: type badge only (remove is now the X overlay above) ── */}
+      {isUploaded && (
+        <div className="px-0.5">
+          <Badge variant="success" className="text-[10px]">
+            {isVideo ? "Video" : "Uploaded"}
+          </Badge>
         </div>
       )}
 
-      {isError && (
-        <div className="w-full px-2 pb-2">
-          <p className="text-center text-[10px] text-destructive leading-tight">
-            {asset.error ?? "Upload failed"}
-          </p>
-          {adAccountId && (
-            <label
-              htmlFor={`${inputId}-retry`}
-              className="block cursor-pointer text-center text-[10px] font-medium text-primary hover:underline mt-0.5"
-            >
-              <input
-                id={`${inputId}-retry`}
-                type="file"
-                accept={accept}
-                className="sr-only"
-                onChange={handleInputChange}
-              />
-              Retry
-            </label>
-          )}
-        </div>
-      )}
+      {/* ── Media viewer modal ── */}
+      <MediaViewerModal
+        open={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        isVideo={isVideo}
+        imageUrl={asset.uploadedUrl ?? asset.thumbnailUrl}
+        videoUrl={localPreviewUrl ?? undefined}
+        aspectRatio={asset.aspectRatio}
+      />
     </div>
   );
 }
@@ -1124,12 +1271,12 @@ function AssetVariationCard({
             onChange={(e) => onUpdate({ name: e.target.value })}
             placeholder={`Variation ${index + 1}`}
           />
-          <div className={`grid gap-3 ${
+          <div className={`grid gap-4 ${
             slots.length === 1
-              ? "max-w-[180px] grid-cols-1"
+              ? "max-w-[150px] grid-cols-1"
               : slots.length === 2
-                ? "grid-cols-2"
-                : "grid-cols-3"
+                ? "max-w-[320px] grid-cols-2"
+                : "max-w-[480px] grid-cols-3"
           }`}>
             {slots.map((asset) => (
               <AssetSlot
@@ -1143,6 +1290,126 @@ function AssetVariationCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Media viewer modal (lightbox) ───────────────────────────────────────────
+
+function MediaViewerModal({
+  open,
+  onClose,
+  isVideo,
+  imageUrl,
+  videoUrl,
+  aspectRatio,
+}: {
+  open: boolean;
+  onClose: () => void;
+  isVideo: boolean;
+  /** Full-size image URL, or video thumbnail when no local video URL exists */
+  imageUrl?: string;
+  /** Local blob URL for the original video file (session only) */
+  videoUrl?: string;
+  aspectRatio: AssetRatio;
+}) {
+  // Close on Escape key
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    // Backdrop — click outside to close
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Content wrapper — stops backdrop click from propagating */}
+      <div
+        className="relative flex flex-col items-center gap-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <div className="flex w-full justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+            aria-label="Close preview"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {isVideo ? (
+          videoUrl ? (
+            // ── Full video playback (local blob URL available) ──────────────
+            <video
+              key={videoUrl}
+              src={videoUrl}
+              controls
+              autoPlay
+              muted
+              playsInline
+              className="max-h-[80vh] rounded-xl shadow-2xl"
+              style={{ maxWidth: "min(85vw, 640px)" }}
+            />
+          ) : imageUrl ? (
+            // ── Video thumbnail only (uploaded to Meta; local file gone) ────
+            <div className="relative">
+              <img
+                src={imageUrl}
+                alt={`${aspectRatio} video thumbnail`}
+                className="max-h-[80vh] rounded-xl shadow-2xl"
+                style={{ maxWidth: "min(85vw, 640px)" }}
+                draggable={false}
+              />
+              {/* Non-interactive play icon over thumbnail */}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
+                  <Play className="h-8 w-8 fill-white text-white" style={{ marginLeft: 3 }} />
+                </div>
+              </div>
+              <p className="mt-2 text-center text-[11px] text-white/40">
+                Video uploaded to Meta · thumbnail preview only
+              </p>
+            </div>
+          ) : (
+            // ── No preview at all ───────────────────────────────────────────
+            <div className="flex h-48 w-48 flex-col items-center justify-center gap-3 rounded-xl bg-white/5">
+              <Video className="h-12 w-12 text-white/25" />
+              <p className="text-sm text-white/40">No preview available</p>
+            </div>
+          )
+        ) : imageUrl ? (
+          // ── Full-size image ─────────────────────────────────────────────
+          <img
+            src={imageUrl}
+            alt={`${aspectRatio} asset`}
+            className="max-h-[80vh] rounded-xl shadow-2xl"
+            style={{ maxWidth: "min(85vw, 800px)" }}
+            draggable={false}
+          />
+        ) : (
+          // ── No image URL ────────────────────────────────────────────────
+          <div className="flex h-48 w-48 flex-col items-center justify-center gap-3 rounded-xl bg-white/5">
+            <ImageIcon className="h-12 w-12 text-white/25" />
+            <p className="text-sm text-white/40">No preview available</p>
+          </div>
+        )}
+
+        {/* Ratio label */}
+        <p className="text-[11px] text-white/40">
+          {RATIO_LABELS[aspectRatio]?.label} · {RATIO_LABELS[aspectRatio]?.desc}
+        </p>
+      </div>
     </div>
   );
 }

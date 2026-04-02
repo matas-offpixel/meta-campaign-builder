@@ -19,13 +19,25 @@ export interface MetaAdAccount {
   business?: { id: string; name: string };
 }
 
-/** Returned by GET /me/accounts (pages the token user manages) */
+/** Returned by GET /me/accounts or /{businessId}/owned_pages */
 export interface MetaApiPage {
   id: string;
   name: string;
+  /** Number of people who like / follow this page */
+  fan_count?: number;
+  /** Meta category label, e.g. "Musician/band", "Club", "Event" */
+  category?: string;
   picture?: { data: { url: string } };
   instagram_business_account?: { id: string };
   access_token?: string;
+}
+
+/** Paginated result for additional (personal) pages */
+export interface MetaApiPageBatch {
+  data: MetaApiPage[];
+  /** Cursor to pass as `after` in the next request. Null when exhausted. */
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 /** Returned by GET /{ad_account_id}/adspixels */
@@ -176,8 +188,19 @@ export interface PageAudienceGroup {
   pageIds: string[];
   engagementTypes: EngagementType[];
   lookalike: boolean;
-  lookalikeRange: LookalikeRange;
+  /** @deprecated Use lookalikeRanges instead */
+  lookalikeRange?: LookalikeRange;
+  lookalikeRanges: LookalikeRange[];
+  /** User-manually-selected custom audience IDs (from the "Load Custom Audiences" picker) */
   customAudienceIds: string[];
+  /**
+   * Engagement audience IDs auto-created during the launch pipeline (Phase 1.5).
+   * Kept separate from customAudienceIds so they don't pollute the user's
+   * selection state. Both are merged into custom_audiences targeting at launch.
+   */
+  engagementAudienceIds?: string[];
+  /** Populated at launch — IDs of lookalike audiences created in Meta */
+  lookalikeAudienceIds?: string[];
 }
 
 export interface CustomAudienceGroup {
@@ -290,13 +313,53 @@ export interface AdCreativeDraft {
 
 // ─── Budget & schedule types ───
 
-export interface LocationTarget {
-  id: string;
+/**
+ * A single Meta geolocation result returned by GET /search?type=adgeolocation.
+ * Stores the exact object Meta returns so we can pass it back unchanged.
+ */
+export interface MetaGeoLocationResult {
+  key: string;
   name: string;
-  radius?: number;
-  radiusUnit?: "km" | "mi";
-  excluded?: boolean;
+  type: "city" | "region" | "country" | "zip" | "geo_market" | "electoral_district";
+  country_code: string;
+  country_name: string;
+  region: string;
+  region_id?: number;
+  supports_region?: boolean;
+  supports_city?: boolean;
 }
+
+/**
+ * A user-selected location targeting entry.
+ * Stores the full Meta location object alongside UI metadata.
+ * The same structure is used for presets and manual search selections.
+ */
+export interface LocationSelection {
+  id: string;
+  source: "preset" | "search";
+  label: string;
+  mode: "include" | "exclude";
+  locationType: "city" | "country" | "region";
+  /** Meta location key — for cities and regions */
+  locationKey?: string;
+  /** ISO country code — for country-level targeting */
+  countryCode?: string;
+  radius?: number;
+  distanceUnit?: "kilometer" | "mile";
+}
+
+/**
+ * A group of location selections that together define a single targeting spec.
+ * Each group generates its own set of ad sets (one per audience).
+ */
+export interface LocationTargetingGroup {
+  id: string;
+  label: string;
+  source: "preset" | "manual";
+  selections: LocationSelection[];
+}
+
+export type LocationPreset = "london_40km" | "uk_excl_london_40km" | "gb_nationwide";
 
 export interface BudgetScheduleSettings {
   budgetLevel: BudgetLevel;
@@ -306,22 +369,43 @@ export interface BudgetScheduleSettings {
   startDate: string;
   endDate: string;
   timezone: string;
+  /** @deprecated — use locationGroups instead */
+  locationPresets?: LocationPreset[];
+  /** Unified location model — each group generates separate ad sets */
+  locationGroups?: LocationTargetingGroup[];
 }
 
 // ─── Ad set suggestions ───
 
+export interface AdSetGeoLocations {
+  countries?: string[];
+  cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
+  regions?: { key: string }[];
+  excluded_geo_locations?: {
+    cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
+  };
+}
+
 export interface AdSetSuggestion {
   id: string;
   name: string;
-  sourceType: "page_group" | "custom_group" | "saved_audience" | "interest_group";
+  sourceType: "page_group" | "custom_group" | "saved_audience" | "interest_group" | "lookalike_group";
   sourceId: string;
   sourceName: string;
   ageMin: number;
   ageMax: number;
   budgetPerDay: number;
   advantagePlus: boolean;
+  /** User-controlled toggle — never modified by launch results */
   enabled: boolean;
-  /** Set after a successful POST to Meta — the live ad set ID */
+  /** Per-ad-set geo override; when absent falls back to default GB. */
+  geoLocations?: AdSetGeoLocations;
+  /** Human label for the location preset, e.g. "London +40km" */
+  locationLabel?: string;
+  /**
+   * @deprecated Do not use — this field is no longer stamped during launch.
+   * Per-run Meta IDs are stored in LaunchSummary.adSetLaunchResults instead.
+   */
   metaAdSetId?: string;
 }
 
@@ -419,17 +503,59 @@ export interface CampaignSettings {
 
 // ─── Launch summary (populated after a successful launch) ───
 
+/** Per-suggestion outcome for a single launch run */
+export interface AdSetLaunchResult {
+  launchStatus: "created" | "skipped" | "failed";
+  /** The live Meta ad set ID — only present when launchStatus === "created" */
+  metaAdSetId?: string;
+  /** Why the ad set was skipped (e.g. "source audience not ready") */
+  skippedReason?: string;
+  /** Full error message when launchStatus === "failed" */
+  error?: string;
+}
+
 export interface LaunchSummary {
+  /** Unique identifier for this launch run */
+  launchRunId: string;
   metaCampaignId: string;
-  adSetsCreated: { name: string; metaAdSetId: string }[];
-  adSetsFailed: { name: string; error: string }[];
+  /**
+   * Per-suggestion launch outcomes for this run.
+   * Key = AdSetSuggestion.id. Allows the UI to show per-suggestion
+   * status without mutating the editable suggestion objects.
+   */
+  adSetLaunchResults?: Record<string, AdSetLaunchResult>;
+  /** Total launch wall-clock time in milliseconds */
+  totalDurationMs?: number;
+  /** Per-phase timing in milliseconds */
+  phaseDurations?: Record<string, number>;
+  /** Preflight warnings surfaced before any mutations */
+  preflightWarnings?: { stage: string; message: string }[];
+  /** Engagement custom audiences created from page groups (Phase 1.5) */
+  engagementAudiencesCreated?: { name: string; id: string; type: string; durationMs?: number }[];
+  engagementAudiencesFailed?: { name: string; type: string; error: string }[];
+  /** Lookalike audiences created from engagement audiences (Phase 1.75) */
+  lookalikeAudiencesCreated?: { name: string; id: string; range: string; durationMs?: number }[];
+  lookalikeAudiencesFailed?: { name: string; range: string; error: string; skippedReason?: string }[];
+  /** Deprecated interests that were auto-replaced during ad set creation */
+  interestReplacements?: { deprecated: string; replacement: string | null; adSetName: string }[];
+  adSetsCreated: {
+    name: string;
+    metaAdSetId: string;
+    /** "strict" when Advantage+ was OFF, "suggested" when Advantage+ was ON */
+    ageMode: "strict" | "suggested";
+    durationMs?: number;
+  }[];
+  adSetsFailed: { name: string; error: string; skippedReason?: string }[];
   creativesCreated: {
     name: string;
     metaCreativeId: string;
-    ads: { adSetName: string; metaAdId: string }[];
+    /** "page_only" or "page_and_ig" */
+    identityMode?: "page_only" | "page_and_ig";
+    durationMs?: number;
+    ads: { adSetName: string; metaAdId: string; durationMs?: number }[];
     adsFailed: { adSetName: string; error: string }[];
   }[];
-  creativesFailed: { name: string; error: string }[];
+  creativesFailed: { name: string; error: string; skippedReason?: string }[];
   adsCreated: number;
   adsFailed: number;
 }

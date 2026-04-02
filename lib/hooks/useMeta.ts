@@ -9,12 +9,14 @@
  * These hooks are only for use inside Client Components.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type {
   MetaAdAccount,
   MetaApiPage,
+  MetaApiPageBatch,
   MetaApiPixel,
   MetaInstagramAccount,
+  CustomAudience,
 } from "@/lib/types";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
@@ -74,7 +76,14 @@ export function useFetchAdAccounts(): MetaFetchState<MetaAdAccount> {
 
 // ─── useFetchPages ────────────────────────────────────────────────────────────
 
-export function useFetchPages(): MetaFetchState<MetaApiPage> {
+/**
+ * Fetches Business Manager pages when `adAccountId` is provided (passes it to
+ * the route which resolves the business and calls /{businessId}/owned_pages).
+ * Without `adAccountId` falls back to /me/accounts.
+ */
+export function useFetchPages(
+  adAccountId?: string,
+): MetaFetchState<MetaApiPage> {
   const [state, setState] = useState<MetaFetchState<MetaApiPage>>({
     data: [],
     loading: true,
@@ -83,8 +92,13 @@ export function useFetchPages(): MetaFetchState<MetaApiPage> {
 
   useEffect(() => {
     let cancelled = false;
+    setState({ data: [], loading: true, error: null });
 
-    apiFetch<MetaApiPage>("/api/meta/pages")
+    const url = adAccountId
+      ? `/api/meta/pages?adAccountId=${encodeURIComponent(adAccountId)}`
+      : "/api/meta/pages";
+
+    apiFetch<MetaApiPage>(url)
       .then((data) => {
         if (!cancelled) setState({ data, loading: false, error: null });
       })
@@ -99,9 +113,80 @@ export function useFetchPages(): MetaFetchState<MetaApiPage> {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [adAccountId]);
 
   return state;
+}
+
+// ─── useFetchAdditionalPages ──────────────────────────────────────────────────
+
+export interface AdditionalPagesState {
+  /** Accumulated pages across all loaded batches */
+  pages: MetaApiPage[];
+  loading: boolean;
+  error: string | null;
+  hasMore: boolean;
+  /** How many pages have been loaded so far */
+  loaded: number;
+  /** Triggers the next batch load */
+  loadMore: () => void;
+}
+
+/**
+ * Manages cursor-based batch loading of personal pages from /me/accounts.
+ * On the first call `loadMore()` fetches the first batch of 50.
+ * Each subsequent call advances the cursor until `hasMore` is false.
+ *
+ * Pass `excludeIds` to filter out pages already shown in the business section.
+ */
+export function useFetchAdditionalPages(
+  excludeIds?: Set<string>,
+): AdditionalPagesState {
+  const [pages, setPages] = useState<MetaApiPage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+
+  const loadMore = useCallback(() => {
+    if (loading || !hasMore) return;
+
+    setLoading(true);
+    setError(null);
+
+    const url = nextCursor
+      ? `/api/meta/pages/additional?after=${encodeURIComponent(nextCursor)}&limit=50`
+      : "/api/meta/pages/additional?limit=50";
+
+    fetch(url)
+      .then(async (res) => {
+        const json = (await res.json()) as MetaApiPageBatch & { error?: string };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+
+        const incoming = excludeIds
+          ? json.data.filter((p) => !excludeIds.has(p.id))
+          : json.data;
+
+        setPages((prev) => {
+          const existing = new Set(prev.map((p) => p.id));
+          return [...prev, ...incoming.filter((p) => !existing.has(p.id))];
+        });
+        setNextCursor(json.nextCursor);
+        setHasMore(json.hasMore);
+      })
+      .catch((err: unknown) => {
+        const msg =
+          err instanceof Error ? err.message : "Failed to load additional pages";
+        setError(msg);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [loading, hasMore, nextCursor, excludeIds]);
+
+  return { pages, loading, error, hasMore, loaded: pages.length, loadMore };
 }
 
 // ─── useFetchPixels ───────────────────────────────────────────────────────────
@@ -182,4 +267,382 @@ export function useFetchInstagramAccounts(): MetaFetchState<IGWithPage> {
   }, []);
 
   return state;
+}
+
+// ─── useFetchCustomAudiences ──────────────────────────────────────────────────
+
+export interface CustomAudiencesFetchState {
+  data: CustomAudience[];
+  loading: boolean;
+  error: string | null;
+  /** True once a successful fetch has completed */
+  loaded: boolean;
+  /** Call to trigger a fetch (or re-fetch). No-ops when already loading. */
+  fetch: () => void;
+}
+
+/**
+ * Manually-triggered hook — audiences are NOT fetched on mount.
+ * The consumer must call `state.fetch()` explicitly (e.g. from a button click).
+ *
+ * If `adAccountId` is absent the fetch is skipped and an error hint is set.
+ * Refetches automatically if `adAccountId` changes after a previous load.
+ */
+export function useFetchCustomAudiences(
+  adAccountId: string | undefined,
+): CustomAudiencesFetchState {
+  const [data, setData] = useState<CustomAudience[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  // Reset when ad account changes so stale data is never shown
+  useEffect(() => {
+    setData([]);
+    setLoaded(false);
+    setError(null);
+  }, [adAccountId]);
+
+  const doFetch = useCallback(() => {
+    if (loading) return;
+
+    if (!adAccountId) {
+      setError("Select an ad account first to load custom audiences.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    fetch(`/api/meta/custom-audiences?adAccountId=${encodeURIComponent(adAccountId)}`)
+      .then(async (res) => {
+        const json = (await res.json()) as { data?: CustomAudience[]; error?: string };
+        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        setData(json.data ?? []);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Failed to load custom audiences";
+        setError(msg);
+      })
+      .finally(() => setLoading(false));
+  }, [loading, adAccountId]);
+
+  return { data, loading, error, loaded, fetch: doFetch };
+}
+
+// ─── useFetchSavedAudiences ───────────────────────────────────────────────────
+
+export interface SavedAudienceItem {
+  id: string;
+  name: string;
+  approximateCount?: number;
+  description?: string;
+}
+
+export interface SavedAudiencesFetchState {
+  data: SavedAudienceItem[];
+  loading: boolean;
+  error: string | null;
+  /** True once a successful fetch has completed */
+  loaded: boolean;
+  /** Call to trigger a fetch (or re-fetch). No-ops when already loading. */
+  fetch: () => void;
+}
+
+/**
+ * Manually-triggered hook for fetching Saved Audiences from a Meta ad account.
+ * Saved Audiences are pre-configured targeting bundles created in Ads Manager —
+ * distinct from Custom Audiences (pixel/upload lists).
+ *
+ * The consumer must call `state.fetch()` explicitly (e.g. from a button click).
+ */
+export function useFetchSavedAudiences(
+  adAccountId: string | undefined,
+): SavedAudiencesFetchState {
+  const [data, setData] = useState<SavedAudienceItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  // Reset when ad account changes so stale data is never shown
+  useEffect(() => {
+    setData([]);
+    setLoaded(false);
+    setError(null);
+  }, [adAccountId]);
+
+  const doFetch = useCallback(() => {
+    if (loading) return;
+
+    if (!adAccountId) {
+      setError("Select an ad account first to load saved audiences.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    fetch(`/api/meta/saved-audiences?adAccountId=${encodeURIComponent(adAccountId)}`)
+      .then(async (res) => {
+        const json = (await res.json()) as { data?: SavedAudienceItem[]; error?: string };
+        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        setData(json.data ?? []);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Failed to load saved audiences";
+        setError(msg);
+      })
+      .finally(() => setLoading(false));
+  }, [loading, adAccountId]);
+
+  return { data, loading, error, loaded, fetch: doFetch };
+}
+
+// ─── Location search hook ────────────────────────────────────────────────────
+
+export interface LocationSearchResult {
+  key: string;
+  name: string;
+  type: string;
+  country_code: string;
+  country_name: string;
+  region: string;
+  region_id?: number;
+}
+
+export function useLocationSearch(): {
+  results: LocationSearchResult[];
+  loading: boolean;
+  error: string | null;
+  search: (query: string) => void;
+  clear: () => void;
+} {
+  const [results, setResults] = useState<LocationSearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const search = useCallback((query: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    if (!query || query.trim().length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    timerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/meta/location-search?q=${encodeURIComponent(query.trim())}&types=city,region,country`,
+        );
+        const json = (await res.json()) as { data?: LocationSearchResult[]; error?: string };
+        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        setResults(json.data ?? []);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Location search failed");
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+  }, []);
+
+  const clear = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setResults([]);
+    setError(null);
+    setLoading(false);
+  }, []);
+
+  return { results, loading, error, search, clear };
+}
+
+// ─── Facebook provider token management ───────────────────────────────────────
+
+/**
+ * Storage key must match the one written in /auth/facebook-callback/page.tsx.
+ * Exported so consumers can reference it directly if needed.
+ */
+export const FB_TOKEN_STORAGE_KEY = "facebook_provider_token";
+
+/**
+ * Manages the Facebook provider_token across the app.
+ *
+ * Token lifecycle:
+ *   1. Written to localStorage by /auth/facebook-callback after OAuth exchange
+ *   2. Picked up here on mount via localStorage read
+ *   3. Also captured via onAuthStateChange for subsequent session refreshes
+ *   4. `refresh()` re-reads from getSession() as a last-resort fallback
+ *
+ * Note: Supabase SSR does NOT store provider_token in the session cookie.
+ * The only reliable window to capture it is immediately after
+ * exchangeCodeForSession() on the browser client — which the facebook-callback
+ * page handles.
+ */
+export function useFacebookToken(): {
+  token: string | null;
+  loading: boolean;
+  refresh: () => Promise<string | null>;
+} {
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem(FB_TOKEN_STORAGE_KEY);
+  });
+  const [loading, setLoading] = useState(false);
+
+  // Subscribe to Supabase auth state changes — captures token on refresh
+  useEffect(() => {
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    (async () => {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        const freshToken = session?.provider_token ?? null;
+        if (freshToken) {
+          console.debug("[useFacebookToken] onAuthStateChange — provider_token captured");
+          localStorage.setItem(FB_TOKEN_STORAGE_KEY, freshToken);
+          setToken(freshToken);
+        }
+      });
+      subscription = data.subscription;
+    })();
+
+    return () => { subscription?.unsubscribe(); };
+  }, []);
+
+  const refresh = useCallback(async (): Promise<string | null> => {
+    // First check localStorage — the callback page writes here first
+    const stored = localStorage.getItem(FB_TOKEN_STORAGE_KEY);
+    if (stored) {
+      setToken(stored);
+      console.debug("[useFacebookToken] refresh — found token in localStorage");
+      return stored;
+    }
+
+    // Fallback: try getSession() (only works right after code exchange)
+    setLoading(true);
+    try {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { data } = await supabase.auth.getSession();
+      const providerToken = data.session?.provider_token ?? null;
+
+      console.debug("[useFacebookToken] refresh — getSession provider_token:", providerToken ? "present" : "null");
+
+      if (providerToken) {
+        localStorage.setItem(FB_TOKEN_STORAGE_KEY, providerToken);
+        setToken(providerToken);
+      }
+      return providerToken;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Attempt to hydrate from session on mount in case the page loaded right
+  // after OAuth (before the callback page had a chance to save it)
+  useEffect(() => {
+    if (!token) {
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return { token, loading, refresh };
+}
+
+// ─── useFetchUserPages ────────────────────────────────────────────────────────
+
+export interface UserPagesFetchState {
+  data: MetaApiPage[];
+  loading: boolean;
+  error: string | null;
+  loaded: boolean;
+  /** Total number of pages returned by Facebook */
+  count: number;
+  /** Trigger a fetch using the stored Facebook provider token */
+  fetch: () => void;
+}
+
+/**
+ * Manually-triggered hook that loads ALL pages the logged-in Facebook user
+ * manages, using their provider_token. Not called on mount — consumer must
+ * invoke `state.fetch()` (e.g. from a button click).
+ *
+ * Requires a prior Facebook OAuth login so a provider_token is available.
+ */
+export function useFetchUserPages(): UserPagesFetchState {
+  const [data, setData] = useState<MetaApiPage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [count, setCount] = useState(0);
+  const { token, refresh } = useFacebookToken();
+
+  const doFetch = useCallback(async () => {
+    if (loading) return;
+
+    setLoading(true);
+    setError(null);
+
+    // If we don't have a token yet, try refreshing from session
+    let accessToken = token;
+    if (!accessToken) {
+      accessToken = await refresh();
+    }
+
+    if (!accessToken) {
+      // Distinguish between "never logged in" and "logged in but token not captured"
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const hasSession = !!sessionData.session;
+      const msg = hasSession
+        ? "Facebook login succeeded but no provider token was captured. Try logging out and logging in with Facebook again."
+        : "Log in with Facebook first to load your pages.";
+      console.warn("[useFetchUserPages]", msg, "| session:", hasSession, "| localStorage key:", FB_TOKEN_STORAGE_KEY);
+      setError(msg);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/meta/pages/user", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const json = (await res.json()) as {
+        data?: MetaApiPage[];
+        count?: number;
+        error?: string;
+        code?: string;
+      };
+
+      if (!res.ok || json.error) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+
+      setData(json.data ?? []);
+      setCount(json.count ?? json.data?.length ?? 0);
+      setLoaded(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to load your Facebook pages";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, token, refresh]);
+
+  return { data, loading, error, loaded, count, fetch: doFetch };
 }

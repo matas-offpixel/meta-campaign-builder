@@ -22,31 +22,73 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let formData: FormData;
   try {
     formData = await req.formData();
-  } catch {
-    return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+  } catch (parseErr) {
+    // Log the real error so it's visible in the server console.
+    console.error("[upload-asset] req.formData() failed:", parseErr);
+    return NextResponse.json(
+      {
+        error: "Failed to parse multipart form data",
+        detail: String(parseErr),
+        hint: "Body may exceed the server size limit — check next.config.ts serverActions.bodySizeLimit, or the file may be corrupted.",
+      },
+      { status: 400 },
+    );
   }
+
+  // ── Debug: log all received field names ──────────────────────────────────
+  const receivedKeys = [...formData.keys()];
+  console.log("[upload-asset] received form keys:", receivedKeys);
 
   const file = formData.get("file") as File | null;
   const type = formData.get("type") as "image" | "video" | null;
   const adAccountId = formData.get("adAccountId") as string | null;
 
-  if (!file || !type || !adAccountId) {
+  if (!file) {
     return NextResponse.json(
-      { error: "file, type, and adAccountId are required" },
+      { error: "Missing required field: 'file'" },
+      { status: 400 },
+    );
+  }
+  if (!type) {
+    return NextResponse.json(
+      { error: "Missing required field: 'type'" },
+      { status: 400 },
+    );
+  }
+  if (!adAccountId) {
+    return NextResponse.json(
+      { error: "Missing required field: 'adAccountId'" },
+      { status: 400 },
+    );
+  }
+  if (type !== "image" && type !== "video") {
+    return NextResponse.json(
+      { error: `Invalid type "${type}" — must be "image" or "video"` },
+      { status: 400 },
+    );
+  }
+  if (file.size === 0) {
+    return NextResponse.json(
+      { error: "Uploaded file is empty (0 bytes)" },
       { status: 400 },
     );
   }
 
-  if (type !== "image" && type !== "video") {
-    return NextResponse.json(
-      { error: 'type must be "image" or "video"' },
-      { status: 400 },
-    );
-  }
+  // ── Debug logging ─────────────────────────────────────────────────────────
+  console.log("[upload-asset] incoming file:", {
+    name: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
+    sizeMB: (file.size / 1024 / 1024).toFixed(2),
+    type,
+    adAccountId,
+    token_present: !!process.env.META_ACCESS_TOKEN,
+  });
 
   // ── Validate ──────────────────────────────────────────────────────────────
   const { isValid, error: validationError } = validateAssetFile(file, type);
   if (!isValid) {
+    console.warn("[upload-asset] validation failed:", validationError);
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 

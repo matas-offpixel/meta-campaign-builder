@@ -104,8 +104,8 @@ export function createDefaultOptimisationStrategy(): OptimisationStrategySetting
 }
 
 export function createDefaultCreative(): AdCreativeDraft {
-  // Default mode is "dual" → 4:5 + 9:16
-  const defaultVariation = createDefaultAssetVariation(["4:5", "9:16"]);
+  // Default mode is "single" → 9:16 Story / Reel
+  const defaultVariation = createDefaultAssetVariation(["9:16"]);
   defaultVariation.name = "Variation 1";
 
   return {
@@ -117,7 +117,7 @@ export function createDefaultCreative(): AdCreativeDraft {
       instagramAccountId: "",
     },
     mediaType: "image",
-    assetMode: "dual",
+    assetMode: "single",
     assetVariations: [defaultVariation],
     captions: [createDefaultCaption()],
     headline: "",

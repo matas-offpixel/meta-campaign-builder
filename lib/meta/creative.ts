@@ -14,6 +14,24 @@
 
 import type { AdCreativeDraft, CTAType, AdSetSuggestion } from "@/lib/types";
 
+/**
+ * Whether to include instagram_actor_id in creative payloads.
+ *
+ * Set to `false` to force page-identity-only mode. Meta rejects IG actor IDs
+ * that are not explicitly verified as valid actors for the selected page + ad
+ * account combination (error #100). Until we add a verification step that
+ * calls GET /{page_id}?fields=instagram_business_account and confirms the
+ * returned ID matches, it's safest to omit the field entirely.
+ *
+ * When set to `true`, falls back to numeric format validation.
+ */
+const ALLOW_IG_ACTOR = false;
+
+function isValidIgActorId(id: string | undefined | null): id is string {
+  if (!ALLOW_IG_ACTOR) return false;
+  return !!id && /^\d{10,}$/.test(id);
+}
+
 // ─── CTA mapping ──────────────────────────────────────────────────────────────
 
 export const CTA_MAP: Record<CTAType, string> = {
@@ -47,12 +65,14 @@ interface MetaVideoData {
   video_id: string;
   message: string;
   title?: string;
-  description?: string;
+  // description is NOT a valid field inside video_data — Meta rejects it
   call_to_action: MetaCallToAction;
 }
 
 interface MetaObjectStorySpec {
   page_id: string;
+  /** Instagram account ID for placements. Maps to creative.identity.instagramAccountId. */
+  instagram_actor_id?: string;
   link_data?: MetaLinkData;
   video_data?: MetaVideoData;
 }
@@ -186,12 +206,21 @@ function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
     if (imageUrl) linkData.image_url = imageUrl;
   }
 
+  const spec: MetaObjectStorySpec = {
+    page_id: creative.identity.pageId,
+    link_data: linkData,
+  };
+  const igId = creative.identity.instagramAccountId;
+  if (isValidIgActorId(igId)) {
+    spec.instagram_actor_id = igId;
+    console.log(`[buildLinkCreative] "${creative.name}": using IG actor ${igId}`);
+  } else if (igId) {
+    console.warn(`[buildLinkCreative] "${creative.name}": dropping invalid instagram_actor_id "${igId}"`);
+  }
+
   return {
     name: creative.name || "Ad Creative",
-    object_story_spec: {
-      page_id: creative.identity.pageId,
-      link_data: linkData,
-    },
+    object_story_spec: spec,
   };
 }
 
@@ -207,21 +236,34 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
   const caption = pickPrimaryCaption(creative);
   const cta = mapCTAToMeta(creative.cta);
 
+  const videoData: MetaVideoData = {
+    video_id: videoId,
+    message: caption,
+    call_to_action: {
+      type: cta,
+      value: { link: creative.destinationUrl },
+    },
+  };
+  // title is valid in video_data; description is NOT — omit it
+  if (creative.headline) {
+    videoData.title = creative.headline;
+  }
+
+  const spec: MetaObjectStorySpec = {
+    page_id: creative.identity.pageId,
+    video_data: videoData,
+  };
+  const igId = creative.identity.instagramAccountId;
+  if (isValidIgActorId(igId)) {
+    spec.instagram_actor_id = igId;
+    console.log(`[buildVideoCreative] "${creative.name}": using IG actor ${igId}`);
+  } else if (igId) {
+    console.warn(`[buildVideoCreative] "${creative.name}": dropping invalid instagram_actor_id "${igId}"`);
+  }
+
   return {
     name: creative.name || "Ad Creative",
-    object_story_spec: {
-      page_id: creative.identity.pageId,
-      video_data: {
-        video_id: videoId,
-        message: caption,
-        title: creative.headline || undefined,
-        description: creative.description || undefined,
-        call_to_action: {
-          type: cta,
-          value: { link: creative.destinationUrl },
-        },
-      },
-    },
+    object_story_spec: spec,
   };
 }
 
@@ -243,18 +285,54 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
  *
  * Per-type behaviour:
  *   "existing_post"         → object_story_id boost
- *   "new" + image           → object_story_spec with link_data (+ image_url if set)
- *   "new" + video           → UNSUPPORTED in Phase 5; caller receives an error string
+ *   "new" + video assets    → object_story_spec with video_data
+ *   "new" + image assets    → object_story_spec with link_data + image_hash
  *
- * Throws a string (not an Error) for unsupported cases so the caller can record
- * it as a failure without crashing the batch.
+ * IMPORTANT: we branch on the *actual uploaded asset IDs*, not on
+ * creative.mediaType.  That field reflects the UI selection at creation time
+ * but can become stale (e.g. a creative created as "video" whose slot was
+ * later filled with an image file, or vice-versa).  Trusting mediaType alone
+ * caused the "Unsupported video type 'image/jpeg'" error: buildVideoCreative
+ * was called for a creative whose only uploaded asset is an image (assetHash
+ * present, videoId absent), and the image hash was used where a video ID was
+ * expected.
+ *
+ * Resolution order:
+ *   1. Any asset in any variation has a videoId  → video creative path
+ *   2. Otherwise                                 → image/link creative path
  */
 export function buildCreativePayload(creative: AdCreativeDraft): MetaCreativePayload {
   if (creative.sourceType === "existing_post") {
     return buildExistingPostCreative(creative);
   }
 
-  if (creative.mediaType === "video") {
+  // Determine effective type from what was actually uploaded, not the draft flag.
+  const hasVideoId = (creative.assetVariations ?? []).some((v) =>
+    (v.assets ?? []).some((a) => !!a.videoId),
+  );
+  const hasImageHash = (creative.assetVariations ?? []).some((v) =>
+    (v.assets ?? []).some((a) => !!a.assetHash),
+  );
+
+  // If the draft says "video" but only image hashes are present, warn and fall
+  // through to the image path to prevent the "image/jpeg is not a valid video"
+  // error from Meta.
+  if (creative.mediaType === "video" && !hasVideoId && hasImageHash) {
+    console.warn(
+      `[buildCreativePayload] "${creative.name}": mediaType is "video" but no videoId ` +
+        "found — falling back to image creative path (assetHash present).",
+    );
+  }
+
+  // If the draft says "image" but a videoId was found, use the video path.
+  if (creative.mediaType === "image" && hasVideoId) {
+    console.warn(
+      `[buildCreativePayload] "${creative.name}": mediaType is "image" but videoId ` +
+        "found — using video creative path.",
+    );
+  }
+
+  if (hasVideoId) {
     return buildVideoCreative(creative);
   }
 

@@ -1,5 +1,21 @@
 import { createClient } from "@/lib/supabase/client";
-import type { CampaignDraft, CampaignTemplate } from "@/lib/types";
+import type { CampaignDraft, CampaignTemplate, CampaignSettings } from "@/lib/types";
+
+/**
+ * Strip account-specific identifiers from settings before saving as a template.
+ * Templates must be account-agnostic so they can be reused across accounts.
+ */
+function stripAccountIds(settings: CampaignSettings): CampaignSettings {
+  return {
+    ...settings,
+    adAccountId: "",
+    metaAdAccountId: undefined,
+    pixelId: undefined,
+    metaPixelId: undefined,
+    metaPageId: undefined,
+    metaIGAccountId: undefined,
+  };
+}
 
 function rowToTemplate(row: Record<string, unknown>): CampaignTemplate {
   return {
@@ -46,6 +62,8 @@ export async function saveTemplateToDb(
   const { id: _id, status: _s, createdAt: _ca, updatedAt: _ua, ...snapshot } = draft;
   const cleanSnapshot: CampaignTemplate["snapshot"] = {
     ...snapshot,
+    // Strip account/pixel/page IDs — templates are account-agnostic
+    settings: stripAccountIds(snapshot.settings),
     budgetSchedule: {
       ...snapshot.budgetSchedule,
       startDate: "",
@@ -67,7 +85,15 @@ export async function saveTemplateToDb(
     .single();
 
   if (error || !data) {
-    throw new Error(error?.message ?? "Failed to save template");
+    const msg = error?.message ?? "Failed to save template";
+    if (msg.includes("snapshot_json") && msg.includes("schema cache")) {
+      throw new Error(
+        "The campaign_templates table is missing the snapshot_json column. " +
+        "Run the migration in supabase/migrations/001_add_snapshot_json_to_templates.sql " +
+        "via the Supabase SQL Editor, then retry.",
+      );
+    }
+    throw new Error(msg);
   }
 
   return rowToTemplate(data as Record<string, unknown>);

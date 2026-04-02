@@ -13,9 +13,11 @@ import { suggestAgeRange } from "@/lib/interest-suggestions";
 interface AudiencesStepProps {
   audiences: AudienceSettings;
   onChange: (audiences: AudienceSettings) => void;
+  /** Meta ad account ID — used to auto-load Business Manager pages */
+  adAccountId?: string;
 }
 
-export function AudiencesStep({ audiences, onChange }: AudiencesStepProps) {
+export function AudiencesStep({ audiences, onChange, adAccountId }: AudiencesStepProps) {
   const [activeTab, setActiveTab] = useState<AudienceTab>("pages");
 
   const suggestedAge = useMemo(() => suggestAgeRange(audiences), [audiences]);
@@ -48,13 +50,21 @@ export function AudiencesStep({ audiences, onChange }: AudiencesStepProps) {
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as AudienceTab)} />
 
       <TabPanel active={activeTab === "pages"}>
-        <PageAudiencesPanel groups={audiences.pageGroups} onChange={(pageGroups) => onChange({ ...audiences, pageGroups })} />
+        <PageAudiencesPanel
+          groups={audiences.pageGroups}
+          onChange={(pageGroups) => onChange({ ...audiences, pageGroups })}
+          adAccountId={adAccountId}
+        />
       </TabPanel>
       <TabPanel active={activeTab === "custom"}>
-        <CustomAudiencesPanel groups={audiences.customAudienceGroups} onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })} />
+        <CustomAudiencesPanel groups={audiences.customAudienceGroups} onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })} adAccountId={adAccountId} />
       </TabPanel>
       <TabPanel active={activeTab === "saved"}>
-        <SavedAudiencesPanel selection={audiences.savedAudiences} onChange={(savedAudiences) => onChange({ ...audiences, savedAudiences })} />
+        <SavedAudiencesPanel
+          selection={audiences.savedAudiences}
+          onChange={(savedAudiences) => onChange({ ...audiences, savedAudiences })}
+          adAccountId={adAccountId}
+        />
       </TabPanel>
       <TabPanel active={activeTab === "interests"}>
         <InterestGroupsPanel

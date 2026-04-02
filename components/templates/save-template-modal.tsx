@@ -1,18 +1,20 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { X, Tag, Plus } from "lucide-react";
+import { X, Tag, Plus, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 interface SaveTemplateModalProps {
   open: boolean;
   saving?: boolean;
+  savedSuccessfully?: boolean;
+  error?: string | null;
   onClose: () => void;
   onSave: (name: string, description: string, tags: string[]) => void;
 }
 
-export function SaveTemplateModal({ open, saving = false, onClose, onSave }: SaveTemplateModalProps) {
+export function SaveTemplateModal({ open, saving = false, savedSuccessfully, error, onClose, onSave }: SaveTemplateModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -130,14 +132,32 @@ export function SaveTemplateModal({ open, saving = false, onClose, onSave }: Sav
           </div>
         </div>
 
+        {savedSuccessfully && (
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-success/40 bg-success/10 px-3 py-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+            <span className="text-sm text-success">Template saved!</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+            <span className="text-sm text-destructive">{error}</span>
+          </div>
+        )}
+
         <div className="mt-6 flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button
-            onClick={() => onSave(name.trim(), description.trim(), tags)}
-            disabled={!name.trim() || saving}
-          >
-            {saving ? "Saving…" : "Save Template"}
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
+            {savedSuccessfully ? "Close" : "Cancel"}
           </Button>
+          {!savedSuccessfully && (
+            <Button
+              onClick={() => onSave(name.trim(), description.trim(), tags)}
+              disabled={!name.trim() || saving}
+            >
+              {saving ? "Saving…" : "Save Template"}
+            </Button>
+          )}
         </div>
       </div>
     </div>

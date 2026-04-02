@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Internal tool for building Meta/Facebook ad campaigns for event marketing. A 6-step campaign creation wizard with Supabase auth and persistence.
+Internal tool for building Meta/Facebook ad campaigns for event marketing. An 8-step campaign creation wizard with Supabase auth/persistence and a Meta API integration layer.
 
 ## Commands
 
@@ -20,39 +20,60 @@ npm run lint     # ESLint
 
 **Tech stack:** Next.js 16 + React 19, Tailwind CSS v4, TypeScript strict, Supabase (`@supabase/ssr`), `lucide-react`
 
-**Wizard flow** — `components/wizard/wizard-shell.tsx` owns all state as a single `CampaignDraft` object:
+> See `docs/PROJECT_CONTEXT.md` for the full architecture reference.
 
-| Step | Component | Purpose |
-|------|-----------|---------|
-| 1 | `steps/account-setup.tsx` | Client, ad account, page, Instagram, pixel |
-| 2 | `steps/campaign-setup.tsx` | Objective, buying type, campaign name |
-| 3 | `steps/audiences/audiences-step.tsx` | 4-tab panel: Pages / Custom / Saved / Interests |
-| 4 | `steps/budget-schedule.tsx` | Budget, schedule, age, placements, optimisation |
-| 5 | `steps/creatives.tsx` | Multi-ad editor with asset variations + captions |
-| 6 | `steps/review-launch.tsx` | Validation summary + launch |
+### Routes
 
-**Key types:** `lib/types.ts` — `CampaignDraft` is the root state type containing `CampaignSettings`, `AudienceSettings`, `AdSetSettings`, and `AdCreativeDraft[]`.
+| Path | Purpose |
+|------|---------|
+| `/` | Campaign Library (Drafts / Published / Archived / Templates tabs) |
+| `/campaign/[id]` | Wizard for a single campaign UUID |
+| `/login` | Magic link, invite-only email allowlist |
+| `/auth/callback` | Supabase code exchange |
+| `/auth/logout` | Sign out |
 
-**Draft migration:** `lib/autosave.ts` exports `migrateDraft()` — called on every load (localStorage and Supabase) to handle schema evolution across versions.
+### Wizard (8 steps, indices 0–7)
 
-**Auth:** Supabase magic-link, invite-only. `proxy.ts` handles session refresh and route guarding. Public paths: `/login` and `/auth/*`. Supabase clients:
-- `lib/supabase/client.ts` — browser
-- `lib/supabase/server.ts` — server components / route handlers
-- `lib/supabase/proxy.ts` — middleware only
+Managed by `components/wizard/wizard-shell.tsx`, receives `draftId` from `/campaign/[id]`:
 
-**Persistence:** `lib/db/drafts.ts` — CRUD for `campaign_drafts` Supabase table (stores full draft as `draft_json` JSONB). `lib/db/templates.ts` — campaign templates.
+| # | Component | Purpose |
+|---|-----------|---------|
+| 0 | `steps/account-setup.tsx` | Client, ad account, pixel |
+| 1 | `steps/campaign-setup.tsx` | Code, name, objective, optimisation goal |
+| 2 | `steps/optimisation-strategy.tsx` | Benchmarks, rules, guardrails |
+| 3 | `steps/audiences/` | Page / Custom / Saved / Interest tabs |
+| 4 | `steps/creatives.tsx` | Asset modes, variations, captions |
+| 5 | `steps/budget-schedule.tsx` | Schedule, ad set suggestions |
+| 6 | `steps/assign-creatives.tsx` | Creative ↔ ad set matrix |
+| 7 | `steps/review-launch.tsx` | Summary + launch |
 
-**Campaign library:** `components/library/campaign-library.tsx` — list, duplicate, delete saved campaigns at `/campaigns`.
+### Key types (`lib/types.ts`)
 
-**Design system:** Warm editorial palette (`#F0C9A8` beige, `#1e1810` deep text), Bebas Neue headings. All tokens in `app/globals.css`. Tailwind v4 — no `tailwind.config.js`, configure via CSS.
+`CampaignDraft` is the root state: `settings`, `audiences`, `creatives`, `optimisationStrategy`, `budgetSchedule`, `adSetSuggestions`, `creativeAssignments`, `status`, `id`, timestamps. Status: `"draft" | "published" | "archived"`.
 
-## Environment variables
+### Persistence
+
+- **localStorage** — `lib/autosave.ts` (`saveDraftToStorage` / `loadDraftFromStorage`)
+- **Supabase** — `lib/db/drafts.ts` (CRUD on `campaign_drafts`), `lib/db/templates.ts`
+- `migrateDraft()` in `lib/autosave.ts` handles schema evolution on load
+
+### Meta API layer
+
+- `lib/meta/` — `client.ts`, `campaign.ts`, `adset.ts`, `creative.ts`, `upload.ts`
+- `app/api/meta/*` — route handlers for ad accounts, pages, audiences, pixels, campaign creation, ad sets, creatives, asset upload, launch
+- `lib/hooks/` — `useMeta`, `useCreateCampaign`, `useCreateAdSets`, `useCreateCreativesAndAds`, `useUploadAsset`, `useLaunchCampaign`
+
+### Auth
+
+`proxy.ts` (Next.js 16 middleware) calls `lib/supabase/proxy.ts` to refresh sessions and guard routes. Public paths in `lib/auth/public-routes.ts` (`/login`, `/auth/*`). Three Supabase clients: `lib/supabase/client.ts` (browser), `lib/supabase/server.ts` (server components/route handlers), `lib/supabase/proxy.ts` (middleware only).
+
+### Environment variables
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
-## Database
+### Database
 
-Schema: `supabase/schema.sql`. Main table: `campaign_drafts`.
+Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).

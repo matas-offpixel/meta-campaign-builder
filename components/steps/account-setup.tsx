@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels } from "@/lib/hooks/useMeta";
 
@@ -70,26 +71,63 @@ export function AccountSetup({ settings, onChange }: AccountSetupProps) {
   const accounts = useFetchAdAccounts();
   const pixels = useFetchPixels(settings.metaAdAccountId);
 
-  // Auto-select the first ad account once accounts have loaded, if none chosen
+  // After accounts load, validate and auto-select as appropriate
   useEffect(() => {
-    if (
-      !settings.metaAdAccountId &&
-      accounts.data.length === 1 &&
-      !accounts.loading
-    ) {
-      const only = accounts.data[0];
-      update({
-        adAccountId: only.id,
-        metaAdAccountId: only.id,
-      });
+    if (accounts.loading || accounts.data.length === 0) return;
+
+    const storedId = settings.metaAdAccountId || settings.adAccountId;
+
+    // Debug: log what the draft has vs. what Meta returns
+    console.log(
+      "[AccountSetup] Draft account:", storedId || "(none)",
+      "| Meta accounts loaded:", accounts.data.map((a) => a.id).join(", "),
+    );
+
+    const isStoredAccountValid = storedId
+      ? accounts.data.some((a) => a.id === storedId)
+      : false;
+
+    if (!isStoredAccountValid) {
+      if (accounts.data.length === 1) {
+        // Auto-select the only available account
+        const only = accounts.data[0];
+        console.log("[AccountSetup] Stale/missing account — auto-selecting:", only.id);
+        update({
+          adAccountId: only.id,
+          metaAdAccountId: only.id,
+          metaPixelId: undefined,
+          pixelId: undefined,
+        });
+      } else if (storedId) {
+        // Multiple accounts available but stored ID isn't among them — clear stale
+        console.warn("[AccountSetup] Stored account", storedId, "not found in Meta accounts — clearing.");
+        update({
+          adAccountId: "",
+          metaAdAccountId: undefined,
+          metaPixelId: undefined,
+          pixelId: undefined,
+        });
+      }
+      // If storedId is empty and there are multiple accounts, leave the user to choose
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts.data, accounts.loading]);
 
+  // ── Derived state ──────────────────────────────────────────────────────────
+
+  // True only once accounts have loaded and the stored ID isn't in the list
+  const storedId = settings.metaAdAccountId || settings.adAccountId;
+  const isStaleAccount =
+    !accounts.loading &&
+    accounts.data.length > 0 &&
+    !!storedId &&
+    !accounts.data.some((a) => a.id === storedId);
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   function handleAccountChange(id: string) {
-    // Clear downstream pixel selection when account changes
+    console.log("[AccountSetup] User selected account:", id);
+    // Keep both fields identical; clear downstream pixel selection
     update({
       adAccountId: id,
       metaAdAccountId: id,
@@ -131,6 +169,36 @@ export function AccountSetup({ settings, onChange }: AccountSetupProps) {
         <CardDescription>
           The Meta ad account this campaign will run under.
         </CardDescription>
+
+        {/* Stale-account warning — shown when the draft's saved account is no
+            longer accessible (e.g. loaded from an old draft or template) */}
+        {isStaleAccount && (
+          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning-foreground">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <div className="flex-1 space-y-1">
+              <p className="font-medium">Stale ad account</p>
+              <p className="text-xs text-muted-foreground">
+                This draft was saved with account{" "}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                  {storedId}
+                </code>{" "}
+                which is not accessible under your current Meta token. Please
+                select the correct account below.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-1.5"
+              onClick={() => handleAccountChange(accounts.data[0]?.id ?? "")}
+              disabled={accounts.data.length === 0}
+            >
+              <RefreshCw className="h-3 w-3" />
+              Use first available
+            </Button>
+          </div>
+        )}
+
         <div className="mt-3">
           <Select
             value={settings.metaAdAccountId ?? ""}
@@ -149,6 +217,12 @@ export function AccountSetup({ settings, onChange }: AccountSetupProps) {
             error={accounts.error}
             count={accounts.data.length}
           />
+          {/* Debug info — visible in development, low-key in prod */}
+          {settings.metaAdAccountId && (
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
+              {settings.metaAdAccountId}
+            </p>
+          )}
         </div>
       </Card>
 

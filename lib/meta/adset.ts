@@ -64,6 +64,29 @@ export interface MetaGeoLocations {
   regions?: { key: string }[];
 }
 
+/**
+ * London (GB) city + 40 km radius.
+ *
+ * Meta city key "2421178" = London, England, United Kingdom.
+ * Verified via GET /search?type=adgeolocation&q=London&location_types=city&country_code=GB
+ *
+ * We also include `name` and `country` for deterministic resolution —
+ * prevents Meta from mapping the key to the wrong city.
+ */
+export const GEO_LONDON_40KM: MetaGeoLocations = {
+  cities: [{ key: "2421178", radius: 40, distance_unit: "kilometer" }],
+};
+
+/** UK nationwide minus a London 40 km exclusion zone. */
+export const GEO_UK_EXCL_LONDON: MetaGeoLocations = {
+  countries: ["GB"],
+};
+
+/** Exclusion zone for UK-excl-London (used separately in excluded_geo_locations). */
+export const GEO_LONDON_40KM_EXCLUSION: MetaGeoLocations = {
+  cities: [{ key: "2421178", radius: 40, distance_unit: "kilometer" }],
+};
+
 export interface MetaInterest {
   id: string;
   name?: string;
@@ -74,14 +97,35 @@ export interface MetaCustomAudience {
 }
 
 export interface MetaTargeting {
-  age_min: number;
-  age_max: number;
+  /**
+   * Strict minimum age — only sent when Advantage+ is OFF.
+   * When Advantage+ is ON, age is passed as a suggestion via
+   * targeting_automation.individual_setting instead.
+   */
+  age_min?: number;
+  /**
+   * Strict maximum age — only sent when Advantage+ is OFF.
+   * Meta rejects values < 65 on Advantage+ ad sets.
+   */
+  age_max?: number;
   genders?: number[]; // 1 = male, 2 = female; omit for all
   geo_locations: MetaGeoLocations;
+  excluded_geo_locations?: MetaGeoLocations;
   interests?: MetaInterest[];
   custom_audiences?: MetaCustomAudience[];
   excluded_custom_audiences?: MetaCustomAudience[];
-  targeting_automation?: { advantage_audience: 0 | 1 };
+  targeting_automation?: {
+    advantage_audience: 0 | 1;
+    /**
+     * Age / gender *suggestions* for Advantage+ audience (advantage_audience: 1).
+     * Meta uses these as guidance but can expand beyond them.
+     * Do NOT combine with strict top-level age_min/age_max when this is set.
+     */
+    individual_setting?: {
+      age_min?: number;
+      age_max?: number;
+    };
+  };
 }
 
 export interface MetaPromotedObject {
@@ -100,10 +144,26 @@ export interface MetaAdSetPayload {
   lifetime_budget?: number;
   billing_event: string;
   optimization_goal: string;
+  /**
+   * Must always be set explicitly. Omitting it causes Meta to infer a default
+   * strategy that can require bid_amount or bid_constraints.
+   *
+   * LOWEST_COST_WITHOUT_CAP — autobid, no constraints required (default for this tool).
+   * LOWEST_COST_WITH_BID_CAP — requires bid_amount.
+   * COST_CAP — requires bid_amount.
+   * MINIMUM_ROAS — requires bid_constraints.roas_average_floor.
+   */
+  bid_strategy: string;
   targeting: MetaTargeting;
-  /** Unix timestamp */
-  start_time: number;
-  /** Unix timestamp (required for lifetime budget) */
+  /**
+   * Unix timestamp. Omit entirely when no explicit start date is chosen —
+   * do NOT send null or 0; Meta rejects those as "Invalid parameter".
+   */
+  start_time?: number;
+  /**
+   * Unix timestamp. Required only for lifetime_budget ad sets.
+   * Omit when not set.
+   */
   end_time?: number;
   status: "PAUSED" | "ACTIVE";
   promoted_object?: MetaPromotedObject;
@@ -176,17 +236,43 @@ export function buildMetaTargeting(
   adSet: AdSetSuggestion,
   audiences: AudienceSettings,
 ): MetaTargeting {
-  const targeting: MetaTargeting = {
-    age_min: adSet.ageMin,
-    age_max: adSet.ageMax,
-    // Default to all genders — the wizard does not yet collect gender targeting
-    genders: [1, 2],
-    // TODO Phase 5: wire location from AdSetSuggestion or BudgetScheduleSettings
-    geo_locations: { countries: ["GB"] },
-  };
+  // ── Advantage+ OFF: strict age enforcement ───────────────────────────────
+  // age_min / age_max at targeting root = hard limits Meta enforces.
+  // advantage_audience: 0 must be explicit (Meta rejects omission).
+  //
+  // ── Advantage+ ON: suggested age ─────────────────────────────────────────
+  // Do NOT send top-level age_min / age_max — Meta rejects values < 65 on
+  // Advantage+ ad sets ("strict age_max below 65 not allowed").
+  // Instead, pass the user's chosen range as individual_setting inside
+  // targeting_automation; Meta treats these as audience *suggestions* and
+  // may expand beyond them.
+  // Resolve geo: per-ad-set override → default GB
+  const rawGeo = adSet.geoLocations;
+  const geoLocations: MetaGeoLocations = rawGeo
+    ? { countries: rawGeo.countries, cities: rawGeo.cities, regions: rawGeo.regions }
+    : { countries: ["GB"] };
 
-  if (adSet.advantagePlus) {
-    targeting.targeting_automation = { advantage_audience: 1 };
+  const targeting: MetaTargeting = adSet.advantagePlus
+    ? {
+        geo_locations: geoLocations,
+        targeting_automation: {
+          advantage_audience: 1,
+          individual_setting: {
+            age_min: adSet.ageMin,
+            age_max: adSet.ageMax,
+          },
+        },
+      }
+    : {
+        age_min: adSet.ageMin,
+        age_max: adSet.ageMax,
+        geo_locations: geoLocations,
+        targeting_automation: { advantage_audience: 0 },
+      };
+
+  // Handle excluded_geo_locations (e.g. UK excl London)
+  if (rawGeo?.excluded_geo_locations) {
+    targeting.excluded_geo_locations = rawGeo.excluded_geo_locations;
   }
 
   switch (adSet.sourceType) {
@@ -196,7 +282,15 @@ export function buildMetaTargeting(
         const realInterests = group.interests
           .filter((i) => isRealMetaId(i.id))
           .map((i) => ({ id: i.id, name: i.name }));
-        if (realInterests.length > 0) targeting.interests = realInterests;
+        if (realInterests.length > 0) {
+          targeting.interests = realInterests;
+          console.log(`[buildMetaTargeting] interest_group "${group.name}": ` +
+            `${realInterests.length} interests → ${realInterests.map(i => `${i.name}(${i.id})`).join(", ")}`);
+        } else {
+          const dropped = group.interests.length - realInterests.length;
+          console.warn(`[buildMetaTargeting] interest_group "${group.name}": ` +
+            `all ${dropped} interests had non-Meta IDs and were dropped — ad set will use broad targeting`);
+        }
       }
       break;
     }
@@ -213,12 +307,40 @@ export function buildMetaTargeting(
     }
 
     case "page_group": {
-      // Page groups may carry additional custom audience IDs for warm targeting
       const group = audiences.pageGroups.find((g) => g.id === adSet.sourceId);
       if (group) {
-        const realIds = group.customAudienceIds.filter(isRealMetaId);
-        if (realIds.length > 0) {
-          targeting.custom_audiences = realIds.map((id) => ({ id }));
+        // Merge user-selected custom audiences + auto-generated engagement audiences
+        const userIds = group.customAudienceIds.filter(isRealMetaId);
+        const engagementIds = (group.engagementAudienceIds ?? []).filter(isRealMetaId);
+        const allIds = Array.from(new Set([...userIds, ...engagementIds]));
+
+        if (allIds.length > 0) {
+          targeting.custom_audiences = allIds.map((id) => ({ id }));
+          console.log(`[buildMetaTargeting] page_group "${group.name}": ` +
+            `custom_audiences → ${allIds.join(", ")} (${userIds.length} user-selected, ${engagementIds.length} engagement)`);
+        } else {
+          console.log(`[buildMetaTargeting] page_group "${group.name}": ` +
+            `no custom audience IDs attached — ad set will use broad targeting only`);
+        }
+      }
+      break;
+    }
+
+    case "lookalike_group": {
+      const group = audiences.pageGroups.find((g) => g.id === adSet.sourceId);
+      if (group) {
+        const lalIds = (group.lookalikeAudienceIds ?? []).filter(isRealMetaId);
+        if (lalIds.length > 0) {
+          targeting.custom_audiences = lalIds.map((id) => ({ id }));
+          console.log(`[buildMetaTargeting] lookalike_group "${group.name}": ` +
+            `custom_audiences → ${lalIds.join(", ")}`);
+        } else {
+          // No lookalike IDs means creation failed — caller should have
+          // skipped this ad set, but throw defensively to prevent phantom ad sets.
+          throw new Error(
+            `Cannot build targeting for lookalike_group "${group.name}": ` +
+            `no lookalike audience IDs available (audience creation likely failed)`,
+          );
         }
       }
       break;
@@ -264,6 +386,73 @@ export function buildPromotedObject(
   };
 }
 
+// ─── Objective / goal compatibility ──────────────────────────────────────────
+
+/**
+ * Valid internal optimisation goals per campaign objective.
+ *
+ * A campaign created as OUTCOME_TRAFFIC only accepts ad sets whose
+ * optimization_goal is compatible with that objective. Sending
+ * OFFSITE_CONVERSIONS under OUTCOME_TRAFFIC (a common stale-draft mistake)
+ * triggers Meta error code 100 "Invalid parameter" on every ad set.
+ */
+const VALID_GOALS_BY_OBJECTIVE: Record<CampaignObjective, OptimisationGoal[]> = {
+  traffic:      ["landing_page_views", "link_clicks", "reach", "impressions"],
+  purchase:     ["conversions", "value"],
+  registration: ["conversions", "complete_registration"],
+  awareness:    ["reach", "impressions", "video_views"],
+  engagement:   ["post_engagement", "video_views"],
+};
+
+const DEFAULT_GOAL_BY_OBJECTIVE: Record<CampaignObjective, OptimisationGoal> = {
+  traffic:      "landing_page_views",
+  purchase:     "conversions",
+  registration: "conversions",
+  awareness:    "reach",
+  engagement:   "post_engagement",
+};
+
+/**
+ * Return the effective optimisation goal, correcting any incompatibility
+ * between the stored draft value and the campaign objective.
+ *
+ * ROOT CAUSE GUARD: The CampaignSetup step resets optimisationGoal when the
+ * user changes objective, but only while that React component is mounted. A
+ * draft loaded from Supabase / localStorage may carry a stale value such as
+ * objective: "traffic" + optimisationGoal: "conversions". Sending
+ * optimization_goal: "OFFSITE_CONVERSIONS" under OUTCOME_TRAFFIC causes Meta
+ * to reject every ad set with "Invalid parameter" (code 100).
+ */
+export function resolveOptimisationGoal(
+  goal: OptimisationGoal,
+  objective: CampaignObjective,
+): OptimisationGoal {
+  const valid = VALID_GOALS_BY_OBJECTIVE[objective] ?? [];
+  if (!valid.includes(goal)) {
+    const fallback = DEFAULT_GOAL_BY_OBJECTIVE[objective] ?? "landing_page_views";
+    console.warn(
+      `[resolveOptimisationGoal] goal "${goal}" is incompatible with objective ` +
+      `"${objective}" — correcting to "${fallback}".`,
+    );
+    return fallback;
+  }
+  return goal;
+}
+
+// ─── Bid strategy mapping ─────────────────────────────────────────────────────
+
+/**
+ * Returns the correct bid strategy for a given optimisation goal.
+ *
+ * We always use LOWEST_COST_WITHOUT_CAP for this tool's launch flow.
+ * It requires no bid_amount, bid_constraints, or ROAS floor — just a daily
+ * budget. The field MUST be present; omitting it causes Meta to infer a
+ * strategy that may require constraints (code 100 "Invalid parameter").
+ */
+export function mapBidStrategy(_goal: OptimisationGoal): string {
+  return "LOWEST_COST_WITHOUT_CAP";
+}
+
 // ─── Full payload builder ─────────────────────────────────────────────────────
 
 export function buildAdSetPayload(
@@ -275,27 +464,61 @@ export function buildAdSetPayload(
   objective: CampaignObjective,
   pixelId?: string,
 ): MetaAdSetPayload {
-  const dailyBudgetCents = Math.round(adSet.budgetPerDay * 100);
+  // Resolve the effective goal BEFORE mapping — corrects stale draft values
+  // that are incompatible with the campaign objective (see resolveOptimisationGoal).
+  const effectiveGoal = resolveOptimisationGoal(optimisationGoal, objective);
+
+  // daily_budget must be in the smallest currency unit (pence / cents).
+  // budgetPerDay is stored in the major currency unit (£/€/$), so multiply by 100.
+  // Math.round prevents floating-point noise (e.g. £2.50 → 250, not 249.99999).
+  const dailyBudgetMinorUnits = Math.round(adSet.budgetPerDay * 100);
 
   const payload: MetaAdSetPayload = {
     name: adSet.name,
     campaign_id: campaignId,
-    daily_budget: dailyBudgetCents,
-    billing_event: mapBillingEvent(optimisationGoal),
-    optimization_goal: mapOptimisationGoal(optimisationGoal),
+    daily_budget: dailyBudgetMinorUnits,
+    billing_event: mapBillingEvent(effectiveGoal),
+    optimization_goal: mapOptimisationGoal(effectiveGoal),
+    // Always explicit — omitting causes Meta to pick a default that may require
+    // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
+    bid_strategy: mapBidStrategy(effectiveGoal),
     targeting: buildMetaTargeting(adSet, audiences),
-    start_time: budgetSchedule.startDate
-      ? toUnixTs(budgetSchedule.startDate)
-      : Math.floor(Date.now() / 1000) + 60, // default: 1 minute from now
     status: "PAUSED",
+    // start_time and end_time are added below only when explicitly set —
+    // sending null / 0 is rejected by Meta as "Invalid parameter".
   };
+
+  if (budgetSchedule.startDate) {
+    payload.start_time = toUnixTs(budgetSchedule.startDate);
+  }
 
   if (budgetSchedule.endDate) {
     payload.end_time = toUnixTs(budgetSchedule.endDate);
   }
 
-  const promotedObject = buildPromotedObject(optimisationGoal, objective, pixelId);
+  const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);
   if (promotedObject) payload.promoted_object = promotedObject;
+
+  if (optimisationGoal !== effectiveGoal) {
+    console.warn(
+      `[buildAdSetPayload] "${adSet.name}" — draft had optimisationGoal="${optimisationGoal}", ` +
+      `corrected to "${effectiveGoal}" for objective="${objective}"`,
+    );
+  }
+
+  const ageMode = adSet.advantagePlus ? "suggested (Advantage+)" : "strict";
+  console.log(
+    `[buildAdSetPayload] "${adSet.name}"`,
+    `\n  objective: ${objective}`,
+    `\n  optimisationGoal (draft): ${optimisationGoal} → (effective): ${effectiveGoal}`,
+    `\n  optimization_goal: ${payload.optimization_goal}`,
+    `\n  billing_event:     ${payload.billing_event}`,
+    `\n  bid_strategy:      ${payload.bid_strategy}`,
+    `\n  daily_budget:      ${payload.daily_budget} minor units (= ${adSet.budgetPerDay} major)`,
+    `\n  age mode:          ${ageMode} (${adSet.ageMin}–${adSet.ageMax})`,
+    `\n  location:          ${adSet.locationLabel ?? "default GB"}`,
+    `\n  Full payload: ${JSON.stringify(payload, null, 2)}`,
+  );
 
   return payload;
 }
@@ -324,4 +547,272 @@ export function validateAdSetPayloads(adSets: AdSetSuggestion[]): {
   });
 
   return { isValid: errors.length === 0, errors };
+}
+
+// ─── Deprecated Interest Replacement ──────────────────────────────────────────
+
+export interface InterestReplacement {
+  deprecatedId: string;
+  deprecatedName: string;
+  alternativeId: string | null;
+  alternativeName: string | null;
+}
+
+/**
+ * Extract deprecated interest replacement info from a Meta API error.
+ * Meta may include deprecated/alternative info in error_data, error_user_msg,
+ * or the main error message in various formats.
+ */
+export function extractDeprecatedReplacements(
+  rawErrorData?: Record<string, unknown>,
+  errorMessage?: string,
+): InterestReplacement[] {
+  const replacements: InterestReplacement[] = [];
+  if (!rawErrorData && !errorMessage) return replacements;
+
+  const addUnique = (r: InterestReplacement) => {
+    if (!replacements.some((x) => x.deprecatedId === r.deprecatedId)) {
+      replacements.push(r);
+    }
+  };
+
+  // 1. Structured error_data (preferred)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const errorData = rawErrorData?.error_data as any;
+  if (errorData) {
+    const items = Array.isArray(errorData) ? errorData : [errorData];
+    for (const item of items) {
+      if (item.deprecated_interest_id) {
+        addUnique({
+          deprecatedId: String(item.deprecated_interest_id),
+          deprecatedName: String(item.deprecated_interest_name ?? ""),
+          alternativeId: item.alternative_interest_id ? String(item.alternative_interest_id) : null,
+          alternativeName: item.alternative_interest_name ? String(item.alternative_interest_name) : null,
+        });
+      }
+    }
+  }
+
+  // 2. Parse all available text fields for patterns
+  const texts = [
+    errorMessage,
+    rawErrorData?.message as string,
+    rawErrorData?.error_user_msg as string,
+    rawErrorData?.error_user_title as string,
+  ].filter(Boolean).join(" ");
+
+  // Pattern: "Interest ID 12345 (Foo) is deprecated. Use 67890 (Bar) instead."
+  const p1 = /(?:interest|targeting)\s+(?:ID\s+)?(\d+)\s*\(([^)]+)\)\s*(?:is\s+)?deprecated[^.]*?(?:(?:use|replace\s+with|alternative)\s+(?:ID\s+)?(\d+)\s*\(([^)]+)\))?/gi;
+  let m;
+  while ((m = p1.exec(texts)) !== null) {
+    addUnique({
+      deprecatedId: m[1],
+      deprecatedName: m[2] ?? "",
+      alternativeId: m[3] ?? null,
+      alternativeName: m[4] ?? null,
+    });
+  }
+
+  // Pattern: "'Foo' (ID: 12345) is no longer available" or "no longer valid"
+  const p2 = /['"]([^'"]+)['"]\s*\((?:ID:\s*)?(\d+)\)\s*(?:is\s+)?(?:no longer (?:available|valid)|deprecated|removed)/gi;
+  while ((m = p2.exec(texts)) !== null) {
+    addUnique({
+      deprecatedId: m[2],
+      deprecatedName: m[1] ?? "",
+      alternativeId: null,
+      alternativeName: null,
+    });
+  }
+
+  // Pattern: "Invalid interest ID: 12345" or "interest 12345 is invalid"
+  const p3 = /(?:invalid\s+interest\s+(?:ID:?\s*)?|interest\s+)(\d{5,})\b/gi;
+  while ((m = p3.exec(texts)) !== null) {
+    addUnique({
+      deprecatedId: m[1],
+      deprecatedName: "",
+      alternativeId: null,
+      alternativeName: null,
+    });
+  }
+
+  return replacements;
+}
+
+// ─── Known-deprecated interest overrides ──────────────────────────────────
+//
+// These are applied BEFORE the Meta API validation pass.
+// "replaceName: null" means the interest should be removed entirely.
+// "replaceName: string" means search Meta for that term and use the result.
+//
+const HARDCODED_DEPRECATED_INTERESTS: Array<{
+  matchName: string;        // normalised lowercase match
+  replaceName: string | null;
+}> = [
+  // Deprecated genre label — replace with the canonical EDM interest
+  { matchName: "hardcore (electronic dance music genre)", replaceName: "Electronic dance music" },
+  // Deprecated geo-cultural interest — no sensible targeting alternative
+  { matchName: "mumbai indian culture", replaceName: null },
+];
+
+function hardcodedOverride(
+  interest: { id: string; name: string },
+): { action: "keep" } | { action: "replace"; searchName: string } | { action: "remove" } {
+  const norm = interest.name.toLowerCase().trim();
+  for (const entry of HARDCODED_DEPRECATED_INTERESTS) {
+    if (norm === entry.matchName) {
+      return entry.replaceName === null
+        ? { action: "remove" }
+        : { action: "replace", searchName: entry.replaceName };
+    }
+  }
+  return { action: "keep" };
+}
+
+/**
+ * Pre-launch validation: check each interest ID against Meta's targeting
+ * validation endpoint. Returns only interests that are still valid, plus
+ * a list of removed ones for logging.
+ *
+ * Hardcoded overrides are applied first, then API-based validation runs on
+ * the remainder. The returned `valid` list is what must be sent to Meta.
+ */
+export async function sanitiseInterests(
+  interests: { id: string; name: string }[],
+): Promise<{
+  valid: { id: string; name: string }[];
+  removed: { id: string; name: string; reason: string }[];
+}> {
+  const token = process.env.META_ACCESS_TOKEN;
+  if (!token || interests.length === 0) {
+    return { valid: interests, removed: [] };
+  }
+
+  const apiVersion = process.env.META_API_VERSION ?? "v21.0";
+  const valid: { id: string; name: string }[] = [];
+  const removed: { id: string; name: string; reason: string }[] = [];
+
+  // Helper: search Meta for a single interest by name, return the best match
+  async function searchMeta(name: string): Promise<{ id: string; name: string } | null> {
+    try {
+      const url = new URL(`https://graph.facebook.com/${apiVersion}/search`);
+      url.searchParams.set("access_token", token!);
+      url.searchParams.set("type", "adinterest");
+      url.searchParams.set("q", name);
+      url.searchParams.set("limit", "10");
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const json = (await res.json()) as { data?: Array<{ id: string; name: string }> };
+      return json.data?.[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Step 1: Apply hardcoded overrides before hitting the API ─────────────
+
+  const toValidate: { id: string; name: string }[] = [];
+
+  for (const interest of interests) {
+    const override = hardcodedOverride(interest);
+
+    if (override.action === "remove") {
+      console.log(`[sanitiseInterests] HARDCODED remove "${interest.name}" (${interest.id})`);
+      removed.push({ id: interest.id, name: interest.name, reason: "Hardcoded removal — deprecated, no sensible replacement" });
+      continue;
+    }
+
+    if (override.action === "replace") {
+      console.log(`[sanitiseInterests] HARDCODED replace "${interest.name}" → search for "${override.searchName}"`);
+      const found = await searchMeta(override.searchName);
+      if (found) {
+        console.log(`[sanitiseInterests] HARDCODED resolved "${override.searchName}" → (${found.id})`);
+        valid.push({ id: found.id, name: found.name });
+        removed.push({ id: interest.id, name: interest.name, reason: `Hardcoded replacement: ${found.name} (${found.id})` });
+      } else {
+        console.log(`[sanitiseInterests] HARDCODED "${override.searchName}" not found — removing "${interest.name}"`);
+        removed.push({ id: interest.id, name: interest.name, reason: `Hardcoded removal — replacement "${override.searchName}" not found` });
+      }
+      continue;
+    }
+
+    toValidate.push(interest);
+  }
+
+  // ── Step 2: API-based validation for the remainder ───────────────────────
+
+  for (const interest of toValidate) {
+    try {
+      const url = new URL(`https://graph.facebook.com/${apiVersion}/search`);
+      url.searchParams.set("access_token", token);
+      url.searchParams.set("type", "adinterest");
+      url.searchParams.set("q", interest.name);
+      url.searchParams.set("limit", "50");
+
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const json = (await res.json()) as { data?: Array<{ id: string; name: string }> };
+
+      const found = json.data?.some((item) => item.id === interest.id);
+      if (found) {
+        valid.push(interest);
+      } else {
+        // ID not in results — try a same-name replacement
+        const replacement = json.data?.find(
+          (item) => item.name.toLowerCase() === interest.name.toLowerCase(),
+        );
+        if (replacement) {
+          console.log(
+            `[sanitiseInterests] "${interest.name}" (${interest.id}) replaced with (${replacement.id})`,
+          );
+          valid.push({ id: replacement.id, name: replacement.name });
+          removed.push({
+            id: interest.id,
+            name: interest.name,
+            reason: `Replaced with ${replacement.name} (${replacement.id})`,
+          });
+        } else {
+          console.log(
+            `[sanitiseInterests] "${interest.name}" (${interest.id}) not found — removing`,
+          );
+          removed.push({ id: interest.id, name: interest.name, reason: "Not found in Meta interest search" });
+        }
+      }
+    } catch (err) {
+      // Network error — keep the interest and let Meta reject it if invalid
+      console.warn(`[sanitiseInterests] Could not validate "${interest.name}":`, err);
+      valid.push(interest);
+    }
+  }
+
+  return { valid, removed };
+}
+
+/**
+ * Apply interest replacements to an ad set payload's targeting spec.
+ * Returns a new payload with deprecated interests swapped for alternatives (or removed).
+ */
+export function applyInterestReplacements(
+  payload: MetaAdSetPayload,
+  replacements: InterestReplacement[],
+): MetaAdSetPayload {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const targeting = { ...payload.targeting } as any;
+  const interests: { id: string; name: string }[] = targeting.interests ?? [];
+  if (interests.length === 0) return payload;
+
+  const depMap = new Map(replacements.map((r) => [r.deprecatedId, r]));
+  const newInterests: { id: string; name: string }[] = [];
+
+  for (const interest of interests) {
+    const rep = depMap.get(interest.id);
+    if (rep) {
+      if (rep.alternativeId) {
+        newInterests.push({ id: rep.alternativeId, name: rep.alternativeName ?? interest.name });
+      }
+      // If no alternative, the interest is just removed
+    } else {
+      newInterests.push(interest);
+    }
+  }
+
+  targeting.interests = newInterests.length > 0 ? newInterests : undefined;
+  return { ...payload, targeting };
 }

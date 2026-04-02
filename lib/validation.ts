@@ -62,37 +62,64 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
+function isValidUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function validateCreatives(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
   if (draft.creatives.length === 0) {
-    errors.push("At least one ad is required");
+    errors.push("Add at least one ad");
+    return { valid: false, errors };
   }
+
   draft.creatives.forEach((c, i) => {
-    const label = `Ad #${i + 1}`;
+    const label = c.name?.trim() ? `"${c.name}"` : `Ad #${i + 1}`;
     if (!c.identity?.pageId) errors.push(`${label}: Facebook page is required`);
 
     const sourceType = c.sourceType ?? "new";
+
     if (sourceType === "new") {
+      // Caption / primary text
       const captions = c.captions ?? [];
       const hasCaption = captions.some((cap) => cap.text?.trim());
-      if (!hasCaption) errors.push(`${label}: At least one caption is required`);
-      if (!c.destinationUrl?.trim()) errors.push(`${label}: Destination URL is required`);
+      if (!hasCaption) errors.push(`${label}: Primary text (caption) is required`);
 
+      // Destination URL — must be present and look like a URL
+      const url = c.destinationUrl?.trim() ?? "";
+      if (!url) {
+        errors.push(`${label}: Destination URL is required`);
+      } else if (!isValidUrl(url)) {
+        errors.push(`${label}: Destination URL must start with https:// (got "${url.slice(0, 40)}")`);
+      }
+
+      // CTA
+      if (!c.cta) errors.push(`${label}: Call to action is required`);
+
+      // Asset variations
       const variations = c.assetVariations ?? [];
       if (variations.length === 0) {
         errors.push(`${label}: At least one asset variation is required`);
       } else {
         for (const v of variations) {
           const slots = v.assets ?? [];
+          const varLabel = v.name?.trim() ? `"${v.name}"` : "Variation";
           if (slots.length === 0) {
-            errors.push(`${label} "${v.name || "Variation"}": No asset slots found`);
+            errors.push(`${label} › ${varLabel}: No asset slots defined`);
           } else {
-            const notUploaded = slots.filter((a) => a.uploadStatus !== "uploaded");
-            if (notUploaded.length > 0) {
-              errors.push(
-                `${label} "${v.name || "Variation"}": ` +
-                  `${notUploaded.length} of ${slots.length} asset slot(s) not yet uploaded`,
-              );
+            for (const slot of slots) {
+              if (slot.uploadStatus === "pending") {
+                errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Asset not yet uploaded`);
+              } else if (slot.uploadStatus === "uploading") {
+                errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload still in progress`);
+              } else if (slot.uploadStatus === "error") {
+                errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload failed — retry or remove`);
+              }
             }
           }
         }
@@ -103,6 +130,7 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
       if (!c.existingPost?.postId) errors.push(`${label}: Select an existing post`);
     }
   });
+
   return { valid: errors.length === 0, errors };
 }
 

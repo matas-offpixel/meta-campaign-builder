@@ -33,11 +33,9 @@ import { validateStep } from "@/lib/validation";
 import { saveDraftToStorage, loadDraftFromStorage } from "@/lib/autosave";
 import { applyTemplate } from "@/lib/templates";
 import { createClient } from "@/lib/supabase/client";
-import { loadDraftById, saveDraftToDb, publishCampaign } from "@/lib/db/drafts";
+import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
-import { useCreateCampaign } from "@/lib/hooks/useCreateCampaign";
-import { useCreateAdSets } from "@/lib/hooks/useCreateAdSets";
-import { useCreateCreativesAndAds } from "@/lib/hooks/useCreateCreativesAndAds";
+import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 
 interface WizardShellProps {
   draftId: string;
@@ -56,16 +54,15 @@ export function WizardShell({ draftId }: WizardShellProps) {
   const userIdRef = useRef<string | null>(null);
 
   // Launch state
-  const { mutate: createCampaign, loading: launchingCampaign, error: launchError, resetError: dismissLaunchError } = useCreateCampaign();
-  const { mutate: createAdSets, loading: launchingAdSets } = useCreateAdSets();
-  const { mutate: createCreativesAndAds, loading: launchingCreatives } = useCreateCreativesAndAds();
-  const launching = launchingCampaign || launchingAdSets || launchingCreatives;
+  const { mutate: launchCampaign, loading: launching, error: launchError, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
 
   // Template state
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
@@ -86,10 +83,16 @@ export function WizardShell({ draftId }: WizardShellProps) {
         // Load specific draft by ID from Supabase
         const remoteDraft = await loadDraftById(draftId);
         if (remoteDraft) {
+          console.log(
+            "[WizardShell] Loaded draft", draftId,
+            "| adAccountId:", remoteDraft.settings.adAccountId || "(empty)",
+            "| metaAdAccountId:", remoteDraft.settings.metaAdAccountId || "(empty)",
+          );
           setDraft(remoteDraft);
           saveDraftToStorage(remoteDraft);
         } else {
           // New campaign — create a fresh draft with this ID
+          console.log("[WizardShell] No draft found — creating fresh draft", draftId);
           const fresh = createDefaultDraft();
           fresh.id = draftId;
           setDraft(fresh);
@@ -214,133 +217,39 @@ export function WizardShell({ draftId }: WizardShellProps) {
       return;
     }
 
-    const adAccountId =
-      draft.settings.metaAdAccountId || draft.settings.adAccountId;
-
+    const adAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId;
+    console.log(
+      "[WizardShell] handleLaunch — metaAdAccountId:", draft.settings.metaAdAccountId || "(empty)",
+      "| adAccountId:", draft.settings.adAccountId || "(empty)",
+      "| resolved:", adAccountId || "(NONE — will abort)",
+    );
     if (!adAccountId) {
       alert("No ad account selected. Go back to Account Setup.");
       return;
     }
 
-    // ── Phase 1: Create the campaign ────────────────────────────────────────
-    let metaCampaignId: string;
     try {
-      const campaignResult = await createCampaign({
-        metaAdAccountId: adAccountId,
-        name: draft.settings.campaignName,
-        objective: draft.settings.objective,
-        status: "PAUSED",
-      });
-      metaCampaignId = campaignResult.metaCampaignId;
+      // Single server-side call — runs all 4 phases and saves to Supabase
+      const result = await launchCampaign(draft);
+
+      // Store launch summary on the draft without overwriting editable fields.
+      // adSetSuggestions and creatives are left intact so re-launches start
+      // from a clean state without stale metaAdSetId / metaCreativeId values.
+      const published: CampaignDraft = {
+        ...draft,
+        metaCampaignId: result.metaCampaignId,
+        launchSummary: result,
+        status: "published",
+        updatedAt: new Date().toISOString(),
+      };
+
+      setDraft(published);
+      setLaunchSummary(result);
+      saveDraftToStorage(published);
+      // Supabase persistence is handled by the server route — no client-side save needed
     } catch {
-      // Error captured in hook's launchError — ReviewLaunch shows the modal
-      return;
+      // Error is captured in launchError from the hook — ReviewLaunch renders the error modal
     }
-
-    // ── Phase 2: Create ad sets (non-fatal — campaign is already live) ──────
-    const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
-    let adSetsCreated: LaunchSummary["adSetsCreated"] = [];
-    let adSetsFailed: LaunchSummary["adSetsFailed"] = [];
-
-    if (enabledSets.length > 0) {
-      try {
-        const adSetResult = await createAdSets({
-          metaAdAccountId: adAccountId,
-          metaCampaignId,
-          optimisationGoal: draft.settings.optimisationGoal,
-          objective: draft.settings.objective,
-          pixelId: draft.settings.metaPixelId || draft.settings.pixelId || undefined,
-          budgetSchedule: draft.budgetSchedule,
-          audiences: draft.audiences,
-          adSetSuggestions: enabledSets,
-        });
-        adSetsCreated = adSetResult.created;
-        adSetsFailed = adSetResult.failed;
-      } catch {
-        adSetsFailed = enabledSets.map((s) => ({
-          name: s.name,
-          error: "Request failed",
-        }));
-      }
-    }
-
-    // ── Merge metaAdSetIds back into suggestions ─────────────────────────────
-    const updatedSuggestions = draft.adSetSuggestions.map((s) => {
-      const match = adSetsCreated.find((c) => c.name === s.name);
-      return match ? { ...s, metaAdSetId: match.metaAdSetId } : s;
-    });
-
-    // ── Phase 3: Create creatives + ads (non-fatal) ───────────────────────────
-    let creativesCreated: LaunchSummary["creativesCreated"] = [];
-    let creativesFailed: LaunchSummary["creativesFailed"] = [];
-    let updatedCreatives = draft.creatives;
-
-    if (draft.creatives.length > 0) {
-      try {
-        const creativesResult = await createCreativesAndAds({
-          metaAdAccountId: adAccountId,
-          creatives: draft.creatives,
-          assignments: draft.creativeAssignments,
-          adSetSuggestions: updatedSuggestions,
-        });
-
-        creativesCreated = creativesResult.created.map((c) => ({
-          name: c.name,
-          metaCreativeId: c.metaCreativeId,
-          ads: c.ads,
-          adsFailed: c.adsFailed,
-        }));
-        creativesFailed = creativesResult.failed.map((c) => ({
-          name: c.name,
-          error: c.error,
-        }));
-
-        // Merge metaCreativeIds back into draft.creatives
-        updatedCreatives = draft.creatives.map((c) => {
-          const match = creativesResult.created.find((r) => r.internalId === c.id);
-          return match ? { ...c, metaCreativeId: match.metaCreativeId } : c;
-        });
-      } catch {
-        creativesFailed = draft.creatives.map((c) => ({
-          name: c.name,
-          error: "Request failed",
-        }));
-      }
-    }
-
-    // ── Aggregate summary ────────────────────────────────────────────────────
-    const adsCreated = creativesCreated.reduce((sum, c) => sum + c.ads.length, 0);
-    const adsFailed = creativesCreated.reduce((sum, c) => sum + c.adsFailed.length, 0);
-
-    const summary: LaunchSummary = {
-      metaCampaignId,
-      adSetsCreated,
-      adSetsFailed,
-      creativesCreated,
-      creativesFailed,
-      adsCreated,
-      adsFailed,
-    };
-
-    // ── Persist ──────────────────────────────────────────────────────────────
-    const published: CampaignDraft = {
-      ...draft,
-      adSetSuggestions: updatedSuggestions,
-      creatives: updatedCreatives,
-      metaCampaignId,
-      launchSummary: summary,
-      status: "published",
-      updatedAt: new Date().toISOString(),
-    };
-
-    setDraft(published);
-    setLaunchSummary(summary);
-    saveDraftToStorage(published);
-
-    if (userIdRef.current) {
-      await publishCampaign(published, metaCampaignId, userIdRef.current);
-    }
-    // Don't auto-redirect — ReviewLaunch shows the summary and has a "Go to Library" CTA
   };
 
   const handleBackToLibrary = () => {
@@ -352,11 +261,15 @@ export function WizardShell({ draftId }: WizardShellProps) {
   const handleSaveTemplate = async (name: string, description: string, tags: string[]) => {
     if (!userId) return;
     setTemplateSaving(true);
+    setTemplateSaveError(null);
+    setTemplateSaveSuccess(false);
     try {
       await saveTemplateToDb(draft, name, description, tags, userId);
-      setSaveTemplateOpen(false);
+      setTemplateSaveSuccess(true);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error saving template";
       console.error("Failed to save template:", err);
+      setTemplateSaveError(msg);
     } finally {
       setTemplateSaving(false);
     }
@@ -468,7 +381,13 @@ export function WizardShell({ draftId }: WizardShellProps) {
             onChange={updateOptimisationStrategy}
           />
         )}
-        {step === 3 && <AudiencesStep audiences={draft.audiences} onChange={updateAudiences} />}
+        {step === 3 && (
+          <AudiencesStep
+            audiences={draft.audiences}
+            onChange={updateAudiences}
+            adAccountId={draft.settings.metaAdAccountId}
+          />
+        )}
         {step === 4 && (
           <Creatives
             creatives={draft.creatives}
@@ -496,6 +415,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
         {step === 7 && (
           <ReviewLaunch
             draft={draft}
+            isLaunching={launching}
             launchError={launchError}
             onDismissLaunchError={dismissLaunchError}
             launchSummary={launchSummary}
@@ -507,6 +427,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
       <WizardFooter
         currentStep={step}
         canContinue={currentValidation.valid}
+        validationErrors={currentValidation.errors}
         saveStatus={saveStatus}
         launching={launching}
         onBack={handleBack}
@@ -520,7 +441,13 @@ export function WizardShell({ draftId }: WizardShellProps) {
       <SaveTemplateModal
         open={saveTemplateOpen}
         saving={templateSaving}
-        onClose={() => setSaveTemplateOpen(false)}
+        savedSuccessfully={templateSaveSuccess}
+        error={templateSaveError}
+        onClose={() => {
+          setSaveTemplateOpen(false);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
         onSave={handleSaveTemplate}
       />
 

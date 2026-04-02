@@ -13,7 +13,8 @@ const MAX_IMAGE_BYTES = 30 * 1024 * 1024;   // 30 MB (Meta's limit for /adimages
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024;  // 200 MB (Meta's limit for /advideos)
 
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
-const ACCEPTED_VIDEO_TYPES = new Set(["video/mp4"]);
+// Accept MP4 and QuickTime (.mov) — both are valid for Meta advideos
+const ACCEPTED_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime"]);
 
 // ─── Route request / response types ──────────────────────────────────────────
 
@@ -81,7 +82,7 @@ export function validateAssetFile(
     if (!ACCEPTED_VIDEO_TYPES.has(mimeType)) {
       return {
         isValid: false,
-        error: `Unsupported video type "${mimeType}". Use MP4.`,
+        error: `Unsupported video type "${mimeType}". Use MP4 or MOV.`,
       };
     }
     if (size > MAX_VIDEO_BYTES) {
