@@ -731,9 +731,9 @@ export function PageAudiencesPanel({
                       <SectionHeader
                         icon={<User className="h-3.5 w-3.5" />}
                         label="My Facebook Pages"
-                        count={userPages.loaded ? filteredUserPages.length : undefined}
+                        count={userPages.count > 0 ? userPages.count : (userPages.loaded ? 0 : undefined)}
                         loading={userPages.loading}
-                        error={userPages.error}
+                        error={userPages.loadStatus === "error" ? userPages.error : null}
                       />
                       <Button
                         variant="outline"
@@ -744,7 +744,7 @@ export function PageAudiencesPanel({
                       >
                         {userPages.loading ? (
                           <><Loader2 className="h-3 w-3 animate-spin" /> Loading…</>
-                        ) : userPages.loaded ? (
+                        ) : userPages.loaded || userPages.loadStatus === "partial" ? (
                           <><RefreshCw className="h-3 w-3" /> Refresh</>
                         ) : (
                           <><Plus className="h-3 w-3" /> Load My Pages</>
@@ -752,14 +752,54 @@ export function PageAudiencesPanel({
                       </Button>
                     </div>
 
-                    {userPages.error && (
+                    {/* ── Live progress panel ─────────────────────────────── */}
+                    {userPages.loading && (
+                      <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                          <span className="font-medium text-foreground">Loading Facebook Pages…</span>
+                        </div>
+                        <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground">
+                          <span>Pages loaded:</span>
+                          <span className="font-mono font-medium text-foreground">{userPages.count}</span>
+                          <span>Batches done:</span>
+                          <span className="font-mono font-medium text-foreground">{userPages.batchesLoaded}</span>
+                          <span>Target:</span>
+                          <span className="text-muted-foreground">up to 500 pages</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Completion / partial summary ─────────────────────── */}
+                    {!userPages.loading && userPages.loadStatus === "done" && (
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        Loaded <span className="font-medium text-foreground">{userPages.count}</span> pages
+                        in <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}.
+                      </p>
+                    )}
+
+                    {!userPages.loading && userPages.loadStatus === "partial" && (
+                      <div className="mt-1.5 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2 text-xs">
+                        <p className="font-medium text-foreground">
+                          Loaded {userPages.count} pages before batch {userPages.failedAtBatch} failed.
+                        </p>
+                        {userPages.error && (
+                          <p className="mt-0.5 text-muted-foreground">{userPages.error}</p>
+                        )}
+                        <p className="mt-0.5 text-muted-foreground">Pages collected so far are still available above.</p>
+                      </div>
+                    )}
+
+                    {/* ── Hard error (no pages collected) ─────────────────── */}
+                    {!userPages.loading && userPages.loadStatus === "error" && userPages.error && (
                       <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="h-3 w-3" />
+                        <AlertCircle className="h-3 w-3 shrink-0" />
                         {userPages.error}
                       </p>
                     )}
 
-                    {userPages.loaded && filteredUserPages.length === 0 && !userPages.error && (
+                    {/* ── Empty state ───────────────────────────────────────── */}
+                    {!userPages.loading && userPages.loaded && filteredUserPages.length === 0 && !userPages.error && (
                       <p className="mt-2 text-xs text-muted-foreground">
                         {userPages.count === 0
                           ? "No pages found — reconnect Facebook with correct permissions."
@@ -769,6 +809,7 @@ export function PageAudiencesPanel({
                       </p>
                     )}
 
+                    {/* ── Page list ─────────────────────────────────────────── */}
                     {filteredUserPages.length > 0 && (
                       <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-border bg-card">
                         {filteredUserPages.map((p) => (

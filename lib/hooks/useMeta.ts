@@ -617,23 +617,36 @@ export function useFacebookConnectionStatus(): {
 
 // ─── useFetchUserPages ────────────────────────────────────────────────────────
 
+/** Maximum pages to fetch across all batches before stopping. */
+const USER_PAGES_MAX = 500;
+
+export type UserPagesLoadStatus = "idle" | "loading" | "done" | "partial" | "error";
+
 export interface UserPagesFetchState {
+  /** Accumulated pages — updated live after every batch while loading */
   data: MetaApiPage[];
   loading: boolean;
   error: string | null;
   loaded: boolean;
-  /** Total number of pages returned by Facebook */
+  /** Total pages accumulated so far */
   count: number;
+  /** How many batches have completed */
+  batchesLoaded: number;
+  /** Current status */
+  loadStatus: UserPagesLoadStatus;
+  /** Batch number where loading failed (partial failure) */
+  failedAtBatch?: number;
   /** Trigger a fetch using the stored Facebook provider token */
   fetch: () => void;
 }
 
 /**
- * Manually-triggered hook that loads ALL pages the logged-in Facebook user
- * manages, using their provider_token. Not called on mount — consumer must
- * invoke `state.fetch()` (e.g. from a button click).
+ * Manually-triggered hook that loads Facebook pages in batches of 50,
+ * updating `data` and `count` after each batch so the UI shows live progress.
  *
- * Requires a prior Facebook OAuth login so a provider_token is available.
+ * Calls GET /api/meta/pages/user?after=<cursor> repeatedly until exhausted
+ * or USER_PAGES_MAX is reached. Not called on mount — consumer invokes
+ * `state.fetch()` (e.g. from a button click).
  */
 export function useFetchUserPages(): UserPagesFetchState {
   const [data, setData] = useState<MetaApiPage[]>([]);
@@ -641,6 +654,9 @@ export function useFetchUserPages(): UserPagesFetchState {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [count, setCount] = useState(0);
+  const [batchesLoaded, setBatchesLoaded] = useState(0);
+  const [loadStatus, setLoadStatus] = useState<UserPagesLoadStatus>("idle");
+  const [failedAtBatch, setFailedAtBatch] = useState<number | undefined>(undefined);
   const { token, refresh } = useFacebookToken();
 
   const doFetch = useCallback(async () => {
@@ -648,57 +664,100 @@ export function useFetchUserPages(): UserPagesFetchState {
 
     setLoading(true);
     setError(null);
+    setData([]);
+    setCount(0);
+    setBatchesLoaded(0);
+    setLoaded(false);
+    setLoadStatus("loading");
+    setFailedAtBatch(undefined);
 
-    // If we don't have a token yet, try refreshing from session
+    // Resolve token
     let accessToken = token;
-    if (!accessToken) {
-      accessToken = await refresh();
-    }
+    if (!accessToken) accessToken = await refresh();
 
     if (!accessToken) {
-      // Distinguish between "never logged in" and "logged in but token not captured"
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const { data: sessionData } = await supabase.auth.getSession();
       const hasSession = !!sessionData.session;
       const msg = hasSession
-        ? "Facebook connection succeeded but no provider token was captured. Open Account Setup and use Connect Facebook again, or check the OAuth callback."
+        ? "Facebook connection succeeded but no provider token was captured. Open Account Setup and use Connect Facebook again."
         : "Sign in with email first, then connect Facebook in Account Setup to load your pages.";
-      console.warn("[useFetchUserPages]", msg, "| session:", hasSession, "| localStorage key:", FB_TOKEN_STORAGE_KEY);
+      console.warn("[useFetchUserPages]", msg, "| hasSession:", hasSession);
       setError(msg);
+      setLoadStatus("error");
       setLoading(false);
       return;
     }
 
-    try {
-      const res = await fetch("/api/meta/pages/user", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+    // ── Batch loop ──────────────────────────────────────────────────────────
+    const accumulated: MetaApiPage[] = [];
+    let cursor: string | null = null;
+    let batchNum = 0;
 
-      const json = (await res.json()) as {
-        data?: MetaApiPage[];
-        count?: number;
-        error?: string;
-        code?: string;
-      };
+    while (accumulated.length < USER_PAGES_MAX) {
+      batchNum++;
+      const url = cursor
+        ? `/api/meta/pages/user?after=${encodeURIComponent(cursor)}`
+        : "/api/meta/pages/user";
 
-      if (!res.ok || json.error) {
-        throw new Error(json.error ?? `HTTP ${res.status}`);
+      console.info(
+        `[useFetchUserPages] batch ${batchNum} — cursor: ${cursor ? cursor.slice(0, 20) + "…" : "first"} | loaded so far: ${accumulated.length}`,
+      );
+
+      let res: Response;
+      let json: { data?: MetaApiPage[]; nextCursor?: string | null; batchSize?: number; error?: string };
+      try {
+        res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+        json = (await res.json()) as typeof json;
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : "Network error";
+        console.error(`[useFetchUserPages] batch ${batchNum} network error:`, fetchErr);
+        setError(`Batch ${batchNum} failed: ${msg}`);
+        setFailedAtBatch(batchNum);
+        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        break;
       }
 
-      setData(json.data ?? []);
-      setCount(json.count ?? json.data?.length ?? 0);
-      setLoaded(true);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to load your Facebook pages";
-      setError(msg);
-    } finally {
-      setLoading(false);
+      if (!res.ok || json.error) {
+        const msg = json.error ?? `HTTP ${res.status}`;
+        console.error(`[useFetchUserPages] batch ${batchNum} Meta error:`, json);
+        setError(`Batch ${batchNum} failed: ${msg}`);
+        setFailedAtBatch(batchNum);
+        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        break;
+      }
+
+      const batch = json.data ?? [];
+      accumulated.push(...batch);
+
+      // Update state live so the UI counter ticks up
+      setData([...accumulated]);
+      setCount(accumulated.length);
+      setBatchesLoaded(batchNum);
+
+      console.info(
+        `[useFetchUserPages] batch ${batchNum} OK — got ${batch.length}, total: ${accumulated.length}, nextCursor: ${json.nextCursor ? "yes" : "none"}`,
+      );
+
+      cursor = json.nextCursor ?? null;
+      if (!cursor) {
+        // Exhausted all pages
+        setLoaded(true);
+        setLoadStatus("done");
+        break;
+      }
     }
+
+    if (accumulated.length >= USER_PAGES_MAX) {
+      // Hit the safety cap
+      setLoaded(true);
+      setLoadStatus("done");
+      console.info(`[useFetchUserPages] hit safety cap of ${USER_PAGES_MAX} pages after ${batchNum} batches`);
+    }
+
+    setLoading(false);
   }, [loading, token, refresh]);
 
-  return { data, loading, error, loaded, count, fetch: doFetch };
+  return { data, loading, error, loaded, count, batchesLoaded, loadStatus, failedAtBatch, fetch: doFetch };
 }

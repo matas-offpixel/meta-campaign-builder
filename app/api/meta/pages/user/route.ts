@@ -1,13 +1,17 @@
 /**
  * GET /api/meta/pages/user
+ * GET /api/meta/pages/user?after=<cursor>
  *
- * Fetches ALL Facebook Pages the logged-in user can manage using their
- * Facebook OAuth provider_token (not the server-side META_ACCESS_TOKEN).
+ * Returns ONE batch of up to 50 Facebook Pages the authenticated user manages,
+ * using their Facebook OAuth provider_token (passed via Authorization header).
  *
- * The token is passed via the Authorization header from the client, which
- * retrieves it from the Supabase session after Facebook OAuth login.
+ * Single-batch design: the client calls this endpoint repeatedly, passing the
+ * `nextCursor` from each response as `?after=` in the next request, and
+ * accumulates results locally. This lets the UI show live progress after
+ * every batch instead of waiting for a single slow bulk response.
  *
- * Paginates through /me/accounts until all pages are returned.
+ * Fields fetched: id, name only (minimal — avoids "reduce data" Graph API errors).
+ * Safety cap: the client should stop after 500 total pages.
  */
 
 import { type NextRequest } from "next/server";
@@ -15,111 +19,109 @@ import { createClient } from "@/lib/supabase/server";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
-
-const PAGE_FIELDS = "id,name,fan_count,category,picture{url},instagram_business_account";
+const BATCH_SIZE = 50;
+// Minimal fields only — heavy fields (picture, instagram_business_account, etc.)
+// trigger "Please reduce the amount of data you're asking for" from the Graph API.
+const PAGE_FIELDS = "id,name";
 
 interface RawPage {
   id: string;
   name: string;
-  fan_count?: number;
-  category?: string;
-  picture?: { data?: { url?: string } };
-  instagram_business_account?: { id: string };
 }
 
-interface PageResult {
-  id: string;
-  name: string;
-  fan_count?: number;
-  category?: string;
-  picture?: { data?: { url?: string } };
-  instagram_business_account?: { id: string };
+export interface UserPagesBatchResponse {
+  data: RawPage[];
+  /** Cursor to pass as `?after=` for the next batch. Null when there are no more pages. */
+  nextCursor: string | null;
+  /** How many pages were in this batch */
+  batchSize: number;
 }
 
-export async function GET(req: NextRequest) {
-  // Supabase auth check — the user must be logged in
+export async function GET(req: NextRequest): Promise<Response> {
+  // ── Auth ────────────────────────────────────────────────────────────────
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  // Facebook provider token comes from the client via Authorization header
-  const providerToken = req.headers.get("authorization")?.replace("Bearer ", "");
-
+  const providerToken = req.headers.get("authorization")?.replace("Bearer ", "").trim();
   if (!providerToken) {
     return Response.json(
-      {
-        error: "No Facebook access token provided. Log in with Facebook to load your pages.",
-        code: "NO_PROVIDER_TOKEN",
-      },
+      { error: "No Facebook access token provided.", code: "NO_PROVIDER_TOKEN" },
       { status: 401 },
     );
   }
 
+  // ── Cursor from query string ─────────────────────────────────────────────
+  const { searchParams } = new URL(req.url);
+  const after = searchParams.get("after") ?? null;
+
+  // ── Build Graph API URL ──────────────────────────────────────────────────
+  const params = new URLSearchParams({
+    fields: PAGE_FIELDS,
+    limit: String(BATCH_SIZE),
+    access_token: providerToken,
+  });
+  if (after) params.set("after", after);
+  const graphUrl = `${BASE}/me/accounts?${params.toString()}`;
+
+  const batchLabel = after ? `cursor=${after.slice(0, 20)}…` : "first";
+  console.info(`[pages/user] batch=${batchLabel} limit=${BATCH_SIZE} fields=${PAGE_FIELDS}`);
+  console.info(`[pages/user] Graph URL (redacted): ${graphUrl.replace(providerToken, "***")}`);
+
+  // ── Fetch one batch ──────────────────────────────────────────────────────
+  let res: Response;
   try {
-    const allPages: PageResult[] = [];
-    let url: string | null =
-      `${BASE}/me/accounts?fields=${PAGE_FIELDS}&limit=100&access_token=${encodeURIComponent(providerToken)}`;
-
-    while (url) {
-      const res = await fetch(url, { cache: "no-store" });
-
-      // Guard against non-JSON responses
-      const text = await res.text();
-      let json: Record<string, unknown>;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        console.error("[/api/meta/pages/user] Non-JSON response from Meta:", text.slice(0, 200));
-        return Response.json(
-          { error: "Invalid response from Facebook. Token may be expired — try logging in again." },
-          { status: 502 },
-        );
-      }
-
-      if (!res.ok || json.error) {
-        const err = (json.error ?? {}) as Record<string, unknown>;
-        console.error("[/api/meta/pages/user] Meta API error:", JSON.stringify(err));
-        return Response.json(
-          {
-            error: (err.message as string) ?? "Failed to fetch pages from Facebook",
-            code: err.code,
-            type: err.type,
-          },
-          { status: 502 },
-        );
-      }
-
-      const data = (json.data ?? []) as RawPage[];
-      for (const p of data) {
-        allPages.push({
-          id: p.id,
-          name: p.name,
-          fan_count: p.fan_count,
-          category: p.category ?? undefined,
-          picture: p.picture,
-          instagram_business_account: p.instagram_business_account,
-        });
-      }
-
-      // Follow pagination cursor until exhausted
-      const paging = json.paging as { next?: string } | undefined;
-      url = paging?.next ?? null;
-    }
-
-    return Response.json({
-      data: allPages,
-      count: allPages.length,
-    });
-  } catch (err) {
-    console.error("[/api/meta/pages/user] Unexpected error:", err);
+    res = await fetch(graphUrl, { cache: "no-store" });
+  } catch (fetchErr) {
+    console.error("[pages/user] Network error fetching from Graph API:", fetchErr);
     return Response.json(
-      { error: err instanceof Error ? err.message : "Failed to fetch pages" },
-      { status: 500 },
+      { error: "Network error reaching Facebook Graph API." },
+      { status: 502 },
     );
   }
+
+  const text = await res.text();
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    console.error("[pages/user] Non-JSON from Meta (first 300 chars):", text.slice(0, 300));
+    return Response.json(
+      { error: "Invalid response from Facebook — token may be expired." },
+      { status: 502 },
+    );
+  }
+
+  if (!res.ok || json.error) {
+    const err = (json.error ?? {}) as Record<string, unknown>;
+    console.error("[pages/user] Meta API error:", JSON.stringify(err));
+    return Response.json(
+      {
+        error: (err.message as string) ?? "Failed to fetch pages from Facebook",
+        metaCode: err.code,
+        metaType: err.type,
+        metaSubcode: err.error_subcode,
+        rawError: err,
+      },
+      { status: 502 },
+    );
+  }
+
+  const data = (json.data ?? []) as RawPage[];
+  const paging = json.paging as { cursors?: { after?: string }; next?: string } | undefined;
+  const nextCursor = paging?.next ? (paging.cursors?.after ?? null) : null;
+
+  console.info(
+    `[pages/user] batch OK — returned ${data.length} pages, nextCursor: ${nextCursor ? "yes" : "none"}`,
+  );
+
+  const body: UserPagesBatchResponse = {
+    data,
+    nextCursor,
+    batchSize: data.length,
+  };
+
+  return Response.json(body);
 }
