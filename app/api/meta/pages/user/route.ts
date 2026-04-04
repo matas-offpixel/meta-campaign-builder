@@ -14,6 +14,11 @@
  * Enrichment (picture, followers, Instagram) is a separate Phase 2 via
  * POST /api/meta/pages/enrich.
  *
+ * Rate limits: captures X-App-Usage, X-Business-Use-Case-Usage, X-Page-Usage
+ * headers from Meta responses and forwards them to the client. On error code
+ * 4 / 17 / 32 / 613 (rate limits), returns rateLimitHit: true so the client
+ * can apply exponential backoff without hammering the API.
+ *
  * Safety limits (enforced client-side):
  *   - max 200 batches  (~10 000 pages)
  *   - max 90 seconds total runtime
@@ -28,12 +33,68 @@ const BASE = `https://graph.facebook.com/${API_VERSION}`;
 const BATCH_SIZE = 50;
 const PAGE_FIELDS = "id,name";
 
+/** Error codes Meta uses to signal rate / request limits. */
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
+
 interface RawPage { id: string; name: string }
+
+/** Parsed values from Meta rate-limit response headers. */
+export interface RateLimitInfo {
+  /** App-level call-count usage as a percentage (0–100), from X-App-Usage. */
+  appCallCountPct: number | null;
+  /** Business use-case call-count usage percentage (max across all types). */
+  businessCallCountPct: number | null;
+  /** Raw header strings for debugging */
+  raw: {
+    appUsage: string | null;
+    pageUsage: string | null;
+    businessUsage: string | null;
+  };
+}
 
 export interface UserPagesBatchResponse {
   data: RawPage[];
   nextCursor: string | null;
   batchSize: number;
+  rateLimit?: RateLimitInfo;
+  /** True when Meta returned a rate-limit error (code 4/17/32/613 or HTTP 429). */
+  rateLimitHit?: boolean;
+  /** Suggested client wait before retrying, in milliseconds. */
+  retryAfterMs?: number;
+  metaCode?: number;
+}
+
+function parseRateLimitHeaders(headers: Headers): RateLimitInfo {
+  const appUsage = headers.get("x-app-usage");
+  const pageUsage = headers.get("x-page-usage");
+  const businessUsage = headers.get("x-business-use-case-usage");
+
+  let appCallCountPct: number | null = null;
+  let businessCallCountPct: number | null = null;
+
+  if (appUsage) {
+    try {
+      const parsed = JSON.parse(appUsage) as { call_count?: number };
+      appCallCountPct = parsed.call_count ?? null;
+    } catch { /* non-parseable — ignore */ }
+  }
+
+  if (businessUsage) {
+    try {
+      // Format: { "<business_id>": [{ type, call_count, total_cputime, total_time, ... }] }
+      const parsed = JSON.parse(businessUsage) as Record<string, Array<{ call_count?: number }>>;
+      const allEntries = Object.values(parsed).flat();
+      if (allEntries.length > 0) {
+        businessCallCountPct = Math.max(...allEntries.map((e) => e.call_count ?? 0));
+      }
+    } catch { /* non-parseable — ignore */ }
+  }
+
+  return {
+    appCallCountPct,
+    businessCallCountPct,
+    raw: { appUsage, pageUsage, businessUsage },
+  };
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -51,6 +112,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const { searchParams } = new URL(req.url);
   const after = searchParams.get("after") ?? null;
+  const batchLabel = after ? `cursor=${after.slice(0, 20)}…` : "first";
 
   const params = new URLSearchParams({
     fields: PAGE_FIELDS,
@@ -60,7 +122,6 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (after) params.set("after", after);
 
   const graphUrl = `${BASE}/me/accounts?${params.toString()}`;
-  const batchLabel = after ? `cursor=${after.slice(0, 20)}…` : "first";
   console.info(`[pages/user] batch=${batchLabel} limit=${BATCH_SIZE}`);
 
   let res: Response;
@@ -71,6 +132,8 @@ export async function GET(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Network error reaching Facebook Graph API." }, { status: 502 });
   }
 
+  const rateLimit = parseRateLimitHeaders(res.headers);
+
   const text = await res.text();
   let json: Record<string, unknown>;
   try {
@@ -78,20 +141,46 @@ export async function GET(req: NextRequest): Promise<Response> {
   } catch {
     console.error("[pages/user] Non-JSON from Meta:", text.slice(0, 300));
     return Response.json(
-      { error: "Invalid response from Facebook — token may be expired." },
+      { error: "Invalid response from Facebook — token may be expired.", rateLimit },
       { status: 502 },
     );
   }
 
   if (!res.ok || json.error) {
     const err = (json.error ?? {}) as Record<string, unknown>;
-    console.error("[pages/user] Meta API error:", JSON.stringify(err));
+    const metaCode = err.code as number | undefined;
+    const isRateLimit = res.status === 429 || (metaCode !== undefined && RATE_LIMIT_CODES.has(metaCode));
+
+    console.error(
+      `[pages/user] Meta API error batch=${batchLabel} code=${metaCode} rateLimit=${isRateLimit}`,
+      "app-usage:", rateLimit.appCallCountPct ?? "N/A", "%",
+      "business-usage:", rateLimit.businessCallCountPct ?? "N/A", "%",
+      JSON.stringify(err),
+    );
+
+    if (isRateLimit) {
+      return Response.json(
+        {
+          error: "Meta API request limit reached. Please wait and retry.",
+          rateLimitHit: true,
+          retryAfterMs: 10_000,
+          metaCode,
+          rateLimit,
+          data: [],
+          nextCursor: null,
+          batchSize: 0,
+        },
+        { status: 429 },
+      );
+    }
+
     return Response.json(
       {
         error: (err.message as string) ?? "Failed to fetch pages from Facebook",
-        metaCode: err.code,
+        metaCode,
         metaType: err.type,
         rawError: err,
+        rateLimit,
       },
       { status: 502 },
     );
@@ -101,7 +190,16 @@ export async function GET(req: NextRequest): Promise<Response> {
   const paging = json.paging as { cursors?: { after?: string }; next?: string } | undefined;
   const nextCursor = paging?.next ? (paging.cursors?.after ?? null) : null;
 
-  console.info(`[pages/user] batch OK — ${data.length} pages, nextCursor: ${nextCursor ? "yes" : "none"}`);
+  console.info(
+    `[pages/user] batch OK — ${data.length} pages, nextCursor: ${nextCursor ? "yes" : "none"},`,
+    `app-usage: ${rateLimit.appCallCountPct ?? "N/A"}%,`,
+    `business-usage: ${rateLimit.businessCallCountPct ?? "N/A"}%`,
+  );
 
-  return Response.json({ data, nextCursor, batchSize: data.length } satisfies UserPagesBatchResponse);
+  return Response.json({
+    data,
+    nextCursor,
+    batchSize: data.length,
+    rateLimit,
+  } satisfies UserPagesBatchResponse);
 }

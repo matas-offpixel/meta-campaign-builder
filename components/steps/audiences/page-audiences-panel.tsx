@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Plus, Trash2, ChevronDown, ChevronUp, XCircle,
-  Building2, User, AlertCircle, Loader2, RefreshCw,
+  Building2, User, AlertCircle, Loader2, RefreshCw, Clock,
 } from "lucide-react";
 import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup } from "@/lib/types";
 import {
@@ -55,6 +55,37 @@ function formatFanCount(n?: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
   return String(n);
+}
+
+function formatRelativeTime(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  return `${Math.floor(diffHrs / 24)}d ago`;
+}
+
+function RateLimitStatusRow({ rateLimit }: { rateLimit: { appCallCountPct: number | null; businessCallCountPct: number | null } }) {
+  const appPct = rateLimit.appCallCountPct;
+  const bizPct = rateLimit.businessCallCountPct;
+  const maxPct = Math.max(appPct ?? 0, bizPct ?? 0);
+  if (appPct == null && bizPct == null) return null;
+
+  const color = maxPct >= 80 ? "text-destructive" : maxPct >= 60 ? "text-warning-foreground" : "text-muted-foreground";
+
+  return (
+    <div className={`flex items-center gap-3 pt-0.5 ${color}`}>
+      {appPct != null && (
+        <span>App usage: <strong>{appPct}%</strong></span>
+      )}
+      {bizPct != null && (
+        <span>Biz usage: <strong>{bizPct}%</strong></span>
+      )}
+      {maxPct >= 80 && <AlertCircle className="h-3 w-3 shrink-0" />}
+    </div>
+  );
 }
 
 function PageThumbnail({ page }: { page: MetaApiPage }) {
@@ -114,11 +145,27 @@ function PageRow({
           <p className="mt-0.5 text-[11px] text-muted-foreground/50 italic">No linked Instagram</p>
         )}
       </div>
-      {page.category && (
-        <Badge variant="outline" className="shrink-0 self-start text-[10px]">
-          {page.category}
-        </Badge>
-      )}
+      <div className="flex shrink-0 flex-col items-end gap-1 self-start">
+        {page.category && (
+          <Badge variant="outline" className="text-[10px]">
+            {page.category}
+          </Badge>
+        )}
+        {/* Capability badges — shown once enrichment has run */}
+        {page.hasInstagramLinked != null && (
+          <Badge
+            variant={page.hasInstagramLinked ? "primary" : "outline"}
+            className="text-[10px]"
+          >
+            {page.hasInstagramLinked ? "IG linked" : "No IG"}
+          </Badge>
+        )}
+        {fbFollowers != null && fbFollowers === 0 && (
+          <Badge variant="outline" className="text-[10px] text-muted-foreground/70">
+            0 followers
+          </Badge>
+        )}
+      </div>
     </label>
   );
 }
@@ -760,11 +807,17 @@ export function PageAudiencesPanel({
                   <div className="mt-3 border-t border-border pt-3">
                     {/* Header row: title + total count + load button */}
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                        <User className="h-3.5 w-3.5 text-muted-foreground" />
+                      <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground">
+                        <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span>My Facebook Pages</span>
                         {userPages.count > 0 && (
                           <span className="text-muted-foreground">({userPages.count})</span>
+                        )}
+                        {userPages.fromCache && userPages.loadedAt && !userPages.loading && (
+                          <span className="flex items-center gap-0.5 text-muted-foreground font-normal">
+                            <Clock className="h-3 w-3" />
+                            {formatRelativeTime(userPages.loadedAt)}
+                          </span>
                         )}
                         {userPages.loading && (
                           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
@@ -775,12 +828,12 @@ export function PageAudiencesPanel({
                         size="sm"
                         onClick={userPages.fetch}
                         disabled={userPages.loading}
-                        className="gap-1.5 h-7 text-xs"
+                        className="gap-1.5 h-7 shrink-0 text-xs"
                       >
                         {userPages.loading ? (
                           <><Loader2 className="h-3 w-3 animate-spin" /> Loading…</>
-                        ) : userPages.loaded || userPages.loadStatus === "partial" ? (
-                          <><RefreshCw className="h-3 w-3" /> Refresh</>
+                        ) : userPages.loaded || userPages.loadStatus === "partial" || userPages.fromCache ? (
+                          <><RefreshCw className="h-3 w-3" /> Reload</>
                         ) : (
                           <><Plus className="h-3 w-3" /> Load My Pages</>
                         )}
@@ -789,18 +842,25 @@ export function PageAudiencesPanel({
 
                     {/* ── Live progress panel ─────────────────────────────── */}
                     {userPages.loading && (
-                      <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs">
-                        <div className="flex items-center gap-2 mb-1.5">
+                      <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs space-y-1.5">
+                        {/* Status heading */}
+                        <div className="flex items-center gap-2">
                           <Loader2 className="h-3 w-3 animate-spin shrink-0 text-muted-foreground" />
                           <span className="font-medium text-foreground">
-                            {userPages.loadStatus === "enriching"
-                              ? "Enriching page details…"
-                              : "Loading all accessible pages…"}
+                            {userPages.rateLimitWaiting
+                              ? `Rate limit — waiting ${Math.round((userPages.rateLimitWaitMs ?? 0) / 1000)}s before retry…`
+                              : userPages.loadStatus === "enriching"
+                                ? "Enriching page details…"
+                                : "Loading all accessible pages…"}
                           </span>
                         </div>
+
+                        {/* Progress grid */}
                         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground">
                           <span>Phase:</span>
-                          <span className="font-medium text-foreground capitalize">{userPages.loadStatus}</span>
+                          <span className="font-medium text-foreground capitalize">
+                            {userPages.rateLimitWaiting ? "rate limit backoff" : userPages.loadStatus}
+                          </span>
                           <span>Pages loaded:</span>
                           <span className="font-mono font-medium text-foreground">{userPages.count}</span>
                           {userPages.loadStatus === "listing" && (
@@ -818,16 +878,48 @@ export function PageAudiencesPanel({
                             </>
                           )}
                         </div>
+
+                        {/* Rate-limit status row */}
+                        {userPages.rateLimit && (
+                          <RateLimitStatusRow rateLimit={userPages.rateLimit} />
+                        )}
                       </div>
                     )}
 
+                    {/* ── Rate-limit warning (non-loading state) ──────────── */}
+                    {!userPages.loading && userPages.rateLimit && (
+                      (() => {
+                        const pct = Math.max(
+                          userPages.rateLimit.appCallCountPct ?? 0,
+                          userPages.rateLimit.businessCallCountPct ?? 0,
+                        );
+                        if (pct < 60) return null;
+                        return (
+                          <div className={`mt-1.5 flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-xs ${
+                            pct >= 80
+                              ? "border-destructive/30 bg-destructive/5 text-destructive"
+                              : "border-warning/40 bg-warning/5 text-warning-foreground"
+                          }`}>
+                            <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>
+                              Meta API usage at <strong>{pct}%</strong>.
+                              {pct >= 80 ? " Slow down or you may hit the limit." : " Approaching rate limit."}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    )}
+
                     {/* ── Completion summary ───────────────────────────────── */}
-                    {!userPages.loading && userPages.loadStatus === "done" && (() => {
+                    {!userPages.loading && (userPages.loadStatus === "done" || (userPages.fromCache && userPages.loaded)) && (() => {
                       const withIg = userPages.data.filter((p) => p.hasInstagramLinked).length;
                       return (
                         <p className="mt-1.5 text-xs text-muted-foreground">
-                          Loaded <span className="font-medium text-foreground">{userPages.count}</span> pages
-                          in <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}.
+                          {userPages.fromCache && !userPages.loaded ? "Cached: " : "Loaded "}
+                          <span className="font-medium text-foreground">{userPages.count}</span> pages
+                          {userPages.batchesLoaded > 0 && (
+                            <> in <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}</>
+                          )}.
                           {" "}<span className="font-medium text-foreground">{withIg}</span> with linked Instagram.
                           {userPages.enrichFallback && (
                             <span className="ml-1 text-warning"> (Instagram details unavailable — scope restricted)</span>
@@ -837,7 +929,7 @@ export function PageAudiencesPanel({
                     })()}
 
                     {/* ── Partial failure ──────────────────────────────────── */}
-                    {!userPages.loading && userPages.loadStatus === "partial" && (
+                    {!userPages.loading && userPages.loadStatus === "partial" && !userPages.fromCache && (
                       <div className="mt-1.5 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2 text-xs">
                         <p className="font-medium text-foreground">
                           Loaded {userPages.count} pages (stopped at batch {userPages.failedAtBatch ?? "?"}).
