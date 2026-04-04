@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
-import { connectFacebookAccount } from "@/lib/facebook-connect";
+import { connectFacebookAccount, FB_SCOPES, type ScopeDebugInfo } from "@/lib/facebook-connect";
 
 // ─── Inline spinner ───────────────────────────────────────────────────────────
 
@@ -71,6 +71,7 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
     onChange({ ...settings, ...patch });
 
   const [fbConnectBusy, setFbConnectBusy] = useState(false);
+  const [fbScopeDebug, setFbScopeDebug] = useState<ScopeDebugInfo | null>(null);
   const { connected: facebookConnected, loading: fbStatusLoading, refresh: refreshFbStatus } =
     useFacebookConnectionStatus();
 
@@ -162,9 +163,13 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
 
   async function handleConnectFacebook() {
     setFbConnectBusy(true);
+    setFbScopeDebug(null);
     try {
       const returnPath = campaignId ? `/campaign/${campaignId}` : "/";
-      await connectFacebookAccount({ returnPath });
+      await connectFacebookAccount({
+        returnPath,
+        onScopeDebug: (info) => setFbScopeDebug(info),
+      });
     } catch (e) {
       console.error("[AccountSetup] Connect Facebook:", e);
       alert(e instanceof Error ? e.message : "Could not start Facebook connection.");
@@ -234,6 +239,39 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             </Button>
           )}
         </div>
+
+        {/* ── [DEBUG] Scope inspector — remove once confirmed working ──────── */}
+        {fbScopeDebug && (
+          <div className="mt-3 rounded-md border border-dashed border-warning/60 bg-warning/5 p-3 font-mono text-[11px] leading-relaxed text-foreground">
+            <p className="mb-1 font-sans text-xs font-semibold text-warning">
+              DEBUG — OAuth scope (remove this panel once verified)
+            </p>
+            <p>
+              <span className="text-muted-foreground">Requested (FB_SCOPES):</span>{" "}
+              <span className="text-foreground">{FB_SCOPES}</span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">GoTrue URL had:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>{" "}
+              <span className={fbScopeDebug.stripped.length > 0 ? "text-destructive" : "text-foreground"}>
+                {fbScopeDebug.goTrueScope}
+              </span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Stripped by us:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>{" "}
+              <span className="text-destructive">
+                {fbScopeDebug.stripped.length > 0 ? fbScopeDebug.stripped.join(", ") : "(none)"}
+              </span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Sent to Facebook:&nbsp;&nbsp;&nbsp;</span>{" "}
+              <span className={fbScopeDebug.finalScope === FB_SCOPES ? "text-success" : "text-destructive"}>
+                {fbScopeDebug.finalScope}
+              </span>{" "}
+              {fbScopeDebug.finalScope === FB_SCOPES ? "✓" : "✗ mismatch"}
+            </p>
+          </div>
+        )}
+        {/* ── end DEBUG ────────────────────────────────────────────────────── */}
       </Card>
 
       {/* ── Ad Account ─────────────────────────────────────────────────────── */}
