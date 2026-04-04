@@ -352,6 +352,31 @@ export function buildMetaTargeting(
       if (realId) targeting.custom_audiences = [{ id: realId }];
       break;
     }
+
+    case "selected_pages_lookalike": {
+      // Lookalike audiences created from the user's own Facebook pages.
+      // Each ad set targets lookalikes for ONE percentage tier only.
+      // IDs are stored keyed by range in SelectedPagesLookalikeGroup.lookalikeAudienceIdsByRange.
+      const splalGroups = audiences.selectedPagesLookalikeGroups ?? [];
+      const group = splalGroups.find((g) => g.id === adSet.sourceId);
+      if (group) {
+        const rangeKey = adSet.lookalikeRange ?? "";
+        const lalIds = (group.lookalikeAudienceIdsByRange?.[rangeKey] ?? []).filter(isRealMetaId);
+        if (lalIds.length > 0) {
+          targeting.custom_audiences = lalIds.map((id) => ({ id }));
+          console.log(
+            `[buildMetaTargeting] selected_pages_lookalike "${group.name}" (${rangeKey}): ` +
+            `custom_audiences → ${lalIds.join(", ")}`,
+          );
+        } else {
+          throw new Error(
+            `Cannot build targeting for selected_pages_lookalike "${group.name}" (${rangeKey}): ` +
+            `no lookalike audience IDs available — creation likely failed or timed out`,
+          );
+        }
+      }
+      break;
+    }
   }
 
   return targeting;

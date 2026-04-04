@@ -38,6 +38,7 @@ export function createDefaultDraft(): CampaignDraft {
       customAudienceGroups: [],
       savedAudiences: { audienceIds: [] },
       interestGroups: [],
+      selectedPagesLookalikeGroups: [],
     },
     creatives: [],
     optimisationStrategy: createDefaultOptimisationStrategy(),

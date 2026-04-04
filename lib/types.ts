@@ -234,11 +234,45 @@ export interface InterestGroup {
   aiPrompt?: string;
 }
 
+/**
+ * A dedicated lookalike-creation group built from pages loaded via the user's
+ * own Facebook provider_token ("My Facebook Pages"). Entirely separate from the
+ * standard PageAudienceGroup flow:
+ *   - one ad set per percentage tier (e.g. "Selected Pages — 1% Lookalike")
+ *   - all valid lookalikes for a tier are combined into that one ad set
+ *   - pages that fail source audience creation are skipped, not fatal
+ */
+export interface SelectedPagesLookalikeGroup {
+  id: string;
+  name: string;
+  /** Page IDs from My Facebook Pages to use as lookalike seeds */
+  selectedPageIds: string[];
+  /** Which engagement types to build source audiences from (e.g. FB Likes, IG Followers) */
+  engagementTypes: EngagementType[];
+  /** Lookalike percentage tiers to create ad sets for */
+  lookalikeRanges: LookalikeRange[];
+
+  // ── Populated at launch — never user-editable ────────────────────────────
+  /** engagement audience IDs created at launch, keyed by pageId */
+  engagementAudienceIdsByPage?: Record<string, string[]>;
+  /** lookalike audience IDs created at launch, keyed by range string (e.g. "0-1%") */
+  lookalikeAudienceIdsByRange?: Record<string, string[]>;
+  /** Page IDs skipped at launch (source audience creation failed) */
+  skippedPageIds?: string[];
+  /** Map of pageId → human-readable skip reason */
+  skippedReasons?: Record<string, string>;
+}
+
 export interface AudienceSettings {
   pageGroups: PageAudienceGroup[];
   customAudienceGroups: CustomAudienceGroup[];
   savedAudiences: SavedAudienceSelection;
   interestGroups: InterestGroup[];
+  /**
+   * Lookalike groups built from pages loaded via the user's own Facebook token.
+   * Each group produces one ad set per configured percentage tier.
+   */
+  selectedPagesLookalikeGroups: SelectedPagesLookalikeGroup[];
 }
 
 // ─── Creative types ───
@@ -403,7 +437,14 @@ export interface AdSetGeoLocations {
 export interface AdSetSuggestion {
   id: string;
   name: string;
-  sourceType: "page_group" | "custom_group" | "saved_audience" | "interest_group" | "lookalike_group";
+  sourceType:
+    | "page_group"
+    | "custom_group"
+    | "saved_audience"
+    | "interest_group"
+    | "lookalike_group"
+    /** Lookalike from My Facebook Pages (SelectedPagesLookalikeGroup) */
+    | "selected_pages_lookalike";
   sourceId: string;
   sourceName: string;
   ageMin: number;
@@ -416,6 +457,12 @@ export interface AdSetSuggestion {
   geoLocations?: AdSetGeoLocations;
   /** Human label for the location preset, e.g. "London +40km" */
   locationLabel?: string;
+  /**
+   * For sourceType "selected_pages_lookalike" only — which percentage tier
+   * this ad set targets. Used by buildMetaTargeting to look up the correct
+   * lookalike audience IDs from SelectedPagesLookalikeGroup.lookalikeAudienceIdsByRange.
+   */
+  lookalikeRange?: LookalikeRange;
   /**
    * @deprecated Do not use — this field is no longer stamped during launch.
    * Per-run Meta IDs are stored in LaunchSummary.adSetLaunchResults instead.

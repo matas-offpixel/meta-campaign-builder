@@ -253,7 +253,13 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     customAudienceGroups: [],
     savedAudiences: { audienceIds: [] },
     interestGroups: [],
+    selectedPagesLookalikeGroups: [],
   };
+
+  // Add selectedPagesLookalikeGroups if missing from older drafts
+  if (!Array.isArray(draft.audiences.selectedPagesLookalikeGroups)) {
+    draft.audiences.selectedPagesLookalikeGroups = [];
+  }
 
   // Migrate lookalikeRange → lookalikeRanges on page groups
   if (Array.isArray(draft.audiences.pageGroups)) {

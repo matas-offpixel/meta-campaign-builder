@@ -17,6 +17,7 @@ import type {
   AudienceSettings,
   LocationTargetingGroup,
   LocationSelection,
+  LookalikeRange,
 } from "@/lib/types";
 import { TIMEZONES } from "@/lib/mock-data";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
@@ -345,6 +346,28 @@ function generateSuggestions(
         sourceType: "lookalike_group",
         sourceId: g.id,
         sourceName: `${g.name || "Untitled"} ${pctLabel} Lookalike`,
+        ageMin: age.min,
+        ageMax: age.max,
+        budgetPerDay: 0,
+        advantagePlus: false,
+        enabled: true,
+      });
+    }
+  });
+
+  // Lookalike ad sets from SelectedPagesLookalikeGroups (one per range per group)
+  (audiences.selectedPagesLookalikeGroups ?? []).forEach((g) => {
+    if (g.selectedPageIds.length === 0) return;
+    const ranges: LookalikeRange[] = g.lookalikeRanges?.length ? g.lookalikeRanges : ["0-1%"];
+    for (const range of ranges) {
+      const pctLabel = RANGE_LABELS[range] ?? range;
+      baseSuggestions.push({
+        id: `as_splal_${g.id}_${range}`,
+        name: `${g.name || "Selected Pages"} — ${pctLabel} Lookalike`,
+        sourceType: "selected_pages_lookalike",
+        sourceId: g.id,
+        sourceName: `${g.name || "Selected Pages"} (${g.selectedPageIds.length} pages, ${pctLabel})`,
+        lookalikeRange: range,
         ageMin: age.min,
         ageMax: age.max,
         budgetPerDay: 0,

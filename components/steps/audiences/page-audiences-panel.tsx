@@ -11,7 +11,7 @@ import {
   Plus, Trash2, ChevronDown, ChevronUp, XCircle,
   Building2, User, AlertCircle, Loader2, RefreshCw,
 } from "lucide-react";
-import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage } from "@/lib/types";
+import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup } from "@/lib/types";
 import {
   useFetchPages,
   useFetchAdditionalPages,
@@ -24,6 +24,9 @@ interface PageAudiencesPanelProps {
   onChange: (groups: PageAudienceGroup[]) => void;
   /** If provided, fetches Business Manager pages for this ad account automatically */
   adAccountId?: string;
+  /** Selected Pages Lookalike groups — separate from standard page groups */
+  splalGroups?: SelectedPagesLookalikeGroup[];
+  onSplalGroupsChange?: (groups: SelectedPagesLookalikeGroup[]) => void;
 }
 
 const ENGAGEMENT_OPTIONS: { value: EngagementType; label: string }[] = [
@@ -152,6 +155,8 @@ export function PageAudiencesPanel({
   groups,
   onChange,
   adAccountId,
+  splalGroups = [],
+  onSplalGroupsChange,
 }: PageAudiencesPanelProps) {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -1091,6 +1096,373 @@ export function PageAudiencesPanel({
                     </p>
                   )}
                 </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          Selected Pages Lookalike section
+          Lets users pick any of their loaded Facebook pages and generate
+          combined lookalike ad sets — entirely separate from page groups.
+      ═══════════════════════════════════════════════════════════════════ */}
+      <SelectedPagesLookalikeSection
+        splalGroups={splalGroups}
+        onChange={onSplalGroupsChange ?? (() => {})}
+        userPages={userPages}
+      />
+    </div>
+  );
+}
+
+// ─── Selected Pages Lookalike Section ────────────────────────────────────────
+
+const RANGE_LABELS: Record<LookalikeRange, string> = {
+  "0-1%": "1%",
+  "1-2%": "2%",
+  "2-3%": "3%",
+};
+
+function createEmptySplalGroup(): SelectedPagesLookalikeGroup {
+  return {
+    id: crypto.randomUUID(),
+    name: "Selected Pages Lookalike",
+    selectedPageIds: [],
+    engagementTypes: ["fb_likes", "fb_engagement_365d", "ig_followers", "ig_engagement_365d"],
+    lookalikeRanges: ["0-1%"],
+  };
+}
+
+interface SplalSectionProps {
+  splalGroups: SelectedPagesLookalikeGroup[];
+  onChange: (groups: SelectedPagesLookalikeGroup[]) => void;
+  userPages: ReturnType<typeof useFetchUserPages>;
+}
+
+function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: SplalSectionProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [splalSearch, setSplalSearch] = useState<Record<string, string>>({});
+
+  const addGroup = () => {
+    const g = createEmptySplalGroup();
+    onChange([...splalGroups, g]);
+    setExpandedId(g.id);
+  };
+
+  const removeGroup = (id: string) => {
+    onChange(splalGroups.filter((g) => g.id !== id));
+    if (expandedId === id) setExpandedId(null);
+  };
+
+  const updateGroup = (id: string, patch: Partial<SelectedPagesLookalikeGroup>) => {
+    onChange(splalGroups.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+  };
+
+  const togglePageInGroup = (groupId: string, pageId: string) => {
+    const group = splalGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const next = group.selectedPageIds.includes(pageId)
+      ? group.selectedPageIds.filter((id) => id !== pageId)
+      : [...group.selectedPageIds, pageId];
+    updateGroup(groupId, { selectedPageIds: next });
+  };
+
+  const toggleRange = (groupId: string, range: LookalikeRange) => {
+    const group = splalGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const next = group.lookalikeRanges.includes(range)
+      ? group.lookalikeRanges.filter((r) => r !== range)
+      : [...group.lookalikeRanges, range];
+    // Keep at least one range
+    if (next.length > 0) updateGroup(groupId, { lookalikeRanges: next });
+  };
+
+  const toggleEngagement = (groupId: string, et: EngagementType) => {
+    const group = splalGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const next = group.engagementTypes.includes(et)
+      ? group.engagementTypes.filter((t) => t !== et)
+      : [...group.engagementTypes, et];
+    if (next.length > 0) updateGroup(groupId, { engagementTypes: next });
+  };
+
+  return (
+    <div className="mt-4 space-y-3">
+      {/* Section header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Selected Pages Lookalike</h3>
+          <p className="text-xs text-muted-foreground">
+            Create lookalike audiences from your loaded Facebook pages — combined into one ad set per percentage tier.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={addGroup}
+          className="shrink-0"
+        >
+          <Plus className="mr-1 h-3 w-3" />
+          Add group
+        </Button>
+      </div>
+
+      {splalGroups.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+          No lookalike groups yet. Click &ldquo;Add group&rdquo; to create one.
+        </div>
+      )}
+
+      {splalGroups.map((group) => {
+        const isExpanded = expandedId === group.id;
+        const search = splalSearch[group.id] ?? "";
+
+        // Filter userPages for this group's picker
+        const availablePages = userPages.data.filter((p) =>
+          !search ||
+          p.name?.toLowerCase().includes(search.toLowerCase()) ||
+          p.instagramUsername?.toLowerCase().includes(search.toLowerCase()),
+        );
+
+        // Preview counts
+        const pageCount = group.selectedPageIds.length;
+        const rangeCount = group.lookalikeRanges.length;
+        const engCount = group.engagementTypes.length;
+        const expectedSourceAudiences = pageCount * engCount;
+        const expectedAdSets = rangeCount;
+
+        return (
+          <Card key={group.id} className="overflow-hidden">
+            {/* Card header */}
+            <div
+              className="flex cursor-pointer items-center justify-between px-4 py-3"
+              onClick={() => setExpandedId(isExpanded ? null : group.id)}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  className="shrink-0 text-muted-foreground"
+                  onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : group.id); }}
+                >
+                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                <span className="truncate text-sm font-medium">
+                  {group.name || "Selected Pages Lookalike"}
+                </span>
+                {pageCount > 0 && (
+                  <Badge variant="primary" className="shrink-0">
+                    {pageCount} page{pageCount !== 1 ? "s" : ""}
+                  </Badge>
+                )}
+                {group.lookalikeRanges.map((r) => (
+                  <Badge key={r} variant="outline" className="shrink-0 text-[10px]">
+                    {RANGE_LABELS[r]}
+                  </Badge>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); removeGroup(group.id); }}
+                className="ml-2 shrink-0 text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+
+            {isExpanded && (
+              <div className="border-t border-border px-4 py-4 space-y-4">
+                {/* Group name */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    Group name
+                  </label>
+                  <Input
+                    value={group.name}
+                    onChange={(e) => updateGroup(group.id, { name: e.target.value })}
+                    placeholder="Selected Pages Lookalike"
+                    className="h-8 text-sm"
+                  />
+                </div>
+
+                {/* Engagement types */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-muted-foreground">
+                    Source audience types
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {ENGAGEMENT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => toggleEngagement(group.id, opt.value)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          group.engagementTypes.includes(opt.value)
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Lookalike ranges */}
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-muted-foreground">
+                    Lookalike percentage tiers
+                  </label>
+                  <div className="flex gap-2">
+                    {LOOKALIKE_RANGES.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => toggleRange(group.id, r)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          group.lookalikeRanges.includes(r)
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/50"
+                        }`}
+                      >
+                        {RANGE_LABELS[r]}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Each selected tier creates one ad set containing all valid lookalike audiences from the pages below.
+                  </p>
+                </div>
+
+                {/* Page selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Select pages for lookalike creation
+                      {userPages.count > 0 && (
+                        <span className="ml-1 text-muted-foreground/60">
+                          (My Facebook Pages — {userPages.count} loaded)
+                        </span>
+                      )}
+                    </label>
+                    {group.selectedPageIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => updateGroup(group.id, { selectedPageIds: [] })}
+                        className="text-[11px] text-muted-foreground hover:text-destructive"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+
+                  {!userPages.loaded && userPages.count === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+                      Load your Facebook pages first using the &ldquo;My Facebook Pages&rdquo; section above.
+                    </p>
+                  ) : (
+                    <>
+                      <SearchInput
+                        value={search}
+                        onChange={(e) => setSplalSearch((prev) => ({ ...prev, [group.id]: e.target.value }))}
+                        onClear={() => setSplalSearch((prev) => ({ ...prev, [group.id]: "" }))}
+                        placeholder="Search pages…"
+                      />
+                      {search && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Showing {availablePages.length} of {userPages.data.length}
+                        </p>
+                      )}
+                      <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-border bg-card">
+                        {availablePages.length === 0 ? (
+                          <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                            {search ? "No pages match your search." : "No pages loaded yet."}
+                          </p>
+                        ) : (
+                          availablePages.map((p) => {
+                            const selected = group.selectedPageIds.includes(p.id);
+                            return (
+                              <label
+                                key={p.id}
+                                className="flex cursor-pointer items-center gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                              >
+                                <Checkbox
+                                  checked={selected}
+                                  onChange={() => togglePageInGroup(group.id, p.id)}
+                                />
+                                {p.pictureUrl ? (
+                                  <img
+                                    src={p.pictureUrl}
+                                    alt={p.name}
+                                    className="h-6 w-6 shrink-0 rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                                    {(p.name ?? "?").charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="truncate text-sm">{p.name}</p>
+                                  {p.instagramUsername && (
+                                    <p className="text-[10px] text-muted-foreground">@{p.instagramUsername}</p>
+                                  )}
+                                </div>
+                                {p.facebookFollowers != null && (
+                                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                                    {p.facebookFollowers >= 1000
+                                      ? `${(p.facebookFollowers / 1000).toFixed(0)}K`
+                                      : p.facebookFollowers}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Selected page chips */}
+                {group.selectedPageIds.length > 0 && (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                      Selected for lookalike ({group.selectedPageIds.length})
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.selectedPageIds.map((pid) => {
+                        const page = userPages.data.find((p) => p.id === pid);
+                        return (
+                          <Badge
+                            key={pid}
+                            variant="primary"
+                            onRemove={() => togglePageInGroup(group.id, pid)}
+                          >
+                            {page?.name ?? pid}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview */}
+                {pageCount > 0 && (
+                  <div className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
+                    <p className="font-medium text-foreground">Launch preview</p>
+                    <p>
+                      Up to <span className="font-medium text-foreground">{expectedSourceAudiences}</span> source audiences
+                      ({pageCount} pages × {engCount} engagement type{engCount !== 1 ? "s" : ""})
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">{expectedAdSets}</span> lookalike ad set{expectedAdSets !== 1 ? "s" : ""}
+                      {" "}({group.lookalikeRanges.map((r) => `"${group.name || "Selected Pages"} — ${RANGE_LABELS[r]} Lookalike"`).join(", ")})
+                    </p>
+                    <p className="text-[11px]">
+                      Pages without linked Instagram will skip IG engagement types. Skipped pages do not block the rest.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </Card>

@@ -372,6 +372,91 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // ── Phase 1.5b — Engagement audiences for SelectedPagesLookalikeGroups ──
+  // Same mechanics as page_group engagement above, but for the SPLAL groups.
+  // pageToIg and pageNameMap were populated above and are reused here.
+
+  const splalGroups = draft.audiences.selectedPagesLookalikeGroups ?? [];
+  const enabledSplalGroupIds = new Set(
+    draft.adSetSuggestions
+      .filter((s) => s.enabled && s.sourceType === "selected_pages_lookalike")
+      .map((s) => s.sourceId),
+  );
+
+  // Map: splalGroupId → all engagement audience IDs created for that group
+  const splalEngagementIds = new Map<string, string[]>();
+
+  for (const group of splalGroups) {
+    if (!enabledSplalGroupIds.has(group.id)) continue;
+    if (group.selectedPageIds.length === 0) continue;
+
+    const createdIds: string[] = [];
+    const engAudienceIdsByPage: Record<string, string[]> = {};
+    const skippedPageIds: string[] = [];
+    const skippedReasons: Record<string, string> = {};
+
+    for (const pageId of group.selectedPageIds) {
+      const pageEngIds: string[] = [];
+
+      for (const et of group.engagementTypes) {
+        const isIgType = et === "ig_followers" || et === "ig_engagement_365d";
+        const igId = isIgType ? pageToIg.get(pageId) : undefined;
+
+        if (isIgType && !igId) {
+          engagementAudiencesFailed.push({
+            name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et} (SPLAL)`,
+            type: et,
+            error: "No linked Instagram account found for this page",
+          });
+          continue;
+        }
+
+        const sourceId = isIgType ? igId! : pageId;
+        const sourceType = isIgType ? ("ig_business" as const) : ("page" as const);
+        const pageName = pageNameMap.get(pageId) || pageId;
+        const audienceName = `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et} [SPLAL]`;
+
+        const eaStart = Date.now();
+        try {
+          const result = await createEngagementAudience(adAccountId, {
+            type: et as EngagementAudienceType,
+            name: audienceName,
+            sourceId,
+            sourceType,
+          });
+          pageEngIds.push(result.id);
+          createdIds.push(result.id);
+          engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
+        } catch (err) {
+          const message = formatMetaError(err);
+          console.error(`[launch-campaign] Phase 1.5b ✗ SPLAL engagement failed for ${pageId} ${et}:`, message);
+          engagementAudiencesFailed.push({ name: audienceName, type: et, error: message });
+          if (!skippedReasons[pageId]) {
+            skippedPageIds.push(pageId);
+            skippedReasons[pageId] = message;
+          }
+        }
+      }
+
+      if (pageEngIds.length > 0) {
+        engAudienceIdsByPage[pageId] = pageEngIds;
+      }
+    }
+
+    if (createdIds.length > 0) {
+      splalEngagementIds.set(group.id, createdIds);
+    }
+    // Persist engagement and skip metadata on the group for launch summary
+    group.engagementAudienceIdsByPage = engAudienceIdsByPage;
+    group.skippedPageIds = skippedPageIds;
+    group.skippedReasons = skippedReasons;
+  }
+
+  console.log(
+    `[launch-campaign] Phase 1.5b SPLAL done — groups processed: ${enabledSplalGroupIds.size},` +
+    ` engagement IDs created: ${Array.from(splalEngagementIds.values()).flat().length}`,
+  );
+
   phaseDurations["engagementAudiences"] = elapsed(phase15Start);
   console.log(
     `[launch-campaign] Phase 1.5 done in ${phaseDurations["engagementAudiences"]}ms —`,
@@ -393,9 +478,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const lookalikeAudiencesCreated: NonNullable<LaunchSummary["lookalikeAudiencesCreated"]> = [];
   const lookalikeAudiencesFailed: NonNullable<LaunchSummary["lookalikeAudiencesFailed"]> = [];
 
-  const needsLookalikes = draft.audiences.pageGroups.some(
-    (g) => g.lookalike && (pageGroupAudienceIds.get(g.id)?.length ?? 0) > 0,
-  );
+  const needsLookalikes =
+    draft.audiences.pageGroups.some(
+      (g) => g.lookalike && (pageGroupAudienceIds.get(g.id)?.length ?? 0) > 0,
+    ) ||
+    splalGroups.some((g) => enabledSplalGroupIds.has(g.id) && (splalEngagementIds.get(g.id)?.length ?? 0) > 0);
 
   let lookalikeCountry = "GB";
   for (const adSet of draft.adSetSuggestions) {
@@ -498,6 +585,90 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       group.lookalikeAudienceIds = lookalikeIds;
     }
 
+    // ── Phase 1.75b — Lookalikes for SelectedPagesLookalikeGroups ──────────
+    // Creates lookalikes keyed by range so each ad set targets the right tier.
+    for (const splalGroup of splalGroups) {
+      if (Date.now() >= lalPhaseDeadline) {
+        if (enabledSplalGroupIds.has(splalGroup.id)) {
+          console.log(`[launch-campaign] Phase 1.75b — timeout; skipping SPLAL group "${splalGroup.name}"`);
+          for (const range of (splalGroup.lookalikeRanges ?? ["0-1%"])) {
+            lookalikeAudiencesFailed.push({
+              name: `${splalGroup.name} — Lookalike (${range})`,
+              range,
+              error: "Lookalike phase timeout reached",
+              skippedReason: "phase timeout",
+            });
+          }
+        }
+        continue;
+      }
+
+      if (!enabledSplalGroupIds.has(splalGroup.id)) continue;
+
+      const seedIds = splalEngagementIds.get(splalGroup.id) ?? [];
+      if (seedIds.length === 0) {
+        console.log(`[launch-campaign] Phase 1.75b — no seeds for SPLAL group "${splalGroup.name}"`);
+        for (const range of (splalGroup.lookalikeRanges ?? ["0-1%"])) {
+          lookalikeAudiencesFailed.push({
+            name: `${splalGroup.name} — Lookalike (${range})`,
+            range,
+            error: "No seed audiences available (all pages skipped or engagement creation failed)",
+            skippedReason: "source audience not ready",
+          });
+        }
+        continue;
+      }
+
+      const lookalikesPerRange: Record<string, string[]> = {};
+      const ranges = splalGroup.lookalikeRanges?.length ? splalGroup.lookalikeRanges : (["0-1%"] as const);
+
+      for (const range of ranges) {
+        if (Date.now() >= lalPhaseDeadline) break;
+
+        const { startingRatio, endingRatio } = parseLookalikeRange(range);
+        const pctLabel = `${Math.round(endingRatio * 100)}%`;
+        const rangeIds: string[] = [];
+
+        for (const seedId of seedIds) {
+          if (Date.now() >= lalPhaseDeadline) break;
+
+          const lalName = `${splalGroup.name || "Selected Pages"} — ${pctLabel} Lookalike`;
+          const lalStart = Date.now();
+          try {
+            const result = await createLookalikeAudience(adAccountId, {
+              name: lalName,
+              originAudienceId: seedId,
+              startingRatio,
+              endingRatio,
+              country: lookalikeCountry,
+            });
+            rangeIds.push(result.id);
+            lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
+          } catch (err) {
+            const message = formatMetaError(err);
+            const isNotReady = message.includes("2654") || message.includes("not ready") || message.includes("timed out");
+            console.error(`[launch-campaign] Phase 1.75b ✗ SPLAL lookalike failed:`, message);
+            lookalikeAudiencesFailed.push({
+              name: lalName,
+              range,
+              error: message,
+              skippedReason: isNotReady ? "source audience not ready" : undefined,
+            });
+          }
+        }
+
+        if (rangeIds.length > 0) {
+          lookalikesPerRange[range] = rangeIds;
+        }
+      }
+
+      splalGroup.lookalikeAudienceIdsByRange = lookalikesPerRange;
+      console.log(
+        `[launch-campaign] Phase 1.75b SPLAL "${splalGroup.name}" — ranges with lookalikes:`,
+        Object.entries(lookalikesPerRange).map(([r, ids]) => `${r}: ${ids.length} IDs`).join(", ") || "none",
+      );
+    }
+
     console.log(
       "[launch-campaign] Phase 1.75 done —",
       "lookalikes created:", lookalikeAudiencesCreated.length,
@@ -516,8 +687,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const adSetLaunchResults: Record<string, AdSetLaunchResult> = {};
 
   // Split ad sets: standard ones can proceed now, lookalike ones must wait
-  const standardSets = enabledSets.filter((s) => s.sourceType !== "lookalike_group");
-  const lookalikeSets = enabledSets.filter((s) => s.sourceType === "lookalike_group");
+  const LOOKALIKE_TYPES = new Set(["lookalike_group", "selected_pages_lookalike"]);
+  const standardSets = enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
+  const lookalikeSets = enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
   const adSetCreationPromise = (async () => {
     console.log("[launch-campaign] Phase 2 — creating", standardSets.length, "standard ad sets");
@@ -711,8 +883,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log("[launch-campaign] Phase 2b — creating", lookalikeSets.length, "lookalike ad sets");
 
     for (const adSet of lookalikeSets) {
-      const srcGroup = draft.audiences.pageGroups.find((g) => g.id === adSet.sourceId);
-      const lalIds = srcGroup?.lookalikeAudienceIds ?? [];
+      // Pre-check: does this ad set have lookalike IDs ready?
+      let lalIds: string[] = [];
+      if (adSet.sourceType === "lookalike_group") {
+        const srcGroup = draft.audiences.pageGroups.find((g) => g.id === adSet.sourceId);
+        lalIds = srcGroup?.lookalikeAudienceIds ?? [];
+      } else if (adSet.sourceType === "selected_pages_lookalike") {
+        const srcGroup = (draft.audiences.selectedPagesLookalikeGroups ?? []).find((g) => g.id === adSet.sourceId);
+        lalIds = srcGroup?.lookalikeAudienceIdsByRange?.[adSet.lookalikeRange ?? ""] ?? [];
+      }
+
       if (lalIds.length === 0) {
         const skipReason = "source audience not ready";
         const msg = "Skipped — no lookalike audiences were created for this group (source audience creation failed or timed out)";

@@ -54,6 +54,8 @@ export function AudiencesStep({ audiences, onChange, adAccountId }: AudiencesSte
           groups={audiences.pageGroups}
           onChange={(pageGroups) => onChange({ ...audiences, pageGroups })}
           adAccountId={adAccountId}
+          splalGroups={audiences.selectedPagesLookalikeGroups ?? []}
+          onSplalGroupsChange={(selectedPagesLookalikeGroups) => onChange({ ...audiences, selectedPagesLookalikeGroups })}
         />
       </TabPanel>
       <TabPanel active={activeTab === "custom"}>
