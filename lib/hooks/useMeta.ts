@@ -516,30 +516,48 @@ export function useFacebookToken(): {
 
     // 2 — server-persisted token for this user
     try {
-      const res = await fetch("/api/auth/facebook-token");
-      const json = (await res.json()) as { token?: string | null; error?: string };
-      if (res.ok && json.token) {
+      const res = await fetch("/api/auth/facebook-token", { credentials: "same-origin" });
+      const json = (await res.json()) as {
+        token?: string | null;
+        step?: string;
+        error?: string;
+        diagnostic?: { message?: string; code?: string; details?: string; hint?: string; hintText?: string };
+      };
+
+      if (res.status === 401) {
+        console.warn("[useFacebookToken] GET facebook-token: not authenticated", json.step, json.error);
+        return null;
+      }
+
+      if (json.token) {
         persistTokenForUser(user.id, json.token);
+        console.info("[useFacebookToken] loaded token from Supabase storage");
         return json.token;
       }
+
+      if (json.diagnostic) {
+        console.warn(
+          "[useFacebookToken] GET facebook-token: no row or DB issue —",
+          json.step ?? "unknown",
+          json.diagnostic.message,
+          json.diagnostic.hintText ?? "",
+        );
+      } else if (!res.ok) {
+        console.warn("[useFacebookToken] GET facebook-token HTTP", res.status, json);
+      }
     } catch (e) {
-      console.warn("[useFacebookToken] GET /api/auth/facebook-token failed:", e);
+      console.warn("[useFacebookToken] GET /api/auth/facebook-token network error:", e);
     }
 
-    // 3 — session (right after OAuth exchange)
+    // 3 — session (briefly present right after OAuth exchange in the same tab)
+    // Note: provider_token is NOT persisted by Supabase across page loads.
+    // The server callback route (/auth/facebook-callback) is responsible for
+    // writing it to user_facebook_tokens during the exchange, so we only
+    // cache it in localStorage here — no secondary POST needed.
     const { data: sessionData } = await supabase.auth.getSession();
     const pt = sessionData.session?.provider_token ?? null;
     if (pt) {
       persistTokenForUser(user.id, pt);
-      try {
-        await fetch("/api/auth/facebook-token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ providerToken: pt }),
-        });
-      } catch {
-        /* non-fatal */
-      }
       return pt;
     }
 
@@ -571,17 +589,9 @@ export function useFacebookToken(): {
         const uid = session?.user?.id;
         const freshToken = session?.provider_token ?? null;
         if (uid && freshToken) {
+          // Cache in localStorage; DB persistence is handled by the server callback.
           persistTokenForUser(uid, freshToken);
           setToken(freshToken);
-          try {
-            await fetch("/api/auth/facebook-token", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ providerToken: freshToken }),
-            });
-          } catch {
-            /* ignore */
-          }
         }
       });
       subscription = data.subscription;
