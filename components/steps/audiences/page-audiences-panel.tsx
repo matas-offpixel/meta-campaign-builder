@@ -83,17 +83,36 @@ function PageRow({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const fans = formatFanCount(page.fan_count);
+  // Prefer enriched fields, fall back to raw API fields
+  const fbFollowers = page.facebookFollowers ?? page.fan_count;
+  const fbFollowersFmt = fbFollowers !== undefined ? formatFanCount(fbFollowers) : null;
+  const hasIg = page.hasInstagramLinked ?? !!page.instagram_business_account?.id;
+  const igHandle = page.instagramUsername ?? null;
+  const igFollowers = page.instagramFollowers !== undefined ? formatFanCount(page.instagramFollowers) : null;
+
   return (
-    <label className="flex cursor-pointer items-center gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50">
-      <Checkbox checked={selected} onChange={onToggle} />
+    <label className="flex cursor-pointer items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50">
+      <Checkbox checked={selected} onChange={onToggle} className="mt-0.5 shrink-0" />
       <PageThumbnail page={page} />
-      <span className="min-w-0 flex-1 truncate text-sm">{page.name}</span>
-      {fans && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">{fans}</span>
-      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium leading-snug">{page.name}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {fbFollowersFmt
+            ? <span>FB: {fbFollowersFmt} followers</span>
+            : <span className="italic">Followers unavailable</span>
+          }
+        </p>
+        {hasIg ? (
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            IG: {igHandle ? `@${igHandle}` : "(no username)"}
+            {igFollowers && <span> · {igFollowers} followers</span>}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-[11px] text-muted-foreground/50 italic">No linked Instagram</p>
+        )}
+      </div>
       {page.category && (
-        <Badge variant="outline" className="shrink-0 text-[10px]">
+        <Badge variant="outline" className="shrink-0 self-start text-[10px]">
           {page.category}
         </Badge>
       )}
@@ -138,6 +157,7 @@ export function PageAudiencesPanel({
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(groups[0]?.id ?? null);
   const [caSearch, setCaSearch] = useState("");
+  const [userPagesSearch, setUserPagesSearch] = useState("");
   const [confirmClearGroupId, setConfirmClearGroupId] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
@@ -219,15 +239,21 @@ export function PageAudiencesPanel({
     [applyFilters, additionalPages.pages],
   );
 
-  // User's own Facebook pages (deduped against business/additional)
+  // User's own Facebook pages — deduped then filtered by userPagesSearch
   const filteredUserPages = useMemo(() => {
     const existingIds = new Set([
       ...businessPages.data.map((p) => p.id),
       ...additionalPages.pages.map((p) => p.id),
     ]);
     const unique = userPages.data.filter((p) => !existingIds.has(p.id));
-    return applyFilters(unique);
-  }, [applyFilters, userPages.data, businessPages.data, additionalPages.pages]);
+    if (!userPagesSearch.trim()) return unique;
+    const q = userPagesSearch.toLowerCase();
+    return unique.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.instagramUsername?.toLowerCase().includes(q) ?? false),
+    );
+  }, [userPages.data, businessPages.data, additionalPages.pages, userPagesSearch]);
 
   // ── Custom audiences for optional group enrichment ───────────────────────
   const customAudiences = useFetchCustomAudiences(adAccountId);
@@ -727,14 +753,18 @@ export function PageAudiencesPanel({
 
                   {/* ── My Facebook Pages (user's own via provider token) ── */}
                   <div className="mt-3 border-t border-border pt-3">
+                    {/* Header row: title + total count + load button */}
                     <div className="flex items-center justify-between">
-                      <SectionHeader
-                        icon={<User className="h-3.5 w-3.5" />}
-                        label="My Facebook Pages"
-                        count={userPages.count > 0 ? userPages.count : (userPages.loaded ? 0 : undefined)}
-                        loading={userPages.loading}
-                        error={userPages.loadStatus === "error" ? userPages.error : null}
-                      />
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                        <User className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>My Facebook Pages</span>
+                        {userPages.count > 0 && (
+                          <span className="text-muted-foreground">({userPages.count})</span>
+                        )}
+                        {userPages.loading && (
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        )}
+                      </div>
                       <Button
                         variant="outline"
                         size="sm"
@@ -755,42 +785,66 @@ export function PageAudiencesPanel({
                     {/* ── Live progress panel ─────────────────────────────── */}
                     {userPages.loading && (
                       <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                          <span className="font-medium text-foreground">Loading Facebook Pages…</span>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Loader2 className="h-3 w-3 animate-spin shrink-0 text-muted-foreground" />
+                          <span className="font-medium text-foreground">
+                            {userPages.loadStatus === "enriching"
+                              ? "Enriching page details…"
+                              : "Loading all accessible pages…"}
+                          </span>
                         </div>
-                        <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground">
+                          <span>Phase:</span>
+                          <span className="font-medium text-foreground capitalize">{userPages.loadStatus}</span>
                           <span>Pages loaded:</span>
                           <span className="font-mono font-medium text-foreground">{userPages.count}</span>
-                          <span>Batches done:</span>
-                          <span className="font-mono font-medium text-foreground">{userPages.batchesLoaded}</span>
-                          <span>Target:</span>
-                          <span className="text-muted-foreground">up to 500 pages</span>
+                          {userPages.loadStatus === "listing" && (
+                            <>
+                              <span>List batches:</span>
+                              <span className="font-mono font-medium text-foreground">{userPages.batchesLoaded}</span>
+                            </>
+                          )}
+                          {userPages.loadStatus === "enriching" && userPages.enrichChunksTotal > 0 && (
+                            <>
+                              <span>Enriched chunks:</span>
+                              <span className="font-mono font-medium text-foreground">
+                                {userPages.enrichChunksDone} / {userPages.enrichChunksTotal}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
 
-                    {/* ── Completion / partial summary ─────────────────────── */}
-                    {!userPages.loading && userPages.loadStatus === "done" && (
-                      <p className="mt-1.5 text-xs text-muted-foreground">
-                        Loaded <span className="font-medium text-foreground">{userPages.count}</span> pages
-                        in <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}.
-                      </p>
-                    )}
+                    {/* ── Completion summary ───────────────────────────────── */}
+                    {!userPages.loading && userPages.loadStatus === "done" && (() => {
+                      const withIg = userPages.data.filter((p) => p.hasInstagramLinked).length;
+                      return (
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Loaded <span className="font-medium text-foreground">{userPages.count}</span> pages
+                          in <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}.
+                          {" "}<span className="font-medium text-foreground">{withIg}</span> with linked Instagram.
+                          {userPages.enrichFallback && (
+                            <span className="ml-1 text-warning"> (Instagram details unavailable — scope restricted)</span>
+                          )}
+                        </p>
+                      );
+                    })()}
 
+                    {/* ── Partial failure ──────────────────────────────────── */}
                     {!userPages.loading && userPages.loadStatus === "partial" && (
                       <div className="mt-1.5 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2 text-xs">
                         <p className="font-medium text-foreground">
-                          Loaded {userPages.count} pages before batch {userPages.failedAtBatch} failed.
+                          Loaded {userPages.count} pages (stopped at batch {userPages.failedAtBatch ?? "?"}).
                         </p>
                         {userPages.error && (
                           <p className="mt-0.5 text-muted-foreground">{userPages.error}</p>
                         )}
-                        <p className="mt-0.5 text-muted-foreground">Pages collected so far are still available above.</p>
+                        <p className="mt-0.5 text-muted-foreground">Pages collected so far are still selectable.</p>
                       </div>
                     )}
 
-                    {/* ── Hard error (no pages collected) ─────────────────── */}
+                    {/* ── Hard error ───────────────────────────────────────── */}
                     {!userPages.loading && userPages.loadStatus === "error" && userPages.error && (
                       <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
                         <AlertCircle className="h-3 w-3 shrink-0" />
@@ -798,12 +852,35 @@ export function PageAudiencesPanel({
                       </p>
                     )}
 
+                    {/* ── Search input (shown once we have pages) ──────────── */}
+                    {userPages.count > 0 && (
+                      <div className="mt-2">
+                        <SearchInput
+                          value={userPagesSearch}
+                          onChange={(e) => setUserPagesSearch(e.target.value)}
+                          onClear={() => setUserPagesSearch("")}
+                          placeholder="Search Facebook pages…"
+                        />
+                        {userPagesSearch.trim() && (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Showing {filteredUserPages.length} of {userPages.data.filter((p) => {
+                              const existingIds = new Set([
+                                ...businessPages.data.map((x) => x.id),
+                                ...additionalPages.pages.map((x) => x.id),
+                              ]);
+                              return !existingIds.has(p.id);
+                            }).length}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     {/* ── Empty state ───────────────────────────────────────── */}
                     {!userPages.loading && userPages.loaded && filteredUserPages.length === 0 && !userPages.error && (
                       <p className="mt-2 text-xs text-muted-foreground">
                         {userPages.count === 0
                           ? "No pages found — reconnect Facebook with correct permissions."
-                          : search
+                          : userPagesSearch
                             ? "No pages match your search."
                             : "All your Facebook pages are already shown above."}
                       </p>
@@ -811,7 +888,7 @@ export function PageAudiencesPanel({
 
                     {/* ── Page list ─────────────────────────────────────────── */}
                     {filteredUserPages.length > 0 && (
-                      <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-border bg-card">
+                      <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-card">
                         {filteredUserPages.map((p) => (
                           <PageRow
                             key={p.id}

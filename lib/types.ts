@@ -30,6 +30,20 @@ export interface MetaApiPage {
   picture?: { data: { url: string } };
   instagram_business_account?: { id: string };
   access_token?: string;
+
+  // ── Enriched fields — populated by the /api/meta/pages/enrich phase ──────
+  /** CDN URL for the page profile photo */
+  pictureUrl?: string;
+  /** Facebook follower / fan count (from fan_count enrichment) */
+  facebookFollowers?: number;
+  /** Linked Instagram Business Account id */
+  instagramAccountId?: string;
+  /** Instagram display name (Instagram name field, not necessarily @handle) */
+  instagramUsername?: string;
+  /** Instagram follower count (requires instagram_basic scope; may be null) */
+  instagramFollowers?: number;
+  /** True if the page has a linked Instagram Business Account */
+  hasInstagramLinked?: boolean;
 }
 
 /** Paginated result for additional (personal) pages */

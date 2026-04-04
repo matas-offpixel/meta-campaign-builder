@@ -617,36 +617,55 @@ export function useFacebookConnectionStatus(): {
 
 // ─── useFetchUserPages ────────────────────────────────────────────────────────
 
-/** Maximum pages to fetch across all batches before stopping. */
-const USER_PAGES_MAX = 500;
+/** Hard limit: stop after this many list-batches (~10 000 pages). */
+const MAX_LIST_BATCHES = 200;
+/** Hard time limit for the entire operation (listing + enrichment). */
+const MAX_RUNTIME_MS = 90_000;
+/** Pages per enrichment API call. */
+const ENRICH_CHUNK = 50;
 
-export type UserPagesLoadStatus = "idle" | "loading" | "done" | "partial" | "error";
+export type UserPagesLoadStatus =
+  | "idle"
+  | "listing"     // Phase 1: fetching page list
+  | "enriching"   // Phase 2: enriching with pictures/followers/Instagram
+  | "done"
+  | "partial"     // completed with some failures (list or enrich)
+  | "error";      // failed with zero usable data
 
 export interface UserPagesFetchState {
-  /** Accumulated pages — updated live after every batch while loading */
+  /** Accumulated pages — updated live after every batch/enrich chunk */
   data: MetaApiPage[];
   loading: boolean;
   error: string | null;
   loaded: boolean;
-  /** Total pages accumulated so far */
   count: number;
-  /** How many batches have completed */
+  /** List batches completed */
   batchesLoaded: number;
-  /** Current status */
+  /** Enrichment chunks completed */
+  enrichChunksDone: number;
+  /** Total enrichment chunks needed (set at start of Phase 2) */
+  enrichChunksTotal: number;
   loadStatus: UserPagesLoadStatus;
-  /** Batch number where loading failed (partial failure) */
   failedAtBatch?: number;
-  /** Trigger a fetch using the stored Facebook provider token */
+  /** True if enrichment fell back to basic fields (no Instagram) */
+  enrichFallback?: boolean;
   fetch: () => void;
 }
 
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+  return chunks;
+}
+
+import type { EnrichedPageData } from "@/app/api/meta/pages/enrich/route";
+
 /**
- * Manually-triggered hook that loads Facebook pages in batches of 50,
- * updating `data` and `count` after each batch so the UI shows live progress.
+ * Manually-triggered hook that loads ALL Facebook pages in two phases:
+ *   Phase 1 — batch-list (id, name) until cursor exhausted
+ *   Phase 2 — enrich 50 pages at a time (picture, followers, Instagram)
  *
- * Calls GET /api/meta/pages/user?after=<cursor> repeatedly until exhausted
- * or USER_PAGES_MAX is reached. Not called on mount — consumer invokes
- * `state.fetch()` (e.g. from a button click).
+ * State updates after every batch / chunk so the UI shows live progress.
  */
 export function useFetchUserPages(): UserPagesFetchState {
   const [data, setData] = useState<MetaApiPage[]>([]);
@@ -655,8 +674,11 @@ export function useFetchUserPages(): UserPagesFetchState {
   const [loaded, setLoaded] = useState(false);
   const [count, setCount] = useState(0);
   const [batchesLoaded, setBatchesLoaded] = useState(0);
+  const [enrichChunksDone, setEnrichChunksDone] = useState(0);
+  const [enrichChunksTotal, setEnrichChunksTotal] = useState(0);
   const [loadStatus, setLoadStatus] = useState<UserPagesLoadStatus>("idle");
   const [failedAtBatch, setFailedAtBatch] = useState<number | undefined>(undefined);
+  const [enrichFallback, setEnrichFallback] = useState<boolean | undefined>(undefined);
   const { token, refresh } = useFacebookToken();
 
   const doFetch = useCallback(async () => {
@@ -667,11 +689,13 @@ export function useFetchUserPages(): UserPagesFetchState {
     setData([]);
     setCount(0);
     setBatchesLoaded(0);
+    setEnrichChunksDone(0);
+    setEnrichChunksTotal(0);
     setLoaded(false);
-    setLoadStatus("loading");
+    setLoadStatus("listing");
     setFailedAtBatch(undefined);
+    setEnrichFallback(undefined);
 
-    // Resolve token
     let accessToken = token;
     if (!accessToken) accessToken = await refresh();
 
@@ -690,74 +714,165 @@ export function useFetchUserPages(): UserPagesFetchState {
       return;
     }
 
-    // ── Batch loop ──────────────────────────────────────────────────────────
+    const startedAt = Date.now();
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 1: List all pages (id + name) in batches of 50
+    // ════════════════════════════════════════════════════════════════════════
     const accumulated: MetaApiPage[] = [];
     let cursor: string | null = null;
     let batchNum = 0;
+    let listFailed = false;
 
-    while (accumulated.length < USER_PAGES_MAX) {
+    while (batchNum < MAX_LIST_BATCHES) {
+      if (Date.now() - startedAt > MAX_RUNTIME_MS) {
+        console.warn(`[useFetchUserPages] hit ${MAX_RUNTIME_MS}ms safety timeout after ${batchNum} batches`);
+        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        setError(`Timed out after ${batchNum} batches (${accumulated.length} pages loaded).`);
+        listFailed = true;
+        break;
+      }
+
       batchNum++;
       const url = cursor
         ? `/api/meta/pages/user?after=${encodeURIComponent(cursor)}`
         : "/api/meta/pages/user";
 
-      console.info(
-        `[useFetchUserPages] batch ${batchNum} — cursor: ${cursor ? cursor.slice(0, 20) + "…" : "first"} | loaded so far: ${accumulated.length}`,
-      );
+      console.info(`[useFetchUserPages] list batch ${batchNum} — so far: ${accumulated.length}`);
 
       let res: Response;
-      let json: { data?: MetaApiPage[]; nextCursor?: string | null; batchSize?: number; error?: string };
+      let json: { data?: MetaApiPage[]; nextCursor?: string | null; error?: string };
       try {
         res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
         json = (await res.json()) as typeof json;
       } catch (fetchErr) {
         const msg = fetchErr instanceof Error ? fetchErr.message : "Network error";
-        console.error(`[useFetchUserPages] batch ${batchNum} network error:`, fetchErr);
+        console.error(`[useFetchUserPages] list batch ${batchNum} network error:`, fetchErr);
         setError(`Batch ${batchNum} failed: ${msg}`);
         setFailedAtBatch(batchNum);
         setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        listFailed = true;
         break;
       }
 
       if (!res.ok || json.error) {
         const msg = json.error ?? `HTTP ${res.status}`;
-        console.error(`[useFetchUserPages] batch ${batchNum} Meta error:`, json);
+        console.error(`[useFetchUserPages] list batch ${batchNum} Meta error:`, json);
         setError(`Batch ${batchNum} failed: ${msg}`);
         setFailedAtBatch(batchNum);
         setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        listFailed = true;
         break;
       }
 
       const batch = json.data ?? [];
       accumulated.push(...batch);
-
-      // Update state live so the UI counter ticks up
       setData([...accumulated]);
       setCount(accumulated.length);
       setBatchesLoaded(batchNum);
 
-      console.info(
-        `[useFetchUserPages] batch ${batchNum} OK — got ${batch.length}, total: ${accumulated.length}, nextCursor: ${json.nextCursor ? "yes" : "none"}`,
-      );
+      console.info(`[useFetchUserPages] list batch ${batchNum} OK — got ${batch.length}, total ${accumulated.length}, nextCursor: ${json.nextCursor ? "yes" : "none"}`);
 
       cursor = json.nextCursor ?? null;
-      if (!cursor) {
-        // Exhausted all pages
-        setLoaded(true);
-        setLoadStatus("done");
+      if (!cursor) break;
+    }
+
+    if (!accumulated.length) {
+      setLoadStatus("error");
+      if (!error) setError("No pages were returned by Facebook.");
+      setLoading(false);
+      return;
+    }
+
+    console.info(`[useFetchUserPages] Phase 1 complete — ${accumulated.length} pages in ${batchNum} batches. Phase 2: enriching…`);
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 2: Enrich pages in chunks of 50
+    // ════════════════════════════════════════════════════════════════════════
+    setLoadStatus("enriching");
+    const chunks = chunkArray(accumulated.map((p) => p.id), ENRICH_CHUNK);
+    setEnrichChunksTotal(chunks.length);
+
+    let enrichedPages: MetaApiPage[] = [...accumulated];
+    let anyFallback = false;
+    let enrichChunk = 0;
+
+    for (const ids of chunks) {
+      if (Date.now() - startedAt > MAX_RUNTIME_MS) {
+        console.warn("[useFetchUserPages] enrichment timed out — returning partially enriched list");
         break;
       }
+
+      enrichChunk++;
+      console.info(`[useFetchUserPages] enrich chunk ${enrichChunk}/${chunks.length} (${ids.length} pages)`);
+
+      try {
+        const res = await fetch("/api/meta/pages/enrich", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ ids }),
+        });
+
+        const json = (await res.json()) as {
+          data?: Record<string, EnrichedPageData>;
+          stats?: Record<string, number>;
+          fallback?: boolean;
+          error?: string;
+        };
+
+        if (json.fallback) anyFallback = true;
+
+        if (json.data) {
+          enrichedPages = enrichedPages.map((p) => {
+            const enriched = json.data![p.id];
+            if (!enriched) return p;
+            return {
+              ...p,
+              pictureUrl:         enriched.pictureUrl         ?? p.pictureUrl,
+              facebookFollowers:  enriched.facebookFollowers  ?? p.facebookFollowers,
+              instagramAccountId: enriched.instagramAccountId ?? p.instagramAccountId,
+              instagramUsername:  enriched.instagramUsername  ?? p.instagramUsername,
+              instagramFollowers: enriched.instagramFollowers ?? p.instagramFollowers,
+              hasInstagramLinked: enriched.hasInstagramLinked ?? p.hasInstagramLinked,
+            };
+          });
+          // Live update after each chunk
+          setData([...enrichedPages]);
+        }
+      } catch (enrichErr) {
+        console.warn(`[useFetchUserPages] enrich chunk ${enrichChunk} failed (non-fatal):`, enrichErr);
+      }
+
+      setEnrichChunksDone(enrichChunk);
     }
 
-    if (accumulated.length >= USER_PAGES_MAX) {
-      // Hit the safety cap
-      setLoaded(true);
-      setLoadStatus("done");
-      console.info(`[useFetchUserPages] hit safety cap of ${USER_PAGES_MAX} pages after ${batchNum} batches`);
-    }
+    if (anyFallback) setEnrichFallback(true);
 
+    const withIg = enrichedPages.filter((p) => p.hasInstagramLinked).length;
+    console.info(
+      `[useFetchUserPages] Phase 2 complete — ${enrichChunk} chunks, Instagram linked: ${withIg}/${enrichedPages.length}`,
+    );
+
+    setLoaded(true);
+    setLoadStatus(listFailed ? "partial" : "done");
     setLoading(false);
-  }, [loading, token, refresh]);
+  }, [loading, token, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { data, loading, error, loaded, count, batchesLoaded, loadStatus, failedAtBatch, fetch: doFetch };
+  return {
+    data,
+    loading,
+    error,
+    loaded,
+    count,
+    batchesLoaded,
+    enrichChunksDone,
+    enrichChunksTotal,
+    loadStatus,
+    failedAtBatch,
+    enrichFallback,
+    fetch: doFetch,
+  };
 }
