@@ -3,14 +3,13 @@
 /**
  * Connect Facebook OAuth for an already signed-in user.
  *
- * Uses signInWithOAuth() with skipBrowserRedirect:true so we receive the
- * Supabase/GoTrue-generated OAuth URL before the browser navigates away.
- * We then strip any scopes GoTrue injects (e.g. "email") that we did not
- * request and that Facebook Login for Business rejects, then redirect to
- * the cleaned URL.
+ * Uses signInWithOAuth() with skipBrowserRedirect:true so we receive the full
+ * GoTrue-generated OAuth URL before the browser navigates.  We then force the
+ * `scope` param to exactly FB_SCOPES, removing anything GoTrue injects (e.g.
+ * "email") and ensuring our required scopes are always present even if GoTrue
+ * omits them from the URL.
  *
- * The PKCE state/code_challenge params are not touched, so exchangeCodeForSession
- * in the server callback still works normally.
+ * PKCE state/code_challenge are not touched; exchangeCodeForSession still works.
  */
 
 import { createClient } from "@/lib/supabase/client";
@@ -21,43 +20,24 @@ import { createClient } from "@/lib/supabase/client";
  */
 export const FB_SCOPES = "pages_show_list ads_management";
 
-/**
- * Scopes GoTrue injects that we must strip before redirecting to Facebook.
- * "email" is hardcoded as a GoTrue default for all OAuth providers.
- * "pages_manage_metadata" was a previous dashboard misconfiguration.
- */
-const GOTRUE_INJECTED_SCOPES = new Set(["email", "pages_manage_metadata"]);
-
 export type FacebookConnectOptions = {
-  /**
-   * Relative path to redirect to after the callback completes (default "/").
-   * Appended as `?next=` on the callback URL.
-   */
   returnPath?: string;
-  /**
-   * Called with scope debug info immediately before the browser redirect.
-   * Use this to show a temporary UI indicator.
-   */
   onScopeDebug?: (info: ScopeDebugInfo) => void;
 };
 
 export type ScopeDebugInfo = {
-  /** Scopes present in the GoTrue-generated URL (before our strip) */
+  /** Raw `scope` value GoTrue put in the URL (may include injected scopes like "email") */
   goTrueScope: string;
-  /** Scopes in the URL we actually send to Facebook (after stripping) */
+  /** Tokens that were in goTrueScope */
+  goTrueTokens: string[];
+  /** Tokens after applying our force-set (should equal FB_SCOPES tokens) */
+  finalTokens: string[];
+  /** Final scope string written back into the URL */
   finalScope: string;
-  /** Scopes that were present in GoTrue URL but removed by us */
-  stripped: string[];
-  /** The final URL that the browser will navigate to */
+  /** Complete rewritten URL the browser will navigate to */
   finalUrl: string;
 };
 
-/**
- * Initiates Facebook OAuth via signInWithOAuth, strips GoTrue-injected scopes
- * from the URL, then redirects the browser. On success the user lands on
- * /auth/facebook-callback, which exchanges the PKCE code server-side and
- * persists the provider_token.
- */
 export async function connectFacebookAccount(options: FacebookConnectOptions = {}): Promise<void> {
   if (typeof window === "undefined") {
     throw new Error("connectFacebookAccount must run in the browser");
@@ -70,23 +50,15 @@ export async function connectFacebookAccount(options: FacebookConnectOptions = {
   const next         = options.returnPath ?? "/";
   const redirectTo   = `${baseCallback}?next=${encodeURIComponent(next)}`;
 
-  const requestedScopes = FB_SCOPES;
-
   console.info("[connectFacebookAccount] ── START ────────────────────────────");
-  console.info("[connectFacebookAccount] FB_SCOPES (what we request):", requestedScopes);
+  console.info("[connectFacebookAccount] FB_SCOPES (desired):", FB_SCOPES);
   console.info("[connectFacebookAccount] redirectTo:", redirectTo);
-  console.info("[connectFacebookAccount] options passed to signInWithOAuth:", {
-    provider: "facebook",
-    redirectTo,
-    scopes: requestedScopes,
-    skipBrowserRedirect: true,
-  });
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "facebook",
     options: {
       redirectTo,
-      scopes: requestedScopes,
+      scopes: FB_SCOPES,
       skipBrowserRedirect: true,
     },
   });
@@ -100,37 +72,70 @@ export async function connectFacebookAccount(options: FacebookConnectOptions = {
     throw new Error("Facebook OAuth did not return a redirect URL.");
   }
 
-  // ── Inspect GoTrue-generated URL and strip injected scopes ───────────────
-  const authUrl       = new URL(data.url);
-  const rawScope      = authUrl.searchParams.get("scope") ?? "";
-  const goTrueScope   = decodeURIComponent(rawScope);
-  const goTrueTokens  = goTrueScope.split(/[\s,+]+/).filter(Boolean);
-  const wantedTokens  = requestedScopes.split(" ");
+  // ── Parse the URL GoTrue produced ────────────────────────────────────────
+  const authUrl = new URL(data.url);
 
-  const stripped     = goTrueTokens.filter((s) => GOTRUE_INJECTED_SCOPES.has(s));
-  const finalTokens  = goTrueTokens.filter((s) => !GOTRUE_INJECTED_SCOPES.has(s));
-  const finalScope   = finalTokens.join(" ");
+  // Log everything present in the URL for diagnosis
+  const goTrueRaw    = authUrl.searchParams.get("scope")  ?? "";   // Facebook uses "scope"
+  const goTrueRawAlt = authUrl.searchParams.get("scopes") ?? "";   // GoTrue authorize endpoint uses "scopes"
+  const goTrueScope  = decodeURIComponent(goTrueRaw  || goTrueRawAlt);
+  const goTrueTokens = goTrueScope.split(/[\s,+]+/).filter(Boolean);
 
-  // Rewrite the scope param in-place (PKCE params are untouched)
+  console.info("[connectFacebookAccount] — URL analysis —");
+  console.info("  data.url (first 400 chars):", data.url.slice(0, 400));
+  console.info("  scope  param (raw):", goTrueRaw   || "(not present)");
+  console.info("  scopes param (raw):", goTrueRawAlt || "(not present)");
+  console.info("  decoded scope string:      ", goTrueScope || "(empty)");
+  console.info("  parsed scope tokens:       ", goTrueTokens);
+
+  // ── Force-set the scope to exactly FB_SCOPES ─────────────────────────────
+  //
+  // We do NOT rely on GoTrue to include our requested scopes.  We explicitly
+  // write the exact scope we want, regardless of what GoTrue put in the URL.
+  // This is the only robust approach: filtering is fragile when GoTrue omits
+  // our scopes; force-setting guarantees the outcome in all cases.
+  //
+  const finalTokens = FB_SCOPES.split(" ");
+  const finalScope  = finalTokens.join(" ");
+
+  console.info("  finalTokens (force-set):   ", finalTokens);
+  console.info("  finalScope  (force-set):   ", finalScope);
+
+  // ── Safety guard ─────────────────────────────────────────────────────────
+  if (!finalScope.trim()) {
+    throw new Error(
+      `[connectFacebookAccount] BUG: final scope is empty. FB_SCOPES constant is "${FB_SCOPES}". ` +
+      `This should never happen — check FB_SCOPES definition.`
+    );
+  }
+
+  // ── Rewrite the scope param ───────────────────────────────────────────────
   authUrl.searchParams.set("scope", finalScope);
+  // Remove the 'scopes' param if GoTrue added it (prevent duplicate/confusion)
+  authUrl.searchParams.delete("scopes");
+
   const finalUrl = authUrl.toString();
 
-  const debugInfo: ScopeDebugInfo = { goTrueScope, finalScope, stripped, finalUrl };
+  console.info("[connectFacebookAccount] — rewrite result —");
+  console.info("  scope param set to:", finalScope);
+  console.info("  final URL (first 400 chars):", finalUrl.slice(0, 400));
 
-  console.info("[connectFacebookAccount] GoTrue URL scope (raw):", goTrueScope);
-  console.info("[connectFacebookAccount] Scopes stripped by us:  ", stripped.length ? stripped.join(", ") : "(none)");
-  console.info("[connectFacebookAccount] Final scope → Facebook: ", finalScope);
-
-  const missing = wantedTokens.filter((s) => !finalTokens.includes(s));
-  if (missing.length) {
-    console.warn("[connectFacebookAccount] ⚠ Some requested scopes are missing from GoTrue URL:", missing.join(", "));
-  }
-  if (finalScope === requestedScopes) {
-    console.info("[connectFacebookAccount] ✓ Final scope matches FB_SCOPES exactly");
+  if (finalScope === FB_SCOPES) {
+    console.info("[connectFacebookAccount] ✓ scope is exactly FB_SCOPES");
+  } else {
+    console.warn("[connectFacebookAccount] ⚠ finalScope !== FB_SCOPES — check FB_SCOPES constant");
   }
 
+  // ── Notify UI debug panel ─────────────────────────────────────────────────
+  const debugInfo: ScopeDebugInfo = {
+    goTrueScope,
+    goTrueTokens,
+    finalTokens,
+    finalScope,
+    finalUrl,
+  };
   options.onScopeDebug?.(debugInfo);
 
-  console.info("[connectFacebookAccount] Redirecting to cleaned URL…");
+  console.info("[connectFacebookAccount] ── REDIRECT ────────────────────────");
   window.location.assign(finalUrl);
 }

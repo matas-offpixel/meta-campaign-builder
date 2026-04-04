@@ -244,30 +244,39 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
         {fbScopeDebug && (
           <div className="mt-3 rounded-md border border-dashed border-warning/60 bg-warning/5 p-3 font-mono text-[11px] leading-relaxed text-foreground">
             <p className="mb-1 font-sans text-xs font-semibold text-warning">
-              DEBUG — OAuth scope (remove this panel once verified)
+              DEBUG — OAuth scope (remove once verified)
             </p>
             <p>
-              <span className="text-muted-foreground">Requested (FB_SCOPES):</span>{" "}
+              <span className="text-muted-foreground">Desired (FB_SCOPES):&nbsp;&nbsp;</span>
               <span className="text-foreground">{FB_SCOPES}</span>
             </p>
             <p>
-              <span className="text-muted-foreground">GoTrue URL had:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>{" "}
-              <span className={fbScopeDebug.stripped.length > 0 ? "text-destructive" : "text-foreground"}>
-                {fbScopeDebug.goTrueScope}
+              <span className="text-muted-foreground">GoTrue URL scope:&nbsp;&nbsp;&nbsp;&nbsp;</span>
+              <span className={fbScopeDebug.goTrueScope !== FB_SCOPES ? "text-warning" : "text-foreground"}>
+                {fbScopeDebug.goTrueScope || "(empty)"}
               </span>
             </p>
             <p>
-              <span className="text-muted-foreground">Stripped by us:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>{" "}
-              <span className="text-destructive">
-                {fbScopeDebug.stripped.length > 0 ? fbScopeDebug.stripped.join(", ") : "(none)"}
+              <span className="text-muted-foreground">GoTrue tokens parsed:&nbsp;</span>
+              <span className="text-foreground">
+                [{fbScopeDebug.goTrueTokens.join(", ") || "—"}]
               </span>
             </p>
             <p>
-              <span className="text-muted-foreground">Sent to Facebook:&nbsp;&nbsp;&nbsp;</span>{" "}
+              <span className="text-muted-foreground">Final tokens (forced):&nbsp;</span>
+              <span className="text-foreground">
+                [{fbScopeDebug.finalTokens.join(", ")}]
+              </span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Sent to Facebook:&nbsp;&nbsp;&nbsp;&nbsp;</span>
               <span className={fbScopeDebug.finalScope === FB_SCOPES ? "text-success" : "text-destructive"}>
-                {fbScopeDebug.finalScope}
+                {fbScopeDebug.finalScope || "(EMPTY — bug!)"}
               </span>{" "}
-              {fbScopeDebug.finalScope === FB_SCOPES ? "✓" : "✗ mismatch"}
+              {fbScopeDebug.finalScope === FB_SCOPES ? "✓" : "✗"}
+            </p>
+            <p className="mt-1 break-all text-[10px] text-muted-foreground">
+              URL: {fbScopeDebug.finalUrl.slice(0, 300)}
             </p>
           </div>
         )}
