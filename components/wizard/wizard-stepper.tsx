@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Check, LogOut } from "lucide-react";
 import { WIZARD_STEPS, type WizardStep } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
+import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
 
 interface WizardStepperProps {
   currentStep: WizardStep;
@@ -17,6 +18,7 @@ export function WizardStepper({ currentStep, completedSteps, onStepClick }: Wiza
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    clearFacebookTokenStorage();
     router.push("/login");
   };
 

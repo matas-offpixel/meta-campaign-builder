@@ -164,7 +164,7 @@ export async function GET() {
     results.push(
       await probe(
         "Pages (/me/accounts)",
-        `${BASE}/me/accounts?fields=id,name,fan_count,category&limit=5&access_token=${token}`,
+        `${BASE}/me/accounts?fields=id,name,fan_count,category&limit=100&access_token=${token}`,
       ),
     );
 
@@ -172,7 +172,7 @@ export async function GET() {
     results.push(
       await probe(
         `Ad images list — GET (/${adAccountId}/adimages)`,
-        `${BASE}/${adAccountId}/adimages?fields=hash,url&limit=3&access_token=${token}`,
+        `${BASE}/${adAccountId}/adimages?fields=hash,url&limit=100&access_token=${token}`,
       ),
     );
 

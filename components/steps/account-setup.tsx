@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
-import { AlertCircle, AlertTriangle, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertCircle, AlertTriangle, RefreshCw, Loader2, Link2, CheckCircle2 } from "lucide-react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
-import { useFetchAdAccounts, useFetchPixels } from "@/lib/hooks/useMeta";
+import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
+import { connectFacebookAccount } from "@/lib/facebook-connect";
 
 // ─── Inline spinner ───────────────────────────────────────────────────────────
 
@@ -61,11 +62,17 @@ function FieldStatus({
 interface AccountSetupProps {
   settings: CampaignSettings;
   onChange: (settings: CampaignSettings) => void;
+  /** Used as OAuth return path after linking Facebook */
+  campaignId?: string;
 }
 
-export function AccountSetup({ settings, onChange }: AccountSetupProps) {
+export function AccountSetup({ settings, onChange, campaignId }: AccountSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
+
+  const [fbConnectBusy, setFbConnectBusy] = useState(false);
+  const { connected: facebookConnected, loading: fbStatusLoading, refresh: refreshFbStatus } =
+    useFacebookConnectionStatus();
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const accounts = useFetchAdAccounts();
@@ -153,6 +160,18 @@ export function AccountSetup({ settings, onChange }: AccountSetupProps) {
     }
   }
 
+  async function handleConnectFacebook() {
+    setFbConnectBusy(true);
+    try {
+      const returnPath = campaignId ? `/campaign/${campaignId}` : "/";
+      await connectFacebookAccount({ returnPath });
+    } catch (e) {
+      console.error("[AccountSetup] Connect Facebook:", e);
+      alert(e instanceof Error ? e.message : "Could not start Facebook connection.");
+      setFbConnectBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -162,6 +181,60 @@ export function AccountSetup({ settings, onChange }: AccountSetupProps) {
           Facebook page and Instagram account are chosen per ad in the Creatives step.
         </p>
       </div>
+
+      {/* ── Facebook (user token) ─────────────────────────────────────────── */}
+      <Card>
+        <CardTitle>Facebook connection</CardTitle>
+        <CardDescription>
+          Link Facebook to load <strong>your</strong> pages (&quot;Load My Pages&quot;), Instagram identities, and other Meta features that use your personal Facebook access.
+          Ad accounts and pixels below still use the app&apos;s Meta integration.
+        </CardDescription>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {fbStatusLoading ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Checking connection…
+            </p>
+          ) : facebookConnected ? (
+            <p className="flex items-center gap-2 text-xs text-success">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Facebook connected
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Not connected — required for &quot;Load My Pages&quot; and similar features.
+            </p>
+          )}
+          <Button
+            type="button"
+            variant={facebookConnected ? "outline" : "primary"}
+            size="sm"
+            className="gap-1.5"
+            disabled={fbConnectBusy}
+            onClick={() => {
+              void handleConnectFacebook();
+            }}
+          >
+            {fbConnectBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Link2 className="h-3.5 w-3.5" />
+            )}
+            {facebookConnected ? "Reconnect Facebook" : "Connect Facebook"}
+          </Button>
+          {facebookConnected && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => void refreshFbStatus()}
+            >
+              Refresh status
+            </Button>
+          )}
+        </div>
+      </Card>
 
       {/* ── Ad Account ─────────────────────────────────────────────────────── */}
       <Card>

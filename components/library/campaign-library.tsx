@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
+import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb, loadCampaignList, duplicateCampaign, deleteCampaign, updateCampaignStatus } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
@@ -240,6 +241,7 @@ export function CampaignLibrary() {
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    clearFacebookTokenStorage();
     router.push("/login");
   };
 

@@ -36,6 +36,7 @@ import { createClient } from "@/lib/supabase/client";
 import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
+import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
 
 interface WizardShellProps {
   draftId: string;
@@ -350,6 +351,10 @@ export function WizardShell({ draftId }: WizardShellProps) {
         onStepClick={handleStepClick}
       />
 
+      {step > 0 && (
+        <FacebookConnectionBanner onGoToAccountSetup={() => setStep(0)} />
+      )}
+
       {/* Template indicator */}
       {loadedTemplateName && (
         <div className="border-b border-border bg-primary/10 px-6 py-2">
@@ -370,7 +375,13 @@ export function WizardShell({ draftId }: WizardShellProps) {
       )}
 
       <main className="flex-1 overflow-y-auto px-6 py-6">
-        {step === 0 && <AccountSetup settings={draft.settings} onChange={updateSettings} />}
+        {step === 0 && (
+          <AccountSetup
+            settings={draft.settings}
+            onChange={updateSettings}
+            campaignId={draftId}
+          />
+        )}
         {step === 1 && <CampaignSetup settings={draft.settings} onChange={updateSettings} />}
         {step === 2 && (
           <OptimisationStrategy

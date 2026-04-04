@@ -18,6 +18,12 @@ import type {
   MetaInstagramAccount,
   CustomAudience,
 } from "@/lib/types";
+import {
+  FB_TOKEN_STORAGE_KEY,
+  parseStoredFacebookToken,
+  serializeStoredFacebookToken,
+  type StoredFacebookToken,
+} from "@/lib/facebook-token-storage";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -465,38 +471,93 @@ export function useLocationSearch(): {
 
 // ─── Facebook provider token management ───────────────────────────────────────
 
-/**
- * Storage key must match the one written in /auth/facebook-callback/page.tsx.
- * Exported so consumers can reference it directly if needed.
- */
-export const FB_TOKEN_STORAGE_KEY = "facebook_provider_token";
+/** Re-export for callers that imported from useMeta before. */
+export { FB_TOKEN_STORAGE_KEY } from "@/lib/facebook-token-storage";
+
+function persistTokenForUser(userId: string, providerToken: string): void {
+  const entry: StoredFacebookToken = { userId, token: providerToken };
+  localStorage.setItem(FB_TOKEN_STORAGE_KEY, serializeStoredFacebookToken(entry));
+}
 
 /**
- * Manages the Facebook provider_token across the app.
+ * Manages the Facebook provider_token for the signed-in Supabase user.
  *
- * Token lifecycle:
- *   1. Written to localStorage by /auth/facebook-callback after OAuth exchange
- *   2. Picked up here on mount via localStorage read
- *   3. Also captured via onAuthStateChange for subsequent session refreshes
- *   4. `refresh()` re-reads from getSession() as a last-resort fallback
- *
- * Note: Supabase SSR does NOT store provider_token in the session cookie.
- * The only reliable window to capture it is immediately after
- * exchangeCodeForSession() on the browser client — which the facebook-callback
- * page handles.
+ * Order of resolution:
+ *   1. localStorage JSON `{ userId, token }` matching current user
+ *   2. GET /api/auth/facebook-token (Supabase `user_facebook_tokens` row)
+ *   3. `session.provider_token` from getSession() (briefly after OAuth)
  */
 export function useFacebookToken(): {
   token: string | null;
   loading: boolean;
   refresh: () => Promise<string | null>;
 } {
-  const [token, setToken] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(FB_TOKEN_STORAGE_KEY);
-  });
-  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Subscribe to Supabase auth state changes — captures token on refresh
+  const resolveToken = useCallback(async (): Promise<string | null> => {
+    const { createClient } = await import("@/lib/supabase/client");
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setToken(null);
+      return null;
+    }
+
+    // 1 — localStorage (user-scoped)
+    const raw = typeof window !== "undefined" ? localStorage.getItem(FB_TOKEN_STORAGE_KEY) : null;
+    const parsed = parseStoredFacebookToken(raw);
+    if (parsed?.userId === user.id && parsed.token) {
+      return parsed.token;
+    }
+
+    // 2 — server-persisted token for this user
+    try {
+      const res = await fetch("/api/auth/facebook-token");
+      const json = (await res.json()) as { token?: string | null; error?: string };
+      if (res.ok && json.token) {
+        persistTokenForUser(user.id, json.token);
+        return json.token;
+      }
+    } catch (e) {
+      console.warn("[useFacebookToken] GET /api/auth/facebook-token failed:", e);
+    }
+
+    // 3 — session (right after OAuth exchange)
+    const { data: sessionData } = await supabase.auth.getSession();
+    const pt = sessionData.session?.provider_token ?? null;
+    if (pt) {
+      persistTokenForUser(user.id, pt);
+      try {
+        await fetch("/api/auth/facebook-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ providerToken: pt }),
+        });
+      } catch {
+        /* non-fatal */
+      }
+      return pt;
+    }
+
+    return null;
+  }, []);
+
+  const refresh = useCallback(async (): Promise<string | null> => {
+    setLoading(true);
+    try {
+      const t = await resolveToken();
+      setToken(t);
+      console.debug("[useFacebookToken] refresh —", t ? "token present" : "no token");
+      return t;
+    } finally {
+      setLoading(false);
+    }
+  }, [resolveToken]);
+
   useEffect(() => {
     let subscription: { unsubscribe: () => void } | null = null;
 
@@ -504,59 +565,44 @@ export function useFacebookToken(): {
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
 
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      await refresh();
+
+      const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        const uid = session?.user?.id;
         const freshToken = session?.provider_token ?? null;
-        if (freshToken) {
-          console.debug("[useFacebookToken] onAuthStateChange — provider_token captured");
-          localStorage.setItem(FB_TOKEN_STORAGE_KEY, freshToken);
+        if (uid && freshToken) {
+          persistTokenForUser(uid, freshToken);
           setToken(freshToken);
+          try {
+            await fetch("/api/auth/facebook-token", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ providerToken: freshToken }),
+            });
+          } catch {
+            /* ignore */
+          }
         }
       });
       subscription = data.subscription;
     })();
 
-    return () => { subscription?.unsubscribe(); };
-  }, []);
-
-  const refresh = useCallback(async (): Promise<string | null> => {
-    // First check localStorage — the callback page writes here first
-    const stored = localStorage.getItem(FB_TOKEN_STORAGE_KEY);
-    if (stored) {
-      setToken(stored);
-      console.debug("[useFacebookToken] refresh — found token in localStorage");
-      return stored;
-    }
-
-    // Fallback: try getSession() (only works right after code exchange)
-    setLoading(true);
-    try {
-      const { createClient } = await import("@/lib/supabase/client");
-      const supabase = createClient();
-      const { data } = await supabase.auth.getSession();
-      const providerToken = data.session?.provider_token ?? null;
-
-      console.debug("[useFacebookToken] refresh — getSession provider_token:", providerToken ? "present" : "null");
-
-      if (providerToken) {
-        localStorage.setItem(FB_TOKEN_STORAGE_KEY, providerToken);
-        setToken(providerToken);
-      }
-      return providerToken;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Attempt to hydrate from session on mount in case the page loaded right
-  // after OAuth (before the callback page had a chance to save it)
-  useEffect(() => {
-    if (!token) {
-      refresh();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, [refresh]);
 
   return { token, loading, refresh };
+}
+
+/** True once loading finishes and a Facebook provider token exists for the user. */
+export function useFacebookConnectionStatus(): {
+  connected: boolean;
+  loading: boolean;
+  refresh: () => Promise<string | null>;
+} {
+  const { token, loading, refresh } = useFacebookToken();
+  return { connected: !!token, loading, refresh };
 }
 
 // ─── useFetchUserPages ────────────────────────────────────────────────────────
@@ -606,8 +652,8 @@ export function useFetchUserPages(): UserPagesFetchState {
       const { data: sessionData } = await supabase.auth.getSession();
       const hasSession = !!sessionData.session;
       const msg = hasSession
-        ? "Facebook login succeeded but no provider token was captured. Try logging out and logging in with Facebook again."
-        : "Log in with Facebook first to load your pages.";
+        ? "Facebook connection succeeded but no provider token was captured. Open Account Setup and use Connect Facebook again, or check the OAuth callback."
+        : "Sign in with email first, then connect Facebook in Account Setup to load your pages.";
       console.warn("[useFetchUserPages]", msg, "| session:", hasSession, "| localStorage key:", FB_TOKEN_STORAGE_KEY);
       setError(msg);
       setLoading(false);
