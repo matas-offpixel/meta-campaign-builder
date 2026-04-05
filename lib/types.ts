@@ -266,6 +266,12 @@ export interface InterestGroup {
   name: string;
   interests: InterestSuggestion[];
   aiPrompt?: string;
+  /**
+   * Cluster category used to target AI discovery suggestions.
+   * Matches one of the CLUSTER_DEFS labels in interest-discover route.
+   * e.g. "Music & Nightlife", "Fashion & Streetwear", etc.
+   */
+  clusterType?: string;
 }
 
 /**
@@ -627,7 +633,15 @@ export interface LaunchSummary {
   preflightWarnings?: { stage: string; message: string }[];
   /** Engagement custom audiences created from page groups (Phase 1.5) */
   engagementAudiencesCreated?: { name: string; id: string; type: string; durationMs?: number }[];
-  engagementAudiencesFailed?: { name: string; type: string; error: string }[];
+  engagementAudiencesFailed?: {
+    name: string;
+    type: string;
+    error: string;
+    /** Source page ID — used to persist capability failures after launch */
+    pageId?: string;
+    /** True when the failure was due to a missing event-source permission */
+    isPermissionFailure?: boolean;
+  }[];
   /** Lookalike audiences created from engagement audiences (Phase 1.75) */
   lookalikeAudiencesCreated?: { name: string; id: string; range: string; durationMs?: number }[];
   lookalikeAudiencesFailed?: { name: string; range: string; error: string; skippedReason?: string }[];

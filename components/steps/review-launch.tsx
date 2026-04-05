@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
+import { markPageCapabilityFailures } from "@/lib/hooks/useMeta";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -415,6 +416,23 @@ export function ReviewLaunch({
     if (launchSummary) return buildLaunchEvents(launchSummary);
     return [];
   }, [isLaunching, launchSummary]);
+
+  // After a launch, persist any page capability failures back into the cache so
+  // the page audience panel shows updated badges on the next visit.
+  useEffect(() => {
+    if (!launchSummary?.engagementAudiencesFailed?.length) return;
+    const failures = launchSummary.engagementAudiencesFailed
+      .filter((f) => f.pageId)
+      .map((f) => ({
+        pageId: f.pageId!,
+        type: f.type,
+        isPermissionFailure: f.isPermissionFailure ?? false,
+        isNoInstagram:
+          (f.error ?? "").toLowerCase().includes("no linked instagram") ||
+          (f.error ?? "").toLowerCase().includes("instagram account found"),
+      }));
+    if (failures.length > 0) markPageCapabilityFailures(failures);
+  }, [launchSummary]);
 
   const hasFailures =
     launchSummary &&

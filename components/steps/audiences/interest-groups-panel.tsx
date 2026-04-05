@@ -12,7 +12,11 @@ import {
 } from "lucide-react";
 import type { InterestGroup, InterestSuggestion, AudienceSettings, MetaApiPage } from "@/lib/types";
 import type { DiscoverCluster, DiscoverResponse } from "@/app/api/meta/interest-discover/route";
-import { generateInterestGroupsFromAudiences } from "@/lib/interest-suggestions";
+import {
+  generateInterestGroupsFromAudiences,
+  CLUSTER_LABELS,
+  inferClusterFromName,
+} from "@/lib/interest-suggestions";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 
 interface DiscoveredItem {
@@ -106,6 +110,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   // Clustered discover-from-pages state (per group)
   const [discoverClusters, setDiscoverClusters] = useState<Record<string, DiscoverCluster[]>>({});
   const [discoverSearchTerms, setDiscoverSearchTerms] = useState<Record<string, string[]>>({});
+  const [discoverSceneTags, setDiscoverSceneTags] = useState<Record<string, string[]>>({});
   const [discoveringFromPages, setDiscoveringFromPages] = useState<string | null>(null);
   const [discoverFromPagesError, setDiscoverFromPagesError] = useState<Record<string, string | null>>({});
   // Per-cluster: which interests are checked — keyed by groupId+clusterLabel+interestId
@@ -261,10 +266,16 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const handleDiscoverFromPages = useCallback(async (groupId: string) => {
     if (discoveringFromPages === groupId) return;
 
+    // Resolve cluster type: stored on group, or inferred from name
+    const group = groups.find((g) => g.id === groupId);
+    const effectiveClusterType =
+      group?.clusterType ?? (group?.name ? (inferClusterFromName(group.name) ?? undefined) : undefined);
+
     setDiscoveringFromPages(groupId);
     setDiscoverFromPagesError((prev) => ({ ...prev, [groupId]: null }));
     setDiscoverClusters((prev) => ({ ...prev, [groupId]: [] }));
     setDiscoverSearchTerms((prev) => ({ ...prev, [groupId]: [] }));
+    setDiscoverSceneTags((prev) => ({ ...prev, [groupId]: [] }));
 
     try {
       const res = await fetch("/api/meta/interest-discover", {
@@ -277,6 +288,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
             instagramUsername: p.instagramUsername,
           })),
           campaignName,
+          // Single-cluster mode when a cluster type is set — avoids cross-cluster bleed
+          ...(effectiveClusterType ? { clusterLabel: effectiveClusterType } : {}),
         }),
       });
 
@@ -285,6 +298,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
 
       setDiscoverClusters((prev) => ({ ...prev, [groupId]: json.clusters }));
       setDiscoverSearchTerms((prev) => ({ ...prev, [groupId]: json.searchTermsUsed }));
+      setDiscoverSceneTags((prev) => ({ ...prev, [groupId]: json.detectedSceneTags ?? [] }));
 
       // Init selections to false for all
       const init: Record<string, boolean> = {};
@@ -496,9 +510,58 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                 <Input
                   label="Group Name"
                   value={group.name}
-                  onChange={(e) => updateGroup(group.id, { name: e.target.value })}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    // Auto-set clusterType from name only if not already explicitly chosen
+                    const inferred = inferClusterFromName(name);
+                    updateGroup(group.id, {
+                      name,
+                      ...(inferred && !group.clusterType ? { clusterType: inferred } : {}),
+                    });
+                  }}
                   placeholder="e.g. Music Interests"
                 />
+
+                {/* Cluster type selector — controls which cluster AI discovery targets */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    AI Discovery Cluster
+                    <span className="ml-1 font-normal">(controls which category Discover from Pages uses)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CLUSTER_LABELS.map((label) => {
+                      const active = (group.clusterType ?? inferClusterFromName(group.name)) === label;
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() =>
+                            updateGroup(group.id, {
+                              clusterType: group.clusterType === label ? undefined : label,
+                            })
+                          }
+                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
+                            active
+                              ? "bg-primary text-white border-primary"
+                              : "bg-muted text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                    {(group.clusterType || inferClusterFromName(group.name)) && (
+                      <button
+                        type="button"
+                        onClick={() => updateGroup(group.id, { clusterType: undefined })}
+                        className="rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:text-destructive"
+                        title="Clear cluster type (discover all categories)"
+                      >
+                        ✕ All
+                      </button>
+                    )}
+                  </div>
+                </div>
 
                 <div>
                   <div className="mb-1.5 flex items-center gap-2">
@@ -562,19 +625,34 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                 </div>
 
                 {/* ── Discover from Pages — AI-style fan interest discovery ─── */}
+                {(() => {
+                  const effectiveCluster = group.clusterType ?? inferClusterFromName(group.name);
+                  return (
                 <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary-light p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2 text-sm font-medium text-primary">
                         <Sparkles className="h-4 w-4" />
                         Discover from Pages
+                        {effectiveCluster && (
+                          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                            {effectiveCluster}
+                          </span>
+                        )}
                       </div>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Generates interest suggestions based on what fans of your selected pages are likely interested in — broader than keyword matching.
-                  </p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
-                    Suggestions are tailored to each cluster using selected page audience signals.
-                  </p>
+                      {effectiveCluster ? (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Generates <span className="font-medium">{effectiveCluster}</span> interests based on fans of your selected pages.
+                          Irrelevant categories filtered out.
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Select a cluster above to get targeted suggestions, or discover across all categories.
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
+                        Suggestions are tailored to each cluster using selected page audience signals.
+                      </p>
                       {pageContext.length > 0 ? (
                         <p className="mt-1 text-[11px] text-muted-foreground/80">
                           Seeded by: <span className="font-medium text-foreground">
@@ -607,11 +685,11 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                     onClick={() => handleDiscoverFromPages(group.id)}
                   >
                     {discoveringFromPages === group.id ? (
-                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Discovering fan interests…</>
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Discovering {effectiveCluster ?? "all categories"}…</>
                     ) : (discoverClusters[group.id]?.length ?? 0) > 0 ? (
-                      <><RefreshCw className="h-3.5 w-3.5" /> Regenerate</>
+                      <><RefreshCw className="h-3.5 w-3.5" /> Regenerate {effectiveCluster ? `(${effectiveCluster})` : ""}</>
                     ) : (
-                      <><Sparkles className="h-3.5 w-3.5" /> Discover Interests from Pages</>
+                      <><Sparkles className="h-3.5 w-3.5" /> Discover {effectiveCluster ? `${effectiveCluster} Interests` : "Interests from Pages"}</>
                     )}
                   </Button>
 
@@ -619,12 +697,14 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                     <p className="text-xs text-destructive">{discoverFromPagesError[group.id]}</p>
                   )}
 
-                  {/* Clustered results */}
+                  {/* Discovery results — single-cluster or multi-cluster */}
                   {(discoverClusters[group.id]?.length ?? 0) > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-foreground">
-                          Suggested interests — select and add
+                          {effectiveCluster
+                            ? `${effectiveCluster} suggestions — select and add`
+                            : "Suggested interests — select and add"}
                         </span>
                         {selectedClusterCount(group.id) > 0 && (
                           <Button
@@ -637,67 +717,97 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         )}
                       </div>
 
-                      {discoverClusters[group.id]!.map((cluster) => (
-                        <div key={cluster.label} className="rounded-lg border border-border bg-white overflow-hidden">
-                          <div className="flex items-start justify-between gap-2 px-3 py-1.5 bg-muted/30 border-b border-border">
-                            <div className="min-w-0">
-                              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {cluster.label}
-                              </span>
-                              {"description" in cluster && (cluster as { description?: string }).description && (
-                                <p className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
-                                  {(cluster as { description: string }).description}
-                                </p>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => selectAllInCluster(group.id, cluster)}
-                              className="shrink-0 text-[10px] font-medium text-primary hover:underline"
-                            >
-                              Select all
-                            </button>
-                          </div>
-                          {cluster.interests.map((item) => {
-                            const isSelected = clusterSelections[group.id]?.[item.id] ?? false;
-                            const alreadyAdded = group.interests.some((i) => i.id === item.id);
-                            return (
-                              <label
-                                key={item.id}
-                                className={`flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50 ${alreadyAdded ? "opacity-50" : ""}`}
-                              >
-                                <Checkbox
-                                  checked={isSelected || alreadyAdded}
-                                  onChange={() => !alreadyAdded && toggleClusterInterest(group.id, item.id)}
-                                  disabled={alreadyAdded}
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm">{item.name}</span>
-                                  {item.path && item.path.length > 0 && (
-                                    <span className="block truncate text-[10px] text-muted-foreground">
-                                      {item.path.join(" › ")}
-                                    </span>
+                      {discoverClusters[group.id]!.map((cluster) => {
+                        // Single-cluster mode: suppress cluster header label (already shown above)
+                        const isSingleCluster = (discoverClusters[group.id]?.length ?? 0) === 1;
+                        return (
+                          <div key={cluster.label} className="rounded-lg border border-border bg-white overflow-hidden">
+                            {!isSingleCluster && (
+                              <div className="flex items-start justify-between gap-2 px-3 py-1.5 bg-muted/30 border-b border-border">
+                                <div className="min-w-0">
+                                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {cluster.label}
+                                  </span>
+                                  {cluster.description && (
+                                    <p className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
+                                      {cluster.description}
+                                    </p>
                                   )}
                                 </div>
-                                <span className="shrink-0 text-[10px] text-muted-foreground">
-                                  {(item.audienceSize ?? 0) >= 1_000_000
-                                    ? `${((item.audienceSize ?? 0) / 1_000_000).toFixed(1)}M`
-                                    : (item.audienceSize ?? 0) >= 1_000
-                                      ? `${Math.round((item.audienceSize ?? 0) / 1_000)}K`
-                                      : (item.audienceSize ?? 0) > 0 ? String(item.audienceSize) : ""}
-                                </span>
-                                {alreadyAdded && (
-                                  <Badge variant="outline" className="shrink-0 text-[9px]">Added</Badge>
-                                )}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ))}
+                                <button
+                                  type="button"
+                                  onClick={() => selectAllInCluster(group.id, cluster)}
+                                  className="shrink-0 text-[10px] font-medium text-primary hover:underline"
+                                >
+                                  Select all
+                                </button>
+                              </div>
+                            )}
+                            {isSingleCluster && cluster.description && (
+                              <div className="px-3 py-1.5 bg-muted/20 border-b border-border flex items-start justify-between">
+                                <p className="text-[10px] text-muted-foreground/80 italic">
+                                  {cluster.description}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => selectAllInCluster(group.id, cluster)}
+                                  className="shrink-0 ml-2 text-[10px] font-medium text-primary hover:underline"
+                                >
+                                  Select all
+                                </button>
+                              </div>
+                            )}
+                            {cluster.interests.map((item) => {
+                              const isSelected = clusterSelections[group.id]?.[item.id] ?? false;
+                              const alreadyAdded = group.interests.some((i) => i.id === item.id);
+                              return (
+                                <label
+                                  key={item.id}
+                                  className={`flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50 ${alreadyAdded ? "opacity-50" : ""}`}
+                                >
+                                  <Checkbox
+                                    checked={isSelected || alreadyAdded}
+                                    onChange={() => !alreadyAdded && toggleClusterInterest(group.id, item.id)}
+                                    disabled={alreadyAdded}
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <span className="block truncate text-sm">{item.name}</span>
+                                    {item.path && item.path.length > 0 && (
+                                      <span className="block truncate text-[10px] text-muted-foreground">
+                                        {item.path.join(" › ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                                    {(item.audienceSize ?? 0) >= 1_000_000
+                                      ? `${((item.audienceSize ?? 0) / 1_000_000).toFixed(1)}M`
+                                      : (item.audienceSize ?? 0) >= 1_000
+                                        ? `${Math.round((item.audienceSize ?? 0) / 1_000)}K`
+                                        : (item.audienceSize ?? 0) > 0 ? String(item.audienceSize) : ""}
+                                  </span>
+                                  {alreadyAdded && (
+                                    <Badge variant="outline" className="shrink-0 text-[9px]">Added</Badge>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
 
+                      {(discoverSceneTags[group.id]?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          <span className="text-[10px] text-muted-foreground/60 self-center">Detected scenes:</span>
+                          {discoverSceneTags[group.id]!.map((tag) => (
+                            <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                              {tag.replace(/_/g, " ")}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {(discoverSearchTerms[group.id]?.length ?? 0) > 0 && (
-                        <p className="text-[10px] text-muted-foreground/70">
-                          Searched: {discoverSearchTerms[group.id]!.join(", ")}
+                        <p className="text-[10px] text-muted-foreground/60">
+                          Searched {discoverSearchTerms[group.id]!.length} entity terms
                         </p>
                       )}
                     </div>
@@ -774,6 +884,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                     </div>
                   </details>
                 </div>
+                  );
+                })()}
 
                 {group.interests.length > 0 && (
                   <div>

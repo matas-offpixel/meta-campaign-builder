@@ -677,6 +677,80 @@ export function getCachedUserPages(): import("@/lib/types").MetaApiPage[] {
   return readPagesCache()?.data ?? [];
 }
 
+/**
+ * Persist capability failures back into the pages cache after a launch run.
+ * Call this from the review-launch UI when `LaunchSummary.engagementAudiencesFailed`
+ * contains items with `isPermissionFailure: true`.
+ *
+ * The next time the page list is shown, `inferCapabilities()` in
+ * page-audiences-panel will read these stored flags and show the correct badges.
+ */
+export function markPageCapabilityFailures(
+  failures: Array<{
+    pageId: string;
+    type: string;          // e.g. "fb_likes", "fb_engagement_365d", "ig_followers"
+    isPermissionFailure: boolean;
+    isNoInstagram: boolean; // true when the failure was "No linked Instagram"
+  }>,
+): void {
+  if (typeof window === "undefined") return;
+  const cache = readPagesCache();
+  if (!cache) return;
+
+  // Group failures by page ID
+  const byPageId = new Map<string, typeof failures>();
+  for (const f of failures) {
+    if (!byPageId.has(f.pageId)) byPageId.set(f.pageId, []);
+    byPageId.get(f.pageId)!.push(f);
+  }
+  if (byPageId.size === 0) return;
+
+  const updated = cache.data.map((page) => {
+    const pageFails = byPageId.get(page.id);
+    if (!pageFails || pageFails.length === 0) return page;
+
+    const caps: import("@/lib/types").PageCapabilities = page.capabilities ?? {
+      standardPageAudience: true,
+      fbLikesSource: true,
+      fbEngagementSource: true,
+      igFollowersSource: !!(page.hasInstagramLinked),
+      igEngagementSource: !!(page.hasInstagramLinked),
+      lookalikeEligible: true,
+      failureReasons: {},
+    };
+
+    const reasons: Record<string, string> = { ...(caps.failureReasons ?? {}) };
+
+    for (const f of pageFails) {
+      if (f.isPermissionFailure) {
+        if (f.type === "fb_likes") {
+          caps.fbLikesSource = false;
+          reasons.fbLikesSource = "No permission for event source (FB Likes)";
+        } else if (f.type === "fb_engagement_365d") {
+          caps.fbEngagementSource = false;
+          reasons.fbEngagementSource = "No permission for event source (FB Engagement)";
+        }
+      }
+      if (f.isNoInstagram) {
+        caps.igFollowersSource = false;
+        caps.igEngagementSource = false;
+        reasons.igFollowersSource = "No linked Instagram account";
+        reasons.igEngagementSource = "No linked Instagram account";
+      }
+    }
+
+    // If no FB or IG source audiences are available, mark lookalike as ineligible
+    if (!caps.fbLikesSource && !caps.fbEngagementSource && !caps.igFollowersSource && !caps.igEngagementSource) {
+      caps.lookalikeEligible = false;
+      reasons.lookalikeEligible = "No valid engagement source audiences available";
+    }
+
+    return { ...page, capabilities: { ...caps, failureReasons: reasons } };
+  });
+
+  writePagesCache({ ...cache, data: updated });
+}
+
 /** Hard limit: stop after this many list-batches (~10 000 pages). */
 const MAX_LIST_BATCHES = 200;
 /** Hard time limit for the entire operation (listing + enrichment). */

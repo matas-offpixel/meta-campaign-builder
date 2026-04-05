@@ -337,7 +337,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           engagementAudiencesFailed.push({
             name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et}`,
             type: et,
-            error: "No linked Instagram account found for this page",
+            error: "No linked Instagram account found for this page. IG source audiences were skipped.",
+            pageId,
+            isPermissionFailure: false,
           });
           continue;
         }
@@ -399,6 +401,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             name: audienceName,
             type: et,
             error: userFacingError,
+            pageId,
+            isPermissionFailure: isPermission,
           });
         }
       }
@@ -454,7 +458,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           engagementAudiencesFailed.push({
             name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et} (SPLAL)`,
             type: et,
-            error: "No linked Instagram account found for this page",
+            error: "No linked Instagram account found for this page. IG source audiences were skipped.",
+            pageId,
+            isPermissionFailure: false,
           });
           continue;
         }
@@ -477,8 +483,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
         } catch (err) {
           const message = formatMetaError(err);
+          const isPermission =
+            message.toLowerCase().includes("permission") ||
+            message.toLowerCase().includes("event source") ||
+            message.includes("(#100)") ||
+            message.includes("OAuthException");
           console.error(`[launch-campaign] Phase 1.5b ✗ SPLAL engagement failed for ${pageId} ${et}:`, message);
-          engagementAudiencesFailed.push({ name: audienceName, type: et, error: message });
+          engagementAudiencesFailed.push({
+            name: audienceName, type: et, error: message,
+            pageId, isPermissionFailure: isPermission,
+          });
           if (!skippedReasons[pageId]) {
             skippedPageIds.push(pageId);
             skippedReasons[pageId] = message;
