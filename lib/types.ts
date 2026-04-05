@@ -53,7 +53,15 @@ export interface MetaApiPage {
   /** Meta category label, e.g. "Musician/band", "Club", "Event" */
   category?: string;
   picture?: { data: { url: string } };
+  /** Instagram Business Account linked via the "Switch to professional" / BM flow */
   instagram_business_account?: { id: string };
+  /**
+   * Instagram account connected via "Connected account" in Page Settings.
+   * Present on pages where the user connected a personal IG account rather
+   * than a dedicated Business/Creator account. Check this as a fallback when
+   * instagram_business_account is absent.
+   */
+  connected_instagram_account?: { id: string };
   access_token?: string;
 
   // ── Enriched fields — populated by the /api/meta/pages/enrich phase ──────
@@ -61,14 +69,21 @@ export interface MetaApiPage {
   pictureUrl?: string;
   /** Facebook follower / fan count (from fan_count enrichment) */
   facebookFollowers?: number;
-  /** Linked Instagram Business Account id */
+  /** Resolved IG account id (from whichever field returned data) */
   instagramAccountId?: string;
   /** Instagram display name (Instagram name field, not necessarily @handle) */
   instagramUsername?: string;
   /** Instagram follower count (requires instagram_basic scope; may be null) */
   instagramFollowers?: number;
-  /** True if the page has a linked Instagram Business Account */
+  /** True if the page has any linked Instagram account */
   hasInstagramLinked?: boolean;
+  /**
+   * Which Graph API field surfaced the Instagram account.
+   * - "instagram_business_account" — standard business IG link
+   * - "connected_instagram_account" — personal/creator IG connected via Page Settings
+   * - null — no IG linked (or enrichment not yet run)
+   */
+  igLinkSource?: "instagram_business_account" | "connected_instagram_account" | null;
   /** Capability flags — inferred from enrichment or recorded after launch */
   capabilities?: PageCapabilities;
 }

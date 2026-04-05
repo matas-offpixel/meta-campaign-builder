@@ -299,26 +299,46 @@ export async function fetchInstagramAccounts(): Promise<
   type IgResult = MetaInstagramAccount & { linkedPageId: string };
   const seen = new Map<string, IgResult>();
 
+  // Checks both instagram_business_account AND connected_instagram_account.
+  // connected_instagram_account is populated when the user connected a personal
+  // or creator IG account via Page Settings, rather than via BM / "Switch to
+  // professional". Either field is valid as an IG engagement audience source.
   const extractIg = (pages: MetaApiPage[]) => {
     for (const page of pages) {
-      const igRaw = page.instagram_business_account as
+      const igBusiness = page.instagram_business_account as
         | (MetaInstagramAccount & { linkedPageId?: string })
         | undefined;
-      if (igRaw?.id && !seen.has(igRaw.id)) {
-        seen.set(igRaw.id, { ...igRaw, linkedPageId: page.id });
+      const igConnected = page.connected_instagram_account as
+        | (MetaInstagramAccount & { linkedPageId?: string })
+        | undefined;
+
+      const ig = igBusiness?.id ? igBusiness : igConnected?.id ? igConnected : undefined;
+      if (!ig?.id) continue;
+
+      if (!seen.has(ig.id)) {
+        seen.set(ig.id, { ...ig, linkedPageId: page.id });
+      }
+
+      if (!igBusiness?.id && igConnected?.id) {
+        console.info(
+          `[fetchInstagramAccounts] page ${page.id} (${page.name}):` +
+          ` instagram_business_account is null; using connected_instagram_account (id=${ig.id})`,
+        );
       }
     }
   };
+
+  // Fields include both IG connection types.
+  const IG_FIELDS =
+    "id,name," +
+    "instagram_business_account{id,username,name,profile_picture_url}," +
+    "connected_instagram_account{id,username,name,profile_picture_url}";
 
   // Source 1: personal token pages
   try {
     const personal = await graphGet<GraphPagedResponse<MetaApiPage>>(
       "/me/accounts",
-      {
-        fields:
-          "id,instagram_business_account{id,username,name,profile_picture_url}",
-        limit: "100",
-      },
+      { fields: IG_FIELDS, limit: "100" },
     );
     extractIg(personal.data);
   } catch (err) {
@@ -331,11 +351,7 @@ export async function fetchInstagramAccounts(): Promise<
     try {
       const bmPages = await graphGet<GraphPagedResponse<MetaApiPage>>(
         `/${businessId}/owned_pages`,
-        {
-          fields:
-            "id,instagram_business_account{id,username,name,profile_picture_url}",
-          limit: "100",
-        },
+        { fields: IG_FIELDS, limit: "100" },
       );
       extractIg(bmPages.data);
     } catch (err) {
@@ -343,6 +359,7 @@ export async function fetchInstagramAccounts(): Promise<
     }
   }
 
+  console.info(`[fetchInstagramAccounts] resolved ${seen.size} page→IG mappings`);
   return Array.from(seen.values());
 }
 

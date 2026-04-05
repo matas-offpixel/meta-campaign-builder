@@ -28,6 +28,7 @@ const MAX_IDS_PER_REQUEST = 50;
 interface RawIgAccount {
   id?: string;
   name?: string;
+  username?: string;
   followers_count?: number;
 }
 
@@ -35,7 +36,10 @@ interface RawEnrichedPage {
   id: string;
   picture?: { data?: { url?: string } };
   fan_count?: number;
+  /** Standard Instagram Business Account link (via BM or "Switch to professional") */
   instagram_business_account?: RawIgAccount;
+  /** Fallback: personal/creator IG connected via Page Settings "Connected account" */
+  connected_instagram_account?: RawIgAccount;
 }
 
 export interface EnrichedPageData {
@@ -45,6 +49,11 @@ export interface EnrichedPageData {
   instagramUsername: string | null;
   instagramFollowers: number | null;
   hasInstagramLinked: boolean;
+  /**
+   * Which Graph API field surfaced the IG account.
+   * null when no IG account was found.
+   */
+  igLinkSource: "instagram_business_account" | "connected_instagram_account" | null;
 }
 
 export interface EnrichResponse {
@@ -64,14 +73,37 @@ export interface EnrichResponse {
 }
 
 function parseEnriched(raw: RawEnrichedPage): EnrichedPageData {
-  const ig = raw.instagram_business_account;
+  const igBusiness = raw.instagram_business_account?.id ? raw.instagram_business_account : null;
+  const igConnected = raw.connected_instagram_account?.id ? raw.connected_instagram_account : null;
+
+  // Prefer instagram_business_account; use connected_instagram_account as fallback.
+  const ig = igBusiness ?? igConnected;
+  const igLinkSource: EnrichedPageData["igLinkSource"] =
+    igBusiness ? "instagram_business_account" :
+    igConnected ? "connected_instagram_account" :
+    null;
+
+  if (!igBusiness && igConnected) {
+    console.info(
+      `[pages/enrich] page ${raw.id}: instagram_business_account is null,` +
+      ` falling back to connected_instagram_account (id=${igConnected.id})`,
+    );
+  }
+  if (!igBusiness && !igConnected) {
+    console.info(`[pages/enrich] page ${raw.id}: no IG account found in either field`);
+  }
+
+  // Prefer username field if present (more recognisable than name).
+  const igUsername = ig?.username ?? ig?.name ?? null;
+
   return {
     pictureUrl: raw.picture?.data?.url ?? null,
     facebookFollowers: raw.fan_count ?? null,
     instagramAccountId: ig?.id ?? null,
-    instagramUsername: ig?.name ?? null,       // name = IG display name
+    instagramUsername: igUsername,
     instagramFollowers: ig?.followers_count ?? null,
     hasInstagramLinked: !!ig?.id,
+    igLinkSource,
   };
 }
 
@@ -135,8 +167,14 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   console.info(`[pages/enrich] enriching ${ids.length} pages`);
 
-  // ── Attempt 1: full fields including Instagram ────────────────────────────
-  const FULL_FIELDS = "picture{url},fan_count,instagram_business_account{id,name,followers_count}";
+  // ── Attempt 1: full fields including both IG link types ──────────────────
+  // connected_instagram_account covers pages where the user connected a personal
+  // or creator IG account via Page Settings → "Connected account", rather than
+  // going through the Business Manager / "Switch to professional" flow.
+  const FULL_FIELDS =
+    "picture{url},fan_count," +
+    "instagram_business_account{id,username,name,followers_count}," +
+    "connected_instagram_account{id,username,name,followers_count}";
   const BASIC_FIELDS = "picture{url},fan_count";
 
   let result = await fetchEnrichment(ids, providerToken, FULL_FIELDS);
@@ -160,6 +198,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         instagramUsername: null,
         instagramFollowers: null,
         hasInstagramLinked: false,
+        igLinkSource: null,
       };
     }
     return Response.json({
@@ -180,6 +219,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         pictureUrl: null, facebookFollowers: null,
         instagramAccountId: null, instagramUsername: null,
         instagramFollowers: null, hasInstagramLinked: false,
+        igLinkSource: null,
       };
       continue;
     }

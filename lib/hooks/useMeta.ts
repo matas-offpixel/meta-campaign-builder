@@ -937,7 +937,7 @@ export function useFetchUserPages(): UserPagesFetchState {
           enrichedPages = enrichedPages.map((p) => {
             const enriched = enrichJson.data![p.id];
             if (!enriched) return p;
-            return {
+            const merged = {
               ...p,
               pictureUrl:         enriched.pictureUrl         ?? p.pictureUrl,
               facebookFollowers:  enriched.facebookFollowers  ?? p.facebookFollowers,
@@ -945,7 +945,19 @@ export function useFetchUserPages(): UserPagesFetchState {
               instagramUsername:  enriched.instagramUsername  ?? p.instagramUsername,
               instagramFollowers: enriched.instagramFollowers ?? p.instagramFollowers,
               hasInstagramLinked: enriched.hasInstagramLinked ?? p.hasInstagramLinked,
+              // Track which field exposed the IG account so the diagnostic panel
+              // can show the exact source without re-querying.
+              igLinkSource: (enriched as { igLinkSource?: "instagram_business_account" | "connected_instagram_account" | null }).igLinkSource
+                ?? p.igLinkSource,
             };
+            if (enriched.hasInstagramLinked) {
+              console.info(
+                `[useFetchUserPages] page ${p.id} (${p.name}): IG linked via` +
+                ` ${(enriched as { igLinkSource?: string }).igLinkSource ?? "unknown"} →` +
+                ` igId=${enriched.instagramAccountId}`,
+              );
+            }
+            return merged;
           });
           dataRef.current = enrichedPages;
           setData([...enrichedPages]);

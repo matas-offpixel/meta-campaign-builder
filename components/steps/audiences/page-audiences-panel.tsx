@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Plus, Trash2, ChevronDown, ChevronUp, XCircle,
-  Building2, User, AlertCircle, Loader2, RefreshCw, Clock,
+  Building2, User, AlertCircle, Loader2, RefreshCw, Clock, Activity,
 } from "lucide-react";
 import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup, PageCapabilities } from "@/lib/types";
 import {
@@ -17,6 +17,7 @@ import {
   useFetchAdditionalPages,
   useFetchCustomAudiences,
   useFetchUserPages,
+  useFacebookToken,
   type PageLoadMode,
   PAGE_LOAD_MODE_LIMITS,
 } from "@/lib/hooks/useMeta";
@@ -117,7 +118,9 @@ function PageThumbnail({ page }: { page: MetaApiPage }) {
  * via `page.capabilities.fbLikesSource === false` after a launch failure.
  */
 function inferCapabilities(page: MetaApiPage): PageCapabilities {
-  const hasIg = page.hasInstagramLinked ?? !!page.instagram_business_account?.id;
+  const hasIg =
+    page.hasInstagramLinked ??
+    !!(page.instagram_business_account?.id ?? page.connected_instagram_account?.id);
   const stored: Partial<PageCapabilities> = page.capabilities ?? {};
 
   const fbLikesSource = stored.fbLikesSource ?? true;
@@ -149,7 +152,9 @@ function PageRow({
   // Prefer enriched fields, fall back to raw API fields
   const fbFollowers = page.facebookFollowers ?? page.fan_count;
   const fbFollowersFmt = fbFollowers !== undefined ? formatFanCount(fbFollowers) : null;
-  const hasIg = page.hasInstagramLinked ?? !!page.instagram_business_account?.id;
+  const hasIg =
+    page.hasInstagramLinked ??
+    !!(page.instagram_business_account?.id ?? page.connected_instagram_account?.id);
   const igHandle = page.instagramUsername ?? null;
   const igFollowers = page.instagramFollowers !== undefined ? formatFanCount(page.instagramFollowers) : null;
 
@@ -193,7 +198,11 @@ function PageRow({
             variant={page.hasInstagramLinked ? "primary" : "outline"}
             className="text-[10px]"
           >
-            {page.hasInstagramLinked ? "IG source ✓" : "No IG source"}
+            {page.hasInstagramLinked
+              ? page.igLinkSource === "connected_instagram_account"
+                ? "IG connected ✓"
+                : "IG source ✓"
+              : "No IG source"}
           </Badge>
         )}
 
@@ -252,6 +261,254 @@ function SectionHeader({
   );
 }
 
+// ── IG Diagnostic Panel ────────────────────────────────────────────────────
+
+type IgStatus =
+  | "linked_business_account"
+  | "linked_connected_account"
+  | "linked_both"
+  | "not_linked"
+  | "api_error";
+
+interface IgDiagResult {
+  pageId: string;
+  pageName: string | null;
+  pageCategory: string | null;
+  tokenType: string;
+  rawResponse: Record<string, unknown>;
+  instagramBusinessAccount: { id: string; username?: string | null; name?: string | null; followers_count?: number | null } | null;
+  connectedInstagramAccount: { id: string; username?: string | null; name?: string | null; followers_count?: number | null } | null;
+  resolvedIgId: string | null;
+  resolvedIgSource: "instagram_business_account" | "connected_instagram_account" | null;
+  status: IgStatus;
+  diagnosis: string;
+  apiError?: string;
+  pageTokenResult?: Omit<IgDiagResult, "pageId" | "pageName" | "pageTokenResult">;
+}
+
+const STATUS_COLORS: Record<IgStatus, string> = {
+  linked_business_account: "text-success",
+  linked_connected_account: "text-primary",
+  linked_both: "text-success",
+  not_linked: "text-warning",
+  api_error: "text-destructive",
+};
+
+const STATUS_LABELS: Record<IgStatus, string> = {
+  linked_business_account: "IG linked (Business)",
+  linked_connected_account: "IG linked (Connected)",
+  linked_both: "IG linked (both fields)",
+  not_linked: "No IG linked",
+  api_error: "API error",
+};
+
+function IgDiagnosticPanel({
+  groupId,
+  selectedPageIds,
+  allPages,
+  facebookToken,
+}: {
+  groupId: string;
+  selectedPageIds: string[];
+  allPages: MetaApiPage[];
+  facebookToken: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<IgDiagResult[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const runRef = useRef(0);
+
+  const runDiagnostic = useCallback(async () => {
+    if (!facebookToken) {
+      setError("No Facebook token available — connect Facebook first.");
+      return;
+    }
+    if (selectedPageIds.length === 0) {
+      setError("Select at least one page to run the diagnostic.");
+      return;
+    }
+
+    const run = ++runRef.current;
+    setLoading(true);
+    setError(null);
+    setResults(null);
+    setOpen(true);
+
+    // Collect page tokens if available in cache
+    const pageTokens: Record<string, string> = {};
+    for (const pid of selectedPageIds) {
+      const p = allPages.find((pp) => pp.id === pid);
+      if (p?.access_token) pageTokens[pid] = p.access_token;
+    }
+
+    try {
+      const res = await fetch("/api/meta/pages/diagnose", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${facebookToken}`,
+        },
+        body: JSON.stringify({
+          pageIds: selectedPageIds,
+          ...(Object.keys(pageTokens).length > 0 ? { pageTokens } : {}),
+        }),
+      });
+      const json = await res.json() as { diagnostics?: IgDiagResult[]; error?: string };
+      if (run !== runRef.current) return;
+      if (json.error) { setError(json.error); return; }
+      setResults(json.diagnostics ?? []);
+    } catch (e) {
+      if (run === runRef.current) setError(String(e));
+    } finally {
+      if (run === runRef.current) setLoading(false);
+    }
+  }, [facebookToken, selectedPageIds, allPages]);
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/10 text-xs">
+      <button
+        type="button"
+        onClick={() => {
+          if (!open && !results) {
+            runDiagnostic();
+          } else {
+            setOpen((v) => !v);
+          }
+        }}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/30"
+      >
+        <Activity className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="font-medium text-muted-foreground">IG Diagnostic</span>
+        <span className="ml-1 text-muted-foreground/60">
+          ({selectedPageIds.length} selected page{selectedPageIds.length !== 1 ? "s" : ""})
+        </span>
+        {loading && <Loader2 className="ml-auto h-3 w-3 animate-spin" />}
+        {results && !loading && (
+          <>
+            <span className="ml-auto text-muted-foreground/60">
+              {results.filter((r) => r.resolvedIgId).length}/{results.length} have IG
+            </span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); runDiagnostic(); }}
+              className="ml-2 text-muted-foreground hover:text-foreground"
+              title="Re-run diagnostic"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </>
+        )}
+        {!loading && (open
+          ? <ChevronUp className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+          : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+      </button>
+
+      {open && (
+        <div className="border-t border-border px-3 py-2 space-y-2">
+          {error && (
+            <p className="text-destructive">{error}</p>
+          )}
+          {loading && (
+            <p className="text-muted-foreground italic">Running diagnostic…</p>
+          )}
+          {results && results.map((r) => (
+            <div
+              key={r.pageId}
+              className="rounded border border-border bg-background px-3 py-2 space-y-1.5"
+            >
+              {/* Page header */}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="font-semibold">{r.pageName ?? r.pageId}</span>
+                  {r.pageCategory && (
+                    <span className="ml-1.5 text-muted-foreground">({r.pageCategory})</span>
+                  )}
+                  <span className="ml-1.5 text-[10px] text-muted-foreground/60">
+                    id: {r.pageId}
+                  </span>
+                </div>
+                <span className={`shrink-0 font-medium ${STATUS_COLORS[r.status]}`}>
+                  {STATUS_LABELS[r.status]}
+                </span>
+              </div>
+
+              {/* IG field results */}
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <div>
+                  <span className="text-muted-foreground">instagram_business_account: </span>
+                  {r.instagramBusinessAccount
+                    ? <span className="text-success font-medium">id={r.instagramBusinessAccount.id}{r.instagramBusinessAccount.username ? ` @${r.instagramBusinessAccount.username}` : ""}</span>
+                    : <span className="text-muted-foreground/50 italic">null</span>
+                  }
+                </div>
+                <div>
+                  <span className="text-muted-foreground">connected_instagram_account: </span>
+                  {r.connectedInstagramAccount
+                    ? <span className="text-primary font-medium">id={r.connectedInstagramAccount.id}{r.connectedInstagramAccount.username ? ` @${r.connectedInstagramAccount.username}` : ""}</span>
+                    : <span className="text-muted-foreground/50 italic">null</span>
+                  }
+                </div>
+              </div>
+
+              {/* Resolved result */}
+              {r.resolvedIgId && (
+                <p className="text-success">
+                  ✓ Resolved IG: <strong>{r.resolvedIgId}</strong>
+                  <span className="ml-1.5 text-muted-foreground">via {r.resolvedIgSource}</span>
+                </p>
+              )}
+
+              {/* Token context */}
+              <p className="text-muted-foreground/70">
+                Token: <span className="font-mono">{r.tokenType}</span>
+              </p>
+
+              {/* Diagnosis text */}
+              <p className={`leading-snug ${r.status === "not_linked" || r.status === "api_error" ? "text-warning" : "text-muted-foreground"}`}>
+                {r.diagnosis}
+              </p>
+
+              {/* Page token comparison (if different result) */}
+              {r.pageTokenResult && (
+                <div className="rounded border border-primary/20 bg-primary/5 px-2 py-1.5 space-y-0.5">
+                  <p className="font-medium text-primary">Page token result (different from user token):</p>
+                  <p>
+                    <span className="text-muted-foreground">instagram_business_account: </span>
+                    {r.pageTokenResult.instagramBusinessAccount
+                      ? <span className="text-success">id={r.pageTokenResult.instagramBusinessAccount.id}</span>
+                      : <span className="italic text-muted-foreground/50">null</span>
+                    }
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">connected_instagram_account: </span>
+                    {r.pageTokenResult.connectedInstagramAccount
+                      ? <span className="text-primary">id={r.pageTokenResult.connectedInstagramAccount.id}</span>
+                      : <span className="italic text-muted-foreground/50">null</span>
+                    }
+                  </p>
+                  <p className="text-muted-foreground">{r.pageTokenResult.diagnosis}</p>
+                </div>
+              )}
+
+              {/* Raw response toggle */}
+              <details className="text-[10px]">
+                <summary className="cursor-pointer text-muted-foreground/60 hover:text-muted-foreground">
+                  Raw API response
+                </summary>
+                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-muted/50 p-2 font-mono text-[10px]">
+                  {JSON.stringify(r.rawResponse, null, 2)}
+                </pre>
+              </details>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PageAudiencesPanel({
   groups,
   onChange,
@@ -279,6 +536,8 @@ export function PageAudiencesPanel({
 
   // User's own Facebook pages (loaded via their provider_token)
   const userPages = useFetchUserPages();
+  // Token needed for the IG diagnostic panel
+  const { token: fbToken } = useFacebookToken();
 
   // ── Load mode selector — persists the user's last choice ─────────────────
   // Default to the mode that was used last (from cache), falling back to "sample".
@@ -654,6 +913,16 @@ export function PageAudiencesPanel({
                     </div>
                   );
                 })()}
+
+                {/* IG Diagnostic — for selected pages with IG issues or enrichment */}
+                {group.pageIds.length > 0 && (
+                  <IgDiagnosticPanel
+                    groupId={group.id}
+                    selectedPageIds={group.pageIds}
+                    allPages={allPages}
+                    facebookToken={fbToken}
+                  />
+                )}
 
                 {/* Page usage mode */}
                 <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-2">
