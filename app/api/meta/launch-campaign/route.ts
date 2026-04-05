@@ -317,6 +317,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const group = draft.audiences.pageGroups.find((g) => g.id === adSet.sourceId);
     if (!group || group.pageIds.length === 0) continue;
 
+    // Honour the "engagement source audiences" toggle — skip if disabled.
+    if (group.createEngagementAudiences === false) {
+      console.log(
+        `[launch-campaign] Phase 1.5 — skipping engagement audiences for "${group.name}":`,
+        "createEngagementAudiences=false (standard page ad set only)",
+      );
+      continue;
+    }
+
     const createdIds: string[] = [];
 
     for (const pageId of group.pageIds) {
@@ -350,8 +359,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
         } catch (err) {
           const message = formatMetaError(err);
-          console.error(`[launch-campaign] Phase 1.5 ✗ Failed to create ${et} audience:`, message);
-          engagementAudiencesFailed.push({ name: audienceName, type: et, error: message });
+          // Classify event-source permission failures explicitly so the summary
+          // can guide the user to disable engagement audiences for this group.
+          const isPermission =
+            message.includes("permission") ||
+            message.includes("event source") ||
+            message.includes("100") || // OAuthException code 100
+            message.includes("Invalid parameter");
+          console.error(
+            `[launch-campaign] Phase 1.5 ✗ Failed to create ${et} audience:`,
+            message,
+            isPermission ? "(permission/event-source error)" : "",
+          );
+          engagementAudiencesFailed.push({
+            name: audienceName,
+            type: et,
+            error: isPermission
+              ? `${message} — this page may lack the required event-source permission. Disable "Engagement source audiences" for this group to skip.`
+              : message,
+          });
         }
       }
     }

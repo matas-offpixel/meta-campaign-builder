@@ -1,15 +1,19 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, ChevronDown, ChevronUp, Sparkles, Wand2, Loader2, CheckSquare, Square } from "lucide-react";
-import type { InterestGroup, InterestSuggestion, AudienceSettings } from "@/lib/types";
+import {
+  Plus, Trash2, ChevronDown, ChevronUp, Sparkles, Wand2, Loader2, CheckSquare, Square, RefreshCw,
+} from "lucide-react";
+import type { InterestGroup, InterestSuggestion, AudienceSettings, MetaApiPage } from "@/lib/types";
+import type { DiscoverCluster, DiscoverResponse } from "@/app/api/meta/interest-discover/route";
 import { generateInterestGroupsFromAudiences } from "@/lib/interest-suggestions";
+import { getCachedUserPages } from "@/lib/hooks/useMeta";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -20,6 +24,8 @@ interface InterestGroupsPanelProps {
   groups: InterestGroup[];
   audiences: AudienceSettings;
   onChange: (groups: InterestGroup[]) => void;
+  /** Optional campaign name for richer interest suggestions */
+  campaignName?: string;
 }
 
 function createEmptyInterestGroup(): InterestGroup {
@@ -86,7 +92,7 @@ function useInterestSearch(query: string) {
   return { results, loading, error };
 }
 
-export function InterestGroupsPanel({ groups, audiences, onChange }: InterestGroupsPanelProps) {
+export function InterestGroupsPanel({ groups, audiences, onChange, campaignName }: InterestGroupsPanelProps) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(
     groups[0]?.id ?? null
   );
@@ -97,10 +103,26 @@ export function InterestGroupsPanel({ groups, audiences, onChange }: InterestGro
   const [discoveredSuggestions, setDiscoveredSuggestions] = useState<Record<string, DiscoveredItem[]>>({});
   const [discoveredUnmatched, setDiscoveredUnmatched] = useState<Record<string, string[]>>({});
 
+  // Clustered discover-from-pages state (per group)
+  const [discoverClusters, setDiscoverClusters] = useState<Record<string, DiscoverCluster[]>>({});
+  const [discoverSearchTerms, setDiscoverSearchTerms] = useState<Record<string, string[]>>({});
+  const [discoveringFromPages, setDiscoveringFromPages] = useState<string | null>(null);
+  const [discoverFromPagesError, setDiscoverFromPagesError] = useState<Record<string, string | null>>({});
+  // Per-cluster: which interests are checked — keyed by groupId+clusterLabel+interestId
+  const [clusterSelections, setClusterSelections] = useState<Record<string, Record<string, boolean>>>({});
+
   const activeSearch = searchByGroup[activeSearchGroupId ?? ""] ?? "";
   const searchState = useInterestSearch(activeSearch);
 
   const hasPageAudiences = audiences.pageGroups.some((g) => g.pageIds.length > 0);
+
+  // Resolve page context from cache + audiences
+  const pageContext = useMemo((): MetaApiPage[] => {
+    const cached = getCachedUserPages();
+    const selectedIds = new Set(audiences.pageGroups.flatMap((g) => g.pageIds));
+    if (selectedIds.size === 0) return cached.slice(0, 10); // fallback: first 10 loaded pages
+    return cached.filter((p) => selectedIds.has(p.id));
+  }, [audiences.pageGroups]);
 
   const addGroup = () => {
     const g = createEmptyInterestGroup();
@@ -236,6 +258,98 @@ export function InterestGroupsPanel({ groups, audiences, onChange }: InterestGro
     }
   }, [groups]);
 
+  const handleDiscoverFromPages = useCallback(async (groupId: string) => {
+    if (discoveringFromPages === groupId) return;
+
+    setDiscoveringFromPages(groupId);
+    setDiscoverFromPagesError((prev) => ({ ...prev, [groupId]: null }));
+    setDiscoverClusters((prev) => ({ ...prev, [groupId]: [] }));
+    setDiscoverSearchTerms((prev) => ({ ...prev, [groupId]: [] }));
+
+    try {
+      const res = await fetch("/api/meta/interest-discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageContext: pageContext.map((p) => ({
+            name: p.name,
+            category: p.category,
+            instagramUsername: p.instagramUsername,
+          })),
+          campaignName,
+        }),
+      });
+
+      const json = (await res.json()) as DiscoverResponse & { error?: string };
+      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+
+      setDiscoverClusters((prev) => ({ ...prev, [groupId]: json.clusters }));
+      setDiscoverSearchTerms((prev) => ({ ...prev, [groupId]: json.searchTermsUsed }));
+
+      // Init selections to false for all
+      const init: Record<string, boolean> = {};
+      for (const cluster of json.clusters) {
+        for (const i of cluster.interests) init[i.id] = false;
+      }
+      setClusterSelections((prev) => ({ ...prev, [groupId]: init }));
+
+      if (json.clusters.length === 0) {
+        setDiscoverFromPagesError((prev) => ({
+          ...prev,
+          [groupId]: "No matching interests found. Try loading more pages or adding a campaign name.",
+        }));
+      }
+    } catch (err) {
+      setDiscoverFromPagesError((prev) => ({
+        ...prev,
+        [groupId]: err instanceof Error ? err.message : "Discovery failed",
+      }));
+    } finally {
+      setDiscoveringFromPages(null);
+    }
+  }, [discoveringFromPages, pageContext, campaignName]);
+
+  const toggleClusterInterest = (groupId: string, interestId: string) => {
+    setClusterSelections((prev) => ({
+      ...prev,
+      [groupId]: { ...(prev[groupId] ?? {}), [interestId]: !(prev[groupId]?.[interestId] ?? false) },
+    }));
+  };
+
+  const selectAllInCluster = (groupId: string, cluster: DiscoverCluster) => {
+    setClusterSelections((prev) => {
+      const next = { ...(prev[groupId] ?? {}) };
+      for (const i of cluster.interests) next[i.id] = true;
+      return { ...prev, [groupId]: next };
+    });
+  };
+
+  const addSelectedClusterInterests = (groupId: string) => {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const selections = clusterSelections[groupId] ?? {};
+    const clusters = discoverClusters[groupId] ?? [];
+    const existingIds = new Set(group.interests.map((i) => i.id));
+    const toAdd: InterestSuggestion[] = [];
+    for (const cluster of clusters) {
+      for (const item of cluster.interests) {
+        if (selections[item.id] && !existingIds.has(item.id)) {
+          toAdd.push({ id: item.id, name: item.name, audienceSize: item.audienceSize, path: item.path });
+        }
+      }
+    }
+    if (toAdd.length > 0) {
+      updateGroup(groupId, { interests: [...group.interests, ...toAdd] });
+    }
+    // Clear clusters after adding (keep selections so user can re-open)
+    setDiscoverClusters((prev) => ({ ...prev, [groupId]: [] }));
+  };
+
+  const selectedClusterCount = (groupId: string): number => {
+    const selections = clusterSelections[groupId] ?? {};
+    return Object.values(selections).filter(Boolean).length;
+  };
+
   const toggleSuggestion = (groupId: string, interestId: string) => {
     setDiscoveredSuggestions((prev) => ({
       ...prev,
@@ -275,21 +389,25 @@ export function InterestGroupsPanel({ groups, audiences, onChange }: InterestGro
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold">Interest Groups ({groups.length})</h3>
           <p className="text-xs text-muted-foreground">
             Search Meta&apos;s interest database and group interests for targeted ad sets.
           </p>
+          {pageContext.length > 0 && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              <span className="font-medium text-primary">Discover from Pages</span> is seeded by:{" "}
+              {pageContext.slice(0, 3).map((p) => p.name).join(", ")}
+              {pageContext.length > 3 && ` +${pageContext.length - 3} more`}
+            </p>
+          )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           {hasPageAudiences && (
-            <Button variant="outline" size="sm" onClick={handleAutoGenerate} title="Heuristic suggestions based on page genre — not real Meta audience insights">
+            <Button variant="outline" size="sm" onClick={handleAutoGenerate} title="Creates empty named groups — use Discover from Pages for real Meta interests">
               <Wand2 className="h-3.5 w-3.5" />
-              Auto-generate
-              <span className="ml-1 rounded bg-warning/20 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
-                heuristic
-              </span>
+              Empty groups
             </Button>
           )}
           <Button size="sm" onClick={addGroup}>
@@ -443,100 +561,208 @@ export function InterestGroupsPanel({ groups, audiences, onChange }: InterestGro
                   )}
                 </div>
 
-                {/* AI-assisted interest discovery via Meta search */}
-                <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary-light p-4">
-                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                    <Sparkles className="h-4 w-4" />
-                    Discover Interests
+                {/* ── Discover from Pages — AI-style fan interest discovery ─── */}
+                <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary-light p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                        <Sparkles className="h-4 w-4" />
+                        Discover from Pages
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Generates interest suggestions based on what fans of your selected pages are likely interested in — broader than keyword matching.
+                      </p>
+                      {pageContext.length > 0 ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground/80">
+                          Seeded by: <span className="font-medium text-foreground">
+                            {pageContext.slice(0, 3).map((p) => p.name).join(", ")}
+                            {pageContext.length > 3 && ` +${pageContext.length - 3} more`}
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[11px] text-warning">
+                          Load your Facebook pages in the Pages tab to improve suggestions.
+                        </p>
+                      )}
+                    </div>
+                    {(discoverClusters[group.id]?.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleDiscoverFromPages(group.id)}
+                        className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary"
+                        title="Regenerate suggestions"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Enter keywords separated by commas. Results appear as suggestions — select the ones you want to add.
-                  </p>
-                  <textarea
-                    value={group.aiPrompt || ""}
-                    onChange={(e) => updateGroup(group.id, { aiPrompt: e.target.value })}
-                    placeholder="e.g. electronic music, music festivals, nightclub, Resident Advisor, Boiler Room"
-                    className="mt-2 w-full resize-none rounded-lg border border-primary/20 bg-white p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    rows={2}
-                  />
+
                   <Button
                     size="sm"
-                    className="mt-2 w-full"
-                    disabled={discoveringGroupId === group.id || !(group.aiPrompt ?? "").trim()}
-                    onClick={() => handleDiscover(group.id)}
+                    className="w-full"
+                    disabled={discoveringFromPages === group.id}
+                    onClick={() => handleDiscoverFromPages(group.id)}
                   >
-                    {discoveringGroupId === group.id ? (
-                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching Meta…</>
+                    {discoveringFromPages === group.id ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Discovering fan interests…</>
+                    ) : (discoverClusters[group.id]?.length ?? 0) > 0 ? (
+                      <><RefreshCw className="h-3.5 w-3.5" /> Regenerate</>
                     ) : (
-                      <><Sparkles className="h-3.5 w-3.5" /> Discover Interests</>
+                      <><Sparkles className="h-3.5 w-3.5" /> Discover Interests from Pages</>
                     )}
                   </Button>
-                  {discoveryError[group.id] && (
-                    <p className="mt-1.5 text-xs text-destructive">{discoveryError[group.id]}</p>
+
+                  {discoverFromPagesError[group.id] && (
+                    <p className="text-xs text-destructive">{discoverFromPagesError[group.id]}</p>
                   )}
 
-                  {/* Suggestion results — user must explicitly select */}
-                  {(discoveredSuggestions[group.id]?.length ?? 0) > 0 && (
-                    <div className="mt-3 space-y-2">
+                  {/* Clustered results */}
+                  {(discoverClusters[group.id]?.length ?? 0) > 0 && (
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-foreground">
-                          Suggested Meta Interests ({discoveredSuggestions[group.id]!.length})
+                          Suggested interests — select and add
                         </span>
-                        <div className="flex gap-1.5">
-                          <button type="button" onClick={() => selectAllSuggestions(group.id)} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10">
-                            <CheckSquare className="h-3 w-3" /> Select all
-                          </button>
-                          <button type="button" onClick={() => clearAllSuggestions(group.id)} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted">
-                            <Square className="h-3 w-3" /> Clear
-                          </button>
-                        </div>
-                      </div>
-                      <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-white">
-                        {discoveredSuggestions[group.id]!.map((item) => (
-                          <label
-                            key={item.interest.id}
-                            className="flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                        {selectedClusterCount(group.id) > 0 && (
+                          <Button
+                            size="sm"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() => addSelectedClusterInterests(group.id)}
                           >
-                            <Checkbox
-                              checked={item.selected}
-                              onChange={() => toggleSuggestion(group.id, item.interest.id)}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate text-sm">{item.interest.name}</span>
-                              {item.interest.path && item.interest.path.length > 0 && (
-                                <span className="block truncate text-[10px] text-muted-foreground">
-                                  {item.interest.path.join(" › ")}
-                                </span>
-                              )}
-                            </div>
-                            {item.interest.audienceSize != null && (
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {item.interest.audienceSize >= 1_000_000
-                                  ? `${(item.interest.audienceSize / 1_000_000).toFixed(1)}M`
-                                  : item.interest.audienceSize >= 1_000
-                                    ? `${Math.round(item.interest.audienceSize / 1_000)}K`
-                                    : item.interest.audienceSize}
-                              </span>
-                            )}
-                          </label>
-                        ))}
+                            Add {selectedClusterCount(group.id)} selected
+                          </Button>
+                        )}
                       </div>
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        disabled={!discoveredSuggestions[group.id]!.some((i) => i.selected)}
-                        onClick={() => addSelectedSuggestions(group.id)}
-                      >
-                        Add {discoveredSuggestions[group.id]!.filter((i) => i.selected).length} selected interests
-                      </Button>
+
+                      {discoverClusters[group.id]!.map((cluster) => (
+                        <div key={cluster.label} className="rounded-lg border border-border bg-white overflow-hidden">
+                          <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b border-border">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              {cluster.label}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => selectAllInCluster(group.id, cluster)}
+                              className="text-[10px] font-medium text-primary hover:underline"
+                            >
+                              Select all
+                            </button>
+                          </div>
+                          {cluster.interests.map((item) => {
+                            const isSelected = clusterSelections[group.id]?.[item.id] ?? false;
+                            const alreadyAdded = group.interests.some((i) => i.id === item.id);
+                            return (
+                              <label
+                                key={item.id}
+                                className={`flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50 ${alreadyAdded ? "opacity-50" : ""}`}
+                              >
+                                <Checkbox
+                                  checked={isSelected || alreadyAdded}
+                                  onChange={() => !alreadyAdded && toggleClusterInterest(group.id, item.id)}
+                                  disabled={alreadyAdded}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm">{item.name}</span>
+                                  {item.path && item.path.length > 0 && (
+                                    <span className="block truncate text-[10px] text-muted-foreground">
+                                      {item.path.join(" › ")}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  {(item.audienceSize ?? 0) >= 1_000_000
+                                    ? `${((item.audienceSize ?? 0) / 1_000_000).toFixed(1)}M`
+                                    : (item.audienceSize ?? 0) >= 1_000
+                                      ? `${Math.round((item.audienceSize ?? 0) / 1_000)}K`
+                                      : (item.audienceSize ?? 0) > 0 ? String(item.audienceSize) : ""}
+                                </span>
+                                {alreadyAdded && (
+                                  <Badge variant="outline" className="shrink-0 text-[9px]">Added</Badge>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ))}
+
+                      {(discoverSearchTerms[group.id]?.length ?? 0) > 0 && (
+                        <p className="text-[10px] text-muted-foreground/70">
+                          Searched: {discoverSearchTerms[group.id]!.join(", ")}
+                        </p>
+                      )}
                     </div>
                   )}
 
-                  {(discoveredUnmatched[group.id]?.length ?? 0) > 0 && (
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      No Meta match for: {discoveredUnmatched[group.id]!.join(", ")}
-                    </p>
-                  )}
+                  {/* Manual keyword fallback */}
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground select-none">
+                      Manual keyword search
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Enter comma-separated keywords to search Meta&apos;s interest database directly.
+                      </p>
+                      <textarea
+                        value={group.aiPrompt || ""}
+                        onChange={(e) => updateGroup(group.id, { aiPrompt: e.target.value })}
+                        placeholder="e.g. electronic music, nightclub, Resident Advisor, Boiler Room"
+                        className="w-full resize-none rounded-lg border border-primary/20 bg-white p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        rows={2}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        variant="outline"
+                        disabled={discoveringGroupId === group.id || !(group.aiPrompt ?? "").trim()}
+                        onClick={() => handleDiscover(group.id)}
+                      >
+                        {discoveringGroupId === group.id ? (
+                          <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching Meta…</>
+                        ) : (
+                          <><Sparkles className="h-3.5 w-3.5" /> Search by keywords</>
+                        )}
+                      </Button>
+                      {discoveryError[group.id] && (
+                        <p className="text-xs text-destructive">{discoveryError[group.id]}</p>
+                      )}
+                      {(discoveredSuggestions[group.id]?.length ?? 0) > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-foreground">
+                              Results ({discoveredSuggestions[group.id]!.length})
+                            </span>
+                            <div className="flex gap-1.5">
+                              <button type="button" onClick={() => selectAllSuggestions(group.id)} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10">
+                                <CheckSquare className="h-3 w-3" /> All
+                              </button>
+                              <button type="button" onClick={() => clearAllSuggestions(group.id)} className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted">
+                                <Square className="h-3 w-3" /> None
+                              </button>
+                            </div>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-white">
+                            {discoveredSuggestions[group.id]!.map((item) => (
+                              <label key={item.interest.id} className="flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50">
+                                <Checkbox checked={item.selected} onChange={() => toggleSuggestion(group.id, item.interest.id)} />
+                                <span className="flex-1 truncate text-sm">{item.interest.name}</span>
+                                {item.interest.audienceSize != null && (
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    {item.interest.audienceSize >= 1_000_000 ? `${(item.interest.audienceSize / 1_000_000).toFixed(1)}M` : item.interest.audienceSize >= 1_000 ? `${Math.round(item.interest.audienceSize / 1_000)}K` : item.interest.audienceSize}
+                                  </span>
+                                )}
+                              </label>
+                            ))}
+                          </div>
+                          <Button size="sm" className="w-full" disabled={!discoveredSuggestions[group.id]!.some((i) => i.selected)} onClick={() => addSelectedSuggestions(group.id)}>
+                            Add {discoveredSuggestions[group.id]!.filter((i) => i.selected).length} selected
+                          </Button>
+                        </div>
+                      )}
+                      {(discoveredUnmatched[group.id]?.length ?? 0) > 0 && (
+                        <p className="text-[10px] text-muted-foreground">No match for: {discoveredUnmatched[group.id]!.join(", ")}</p>
+                      )}
+                    </div>
+                  </details>
                 </div>
 
                 {group.interests.length > 0 && (

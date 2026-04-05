@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,8 @@ import {
   useFetchAdditionalPages,
   useFetchCustomAudiences,
   useFetchUserPages,
+  type PageLoadMode,
+  PAGE_LOAD_MODE_LIMITS,
 } from "@/lib/hooks/useMeta";
 
 interface PageAudiencesPanelProps {
@@ -225,6 +227,18 @@ export function PageAudiencesPanel({
 
   // User's own Facebook pages (loaded via their provider_token)
   const userPages = useFetchUserPages();
+
+  // ── Load mode selector — persists the user's last choice ─────────────────
+  // Default to the mode that was used last (from cache), falling back to "sample".
+  const [selectedLoadMode, setSelectedLoadMode] = useState<PageLoadMode>(
+    () => (userPages.loadMode ?? "sample"),
+  );
+  // Keep in sync with the hydrated cache value after mount
+  useEffect(() => {
+    if (userPages.loadMode && !userPages.loading) {
+      setSelectedLoadMode(userPages.loadMode);
+    }
+  }, [userPages.loadMode, userPages.loading]);
 
   // All pages available for selection (deduped across all sources)
   const allPages = useMemo(() => {
@@ -548,8 +562,30 @@ export function PageAudiencesPanel({
                   )}
                 </div>
 
+                {/* Page usage mode */}
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-medium text-foreground">Page usage at launch</p>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <Checkbox checked={true} onChange={() => {}} disabled className="mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-xs font-medium">Standard page audience ad set</span>
+                      <p className="text-[11px] text-muted-foreground">Always created — targets people who interact with selected pages.</p>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer" onClick={() => updateGroup(group.id, { createEngagementAudiences: !(group.createEngagementAudiences ?? true) })}>
+                    <Checkbox checked={group.createEngagementAudiences ?? true} onChange={() => {}} className="mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-xs font-medium">Engagement source audiences</span>
+                      <p className="text-[11px] text-muted-foreground">
+                        Creates FB Likes / FB Engagement / IG Followers audiences to seed lookalikes.
+                        Uncheck if your pages lack the required Meta event-source permission.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
                 {/* Engagement types */}
-                <div>
+                <div className={group.createEngagementAudiences === false ? "opacity-40 pointer-events-none" : ""}>
                   <label className="mb-1.5 block text-sm font-medium">
                     Engagement Types
                   </label>
@@ -591,7 +627,7 @@ export function PageAudiencesPanel({
                       </p>
                     )}
                   </div>
-                </div>
+                </div>{/* end engagement-types opacity wrapper */}
 
                 {/* Lookalike */}
                 <div className="flex items-center gap-4">
@@ -805,7 +841,7 @@ export function PageAudiencesPanel({
 
                   {/* ── My Facebook Pages (user's own via provider token) ── */}
                   <div className="mt-3 border-t border-border pt-3">
-                    {/* Header row: title + total count + load button */}
+                    {/* Header row: title + total count */}
                     <div className="flex items-center justify-between">
                       <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground">
                         <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -823,22 +859,61 @@ export function PageAudiencesPanel({
                           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                         )}
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={userPages.fetch}
-                        disabled={userPages.loading}
-                        className="gap-1.5 h-7 shrink-0 text-xs"
-                      >
-                        {userPages.loading ? (
-                          <><Loader2 className="h-3 w-3 animate-spin" /> Loading…</>
-                        ) : userPages.loaded || userPages.loadStatus === "partial" || userPages.fromCache ? (
-                          <><RefreshCw className="h-3 w-3" /> Reload</>
-                        ) : (
-                          <><Plus className="h-3 w-3" /> Load My Pages</>
-                        )}
-                      </Button>
                     </div>
+
+                    {/* Mode selector + load button */}
+                    {!userPages.loading && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {/* Segmented control */}
+                        <div className="flex rounded-md border border-border overflow-hidden text-xs shrink-0">
+                          {(["test", "sample", "all"] as PageLoadMode[]).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setSelectedLoadMode(mode)}
+                              className={`px-2.5 py-1 font-medium transition-colors border-r border-border last:border-r-0 ${
+                                selectedLoadMode === mode
+                                  ? "bg-foreground text-background"
+                                  : "bg-background text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              {mode === "test" ? "10" : mode === "sample" ? "50" : "All"}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Load / Reload button */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => userPages.fetch(selectedLoadMode)}
+                          disabled={userPages.loading}
+                          className="gap-1.5 h-7 shrink-0 text-xs"
+                        >
+                          {userPages.loaded || userPages.loadStatus === "partial" || userPages.fromCache ? (
+                            <><RefreshCw className="h-3 w-3" /> Reload {selectedLoadMode === "test" ? "10" : selectedLoadMode === "sample" ? "50" : "All"} Pages</>
+                          ) : (
+                            <><Plus className="h-3 w-3" /> Load {selectedLoadMode === "test" ? "10" : selectedLoadMode === "sample" ? "50" : "All"} Pages</>
+                          )}
+                        </Button>
+
+                        {/* Mode hints */}
+                        <span className="text-[10px] text-muted-foreground">
+                          {selectedLoadMode === "test"
+                            ? "10 pages · fast test · no enrichment"
+                            : selectedLoadMode === "sample"
+                              ? "50 pages · enriched · good default"
+                              : "All pages · full enrichment · may take a while"}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Rate-limit note */}
+                    {!userPages.loading && (
+                      <p className="mt-1 text-[10px] text-muted-foreground/70">
+                        Use smaller loads for testing to avoid rate-limit issues.
+                      </p>
+                    )}
 
                     {/* ── Live progress panel ─────────────────────────────── */}
                     {userPages.loading && (
@@ -851,7 +926,11 @@ export function PageAudiencesPanel({
                               ? `Rate limit — waiting ${Math.round((userPages.rateLimitWaitMs ?? 0) / 1000)}s before retry…`
                               : userPages.loadStatus === "enriching"
                                 ? "Enriching page details…"
-                                : "Loading all accessible pages…"}
+                                : userPages.loadMode === "test"
+                                  ? "Loading 10 pages for testing…"
+                                  : userPages.loadMode === "sample"
+                                    ? "Loading 50 pages…"
+                                    : "Loading all accessible pages…"}
                           </span>
                         </div>
 
@@ -913,18 +992,40 @@ export function PageAudiencesPanel({
                     {/* ── Completion summary ───────────────────────────────── */}
                     {!userPages.loading && (userPages.loadStatus === "done" || (userPages.fromCache && userPages.loaded)) && (() => {
                       const withIg = userPages.data.filter((p) => p.hasInstagramLinked).length;
+                      const modeLabel = userPages.loadMode === "test" ? "test mode"
+                        : userPages.loadMode === "sample" ? "sample" : "all pages";
                       return (
-                        <p className="mt-1.5 text-xs text-muted-foreground">
-                          {userPages.fromCache && !userPages.loaded ? "Cached: " : "Loaded "}
-                          <span className="font-medium text-foreground">{userPages.count}</span> pages
-                          {userPages.batchesLoaded > 0 && (
-                            <> in <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}</>
-                          )}.
-                          {" "}<span className="font-medium text-foreground">{withIg}</span> with linked Instagram.
-                          {userPages.enrichFallback && (
-                            <span className="ml-1 text-warning"> (Instagram details unavailable — scope restricted)</span>
+                        <div className="mt-1.5 space-y-1">
+                          <p className="text-xs text-muted-foreground">
+                            {userPages.fromCache && !userPages.loaded ? "Cached: " : "Loaded "}
+                            <span className="font-medium text-foreground">{userPages.count}</span> pages
+                            {" "}(<span className="font-medium">{modeLabel}</span>)
+                            {userPages.batchesLoaded > 0 && (
+                              <> · <span className="font-medium text-foreground">{userPages.batchesLoaded}</span> batch{userPages.batchesLoaded !== 1 ? "es" : ""}</>
+                            )}.
+                            {!userPages.enrichmentSkipped && (
+                              <> <span className="font-medium text-foreground">{withIg}</span> with linked Instagram.</>
+                            )}
+                            {userPages.enrichFallback && (
+                              <span className="ml-1 text-warning"> (Instagram details unavailable — scope restricted)</span>
+                            )}
+                          </p>
+                          {/* Test mode notice + enrich button */}
+                          {userPages.enrichmentSkipped && (
+                            <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary-light px-2.5 py-1.5 text-xs">
+                              <span className="text-muted-foreground flex-1">Fast test mode: enrichment skipped (no photos, followers, or IG data).</span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[11px] shrink-0"
+                                onClick={userPages.enrich}
+                                disabled={userPages.loading}
+                              >
+                                {userPages.loading ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Enriching…</> : "Enrich loaded pages"}
+                              </Button>
+                            </div>
                           )}
-                        </p>
+                        </div>
                       );
                     })()}
 

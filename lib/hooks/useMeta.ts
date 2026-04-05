@@ -622,6 +622,20 @@ export function useFacebookConnectionStatus(): {
 const PAGES_CACHE_KEY = "meta_user_pages_v2";
 const PAGES_CACHE_EXPIRY_MS = 24 * 60 * 60 * 1_000; // 24 hours
 
+/**
+ * "test"   — first 10 pages only, enrichment skipped (fast smoke-test).
+ * "sample" — first 50 pages, fully enriched. Good default for most users.
+ * "all"    — every accessible page until cursor exhausted, fully enriched.
+ */
+export type PageLoadMode = "test" | "sample" | "all";
+
+/** Page counts targeted by each load mode. null = unlimited. */
+export const PAGE_LOAD_MODE_LIMITS: Record<PageLoadMode, number | null> = {
+  test:   10,
+  sample: 50,
+  all:    null,
+};
+
 interface PagesCache {
   v: 2;
   data: MetaApiPage[];
@@ -629,6 +643,8 @@ interface PagesCache {
   batchesLoaded: number;
   enrichComplete: boolean;
   loadedAt: number; // Unix ms timestamp
+  loadMode?: PageLoadMode;
+  enrichmentSkipped?: boolean;
 }
 
 function readPagesCache(): PagesCache | null {
@@ -651,6 +667,14 @@ function writePagesCache(entry: Omit<PagesCache, "v">): void {
   } catch {
     // localStorage quota exceeded or unavailable — silent fail
   }
+}
+
+/**
+ * Returns currently cached user pages (from localStorage), or an empty array.
+ * Safe to call from any client component without triggering a fetch.
+ */
+export function getCachedUserPages(): import("@/lib/types").MetaApiPage[] {
+  return readPagesCache()?.data ?? [];
 }
 
 /** Hard limit: stop after this many list-batches (~10 000 pages). */
@@ -701,8 +725,17 @@ export interface UserPagesFetchState {
   rateLimitWaiting: boolean;
   /** Remaining wait time in ms during a rate-limit backoff */
   rateLimitWaitMs: number | null;
-  /** Manual trigger — loads pages (hydrates from cache if fresh, else fetches from Meta) */
-  fetch: () => void;
+  /** Which load mode was used for the current data */
+  loadMode: PageLoadMode | null;
+  /**
+   * True when pages were loaded in "test" mode and enrichment was skipped.
+   * Call enrich() to run Phase 2 enrichment on the existing data.
+   */
+  enrichmentSkipped: boolean;
+  /** Manual trigger — fetches pages using the given mode (default "all") */
+  fetch: (mode?: PageLoadMode) => void;
+  /** Run enrichment on already-listed pages (useful after "test" mode). */
+  enrich: () => void;
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -719,9 +752,15 @@ const RATE_LIMIT_BACKOFFS_MS = [10_000, 30_000, 60_000];
 const MAX_RATE_LIMIT_RETRIES = RATE_LIMIT_BACKOFFS_MS.length;
 
 /**
- * Manually-triggered hook that loads ALL Facebook pages in two phases:
- *   Phase 1 — batch-list (id, name) until cursor exhausted
+ * Manually-triggered hook that loads Facebook pages in two phases:
+ *   Phase 1 — batch-list (id, name) until cursor or page-count target exhausted
  *   Phase 2 — enrich 50 pages at a time (picture, followers, Instagram)
+ *             (skipped for "test" mode — call enrich() to run later)
+ *
+ * Load modes:
+ *   "test"   — 10 pages, no enrichment (fastest, no rate-limit risk)
+ *   "sample" — 50 pages, full enrichment (good default)
+ *   "all"    — unlimited pages until cursor exhausted, full enrichment
  *
  * State updates after every batch / chunk so the UI shows live progress.
  *
@@ -746,6 +785,11 @@ export function useFetchUserPages(): UserPagesFetchState {
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [rateLimitWaiting, setRateLimitWaiting] = useState(false);
   const [rateLimitWaitMs, setRateLimitWaitMs] = useState<number | null>(null);
+  const [loadMode, setLoadMode] = useState<PageLoadMode | null>(null);
+  const [enrichmentSkipped, setEnrichmentSkipped] = useState(false);
+
+  // Ref to let enrich() access current data/token without stale closure
+  const dataRef = useRef<MetaApiPage[]>([]);
   const { token, refresh } = useFacebookToken();
 
   // ── Hydrate from localStorage on first mount ──────────────────────────────
@@ -753,189 +797,37 @@ export function useFetchUserPages(): UserPagesFetchState {
     const cache = readPagesCache();
     if (!cache || cache.data.length === 0) return;
 
+    dataRef.current = cache.data;
     setData(cache.data);
     setCount(cache.count);
     setBatchesLoaded(cache.batchesLoaded);
     setLoaded(true);
     setFromCache(true);
     setLoadedAt(new Date(cache.loadedAt));
+    setLoadMode(cache.loadMode ?? "all");
+    setEnrichmentSkipped(cache.enrichmentSkipped ?? false);
     setLoadStatus(cache.enrichComplete ? "done" : "partial");
     console.info(
       `[useFetchUserPages] hydrated from cache — ${cache.count} pages,`,
+      `mode: ${cache.loadMode ?? "unknown"},`,
       `loaded at ${new Date(cache.loadedAt).toLocaleTimeString()},`,
-      cache.enrichComplete ? "fully enriched" : "partial enrichment",
+      cache.enrichComplete ? "fully enriched" : (cache.enrichmentSkipped ? "enrichment skipped" : "partial enrichment"),
     );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const doFetch = useCallback(async () => {
-    if (loading) return;
-
-    setLoading(true);
-    setError(null);
-    setData([]);
-    setCount(0);
-    setBatchesLoaded(0);
-    setEnrichChunksDone(0);
-    setEnrichChunksTotal(0);
-    setLoaded(false);
-    setFromCache(false);
-    setLoadStatus("listing");
-    setFailedAtBatch(undefined);
-    setEnrichFallback(undefined);
-    setRateLimit(null);
-    setRateLimitWaiting(false);
-    setRateLimitWaitMs(null);
-
-    let accessToken = token;
-    if (!accessToken) accessToken = await refresh();
-
-    if (!accessToken) {
-      const { createClient } = await import("@/lib/supabase/client");
-      const supabase = createClient();
-      const { data: sessionData } = await supabase.auth.getSession();
-      const hasSession = !!sessionData.session;
-      const msg = hasSession
-        ? "Facebook connection succeeded but no provider token was captured. Open Account Setup and use Connect Facebook again."
-        : "Sign in with email first, then connect Facebook in Account Setup to load your pages.";
-      console.warn("[useFetchUserPages]", msg, "| hasSession:", hasSession);
-      setError(msg);
-      setLoadStatus("error");
-      setLoading(false);
-      return;
-    }
-
-    const startedAt = Date.now();
-
-    // ════════════════════════════════════════════════════════════════════════
-    // Phase 1: List all pages (id + name) in batches of 50
-    // ════════════════════════════════════════════════════════════════════════
-    const accumulated: MetaApiPage[] = [];
-    let cursor: string | null = null;
-    let batchNum = 0;
-    let listFailed = false;
-    let rateLimitRetries = 0;
-
-    while (batchNum < MAX_LIST_BATCHES) {
-      if (Date.now() - startedAt > MAX_RUNTIME_MS) {
-        console.warn(`[useFetchUserPages] hit ${MAX_RUNTIME_MS}ms safety timeout after ${batchNum} batches`);
-        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
-        setError(`Timed out after ${batchNum} batches (${accumulated.length} pages loaded).`);
-        listFailed = true;
-        break;
-      }
-
-      batchNum++;
-      const url = cursor
-        ? `/api/meta/pages/user?after=${encodeURIComponent(cursor)}`
-        : "/api/meta/pages/user";
-
-      console.info(`[useFetchUserPages] list batch ${batchNum} — so far: ${accumulated.length}`);
-
-      let res: Response;
-      let json: UserPagesBatchResponse & { error?: string };
-      try {
-        res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-        json = (await res.json()) as typeof json;
-      } catch (fetchErr) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : "Network error";
-        console.error(`[useFetchUserPages] list batch ${batchNum} network error:`, fetchErr);
-        setError(`Batch ${batchNum} failed: ${msg}`);
-        setFailedAtBatch(batchNum);
-        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
-        listFailed = true;
-        break;
-      }
-
-      // Track the latest rate-limit info regardless of success/failure
-      if (json.rateLimit) setRateLimit(json.rateLimit);
-
-      // ── Rate limit hit → exponential backoff ──────────────────────────────
-      if (json.rateLimitHit) {
-        if (rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) {
-          const msg = "Meta API request limit reached. Please wait a few minutes and reload.";
-          console.warn(`[useFetchUserPages] rate limit — max retries exhausted (${rateLimitRetries})`);
-          setError(msg);
-          setFailedAtBatch(batchNum);
-          setLoadStatus(accumulated.length > 0 ? "partial" : "error");
-          listFailed = true;
-          break;
-        }
-
-        const waitMs = RATE_LIMIT_BACKOFFS_MS[rateLimitRetries] ?? 60_000;
-        rateLimitRetries++;
-        console.warn(
-          `[useFetchUserPages] rate limit hit — retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}`,
-          `waiting ${waitMs / 1000}s…`,
-        );
-        setRateLimitWaiting(true);
-        setRateLimitWaitMs(waitMs);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
-        setRateLimitWaiting(false);
-        setRateLimitWaitMs(null);
-
-        batchNum--; // retry the same batch (don't advance cursor)
-        continue;
-      }
-
-      // ── Non-rate-limit error ──────────────────────────────────────────────
-      if (!res.ok || json.error) {
-        const msg = json.error ?? `HTTP ${res.status}`;
-        console.error(`[useFetchUserPages] list batch ${batchNum} error:`, json);
-        setError(`Batch ${batchNum} failed: ${msg}`);
-        setFailedAtBatch(batchNum);
-        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
-        listFailed = true;
-        break;
-      }
-
-      // ── Success ───────────────────────────────────────────────────────────
-      rateLimitRetries = 0; // reset on success
-      const batch = json.data ?? [];
-      accumulated.push(...batch);
-      setData([...accumulated]);
-      setCount(accumulated.length);
-      setBatchesLoaded(batchNum);
-
-      console.info(
-        `[useFetchUserPages] list batch ${batchNum} OK — got ${batch.length},`,
-        `total ${accumulated.length}, nextCursor: ${json.nextCursor ? "yes" : "none"}`,
-        json.rateLimit?.appCallCountPct != null ? `app-usage: ${json.rateLimit.appCallCountPct}%` : "",
-      );
-
-      cursor = json.nextCursor ?? null;
-      if (!cursor) break;
-    }
-
-    if (!accumulated.length) {
-      setLoadStatus("error");
-      if (!error) setError("No pages were returned by Facebook.");
-      setLoading(false);
-      return;
-    }
-
-    console.info(
-      `[useFetchUserPages] Phase 1 complete — ${accumulated.length} pages in ${batchNum} batches. Enriching…`,
-    );
-
-    // Save Phase 1 result to cache immediately (partial — enrichment pending)
-    const now = Date.now();
-    writePagesCache({
-      data: accumulated,
-      count: accumulated.length,
-      batchesLoaded: batchNum,
-      enrichComplete: false,
-      loadedAt: now,
-    });
-    setLoadedAt(new Date(now));
-
-    // ════════════════════════════════════════════════════════════════════════
-    // Phase 2: Enrich pages in chunks of 50
-    // ════════════════════════════════════════════════════════════════════════
-    setLoadStatus("enriching");
-    const chunks = chunkArray(accumulated.map((p) => p.id), ENRICH_CHUNK);
+  // ── Shared enrichment logic (used by both doFetch and enrich) ─────────────
+  const runEnrichment = useCallback(async (
+    pages: MetaApiPage[],
+    accessToken: string,
+    startedAt: number,
+    batchNum: number,
+    mode: PageLoadMode,
+  ): Promise<MetaApiPage[]> => {
+    const chunks = chunkArray(pages.map((p) => p.id), ENRICH_CHUNK);
     setEnrichChunksTotal(chunks.length);
+    setLoadStatus("enriching");
 
-    let enrichedPages: MetaApiPage[] = [...accumulated];
+    let enrichedPages: MetaApiPage[] = [...pages];
     let anyFallback = false;
     let enrichChunk = 0;
 
@@ -981,6 +873,7 @@ export function useFetchUserPages(): UserPagesFetchState {
               hasInstagramLinked: enriched.hasInstagramLinked ?? p.hasInstagramLinked,
             };
           });
+          dataRef.current = enrichedPages;
           setData([...enrichedPages]);
         }
       } catch (enrichErr) {
@@ -997,19 +890,251 @@ export function useFetchUserPages(): UserPagesFetchState {
       `[useFetchUserPages] Phase 2 complete — ${enrichChunk} chunks, Instagram linked: ${withIg}/${enrichedPages.length}`,
     );
 
-    // Save fully-enriched data to cache
+    // Update cache with enriched data
     writePagesCache({
       data: enrichedPages,
       count: enrichedPages.length,
       batchesLoaded: batchNum,
-      enrichComplete: !listFailed,
-      loadedAt: now,
+      enrichComplete: true,
+      loadedAt: Date.now(),
+      loadMode: mode,
+      enrichmentSkipped: false,
     });
+    setEnrichmentSkipped(false);
+
+    return enrichedPages;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doFetch = useCallback(async (mode: PageLoadMode = "all") => {
+    if (loading) return;
+
+    setLoading(true);
+    setError(null);
+    setData([]);
+    dataRef.current = [];
+    setCount(0);
+    setBatchesLoaded(0);
+    setEnrichChunksDone(0);
+    setEnrichChunksTotal(0);
+    setLoaded(false);
+    setFromCache(false);
+    setLoadStatus("listing");
+    setFailedAtBatch(undefined);
+    setEnrichFallback(undefined);
+    setRateLimit(null);
+    setRateLimitWaiting(false);
+    setRateLimitWaitMs(null);
+    setLoadMode(mode);
+    setEnrichmentSkipped(false);
+
+    let accessToken = token;
+    if (!accessToken) accessToken = await refresh();
+
+    if (!accessToken) {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const hasSession = !!sessionData.session;
+      const msg = hasSession
+        ? "Facebook connection succeeded but no provider token was captured. Open Account Setup and use Connect Facebook again."
+        : "Sign in with email first, then connect Facebook in Account Setup to load your pages.";
+      console.warn("[useFetchUserPages]", msg, "| hasSession:", hasSession);
+      setError(msg);
+      setLoadStatus("error");
+      setLoading(false);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const pageLimit = PAGE_LOAD_MODE_LIMITS[mode]; // null = unlimited
+    // For test/sample modes, request exactly the target count in one call.
+    // For "all", use the standard 50-per-batch paging loop.
+    const batchSize = mode === "test" ? 10 : 50;
+    const maxBatches = mode === "all" ? MAX_LIST_BATCHES : 1;
+
+    console.info(`[useFetchUserPages] start — mode=${mode}, batchSize=${batchSize}, pageLimit=${pageLimit ?? "∞"}`);
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 1: List pages (id + name)
+    // ════════════════════════════════════════════════════════════════════════
+    const accumulated: MetaApiPage[] = [];
+    let cursor: string | null = null;
+    let batchNum = 0;
+    let listFailed = false;
+    let rateLimitRetries = 0;
+
+    while (batchNum < maxBatches) {
+      if (Date.now() - startedAt > MAX_RUNTIME_MS) {
+        console.warn(`[useFetchUserPages] hit ${MAX_RUNTIME_MS}ms safety timeout after ${batchNum} batches`);
+        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        setError(`Timed out after ${batchNum} batches (${accumulated.length} pages loaded).`);
+        listFailed = true;
+        break;
+      }
+
+      batchNum++;
+      const urlParams = new URLSearchParams({ batchSize: String(batchSize) });
+      if (cursor) urlParams.set("after", cursor);
+      const url = `/api/meta/pages/user?${urlParams.toString()}`;
+
+      console.info(`[useFetchUserPages] list batch ${batchNum}/${maxBatches === 1 ? "1" : "max"} — so far: ${accumulated.length}`);
+
+      let res: Response;
+      let json: UserPagesBatchResponse & { error?: string };
+      try {
+        res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+        json = (await res.json()) as typeof json;
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : "Network error";
+        console.error(`[useFetchUserPages] list batch ${batchNum} network error:`, fetchErr);
+        setError(`Batch ${batchNum} failed: ${msg}`);
+        setFailedAtBatch(batchNum);
+        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        listFailed = true;
+        break;
+      }
+
+      if (json.rateLimit) setRateLimit(json.rateLimit);
+
+      // ── Rate limit hit → exponential backoff ──────────────────────────────
+      if (json.rateLimitHit) {
+        if (rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) {
+          const msg = "Meta API request limit reached. Please wait a few minutes and reload.";
+          console.warn(`[useFetchUserPages] rate limit — max retries exhausted (${rateLimitRetries})`);
+          setError(msg);
+          setFailedAtBatch(batchNum);
+          setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+          listFailed = true;
+          break;
+        }
+
+        const waitMs = RATE_LIMIT_BACKOFFS_MS[rateLimitRetries] ?? 60_000;
+        rateLimitRetries++;
+        console.warn(
+          `[useFetchUserPages] rate limit hit — retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}`,
+          `waiting ${waitMs / 1000}s…`,
+        );
+        setRateLimitWaiting(true);
+        setRateLimitWaitMs(waitMs);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        setRateLimitWaiting(false);
+        setRateLimitWaitMs(null);
+        batchNum--;
+        continue;
+      }
+
+      // ── Non-rate-limit error ──────────────────────────────────────────────
+      if (!res.ok || json.error) {
+        const msg = json.error ?? `HTTP ${res.status}`;
+        console.error(`[useFetchUserPages] list batch ${batchNum} error:`, json);
+        setError(`Batch ${batchNum} failed: ${msg}`);
+        setFailedAtBatch(batchNum);
+        setLoadStatus(accumulated.length > 0 ? "partial" : "error");
+        listFailed = true;
+        break;
+      }
+
+      // ── Success ───────────────────────────────────────────────────────────
+      rateLimitRetries = 0;
+      const batch = json.data ?? [];
+      accumulated.push(...batch);
+      dataRef.current = [...accumulated];
+      setData([...accumulated]);
+      setCount(accumulated.length);
+      setBatchesLoaded(batchNum);
+
+      console.info(
+        `[useFetchUserPages] list batch ${batchNum} OK — got ${batch.length},`,
+        `total ${accumulated.length}, nextCursor: ${json.nextCursor ? "yes" : "none"}`,
+        json.rateLimit?.appCallCountPct != null ? `app-usage: ${json.rateLimit.appCallCountPct}%` : "",
+      );
+
+      cursor = json.nextCursor ?? null;
+      // Stop if: no more pages, OR we've hit the page target for this mode
+      if (!cursor) break;
+      if (pageLimit !== null && accumulated.length >= pageLimit) break;
+    }
+
+    if (!accumulated.length) {
+      setLoadStatus("error");
+      if (!error) setError("No pages were returned by Facebook.");
+      setLoading(false);
+      return;
+    }
+
+    console.info(
+      `[useFetchUserPages] Phase 1 complete — ${accumulated.length} pages in ${batchNum} batches. mode=${mode}`,
+    );
+
+    const now = Date.now();
+    setLoadedAt(new Date(now));
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 2: Enrich — skipped for "test" mode
+    // ════════════════════════════════════════════════════════════════════════
+    if (mode === "test") {
+      // Save minimal cache (enrichment pending)
+      writePagesCache({
+        data: accumulated,
+        count: accumulated.length,
+        batchesLoaded: batchNum,
+        enrichComplete: false,
+        loadedAt: now,
+        loadMode: mode,
+        enrichmentSkipped: true,
+      });
+      setEnrichmentSkipped(true);
+      setLoaded(true);
+      setLoadStatus("done");
+      setLoading(false);
+      return;
+    }
+
+    // Save Phase 1 result to cache immediately (enrichment pending)
+    writePagesCache({
+      data: accumulated,
+      count: accumulated.length,
+      batchesLoaded: batchNum,
+      enrichComplete: false,
+      loadedAt: now,
+      loadMode: mode,
+      enrichmentSkipped: false,
+    });
+
+    await runEnrichment(accumulated, accessToken, startedAt, batchNum, mode);
 
     setLoaded(true);
     setLoadStatus(listFailed ? "partial" : "done");
     setLoading(false);
-  }, [loading, token, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, token, refresh, runEnrichment]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Post-hoc enrichment — called from UI after "test" mode load ───────────
+  const doEnrich = useCallback(async () => {
+    if (loading || dataRef.current.length === 0) return;
+
+    let accessToken = token;
+    if (!accessToken) accessToken = await refresh();
+    if (!accessToken) {
+      setError("No Facebook token — reconnect Facebook before enriching pages.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setEnrichmentSkipped(false);
+
+    await runEnrichment(
+      dataRef.current,
+      accessToken,
+      Date.now(),
+      batchesLoaded,
+      loadMode ?? "all",
+    );
+
+    setLoaded(true);
+    setLoadStatus("done");
+    setLoading(false);
+  }, [loading, token, refresh, batchesLoaded, loadMode, runEnrichment]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     data,
@@ -1028,6 +1153,9 @@ export function useFetchUserPages(): UserPagesFetchState {
     rateLimit,
     rateLimitWaiting,
     rateLimitWaitMs,
+    loadMode,
+    enrichmentSkipped,
     fetch: doFetch,
+    enrich: doEnrich,
   };
 }

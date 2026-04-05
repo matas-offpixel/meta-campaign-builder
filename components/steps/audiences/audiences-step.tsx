@@ -15,9 +15,11 @@ interface AudiencesStepProps {
   onChange: (audiences: AudienceSettings) => void;
   /** Meta ad account ID — used to auto-load Business Manager pages */
   adAccountId?: string;
+  /** Campaign/event name passed to AI interest discovery for richer suggestions */
+  campaignName?: string;
 }
 
-export function AudiencesStep({ audiences, onChange, adAccountId }: AudiencesStepProps) {
+export function AudiencesStep({ audiences, onChange, adAccountId, campaignName }: AudiencesStepProps) {
   const [activeTab, setActiveTab] = useState<AudienceTab>("pages");
 
   const suggestedAge = useMemo(() => suggestAgeRange(audiences), [audiences]);
@@ -73,6 +75,7 @@ export function AudiencesStep({ audiences, onChange, adAccountId }: AudiencesSte
           groups={audiences.interestGroups}
           audiences={audiences}
           onChange={(interestGroups) => onChange({ ...audiences, interestGroups })}
+          campaignName={campaignName}
         />
       </TabPanel>
     </div>

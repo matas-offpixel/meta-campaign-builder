@@ -30,7 +30,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
-const BATCH_SIZE = 50;
+const DEFAULT_BATCH_SIZE = 50;
 const PAGE_FIELDS = "id,name";
 
 /** Error codes Meta uses to signal rate / request limits. */
@@ -112,17 +112,24 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const { searchParams } = new URL(req.url);
   const after = searchParams.get("after") ?? null;
+  // batchSize lets callers request fewer pages per call (e.g. 10 for test mode).
+  // Clamped to 1–50 so we never exceed Meta's safe field-request limit.
+  const batchSizeParam = parseInt(searchParams.get("batchSize") ?? "", 10);
+  const batchSize = Number.isFinite(batchSizeParam) && batchSizeParam > 0
+    ? Math.min(batchSizeParam, DEFAULT_BATCH_SIZE)
+    : DEFAULT_BATCH_SIZE;
+
   const batchLabel = after ? `cursor=${after.slice(0, 20)}…` : "first";
 
   const params = new URLSearchParams({
     fields: PAGE_FIELDS,
-    limit: String(BATCH_SIZE),
+    limit: String(batchSize),
     access_token: providerToken,
   });
   if (after) params.set("after", after);
 
   const graphUrl = `${BASE}/me/accounts?${params.toString()}`;
-  console.info(`[pages/user] batch=${batchLabel} limit=${BATCH_SIZE}`);
+  console.info(`[pages/user] batch=${batchLabel} limit=${batchSize}`);
 
   let res: Response;
   try {
@@ -191,7 +198,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const nextCursor = paging?.next ? (paging.cursors?.after ?? null) : null;
 
   console.info(
-    `[pages/user] batch OK — ${data.length} pages, nextCursor: ${nextCursor ? "yes" : "none"},`,
+    `[pages/user] batch OK — ${data.length}/${batchSize} pages, nextCursor: ${nextCursor ? "yes" : "none"},`,
     `app-usage: ${rateLimit.appCallCountPct ?? "N/A"}%,`,
     `business-usage: ${rateLimit.businessCallCountPct ?? "N/A"}%`,
   );

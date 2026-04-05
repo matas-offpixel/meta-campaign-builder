@@ -19,6 +19,31 @@ export interface MetaAdAccount {
   business?: { id: string; name: string };
 }
 
+/**
+ * Per-page capability flags inferred from enrichment data and/or launch results.
+ * FB source capabilities (likes/engagement) are assumed true until proven
+ * otherwise at launch; IG capabilities are inferred from hasInstagramLinked.
+ */
+export interface PageCapabilities {
+  /** Page can be used as a standard page-audience targeting source */
+  standardPageAudience: boolean;
+  /** Page can be used as a FB Likes engagement custom-audience source */
+  fbLikesSource: boolean;
+  /** Page can be used as a FB Engagement 365d source */
+  fbEngagementSource: boolean;
+  /** Page can be used as an IG Followers source */
+  igFollowersSource: boolean;
+  /** Page can be used as an IG Engagement 365d source */
+  igEngagementSource: boolean;
+  /** Page is eligible for lookalike seed (at least one source available) */
+  lookalikeEligible: boolean;
+  /** Per-capability failure reason from the last launch attempt */
+  failureReasons?: Partial<Record<
+    "fbLikesSource" | "fbEngagementSource" | "igFollowersSource" | "igEngagementSource",
+    string
+  >>;
+}
+
 /** Returned by GET /me/accounts or /{businessId}/owned_pages */
 export interface MetaApiPage {
   id: string;
@@ -44,6 +69,8 @@ export interface MetaApiPage {
   instagramFollowers?: number;
   /** True if the page has a linked Instagram Business Account */
   hasInstagramLinked?: boolean;
+  /** Capability flags — inferred from enrichment or recorded after launch */
+  capabilities?: PageCapabilities;
 }
 
 /** Paginated result for additional (personal) pages */
@@ -207,6 +234,13 @@ export interface PageAudienceGroup {
   lookalikeRanges: LookalikeRange[];
   /** User-manually-selected custom audience IDs (from the "Load Custom Audiences" picker) */
   customAudienceIds: string[];
+  /**
+   * When false, skip engagement custom-audience creation at launch and use
+   * this group as a standard page-audience ad set only. Useful when the user
+   * knows the pages lack the required Meta event-source permissions.
+   * Defaults to true when undefined.
+   */
+  createEngagementAudiences?: boolean;
   /**
    * Engagement audience IDs auto-created during the launch pipeline (Phase 1.5).
    * Kept separate from customAudienceIds so they don't pollute the user's
