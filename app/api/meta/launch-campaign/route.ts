@@ -91,10 +91,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Parse body ─────────────────────────────────────────────────────────────
   let draft: CampaignDraft;
+  let clientIgMap: Record<string, string> = {};
   try {
-    const body = (await req.json()) as { draft?: CampaignDraft };
+    const body = (await req.json()) as {
+      draft?: CampaignDraft;
+      /** Page ID → IG account ID, built client-side from enriched pages cache */
+      igAccountMap?: Record<string, string>;
+    };
     if (!body?.draft) throw new Error("Missing required field: draft");
     draft = body.draft;
+    clientIgMap = body.igAccountMap ?? {};
   } catch (err) {
     return NextResponse.json(
       { error: `Invalid request body: ${err instanceof Error ? err.message : "bad JSON"}` },
@@ -263,16 +269,55 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const phase15Start = Date.now();
 
-  let pageToIg: Map<string, string> = new Map();
+  // ── Build page→IG map ─────────────────────────────────────────────────────
+  // Source 1 (preferred): client-provided map derived from the enriched pages
+  // cache. This was fetched using the user's Facebook OAuth token and correctly
+  // resolves both instagram_business_account AND connected_instagram_account.
+  const pageToIg: Map<string, string> = new Map();
+
+  for (const [pageId, igId] of Object.entries(clientIgMap)) {
+    if (pageId && igId) pageToIg.set(pageId, igId);
+  }
+  console.log(
+    `[launch-campaign] Phase 1.5 — client-provided IG map: ${pageToIg.size} entries` +
+    (pageToIg.size > 0
+      ? ": " + Array.from(pageToIg).map(([pid, igId]) => `${pid}→${igId}`).join(", ")
+      : " (no entries — server-side fetch will be attempted)"),
+  );
+
+  // Source 2 (fallback): server-side fetch using META_ACCESS_TOKEN.
+  // This uses a system/app token that may not see user-level page→IG
+  // connections, but can supplement the client map for any pages not covered.
   try {
     const { fetchInstagramAccounts } = await import("@/lib/meta/client");
     const igAccounts = await fetchInstagramAccounts();
+    let serverAdded = 0;
     for (const ig of igAccounts) {
-      if (ig.linkedPageId && ig.id) pageToIg.set(ig.linkedPageId, ig.id);
+      if (ig.linkedPageId && ig.id && !pageToIg.has(ig.linkedPageId)) {
+        pageToIg.set(ig.linkedPageId, ig.id);
+        serverAdded++;
+      }
     }
-    console.log("[launch-campaign] Phase 1.5 — loaded", pageToIg.size, "page→IG mappings");
+    console.log(
+      `[launch-campaign] Phase 1.5 — server-side IG fetch: ${igAccounts.length} accounts found,` +
+      ` ${serverAdded} added to map (client entries took priority). Total: ${pageToIg.size}`,
+    );
   } catch (err) {
-    console.warn("[launch-campaign] Phase 1.5 — could not load IG accounts:", err);
+    console.warn("[launch-campaign] Phase 1.5 — server-side IG fetch failed (non-fatal):", err);
+  }
+
+  // Log final resolved IG IDs for all pages that will be processed.
+  const allGroupPageIds = new Set(
+    draft.audiences.pageGroups.flatMap((g) => g.pageIds),
+  );
+  for (const pid of allGroupPageIds) {
+    const igId = pageToIg.get(pid);
+    console.log(
+      `[launch-campaign] Phase 1.5 — page ${pid}:` +
+      ` resolvedIgId=${igId ?? "NOT FOUND"}` +
+      (clientIgMap[pid] ? ` (source: client-cache)` :
+       igId ? ` (source: server-fetch)` : ` (no IG account available)`),
+    );
   }
 
   const pageNameMap = new Map<string, string>();
@@ -334,10 +379,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const igId = isIgType ? pageToIg.get(pageId) : undefined;
 
         if (isIgType && !igId) {
+          // Distinguish: was the page in the client map at all?
+          const clientHadPage = pageId in clientIgMap;
+          const noIgMsg = clientHadPage
+            ? `Instagram account found in client cache for page ${pageId} but ID was empty — ` +
+              `page may not have been enriched yet. Try reloading pages with enrichment.`
+            : `No Instagram account linked to page ${pageId}. ` +
+              `Neither instagram_business_account nor connected_instagram_account ` +
+              `returned an IG account ID during page enrichment. ` +
+              `Run the IG Diagnostic in the Audiences step to inspect the raw API response.`;
+          console.warn(
+            `[launch-campaign] Phase 1.5 ✗ page ${pageId} (${pageNameMap.get(pageId) ?? "?"}) — ${et}:`,
+            noIgMsg,
+            `| clientIgMap has ${Object.keys(clientIgMap).length} entries`,
+            `| pageToIg has ${pageToIg.size} entries`,
+          );
           engagementAudiencesFailed.push({
             name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et}`,
             type: et,
-            error: "No linked Instagram account found for this page. IG source audiences were skipped.",
+            error: clientHadPage
+              ? "Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
+              : "No linked Instagram account found for this page. Run the IG Diagnostic in Audiences to investigate.",
             pageId,
             isPermissionFailure: false,
           });
@@ -348,6 +410,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const sourceType = isIgType ? ("ig_business" as const) : ("page" as const);
         const pageName = pageNameMap.get(pageId) || group.name || "Page Group";
         const audienceName = `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`;
+
+        // Log the exact audience creation parameters for diagnostics.
+        if (isIgType) {
+          console.log(
+            `[launch-campaign] Phase 1.5 → creating ${et} audience` +
+            `\n  page:       ${pageId} (${pageName})` +
+            `\n  igId:       ${igId}` +
+            `\n  igSource:   ${pageId in clientIgMap ? "client-cache (user OAuth token)" : "server-fetch (system token)"}` +
+            `\n  sourceType: ${sourceType}` +
+            `\n  adAccount:  ${adAccountId}`,
+          );
+        }
 
         const eaStart = Date.now();
         try {
@@ -368,10 +442,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             message.toLowerCase().includes("event source") ||
             message.includes("(#100)") ||
             message.includes("OAuthException");
+          const rawErrData = err instanceof Error && "rawErrorData" in err
+            ? (err as { rawErrorData?: unknown }).rawErrorData
+            : undefined;
           console.error(
-            `[launch-campaign] Phase 1.5 ✗ Failed to create ${et} audience for page ${pageId}:`,
-            message,
-            isPermission ? "(event-source permission error)" : "",
+            `[launch-campaign] Phase 1.5 ✗ Failed to create ${et} for page ${pageId}` +
+            `\n  message:    ${message}` +
+            `\n  igId used:  ${isIgType ? (igId ?? "n/a") : "n/a (FB type)"}` +
+            `\n  sourceId:   ${sourceId}` +
+            `\n  sourceType: ${sourceType}` +
+            `\n  adAccount:  ${adAccountId}` +
+            `\n  isPermission: ${isPermission}` +
+            (rawErrData ? `\n  rawError:   ${JSON.stringify(rawErrData)}` : ""),
           );
 
           // Record capability failure on the page object so the UI can show
@@ -455,10 +537,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const igId = isIgType ? pageToIg.get(pageId) : undefined;
 
         if (isIgType && !igId) {
+          const clientHadPage = pageId in clientIgMap;
+          console.warn(
+            `[launch-campaign] Phase 1.5b ✗ SPLAL page ${pageId} — ${et}: no IG ID` +
+            ` | clientHadPage=${clientHadPage}`,
+          );
           engagementAudiencesFailed.push({
             name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et} (SPLAL)`,
             type: et,
-            error: "No linked Instagram account found for this page. IG source audiences were skipped.",
+            error: clientHadPage
+              ? "Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
+              : "No linked Instagram account found for this page. Run the IG Diagnostic in Audiences to investigate.",
             pageId,
             isPermissionFailure: false,
           });
@@ -469,6 +558,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const sourceType = isIgType ? ("ig_business" as const) : ("page" as const);
         const pageName = pageNameMap.get(pageId) || pageId;
         const audienceName = `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et} [SPLAL]`;
+
+        if (isIgType) {
+          console.log(
+            `[launch-campaign] Phase 1.5b → SPLAL ${et}` +
+            ` | page=${pageId} igId=${igId}` +
+            ` | source=${pageId in clientIgMap ? "client-cache" : "server-fetch"}`,
+          );
+        }
 
         const eaStart = Date.now();
         try {

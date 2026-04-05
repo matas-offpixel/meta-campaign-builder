@@ -36,6 +36,7 @@ import { createClient } from "@/lib/supabase/client";
 import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
+import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
 
 interface WizardShellProps {
@@ -266,8 +267,26 @@ export function WizardShell({ draftId }: WizardShellProps) {
     }
 
     try {
+      // Build page → IG account ID map from the enriched pages cache.
+      // The cache was populated using the user's Facebook OAuth token, which
+      // correctly resolves both instagram_business_account AND
+      // connected_instagram_account. The server-side token used by
+      // fetchInstagramAccounts() is a system/app token that may not see these
+      // user-level page→IG connections, so we send the map explicitly.
+      const cachedPages = getCachedUserPages();
+      const igAccountMap: Record<string, string> = {};
+      for (const page of cachedPages) {
+        const igId = page.instagramAccountId;
+        if (page.id && igId) igAccountMap[page.id] = igId;
+      }
+      console.log(
+        "[WizardShell] handleLaunch — igAccountMap from cache:",
+        Object.keys(igAccountMap).length, "entries",
+        Object.entries(igAccountMap).map(([pid, igId]) => `${pid}→${igId}`).join(", ") || "(none)",
+      );
+
       // Single server-side call — runs all 4 phases and saves to Supabase
-      const result = await launchCampaign(draft);
+      const result = await launchCampaign(draft, { igAccountMap });
 
       // Store launch summary on the draft without overwriting editable fields.
       // adSetSuggestions and creatives are left intact so re-launches start
