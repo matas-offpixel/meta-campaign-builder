@@ -58,6 +58,42 @@ export function WizardShell({ draftId }: WizardShellProps) {
   const { mutate: launchCampaign, loading: launching, error: launchError, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
 
+  // After a launch with permission failures, auto-set createEngagementAudiences=false
+  // for page groups where every page had a permission failure. This prevents
+  // repeated failed attempts on the next launch without needing manual UI intervention.
+  useEffect(() => {
+    if (!launchSummary?.engagementAudiencesFailed?.length) return;
+
+    const permFailedPageIds = new Set(
+      launchSummary.engagementAudiencesFailed
+        .filter((f) => f.isPermissionFailure && f.pageId)
+        .map((f) => f.pageId!),
+    );
+    if (permFailedPageIds.size === 0) return;
+
+    const currentGroups = draftRef.current.audiences.pageGroups;
+    const updated = currentGroups.map((g) => {
+      // Only update groups that aren't already standard-only and have pages
+      if (g.createEngagementAudiences === false || g.pageIds.length === 0) return g;
+      // Disable engagement if every page in the group had a permission failure
+      const allFailed = g.pageIds.every((id) => permFailedPageIds.has(id));
+      if (!allFailed) return g;
+      console.log(
+        `[WizardShell] Auto-disabling engagement audiences for group "${g.name}"` +
+        ` — all pages had permission failures`,
+      );
+      return { ...g, createEngagementAudiences: false as const };
+    });
+
+    const changed = updated.some(
+      (g, i) => g.createEngagementAudiences !== currentGroups[i].createEngagementAudiences,
+    );
+    if (changed) {
+      updateAudiences({ ...draftRef.current.audiences, pageGroups: updated });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchSummary]);
+
   // Template state
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);

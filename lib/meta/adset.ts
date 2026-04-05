@@ -670,19 +670,30 @@ export function extractDeprecatedReplacements(
 // "replaceName: string" means search Meta for that term and use the result.
 //
 const HARDCODED_DEPRECATED_INTERESTS: Array<{
-  matchName: string;        // normalised lowercase match
+  /** Normalized (parenthetical-stripped, lowercase) name to match against */
+  matchName: string;
+  /** Replacement search term, or null to remove entirely */
   replaceName: string | null;
 }> = [
   // Deprecated genre label — replace with the canonical EDM interest
   { matchName: "hardcore (electronic dance music genre)", replaceName: "Electronic dance music" },
   // Deprecated geo-cultural interest — no sensible targeting alternative
   { matchName: "mumbai indian culture", replaceName: null },
+  // Deprecated museum interests — replace with broader category
+  { matchName: "museum of contemporary art, los angeles", replaceName: "Contemporary art museums" },
+  { matchName: "museum of contemporary art los angeles", replaceName: "Contemporary art museums" },
+  { matchName: "niterói contemporary art museum", replaceName: "Contemporary art museums" },
+  { matchName: "niteroi contemporary art museum", replaceName: "Contemporary art museums" },
+  // Deprecated media interest — replace with broader electronic music interest
+  { matchName: "dj magazine", replaceName: "Electronic dance music" },
 ];
 
 function hardcodedOverride(
   interest: { id: string; name: string },
 ): { action: "keep" } | { action: "replace"; searchName: string } | { action: "remove" } {
-  const norm = interest.name.toLowerCase().trim();
+  // Use normalizeInterestName so "DJ Magazine (music publication)" normalizes to
+  // "dj magazine" and still matches the entry for "dj magazine".
+  const norm = normalizeInterestName(interest.name);
   for (const entry of HARDCODED_DEPRECATED_INTERESTS) {
     if (norm === entry.matchName) {
       return entry.replaceName === null

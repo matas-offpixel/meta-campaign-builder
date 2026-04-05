@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useEffect } from "react";
-import { markPageCapabilityFailures } from "@/lib/hooks/useMeta";
+import { markPageCapabilityFailures, getCachedUserPages } from "@/lib/hooks/useMeta";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   Loader2,
   CheckCheck,
   TriangleAlert,
+  Info,
 } from "lucide-react";
 import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
@@ -368,6 +369,156 @@ function buildMetaLink(
   return `https://adsmanager.facebook.com/adsmanager/manage/campaigns`;
 }
 
+// ── Pre-launch health summary ─────────────────────────────────────────────────
+
+function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
+  const cachedPages = getCachedUserPages();
+
+  // ── Interest group health ────────────────────────────────────────────────
+  const interestHealth = draft.audiences.interestGroups.map((g) => ({
+    id: g.id,
+    name: g.name || "Untitled",
+    count: g.interests.length,
+    empty: g.interests.length === 0,
+  }));
+
+  // ── Page group health ─────────────────────────────────────────────────────
+  const pageGroupHealth = draft.audiences.pageGroups.map((g) => {
+    const isStandardOnly = g.createEngagementAudiences === false;
+
+    // If all selected pages have no IG, IG source audiences will be skipped
+    const selectedPages = g.pageIds
+      .map((id) => cachedPages.find((p) => p.id === id))
+      .filter(Boolean);
+
+    const noIgPages = selectedPages.filter((p) => {
+      if (!p) return false;
+      const caps = p.capabilities;
+      if (caps?.igFollowersSource === false) return true;
+      return !(p.hasInstagramLinked ?? !!p.instagram_business_account?.id);
+    });
+    const allPagesNoIg = selectedPages.length > 0 && noIgPages.length === selectedPages.length;
+    const fbCapFailed =
+      selectedPages.some((p) => p?.capabilities?.fbLikesSource === false) ||
+      selectedPages.some((p) => p?.capabilities?.fbEngagementSource === false);
+
+    const lookalikesExpected = g.lookalike && !isStandardOnly;
+    const lookalikeBlocked =
+      lookalikesExpected &&
+      (allPagesNoIg || fbCapFailed || selectedPages.some((p) => p?.capabilities?.lookalikeEligible === false));
+
+    return {
+      id: g.id,
+      name: g.name || "Untitled",
+      pageCount: g.pageIds.length,
+      isStandardOnly,
+      lookalikesExpected,
+      lookalikeBlocked,
+      allPagesNoIg,
+      fbCapFailed,
+    };
+  });
+
+  const hasInterestWarnings = interestHealth.some((g) => g.empty);
+  const hasPageWarnings = pageGroupHealth.some(
+    (g) => g.isStandardOnly || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed,
+  );
+  const hasAnyWarning = hasInterestWarnings || hasPageWarnings;
+
+  if (!hasAnyWarning && interestHealth.length === 0 && pageGroupHealth.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card className={hasAnyWarning ? "border-warning/40 bg-warning/5" : "border-success/40 bg-success/5"}>
+      <div className="flex items-center gap-2">
+        <Info className={`h-4 w-4 shrink-0 ${hasAnyWarning ? "text-warning" : "text-success"}`} />
+        <CardTitle className={`text-sm ${hasAnyWarning ? "text-warning" : "text-success"}`}>
+          Pre-launch health check
+        </CardTitle>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {/* Interest groups */}
+        {interestHealth.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Interest Groups
+            </p>
+            <div className="space-y-1">
+              {interestHealth.map((g) => (
+                <div key={g.id} className="flex items-start gap-2">
+                  {g.empty ? (
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                  ) : (
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                  )}
+                  <span className="text-xs">
+                    <span className="font-medium">{g.name}</span>
+                    {g.empty ? (
+                      <span className="text-warning"> — no interests added, will use broad targeting</span>
+                    ) : (
+                      <span className="text-muted-foreground"> — {g.count} interest{g.count !== 1 ? "s" : ""}</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Page groups */}
+        {pageGroupHealth.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Page Groups
+            </p>
+            <div className="space-y-2">
+              {pageGroupHealth.map((g) => {
+                const warn = g.isStandardOnly || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed;
+                return (
+                  <div key={g.id} className="flex items-start gap-2">
+                    {warn ? (
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                    ) : (
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                    )}
+                    <div className="text-xs">
+                      <span className="font-medium">{g.name}</span>
+                      <span className="text-muted-foreground">
+                        {" "}({g.pageCount} page{g.pageCount !== 1 ? "s" : ""})
+                      </span>
+                      {g.isStandardOnly && (
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                          <span className="text-success">✓ Standard targeting</span>
+                          <span className="text-warning">✗ Engagement source audiences disabled</span>
+                          {g.lookalikesExpected && (
+                            <span className="text-warning">✗ Lookalikes disabled (no engagement source)</span>
+                          )}
+                        </div>
+                      )}
+                      {!g.isStandardOnly && g.allPagesNoIg && (
+                        <div className="mt-0.5 text-[11px] text-warning">
+                          No linked Instagram — IG source audiences will be skipped
+                        </div>
+                      )}
+                      {!g.isStandardOnly && g.fbCapFailed && (
+                        <div className="mt-0.5 text-[11px] text-warning">
+                          FB source audience permission failures recorded from a previous launch
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export function ReviewLaunch({
   draft,
   isLaunching = false,
@@ -552,6 +703,9 @@ export function ReviewLaunch({
           </div>
         </Card>
       )}
+
+      {/* Pre-launch health — only before first launch */}
+      {!launchSummary && !isLaunching && <PreLaunchHealthCard draft={draft} />}
 
       {/* Campaign Summary */}
       <Card>
