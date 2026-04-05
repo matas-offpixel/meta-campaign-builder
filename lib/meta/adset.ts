@@ -693,6 +693,50 @@ function hardcodedOverride(
   return { action: "keep" };
 }
 
+// ── Interest name normalization & fuzzy matching ──────────────────────────────
+
+/**
+ * Normalize an interest name for fuzzy matching:
+ * - Strip trailing parenthetical suffixes:
+ *   "Balenciaga (fashion brand)" → "Balenciaga"
+ *   "Hardcore (electronic dance music genre)" → "Hardcore"
+ * - Strip trailing bracket suffixes:
+ *   "Foo [category]" → "Foo"
+ * - Collapse whitespace, trim, lowercase
+ */
+function normalizeInterestName(name: string): string {
+  return name
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .replace(/\s*\[[^\]]*\]\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Fuzzy match: returns true when two interest names refer to the same entity.
+ * Handles the common case where Meta appends "(fashion brand)", "(music)",
+ * "(visual art)", etc. to the canonical interest name.
+ *
+ * Rules (applied after normalization):
+ *  1. Exact match
+ *  2. One contains the other (covers suffix/prefix differences)
+ */
+function interestNamesMatch(storedName: string, candidateName: string): boolean {
+  const a = normalizeInterestName(storedName);
+  const b = normalizeInterestName(candidateName);
+  if (a === b) return true;
+  if (a.length >= 3 && (b.includes(a) || a.includes(b))) return true;
+  return false;
+}
+
+// Module-level resolution cache — persists within a single serverless invocation
+// so the same interest name is not searched twice in one launch run.
+const _interestResolutionCache = new Map<
+  string,
+  { id: string; name: string } | null
+>();
+
 /**
  * Pre-launch validation: check each interest ID against Meta's targeting
  * validation endpoint. Returns only interests that are still valid, plus
@@ -700,6 +744,13 @@ function hardcodedOverride(
  *
  * Hardcoded overrides are applied first, then API-based validation runs on
  * the remainder. The returned `valid` list is what must be sent to Meta.
+ *
+ * Key improvements over the naive version:
+ *  • Search query is normalized (parentheticals stripped) so Meta returns
+ *    better candidates. e.g. "Balenciaga (fashion brand)" → query "Balenciaga"
+ *  • Matching is fuzzy: accepts candidates where normalized names overlap,
+ *    not just exact string equality.
+ *  • Module-level cache prevents re-searching the same name within one launch.
  */
 export async function sanitiseInterests(
   interests: { id: string; name: string }[],
@@ -716,19 +767,52 @@ export async function sanitiseInterests(
   const valid: { id: string; name: string }[] = [];
   const removed: { id: string; name: string; reason: string }[] = [];
 
-  // Helper: search Meta for a single interest by name, return the best match
-  async function searchMeta(name: string): Promise<{ id: string; name: string } | null> {
+  /**
+   * Search Meta with a NORMALIZED query; return all candidates (up to 50).
+   * Uses the module-level cache so the same name is only fetched once per run.
+   */
+  async function searchMetaNormalized(
+    originalName: string,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const query = normalizeInterestName(originalName) || originalName.trim();
+    const cacheKey = query;
+
+    if (_interestResolutionCache.has(cacheKey)) {
+      const cached = _interestResolutionCache.get(cacheKey);
+      if (cached == null) return [];
+      return [cached]; // single best match stored
+    }
+
     try {
       const url = new URL(`https://graph.facebook.com/${apiVersion}/search`);
       url.searchParams.set("access_token", token!);
       url.searchParams.set("type", "adinterest");
-      url.searchParams.set("q", name);
-      url.searchParams.set("limit", "10");
+      url.searchParams.set("q", query);
+      url.searchParams.set("limit", "50");
+
+      console.log(
+        `[sanitiseInterests] search — original="${originalName}"` +
+        ` normalized="${query}"`,
+      );
+
       const res = await fetch(url.toString(), { cache: "no-store" });
-      const json = (await res.json()) as { data?: Array<{ id: string; name: string }> };
-      return json.data?.[0] ?? null;
-    } catch {
-      return null;
+      const json = (await res.json()) as {
+        data?: Array<{ id: string; name: string }>;
+      };
+      const candidates = json.data ?? [];
+
+      console.log(
+        `[sanitiseInterests] candidates for "${query}": ` +
+        candidates.slice(0, 8).map((c) => `${c.name}(${c.id})`).join(", ") +
+        (candidates.length > 8 ? ` +${candidates.length - 8} more` : ""),
+      );
+
+      // Cache the best candidate (first result) for future lookups
+      _interestResolutionCache.set(cacheKey, candidates[0] ?? null);
+      return candidates;
+    } catch (err) {
+      console.warn(`[sanitiseInterests] search error for "${query}":`, err);
+      return [];
     }
   }
 
@@ -741,20 +825,39 @@ export async function sanitiseInterests(
 
     if (override.action === "remove") {
       console.log(`[sanitiseInterests] HARDCODED remove "${interest.name}" (${interest.id})`);
-      removed.push({ id: interest.id, name: interest.name, reason: "Hardcoded removal — deprecated, no sensible replacement" });
+      removed.push({
+        id: interest.id,
+        name: interest.name,
+        reason: "Hardcoded removal — deprecated, no sensible replacement",
+      });
       continue;
     }
 
     if (override.action === "replace") {
-      console.log(`[sanitiseInterests] HARDCODED replace "${interest.name}" → search for "${override.searchName}"`);
-      const found = await searchMeta(override.searchName);
+      console.log(
+        `[sanitiseInterests] HARDCODED replace "${interest.name}" → search for "${override.searchName}"`,
+      );
+      const candidates = await searchMetaNormalized(override.searchName);
+      const found = candidates[0] ?? null;
       if (found) {
-        console.log(`[sanitiseInterests] HARDCODED resolved "${override.searchName}" → (${found.id})`);
+        console.log(
+          `[sanitiseInterests] HARDCODED resolved "${override.searchName}" → "${found.name}" (${found.id})`,
+        );
         valid.push({ id: found.id, name: found.name });
-        removed.push({ id: interest.id, name: interest.name, reason: `Hardcoded replacement: ${found.name} (${found.id})` });
+        removed.push({
+          id: interest.id,
+          name: interest.name,
+          reason: `Hardcoded replacement: ${found.name} (${found.id})`,
+        });
       } else {
-        console.log(`[sanitiseInterests] HARDCODED "${override.searchName}" not found — removing "${interest.name}"`);
-        removed.push({ id: interest.id, name: interest.name, reason: `Hardcoded removal — replacement "${override.searchName}" not found` });
+        console.log(
+          `[sanitiseInterests] HARDCODED "${override.searchName}" not found — removing "${interest.name}"`,
+        );
+        removed.push({
+          id: interest.id,
+          name: interest.name,
+          reason: `Hardcoded removal — replacement "${override.searchName}" not found`,
+        });
       }
       continue;
     }
@@ -762,44 +865,55 @@ export async function sanitiseInterests(
     toValidate.push(interest);
   }
 
-  // ── Step 2: API-based validation for the remainder ───────────────────────
+  // ── Step 2: API-based validation with normalized query + fuzzy matching ───
 
   for (const interest of toValidate) {
     try {
-      const url = new URL(`https://graph.facebook.com/${apiVersion}/search`);
-      url.searchParams.set("access_token", token);
-      url.searchParams.set("type", "adinterest");
-      url.searchParams.set("q", interest.name);
-      url.searchParams.set("limit", "50");
+      const candidates = await searchMetaNormalized(interest.name);
 
-      const res = await fetch(url.toString(), { cache: "no-store" });
-      const json = (await res.json()) as { data?: Array<{ id: string; name: string }> };
-
-      const found = json.data?.some((item) => item.id === interest.id);
-      if (found) {
-        valid.push(interest);
-      } else {
-        // ID not in results — try a same-name replacement
-        const replacement = json.data?.find(
-          (item) => item.name.toLowerCase() === interest.name.toLowerCase(),
+      // 2a. Exact ID match — interest is still valid, keep as-is
+      if (candidates.some((c) => c.id === interest.id)) {
+        console.log(
+          `[sanitiseInterests] ✓ "${interest.name}" (${interest.id}) — ID confirmed`,
         );
-        if (replacement) {
+        valid.push(interest);
+        continue;
+      }
+
+      // 2b. Fuzzy name match — ID may have changed but entity is the same
+      const fuzzyMatch = candidates.find((c) =>
+        interestNamesMatch(interest.name, c.name),
+      );
+      if (fuzzyMatch) {
+        if (fuzzyMatch.id !== interest.id) {
           console.log(
-            `[sanitiseInterests] "${interest.name}" (${interest.id}) replaced with (${replacement.id})`,
+            `[sanitiseInterests] ↔ "${interest.name}" (${interest.id})` +
+            ` → fuzzy match → "${fuzzyMatch.name}" (${fuzzyMatch.id})`,
           );
-          valid.push({ id: replacement.id, name: replacement.name });
+          valid.push({ id: fuzzyMatch.id, name: fuzzyMatch.name });
           removed.push({
             id: interest.id,
             name: interest.name,
-            reason: `Replaced with ${replacement.name} (${replacement.id})`,
+            reason: `Replaced with ${fuzzyMatch.name} (${fuzzyMatch.id})`,
           });
         } else {
-          console.log(
-            `[sanitiseInterests] "${interest.name}" (${interest.id}) not found — removing`,
-          );
-          removed.push({ id: interest.id, name: interest.name, reason: "Not found in Meta interest search" });
+          // Same ID found via fuzzy path (shouldn't normally happen but be safe)
+          valid.push(interest);
         }
+        continue;
       }
+
+      // 2c. No match — interest is genuinely not found in Meta's database
+      console.log(
+        `[sanitiseInterests] ✗ "${interest.name}" (${interest.id}) — not found` +
+        ` after normalizing query to "${normalizeInterestName(interest.name)}"` +
+        ` — removing`,
+      );
+      removed.push({
+        id: interest.id,
+        name: interest.name,
+        reason: "Not found in Meta interest search",
+      });
     } catch (err) {
       // Network error — keep the interest and let Meta reject it if invalid
       console.warn(`[sanitiseInterests] Could not validate "${interest.name}":`, err);
