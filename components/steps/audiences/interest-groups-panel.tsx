@@ -569,9 +569,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         <Sparkles className="h-4 w-4" />
                         Discover from Pages
                       </div>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        Generates interest suggestions based on what fans of your selected pages are likely interested in — broader than keyword matching.
-                      </p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Generates interest suggestions based on what fans of your selected pages are likely interested in — broader than keyword matching.
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
+                    Suggestions are tailored to each cluster using selected page audience signals.
+                  </p>
                       {pageContext.length > 0 ? (
                         <p className="mt-1 text-[11px] text-muted-foreground/80">
                           Seeded by: <span className="font-medium text-foreground">
@@ -636,14 +639,21 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
 
                       {discoverClusters[group.id]!.map((cluster) => (
                         <div key={cluster.label} className="rounded-lg border border-border bg-white overflow-hidden">
-                          <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b border-border">
-                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                              {cluster.label}
-                            </span>
+                          <div className="flex items-start justify-between gap-2 px-3 py-1.5 bg-muted/30 border-b border-border">
+                            <div className="min-w-0">
+                              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                {cluster.label}
+                              </span>
+                              {"description" in cluster && (cluster as { description?: string }).description && (
+                                <p className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
+                                  {(cluster as { description: string }).description}
+                                </p>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => selectAllInCluster(group.id, cluster)}
-                              className="text-[10px] font-medium text-primary hover:underline"
+                              className="shrink-0 text-[10px] font-medium text-primary hover:underline"
                             >
                               Select all
                             </button>

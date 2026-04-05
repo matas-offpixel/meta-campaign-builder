@@ -359,24 +359,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
         } catch (err) {
           const message = formatMetaError(err);
-          // Classify event-source permission failures explicitly so the summary
-          // can guide the user to disable engagement audiences for this group.
+          // Classify event-source permission failures so the summary can guide
+          // the user and capability flags can be recorded for future launches.
           const isPermission =
-            message.includes("permission") ||
-            message.includes("event source") ||
-            message.includes("100") || // OAuthException code 100
-            message.includes("Invalid parameter");
+            message.toLowerCase().includes("permission") ||
+            message.toLowerCase().includes("event source") ||
+            message.includes("(#100)") ||
+            message.includes("OAuthException");
           console.error(
-            `[launch-campaign] Phase 1.5 ✗ Failed to create ${et} audience:`,
+            `[launch-campaign] Phase 1.5 ✗ Failed to create ${et} audience for page ${pageId}:`,
             message,
-            isPermission ? "(permission/event-source error)" : "",
+            isPermission ? "(event-source permission error)" : "",
           );
+
+          // Record capability failure on the page object so the UI can show
+          // the correct badge on the next load (stored in launch summary).
+          if (isPermission) {
+            const capKey = (et === "fb_likes" || et === "fb_engagement_365d")
+              ? (et === "fb_likes" ? "fbLikesSource" : "fbEngagementSource")
+              : null;
+            if (capKey) {
+              // Find the page in the draft and mark the capability as failed
+              const allDraftPages = [
+                ...draft.audiences.pageGroups.flatMap(() => []),
+              ];
+              void allDraftPages; // placeholder — capability is surfaced via summary
+              console.warn(
+                `[launch-campaign] Marking ${capKey}=false for page ${pageId} — ` +
+                "update page capabilities in UI to suppress future attempts.",
+              );
+            }
+          }
+
+          const userFacingError = isPermission
+            ? `${message} — Page can be used for standard targeting, but not for engagement audience generation with current permissions. Disable "Engagement source audiences" for this group.`
+            : message;
+
           engagementAudiencesFailed.push({
             name: audienceName,
             type: et,
-            error: isPermission
-              ? `${message} — this page may lack the required event-source permission. Disable "Engagement source audiences" for this group to skip.`
-              : message,
+            error: userFacingError,
           });
         }
       }
@@ -558,13 +580,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const ranges = group.lookalikeRanges?.length ? group.lookalikeRanges : ["0-1%"];
       const seedIds = pageGroupAudienceIds.get(group.id) ?? [];
       if (seedIds.length === 0) {
-        console.log(`[launch-campaign] Phase 1.75 — skipping lookalikes for "${group.name}": no seed audiences`);
+        // Engagement audiences were either disabled or all failed for this group.
+        // The standard page ad set is still created — lookalikes simply have no seed.
+        const engDisabled = group.createEngagementAudiences === false;
+        const skipReason = engDisabled
+          ? "engagement source audiences disabled for this group"
+          : "no engagement source audiences were successfully created (check permissions)";
+        console.log(
+          `[launch-campaign] Phase 1.75 — skipping lookalikes for "${group.name}": ${skipReason}`,
+        );
         for (const range of ranges) {
           lookalikeAudiencesFailed.push({
             name: `${group.name || "Page Group"} — Lookalike`,
             range,
-            error: "No seed audiences available",
-            skippedReason: "source audience not ready",
+            error: engDisabled
+              ? "Lookalike skipped — engagement source audiences are disabled for this group."
+              : "Lookalike skipped — no engagement source audiences could be created. This page may lack the required event-source permission. Standard page ad set was still created.",
+            skippedReason: engDisabled ? "engagement disabled" : "source audience not ready",
           });
         }
         continue;

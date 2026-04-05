@@ -11,7 +11,7 @@ import {
   Plus, Trash2, ChevronDown, ChevronUp, XCircle,
   Building2, User, AlertCircle, Loader2, RefreshCw, Clock,
 } from "lucide-react";
-import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup } from "@/lib/types";
+import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup, PageCapabilities } from "@/lib/types";
 import {
   useFetchPages,
   useFetchAdditionalPages,
@@ -110,6 +110,33 @@ function PageThumbnail({ page }: { page: MetaApiPage }) {
   );
 }
 
+/**
+ * Derives per-page capability flags from enrichment data.
+ * FB source capabilities (Likes/Engagement) can't be validated pre-launch,
+ * so they start as `true` (assumed available) unless explicitly overridden
+ * via `page.capabilities.fbLikesSource === false` after a launch failure.
+ */
+function inferCapabilities(page: MetaApiPage): PageCapabilities {
+  const hasIg = page.hasInstagramLinked ?? !!page.instagram_business_account?.id;
+  const stored: Partial<PageCapabilities> = page.capabilities ?? {};
+
+  const fbLikesSource = stored.fbLikesSource ?? true;
+  const fbEngagementSource = stored.fbEngagementSource ?? true;
+  const igFollowersSource = stored.igFollowersSource ?? hasIg;
+  const igEngagementSource = stored.igEngagementSource ?? hasIg;
+  const lookalikeEligible = stored.lookalikeEligible ?? (fbLikesSource || hasIg);
+
+  return {
+    standardPageAudience: true,
+    fbLikesSource,
+    fbEngagementSource,
+    igFollowersSource,
+    igEngagementSource,
+    lookalikeEligible,
+    failureReasons: stored.failureReasons,
+  };
+}
+
 function PageRow({
   page,
   selected,
@@ -125,6 +152,12 @@ function PageRow({
   const hasIg = page.hasInstagramLinked ?? !!page.instagram_business_account?.id;
   const igHandle = page.instagramUsername ?? null;
   const igFollowers = page.instagramFollowers !== undefined ? formatFanCount(page.instagramFollowers) : null;
+
+  // Only show explicit capability failures (set after a launch attempt)
+  const caps = page.capabilities;
+  const fbLikesFailed    = caps?.fbLikesSource    === false;
+  const fbEngageFailed   = caps?.fbEngagementSource === false;
+  const lookalikeBlocked = caps?.lookalikeEligible  === false;
 
   return (
     <label className="flex cursor-pointer items-start gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-muted/50">
@@ -153,15 +186,34 @@ function PageRow({
             {page.category}
           </Badge>
         )}
-        {/* Capability badges — shown once enrichment has run */}
+
+        {/* IG capability — shown once enrichment has run */}
         {page.hasInstagramLinked != null && (
           <Badge
             variant={page.hasInstagramLinked ? "primary" : "outline"}
             className="text-[10px]"
           >
-            {page.hasInstagramLinked ? "IG linked" : "No IG"}
+            {page.hasInstagramLinked ? "IG source ✓" : "No IG source"}
           </Badge>
         )}
+
+        {/* FB source failures — only visible after a failed launch attempt */}
+        {fbLikesFailed && (
+          <Badge variant="destructive" className="text-[10px]">
+            FB Likes N/A
+          </Badge>
+        )}
+        {fbEngageFailed && (
+          <Badge variant="destructive" className="text-[10px]">
+            FB Engagement N/A
+          </Badge>
+        )}
+        {lookalikeBlocked && (
+          <Badge variant="destructive" className="text-[10px]">
+            Lookalike N/A
+          </Badge>
+        )}
+
         {fbFollowers != null && fbFollowers === 0 && (
           <Badge variant="outline" className="text-[10px] text-muted-foreground/70">
             0 followers
@@ -561,6 +613,47 @@ export function PageAudiencesPanel({
                     </div>
                   )}
                 </div>
+
+                {/* Capability pre-flight summary */}
+                {(() => {
+                  if (group.pageIds.length === 0) return null;
+                  const selectedPageObjs = group.pageIds
+                    .map((id) => allPages.find((p) => p.id === id))
+                    .filter(Boolean) as MetaApiPage[];
+
+                  if (selectedPageObjs.length === 0) return null;
+
+                  const noIg = selectedPageObjs.filter((p) => !inferCapabilities(p).igFollowersSource);
+                  const fbFailed = selectedPageObjs.filter((p) =>
+                    p.capabilities?.fbLikesSource === false || p.capabilities?.fbEngagementSource === false,
+                  );
+
+                  if (noIg.length === 0 && fbFailed.length === 0) return null;
+
+                  return (
+                    <div className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs space-y-1">
+                      <p className="font-medium text-foreground flex items-center gap-1.5">
+                        <AlertCircle className="h-3.5 w-3.5 text-warning shrink-0" />
+                        Capability notes for {selectedPageObjs.length} selected page{selectedPageObjs.length !== 1 ? "s" : ""}
+                      </p>
+                      {noIg.length > 0 && (
+                        <p className="text-muted-foreground">
+                          <span className="font-medium">{noIg.length}</span> page{noIg.length !== 1 ? "s have" : " has"} no linked Instagram — IG source audiences will be skipped automatically.
+                        </p>
+                      )}
+                      {fbFailed.length > 0 && (
+                        <p className="text-muted-foreground">
+                          <span className="font-medium">{fbFailed.length}</span> page{fbFailed.length !== 1 ? "s" : ""} previously failed FB source audience creation (event-source permission missing). Consider disabling engagement audiences below.
+                        </p>
+                      )}
+                      {noIg.length === selectedPageObjs.length && !group.lookalike && (
+                        <p className="text-muted-foreground/80 italic text-[10px]">
+                          No IG-capable pages — lookalike seeding will rely solely on FB sources.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Page usage mode */}
                 <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-2">
