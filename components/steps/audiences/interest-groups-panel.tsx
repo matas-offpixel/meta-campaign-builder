@@ -11,13 +11,20 @@ import {
   Plus, Trash2, ChevronDown, ChevronUp, Sparkles, Wand2, Loader2, CheckSquare, Square, RefreshCw,
 } from "lucide-react";
 import type { InterestGroup, InterestSuggestion, AudienceSettings, MetaApiPage } from "@/lib/types";
-import type { DiscoverCluster, DiscoverResponse } from "@/app/api/meta/interest-discover/route";
+import type {
+  DiscoverCluster,
+  DiscoverResponse,
+  AudienceFingerprint,
+  CustomAudienceSignal,
+  GenreDistribution,
+} from "@/app/api/meta/interest-discover/route";
 import {
   generateInterestGroupsFromAudiences,
   CLUSTER_LABELS,
   inferClusterFromName,
 } from "@/lib/interest-suggestions";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
+import { readGenreCache } from "@/lib/genre-classification";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -117,6 +124,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const [clusterSelections, setClusterSelections] = useState<Record<string, Record<string, boolean>>>({});
   // Scene hints per group — free-text field that maps to scene tags for better discovery
   const [sceneHintsByGroup, setSceneHintsByGroup] = useState<Record<string, string>>({});
+  // Audience fingerprint returned from the backend per group
+  const [fingerprintByGroup, setFingerprintByGroup] = useState<Record<string, AudienceFingerprint>>({});
 
   const activeSearch = searchByGroup[activeSearchGroupId ?? ""] ?? "";
   const searchState = useInterestSearch(activeSearch);
@@ -127,8 +136,54 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const pageContext = useMemo((): MetaApiPage[] => {
     const cached = getCachedUserPages();
     const selectedIds = new Set(audiences.pageGroups.flatMap((g) => g.pageIds));
-    if (selectedIds.size === 0) return cached.slice(0, 10); // fallback: first 10 loaded pages
+    if (selectedIds.size === 0) return cached.slice(0, 10);
     return cached.filter((p) => selectedIds.has(p.id));
+  }, [audiences.pageGroups]);
+
+  // Custom audience signals — group names as scene classifiers
+  const customAudienceSignals = useMemo((): CustomAudienceSignal[] => {
+    return (audiences.customAudienceGroups ?? [])
+      .filter((g) => (g.audienceIds?.length ?? 0) > 0)
+      .map((g) => ({ name: g.name }));
+  }, [audiences.customAudienceGroups]);
+
+  // Engagement types present (from pageGroups that have created engagement audiences)
+  const engagementTypesPresent = useMemo((): string[] => {
+    const types = new Set<string>();
+    for (const g of audiences.pageGroups) {
+      if (g.engagementAudiencesByType) {
+        for (const t of Object.keys(g.engagementAudiencesByType)) {
+          types.add(t);
+        }
+      }
+    }
+    return [...types];
+  }, [audiences.pageGroups]);
+
+  // Genre distribution: bucket → page count from selected pages' classifications
+  const genreDistribution = useMemo((): GenreDistribution => {
+    const cache = readGenreCache();
+    const selectedIds = audiences.pageGroups.flatMap((g) => g.pageIds);
+    const dist: GenreDistribution = {};
+    for (const pageId of selectedIds) {
+      const c = cache[pageId];
+      if (!c) continue;
+      for (const [bucket, w] of [
+        [c.primaryBucket, 1.0],
+        [c.secondaryBucket, 0.5],
+        [c.tertiaryBucket, 0.25],
+      ] as [string | undefined, number][]) {
+        if (bucket) {
+          dist[bucket] = (dist[bucket] ?? 0) + w;
+        }
+      }
+    }
+    // Round and filter out sub-threshold entries
+    return Object.fromEntries(
+      Object.entries(dist)
+        .map(([k, v]) => [k, Math.max(1, Math.round(v))] as [string, number])
+        .filter(([, v]) => v >= 1),
+    );
   }, [audiences.pageGroups]);
 
   const addGroup = () => {
@@ -296,6 +351,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
             category: p.category,
             instagramUsername: p.instagramUsername,
           })),
+          customAudienceSignals,
+          engagementTypesPresent,
+          genreDistribution,
           campaignName,
           ...(effectiveClusterType ? { clusterLabel: effectiveClusterType } : {}),
           ...(sceneHints.length > 0 ? { sceneHints } : {}),
@@ -308,6 +366,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       setDiscoverClusters((prev) => ({ ...prev, [groupId]: json.clusters }));
       setDiscoverSearchTerms((prev) => ({ ...prev, [groupId]: json.searchTermsUsed }));
       setDiscoverSceneTags((prev) => ({ ...prev, [groupId]: json.detectedSceneTags ?? [] }));
+      if (json.audienceFingerprint) {
+        setFingerprintByGroup((prev) => ({ ...prev, [groupId]: json.audienceFingerprint }));
+      }
 
       // Init selections to false for all
       const init: Record<string, boolean> = {};
@@ -330,7 +391,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     } finally {
       setDiscoveringFromPages(null);
     }
-  }, [discoveringFromPages, pageContext, campaignName]);
+  }, [discoveringFromPages, pageContext, customAudienceSignals, engagementTypesPresent, genreDistribution, campaignName]);
 
   const toggleClusterInterest = (groupId: string, interestId: string) => {
     setClusterSelections((prev) => ({
@@ -418,11 +479,13 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
           <p className="text-xs text-muted-foreground">
             Search Meta&apos;s interest database and group interests for targeted ad sets.
           </p>
-          {pageContext.length > 0 && (
+          {(pageContext.length > 0 || customAudienceSignals.length > 0 || Object.keys(genreDistribution).length > 0) && (
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              <span className="font-medium text-primary">Discover from Pages</span> is seeded by:{" "}
-              {pageContext.slice(0, 3).map((p) => p.name).join(", ")}
-              {pageContext.length > 3 && ` +${pageContext.length - 3} more`}
+              <span className="font-medium text-primary">Discover from Pages</span> pooling{" "}
+              {pageContext.length > 0 && <><span className="font-medium text-foreground">{pageContext.length}</span> pages</>}
+              {customAudienceSignals.length > 0 && <> · <span className="font-medium text-foreground">{customAudienceSignals.length}</span> CA groups</>}
+              {engagementTypesPresent.length > 0 && <> · <span className="font-medium text-success">{engagementTypesPresent.length}</span> engagement type{engagementTypesPresent.length !== 1 ? "s" : ""}</>}
+              {Object.keys(genreDistribution).length > 0 && <> · <span className="font-medium text-foreground">{Object.keys(genreDistribution).length}</span> genre buckets</>}
             </p>
           )}
         </div>
@@ -668,6 +731,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                             {pageContext.slice(0, 3).map((p) => p.name).join(", ")}
                             {pageContext.length > 3 && ` +${pageContext.length - 3} more`}
                           </span>
+                          {customAudienceSignals.length > 0 && (
+                            <span className="ml-1 text-success">· {customAudienceSignals.length} CA</span>
+                          )}
+                          {engagementTypesPresent.length > 0 && (
+                            <span className="ml-1 text-success">· {engagementTypesPresent.length} engagement type{engagementTypesPresent.length !== 1 ? "s" : ""}</span>
+                          )}
                         </p>
                       ) : (
                         <p className="mt-1 text-[11px] text-warning">
@@ -686,6 +755,104 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       </button>
                     )}
                   </div>
+
+                  {/* ── Audience Fingerprint card ──────────────────── */}
+                  {fingerprintByGroup[group.id] && (() => {
+                    const fp = fingerprintByGroup[group.id]!;
+                    const specColor =
+                      fp.specificity === "very_high" ? "text-success border-success/30 bg-success/5" :
+                      fp.specificity === "high" ? "text-primary border-primary/30 bg-primary/5" :
+                      fp.specificity === "moderate" ? "text-warning border-warning/30 bg-warning/5" :
+                      "text-muted-foreground border-border bg-muted/30";
+                    const specLabel =
+                      fp.specificity === "very_high" ? "Very Specific" :
+                      fp.specificity === "high" ? "High Confidence" :
+                      fp.specificity === "moderate" ? "Moderate" : "Broad";
+                    return (
+                      <div className={`rounded-lg border px-3 py-2.5 space-y-2 text-xs ${specColor}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold">Audience Fingerprint</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${specColor} border`}>{specLabel}</span>
+                        </div>
+
+                        {/* Source chips */}
+                        <div className="flex flex-wrap gap-1">
+                          {fp.sources.pages > 0 && (
+                            <span className="rounded bg-black/8 px-1.5 py-0.5 text-[10px]">
+                              {fp.sources.pages} page{fp.sources.pages !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                          {fp.sources.customAudiences > 0 && (
+                            <span className="rounded bg-black/8 px-1.5 py-0.5 text-[10px]">
+                              {fp.sources.customAudiences} CA group{fp.sources.customAudiences !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                          {fp.sources.engagementTypes > 0 && (
+                            <span className="rounded bg-success/20 px-1.5 py-0.5 text-[10px] font-medium text-success">
+                              {fp.sources.engagementTypes} engagement type{fp.sources.engagementTypes !== 1 ? "s" : ""} ↑
+                            </span>
+                          )}
+                          {fp.sources.genreGroups > 0 && (
+                            <span className="rounded bg-black/8 px-1.5 py-0.5 text-[10px]">
+                              {fp.sources.genreGroups} genre bucket{fp.sources.genreGroups !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                          {fp.sources.hints > 0 && (
+                            <span className="rounded bg-black/8 px-1.5 py-0.5 text-[10px]">
+                              {fp.sources.hints} hint{fp.sources.hints !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Dominant scenes */}
+                        {fp.dominantScenes.length > 0 && (
+                          <div>
+                            <span className="text-[10px] opacity-70">Dominant signals:</span>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {fp.dominantScenes.slice(0, 6).map((s) => {
+                                const maxW = fp.dominantScenes[0]?.weight ?? 1;
+                                const rel = Math.round((s.weight / maxW) * 100);
+                                return (
+                                  <span
+                                    key={s.tag}
+                                    title={`weight: ${s.weight}`}
+                                    className="flex items-center gap-1 rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-medium"
+                                    style={{ opacity: 0.5 + rel / 200 }}
+                                  >
+                                    {s.tag.replace(/_/g, " ")}
+                                    <span className="opacity-60 text-[9px]">{rel}%</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Confidence bar */}
+                        <div>
+                          <div className="mb-0.5 flex items-center justify-between">
+                            <span className="text-[10px] opacity-70">Confidence</span>
+                            <span className="text-[10px] font-bold">{fp.confidence}%</span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10">
+                            <div
+                              className="h-full rounded-full bg-current transition-all"
+                              style={{ width: `${fp.confidence}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-[10px] opacity-60">
+                            {fp.specificity === "very_high"
+                              ? "High confidence — interests will be highly specific, generic suggestions removed."
+                              : fp.specificity === "high"
+                                ? "Good signal depth — interests will be scene-specific with moderate filtering."
+                                : fp.specificity === "moderate"
+                                  ? "Moderate signal — some curated seeds included alongside entity matches."
+                                  : "Low signal — broad curated suggestions shown. Add more pages or custom audiences to improve."}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Scene hints — optional nudge for niche subgenre discovery */}
                   <div>
@@ -817,7 +984,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         );
                       })}
 
-                      {(discoverSceneTags[group.id]?.length ?? 0) > 0 && (
+                      {(discoverSceneTags[group.id]?.length ?? 0) > 0 && !fingerprintByGroup[group.id] && (
                         <div className="flex flex-wrap gap-1 pt-1">
                           <span className="text-[10px] text-muted-foreground/60 self-center">Detected scenes:</span>
                           {discoverSceneTags[group.id]!.map((tag) => (

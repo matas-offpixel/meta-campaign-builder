@@ -1,22 +1,25 @@
 /**
  * POST /api/meta/interest-discover
  *
- * Affinity-based interest discovery that treats selected Facebook pages as
- * seed entities rather than keyword sources.
+ * Pooled audience fingerprint interest discovery.
  *
- * Pipeline:
- *   1. classifyPages()        — pattern + category match → SceneTag set
- *   2. buildClusterTerms()    — scene tags → curated entity names per cluster
- *   3. searchMeta()           — /search?type=adinterest for each entity name
- *   4. passesBlocklist()      — hard-reject irrelevant categories
- *   5. scoreInterest()        — cluster path + scene alignment + audience size
- *   6. Return top 6 per cluster
+ * Every selected source (pages, engagement custom audiences, genre groups,
+ * manual hints) is normalised into weighted scene signals. The combined
+ * fingerprint drives:
+ *   - which entity terms are searched (and in what priority order)
+ *   - how strict blocklist / score-threshold filtering is
+ *   - what confidence level is reported to the UI
  *
- * Single-cluster mode: pass `clusterLabel` in the request body to target
- * one cluster only (used when an interest group has a cluster type set).
+ * High-confidence fingerprints → fewer, more specific suggestions.
+ * Low-confidence fingerprints  → broader suggestions with curated seeds.
  *
- * Dev logging: console.info shows per-cluster scene tags, entity terms,
- * pre-filter count, removed interests, and final kept interests.
+ * Weights:
+ *   manual hint                   10 (explicit user signal)
+ *   engagement CA (IG/FB 365d)    15 (proven real-audience signal)
+ *   named page (classifier match)  8
+ *   genre bucket                   6 (per page in bucket)
+ *   page category fallback          3
+ *   campaign name keyword           2
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -28,7 +31,6 @@ const BASE = `https://graph.facebook.com/${API_VERSION}`;
 // ── Scene tags ────────────────────────────────────────────────────────────────
 
 type SceneTag =
-  // Electronic sub-genres
   | "techno"
   | "hard_techno"
   | "hardcore"
@@ -42,23 +44,19 @@ type SceneTag =
   | "afrobeats"
   | "garage_uk"
   | "edm_mainstage"
-  // Cultural positioning
   | "underground_dance"
   | "queer_underground"
   | "festival_circuit"
-  // City scenes
   | "london_scene"
   | "berlin_scene"
   | "ibiza_scene"
   | "amsterdam_scene"
   | "nyc_scene"
-  // Fashion / media
   | "dance_media"
   | "rave_fashion"
   | "avant_garde_fashion"
   | "editorial_fashion";
 
-// For sceneHints validation — set of all valid tags
 const ALL_SCENE_TAGS = new Set<SceneTag>([
   "techno", "hard_techno", "hardcore", "psy_trance",
   "tech_house", "deep_house", "house_music", "progressive_house",
@@ -68,20 +66,52 @@ const ALL_SCENE_TAGS = new Set<SceneTag>([
   "dance_media", "rave_fashion", "avant_garde_fashion", "editorial_fashion",
 ]);
 
+/** Scene tags that indicate niche/specific audiences (raise confidence score) */
+const NICHE_SCENE_TAGS = new Set<SceneTag>([
+  "hard_techno", "hardcore", "psy_trance", "queer_underground",
+  "avant_garde_fashion", "editorial_fashion", "drum_and_bass",
+  "garage_uk", "berlin_scene",
+]);
+
+// ── Genre bucket → scene tag mapping ─────────────────────────────────────────
+// Maps Beatport-style genre buckets (from genre-classification.ts) to scene tags.
+
+const GENRE_BUCKET_SCENE_TAGS: Record<string, SceneTag[]> = {
+  techno_peak:          ["techno", "hard_techno", "underground_dance", "festival_circuit"],
+  techno_raw:           ["techno", "underground_dance", "berlin_scene"],
+  melodic_house_techno: ["deep_house", "progressive_house", "underground_dance"],
+  progressive_house:    ["progressive_house", "underground_dance"],
+  amapiano_afro_house:  ["afrobeats", "underground_dance"],
+  underground_house:    ["deep_house", "house_music", "underground_dance"],
+  deep_house:           ["deep_house", "house_music"],
+  classic_house:        ["house_music"],
+  disco_nu_disco:       ["house_music", "ibiza_scene"],
+  tech_house:           ["tech_house", "ibiza_scene", "underground_dance"],
+  trance:               ["trance"],
+  "140_garage_grime":   ["garage_uk", "underground_dance"],
+  breaks_breakbeat:     ["underground_dance"],
+  dance_pop_commercial: ["edm_mainstage"],
+  drum_and_bass:        ["drum_and_bass", "underground_dance"],
+};
+
+// ── Signal weights ────────────────────────────────────────────────────────────
+
+const W_HINT          = 10; // explicit user scene hint
+const W_ENGAGEMENT_CA = 15; // engagement custom audience (proven real-audience signal)
+const W_PAGE_NAMED    = 8;  // page name/IG handle matched a specific classifier rule
+const W_GENRE_BUCKET  = 6;  // genre classification bucket (per page unit)
+const W_PAGE_CATEGORY = 3;  // page category fallback (weakest)
+
 // ── Entity classifiers ────────────────────────────────────────────────────────
-// Ordered from most-specific (named entity) to most-general (category fallback).
-// A page is matched against ALL rules — tags accumulate.
 
 interface ClassifierRule {
-  /** Matched against page name OR Instagram username (case-insensitive) */
   pattern?: RegExp;
-  /** Matched against page category */
   categories?: string[];
   tags: SceneTag[];
 }
 
 const ENTITY_CLASSIFIERS: ClassifierRule[] = [
-  // ── Known venues ───────────────────────────────────────────────────────────
+  // Known venues
   { pattern: /\bfabric\b/i, tags: ["techno", "tech_house", "underground_dance", "london_scene"] },
   { pattern: /\bberghain\b/i, tags: ["techno", "underground_dance", "berlin_scene"] },
   { pattern: /\btresor\b/i, tags: ["techno", "underground_dance", "berlin_scene"] },
@@ -100,17 +130,14 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
   { pattern: /\bamnesia\b(?!.*(film|movie|band))/i, tags: ["house_music", "tech_house", "ibiza_scene"] },
   { pattern: /\bushua[iï]a\b/i, tags: ["edm_mainstage", "ibiza_scene"] },
   { pattern: /\bdc.?10\b/i, tags: ["techno", "tech_house", "ibiza_scene"] },
-  { pattern: /\bdestino\b.*ibiza|\bibiza.*destino/i, tags: ["house_music", "ibiza_scene"] },
   { pattern: /\bspace\s*ibiza\b/i, tags: ["tech_house", "house_music", "ibiza_scene"] },
   { pattern: /\bpanorama\s*bar\b/i, tags: ["techno", "underground_dance", "berlin_scene"] },
   { pattern: /\bclub\s*der\s*vision/i, tags: ["techno", "underground_dance", "berlin_scene"] },
   { pattern: /\bde\s*school\b/i, tags: ["techno", "underground_dance", "amsterdam_scene"] },
   { pattern: /\bmelkweg\b/i, tags: ["underground_dance", "amsterdam_scene"] },
-  { pattern: /\babsolut\s*terano|shelter\s*amsterdam/i, tags: ["techno", "amsterdam_scene"] },
-  { pattern: /\bbooby\s*trap|output\s*brooklyn|brooklyn\s*mirage/i, tags: ["techno", "tech_house", "nyc_scene"] },
-  { pattern: /\bdc10\b|\bspace\s*miami\b|\bbare\s*club\b/i, tags: ["tech_house", "house_music"] },
-
-  // ── Known record labels ────────────────────────────────────────────────────
+  { pattern: /\bshelter\s*amsterdam/i, tags: ["techno", "amsterdam_scene"] },
+  { pattern: /\bbrooklyn\s*mirage/i, tags: ["techno", "tech_house", "nyc_scene"] },
+  // Record labels
   { pattern: /\bdrumcode\b/i, tags: ["techno"] },
   { pattern: /\bdefected\b/i, tags: ["house_music", "deep_house"] },
   { pattern: /\btoolroom\b/i, tags: ["tech_house"] },
@@ -122,20 +149,20 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
   { pattern: /\bhospital\s*records\b/i, tags: ["drum_and_bass"] },
   { pattern: /\bram\s*records\b/i, tags: ["drum_and_bass"] },
   { pattern: /\bglitterbox\b/i, tags: ["house_music", "deep_house"] },
-  { pattern: /\bwest\s*end\s*records\b/i, tags: ["house_music"] },
   { pattern: /\bsolid\s*grooves\b/i, tags: ["tech_house"] },
   { pattern: /\brelief\s*records\b/i, tags: ["tech_house"] },
   { pattern: /\bblack\s*butter\b/i, tags: ["house_music", "garage_uk"] },
   { pattern: /\bwarp\s*records\b/i, tags: ["techno", "underground_dance"] },
-
-  // ── Known DJs / artists ────────────────────────────────────────────────────
+  { pattern: /\bostgut\s*ton\b/i, tags: ["techno", "underground_dance", "berlin_scene"] },
+  { pattern: /\bklockworks\b/i, tags: ["techno", "hard_techno"] },
+  // DJs / artists
   { pattern: /\badam\s*beyer\b/i, tags: ["techno"] },
   { pattern: /\brichie\s*hawtin\b/i, tags: ["techno"] },
   { pattern: /\bben\s*klock\b/i, tags: ["techno"] },
-  { pattern: /\bcharlotte\s*de\s*witte\b/i, tags: ["techno"] },
+  { pattern: /\bcharlotte\s*de\s*witte\b/i, tags: ["techno", "hard_techno"] },
   { pattern: /\bjeff\s*mills\b/i, tags: ["techno"] },
   { pattern: /\bellen\s*allien\b/i, tags: ["techno"] },
-  { pattern: /\bsurgeon\b(?!.*(doctor|plastic))/i, tags: ["techno"] },
+  { pattern: /\bsurgeon\b(?!.*(doctor|plastic))/i, tags: ["techno", "hard_techno"] },
   { pattern: /\bpeggy\s*gou\b/i, tags: ["tech_house", "deep_house"] },
   { pattern: /\bcamelphat\b/i, tags: ["tech_house"] },
   { pattern: /\bfisher\b(?!.*(island|price))/i, tags: ["tech_house"] },
@@ -160,84 +187,65 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
   { pattern: /\bburna\s*boy\b/i, tags: ["afrobeats"] },
   { pattern: /\bdavido\b/i, tags: ["afrobeats"] },
   { pattern: /\bstokie|stormzy|skepta|slowthai/i, tags: ["garage_uk"] },
-
-  // ── Known festivals ────────────────────────────────────────────────────────
+  // Festivals
   { pattern: /\btomorrowland\b/i, tags: ["edm_mainstage", "progressive_house", "festival_circuit"] },
   { pattern: /\bcoachella\b/i, tags: ["festival_circuit", "edm_mainstage"] },
   { pattern: /\bglastonbury\b/i, tags: ["festival_circuit"] },
   { pattern: /\bcreamfields\b/i, tags: ["festival_circuit", "tech_house", "edm_mainstage"] },
-  { pattern: /\bawakenings\b/i, tags: ["techno", "festival_circuit"] },
+  { pattern: /\bawakenings\b/i, tags: ["techno", "hard_techno", "festival_circuit"] },
   { pattern: /\bsonar\b/i, tags: ["techno", "underground_dance", "festival_circuit"] },
   { pattern: /\bade\b|\bamsterdam\s*dance\s*event\b/i, tags: ["festival_circuit", "underground_dance"] },
   { pattern: /\bhideout\s*festival\b/i, tags: ["tech_house", "festival_circuit"] },
-  { pattern: /\bexit\s*festival\b/i, tags: ["edm_mainstage", "festival_circuit"] },
-  { pattern: /\blollapalooza\b/i, tags: ["festival_circuit"] },
-  { pattern: /\bburn(ing)?\s*man\b/i, tags: ["underground_dance", "festival_circuit"] },
-  { pattern: /\bgalaxy\s*festival|gala\b/i, tags: ["underground_dance", "festival_circuit"] },
   { pattern: /\bboiler\s*room\b/i, tags: ["techno", "underground_dance", "dance_media"] },
-  { pattern: /\bdefected\s*croatia|defected\s*ibiza/i, tags: ["house_music", "festival_circuit"] },
-
-  // ── Music media ────────────────────────────────────────────────────────────
+  { pattern: /\bgalaxy\s*festival|gala\b/i, tags: ["underground_dance", "festival_circuit"] },
+  { pattern: /\bburn(ing)?\s*man\b/i, tags: ["underground_dance", "festival_circuit"] },
+  // Music media
   { pattern: /\bmixmag\b/i, tags: ["dance_media", "underground_dance"] },
   { pattern: /\bresident\s*advisor\b/i, tags: ["dance_media", "underground_dance"] },
   { pattern: /\bdj\s*mag\b/i, tags: ["dance_media"] },
-  { pattern: /\braheem/i, tags: ["dance_media"] },
-
-  // ── Fashion / streetwear adjacent ─────────────────────────────────────────
+  // Fashion
   { pattern: /\bpalace\s*skate/i, tags: ["rave_fashion"] },
   { pattern: /\bcarhartt\b/i, tags: ["rave_fashion"] },
   { pattern: /\bst[uü]ss?y\b/i, tags: ["rave_fashion"] },
   { pattern: /\boff.?white\b/i, tags: ["rave_fashion"] },
-  { pattern: /\bchrome\s*hearts\b/i, tags: ["rave_fashion"] },
   { pattern: /\bdazed\b/i, tags: ["rave_fashion", "dance_media"] },
   { pattern: /\bi.d\s*magazine|i-d\s*mag/i, tags: ["rave_fashion", "dance_media"] },
-
-  // ── Hard techno / industrial / fast techno ────────────────────────────────
+  // Hard techno / industrial
   { pattern: /\bfury\b/i, tags: ["hard_techno", "underground_dance", "festival_circuit"] },
   { pattern: /\bhard\s*techno\b/i, tags: ["hard_techno", "underground_dance"] },
   { pattern: /\bindustrial\s*techno\b/i, tags: ["hard_techno", "techno"] },
-  { pattern: /\bawakenings\b/i, tags: ["hard_techno", "techno", "festival_circuit"] },
   { pattern: /\brebekah\b/i, tags: ["hard_techno", "techno"] },
   { pattern: /\bblawan\b/i, tags: ["hard_techno", "techno"] },
   { pattern: /\bkarenn\b/i, tags: ["hard_techno", "techno"] },
   { pattern: /\btrym\b/i, tags: ["hard_techno"] },
   { pattern: /\boscar\s*mulero\b/i, tags: ["hard_techno", "techno"] },
-  { pattern: /\bbinary\s*function|arcadia|pole\s*position|renegade\b/i, tags: ["hard_techno", "festival_circuit"] },
-
-  // ── Hardcore / gabber ─────────────────────────────────────────────────────
+  // Hardcore / gabber
   { pattern: /\bdefqon\.?1\b|\bq.?dance\b/i, tags: ["hardcore", "festival_circuit"] },
   { pattern: /\bgabber\b|\bhardstyle\b|\bhardcore\s*rave\b/i, tags: ["hardcore"] },
   { pattern: /\bnoisecontrollers\b|\bcoone\b|\bheadhunterz\b/i, tags: ["hardcore"] },
-
-  // ── Psytrance ─────────────────────────────────────────────────────────────
+  // Psytrance
   { pattern: /\bpsytrance\b|\bpsy.?trance\b|\bgoa\s*trance\b/i, tags: ["psy_trance", "festival_circuit"] },
   { pattern: /\bozora\b|\bshankra\b|\bspirit\s*festival\b/i, tags: ["psy_trance", "festival_circuit"] },
   { pattern: /\binfected\s*mushroom\b|\bastrix\b|\bshpongle\b/i, tags: ["psy_trance"] },
-
-  // ── Queer underground ─────────────────────────────────────────────────────
-  { pattern: /\bpxssy\s*palace\b|\bbody\s*movements\b|\bprotect\s*ya\s*neck\b/i, tags: ["queer_underground", "underground_dance"] },
-  { pattern: /\bvogue\s*ball\b|\bballroom\b|\bhouse\s*of\b/i, tags: ["queer_underground"] },
+  // Queer underground
+  { pattern: /\bpxssy\s*palace\b|\bbody\s*movements\b/i, tags: ["queer_underground", "underground_dance"] },
   { pattern: /\bqueer\s*(rave|night|club|party)\b/i, tags: ["queer_underground", "underground_dance"] },
   { pattern: /\blgbtq.?\s*(night|club|dance)\b/i, tags: ["queer_underground"] },
-
-  // ── Avant-garde / editorial fashion ──────────────────────────────────────
+  // Avant-garde / editorial fashion
   { pattern: /\braf\s*simons\b/i, tags: ["avant_garde_fashion", "editorial_fashion"] },
   { pattern: /\bmaison\s*margiela\b/i, tags: ["avant_garde_fashion"] },
   { pattern: /\brick\s*owens\b/i, tags: ["avant_garde_fashion"] },
   { pattern: /\byohji\s*yamamoto\b/i, tags: ["avant_garde_fashion"] },
   { pattern: /\bcomme\s*des\s*gar[cç][oô]ns\b|\bcdg\b/i, tags: ["avant_garde_fashion"] },
   { pattern: /\bann\s*demeulemeester\b/i, tags: ["avant_garde_fashion"] },
-  { pattern: /\bdamir\s*doma\b/i, tags: ["avant_garde_fashion"] },
   { pattern: /\balexander\s*wang\b(?!.*restaurant)/i, tags: ["avant_garde_fashion"] },
   { pattern: /\bdazed\b(?!.*confused\s*records)/i, tags: ["editorial_fashion", "avant_garde_fashion"] },
   { pattern: /\bi.?d\s*mag(?:azine)?\b/i, tags: ["editorial_fashion"] },
   { pattern: /\banother\s*mag(?:azine)?\b/i, tags: ["editorial_fashion", "avant_garde_fashion"] },
   { pattern: /\bv\s*mag(?:azine)?\b/i, tags: ["editorial_fashion"] },
   { pattern: /\bmetal\s*mag(?:azine)?\b/i, tags: ["editorial_fashion", "avant_garde_fashion"] },
-  { pattern: /\bsystem\s*mag(?:azine)?\b/i, tags: ["editorial_fashion"] },
   { pattern: /\bself\s*service\b|\bgarage\s*mag\b|\b032c\b/i, tags: ["editorial_fashion"] },
-
-  // ── Genre keywords in name (lower confidence) ─────────────────────────────
+  // Genre keywords (lower confidence)
   { pattern: /\btechno\b/i, tags: ["techno"] },
   { pattern: /\btech.?house\b/i, tags: ["tech_house"] },
   { pattern: /\bdeep.?house\b/i, tags: ["deep_house"] },
@@ -247,8 +255,7 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
   { pattern: /\bafrobeats?\b|\bafropop\b/i, tags: ["afrobeats"] },
   { pattern: /\buk\s*garage\b|\b2.?step\b|\bgrime\b/i, tags: ["garage_uk"] },
   { pattern: /\bunderground\b/i, tags: ["underground_dance"] },
-
-  // ── Category fallbacks (lowest confidence) ────────────────────────────────
+  // Category fallbacks (lowest confidence)
   { categories: ["DJ"], tags: ["underground_dance"] },
   { categories: ["Club"], tags: ["underground_dance", "house_music"] },
   { categories: ["Festival"], tags: ["festival_circuit"] },
@@ -261,8 +268,6 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
 ];
 
 // ── Scene entity map ──────────────────────────────────────────────────────────
-// Curated entity names that Meta reliably resolves as interests.
-// Searched directly via /search?type=adinterest.
 
 const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
   techno: [
@@ -281,7 +286,7 @@ const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
   ],
   house_music: [
     "Frankie Knuckles", "Marshall Jefferson", "Ten City",
-    "Ministry of Sound", "Defected Records", "Kerri Chandler",
+    "Ministry of Sound", "Defected Records",
     "house music", "Chicago house music",
   ],
   progressive_house: [
@@ -343,36 +348,32 @@ const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
   hard_techno: [
     "Awakenings", "Awakenings Festival", "Rebekah",
     "Blawan", "Paula Temple", "Karenn",
-    "Oscar Mulero", "Trym", "Phase (artist)",
-    "hard techno", "industrial techno",
+    "Oscar Mulero", "Trym", "hard techno", "industrial techno",
   ],
   hardcore: [
     "Q-Dance", "Defqon.1", "Noisecontrollers",
     "Coone", "Headhunterz", "Hardstyle music",
-    "gabber music", "Thunderdome", "hardcore music",
+    "gabber music", "hardcore music",
   ],
   psy_trance: [
     "psytrance", "Goa trance", "Infected Mushroom",
     "Astrix", "Ozora Festival", "Spirit Festival",
-    "Shpongle", "Ott (musician)",
+    "Shpongle",
   ],
   queer_underground: [
     "queer clubbing", "LGBTQ nightlife",
     "Pxssy Palace", "Body Movements Festival",
-    "ballroom culture", "vogue ball",
-    "queer rave",
+    "ballroom culture", "vogue ball", "queer rave",
   ],
   avant_garde_fashion: [
     "Maison Margiela", "Raf Simons", "Comme des Garçons",
     "Rick Owens", "Yohji Yamamoto", "Ann Demeulemeester",
-    "Damir Doma", "Alexander Wang (designer)",
-    "Balenciaga (fashion brand)", "avant-garde fashion",
+    "Alexander Wang (designer)", "Balenciaga (fashion brand)", "avant-garde fashion",
   ],
   editorial_fashion: [
     "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
     "V Magazine", "METAL Magazine", "System Magazine",
-    "Garage Magazine", "032c", "Tank Magazine",
-    "GQ", "Vogue (magazine)",
+    "Garage Magazine", "032c", "GQ",
   ],
   dance_media: [
     "Mixmag", "Resident Advisor", "DJ Mag",
@@ -380,13 +381,11 @@ const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
   ],
   rave_fashion: [
     "Palace Skateboards", "Carhartt WIP", "Stüssy",
-    "Off-White", "Chrome Hearts", "Raf Simons",
-    "festival fashion", "rave clothing",
+    "Off-White", "Raf Simons", "festival fashion",
   ],
 };
 
 // ── Cluster scene filter ──────────────────────────────────────────────────────
-// Only scene tags in the allowed list contribute entity terms for a cluster.
 
 const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
   "Music & Nightlife": [
@@ -415,10 +414,6 @@ const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
   ],
 };
 
-// ── Cluster path patterns ─────────────────────────────────────────────────────
-// Meta returns an interest `path` array like ["Music", "Electronic music"].
-// These patterns match path/name text to boost relevance score for the cluster.
-
 const CLUSTER_PATH_PATTERNS: Record<string, RegExp> = {
   "Music & Nightlife":
     /music|nightlife|club|festival|dj|performer|concert|artist|entertainment/i,
@@ -431,10 +426,6 @@ const CLUSTER_PATH_PATTERNS: Record<string, RegExp> = {
   "Media & Entertainment":
     /media|magazine|publication|news|journalism|entertainment|radio|streaming/i,
 };
-
-// ── Cluster curated seeds ─────────────────────────────────────────────────────
-// Generic cluster seeds merged AFTER entity expansion.
-// These provide a quality floor when no scene tags are detected.
 
 const CURATED_SEEDS: Record<string, string[]> = {
   "Music & Nightlife": [
@@ -462,11 +453,9 @@ const CURATED_SEEDS: Record<string, string[]> = {
   ],
 };
 
-// ── Cluster hard blocklists ───────────────────────────────────────────────────
-
 const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
   "Music & Nightlife": [
-    /\b(video.?game|gaming|esport|gamer|fortnite|minecraft|call.of.duty|league.of.legends|counter.strike|dota|hearthstone|overwatch|roblox|valorant)\b/i,
+    /\b(video.?game|gaming|esport|gamer|fortnite|minecraft|call.of.duty|league.of.legends)\b/i,
     /\b(driving.?game|racing.?game|driving.?sim|car.?game)\b/i,
     /\b(language.?learn|english.?course|ielts|toefl|exam.?prep|duolingo|study.?abroad)\b/i,
     /\b(stock.?market|investing|cryptocurrency|forex|bitcoin|crypto|fintech)\b/i,
@@ -502,12 +491,56 @@ const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
   ],
 };
 
+// ── City → scene tag ──────────────────────────────────────────────────────────
+
+const CITY_SCENE_MAP: Record<string, SceneTag> = {
+  London: "london_scene", Manchester: "london_scene", Bristol: "london_scene",
+  Glasgow: "london_scene", Edinburgh: "london_scene", Leeds: "london_scene",
+  Liverpool: "london_scene", Berlin: "berlin_scene", Hamburg: "berlin_scene",
+  Ibiza: "ibiza_scene", Amsterdam: "amsterdam_scene",
+  "New York": "nyc_scene", Chicago: "nyc_scene", Detroit: "nyc_scene", Miami: "nyc_scene",
+};
+
+const KNOWN_CITIES = Object.keys(CITY_SCENE_MAP);
+
+function findCity(name: string): string | null {
+  for (const city of KNOWN_CITIES) {
+    if (new RegExp(`\\b${city}\\b`, "i").test(name)) return city;
+  }
+  return null;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface PageContextItem {
   name: string;
   category?: string;
   instagramUsername?: string;
+}
+
+export interface CustomAudienceSignal {
+  /** Group or audience name — used as a classifier signal */
+  name: string;
+}
+
+export interface GenreDistribution {
+  /** Beatport-style genre bucket id → number of pages in this bucket */
+  [bucket: string]: number;
+}
+
+export interface AudienceFingerprint {
+  sources: {
+    pages: number;
+    customAudiences: number;
+    engagementTypes: number;
+    genreGroups: number;
+    hints: number;
+  };
+  /** Scene tags sorted by total weighted score, descending */
+  dominantScenes: Array<{ tag: string; weight: number }>;
+  /** 0–100 */
+  confidence: number;
+  specificity: "broad" | "moderate" | "high" | "very_high";
 }
 
 interface RawInterest {
@@ -536,108 +569,177 @@ export interface DiscoverResponse {
   clusters: DiscoverCluster[];
   clusterSeeds: Record<string, string[]>;
   searchTermsUsed: string[];
-  /** Scene tags detected from the selected pages — useful for debug / UI display */
   detectedSceneTags: string[];
+  audienceFingerprint: AudienceFingerprint;
   totalFound: number;
 }
 
-// ── City → scene tag mapping ──────────────────────────────────────────────────
+// ── Weighted scene tag builder ────────────────────────────────────────────────
+/**
+ * Accumulates scene tags from ALL signal sources with per-source weights.
+ * Returns a Map<SceneTag, totalWeight> and a dev log.
+ */
+function buildWeightedSceneTags(
+  pages: PageContextItem[],
+  customAudienceSignals: CustomAudienceSignal[],
+  engagementTypesPresent: string[],
+  genreDistribution: GenreDistribution,
+  rawHints: string[],
+): { tagWeights: Map<SceneTag, number>; logs: string[] } {
+  const tagWeights = new Map<SceneTag, number>();
+  const logs: string[] = [];
 
-const CITY_SCENE_MAP: Record<string, SceneTag> = {
-  London: "london_scene",
-  Manchester: "london_scene",
-  Bristol: "london_scene",
-  Glasgow: "london_scene",
-  Edinburgh: "london_scene",
-  Leeds: "london_scene",
-  Liverpool: "london_scene",
-  Berlin: "berlin_scene",
-  Hamburg: "berlin_scene",
-  Ibiza: "ibiza_scene",
-  Amsterdam: "amsterdam_scene",
-  "New York": "nyc_scene",
-  Chicago: "nyc_scene",
-  Detroit: "nyc_scene",
-  Miami: "nyc_scene",
-};
-
-const KNOWN_CITIES = Object.keys(CITY_SCENE_MAP);
-
-function findCity(name: string): string | null {
-  for (const city of KNOWN_CITIES) {
-    if (new RegExp(`\\b${city}\\b`, "i").test(name)) return city;
+  function addWeight(tag: SceneTag, weight: number, source: string) {
+    tagWeights.set(tag, (tagWeights.get(tag) ?? 0) + weight);
+    logs.push(`  +${weight.toFixed(1)} [${tag}] ← ${source}`);
   }
-  return null;
-}
 
-// ── Stage 1: classifyPages ────────────────────────────────────────────────────
-// Accumulates scene tags from all pages by running every classifier rule.
-
-function classifyPages(pages: PageContextItem[]): Set<SceneTag> {
-  const tags = new Set<SceneTag>();
-
+  // 1. Pages
   for (const page of pages) {
     for (const rule of ENTITY_CLASSIFIERS) {
       const nameMatch =
         !rule.pattern ||
         rule.pattern.test(page.name) ||
         rule.pattern.test(page.instagramUsername ?? "");
-      const catMatch =
-        !rule.categories ||
-        rule.categories.includes(page.category ?? "");
-
-      // For category-only rules, require no pattern — match category alone.
-      // For pattern rules, the category is optionally required in addition.
+      const catMatch = !rule.categories || rule.categories.includes(page.category ?? "");
       const matched = rule.pattern
         ? nameMatch && (rule.categories ? catMatch : true)
         : catMatch;
-
       if (matched) {
-        for (const t of rule.tags) tags.add(t);
+        const w = rule.categories && !rule.pattern ? W_PAGE_CATEGORY : W_PAGE_NAMED;
+        for (const tag of rule.tags) addWeight(tag, w, `page:${page.name}`);
       }
     }
-
-    // City detection → city scene tag
     const city = findCity(page.name);
-    if (city) {
-      const sceneTag = CITY_SCENE_MAP[city];
-      if (sceneTag) tags.add(sceneTag);
+    if (city && CITY_SCENE_MAP[city]) {
+      addWeight(CITY_SCENE_MAP[city], W_PAGE_CATEGORY, `city:${city}`);
     }
   }
 
-  return tags;
+  // 2. Custom audience signals — run classifier against group/audience names
+  for (const ca of customAudienceSignals) {
+    for (const rule of ENTITY_CLASSIFIERS) {
+      if (!rule.pattern) continue;
+      if (rule.pattern.test(ca.name)) {
+        for (const tag of rule.tags) addWeight(tag, W_ENGAGEMENT_CA, `ca:${ca.name}`);
+      }
+    }
+  }
+
+  // 3. Engagement types present — each engagement type boosts the EXISTING dominant tags
+  // (They confirm the pages' signals rather than adding new signals)
+  if (engagementTypesPresent.length > 0) {
+    const boostMultiplier = Math.min(engagementTypesPresent.length, 4) * 0.5;
+    for (const [tag, existingWeight] of tagWeights.entries()) {
+      if (existingWeight > 0) {
+        addWeight(tag, existingWeight * boostMultiplier, `engagement-ca-boost(${engagementTypesPresent.join(",")})`);
+      }
+    }
+  }
+
+  // 4. Genre distribution
+  for (const [bucket, pageCount] of Object.entries(genreDistribution)) {
+    const tags = GENRE_BUCKET_SCENE_TAGS[bucket] ?? [];
+    const weight = W_GENRE_BUCKET * Math.log2(pageCount + 1 + 1); // log scale per page
+    for (const tag of tags) {
+      addWeight(tag as SceneTag, weight, `genre-bucket:${bucket}(${pageCount}p)`);
+    }
+  }
+
+  // 5. Manual hints (highest individual weight)
+  for (const hint of rawHints) {
+    const normalized = hint.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (ALL_SCENE_TAGS.has(normalized as SceneTag)) {
+      addWeight(normalized as SceneTag, W_HINT, "manual-hint");
+    }
+  }
+
+  return { tagWeights, logs };
 }
 
-// ── Stage 2: buildClusterTerms ────────────────────────────────────────────────
-// Converts detected scene tags into Meta entity search terms for a given cluster.
-// Entity terms from the knowledge base come first; curated seeds are appended.
+// ── Confidence calculator ─────────────────────────────────────────────────────
 
-const MAX_TERMS_PER_CLUSTER = 24;
+function computeFingerprint(
+  tagWeights: Map<SceneTag, number>,
+  sources: AudienceFingerprint["sources"],
+): Omit<AudienceFingerprint, "sources"> {
+  // Base score from source diversity and counts
+  const sourceScore =
+    Math.min(sources.pages * 4, 24) +
+    sources.customAudiences * 8 +
+    sources.engagementTypes * 15 +   // highest value signal
+    sources.genreGroups * 6 +
+    sources.hints * 10;
 
+  // Niche specificity bonus
+  let nicheBonus = 0;
+  for (const niche of NICHE_SCENE_TAGS) {
+    if ((tagWeights.get(niche) ?? 0) > 0) nicheBonus += 8;
+  }
+  nicheBonus = Math.min(nicheBonus, 24);
+
+  // Signal depth bonus: having many high-weight tags = confident
+  const totalTagWeight = [...tagWeights.values()].reduce((s, v) => s + v, 0);
+  const depthBonus = Math.min(Math.log2(totalTagWeight + 1) * 3, 15);
+
+  const confidence = Math.min(Math.round(sourceScore + nicheBonus + depthBonus), 100);
+
+  const specificity: AudienceFingerprint["specificity"] =
+    confidence >= 75 ? "very_high" :
+    confidence >= 50 ? "high" :
+    confidence >= 25 ? "moderate" : "broad";
+
+  const dominantScenes = [...tagWeights.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 8)
+    .map(([tag, weight]) => ({ tag, weight: Math.round(weight) }));
+
+  return { confidence, specificity, dominantScenes };
+}
+
+// ── Cluster term builder ──────────────────────────────────────────────────────
+/**
+ * Build search terms for a cluster, sorted by tag weight (highest-weight
+ * scenes come first so we burn most of the search budget on the best signals).
+ * At higher confidence, curated seeds are trimmed or skipped.
+ */
 function buildClusterTerms(
-  sceneTags: Set<SceneTag>,
+  tagWeights: Map<SceneTag, number>,
   clusterLabel: string,
+  confidence: number,
 ): string[] {
   const allowed = new Set(CLUSTER_SCENE_FILTER[clusterLabel] ?? []);
-  const terms = new Set<string>();
+  const terms = new Map<string, number>(); // term → best tag weight (for ordering)
 
-  // Entity terms from scene knowledge base (filtered to cluster's allowed tags)
-  for (const tag of sceneTags) {
+  for (const [tag, weight] of tagWeights.entries()) {
     if (!allowed.has(tag)) continue;
     for (const entity of SCENE_ENTITY_MAP[tag] ?? []) {
-      terms.add(entity);
+      const existing = terms.get(entity) ?? 0;
+      terms.set(entity, Math.max(existing, weight));
     }
   }
 
-  // Append curated seeds (generic quality floor)
-  for (const s of CURATED_SEEDS[clusterLabel] ?? []) {
-    terms.add(s);
-  }
+  // Sort by weight descending
+  const sorted = [...terms.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .map(([term]) => term);
 
-  return [...terms].slice(0, MAX_TERMS_PER_CLUSTER);
+  // Curated seeds: at very high confidence, skip generic seeds entirely
+  const seeds = CURATED_SEEDS[clusterLabel] ?? [];
+  if (confidence < 50) {
+    // Low confidence → use all curated seeds
+    for (const s of seeds) if (!terms.has(s)) sorted.push(s);
+  } else if (confidence < 75) {
+    // Moderate → use half the curated seeds (first 4)
+    for (const s of seeds.slice(0, 4)) if (!terms.has(s)) sorted.push(s);
+  }
+  // High/very_high → no curated seeds; rely entirely on entity signals
+
+  const maxTerms = confidence >= 75 ? 12 : confidence >= 50 ? 18 : 24;
+  return sorted.slice(0, maxTerms);
 }
 
-// ── Stage 3: Meta interest search ────────────────────────────────────────────
+// ── Meta search ───────────────────────────────────────────────────────────────
 
 async function searchMeta(token: string, query: string): Promise<RawInterest[]> {
   const url = new URL(`${BASE}/search`);
@@ -655,7 +757,7 @@ async function searchMeta(token: string, query: string): Promise<RawInterest[]> 
   }
 }
 
-// ── Stage 4: Blocklist filter ─────────────────────────────────────────────────
+// ── Blocklist filter ──────────────────────────────────────────────────────────
 
 function passesBlocklist(
   interest: { name: string; path?: string[] },
@@ -667,21 +769,17 @@ function passesBlocklist(
   return !patterns.some((p) => p.test(text));
 }
 
-// ── Stage 5: Relevance scoring ────────────────────────────────────────────────
-//
-// Points:
-//   +30  Meta path contains cluster-relevant category keyword
-//   +15  Interest name contains a term from the scene entity map
-//   +5   Audience size ≥ 1 M
-//   +log10(audience_size) tiebreaker
+// ── Relevance scoring ─────────────────────────────────────────────────────────
 
-function buildSceneKeywords(sceneTags: Set<SceneTag>): Set<string> {
-  const kws = new Set<string>();
-  for (const tag of sceneTags) {
+function buildSceneKeywords(tagWeights: Map<SceneTag, number>): Map<string, number> {
+  const kws = new Map<string, number>();
+  for (const [tag, weight] of tagWeights.entries()) {
     for (const entity of SCENE_ENTITY_MAP[tag] ?? []) {
-      // Use individual significant words from entity names
       for (const word of entity.split(/\s+/)) {
-        if (word.length >= 4) kws.add(word.toLowerCase());
+        if (word.length >= 4) {
+          const kw = word.toLowerCase();
+          kws.set(kw, Math.max(kws.get(kw) ?? 0, weight));
+        }
       }
     }
   }
@@ -691,7 +789,8 @@ function buildSceneKeywords(sceneTags: Set<SceneTag>): Set<string> {
 function scoreInterest(
   interest: RawInterest,
   clusterLabel: string,
-  sceneKeywords: Set<string>,
+  sceneKeywords: Map<string, number>,
+  confidence: number,
 ): number {
   let score = 0;
 
@@ -702,13 +801,17 @@ function scoreInterest(
     if (pathPattern.test(text)) score += 30;
   }
 
-  // Scene entity name alignment
+  // Scene entity name alignment — weight proportional to tag weight
   const nameLower = interest.name.toLowerCase();
-  for (const kw of sceneKeywords) {
-    if (nameLower.includes(kw)) {
-      score += 15;
-      break; // only count once per interest
+  let bestKwWeight = 0;
+  for (const [kw, kw_weight] of sceneKeywords.entries()) {
+    if (nameLower.includes(kw) && kw_weight > bestKwWeight) {
+      bestKwWeight = kw_weight;
     }
+  }
+  if (bestKwWeight > 0) {
+    // Scale: at max weight 120, add 20; proportional below
+    score += Math.min((bestKwWeight / 120) * 20, 20);
   }
 
   // Audience size bonus
@@ -716,10 +819,15 @@ function scoreInterest(
   if (size >= 1_000_000) score += 5;
   score += Math.log10(size + 1) * 2;
 
+  // At high confidence, penalise very generic large interests
+  if (confidence >= 75 && size > 500_000_000) {
+    score -= 10; // penalise "Everyone" type interests
+  }
+
   return score;
 }
 
-// ── Cluster description map ───────────────────────────────────────────────────
+// ── Cluster descriptions ──────────────────────────────────────────────────────
 
 const CLUSTER_DESCRIPTIONS: Record<string, string> = {
   "Music & Nightlife":
@@ -740,19 +848,22 @@ const ALL_CLUSTER_LABELS = Object.keys(CLUSTER_DESCRIPTIONS);
 
 async function discoverForCluster(
   clusterLabel: string,
-  sceneTags: Set<SceneTag>,
+  tagWeights: Map<SceneTag, number>,
+  confidence: number,
   token: string,
   globalSeen: Set<string>,
-): Promise<{ cluster: DiscoverCluster; termsUsed: string[]; removedCount: number }> {
-  const allTerms = buildClusterTerms(sceneTags, clusterLabel);
-  const sceneKeywords = buildSceneKeywords(sceneTags);
+): Promise<{ cluster: DiscoverCluster; termsUsed: string[] }> {
+  const allTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
+  const sceneKeywords = buildSceneKeywords(tagWeights);
+
+  // Minimum score threshold scales with confidence
+  const minScore = confidence >= 75 ? 20 : confidence >= 50 ? 10 : 0;
 
   console.info(
-    `[interest-discover] cluster="${clusterLabel}" entity terms (${allTerms.length}):`,
-    allTerms.join(", "),
+    `[interest-discover] cluster="${clusterLabel}" confidence=${confidence} ` +
+    `terms(${allTerms.length}): ${allTerms.slice(0, 6).join(", ")}${allTerms.length > 6 ? "…" : ""}`,
   );
 
-  // Search Meta in batches of 4 (parallel per batch)
   const raw: (RawInterest & { searchTerm: string })[] = [];
   const BATCH = 4;
   for (let i = 0; i < allTerms.length; i += BATCH) {
@@ -768,37 +879,47 @@ async function discoverForCluster(
     }
   }
 
-  // Blocklist filter
   const filtered = raw.filter((i) => passesBlocklist(i, clusterLabel));
-  const removedCount = raw.length - filtered.length;
+  const removedByBlocklist = raw.length - filtered.length;
 
-  if (removedCount > 0) {
+  if (removedByBlocklist > 0) {
     console.info(
-      `[interest-discover] cluster="${clusterLabel}" blocked ${removedCount}:`,
-      raw
-        .filter((i) => !passesBlocklist(i, clusterLabel))
-        .map((i) => i.name)
-        .join(", "),
+      `[interest-discover] cluster="${clusterLabel}" blocked ${removedByBlocklist}: ` +
+      raw.filter((i) => !passesBlocklist(i, clusterLabel)).map((i) => i.name).join(", "),
     );
   }
 
-  // Score + sort + cap at 6
   const scored = filtered.map((i) => ({
     id: i.id,
     name: i.name,
     audienceSize: i.audience_size,
     path: i.path,
     searchTerm: i.searchTerm,
-    relevanceScore: scoreInterest(i, clusterLabel, sceneKeywords),
+    relevanceScore: scoreInterest(i, clusterLabel, sceneKeywords, confidence),
   }));
 
-  const interests = scored
+  // Apply score floor
+  const aboveFloor = scored.filter((i) => (i.relevanceScore ?? 0) >= minScore);
+  const removedByScore = scored.length - aboveFloor.length;
+
+  if (removedByScore > 0 && process.env.NODE_ENV === "development") {
+    console.info(
+      `[interest-discover] cluster="${clusterLabel}" score-floor(${minScore}) removed ${removedByScore}: ` +
+      scored
+        .filter((i) => (i.relevanceScore ?? 0) < minScore)
+        .map((i) => `${i.name}[${i.relevanceScore?.toFixed(0)}]`)
+        .join(", "),
+    );
+  }
+
+  const maxResults = confidence >= 75 ? 5 : 6;
+  const interests = aboveFloor
     .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0))
-    .slice(0, 6);
+    .slice(0, maxResults);
 
   console.info(
-    `[interest-discover] cluster="${clusterLabel}" final (${interests.length}):`,
-    interests.map((i) => `${i.name} [${i.relevanceScore?.toFixed(1)}]`).join(", "),
+    `[interest-discover] cluster="${clusterLabel}" final(${interests.length}): ` +
+    interests.map((i) => `${i.name}[${i.relevanceScore?.toFixed(1)}]`).join(", "),
   );
 
   return {
@@ -808,7 +929,6 @@ async function discoverForCluster(
       interests,
     },
     termsUsed: allTerms,
-    removedCount,
   };
 }
 
@@ -829,64 +949,89 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  let body: { pageContext?: unknown; campaignName?: unknown; clusterLabel?: unknown; sceneHints?: unknown };
+  let body: {
+    pageContext?: unknown;
+    customAudienceSignals?: unknown;
+    engagementTypesPresent?: unknown;
+    genreDistribution?: unknown;
+    campaignName?: unknown;
+    clusterLabel?: unknown;
+    sceneHints?: unknown;
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const pages = (
-    Array.isArray(body.pageContext) ? body.pageContext : []
-  ) as PageContextItem[];
+  const pages = (Array.isArray(body.pageContext) ? body.pageContext : []) as PageContextItem[];
+  const customAudienceSignals = (
+    Array.isArray(body.customAudienceSignals) ? body.customAudienceSignals : []
+  ) as CustomAudienceSignal[];
+  const engagementTypesPresent = (
+    Array.isArray(body.engagementTypesPresent) ? body.engagementTypesPresent : []
+  ).filter((v): v is string => typeof v === "string");
+  const genreDistribution = (
+    typeof body.genreDistribution === "object" && body.genreDistribution !== null
+      ? body.genreDistribution
+      : {}
+  ) as GenreDistribution;
   const clusterLabel =
     typeof body.clusterLabel === "string" ? body.clusterLabel.trim() : undefined;
-
-  // sceneHints: array of scene tag strings the user manually specifies to bias discovery
   const rawHints: string[] = Array.isArray(body.sceneHints)
     ? (body.sceneHints as unknown[]).filter((h): h is string => typeof h === "string")
     : [];
 
-  if (pages.length === 0 && !body.campaignName) {
+  if (pages.length === 0 && !body.campaignName && Object.keys(genreDistribution).length === 0) {
     return NextResponse.json(
-      { error: "Provide at least one page or a campaign name" },
+      { error: "Provide at least one page, a campaign name, or genre data" },
       { status: 400 },
     );
   }
 
   if (clusterLabel && !CLUSTER_DESCRIPTIONS[clusterLabel]) {
     return NextResponse.json(
-      {
-        error: `Unknown cluster label "${clusterLabel}". Valid: ${ALL_CLUSTER_LABELS.join(", ")}`,
-      },
+      { error: `Unknown cluster label "${clusterLabel}". Valid: ${ALL_CLUSTER_LABELS.join(", ")}` },
       { status: 400 },
     );
   }
 
-  // Stage 1: classify pages → scene tags
-  const sceneTags = classifyPages(pages);
-
-  // Apply manual scene hints — treat known tags directly, use as search terms for unknown
-  const hintTagsApplied: string[] = [];
-  for (const hint of rawHints) {
-    const normalized = hint.trim().toLowerCase().replace(/[\s-]+/g, "_");
-    if (ALL_SCENE_TAGS.has(normalized as SceneTag)) {
-      sceneTags.add(normalized as SceneTag);
-      hintTagsApplied.push(normalized);
-    }
-  }
-
-  const detectedSceneTags = [...sceneTags];
-  if (hintTagsApplied.length > 0) {
-    console.info(`[interest-discover] sceneHints applied: ${hintTagsApplied.join(", ")}`);
-  }
-
-  console.info(
-    `[interest-discover] mode=${clusterLabel ? `single:${clusterLabel}` : "all"}, ` +
-      `${pages.length} pages → scene tags: ${detectedSceneTags.join(", ") || "(none — using curated seeds only)"}`,
+  // Build weighted scene tag map from all sources
+  const { tagWeights, logs: weightLogs } = buildWeightedSceneTags(
+    pages,
+    customAudienceSignals,
+    engagementTypesPresent,
+    genreDistribution,
+    rawHints,
   );
 
-  // Stage 2–5: discover per cluster
+  const genreGroupCount = Object.keys(genreDistribution).length;
+  const sources: AudienceFingerprint["sources"] = {
+    pages: pages.length,
+    customAudiences: customAudienceSignals.length,
+    engagementTypes: engagementTypesPresent.length,
+    genreGroups: genreGroupCount,
+    hints: rawHints.length,
+  };
+
+  const { confidence, specificity, dominantScenes } = computeFingerprint(tagWeights, sources);
+
+  const audienceFingerprint: AudienceFingerprint = { sources, dominantScenes, confidence, specificity };
+
+  console.info(
+    `[interest-discover] fingerprint: ${pages.length}p / ${customAudienceSignals.length}ca / ` +
+    `${engagementTypesPresent.length}etypes / ${genreGroupCount}genres / ${rawHints.length}hints → ` +
+    `confidence=${confidence} (${specificity})`,
+  );
+  console.info(
+    `[interest-discover] dominant scenes: ` +
+    dominantScenes.slice(0, 5).map((s) => `${s.tag}=${s.weight}`).join(", "),
+  );
+
+  if (process.env.NODE_ENV === "development" && weightLogs.length > 0) {
+    console.debug(`[interest-discover] weighted signal log (${weightLogs.length} entries):\n` + weightLogs.slice(0, 40).join("\n"));
+  }
+
   const targetLabels = clusterLabel ? [clusterLabel] : ALL_CLUSTER_LABELS;
   const globalSeen = new Set<string>();
   const clusterSeeds: Record<string, string[]> = {};
@@ -895,7 +1040,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   for (const label of targetLabels) {
     const { cluster, termsUsed } = await discoverForCluster(
       label,
-      sceneTags,
+      tagWeights,
+      confidence,
       token,
       globalSeen,
     );
@@ -904,11 +1050,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const searchTermsUsed = [...new Set(Object.values(clusterSeeds).flat())];
+  const detectedSceneTags = [...tagWeights.keys()].filter((t) => (tagWeights.get(t) ?? 0) > 0);
 
   console.info(
-    `[interest-discover] done — ${globalSeen.size} unique interests seen, ` +
-      `${clusters.length} clusters with results: ` +
-      clusters.map((c) => `${c.label}:${c.interests.length}`).join(", "),
+    `[interest-discover] done — ${globalSeen.size} unique interests, ` +
+    clusters.map((c) => `${c.label}:${c.interests.length}`).join(", "),
   );
 
   return NextResponse.json({
@@ -916,6 +1062,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     clusterSeeds,
     searchTermsUsed,
     detectedSceneTags,
+    audienceFingerprint,
     totalFound: globalSeen.size,
   } satisfies DiscoverResponse);
 }
