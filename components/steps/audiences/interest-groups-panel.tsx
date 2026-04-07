@@ -15,6 +15,7 @@ import type {
   DiscoverCluster,
   DiscoverResponse,
   AudienceFingerprint,
+  AgeRecommendation,
   CustomAudienceSignal,
   GenreDistribution,
 } from "@/app/api/meta/interest-discover/route";
@@ -850,6 +851,33 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                                   : "Low signal — broad curated suggestions shown. Add more pages or custom audiences to improve."}
                           </p>
                         </div>
+
+                        {/* Age recommendation */}
+                        {fp.ageRecommendation && fp.ageRecommendation.confidence !== "low" && (
+                          <div className="rounded-md border border-current/20 bg-current/5 px-2.5 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-semibold">Suggested Age Range</span>
+                              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold border ${
+                                fp.ageRecommendation.confidence === "high"
+                                  ? "text-success border-success/30"
+                                  : "text-warning border-warning/30"
+                              }`}>
+                                {fp.ageRecommendation.confidence}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-baseline gap-1.5">
+                              <span className="text-lg font-bold leading-none">
+                                {fp.ageRecommendation.minAge}–{fp.ageRecommendation.maxAge}
+                              </span>
+                              <span className="text-[10px] opacity-60">
+                                peak ~{fp.ageRecommendation.peakAge}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[9px] opacity-50 leading-tight">
+                              {fp.ageRecommendation.rationale}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -949,6 +977,14 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                             {cluster.interests.map((item) => {
                               const isSelected = clusterSelections[group.id]?.[item.id] ?? false;
                               const alreadyAdded = group.interests.some((i) => i.id === item.id);
+                              const sizeBand = (item as { audienceSizeBand?: string }).audienceSizeBand;
+                              const matchReason = (item as { matchReason?: string }).matchReason;
+                              const sizeColor =
+                                sizeBand?.startsWith("micro") ? "text-success" :
+                                sizeBand?.startsWith("niche") ? "text-primary" :
+                                sizeBand?.startsWith("targeted") ? "text-foreground" :
+                                sizeBand?.startsWith("broad") || sizeBand?.startsWith("mega") ? "text-destructive/60" :
+                                "text-muted-foreground";
                               return (
                                 <label
                                   key={item.id}
@@ -961,19 +997,31 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                                   />
                                   <div className="min-w-0 flex-1">
                                     <span className="block truncate text-sm">{item.name}</span>
-                                    {item.path && item.path.length > 0 && (
-                                      <span className="block truncate text-[10px] text-muted-foreground">
-                                        {item.path.join(" › ")}
-                                      </span>
+                                    <div className="flex items-center gap-1.5">
+                                      {item.path && item.path.length > 0 && (
+                                        <span className="truncate text-[10px] text-muted-foreground">
+                                          {item.path.join(" › ")}
+                                        </span>
+                                      )}
+                                      {matchReason && (
+                                        <span className="shrink-0 text-[9px] text-muted-foreground/50" title={`Match: ${matchReason}`}>
+                                          {matchReason.split(",")[0]}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 flex flex-col items-end gap-0.5">
+                                    <span className={`text-[10px] ${sizeColor}`}>
+                                      {(item.audienceSize ?? 0) >= 1_000_000
+                                        ? `${((item.audienceSize ?? 0) / 1_000_000).toFixed(1)}M`
+                                        : (item.audienceSize ?? 0) >= 1_000
+                                          ? `${Math.round((item.audienceSize ?? 0) / 1_000)}K`
+                                          : (item.audienceSize ?? 0) > 0 ? String(item.audienceSize) : ""}
+                                    </span>
+                                    {sizeBand && !sizeBand.startsWith("unknown") && (
+                                      <span className={`text-[9px] ${sizeColor} opacity-60`}>{sizeBand}</span>
                                     )}
                                   </div>
-                                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                                    {(item.audienceSize ?? 0) >= 1_000_000
-                                      ? `${((item.audienceSize ?? 0) / 1_000_000).toFixed(1)}M`
-                                      : (item.audienceSize ?? 0) >= 1_000
-                                        ? `${Math.round((item.audienceSize ?? 0) / 1_000)}K`
-                                        : (item.audienceSize ?? 0) > 0 ? String(item.audienceSize) : ""}
-                                  </span>
                                   {alreadyAdded && (
                                     <Badge variant="outline" className="shrink-0 text-[9px]">Added</Badge>
                                   )}

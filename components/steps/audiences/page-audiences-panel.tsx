@@ -253,27 +253,33 @@ function PageRow({
           </Badge>
         )}
 
-        {/* IG capability badge — only shown once enrichment has run */}
-        {page.hasInstagramLinked != null && (
-          <span
-            title={
-              page.hasInstagramLinked
-                ? `IG ID: ${page.instagramAccountId ?? "unknown"} (via ${page.igLinkSource ?? "unknown"})`
-                : `No Instagram account found for this page`
-            }
-          >
-            <Badge
-              variant={page.hasInstagramLinked ? "primary" : "outline"}
-              className="text-[10px]"
-            >
-              {page.hasInstagramLinked
-                ? page.igLinkSource === "connected_instagram_account"
-                  ? "IG connected ✓"
-                  : "IG source ✓"
-                : "No IG found"}
-            </Badge>
-          </span>
-        )}
+        {/* IG capability badge — tri-state: linked / not confirmed / unavailable */}
+        {(() => {
+          const igLinked = page.hasInstagramLinked;
+          const igChecked = igLinked != null;
+          const igId = page.instagramAccountId ?? page.instagram_business_account?.id ?? page.connected_instagram_account?.id;
+          if (igLinked) {
+            return (
+              <span title={`IG ID: ${igId ?? "unknown"} (via ${page.igLinkSource ?? "unknown"})`}>
+                <Badge variant="primary" className="text-[10px]">
+                  {page.igLinkSource === "connected_instagram_account" ? "IG connected ✓" : "IG source ✓"}
+                </Badge>
+              </span>
+            );
+          }
+          if (igLinked === false && igChecked) {
+            return (
+              <span title="Enrichment ran but no Instagram account was resolved. This page may still support IG audiences — check Meta Business Suite.">
+                <Badge variant="outline" className="text-[10px] opacity-60">IG unavailable</Badge>
+              </span>
+            );
+          }
+          return (
+            <span title="Instagram linkage not yet checked. Run enrichment or load pages with enrichment enabled.">
+              <Badge variant="outline" className="text-[10px] opacity-40">IG not confirmed</Badge>
+            </span>
+          );
+        })()}
 
         {/* FB source failures — only visible after a failed launch attempt */}
         {fbLikesFailed && (

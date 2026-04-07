@@ -267,9 +267,9 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
   { categories: ["Radio Station"], tags: ["dance_media"] },
 ];
 
-// ── Scene entity map ──────────────────────────────────────────────────────────
+// ── Cluster-specific entity banks ─────────────────────────────────────────────
 
-const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
+const MUSIC_ENTITIES: Partial<Record<SceneTag, string[]>> = {
   techno: [
     "Adam Beyer", "Richie Hawtin", "Ben Klock", "Charlotte de Witte",
     "Drumcode", "Jeff Mills", "Ellen Allien", "Surgeon",
@@ -385,6 +385,98 @@ const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
   ],
 };
 
+const FASHION_ENTITIES: Partial<Record<SceneTag, string[]>> = {
+  hard_techno: ["Carhartt WIP", "032c", "MISBHV", "Heliot Emil", "Aries Arise", "New Balance (footwear)", "Salomon (footwear)"],
+  techno: ["032c", "Carhartt WIP", "Stüssy", "Nike Sportswear", "vintage clothing"],
+  underground_dance: ["Palace Skateboards", "Stüssy", "vintage clothing", "Nike Sportswear", "thrift store fashion"],
+  tech_house: ["Zara (clothing)", "ASOS (retailer)", "Ibiza fashion", "summer fashion"],
+  deep_house: ["streetwear", "independent fashion", "vintage clothing"],
+  house_music: ["streetwear", "Nike", "Adidas"],
+  festival_circuit: ["festival fashion", "boho fashion", "ASOS (retailer)"],
+  drum_and_bass: ["Nike Sportswear", "The North Face (clothing)", "Supreme (brand)", "streetwear"],
+  garage_uk: ["Nike Sportswear", "Stone Island", "CP Company", "streetwear"],
+  afrobeats: ["African fashion", "Nigerian fashion", "streetwear"],
+  trance: ["festival fashion", "rave fashion", "sports fashion"],
+  avant_garde_fashion: ["Maison Margiela", "Rick Owens", "Comme des Garçons", "Yohji Yamamoto", "Ann Demeulemeester", "Issey Miyake", "Jil Sander", "Helmut Lang", "Martin Margiela", "Balenciaga (fashion brand)"],
+  editorial_fashion: ["Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine", "V Magazine", "METAL Magazine", "032c", "GQ", "Vogue", "W Magazine"],
+  rave_fashion: ["Palace Skateboards", "Carhartt WIP", "Stüssy", "Off-White", "festival fashion", "Supreme (brand)"],
+  queer_underground: ["queer fashion", "ballroom fashion", "drag", "non-binary fashion", "gender-fluid fashion"],
+  edm_mainstage: ["festival fashion", "ASOS (retailer)", "Boohoo", "PrettyLittleThing"],
+};
+
+const LIFESTYLE_ENTITIES: Partial<Record<SceneTag, string[]>> = {
+  hard_techno: ["nightlife", "nightclub", "weight training", "CrossFit", "boxing", "mixed martial arts", "running", "underground nightlife"],
+  techno: ["nightclub", "Berlin (travel)", "vinyl records", "craft beer", "natural wine", "specialty coffee"],
+  underground_dance: ["vinyl records", "craft beer", "natural wine", "specialty coffee", "independent bookshops", "record collecting", "cycling"],
+  tech_house: ["Ibiza (island)", "luxury hotels", "cocktails", "fine dining", "yacht", "beach club", "sun holidays"],
+  deep_house: ["jazz", "cocktail bar", "lounge", "vinyl records", "soul music"],
+  house_music: ["nightlife", "cocktail bar", "city break", "going out"],
+  progressive_house: ["outdoor adventure", "camping", "road trip", "surfing"],
+  festival_circuit: ["camping", "outdoor adventure", "backpacking", "travel", "road trip", "glamping"],
+  drum_and_bass: ["skateboarding", "graffiti", "street art", "BMX", "urban sports"],
+  garage_uk: ["football", "basketball", "sneaker collecting", "streetwear culture", "urban lifestyle"],
+  afrobeats: ["Afro culture", "diaspora", "African cuisine", "African travel"],
+  trance: ["yoga", "meditation", "spiritual wellness", "outdoor activities", "hiking"],
+  psy_trance: ["yoga", "meditation", "spiritual wellness", "psychedelic culture", "outdoor festival"],
+  edm_mainstage: ["music festival", "party", "social media", "influencer culture", "selfie culture"],
+  queer_underground: ["LGBTQ nightlife", "queer culture", "drag culture", "ballroom", "Pride"],
+  london_scene: ["London nightlife", "London restaurants", "East London", "Shoreditch"],
+  berlin_scene: ["Berlin nightlife", "Berlin travel", "Kreuzberg", "Neukölln"],
+  ibiza_scene: ["Ibiza nightlife", "Ibiza travel", "Balearic Islands", "beach lifestyle"],
+  amsterdam_scene: ["Amsterdam nightlife", "Amsterdam travel", "Dutch culture"],
+  avant_garde_fashion: ["art gallery", "fashion week", "design museum", "boutique hotel"],
+  editorial_fashion: ["fashion photography", "fashion week", "creative industry", "design"],
+  rave_fashion: ["rave culture", "warehouse party", "underground nightlife"],
+  hardcore: ["hardcore fitness", "extreme sports", "martial arts"],
+};
+
+const MEDIA_ENTITIES: Partial<Record<SceneTag, string[]>> = {
+  techno: ["Resident Advisor", "Boiler Room", "Drumcode Radio", "ARTE Concert"],
+  hard_techno: ["Mixmag", "Boiler Room", "HATE podcast", "Resident Advisor"],
+  tech_house: ["Toolroom Radio", "Defected Radio", "Ministry of Sound"],
+  deep_house: ["Defected Records", "Glitterbox Radio", "Anjunadeep"],
+  underground_dance: ["Resident Advisor", "Mixmag", "FACT Magazine", "Crack Magazine", "Electronic Beats"],
+  dance_media: ["Mixmag", "Resident Advisor", "DJ Mag", "Boiler Room", "Red Bull Music Academy", "FACT Magazine", "Crack Magazine"],
+  editorial_fashion: ["Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine", "Business of Fashion", "Vogue"],
+  drum_and_bass: ["UKF (music)", "Hospital Records", "DJ Mag"],
+  trance: ["A State of Trance", "Group Therapy Radio", "Anjunabeats"],
+  afrobeats: ["COLORS Studios", "Link Up TV", "GRM Daily"],
+  garage_uk: ["Rinse FM", "NTS Radio", "GRM Daily"],
+  festival_circuit: ["Mixmag", "DJ Mag", "Festicket", "Resident Advisor"],
+  queer_underground: ["LGBTQ media", "queer publications", "Dazed & Confused (magazine)"],
+  avant_garde_fashion: ["Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine", "System Magazine"],
+  house_music: ["Defected Radio", "Ministry of Sound"],
+  edm_mainstage: ["Ultra Music Festival", "Tomorrowland", "EDM.com"],
+  progressive_house: ["Anjunabeats", "Anjunadeep", "Group Therapy Radio"],
+};
+
+const CULTURE_ENTITIES: Partial<Record<SceneTag, string[]>> = {
+  underground_dance: ["street art", "contemporary art", "warehouse culture", "installation art", "sound art"],
+  berlin_scene: ["Berlin art", "Kreuzberg art", "contemporary art Berlin", "Berghain architecture"],
+  london_scene: ["Tate Modern", "Barbican Centre", "Design Museum London", "South Bank"],
+  amsterdam_scene: ["Stedelijk Museum", "Amsterdam art", "Dutch design"],
+  avant_garde_fashion: ["fashion exhibitions", "MET Gala", "design museums", "art exhibitions"],
+  queer_underground: ["queer art", "LGBTQ culture", "ballroom culture", "performance art", "drag art"],
+  editorial_fashion: ["photography exhibitions", "fashion photography", "art photography"],
+  festival_circuit: ["art installations", "Burning Man art", "immersive experience", "light festivals"],
+  techno: ["sound design", "electronic art", "new media art"],
+  hard_techno: ["industrial art", "warehouse architecture", "brutalist design"],
+  deep_house: ["jazz culture", "vinyl culture", "soul music history"],
+  house_music: ["dance culture history", "Chicago culture", "Detroit culture"],
+  drum_and_bass: ["graffiti art", "street culture", "urban art"],
+};
+
+function getClusterEntities(clusterLabel: string): Partial<Record<SceneTag, string[]>> {
+  switch (clusterLabel) {
+    case "Music & Nightlife": return MUSIC_ENTITIES;
+    case "Fashion & Streetwear": return FASHION_ENTITIES;
+    case "Lifestyle & Nightlife": return LIFESTYLE_ENTITIES;
+    case "Media & Entertainment": return MEDIA_ENTITIES;
+    case "Activities & Culture": return CULTURE_ENTITIES;
+    default: return MUSIC_ENTITIES;
+  }
+}
+
 // ── Cluster scene filter ──────────────────────────────────────────────────────
 
 const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
@@ -396,12 +488,20 @@ const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
     "london_scene", "berlin_scene", "ibiza_scene", "amsterdam_scene", "nyc_scene",
   ],
   "Fashion & Streetwear": [
-    "avant_garde_fashion", "editorial_fashion",
-    "rave_fashion", "queer_underground", "underground_dance",
+    "techno", "hard_techno", "hardcore", "psy_trance",
+    "tech_house", "deep_house", "house_music", "progressive_house",
+    "drum_and_bass", "trance", "afrobeats", "garage_uk", "edm_mainstage",
+    "underground_dance", "queer_underground", "festival_circuit",
+    "avant_garde_fashion", "editorial_fashion", "rave_fashion",
+    "london_scene", "berlin_scene", "ibiza_scene",
   ],
   "Lifestyle & Nightlife": [
-    "ibiza_scene", "festival_circuit", "underground_dance", "queer_underground",
-    "london_scene", "berlin_scene", "amsterdam_scene",
+    "techno", "hard_techno", "hardcore", "psy_trance",
+    "tech_house", "deep_house", "house_music", "progressive_house",
+    "drum_and_bass", "trance", "afrobeats", "garage_uk", "edm_mainstage",
+    "underground_dance", "queer_underground", "festival_circuit",
+    "london_scene", "berlin_scene", "ibiza_scene", "amsterdam_scene", "nyc_scene",
+    "dance_media", "rave_fashion", "avant_garde_fashion", "editorial_fashion",
   ],
   "Activities & Culture": [
     "london_scene", "berlin_scene", "amsterdam_scene", "underground_dance",
@@ -440,8 +540,11 @@ const CURATED_SEEDS: Record<string, string[]> = {
     "METAL Magazine", "Alexander Wang (designer)", "Ann Demeulemeester",
   ],
   "Lifestyle & Nightlife": [
-    "luxury travel", "luxury hotels", "Four Seasons Hotels",
-    "fine dining", "premium lifestyle", "nightlife",
+    "nightlife", "nightclub", "cocktail bar", "craft beer",
+    "natural wine", "specialty coffee", "vinyl records",
+    "weight training", "CrossFit", "boxing", "running",
+    "yoga", "outdoor adventure", "camping", "city break",
+    "boutique hotel", "street food", "food market",
   ],
   "Activities & Culture": [
     "contemporary art", "art gallery", "museum",
@@ -541,6 +644,7 @@ export interface AudienceFingerprint {
   /** 0–100 */
   confidence: number;
   specificity: "broad" | "moderate" | "high" | "very_high";
+  ageRecommendation?: AgeRecommendation;
 }
 
 interface RawInterest {
@@ -554,9 +658,11 @@ interface ClusteredInterest {
   id: string;
   name: string;
   audienceSize?: number;
+  audienceSizeBand?: string;
   path?: string[];
   searchTerm: string;
   relevanceScore?: number;
+  matchReason?: string;
 }
 
 export interface DiscoverCluster {
@@ -709,6 +815,79 @@ function computeFingerprint(
   return { confidence, specificity, dominantScenes };
 }
 
+// ── Age inference ─────────────────────────────────────────────────────────────
+
+const SCENE_AGE_PROFILES: Partial<Record<SceneTag, { min: number; max: number; peak: number }>> = {
+  hard_techno:        { min: 18, max: 32, peak: 24 },
+  hardcore:           { min: 18, max: 30, peak: 22 },
+  psy_trance:         { min: 20, max: 38, peak: 27 },
+  techno:             { min: 20, max: 38, peak: 28 },
+  tech_house:         { min: 21, max: 38, peak: 27 },
+  deep_house:         { min: 23, max: 42, peak: 32 },
+  house_music:        { min: 22, max: 45, peak: 33 },
+  progressive_house:  { min: 22, max: 42, peak: 30 },
+  underground_dance:  { min: 20, max: 38, peak: 27 },
+  drum_and_bass:      { min: 18, max: 34, peak: 24 },
+  trance:             { min: 22, max: 42, peak: 30 },
+  afrobeats:          { min: 18, max: 35, peak: 25 },
+  garage_uk:          { min: 18, max: 32, peak: 24 },
+  edm_mainstage:      { min: 18, max: 34, peak: 24 },
+  festival_circuit:   { min: 18, max: 38, peak: 26 },
+  queer_underground:  { min: 20, max: 38, peak: 27 },
+  avant_garde_fashion:{ min: 22, max: 42, peak: 30 },
+  editorial_fashion:  { min: 20, max: 40, peak: 28 },
+  dance_media:        { min: 20, max: 38, peak: 27 },
+};
+
+export interface AgeRecommendation {
+  minAge: number;
+  maxAge: number;
+  peakAge: number;
+  confidence: "low" | "medium" | "high";
+  rationale: string;
+}
+
+function inferAgeRange(tagWeights: Map<SceneTag, number>): AgeRecommendation {
+  let totalWeight = 0;
+  let weightedMin = 0;
+  let weightedMax = 0;
+  let weightedPeak = 0;
+  let matchedScenes = 0;
+
+  for (const [tag, weight] of tagWeights.entries()) {
+    const profile = SCENE_AGE_PROFILES[tag];
+    if (!profile) continue;
+    matchedScenes++;
+    totalWeight += weight;
+    weightedMin += profile.min * weight;
+    weightedMax += profile.max * weight;
+    weightedPeak += profile.peak * weight;
+  }
+
+  if (totalWeight === 0) {
+    return { minAge: 18, maxAge: 45, peakAge: 28, confidence: "low", rationale: "No scene-specific age data available — using broad defaults." };
+  }
+
+  const avgMin = Math.round(weightedMin / totalWeight);
+  const avgMax = Math.round(weightedMax / totalWeight);
+  const avgPeak = Math.round(weightedPeak / totalWeight);
+
+  const confidence: AgeRecommendation["confidence"] =
+    matchedScenes >= 3 && totalWeight > 30 ? "high" :
+    matchedScenes >= 2 ? "medium" : "low";
+
+  const topScene = [...tagWeights.entries()].sort(([, a], [, b]) => b - a)[0];
+  const topSceneLabel = topScene ? topScene[0].replace(/_/g, " ") : "mixed";
+
+  return {
+    minAge: avgMin,
+    maxAge: avgMax,
+    peakAge: avgPeak,
+    confidence,
+    rationale: `Derived from ${matchedScenes} scene signal${matchedScenes !== 1 ? "s" : ""} (dominant: ${topSceneLabel}). Core audience: ${avgMin}–${avgMax}, peak at ${avgPeak}.`,
+  };
+}
+
 // ── Cluster term builder ──────────────────────────────────────────────────────
 /**
  * Build search terms for a cluster, sorted by tag weight (highest-weight
@@ -721,11 +900,12 @@ function buildClusterTerms(
   confidence: number,
 ): string[] {
   const allowed = new Set(CLUSTER_SCENE_FILTER[clusterLabel] ?? []);
+  const entities = getClusterEntities(clusterLabel);
   const terms = new Map<string, number>(); // term → best tag weight (for ordering)
 
   for (const [tag, weight] of tagWeights.entries()) {
     if (!allowed.has(tag)) continue;
-    for (const entity of SCENE_ENTITY_MAP[tag] ?? []) {
+    for (const entity of entities[tag] ?? []) {
       const existing = terms.get(entity) ?? 0;
       terms.set(entity, Math.max(existing, weight));
     }
@@ -783,10 +963,11 @@ function passesBlocklist(
 
 // ── Relevance scoring ─────────────────────────────────────────────────────────
 
-function buildSceneKeywords(tagWeights: Map<SceneTag, number>): Map<string, number> {
+function buildSceneKeywords(tagWeights: Map<SceneTag, number>, clusterLabel: string): Map<string, number> {
+  const entities = getClusterEntities(clusterLabel);
   const kws = new Map<string, number>();
   for (const [tag, weight] of tagWeights.entries()) {
-    for (const entity of SCENE_ENTITY_MAP[tag] ?? []) {
+    for (const entity of entities[tag] ?? []) {
       for (const word of entity.split(/\s+/)) {
         if (word.length >= 4) {
           const kw = word.toLowerCase();
@@ -798,64 +979,86 @@ function buildSceneKeywords(tagWeights: Map<SceneTag, number>): Map<string, numb
   return kws;
 }
 
+function audienceSizeBand(size: number): string {
+  if (size <= 0)              return "unknown";
+  if (size < 500_000)         return "micro (<500K)";
+  if (size < 2_000_000)       return "niche (<2M)";
+  if (size < 10_000_000)      return "targeted (<10M)";
+  if (size < 50_000_000)      return "medium (<50M)";
+  if (size < 200_000_000)     return "broad (<200M)";
+  return "mega (200M+)";
+}
+
+interface ScoreResult {
+  score: number;
+  reason: string;
+}
+
 function scoreInterest(
   interest: RawInterest,
   clusterLabel: string,
   sceneKeywords: Map<string, number>,
   confidence: number,
-): number {
+): ScoreResult {
   let score = 0;
+  const reasons: string[] = [];
 
   // Path relevance (most important signal)
   const pathPattern = CLUSTER_PATH_PATTERNS[clusterLabel];
   if (pathPattern) {
     const text = [interest.name, ...(interest.path ?? [])].join(" ");
-    if (pathPattern.test(text)) score += 30;
+    if (pathPattern.test(text)) {
+      score += 30;
+      reasons.push("path-match");
+    }
   }
 
   // Scene entity name alignment — weight proportional to tag weight
   const nameLower = interest.name.toLowerCase();
+  let bestKw = "";
   let bestKwWeight = 0;
   for (const [kw, kw_weight] of sceneKeywords.entries()) {
     if (nameLower.includes(kw) && kw_weight > bestKwWeight) {
       bestKwWeight = kw_weight;
+      bestKw = kw;
     }
   }
   if (bestKwWeight > 0) {
     score += Math.min((bestKwWeight / 120) * 20, 20);
+    reasons.push(`keyword:${bestKw}`);
   }
 
-  // Audience-size-aware scoring: prefer niche/specific interests.
-  // Smaller audiences = more targeted = higher value.
   const size = interest.audience_size ?? 0;
   if (size > 0) {
-    if      (size < 500_000)      score += 10;  // very niche — highly specific
-    else if (size < 2_000_000)    score += 8;   // niche
-    else if (size < 10_000_000)   score += 5;   // targeted
-    else if (size < 50_000_000)   score += 2;   // medium
-    else if (size < 200_000_000)  score += 0;   // large — neutral
-    else                          score -= 8;   // mega-broad — penalise
+    if      (size < 500_000)      { score += 10; reasons.push("micro-niche"); }
+    else if (size < 2_000_000)    { score += 8;  reasons.push("niche"); }
+    else if (size < 10_000_000)   { score += 5;  reasons.push("targeted"); }
+    else if (size < 50_000_000)   { score += 2;  }
+    else if (size < 200_000_000)  { /* neutral */ }
+    else                          { score -= 8;  reasons.push("mega-broad-penalty"); }
   }
 
-  // Extra penalty at high confidence for generic mega-interests
-  if (confidence >= 50 && size > 100_000_000) score -= 5;
+  if (confidence >= 50 && size > 100_000_000) {
+    score -= 5;
+    reasons.push("high-conf-broad-penalty");
+  }
 
-  return score;
+  return { score, reason: reasons.join(", ") || "general" };
 }
 
 // ── Cluster descriptions ──────────────────────────────────────────────────────
 
 const CLUSTER_DESCRIPTIONS: Record<string, string> = {
   "Music & Nightlife":
-    "music genres, artists, DJs, labels, clubs, festivals, venues, nightlife communities",
+    "genres, artists, DJs, labels, clubs, festivals, venues, nightlife communities",
   "Fashion & Streetwear":
-    "luxury brands, streetwear labels, style publications, youth culture aesthetics",
+    "scene-adjacent fashion brands, designers, streetwear, publications, subcultural style",
   "Lifestyle & Nightlife":
-    "nightlife behaviour, premium lifestyle, bars, city social culture, luxury signals",
+    "nightlife behaviour, fitness, food & drink, travel, hobbies, cultural consumption",
   "Activities & Culture":
-    "arts, design, creative culture, exhibitions, city experiences",
+    "art, creative spaces, exhibitions, cultural venues, design, urban culture",
   "Media & Entertainment":
-    "music publications, media brands, creators, streaming platforms",
+    "music publications, radio, podcasts, streaming, editorial platforms",
 };
 
 const ALL_CLUSTER_LABELS = Object.keys(CLUSTER_DESCRIPTIONS);
@@ -877,7 +1080,7 @@ async function discoverForCluster(
   const extraHints = directHintTerms.filter((h) => !entitySet.has(h.toLowerCase()));
   const allTerms = [...extraHints, ...entityTerms];
 
-  const sceneKeywords = buildSceneKeywords(tagWeights);
+  const sceneKeywords = buildSceneKeywords(tagWeights, clusterLabel);
 
   // Minimum score floor (only applied at high confidence)
   const minScore = confidence >= 75 ? 15 : confidence >= 50 ? 5 : 0;
@@ -927,22 +1130,26 @@ async function discoverForCluster(
   }
   const filtered = raw.filter((i) => passesBlocklist(i, clusterLabel));
 
-  const scored = filtered.map((i) => ({
-    id: i.id,
-    name: i.name,
-    audienceSize: i.audience_size,
-    path: i.path,
-    searchTerm: i.searchTerm,
-    relevanceScore: scoreInterest(i, clusterLabel, sceneKeywords, confidence),
-  }));
+  const scored = filtered.map((i) => {
+    const { score, reason } = scoreInterest(i, clusterLabel, sceneKeywords, confidence);
+    return {
+      id: i.id,
+      name: i.name,
+      audienceSize: i.audience_size,
+      audienceSizeBand: audienceSizeBand(i.audience_size ?? 0),
+      path: i.path,
+      searchTerm: i.searchTerm,
+      relevanceScore: score,
+      matchReason: reason,
+    };
+  });
 
-  // Log all scored results for debugging
   console.info(
     `[interest-discover] cluster="${clusterLabel}" scored(${scored.length}): ` +
     scored
       .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0))
       .slice(0, 10)
-      .map((i) => `${i.name}[score=${i.relevanceScore?.toFixed(0)},size=${i.audienceSize?.toLocaleString() ?? "?"}]`)
+      .map((i) => `${i.name}[score=${i.relevanceScore?.toFixed(0)},size=${i.audienceSize?.toLocaleString() ?? "?"},reason=${i.matchReason}]`)
       .join(", "),
   );
 
@@ -966,16 +1173,20 @@ async function discoverForCluster(
         `[interest-discover] cluster="${clusterLabel}" fallback — searching curated seeds: ${seeds.slice(0, 6).join(", ")}`,
       );
       await runTermsBatch(seeds.slice(0, 8));
-      // Re-score everything
       const fallbackFiltered = raw.filter((i) => passesBlocklist(i, clusterLabel));
-      const fallbackScored = fallbackFiltered.map((i) => ({
-        id: i.id, name: i.name,
-        audienceSize: i.audience_size,
-        path: i.path,
-        searchTerm: i.searchTerm,
-        relevanceScore: scoreInterest(i, clusterLabel, sceneKeywords, confidence),
-      }));
-      aboveFloor = fallbackScored; // use all results with no floor
+      const fallbackScored = fallbackFiltered.map((i) => {
+        const { score, reason } = scoreInterest(i, clusterLabel, sceneKeywords, confidence);
+        return {
+          id: i.id, name: i.name,
+          audienceSize: i.audience_size,
+          audienceSizeBand: audienceSizeBand(i.audience_size ?? 0),
+          path: i.path,
+          searchTerm: i.searchTerm,
+          relevanceScore: score,
+          matchReason: reason,
+        };
+      });
+      aboveFloor = fallbackScored;
     }
   }
 
@@ -1082,8 +1293,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   };
 
   const { confidence, specificity, dominantScenes } = computeFingerprint(tagWeights, sources);
+  const ageRecommendation = inferAgeRange(tagWeights);
 
-  const audienceFingerprint: AudienceFingerprint = { sources, dominantScenes, confidence, specificity };
+  const audienceFingerprint: AudienceFingerprint = { sources, dominantScenes, confidence, specificity, ageRecommendation };
 
   console.info(
     `[interest-discover] fingerprint: ${pages.length}p / ${customAudienceSignals.length}ca / ` +

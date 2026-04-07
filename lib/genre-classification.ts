@@ -109,16 +109,24 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Blawan", "Rebekah", "Dax J", "Truncate", "Phase",
       "Etapp Kyle", "SDH", "Developer", "Klaudia Gawlas", "Alignment",
       "Fury", "Slam", "Planetary Assault System", "Marco Faraone",
+      "999999999", "I Hate Models", "Introversion", "VTSS", "Anetha",
+      "Shlømo", "ONYVAA", "Deborah De Luca", "HAAi", "Manni Dee",
+      "Charlie Sparks", "Nico Moreno", "AZF", "Viper Diva", "Hadone",
+      "SPFDJ", "AIROD", "Brutalismus 3000", "Shubostar", "Farrago",
+      "Lilly Palmer", "Indira Paganotto", "MOTZ", "Wax Wings", "Off/Pixel",
     ],
     labels: [
       "KNTXT", "EXHALE", "Mord", "Figure", "Pole Group", "Infrastructure",
       "Primate", "Token Records", "CLR", "Generator", "Tresor",
       "Repitch", "Soma Records", "Novamute",
+      "Perc Trax", "Possession", "PoleGroup", "Dax J Records", "Northern Electronics",
     ],
     events: [
       "Awakenings", "Verknipt", "Junction 2", "Bassiani",
       "Tresor", "De School", "Hessle Audio", "fabric",
       "Sonar", "Dekmantel", "Movement", "Khidi",
+      "Perc Trax", "Intercell", "Possession", "HARD DANCE",
+      "Kappa Futur Festival", "Monegros", "Under",
     ],
   },
 
@@ -136,6 +144,10 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Dj Stingray", "Regis", "Inigo Kennedy", "Shifted",
       "Truss", "Headless Horseman", "Orphx", "Karl OConnor",
       "Ancient Methods", "Phase Fatale", "Blawan",
+      "Objekt", "Call Super", "Shed", "Helena Hauff", "Saoirse",
+      "Hunee", "Willow", "Joy Orbison", "Kode9", "Pariah",
+      "Pangaea", "Kowton", "Batu", "Bruce", "Shackleton",
+      "Peverelist", "Pinch", "Mumdance", "Hessle Audio",
     ],
     labels: [
       "Ostgut Ton", "Klockworks", "Blueprint", "Stroboscopic Artefacts",
@@ -162,11 +174,15 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Mathame", "Yokoo", "Colyn", "Yotto", "Maeve", "Kamran Sadeghi",
       "Guy Gerber", "Agoria", "Stimming", "Nils Hoffmann", "Rufus Du Sol",
       "Maceo Plex", "Gui Boratto",
+      "Anyma", "Vintage Culture", "Miss Monique", "Kevin de Vries",
+      "Argy", "Monolink", "ARTBAT", "Boris Brejcha", "Jan Blomqvist",
+      "Rodriguez Jr.", "ANNA", "Fideles", "CamelPhat", "Luttrell",
     ],
     labels: [
       "Afterlife", "Cercle", "Kompakt", "Get Physical", "Sol Selectas",
       "Diynamic", "Embassy One", "Crosstown Rebels", "Stil vor Talent",
       "Life and Death", "Watergate Records",
+      "All Day I Dream", "Anjunadeep", "Innervisions", "Cercle",
     ],
     events: [
       "Afterlife", "Cercle", "Watergate", "Day Zero", "Burning Man",
@@ -186,6 +202,9 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Sultan Shepard", "Kyau Albert", "Feed Me", "Pryda",
       "CIREZ D", "Anjunadeep DJs", "Seven Lions", "BT",
       "Sasha", "John Digweed", "Nick Warren", "Hernan Cattaneo",
+      "Spencer Brown", "Eli & Fur", "Tinlicker", "Ben Böhmer",
+      "Nora En Pure", "Estiva", "Ilan Bluestone", "ODESZA",
+      "Amtrac", "Durante",
     ],
     labels: [
       "Anjunadeep", "Anjunabeats", "Protocol", "Mau5trap", "Bedrock",
@@ -209,6 +228,9 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Culoe De Song", "Djeff", "Manoo", "Black Motion", "Lemon Pepper Freestyle",
       "Da Capo", "Christos", "Soulistic Music", "Louie Vega",
       "Dave", "Nakhane", "Afrotraction", "Sun El Musician",
+      "Shimza", "Nkulee 501", "Focalistic", "Tyler ICU", "De Mthuda",
+      "Vigro Deep", "Musa Keys", "Costa Titch", "Scorpion Kings",
+      "Oscar Mbo", "Heavy K", "Zakes Bantwini",
     ],
     labels: [
       "PTX Music", "Somewhere Somehow", "Platoon Africa", "Afrocentric",
@@ -326,6 +348,10 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Paul Woolford", "HAAi", "Skream", "Route 94", "Dense & Pika",
       "Sam Paganini", "Layton Giordani", "Gorgon City",
       "Hot Since 82", "Danny Howard",
+      "Michael Bibi", "James Hype", "Sonny Fodera", "Dom Dolla",
+      "John Summit", "Chris Lake", "Lee Foss", "Latmun", "Jack Back",
+      "wAFF", "Paco Osuna", "Dennis Cruz", "East End Dubs", "Kettama",
+      "TSHA", "Ewan McVicar", "Jaden Thompson",
     ],
     labels: [
       "Toolroom Records", "Hot Creations", "Relief Records", "Solid Grooves",
@@ -336,6 +362,8 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Space Ibiza", "DC10 Ibiza", "Pacha Ibiza", "Elrow",
       "Egg London", "Printworks London", "Motion Bristol",
       "We Are FSTVL",
+      "Defected Croatia", "51st State Festival", "elrow Town",
+      "FUSE London", "ABODE",
     ],
   },
 
@@ -353,6 +381,9 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Tiesto", "Gareth Emery", "Andrew Rayel", "Dash Berlin",
       "Ben Gold", "Solarstone", "Joseph Capriati", "Infected Mushroom",
       "Astrix", "Vini Vici", "Freedom Fighters",
+      "Giuseppe Ottaviani", "Key4050", "Standerwick", "Factor B",
+      "Sean Tyas", "John Askew", "Will Atkinson", "Photographer",
+      "Marlo", "David Gravell", "Ruben de Ronde",
     ],
     labels: [
       "Anjunabeats", "A State of Trance", "FSOE", "Armada Music",
@@ -379,6 +410,10 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Jamie xx", "Joy Orbison", "Hessle Audio crew",
       "Joker", "Gemmy", "Zomby", "Rustie", "Katy B",
       "Devlin", "Dizzee Rascal", "Stormzy", "Dave", "AJ Tracey",
+      "Conducta", "DJ Q", "Champion", "Royal-T", "Flava D",
+      "Holy Goof", "Darkzy", "Notion", "Interplanetary Criminal",
+      "Sammy Virji", "Emerald", "T. Williams", "Teki Latex",
+      "FooR", "P Money", "Novelist",
     ],
     labels: [
       "Boy Better Know", "Tempa", "Deep Medi Musik", "Big Apple Records",
@@ -387,6 +422,7 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
     events: [
       "FWD>> London", "Plastic People", "Rinse FM", "Eskimo Dance",
       "Roll Deep events", "Grime Originals",
+      "Garage Nation", "Pure Garage", "Warehouse Project bass nights", "SWU FM",
     ],
   },
 
@@ -451,15 +487,22 @@ const SEEDS: Record<GenreBucket, BucketSeeds> = {
       "Logistics", "High Contrast", "Need For Mirrors", "Total Science",
       "Dj Hype", "Friction", "DJ Fresh", "Calyx & Teebee",
       "Spectrasoul", "Seba", "Calibre", "dBridge",
+      "Shy FX", "Dimension", "Wilkinson", "Culture Shock", "Metrik",
+      "Kanine", "Bou", "Turno", "Simula", "K Motionz",
+      "Hedex", "Serum", "Voltage", "Inja", "Dynamite MC",
+      "1991", "Flava D", "Whiney", "Kings of the Rollers",
     ],
     labels: [
       "Hospital Records", "RAM Records", "Metalheadz", "Liquid V",
       "Med School Music", "Shogun Audio", "Critical Music",
       "Dispatch Recordings", "Spearhead Records",
+      "Viper Recordings", "Integral Records", "Liquicity",
+      "Fokuz Recordings", "Soul:r", "Exit Records", "Eatbrain",
     ],
     events: [
       "Hospitality on the Beach", "Ram Records events", "Metalheadz Sundays",
       "Let It Roll", "Hospitality Festival", "Outlook Festival",
+      "Innovation", "Jungle Mania", "Rupture", "Therapy Sessions", "Playaz",
     ],
   },
 };
@@ -497,44 +540,72 @@ const W_FALLBACK = 2;
 // These are intentionally generic so any page that mentions "techno" at all
 // gets at least a fallback score. Kept lower than the curated SEEDS weights.
 const BROAD_KEYWORDS: Partial<Record<GenreBucket, string[]>> = {
-  techno_peak:         ["techno", "hard techno", "rave", "peak time", "industrial techno"],
-  techno_raw:          ["techno", "hypnotic", "berlin techno", "underground techno"],
-  melodic_house_techno:["melodic techno", "melodic house", "organic house", "afro house melodic"],
+  techno_peak:         ["techno", "hard techno", "rave", "peak time", "industrial techno", "warehouse", "industrial"],
+  techno_raw:          ["techno", "hypnotic", "berlin techno", "underground techno", "modular", "dub techno", "acid"],
+  melodic_house_techno:["melodic techno", "melodic house", "organic house", "afro house melodic", "afterlife", "cercle", "emotive"],
   progressive_house:   ["progressive house", "progressive", "trance house"],
   amapiano_afro_house: ["amapiano", "afro house", "afrobeats", "afro tech"],
-  underground_house:   ["minimal", "deep tech", "micro house", "underground house"],
+  underground_house:   ["minimal", "deep tech", "micro house", "underground house", "lo-fi house", "outsider house"],
   deep_house:          ["deep house", "soulful house", "jackin"],
   classic_house:       ["classic house", "acid house", "chicago house", "old school house"],
   disco_nu_disco:      ["disco", "nu disco", "funk", "boogie", "italo"],
-  tech_house:          ["tech house", "techhouse"],
-  trance:              ["trance", "psytrance", "psy-trance", "psy trance", "uplifting trance", "hard trance"],
-  "140_garage_grime":  ["garage", "grime", "dubstep", "bassline", "bass music", "140bpm"],
+  tech_house:          ["tech house", "techhouse", "groovy", "funky house"],
+  trance:              ["trance", "psytrance", "psy-trance", "psy trance", "uplifting trance", "hard trance", "euphoric", "anthem"],
+  "140_garage_grime":  ["garage", "grime", "dubstep", "bassline", "bass music", "140bpm", "uk drill", "trap", "bass"],
   breaks_breakbeat:    ["breaks", "breakbeat", "big beat", "uk bass"],
-  dance_pop_commercial:["edm", "big room", "festival edm", "commercial house", "pop dance"],
-  drum_and_bass:       ["drum and bass", "dnb", "drum & bass", "jungle", "neurofunk"],
+  dance_pop_commercial:["edm", "big room", "festival edm", "commercial house", "pop dance", "radio", "chart", "mainstream"],
+  drum_and_bass:       ["drum and bass", "dnb", "drum & bass", "jungle", "neurofunk", "liquid", "roller", "jump up"],
 };
 
 // ─── Category-based fallback buckets ──────────────────────────────────────
 // Maps Meta page category strings (lowercase) to a low-confidence bucket
 // assignment. This ensures even unnamed/generic pages get some classification.
-const CATEGORY_FALLBACK: Array<{ patterns: string[]; bucket: GenreBucket; score: number }> = [
-  { patterns: ["drum and bass", "dnb"],                           bucket: "drum_and_bass",          score: W_FALLBACK * 2 },
-  { patterns: ["trance"],                                          bucket: "trance",                 score: W_FALLBACK * 2 },
-  { patterns: ["techno"],                                          bucket: "techno_peak",            score: W_FALLBACK * 2 },
-  { patterns: ["deep house"],                                      bucket: "deep_house",             score: W_FALLBACK * 2 },
-  { patterns: ["tech house"],                                      bucket: "tech_house",             score: W_FALLBACK * 2 },
-  { patterns: ["disco", "nu disco", "nu-disco"],                   bucket: "disco_nu_disco",         score: W_FALLBACK * 2 },
-  { patterns: ["amapiano", "afro house"],                          bucket: "amapiano_afro_house",    score: W_FALLBACK * 2 },
-  // Generic music category → lowest-confidence fallback, just enough to show up
-  { patterns: ["dj", "disc jockey"],                               bucket: "tech_house",             score: W_FALLBACK },
-  { patterns: ["music label", "record label", "record company"],   bucket: "underground_house",      score: W_FALLBACK },
-  { patterns: ["music festival", "festival"],                      bucket: "dance_pop_commercial",   score: W_FALLBACK },
-  { patterns: ["nightclub", "night club", "club"],                 bucket: "techno_peak",            score: W_FALLBACK },
-  { patterns: ["concert venue", "venue"],                          bucket: "underground_house",      score: W_FALLBACK },
-  { patterns: ["musician/band", "musician", "band"],               bucket: "underground_house",      score: W_FALLBACK },
-  { patterns: ["event", "event promoter", "event planner"],        bucket: "dance_pop_commercial",   score: W_FALLBACK },
-  { patterns: ["music", "performing arts", "entertainment"],       bucket: "dance_pop_commercial",   score: W_FALLBACK },
-  { patterns: ["arts & entertainment", "arts and entertainment"],  bucket: "dance_pop_commercial",   score: W_FALLBACK },
+const CATEGORY_FALLBACK: Array<{ patterns: string[]; buckets: Array<{ bucket: GenreBucket; score: number }> }> = [
+  // Genre-specific categories → single strong assignment
+  { patterns: ["drum and bass", "dnb"], buckets: [{ bucket: "drum_and_bass", score: W_FALLBACK * 2 }] },
+  { patterns: ["trance"], buckets: [{ bucket: "trance", score: W_FALLBACK * 2 }] },
+  { patterns: ["techno"], buckets: [{ bucket: "techno_peak", score: W_FALLBACK * 2 }, { bucket: "techno_raw", score: W_FALLBACK }] },
+  { patterns: ["deep house"], buckets: [{ bucket: "deep_house", score: W_FALLBACK * 2 }] },
+  { patterns: ["tech house"], buckets: [{ bucket: "tech_house", score: W_FALLBACK * 2 }] },
+  { patterns: ["disco", "nu disco", "nu-disco"], buckets: [{ bucket: "disco_nu_disco", score: W_FALLBACK * 2 }] },
+  { patterns: ["amapiano", "afro house"], buckets: [{ bucket: "amapiano_afro_house", score: W_FALLBACK * 2 }] },
+  // Generic music categories → spread across multiple buckets
+  { patterns: ["dj", "disc jockey"], buckets: [
+    { bucket: "tech_house", score: W_FALLBACK },
+    { bucket: "techno_peak", score: W_FALLBACK },
+    { bucket: "underground_house", score: W_FALLBACK },
+  ]},
+  { patterns: ["music label", "record label", "record company"], buckets: [
+    { bucket: "underground_house", score: W_FALLBACK },
+    { bucket: "tech_house", score: W_FALLBACK },
+    { bucket: "techno_raw", score: W_FALLBACK },
+  ]},
+  { patterns: ["music festival", "festival"], buckets: [
+    { bucket: "dance_pop_commercial", score: W_FALLBACK },
+    { bucket: "tech_house", score: W_FALLBACK },
+    { bucket: "techno_peak", score: W_FALLBACK },
+  ]},
+  { patterns: ["nightclub", "night club", "club"], buckets: [
+    { bucket: "techno_peak", score: W_FALLBACK },
+    { bucket: "tech_house", score: W_FALLBACK },
+    { bucket: "underground_house", score: W_FALLBACK },
+  ]},
+  { patterns: ["concert venue", "venue", "performance & event venue"], buckets: [
+    { bucket: "underground_house", score: W_FALLBACK },
+    { bucket: "techno_peak", score: W_FALLBACK },
+  ]},
+  { patterns: ["musician/band", "musician", "band"], buckets: [
+    { bucket: "underground_house", score: W_FALLBACK },
+    { bucket: "tech_house", score: W_FALLBACK },
+    { bucket: "dance_pop_commercial", score: W_FALLBACK },
+  ]},
+  { patterns: ["event", "event promoter", "event planner"], buckets: [
+    { bucket: "dance_pop_commercial", score: W_FALLBACK },
+    { bucket: "tech_house", score: W_FALLBACK },
+  ]},
+  { patterns: ["music", "performing arts", "entertainment", "arts & entertainment", "arts and entertainment"], buckets: [
+    { bucket: "dance_pop_commercial", score: W_FALLBACK },
+  ]},
 ];
 
 function scoreAgainst(
@@ -584,23 +655,27 @@ function scoreAgainst(
 
 /**
  * Apply category-based fallback scoring when no seed matched.
- * Returns the bucket + score pair with the highest category confidence.
+ * Returns an array of bucket + score pairs for multi-bucket assignment.
  */
 function applyCategoryFallback(
   corpus: string,
   category: string,
-): { bucket: GenreBucket; score: number; signal: string } | null {
+): Array<{ bucket: GenreBucket; score: number; signal: string }> {
   const catLower = category.toLowerCase().trim();
   const corpusLower = corpus.toLowerCase();
+  const results: Array<{ bucket: GenreBucket; score: number; signal: string }> = [];
 
   for (const entry of CATEGORY_FALLBACK) {
     for (const pat of entry.patterns) {
       if (catLower.includes(pat) || corpusLower.includes(pat)) {
-        return { bucket: entry.bucket, score: entry.score, signal: `category:${pat}` };
+        for (const b of entry.buckets) {
+          results.push({ bucket: b.bucket, score: b.score, signal: `category:${pat}` });
+        }
+        return results;
       }
     }
   }
-  return null;
+  return results;
 }
 
 /**
@@ -637,10 +712,10 @@ export function classifyPage(page: MetaApiPage): PageGenreClassification {
   // ── Fallback: use page category if nothing matched ───────────────────────
   const hasAnyMatch = Object.keys(scores).length > 0;
   if (!hasAnyMatch) {
-    const fallback = applyCategoryFallback(corpus, page.category ?? "");
-    if (fallback) {
-      scores[fallback.bucket] = fallback.score;
-      allMatched.push(`[${GENRE_LABELS[fallback.bucket]}] ${fallback.signal}`);
+    const fallbacks = applyCategoryFallback(corpus, page.category ?? "");
+    for (const fb of fallbacks) {
+      scores[fb.bucket] = (scores[fb.bucket] ?? 0) + fb.score;
+      allMatched.push(`[${GENRE_LABELS[fb.bucket]}] ${fb.signal}`);
     }
   }
 
