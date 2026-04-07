@@ -271,63 +271,77 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
 
 const MUSIC_ENTITIES: Partial<Record<SceneTag, string[]>> = {
   techno: [
-    "Adam Beyer", "Richie Hawtin", "Ben Klock", "Charlotte de Witte",
-    "Drumcode", "Jeff Mills", "Ellen Allien", "Surgeon",
-    "Berghain", "Tresor nightclub", "Awakenings",
+    "techno music", "electronic dance music", "Adam Beyer", "Richie Hawtin",
+    "Ben Klock", "Charlotte de Witte", "Drumcode", "Jeff Mills", "Ellen Allien",
+    "Surgeon", "Berghain", "Tresor nightclub", "Awakenings", "Resident Advisor",
+    "Boiler Room", "Mixmag", "DJ Mag", "Carl Cox", "Nina Kraviz",
+    "Amelie Lens", "Maceo Plex", "Sven Väth",
+  ],
+  hard_techno: [
+    "hard techno", "industrial techno", "techno music", "rave",
+    "Awakenings", "Awakenings Festival", "Rebekah", "Blawan", "Paula Temple",
+    "Karenn", "Oscar Mulero", "Trym", "I Hate Models", "SPFDJ",
+    "Charlotte de Witte", "Amelie Lens", "Sara Landry", "Kobosil",
+    "Verknipt", "Junction 2", "Intercell", "Possession",
+    "Resident Advisor", "Boiler Room", "Mixmag",
   ],
   tech_house: [
-    "Camelphat", "Fisher", "Solardo", "Eli Brown",
+    "tech house", "Camelphat", "Fisher", "Solardo", "Eli Brown",
     "Hot Creations", "Toolroom Records", "Dirtybird Records",
-    "Relief Records", "Solid Grooves", "DC-10 Ibiza",
+    "Patrick Topping", "Michael Bibi", "Dom Dolla", "Chris Lake",
+    "Solid Grooves", "DC-10 Ibiza", "Elrow", "Defected Records",
   ],
   deep_house: [
-    "Kerri Chandler", "Larry Heard", "Defected Records",
-    "Anjunadeep", "Larry Levan", "Glitterbox Recordings",
+    "deep house", "soulful house", "Kerri Chandler", "Larry Heard",
+    "Defected Records", "Anjunadeep", "Glitterbox Recordings",
+    "Moodymann", "Theo Parrish", "Ron Trent",
   ],
   house_music: [
-    "Frankie Knuckles", "Marshall Jefferson", "Ten City",
-    "Ministry of Sound", "Defected Records",
-    "house music", "Chicago house music",
+    "house music", "Chicago house music", "Frankie Knuckles",
+    "Marshall Jefferson", "Ten City", "Ministry of Sound",
+    "Defected Records", "Glitterbox",
   ],
   progressive_house: [
-    "Deadmau5", "Eric Prydz", "Axwell",
-    "Swedish House Mafia", "Lane 8", "Anjunadeep",
+    "progressive house", "Deadmau5", "Eric Prydz", "Axwell",
+    "Swedish House Mafia", "Lane 8", "Anjunadeep", "Anjunabeats",
+    "Ben Böhmer", "Nora En Pure", "Above and Beyond",
   ],
   drum_and_bass: [
-    "Goldie", "LTJ Bukem", "Andy C", "Roni Size",
-    "Hospital Records", "Ram Records", "Metalheadz",
-    "Chase and Status", "drum and bass",
+    "drum and bass", "jungle music", "Goldie", "LTJ Bukem", "Andy C",
+    "Chase and Status", "Hospital Records", "Ram Records", "Metalheadz",
+    "Sub Focus", "Pendulum", "Shy FX", "Dimension", "Netsky",
+    "Camo & Krooked", "UKF (music)", "Let It Roll",
   ],
   trance: [
-    "Armin van Buuren", "Paul van Dyk", "Tiësto", "Ferry Corsten",
-    "A State of Trance", "Anjunabeats", "Above and Beyond",
+    "trance music", "Armin van Buuren", "Paul van Dyk", "Tiësto",
+    "Ferry Corsten", "A State of Trance", "Anjunabeats",
+    "Above and Beyond", "Gareth Emery",
   ],
   afrobeats: [
-    "Wizkid", "Burna Boy", "Davido", "Mr Eazi",
-    "Joeboy", "Afrobeats", "Afropop",
+    "Afrobeats", "Afropop", "Wizkid", "Burna Boy", "Davido",
+    "Black Coffee", "Amapiano", "Kabza De Small",
   ],
   garage_uk: [
-    "Craig David", "So Solid Crew", "Dizzee Rascal", "Kano",
-    "UK garage", "grime music", "Skepta",
+    "UK garage", "grime music", "Skepta", "Craig David",
+    "Stormzy", "Dizzee Rascal", "Rinse FM",
   ],
   edm_mainstage: [
-    "Tomorrowland", "Ultra Music Festival", "Electric Daisy Carnival",
-    "David Guetta", "Martin Garrix", "Calvin Harris",
-    "electronic dance music",
+    "electronic dance music", "Tomorrowland", "Ultra Music Festival",
+    "Electric Daisy Carnival", "David Guetta", "Martin Garrix", "Calvin Harris",
   ],
   underground_dance: [
+    "underground dance music", "electronic music", "rave",
     "Boiler Room", "Fabric nightclub", "XOYO", "Resident Advisor",
-    "underground dance music", "Mixmag",
+    "Mixmag", "DJ Mag", "warehouse rave",
   ],
   festival_circuit: [
-    "Creamfields", "Awakenings Festival",
-    "Amsterdam Dance Event", "Sónar music festival",
-    "EXIT Festival", "Hideout Festival", "Gala Festival",
-    "Outlook Festival",
+    "music festival", "Creamfields", "Awakenings Festival",
+    "Amsterdam Dance Event", "Sónar music festival", "Glastonbury Festival",
+    "EXIT Festival", "Outlook Festival", "Dekmantel",
   ],
   london_scene: [
     "Fabric nightclub", "XOYO", "Printworks London",
-    "E1 London", "Egg London", "Oval Space",
+    "E1 London", "Egg London", "Oval Space", "Ministry of Sound",
   ],
   berlin_scene: [
     "Berghain", "Tresor nightclub", "Watergate",
@@ -338,96 +352,193 @@ const MUSIC_ENTITIES: Partial<Record<SceneTag, string[]>> = {
     "Ushuaïa Ibiza", "Space Ibiza", "Ibiza nightlife",
   ],
   amsterdam_scene: [
-    "Amsterdam Dance Event", "Melkweg", "Shelter Amsterdam",
-    "Paradiso Amsterdam",
+    "Amsterdam Dance Event", "Melkweg", "Shelter Amsterdam", "Paradiso Amsterdam",
   ],
   nyc_scene: [
-    "Brooklyn Mirage", "House of Yes", "Nowadays",
-    "Output Brooklyn",
-  ],
-  hard_techno: [
-    "Awakenings", "Awakenings Festival", "Rebekah",
-    "Blawan", "Paula Temple", "Karenn",
-    "Oscar Mulero", "Trym", "hard techno", "industrial techno",
-  ],
-  hardcore: [
-    "Q-Dance", "Defqon.1", "Noisecontrollers",
-    "Coone", "Headhunterz", "Hardstyle music",
-    "gabber music", "hardcore music",
-  ],
-  psy_trance: [
-    "psytrance", "Goa trance", "Infected Mushroom",
-    "Astrix", "Ozora Festival", "Spirit Festival",
-    "Shpongle",
-  ],
-  queer_underground: [
-    "queer clubbing", "LGBTQ nightlife",
-    "Pxssy Palace", "Body Movements Festival",
-    "ballroom culture", "vogue ball", "queer rave",
-  ],
-  avant_garde_fashion: [
-    "Maison Margiela", "Raf Simons", "Comme des Garçons",
-    "Rick Owens", "Yohji Yamamoto", "Ann Demeulemeester",
-    "Alexander Wang (designer)", "Balenciaga (fashion brand)", "avant-garde fashion",
-  ],
-  editorial_fashion: [
-    "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
-    "V Magazine", "METAL Magazine", "System Magazine",
-    "Garage Magazine", "032c", "GQ",
+    "Brooklyn Mirage", "House of Yes", "Nowadays", "Output Brooklyn",
   ],
   dance_media: [
-    "Mixmag", "Resident Advisor", "DJ Mag",
-    "Boiler Room", "Red Bull Music Academy", "FACT Magazine",
+    "Mixmag", "Resident Advisor", "DJ Mag", "Boiler Room",
+    "Red Bull Music Academy", "FACT Magazine",
   ],
-  rave_fashion: [
-    "Palace Skateboards", "Carhartt WIP", "Stüssy",
-    "Off-White", "Raf Simons", "festival fashion",
+  hardcore: [
+    "Q-Dance", "Defqon.1", "Hardstyle music", "gabber music",
+    "Headhunterz", "hardcore music",
+  ],
+  psy_trance: [
+    "psytrance", "Goa trance", "Infected Mushroom", "Astrix",
+    "Ozora Festival", "Shpongle",
+  ],
+  queer_underground: [
+    "LGBTQ nightlife", "queer clubbing", "ballroom culture",
+    "vogue ball", "queer rave",
   ],
 };
 
 const FASHION_ENTITIES: Partial<Record<SceneTag, string[]>> = {
-  hard_techno: ["Carhartt WIP", "032c", "MISBHV", "Heliot Emil", "Aries Arise", "New Balance (footwear)", "Salomon (footwear)"],
-  techno: ["032c", "Carhartt WIP", "Stüssy", "Nike Sportswear", "vintage clothing"],
-  underground_dance: ["Palace Skateboards", "Stüssy", "vintage clothing", "Nike Sportswear", "thrift store fashion"],
-  tech_house: ["Zara (clothing)", "ASOS (retailer)", "Ibiza fashion", "summer fashion"],
-  deep_house: ["streetwear", "independent fashion", "vintage clothing"],
-  house_music: ["streetwear", "Nike", "Adidas"],
-  festival_circuit: ["festival fashion", "boho fashion", "ASOS (retailer)"],
-  drum_and_bass: ["Nike Sportswear", "The North Face (clothing)", "Supreme (brand)", "streetwear"],
-  garage_uk: ["Nike Sportswear", "Stone Island", "CP Company", "streetwear"],
-  afrobeats: ["African fashion", "Nigerian fashion", "streetwear"],
-  trance: ["festival fashion", "rave fashion", "sports fashion"],
-  avant_garde_fashion: ["Maison Margiela", "Rick Owens", "Comme des Garçons", "Yohji Yamamoto", "Ann Demeulemeester", "Issey Miyake", "Jil Sander", "Helmut Lang", "Martin Margiela", "Balenciaga (fashion brand)"],
-  editorial_fashion: ["Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine", "V Magazine", "METAL Magazine", "032c", "GQ", "Vogue", "W Magazine"],
-  rave_fashion: ["Palace Skateboards", "Carhartt WIP", "Stüssy", "Off-White", "festival fashion", "Supreme (brand)"],
-  queer_underground: ["queer fashion", "ballroom fashion", "drag", "non-binary fashion", "gender-fluid fashion"],
-  edm_mainstage: ["festival fashion", "ASOS (retailer)", "Boohoo", "PrettyLittleThing"],
+  hard_techno: [
+    "Rick Owens", "Maison Margiela", "Raf Simons", "032c",
+    "Comme des Garçons", "Carhartt WIP", "MISBHV", "Heliot Emil",
+    "Yohji Yamamoto", "Ann Demeulemeester", "Balenciaga (fashion brand)",
+    "Dazed & Confused (magazine)", "i-D (magazine)",
+  ],
+  techno: [
+    "Rick Owens", "Maison Margiela", "Raf Simons", "032c",
+    "Carhartt WIP", "Comme des Garçons", "Helmut Lang",
+    "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
+  ],
+  underground_dance: [
+    "Rick Owens", "Maison Margiela", "Raf Simons",
+    "Palace Skateboards", "Stüssy", "Carhartt WIP", "032c",
+    "Dazed & Confused (magazine)", "i-D (magazine)", "METAL Magazine",
+    "Another Magazine", "GQ",
+  ],
+  tech_house: [
+    "Zara (clothing)", "ASOS (retailer)", "Nike", "Adidas",
+    "Ray-Ban", "Hugo Boss (fashion brand)",
+  ],
+  deep_house: [
+    "Stüssy", "Carhartt WIP", "Nike", "Adidas",
+    "GQ", "Esquire (magazine)",
+  ],
+  house_music: [
+    "Nike", "Adidas", "GQ", "Stüssy",
+  ],
+  festival_circuit: [
+    "ASOS (retailer)", "Dr. Martens", "Vans (brand)",
+    "Ray-Ban", "Levi Strauss & Co.",
+  ],
+  drum_and_bass: [
+    "Nike Sportswear", "The North Face (clothing)", "Supreme (brand)",
+    "Stone Island", "Palace Skateboards",
+  ],
+  garage_uk: [
+    "Nike Sportswear", "Stone Island", "CP Company",
+    "Moschino", "Versace",
+  ],
+  afrobeats: [
+    "Nike", "Puma (brand)", "Off-White", "Gucci",
+  ],
+  trance: [
+    "ASOS (retailer)", "Nike", "Adidas",
+  ],
+  avant_garde_fashion: [
+    "Maison Margiela", "Rick Owens", "Comme des Garçons",
+    "Yohji Yamamoto", "Ann Demeulemeester", "Issey Miyake",
+    "Jil Sander", "Helmut Lang", "Balenciaga (fashion brand)",
+    "Alexander Wang (designer)", "Damir Doma",
+    "Dries Van Noten", "Haider Ackermann",
+  ],
+  editorial_fashion: [
+    "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
+    "V Magazine", "METAL Magazine", "032c", "GQ", "Vogue",
+    "W Magazine", "Self Service (magazine)", "System Magazine",
+    "Garage Magazine", "Purple (magazine)",
+  ],
+  rave_fashion: [
+    "Palace Skateboards", "Carhartt WIP", "Stüssy",
+    "Off-White", "Supreme (brand)", "032c",
+  ],
+  queer_underground: [
+    "Vivienne Westwood", "Jean Paul Gaultier", "Rick Owens",
+    "Dazed & Confused (magazine)", "i-D (magazine)",
+  ],
+  edm_mainstage: [
+    "ASOS (retailer)", "PrettyLittleThing", "Boohoo",
+  ],
 };
 
 const LIFESTYLE_ENTITIES: Partial<Record<SceneTag, string[]>> = {
-  hard_techno: ["nightlife", "nightclub", "weight training", "CrossFit", "boxing", "mixed martial arts", "running", "underground nightlife"],
-  techno: ["nightclub", "Berlin (travel)", "vinyl records", "craft beer", "natural wine", "specialty coffee"],
-  underground_dance: ["vinyl records", "craft beer", "natural wine", "specialty coffee", "independent bookshops", "record collecting", "cycling"],
-  tech_house: ["Ibiza (island)", "luxury hotels", "cocktails", "fine dining", "yacht", "beach club", "sun holidays"],
-  deep_house: ["jazz", "cocktail bar", "lounge", "vinyl records", "soul music"],
-  house_music: ["nightlife", "cocktail bar", "city break", "going out"],
-  progressive_house: ["outdoor adventure", "camping", "road trip", "surfing"],
-  festival_circuit: ["camping", "outdoor adventure", "backpacking", "travel", "road trip", "glamping"],
-  drum_and_bass: ["skateboarding", "graffiti", "street art", "BMX", "urban sports"],
-  garage_uk: ["football", "basketball", "sneaker collecting", "streetwear culture", "urban lifestyle"],
-  afrobeats: ["Afro culture", "diaspora", "African cuisine", "African travel"],
-  trance: ["yoga", "meditation", "spiritual wellness", "outdoor activities", "hiking"],
-  psy_trance: ["yoga", "meditation", "spiritual wellness", "psychedelic culture", "outdoor festival"],
-  edm_mainstage: ["music festival", "party", "social media", "influencer culture", "selfie culture"],
-  queer_underground: ["LGBTQ nightlife", "queer culture", "drag culture", "ballroom", "Pride"],
-  london_scene: ["London nightlife", "London restaurants", "East London", "Shoreditch"],
-  berlin_scene: ["Berlin nightlife", "Berlin travel", "Kreuzberg", "Neukölln"],
-  ibiza_scene: ["Ibiza nightlife", "Ibiza travel", "Balearic Islands", "beach lifestyle"],
-  amsterdam_scene: ["Amsterdam nightlife", "Amsterdam travel", "Dutch culture"],
-  avant_garde_fashion: ["art gallery", "fashion week", "design museum", "boutique hotel"],
-  editorial_fashion: ["fashion photography", "fashion week", "creative industry", "design"],
-  rave_fashion: ["rave culture", "warehouse party", "underground nightlife"],
-  hardcore: ["hardcore fitness", "extreme sports", "martial arts"],
+  hard_techno: [
+    "weight training", "CrossFit", "boxing", "mixed martial arts",
+    "running", "gym", "bodybuilding", "calisthenics",
+    "craft beer", "natural wine", "vinyl records",
+  ],
+  techno: [
+    "vinyl records", "craft beer", "natural wine",
+    "specialty coffee", "tattoo", "cycling",
+    "Berlin (travel)", "city break",
+  ],
+  underground_dance: [
+    "vinyl records", "craft beer", "natural wine",
+    "specialty coffee", "tattoo", "record collecting",
+    "cycling", "vegetarianism", "thrift shopping",
+  ],
+  tech_house: [
+    "Ibiza (island)", "cocktails", "beach club",
+    "yacht", "luxury travel", "Marbella",
+  ],
+  deep_house: [
+    "jazz", "cocktails", "vinyl records",
+    "soul music", "wine", "cooking",
+  ],
+  house_music: [
+    "cocktails", "city break", "cooking",
+    "wine", "brunch",
+  ],
+  progressive_house: [
+    "outdoor adventure", "camping", "surfing",
+    "road trip", "hiking", "snowboarding",
+  ],
+  festival_circuit: [
+    "camping", "backpacking", "travel",
+    "road trip", "glamping", "outdoor adventure",
+  ],
+  drum_and_bass: [
+    "skateboarding", "graffiti", "BMX",
+    "football", "sneakers", "gaming",
+  ],
+  garage_uk: [
+    "football", "basketball", "sneakers",
+    "barber shop", "streetwear",
+  ],
+  afrobeats: [
+    "African cuisine", "travel to Africa",
+    "entrepreneurship", "fashion",
+  ],
+  trance: [
+    "yoga", "meditation", "hiking",
+    "outdoor activities", "spirituality",
+  ],
+  psy_trance: [
+    "yoga", "meditation", "spirituality",
+    "vegetarianism", "outdoor festival",
+  ],
+  edm_mainstage: [
+    "music festival", "social media",
+    "fitness", "travel",
+  ],
+  queer_underground: [
+    "LGBTQ culture", "drag", "Pride",
+    "queer art", "ballroom culture",
+  ],
+  london_scene: [
+    "London restaurants", "East London",
+    "Shoreditch", "Peckham",
+  ],
+  berlin_scene: [
+    "Berlin travel", "Kreuzberg",
+    "vegan food", "cycling",
+  ],
+  ibiza_scene: [
+    "Ibiza travel", "Balearic Islands",
+    "beach lifestyle", "yoga",
+  ],
+  amsterdam_scene: [
+    "Amsterdam travel", "cycling", "Dutch culture",
+  ],
+  avant_garde_fashion: [
+    "art gallery", "boutique hotel",
+    "design museum", "architecture",
+  ],
+  editorial_fashion: [
+    "fashion photography", "creative industry",
+    "design", "photography",
+  ],
+  hardcore: [
+    "martial arts", "CrossFit", "extreme sports",
+    "weight training", "powerlifting",
+  ],
 };
 
 const MEDIA_ENTITIES: Partial<Record<SceneTag, string[]>> = {
@@ -486,6 +597,7 @@ const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
     "drum_and_bass", "trance", "afrobeats", "garage_uk", "edm_mainstage",
     "underground_dance", "queer_underground", "festival_circuit",
     "london_scene", "berlin_scene", "ibiza_scene", "amsterdam_scene", "nyc_scene",
+    "dance_media",
   ],
   "Fashion & Streetwear": [
     "techno", "hard_techno", "hardcore", "psy_trance",
@@ -504,61 +616,65 @@ const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
     "dance_media", "rave_fashion", "avant_garde_fashion", "editorial_fashion",
   ],
   "Activities & Culture": [
-    "london_scene", "berlin_scene", "amsterdam_scene", "underground_dance",
-    "queer_underground", "avant_garde_fashion",
+    "techno", "hard_techno", "underground_dance", "deep_house", "house_music",
+    "drum_and_bass", "festival_circuit",
+    "london_scene", "berlin_scene", "amsterdam_scene", "nyc_scene",
+    "queer_underground", "avant_garde_fashion", "editorial_fashion",
   ],
   "Media & Entertainment": [
     "dance_media", "editorial_fashion", "underground_dance",
     "techno", "hard_techno", "tech_house", "deep_house", "house_music",
-    "drum_and_bass", "festival_circuit",
+    "progressive_house", "drum_and_bass", "trance", "afrobeats", "garage_uk",
+    "edm_mainstage", "festival_circuit", "queer_underground",
   ],
 };
 
 const CLUSTER_PATH_PATTERNS: Record<string, RegExp> = {
   "Music & Nightlife":
-    /music|nightlife|club|festival|dj|performer|concert|artist|entertainment/i,
+    /music|nightlife|club|festival|dj|performer|concert|artist|record\s*label|genre|band/i,
   "Fashion & Streetwear":
-    /fashion|clothing|apparel|style|luxury|designer|streetwear|accessories/i,
+    /fashion|clothing|apparel|style|designer|streetwear|accessories|brand|magazine|footwear|jewel/i,
   "Lifestyle & Nightlife":
-    /lifestyle|travel|luxury|hotel|dining|nightlife|social|going\s*out/i,
+    /lifestyle|travel|hotel|dining|fitness|sport|food|drink|hobby|recreation|outdoor|wellness/i,
   "Activities & Culture":
-    /art|culture|design|museum|photography|creative|gallery|exhibition/i,
+    /art|culture|design|museum|photography|creative|gallery|exhibition|theatre|cinema/i,
   "Media & Entertainment":
-    /media|magazine|publication|news|journalism|entertainment|radio|streaming/i,
+    /media|magazine|publication|news|journalism|radio|streaming|podcast|broadcast/i,
 };
 
 const CURATED_SEEDS: Record<string, string[]> = {
   "Music & Nightlife": [
-    "Boiler Room", "Resident Advisor", "Awakenings Festival",
-    "Berghain", "techno music", "underground dance music",
-    "electronic dance music", "music festival", "nightclub",
+    "techno music", "electronic dance music", "house music",
+    "Boiler Room", "Resident Advisor", "Mixmag", "DJ Mag",
+    "Awakenings Festival", "Berghain", "Fabric nightclub",
+    "underground dance music", "rave", "music festival",
   ],
   "Fashion & Streetwear": [
-    "Maison Margiela", "Raf Simons", "Balenciaga (fashion brand)",
-    "Comme des Garçons", "Rick Owens", "GQ",
+    "Rick Owens", "Maison Margiela", "Raf Simons",
+    "Comme des Garçons", "Balenciaga (fashion brand)", "Yohji Yamamoto",
     "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
-    "METAL Magazine", "Alexander Wang (designer)", "Ann Demeulemeester",
+    "GQ", "Vogue", "METAL Magazine",
+    "Carhartt WIP", "Palace Skateboards", "032c",
   ],
   "Lifestyle & Nightlife": [
-    "nightlife", "nightclub", "cocktail bar", "craft beer",
-    "natural wine", "specialty coffee", "vinyl records",
     "weight training", "CrossFit", "boxing", "running",
-    "yoga", "outdoor adventure", "camping", "city break",
-    "boutique hotel", "street food", "food market",
+    "craft beer", "natural wine", "vinyl records",
+    "yoga", "cycling", "tattoo",
+    "camping", "city break", "cocktails",
   ],
   "Activities & Culture": [
-    "contemporary art", "art gallery", "museum",
-    "street art", "urban culture", "art exhibition",
+    "contemporary art", "art gallery", "street art",
+    "photography", "design", "architecture",
   ],
   "Media & Entertainment": [
     "Mixmag", "Resident Advisor", "Boiler Room", "DJ Mag",
-    "music journalism", "entertainment news",
+    "FACT Magazine", "NTS Radio", "Rinse FM",
   ],
 };
 
 const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
   "Music & Nightlife": [
-    /\b(video.?game|gaming|esport|gamer|fortnite|minecraft|call.of.duty|league.of.legends)\b/i,
+    /\b(video.?game|gaming|esport|gamer|fortnite|minecraft|call.of.duty|league.of.legends|the\s*sims)\b/i,
     /\b(driving.?game|racing.?game|driving.?sim|car.?game)\b/i,
     /\b(language.?learn|english.?course|ielts|toefl|exam.?prep|duolingo|study.?abroad)\b/i,
     /\b(stock.?market|investing|cryptocurrency|forex|bitcoin|crypto|fintech)\b/i,
@@ -567,30 +683,56 @@ const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
     /\b(coding|programming|software.?engineer|web.?develop)\b/i,
     /\b(performing\s*arts|classical\s*music|opera|ballet|musical\s*theatre|orchestra)\b/i,
     /\b(rock\s*music|punk\s*rock|metal\s*music|indie\s*rock|alternative\s*rock|pop\s*rock)\b/i,
+    /\b(fashion\s*brand|designer\s*brand|luxury\s*brand|haute\s*couture)\b/i,
+    /\b(home\s*decor|interior\s*design|gardening|DIY|home\s*improvement)\b/i,
   ],
   "Fashion & Streetwear": [
-    /\b(video.?game|gaming|esport|gamer)\b/i,
+    /\b(video.?game|gaming|esport|gamer|the\s*sims)\b/i,
     /\b(language.?learn|ielts|toefl|exam.?prep)\b/i,
     /\b(parenting|mommy|toddler|pregnancy)\b/i,
     /\b(cryptocurrency|forex|stock.?market)\b/i,
     /\b(cooking|recipe|culinary|food.?blog)\b/i,
-    /\b(pop\s*music|chart\s*music|mainstream|top.?40)\b/i,
+    /\b(pop\s*music|chart\s*music|top.?40)\b/i,
     /\b(celebrity|reality\s*tv|soap\s*opera|talent\s*show)\b/i,
-    /\b(gym|fitness|bodybuilding|crossfit|workout)\b/i,
-    /\b(sports?\s*team|football|basketball|cricket)\b/i,
+    /\b(gym|fitness|bodybuilding|crossfit|workout|weight\s*training)\b/i,
+    /\b(sports?\s*team|football\s*club|basketball\s*team|cricket)\b/i,
+    // Block music artists/DJs/venues/labels from polluting fashion
+    /\b(disc\s*jockey|nightclub|music\s*festival|record\s*label|concert|live\s*music)\b/i,
+    /\b(DJ\s+\w|techno\s*music|electronic\s*dance\s*music|house\s*music|drum\s*and\s*bass)\b/i,
+    /\b(Boiler\s*Room|Resident\s*Advisor|Mixmag|DJ\s*Mag)\b/i,
+    /\b(home\s*decor|gardening|DIY|home\s*improvement)\b/i,
+    /\b(coding|programming|software)\b/i,
   ],
   "Lifestyle & Nightlife": [
-    /\b(video.?game|gaming|esport|gamer)\b/i,
-    /\b(language.?learn|ielts|toefl|exam.?prep)\b/i,
+    // Video games and fictional content
+    /\b(video.?game|gaming|esport|gamer|the\s*sims|fortnite|minecraft|grand\s*theft|call\s*of\s*duty)\b/i,
+    /\b(simulation\s*game|role.?playing\s*game|MMO|MMORPG|expansion\s*pack)\b/i,
+    // Fiction / TV / Film junk
+    /\b(TV\s*series|TV\s*show|soap\s*opera|sitcom|anime|manga|comic\s*book|superhero)\b/i,
+    /\b(Hollywood|Bollywood|Netflix\s*series|Disney|Pixar|Marvel|DC\s*Comics)\b/i,
+    // Academic / language
+    /\b(language.?learn|ielts|toefl|exam.?prep|university\s*course|online\s*course)\b/i,
     /\b(parenting|mommy|toddler|pregnancy)\b/i,
+    /\b(coding|programming|software.?engineer)\b/i,
+    /\b(stock.?market|investing|cryptocurrency|forex)\b/i,
+    // Block music-specific terms from lifestyle
+    /\b(record\s*label|disc\s*jockey|DJ\s+\w|music\s*production|mixing\s*console)\b/i,
+    // Block fashion-specific from lifestyle
+    /\b(haute\s*couture|fashion\s*week|fashion\s*designer|runway|catwalk)\b/i,
   ],
   "Activities & Culture": [
-    /\b(video.?game|gaming|esport|gamer)\b/i,
+    /\b(video.?game|gaming|esport|gamer|the\s*sims)\b/i,
     /\b(parenting|mommy|toddler|pregnancy)\b/i,
+    /\b(coding|programming|software)\b/i,
+    /\b(stock.?market|cryptocurrency|forex)\b/i,
+    /\b(reality\s*tv|soap\s*opera|talent\s*show|celebrity\s*gossip)\b/i,
   ],
   "Media & Entertainment": [
     /\b(parenting|mommy|toddler|pregnancy)\b/i,
     /\b(language.?learn|ielts|toefl|exam.?prep)\b/i,
+    /\b(video.?game|gaming|esport|the\s*sims)\b/i,
+    /\b(stock.?market|cryptocurrency|forex)\b/i,
+    /\b(home\s*decor|gardening|DIY)\b/i,
   ],
 };
 
@@ -927,7 +1069,7 @@ function buildClusterTerms(
   }
   // High/very_high → no curated seeds; rely entirely on entity signals
 
-  const maxTerms = confidence >= 75 ? 12 : confidence >= 50 ? 18 : 24;
+  const maxTerms = confidence >= 75 ? 18 : confidence >= 50 ? 24 : 30;
   return sorted.slice(0, maxTerms);
 }
 
@@ -968,10 +1110,16 @@ function buildSceneKeywords(tagWeights: Map<SceneTag, number>, clusterLabel: str
   const kws = new Map<string, number>();
   for (const [tag, weight] of tagWeights.entries()) {
     for (const entity of entities[tag] ?? []) {
+      // Full entity name (lowered, stripped of parentheticals) for exact matching
+      const clean = entity.replace(/\s*\([^)]*\)/g, "").trim().toLowerCase();
+      if (clean.length >= 3) {
+        kws.set(clean, Math.max(kws.get(clean) ?? 0, weight));
+      }
+      // Individual words ≥3 chars for partial matching
       for (const word of entity.split(/\s+/)) {
-        if (word.length >= 4) {
-          const kw = word.toLowerCase();
-          kws.set(kw, Math.max(kws.get(kw) ?? 0, weight));
+        const w = word.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (w.length >= 3) {
+          kws.set(w, Math.max(kws.get(w) ?? 0, weight * 0.8));
         }
       }
     }
@@ -1086,9 +1234,10 @@ async function discoverForCluster(
   const minScore = confidence >= 75 ? 15 : confidence >= 50 ? 5 : 0;
 
   console.info(
-    `[interest-discover] cluster="${clusterLabel}" confidence=${confidence}` +
-    ` hints(${extraHints.length}): ${extraHints.slice(0, 4).join(", ")}` +
-    ` | entity-terms(${entityTerms.length}): ${entityTerms.slice(0, 5).join(", ")}${entityTerms.length > 5 ? "…" : ""}`,
+    `[interest-discover] ═══ CLUSTER: "${clusterLabel}" ═══ confidence=${confidence}\n` +
+    `  candidate-pool(${allTerms.length}): ${allTerms.join(", ")}\n` +
+    `  entity-terms(${entityTerms.length}): ${entityTerms.join(", ")}\n` +
+    `  hints(${extraHints.length}): ${extraHints.join(", ")}`,
   );
 
   // ── Phase 1: search all terms ──────────────────────────────────────────────
@@ -1154,13 +1303,20 @@ async function discoverForCluster(
   );
 
   let aboveFloor = scored.filter((i) => (i.relevanceScore ?? 0) >= minScore);
+  const belowFloor = scored.filter((i) => (i.relevanceScore ?? 0) < minScore);
+  if (belowFloor.length > 0) {
+    console.info(
+      `[interest-discover] cluster="${clusterLabel}" rejected-by-score(${belowFloor.length}): ` +
+      belowFloor.slice(0, 8).map((i) => `${i.name}[score=${i.relevanceScore?.toFixed(0)}]`).join(", "),
+    );
+  }
 
   // ── Phase 3: progressive fallback if too few results ──────────────────────
   if (aboveFloor.length < 2 && minScore > 0) {
     console.info(
       `[interest-discover] cluster="${clusterLabel}" score-floor(${minScore}) left ${aboveFloor.length} results; lowering to 0`,
     );
-    aboveFloor = scored; // accept all scored results
+    aboveFloor = scored;
   }
 
   // If still empty, try curated seeds as a last resort (even at high confidence)
@@ -1196,8 +1352,10 @@ async function discoverForCluster(
     .slice(0, maxResults);
 
   console.info(
-    `[interest-discover] cluster="${clusterLabel}" FINAL(${interests.length}): ` +
-    interests.map((i) => `${i.name}[${i.relevanceScore?.toFixed(1)}, ${((i.audienceSize ?? 0) / 1e6).toFixed(1)}M]`).join(" | "),
+    `[interest-discover] cluster="${clusterLabel}" ── FINAL(${interests.length}) ──\n` +
+    interests.map((i) =>
+      `  ✓ ${i.name} [score=${i.relevanceScore?.toFixed(1)}, size=${((i.audienceSize ?? 0) / 1e6).toFixed(1)}M, band=${i.audienceSizeBand}, reason=${i.matchReason}]`
+    ).join("\n"),
   );
 
   return {
