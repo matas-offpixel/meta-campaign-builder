@@ -31,6 +31,8 @@ import {
   extractDeprecatedReplacements,
   applyInterestReplacements,
   sanitiseInterests,
+  hasAudienceTargeting,
+  buildEmptyTargetingReason,
 } from "@/lib/meta/adset";
 import {
   buildCreativePayload,
@@ -880,16 +882,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           );
 
-          // Log exact outbound targeting spec
+          // ── Targeting trace log ──────────────────────────────────────────────
+          const tgt = adSetPayload.targeting;
+          const customAudIds = (tgt.custom_audiences ?? []).map((a) => a.id);
+          const interestIds = (tgt.interests ?? []).map((i) => `${i.name}(${i.id})`);
           console.log(
-            `[launch-campaign] Phase 2 — OUTBOUND targeting for "${adSet.name}":`,
-            JSON.stringify(adSetPayload.targeting, null, 2),
+            `[launch-campaign] Phase 2 — FINAL TARGETING for "${adSet.name}" (${adSet.sourceType}):` +
+            `\n  custom_audiences: [${customAudIds.join(", ") || "EMPTY"}]` +
+            `\n  interests:        [${interestIds.join(", ") || "EMPTY"}]` +
+            `\n  geo_locations:    ${JSON.stringify(tgt.geo_locations)}` +
+            `\n  age:              ${tgt.age_min ?? "?"}–${tgt.age_max ?? "?"}` +
+            `\n  full_targeting:   ${JSON.stringify(tgt)}`,
           );
-          console.log(
-            `[launch-campaign] 📍 GEO for "${adSet.name}":`,
-            `label=${adSet.locationLabel ?? "(default)"}`,
-            `geo_locations=${JSON.stringify(adSetPayload.targeting.geo_locations)}`,
-          );
+
+          // ── Hard targeting validation ─────────────────────────────────────────
+          // Do NOT create ad sets with empty targeting — this would result in
+          // untargeted broad-audience spend across the entire country.
+          if (!hasAudienceTargeting(tgt)) {
+            const reason = buildEmptyTargetingReason(adSet, draft.audiences);
+            console.error(
+              `[launch-campaign] Phase 2 ✗ ABORTED "${adSet.name}" — empty targeting.` +
+              `\n  sourceType: ${adSet.sourceType}` +
+              `\n  reason:     ${reason}` +
+              `\n  custom_audiences in group at this point: ` +
+              (adSet.sourceType === "page_group"
+                ? JSON.stringify(
+                    draft.audiences.pageGroups.find((g) => g.id === adSet.sourceId)?.engagementAudienceIds ?? []
+                  )
+                : "n/a"),
+            );
+            throw { adSet, err: new Error(
+              `No valid targeting — ad set creation aborted. ${reason}`
+            )};
+          }
 
           try {
             const adSetRes = await createMetaAdSet(adAccountId, adSetPayload);
@@ -1082,10 +1107,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           draft.settings.objective,
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
         );
+
+        // Targeting trace log
+        const tgt2b = adSetPayload.targeting;
+        const customAudIds2b = (tgt2b.custom_audiences ?? []).map((a) => a.id);
         console.log(
-          `[launch-campaign] Phase 2b — OUTBOUND targeting for "${adSet.name}":`,
-          JSON.stringify(adSetPayload.targeting, null, 2),
+          `[launch-campaign] Phase 2b — FINAL TARGETING for "${adSet.name}" (${adSet.sourceType}):` +
+          `\n  custom_audiences: [${customAudIds2b.join(", ") || "EMPTY"}]` +
+          `\n  geo_locations:    ${JSON.stringify(tgt2b.geo_locations)}` +
+          `\n  full_targeting:   ${JSON.stringify(tgt2b)}`,
         );
+
+        // Hard targeting validation
+        if (!hasAudienceTargeting(tgt2b)) {
+          const reason = buildEmptyTargetingReason(adSet, draft.audiences);
+          throw new Error(`No valid targeting — ad set creation aborted. ${reason}`);
+        }
 
         const adSetRes = await createMetaAdSet(adAccountId, adSetPayload);
         const dur = elapsed(asStart);

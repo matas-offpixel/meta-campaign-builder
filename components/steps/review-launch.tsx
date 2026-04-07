@@ -371,22 +371,30 @@ function buildMetaLink(
 
 // ── Pre-launch health summary ─────────────────────────────────────────────────
 
+// Client-side replica of the real-Meta-ID check (mirrors isRealMetaId in adset.ts).
+function isRealId(id: string) { return /^\d{10,}$/.test(id); }
+
 function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
   const cachedPages = getCachedUserPages();
 
   // ── Interest group health ────────────────────────────────────────────────
-  const interestHealth = draft.audiences.interestGroups.map((g) => ({
-    id: g.id,
-    name: g.name || "Untitled",
-    count: g.interests.length,
-    empty: g.interests.length === 0,
-  }));
+  const interestHealth = draft.audiences.interestGroups.map((g) => {
+    const realCount = g.interests.filter((i) => isRealId(i.id)).length;
+    return {
+      id: g.id,
+      name: g.name || "Untitled",
+      total: g.interests.length,
+      realCount,
+      empty: g.interests.length === 0,
+      allInvalid: g.interests.length > 0 && realCount === 0,
+    };
+  });
 
   // ── Page group health ─────────────────────────────────────────────────────
   const pageGroupHealth = draft.audiences.pageGroups.map((g) => {
     const isStandardOnly = g.createEngagementAudiences === false;
+    const hasManualAudiences = (g.customAudienceIds ?? []).some(isRealId);
 
-    // If all selected pages have no IG, IG source audiences will be skipped
     const selectedPages = g.pageIds
       .map((id) => cachedPages.find((p) => p.id === id))
       .filter(Boolean);
@@ -395,7 +403,7 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
       if (!p) return false;
       const caps = p.capabilities;
       if (caps?.igFollowersSource === false) return true;
-      return !(p.hasInstagramLinked ?? !!p.instagram_business_account?.id);
+      return !(p.hasInstagramLinked ?? !!(p.instagram_business_account?.id ?? p.connected_instagram_account?.id));
     });
     const allPagesNoIg = selectedPages.length > 0 && noIgPages.length === selectedPages.length;
     const fbCapFailed =
@@ -407,11 +415,17 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
       lookalikesExpected &&
       (allPagesNoIg || fbCapFailed || selectedPages.some((p) => p?.capabilities?.lookalikeEligible === false));
 
+    // Predict whether this group can produce any custom audiences at launch.
+    // Standard-only + no manual audiences = WILL be aborted at launch.
+    const willHaveEmptyTargeting = isStandardOnly && !hasManualAudiences;
+
     return {
       id: g.id,
       name: g.name || "Untitled",
       pageCount: g.pageIds.length,
       isStandardOnly,
+      hasManualAudiences,
+      willHaveEmptyTargeting,
       lookalikesExpected,
       lookalikeBlocked,
       allPagesNoIg,
@@ -419,11 +433,84 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
     };
   });
 
-  const hasInterestWarnings = interestHealth.some((g) => g.empty);
+  // ── Ad set targeting health ───────────────────────────────────────────────
+  // Predict whether each enabled ad set will have audience targeting at launch.
+  const adSetHealth = draft.adSetSuggestions
+    .filter((s) => s.enabled)
+    .map((s) => {
+      let audiencesOk = true;
+      let reason = "";
+      let detail = "";
+
+      switch (s.sourceType) {
+        case "interest_group": {
+          const g = draft.audiences.interestGroups.find((x) => x.id === s.sourceId);
+          if (!g || g.interests.length === 0) {
+            audiencesOk = false;
+            reason = "No interests — will be ABORTED at launch";
+            detail = g ? "Interest group is empty" : "Interest group not found";
+          } else {
+            const real = g.interests.filter((i) => isRealId(i.id)).length;
+            if (real === 0) {
+              audiencesOk = false;
+              reason = "All interests invalid — will be ABORTED at launch";
+              detail = `${g.interests.length} interests but none have valid Meta IDs`;
+            } else {
+              detail = `${real}/${g.interests.length} valid interests`;
+            }
+          }
+          break;
+        }
+        case "page_group": {
+          const g = draft.audiences.pageGroups.find((x) => x.id === s.sourceId);
+          if (!g) { audiencesOk = false; reason = "Group not found"; break; }
+          const hasManual = (g.customAudienceIds ?? []).some(isRealId);
+          if (g.createEngagementAudiences === false && !hasManual) {
+            audiencesOk = false;
+            reason = "Engagement disabled + no custom audiences — will be ABORTED";
+            detail = "Enable engagement audiences or manually select custom audiences";
+          } else if (g.pageIds.length === 0 && !hasManual) {
+            audiencesOk = false;
+            reason = "No pages selected and no custom audiences";
+          } else {
+            detail = g.createEngagementAudiences === false
+              ? `Standard-only (${g.customAudienceIds?.length ?? 0} manual audiences)`
+              : `${g.pageIds.length} pages → engagement audiences will be created at launch`;
+          }
+          break;
+        }
+        case "custom_group": {
+          const g = draft.audiences.customAudienceGroups.find((x) => x.id === s.sourceId);
+          const realCount = (g?.audienceIds ?? []).filter(isRealId).length;
+          if (realCount === 0) {
+            audiencesOk = false;
+            reason = "No valid custom audience IDs — will be ABORTED";
+          } else {
+            detail = `${realCount} custom audience${realCount !== 1 ? "s" : ""}`;
+          }
+          break;
+        }
+        case "lookalike_group":
+        case "selected_pages_lookalike":
+          detail = "Lookalike audiences created at launch (requires source audiences)";
+          break;
+        case "saved_audience":
+          detail = isRealId(s.sourceId) ? "Saved audience" : "Invalid saved audience ID";
+          if (!isRealId(s.sourceId)) { audiencesOk = false; reason = "Invalid saved audience ID"; }
+          break;
+      }
+
+      return { id: s.id, name: s.name, sourceType: s.sourceType, audiencesOk, reason, detail };
+    });
+
+  const hasInterestWarnings = interestHealth.some((g) => g.empty || g.allInvalid);
   const hasPageWarnings = pageGroupHealth.some(
-    (g) => g.isStandardOnly || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed,
+    (g) => g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed,
   );
-  const hasAnyWarning = hasInterestWarnings || hasPageWarnings;
+  const hasAdSetWarnings = adSetHealth.some((s) => !s.audiencesOk);
+  const hasAnyWarning = hasInterestWarnings || hasPageWarnings || hasAdSetWarnings;
+
+  const criticalCount = adSetHealth.filter((s) => !s.audiencesOk).length;
 
   if (!hasAnyWarning && interestHealth.length === 0 && pageGroupHealth.length === 0) {
     return null;
@@ -431,14 +518,55 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
 
   return (
     <Card className={hasAnyWarning ? "border-warning/40 bg-warning/5" : "border-success/40 bg-success/5"}>
-      <div className="flex items-center gap-2">
-        <Info className={`h-4 w-4 shrink-0 ${hasAnyWarning ? "text-warning" : "text-success"}`} />
-        <CardTitle className={`text-sm ${hasAnyWarning ? "text-warning" : "text-success"}`}>
-          Pre-launch health check
-        </CardTitle>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Info className={`h-4 w-4 shrink-0 ${hasAnyWarning ? "text-warning" : "text-success"}`} />
+          <CardTitle className={`text-sm ${hasAnyWarning ? "text-warning" : "text-success"}`}>
+            Pre-launch health check
+          </CardTitle>
+        </div>
+        {criticalCount > 0 && (
+          <Badge variant="destructive" className="text-[10px]">
+            {criticalCount} ad set{criticalCount !== 1 ? "s" : ""} will be aborted
+          </Badge>
+        )}
       </div>
 
-      <div className="mt-3 space-y-3">
+      <div className="mt-3 space-y-4">
+        {/* Ad set targeting health — shown first and prominently */}
+        {adSetHealth.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Ad Set Targeting
+            </p>
+            <div className="space-y-1">
+              {adSetHealth.map((s) => (
+                <div key={s.id} className="flex items-start gap-2">
+                  {s.audiencesOk ? (
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                  ) : (
+                    <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                  )}
+                  <div className="text-xs">
+                    <span className="font-medium">{s.name}</span>
+                    <span className="ml-1.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+                      {s.sourceType.replace(/_/g, " ")}
+                    </span>
+                    {s.audiencesOk ? (
+                      <span className="ml-1 text-muted-foreground"> — {s.detail}</span>
+                    ) : (
+                      <>
+                        <div className="mt-0.5 font-medium text-destructive">{s.reason}</div>
+                        {s.detail && <div className="text-[11px] text-muted-foreground">{s.detail}</div>}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Interest groups */}
         {interestHealth.length > 0 && (
           <div>
@@ -448,7 +576,7 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
             <div className="space-y-1">
               {interestHealth.map((g) => (
                 <div key={g.id} className="flex items-start gap-2">
-                  {g.empty ? (
+                  {g.empty || g.allInvalid ? (
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                   ) : (
                     <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
@@ -456,9 +584,11 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
                   <span className="text-xs">
                     <span className="font-medium">{g.name}</span>
                     {g.empty ? (
-                      <span className="text-warning"> — no interests added, will use broad targeting</span>
+                      <span className="text-warning"> — no interests added</span>
+                    ) : g.allInvalid ? (
+                      <span className="text-warning"> — {g.total} interests but all have invalid IDs</span>
                     ) : (
-                      <span className="text-muted-foreground"> — {g.count} interest{g.count !== 1 ? "s" : ""}</span>
+                      <span className="text-muted-foreground"> — {g.realCount}/{g.total} valid</span>
                     )}
                   </span>
                 </div>
@@ -475,10 +605,12 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
             </p>
             <div className="space-y-2">
               {pageGroupHealth.map((g) => {
-                const warn = g.isStandardOnly || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed;
+                const warn = g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed;
                 return (
                   <div key={g.id} className="flex items-start gap-2">
-                    {warn ? (
+                    {g.willHaveEmptyTargeting ? (
+                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                    ) : warn ? (
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                     ) : (
                       <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
@@ -488,15 +620,19 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
                       <span className="text-muted-foreground">
                         {" "}({g.pageCount} page{g.pageCount !== 1 ? "s" : ""})
                       </span>
-                      {g.isStandardOnly && (
+                      {g.willHaveEmptyTargeting ? (
+                        <div className="mt-0.5 font-medium text-destructive">
+                          Will be ABORTED — engagement disabled and no custom audiences selected
+                        </div>
+                      ) : g.isStandardOnly ? (
                         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                          <span className="text-success">✓ Standard targeting</span>
+                          <span className="text-success">✓ Standard targeting ({g.hasManualAudiences ? "manual audiences" : "engagement"})</span>
                           <span className="text-warning">✗ Engagement source audiences disabled</span>
                           {g.lookalikesExpected && (
-                            <span className="text-warning">✗ Lookalikes disabled (no engagement source)</span>
+                            <span className="text-warning">✗ Lookalikes disabled</span>
                           )}
                         </div>
-                      )}
+                      ) : null}
                       {!g.isStandardOnly && g.allPagesNoIg && (
                         <div className="mt-0.5 text-[11px] text-warning">
                           No linked Instagram — IG source audiences will be skipped
@@ -504,7 +640,7 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
                       )}
                       {!g.isStandardOnly && g.fbCapFailed && (
                         <div className="mt-0.5 text-[11px] text-warning">
-                          FB source audience permission failures recorded from a previous launch
+                          FB source audience permission failures from a previous launch
                         </div>
                       )}
                     </div>

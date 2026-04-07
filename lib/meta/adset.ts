@@ -382,6 +382,67 @@ export function buildMetaTargeting(
   return targeting;
 }
 
+// ─── Targeting validation ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if the targeting spec contains at least one meaningful audience
+ * signal beyond pure geo + age/gender.
+ *
+ * Broad targeting (no custom audiences and no interests) is NOT acceptable —
+ * it would result in untargeted ad spend across the entire country.
+ *
+ * Saved audiences and lookalike audiences both land in custom_audiences so they
+ * are covered by the first check.
+ */
+export function hasAudienceTargeting(targeting: MetaTargeting): boolean {
+  if ((targeting.custom_audiences?.length ?? 0) > 0) return true;
+  if ((targeting.interests?.length ?? 0) > 0) return true;
+  return false;
+}
+
+/**
+ * Returns a human-readable reason WHY targeting is empty for an ad set,
+ * so failure messages are actionable rather than generic.
+ */
+export function buildEmptyTargetingReason(
+  adSet: AdSetSuggestion,
+  audiences: AudienceSettings,
+): string {
+  switch (adSet.sourceType) {
+    case "page_group": {
+      const group = audiences.pageGroups.find((g) => g.id === adSet.sourceId);
+      if (!group) return "page group not found in draft";
+      const hasUserAudiences = (group.customAudienceIds ?? []).some((id) => /^\d{10,}$/.test(id));
+      const hasEngagementAudiences = (group.engagementAudienceIds ?? []).some((id) => /^\d{10,}$/.test(id));
+      if (group.createEngagementAudiences === false && !hasUserAudiences)
+        return "engagement source audiences disabled and no custom audiences selected — " +
+               "this group is standard-only but has no audiences to target";
+      if (!hasEngagementAudiences && !hasUserAudiences)
+        return "all engagement audience creation failed and no custom audiences were manually selected";
+      return "no valid custom audience IDs (all IDs failed real-ID validation)";
+    }
+    case "interest_group": {
+      const group = audiences.interestGroups.find((g) => g.id === adSet.sourceId);
+      if (!group) return "interest group not found in draft";
+      const total = group.interests.length;
+      const realCount = group.interests.filter((i) => /^\d{10,}$/.test(i.id)).length;
+      if (total === 0) return "interest group is empty — no interests added";
+      if (realCount === 0)
+        return `all ${total} interest(s) have non-Meta IDs or were removed by preflight sanitisation`;
+      return `${realCount} of ${total} interests have valid IDs but targeting still resolved empty`;
+    }
+    case "custom_group": {
+      const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
+      if (!group) return "custom audience group not found in draft";
+      return `all ${group.audienceIds.length} custom audience ID(s) failed real-ID validation`;
+    }
+    case "saved_audience":
+      return `saved audience ID "${adSet.sourceId}" is not a real Meta numeric ID`;
+    default:
+      return "no audience targeting sources configured";
+  }
+}
+
 // ─── Promoted object builder ──────────────────────────────────────────────────
 
 /**
