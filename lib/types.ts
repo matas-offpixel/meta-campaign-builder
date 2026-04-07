@@ -238,6 +238,37 @@ export interface PlacementOption {
 
 // ─── Audience building types ───
 
+/**
+ * Rich status record for a single engagement custom audience created during
+ * a launch. Persisted on PageAudienceGroup so subsequent launches can reuse
+ * existing audiences and track the full readiness lifecycle.
+ */
+export interface EngagementAudienceStatus {
+  /** Meta custom audience ID */
+  id: string;
+  type: EngagementType;
+  /** Facebook page ID this audience was created from */
+  pageId: string;
+  pageName?: string;
+  /** ISO timestamp when the audience was first created */
+  createdAt: string;
+  /** ISO timestamp of the most recent readiness check */
+  lastCheckedAt?: string;
+  /** operation_status.code from Meta — 200=ready, 400=processing, 441=populating, 401=error */
+  lastReadinessCode?: number;
+  lastReadinessDescription?: string;
+  /** True once operation_status.code = 200 */
+  readyForLookalike: boolean;
+  /**
+   * True when Meta returned code 441 ("We're finding people who fit your
+   * audience criteria…"). The audience exists but is not yet ready to seed
+   * a lookalike. Will become ready after Meta finishes populating it.
+   */
+  populating: boolean;
+  /** Lookalike audience ID if a lookalike was successfully created from this source */
+  lookalikeId?: string;
+}
+
 export interface PageAudienceGroup {
   id: string;
   name: string;
@@ -264,11 +295,16 @@ export interface PageAudienceGroup {
   engagementAudienceIds?: string[];
   /**
    * Best engagement audience ID per type from the most recent successful run.
-   * Used by Phase 1.75 as fallback seeds on re-launch if no fresh audiences
-   * were created in this run (e.g. if Phase 1.5 was skipped because audiences
-   * already exist). Keyed by EngagementAudienceType.
+   * Simple lookup for Phase 1.75 seed ranking.
    */
   engagementAudiencesByType?: Partial<Record<EngagementType, string>>;
+  /**
+   * Rich per-audience status records persisted across launches.
+   * Each entry tracks creation, readiness, and lookalike outcome for one
+   * engagement audience. Used to reuse existing audiences on re-launch and
+   * to drive the "Retry lookalikes" flow.
+   */
+  engagementAudienceStatuses?: EngagementAudienceStatus[];
   /** Populated at launch — IDs of lookalike audiences created in Meta */
   lookalikeAudienceIds?: string[];
 }
@@ -667,6 +703,28 @@ export interface LaunchSummary {
   /** Lookalike audiences created from engagement audiences (Phase 1.75) */
   lookalikeAudiencesCreated?: { name: string; id: string; range: string; durationMs?: number }[];
   lookalikeAudiencesFailed?: { name: string; range: string; error: string; skippedReason?: string }[];
+  /**
+   * Lookalikes deferred because the source audience exists but is still
+   * being populated by Meta (code 441). These can be retried via the
+   * "Retry lookalikes" action once Meta finishes populating.
+   */
+  lookalikesDeferred?: {
+    name: string;
+    range: string;
+    seedAudienceId: string;
+    seedType: string;
+    pageGroupId: string;
+    reason: string;
+  }[];
+  /**
+   * Updated engagement audience statuses to persist back to the draft.
+   * Wizard-shell applies these after a launch so the next launch/retry
+   * has accurate readiness info without re-creating audiences.
+   */
+  updatedEngagementStatuses?: Array<{
+    groupId: string;
+    statuses: EngagementAudienceStatus[];
+  }>;
   /** Deprecated interests that were auto-replaced during ad set creation */
   interestReplacements?: { deprecated: string; replacement: string | null; adSetName: string }[];
   adSetsCreated: {

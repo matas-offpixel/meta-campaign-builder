@@ -104,6 +104,24 @@ export function WizardShell({ draftId }: WizardShellProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launchSummary]);
 
+  // After launch, persist updatedEngagementStatuses back into the draft so
+  // the next launch/retry knows which source audiences already exist in Meta.
+  useEffect(() => {
+    if (!launchSummary?.updatedEngagementStatuses?.length) return;
+    const currentGroups = draftRef.current.audiences.pageGroups;
+    let changed = false;
+    const updatedGroups = currentGroups.map((g) => {
+      const incoming = launchSummary.updatedEngagementStatuses!.find((u) => u.groupId === g.id);
+      if (!incoming) return g;
+      changed = true;
+      return { ...g, engagementAudienceStatuses: incoming.statuses };
+    });
+    if (changed) {
+      updateAudiences({ ...draftRef.current.audiences, pageGroups: updatedGroups });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchSummary]);
+
   // Template state
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);

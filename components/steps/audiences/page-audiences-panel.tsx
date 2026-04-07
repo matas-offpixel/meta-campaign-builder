@@ -11,7 +11,7 @@ import {
   Plus, Trash2, ChevronDown, ChevronUp, XCircle,
   Building2, User, AlertCircle, Loader2, RefreshCw, Clock, Activity,
 } from "lucide-react";
-import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup, PageCapabilities } from "@/lib/types";
+import type { PageAudienceGroup, EngagementType, LookalikeRange, MetaApiPage, SelectedPagesLookalikeGroup, PageCapabilities, EngagementAudienceStatus } from "@/lib/types";
 import {
   useFetchPages,
   useFetchAdditionalPages,
@@ -950,27 +950,42 @@ export function PageAudiencesPanel({
                       </button>
                     ))}
                   </div>
-                  <div className="mt-1.5 space-y-0.5">
-                    {group.engagementTypes.includes("fb_likes") && (
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-medium text-success">FB Likes</span> — engagement audience auto-created at launch from selected pages
-                      </p>
-                    )}
-                    {group.engagementTypes.includes("fb_engagement_365d") && (
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-medium text-success">FB Engagement 365d</span> — engagement audience auto-created at launch from selected pages
-                      </p>
-                    )}
-                    {group.engagementTypes.includes("ig_followers") && (
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-medium text-success">IG Followers</span> — engagement audience auto-created at launch (requires linked IG account)
-                      </p>
-                    )}
-                    {group.engagementTypes.includes("ig_engagement_365d") && (
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-medium text-success">IG Engagement 365d</span> — engagement audience auto-created at launch (requires linked IG account)
-                      </p>
-                    )}
+                  <div className="mt-1.5 space-y-1">
+                    {ENGAGEMENT_OPTIONS.map((eo) => {
+                      if (!group.engagementTypes.includes(eo.value)) return null;
+                      const allStatuses: EngagementAudienceStatus[] = group.engagementAudienceStatuses ?? [];
+                      const typeStatuses = allStatuses.filter((s) => s.type === eo.value);
+                      const anyReady = typeStatuses.some((s) => s.readyForLookalike);
+                      const anyPopulating = typeStatuses.some((s) => s.populating);
+                      const anyCreated = typeStatuses.length > 0;
+                      return (
+                        <div key={eo.value} className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground w-32 shrink-0">{eo.label}</span>
+                          {!anyCreated && (
+                            <span className="text-[10px] text-muted-foreground/60 italic">will be created at launch</span>
+                          )}
+                          {anyCreated && anyReady && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-success font-medium">
+                              <span>✓ ready</span>
+                              <span className="text-muted-foreground/60">· ID {typeStatuses.find((s) => s.readyForLookalike)?.id?.slice(-8)}</span>
+                            </span>
+                          )}
+                          {anyCreated && anyPopulating && !anyReady && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-medium">
+                              <Clock className="h-3 w-3" />
+                              <span>populating</span>
+                              <span className="text-muted-foreground/60">· ID {typeStatuses.find((s) => s.populating)?.id?.slice(-8)}</span>
+                            </span>
+                          )}
+                          {anyCreated && !anyReady && !anyPopulating && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
+                              <span>created</span>
+                              <span className="text-muted-foreground/60">· ID {typeStatuses[0]?.id?.slice(-8)}</span>
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>{/* end engagement-types opacity wrapper */}
 

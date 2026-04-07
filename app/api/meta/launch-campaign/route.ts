@@ -49,6 +49,7 @@ import type {
   AdSetSuggestion,
   AdSetLaunchResult,
   AdCreativeDraft,
+  EngagementType,
 } from "@/lib/types";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
@@ -433,14 +434,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const createdIds: string[] = [];
+    if (!group.engagementAudienceStatuses) group.engagementAudienceStatuses = [];
 
     for (const pageId of group.pageIds) {
       for (const et of group.engagementTypes) {
         const isIgType = et === "ig_followers" || et === "ig_engagement_365d";
         const igId = isIgType ? pageToIg.get(pageId) : undefined;
+        const pageName = pageNameMap.get(pageId) || group.name || "Page Group";
+
+        // ── Reuse existing audience if we have one from a prior run ─────────
+        const existingStatus = group.engagementAudienceStatuses!.find(
+          (s) => s.pageId === pageId && s.type === et,
+        );
+        if (existingStatus?.id) {
+          // Audience already exists in Meta — check its current readiness
+          const readiness = await checkAudienceReadiness(existingStatus.id, userFbToken ?? undefined);
+          const now = new Date().toISOString();
+          if (readiness) {
+            existingStatus.lastCheckedAt = now;
+            existingStatus.lastReadinessCode = readiness.code;
+            existingStatus.lastReadinessDescription = readiness.description;
+            existingStatus.readyForLookalike = readiness.ready;
+            existingStatus.populating = readiness.populating;
+          }
+          console.log(
+            `[launch-campaign] Phase 1.5 — reusing existing ${et} audience ${existingStatus.id}` +
+            ` for page ${pageId} (${pageName})` +
+            ` | readiness: ${readiness?.code ?? "unchecked"} (${readiness?.description ?? "?"})` +
+            ` | ready: ${readiness?.ready ?? "?"} | populating: ${readiness?.populating ?? "?"}`,
+          );
+          createdIds.push(existingStatus.id);
+          engagementAudiencesCreated.push({
+            name: existingStatus.pageName
+              ? `${existingStatus.pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`
+              : existingStatus.id,
+            id: existingStatus.id,
+            type: et,
+            durationMs: 0,
+          });
+          continue;
+        }
 
         if (isIgType && !igId) {
-          // Distinguish: was the page in the client map at all?
           const clientHadPage = pageId in clientIgMap;
           const noIgMsg = clientHadPage
             ? `Instagram account found in client cache for page ${pageId} but ID was empty — ` +
@@ -452,11 +487,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           console.warn(
             `[launch-campaign] Phase 1.5 ✗ page ${pageId} (${pageNameMap.get(pageId) ?? "?"}) — ${et}:`,
             noIgMsg,
-            `| clientIgMap has ${Object.keys(clientIgMap).length} entries`,
-            `| pageToIg has ${pageToIg.size} entries`,
           );
           engagementAudiencesFailed.push({
-            name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et}`,
+            name: `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`,
             type: et,
             error: clientHadPage
               ? "Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
@@ -469,16 +502,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const sourceId = isIgType ? igId! : pageId;
         const sourceType = isIgType ? ("ig_business" as const) : ("page" as const);
-        const pageName = pageNameMap.get(pageId) || group.name || "Page Group";
         const audienceName = `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`;
 
-        // Context log for every attempt
         console.log(
-          `[launch-campaign] Phase 1.5 → attempting ${et}` +
+          `[launch-campaign] Phase 1.5 → creating new ${et}` +
           `\n  page:         ${pageId} (${pageName})` +
           `\n  sourceType:   ${sourceType}` +
           `\n  sourceId:     ${sourceId}` +
-          `\n  sourceIsPage: ${sourceId === pageId}` +
           (isIgType ? `\n  igId:         ${igId}` +
             `\n  igSource:     ${pageId in clientIgMap ? "client-cache (user OAuth)" : "server-fetch (system token)"}` : "") +
           `\n  tokenPath:    ${userFbToken ? "user-oauth-token" : "META_ACCESS_TOKEN (system)"}` +
@@ -498,52 +528,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
           createdIds.push(result.id);
           engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
+
+          // Record new status for future runs
+          group.engagementAudienceStatuses!.push({
+            id: result.id,
+            type: et as EngagementType,
+            pageId,
+            pageName,
+            createdAt: new Date().toISOString(),
+            readyForLookalike: false,
+            populating: false,
+          });
         } catch (err) {
           const message = formatMetaError(err);
-          // Classify event-source permission failures so the summary can guide
-          // the user and capability flags can be recorded for future launches.
           const isPermission =
             message.toLowerCase().includes("permission") ||
             message.toLowerCase().includes("event source") ||
             message.includes("(#100)") ||
             message.includes("OAuthException");
           const rawErrData = err instanceof Error && "rawErrorData" in err
-            ? (err as { rawErrorData?: unknown }).rawErrorData
-            : undefined;
+            ? (err as { rawErrorData?: unknown }).rawErrorData : undefined;
           console.error(
             `[launch-campaign] Phase 1.5 ✗ Failed to create ${et} for page ${pageId}` +
             `\n  message:    ${message}` +
             `\n  igId used:  ${isIgType ? (igId ?? "n/a") : "n/a (FB type)"}` +
             `\n  sourceId:   ${sourceId}` +
-            `\n  sourceType: ${sourceType}` +
-            `\n  adAccount:  ${adAccountId}` +
             `\n  isPermission: ${isPermission}` +
             (rawErrData ? `\n  rawError:   ${JSON.stringify(rawErrData)}` : ""),
           );
-
-          // Record capability failure on the page object so the UI can show
-          // the correct badge on the next load (stored in launch summary).
-          if (isPermission) {
-            const capKey = (et === "fb_likes" || et === "fb_engagement_365d")
-              ? (et === "fb_likes" ? "fbLikesSource" : "fbEngagementSource")
-              : null;
-            if (capKey) {
-              // Find the page in the draft and mark the capability as failed
-              const allDraftPages = [
-                ...draft.audiences.pageGroups.flatMap(() => []),
-              ];
-              void allDraftPages; // placeholder — capability is surfaced via summary
-              console.warn(
-                `[launch-campaign] Marking ${capKey}=false for page ${pageId} — ` +
-                "update page capabilities in UI to suppress future attempts.",
-              );
-            }
-          }
-
           const userFacingError = isPermission
             ? `${message} — Page can be used for standard targeting, but not for engagement audience generation with current permissions. Deselect the failing engagement type(s) for this group to suppress future attempts.`
             : message;
-
           engagementAudiencesFailed.push({
             name: audienceName,
             type: et,
@@ -798,14 +813,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const LAL_PHASE_TIMEOUT_MS = 120_000;
 
   // ── Inner helper: poll one audience until ready (or deadline) ────────────
+  // Code 441 = "populating" — stop immediately without retry. Meta is actively
+  // building this audience and it will not be ready for minutes/hours.
+  // Code 400 = "processing" — short-term; retry with backoff (may become ready quickly).
   async function pollUntilReady(
     audienceId: string,
     deadline: number,
-  ): Promise<{ ready: boolean; retriesUsed: number; code: number; description: string }> {
+  ): Promise<{ ready: boolean; populating: boolean; retriesUsed: number; code: number; description: string }> {
     const RETRY_DELAYS = [5_000, 10_000, 15_000];
     let retriesUsed = 0;
     let lastCode = 400;
     let lastDescription = "not checked";
+    let lastPopulating = false;
 
     for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
       if (Date.now() >= deadline) break;
@@ -814,11 +833,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (status) {
         lastCode = status.code;
         lastDescription = status.description;
+        lastPopulating = status.populating;
         console.log(
           `[launch-campaign] Phase 1.75 readiness — ${audienceId} attempt ${attempt + 1}:` +
-          ` code=${status.code} (${status.description})`,
+          ` code=${status.code} (${status.description}) | populating=${status.populating}`,
         );
-        if (status.ready) return { ready: true, retriesUsed, code: status.code, description: status.description };
+        if (status.ready) return { ready: true, populating: false, retriesUsed, code: status.code, description: status.description };
+        // Code 441 = audience is being populated by Meta — will not be ready in
+        // this launch window. Defer immediately, no retries.
+        if (status.populating) {
+          console.log(
+            `[launch-campaign] Phase 1.75 — ${audienceId} is populating (code 441).` +
+            " Deferring lookalike — will be retryable once Meta finishes populating.",
+          );
+          return { ready: false, populating: true, retriesUsed, code: status.code, description: status.description };
+        }
       }
 
       if (attempt < RETRY_DELAYS.length) {
@@ -833,8 +862,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    return { ready: false, retriesUsed, code: lastCode, description: lastDescription };
+    return { ready: false, populating: lastPopulating, retriesUsed, code: lastCode, description: lastDescription };
   }
+
+  const lookalikesDeferred: NonNullable<LaunchSummary["lookalikesDeferred"]> = [];
 
   // ── Inner helper: attempt one lookalike with readiness check + retry ──────
   async function tryLookalikeWithReadiness(
@@ -845,7 +876,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     range: string,
     deadline: number,
     context: string,
-  ): Promise<{ success: boolean; lookalikId?: string; error?: string; skippedReason?: string }> {
+    pageGroupId?: string,
+  ): Promise<{ success: boolean; deferred?: boolean; lookalikId?: string; error?: string; skippedReason?: string }> {
     if (Date.now() >= deadline) {
       return { success: false, error: "Phase timeout reached before attempt", skippedReason: "phase timeout" };
     }
@@ -863,20 +895,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const readiness = await pollUntilReady(seed.id, deadline);
     console.log(
       `[launch-campaign] ${context} readiness result — ${seed.id}:` +
-      ` ready=${readiness.ready} | code=${readiness.code} (${readiness.description})` +
-      ` | retries=${readiness.retriesUsed}`,
+      ` ready=${readiness.ready} | populating=${readiness.populating}` +
+      ` | code=${readiness.code} (${readiness.description}) | retries=${readiness.retriesUsed}`,
     );
 
+    // Update persisted status
+    for (const g of draft.audiences.pageGroups) {
+      const st = g.engagementAudienceStatuses?.find((s) => s.id === seed.id);
+      if (st) {
+        st.lastCheckedAt = new Date().toISOString();
+        st.lastReadinessCode = readiness.code;
+        st.lastReadinessDescription = readiness.description;
+        st.readyForLookalike = readiness.ready;
+        st.populating = readiness.populating;
+      }
+    }
+
     if (!readiness.ready) {
-      const isStillProcessing = readiness.code === 400;
-      const error = isStillProcessing
-        ? `Lookalike skipped — source audience created but still processing after ${readiness.retriesUsed + 1} check(s). Re-launch to retry once Meta finishes populating the audience.`
-        : `Lookalike skipped — source audience not ready (code=${readiness.code}: ${readiness.description})`;
-      return {
-        success: false,
-        error,
-        skippedReason: isStillProcessing ? "source audience still processing" : "source audience not ready",
-      };
+      if (readiness.populating) {
+        // Code 441 — audience is being populated. Defer without retrying.
+        const deferMsg = `Lookalike deferred — source audience is still populating (code 441). Use "Retry lookalikes" once Meta finishes building the audience.`;
+        lookalikesDeferred.push({
+          name: lalName,
+          range,
+          seedAudienceId: seed.id,
+          seedType: seed.type,
+          pageGroupId: pageGroupId ?? "",
+          reason: readiness.description,
+        });
+        return { success: false, deferred: true, error: deferMsg, skippedReason: "source audience populating" };
+      }
+      const error = `Lookalike skipped — source audience not ready (code=${readiness.code}: ${readiness.description})${
+        readiness.retriesUsed > 0 ? ` after ${readiness.retriesUsed} retry check(s)` : ""
+      }`;
+      return { success: false, error, skippedReason: "source audience not ready" };
     }
 
     const lalStart = Date.now();
@@ -889,19 +941,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         country: lookalikeCountry,
       });
       lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
+      // Mark source as having produced a lookalike
+      for (const g of draft.audiences.pageGroups) {
+        const st = g.engagementAudienceStatuses?.find((s) => s.id === seed.id);
+        if (st) st.lookalikeId = result.id;
+      }
       console.log(`[launch-campaign] ${context} ✓ Lookalike created → ${result.id}`);
       return { success: true, lookalikId: result.id };
     } catch (err) {
       const message = formatMetaError(err);
       const is2654 = message.includes("2654");
+      const isPopulating = message.includes("441");
       console.error(`[launch-campaign] ${context} ✗ Lookalike creation failed:`, message);
-      return {
-        success: false,
-        error: is2654
-          ? `Lookalike skipped — source audience created but not ready yet: ${message}`
-          : message,
-        skippedReason: is2654 ? "source audience still processing" : undefined,
-      };
+      if (isPopulating || is2654) {
+        lookalikesDeferred.push({
+          name: lalName,
+          range,
+          seedAudienceId: seed.id,
+          seedType: seed.type,
+          pageGroupId: pageGroupId ?? "",
+          reason: message,
+        });
+        return {
+          success: false,
+          deferred: true,
+          error: `Lookalike deferred — source audience created but not yet ready: ${message}`,
+          skippedReason: "source audience populating",
+        };
+      }
+      return { success: false, error: message };
     }
   }
 
@@ -987,14 +1055,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const result = await tryLookalikeWithReadiness(
             seed, lalName, startingRatio, endingRatio, range, lalPhaseDeadline,
             `Phase 1.75 "${group.name}"`,
+            group.id,
           );
 
           if (result.success && result.lookalikId) {
             lookalikeIds.push(result.lookalikId);
             succeeded = true;
+          } else if (result.deferred) {
+            // Deferred (441) — already recorded in lookalikesDeferred. Do not
+            // try lower-quality seeds — all will hit the same 441 state.
+            succeeded = false;
+            break;
           } else if (!succeeded) {
-            // Only record the failure for the last seed tried; earlier failures
-            // are superseded by subsequent attempts.
             lookalikeAudiencesFailed.push({
               name: lalName,
               range,
@@ -1073,16 +1145,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const result = await tryLookalikeWithReadiness(
             seed, lalName, startingRatio, endingRatio, range, lalPhaseDeadline,
             `Phase 1.75b SPLAL "${splalGroup.name}"`,
+            splalGroup.id,
           );
           if (result.success && result.lookalikId) {
             rangeIds.push(result.lookalikId);
-          } else {
+          } else if (!result.deferred) {
             lookalikeAudiencesFailed.push({
               name: lalName, range,
               error: result.error ?? "Unknown error",
               skippedReason: result.skippedReason,
             });
           }
+          // Deferred entries are already in lookalikesDeferred via tryLookalikeWithReadiness
         }
 
         if (rangeIds.length > 0) lookalikesPerRange[range] = rangeIds;
@@ -1486,6 +1560,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     engagementAudiencesFailed: engagementAudiencesFailed.length > 0 ? engagementAudiencesFailed : undefined,
     lookalikeAudiencesCreated: lookalikeAudiencesCreated.length > 0 ? lookalikeAudiencesCreated : undefined,
     lookalikeAudiencesFailed: lookalikeAudiencesFailed.length > 0 ? lookalikeAudiencesFailed : undefined,
+    lookalikesDeferred: lookalikesDeferred.length > 0 ? lookalikesDeferred : undefined,
+    updatedEngagementStatuses: draft.audiences.pageGroups
+      .filter((g) => (g.engagementAudienceStatuses?.length ?? 0) > 0)
+      .map((g) => ({ groupId: g.id, statuses: g.engagementAudienceStatuses! })),
     interestReplacements: interestReplacements.length > 0 ? interestReplacements : undefined,
     adSetsCreated,
     adSetsFailed,

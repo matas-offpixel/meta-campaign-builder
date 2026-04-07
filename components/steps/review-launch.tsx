@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useState, useCallback } from "react";
 import { markPageCapabilityFailures, getCachedUserPages } from "@/lib/hooks/useMeta";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ import {
   CheckCheck,
   TriangleAlert,
   Info,
+  Clock,
+  RefreshCw,
 } from "lucide-react";
 import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
@@ -39,7 +41,7 @@ interface ReviewLaunchProps {
 
 // ── Launch event types ────────────────────────────────────────────────────────
 
-type EventStatus = "success" | "failed" | "skipped" | "warning" | "pending";
+type EventStatus = "success" | "failed" | "skipped" | "warning" | "pending" | "deferred";
 type EventStage = "preflight" | "campaign" | "audience" | "lookalike" | "adset" | "creative" | "ad";
 
 interface LaunchEvent {
@@ -135,6 +137,18 @@ function buildLaunchEvents(summary: LaunchSummary): LaunchEvent[] {
         status: a.skippedReason ? "skipped" : "failed",
         label: a.skippedReason ? `Lookalike skipped — ${a.skippedReason}` : `Lookalike ${a.range} failed`,
         detail: a.error,
+      });
+    }
+  }
+  if (summary.lookalikesDeferred?.length) {
+    for (const a of summary.lookalikesDeferred) {
+      events.push({
+        id: uid("lal-defer"),
+        stage: "lookalike",
+        entity: a.name,
+        status: "deferred",
+        label: `Lookalike deferred — source audience still populating`,
+        detail: `Seed: ${a.seedType} (${a.seedAudienceId}) · ${a.reason}`,
       });
     }
   }
@@ -259,6 +273,8 @@ function StatusIcon({ status }: { status: EventStatus }) {
       return <X className="h-4 w-4 text-muted-foreground" />;
     case "warning":
       return <AlertTriangle className="h-4 w-4 text-warning" />;
+    case "deferred":
+      return <Clock className="h-4 w-4 text-amber-500" />;
   }
 }
 
@@ -288,7 +304,9 @@ function EventRow({ event }: { event: LaunchEvent }) {
                 ? "text-warning"
                 : event.status === "skipped"
                   ? "text-muted-foreground italic"
-                  : "text-muted-foreground"
+                  : event.status === "deferred"
+                    ? "text-amber-600"
+                    : "text-muted-foreground"
           }`}
         >
           {event.label}
@@ -336,6 +354,7 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
   const eaFail = summary.engagementAudiencesFailed?.length ?? 0;
   const lalOk = summary.lookalikeAudiencesCreated?.length ?? 0;
   const lalFail = summary.lookalikeAudiencesFailed?.length ?? 0;
+  const lalDeferred = summary.lookalikesDeferred?.length ?? 0;
   const lalSkipped = summary.lookalikeAudiencesFailed?.filter((f) => f.skippedReason).length ?? 0;
   const asSkipped = summary.adSetsFailed.filter((f) => f.skippedReason).length;
   const crSkipped = summary.creativesFailed.filter((f) => f.skippedReason).length;
@@ -344,7 +363,17 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
     <div className="flex flex-wrap gap-2">
       <CountChip ok={1} failed={0} label="Campaign" />
       {(eaOk + eaFail > 0) && <CountChip ok={eaOk} failed={eaFail} label="Audiences" />}
-      {(lalOk + lalFail > 0) && <CountChip ok={lalOk} failed={lalFail - lalSkipped} skipped={lalSkipped} label="Lookalikes" />}
+      {(lalOk + lalFail + lalDeferred > 0) && (
+        <>
+          <CountChip ok={lalOk} failed={lalFail - lalSkipped} skipped={lalSkipped} label="Lookalikes" />
+          {lalDeferred > 0 && (
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-300/40 bg-amber-50/40 px-2 py-1 text-xs">
+              <Clock className="h-3 w-3 text-amber-500" />
+              <span className="font-medium text-amber-600">{lalDeferred} deferred</span>
+            </div>
+          )}
+        </>
+      )}
       <CountChip ok={summary.adSetsCreated.length} failed={summary.adSetsFailed.length - asSkipped} skipped={asSkipped} label="Ad Sets" />
       <CountChip ok={summary.creativesCreated.length} failed={summary.creativesFailed.length - crSkipped} skipped={crSkipped} label="Creatives" />
       <CountChip ok={summary.adsCreated} failed={summary.adsFailed} label="Ads" />
@@ -718,6 +747,115 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
   );
 }
 
+// ── Retry lookalikes panel ────────────────────────────────────────────────────
+
+function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [result, setResult] = useState<{
+    created: Array<{ name: string; id: string; range: string }>;
+    deferred: Array<{ name: string; code: number; description: string }>;
+    failed: Array<{ name: string; error: string }>;
+  } | null>(null);
+
+  const handleRetry = useCallback(async () => {
+    setStatus("loading");
+    setResult(null);
+    try {
+      const res = await fetch("/api/meta/lookalikes/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft }),
+      });
+      const data = await res.json() as typeof result & { error?: string };
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      setResult(data);
+      setStatus("done");
+    } catch (err) {
+      setResult(null);
+      setStatus("error");
+      console.error("[RetryLookalikesPanel]", err);
+    }
+  }, [draft]);
+
+  return (
+    <div className="mt-4 rounded-lg border border-amber-300/40 bg-amber-50/30 p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+        <span className="text-sm font-semibold text-amber-800">Lookalikes deferred — source audiences still populating</span>
+      </div>
+      <p className="text-xs text-amber-700 mb-3">
+        Meta needs time to build the source engagement audiences before lookalikes can be created.
+        Come back in a few minutes and use the button below to retry.
+      </p>
+
+      {status === "idle" && (
+        <Button variant="outline" size="sm" onClick={handleRetry} className="border-amber-400 text-amber-700 hover:bg-amber-100">
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry lookalikes from existing source audiences
+        </Button>
+      )}
+
+      {status === "loading" && (
+        <div className="flex items-center gap-2 text-sm text-amber-700">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Checking readiness and creating lookalikes…
+        </div>
+      )}
+
+      {status === "done" && result && (
+        <div className="space-y-1">
+          {result.created.length > 0 && (
+            <div className="space-y-0.5">
+              {result.created.map((c) => (
+                <p key={c.id} className="text-xs text-success flex items-center gap-1">
+                  <CheckCheck className="h-3 w-3 inline" />
+                  {c.name} created · ID {c.id}
+                </p>
+              ))}
+            </div>
+          )}
+          {result.deferred.length > 0 && (
+            <div className="space-y-0.5">
+              {result.deferred.map((d, i) => (
+                <p key={i} className="text-xs text-amber-600 flex items-center gap-1">
+                  <Clock className="h-3 w-3 inline" />
+                  {d.name} still populating (code {d.code}) — try again later
+                </p>
+              ))}
+            </div>
+          )}
+          {result.failed.length > 0 && (
+            <div className="space-y-0.5">
+              {result.failed.map((f, i) => (
+                <p key={i} className="text-xs text-destructive flex items-center gap-1">
+                  <TriangleAlert className="h-3 w-3 inline" />
+                  {f.name} failed: {f.error}
+                </p>
+              ))}
+            </div>
+          )}
+          {result.deferred.length > 0 && (
+            <Button variant="outline" size="sm" onClick={handleRetry} className="mt-2 border-amber-400 text-amber-700 hover:bg-amber-100">
+              <RefreshCw className="h-3.5 w-3.5" />
+              Try again
+            </Button>
+          )}
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="space-y-2">
+          <p className="text-xs text-destructive">Request failed. Check console for details.</p>
+          <Button variant="outline" size="sm" onClick={handleRetry} className="border-amber-400 text-amber-700 hover:bg-amber-100">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Try again
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ReviewLaunch({
   draft,
   isLaunching = false,
@@ -862,6 +1000,11 @@ export function ReviewLaunch({
                 </p>
               )}
             </div>
+          )}
+
+          {/* Retry lookalikes panel — shown when lookalikes were deferred */}
+          {launchSummary && (launchSummary.lookalikesDeferred?.length ?? 0) > 0 && (
+            <RetryLookalikesPanel draft={draft} />
           )}
 
           {onGoToLibrary && launchSummary && (

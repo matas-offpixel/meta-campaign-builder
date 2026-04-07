@@ -455,20 +455,35 @@ export function rankSeedsByPreference(seeds: TypedSeed[]): TypedSeed[] {
 }
 
 /**
+ * Readiness result returned by `checkAudienceReadiness`.
+ *
+ * Meta operation_status codes:
+ *   200 = Normal / ready → ready = true
+ *   400 = Processing     → ready = false, populating = false (short-term, retry OK)
+ *   441 = Populating     → ready = false, populating = true  (long-term — defer, no retry)
+ *   401 = Error          → ready = false, populating = false
+ *   600 = Too small      → ready = false, populating = false
+ */
+export interface AudienceReadinessResult {
+  ready: boolean;
+  /**
+   * True when Meta returns code 441 — "We're finding people who fit your
+   * audience criteria…". The audience is being populated but will not be ready
+   * for lookalike seeding for an extended period. Do NOT retry in the same launch.
+   */
+  populating: boolean;
+  code: number;
+  description: string;
+}
+
+/**
  * Check whether a custom audience is ready to seed a lookalike.
- *
- * Meta's operation_status.code:
- *   200 = Normal / ready
- *   400 = Processing (not ready yet — retry)
- *   401 = Error
- *   600 = Too small / Empty
- *
  * Returns null on API error (treat as not-ready, non-fatal).
  */
 export async function checkAudienceReadiness(
   audienceId: string,
   token?: string,
-): Promise<{ ready: boolean; code: number; description: string } | null> {
+): Promise<AudienceReadinessResult | null> {
   const effectiveToken = token || process.env.META_ACCESS_TOKEN;
   if (!effectiveToken) return null;
   try {
@@ -483,8 +498,12 @@ export async function checkAudienceReadiness(
     );
     const code = res.operation_status?.code ?? 200;
     const description = res.operation_status?.description ?? "Unknown";
-    // 200 = Normal; 400 = still processing; anything else = problem
-    return { ready: code === 200, code, description };
+    return {
+      ready: code === 200,
+      populating: code === 441,
+      code,
+      description,
+    };
   } catch (err) {
     console.warn(`[checkAudienceReadiness] API error for ${audienceId}:`, err);
     return null;
