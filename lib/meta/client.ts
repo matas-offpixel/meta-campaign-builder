@@ -420,6 +420,77 @@ export type EngagementAudienceType =
   | "ig_followers"
   | "ig_engagement_365d";
 
+/**
+ * Preference order for lookalike seeds. Higher-engagement audiences produce
+ * better-quality lookalikes. Use `rankSeedsByPreference` to sort a seed list.
+ */
+export const LOOKALIKE_SOURCE_PREFERENCE: EngagementAudienceType[] = [
+  "ig_engagement_365d",
+  "fb_engagement_365d",
+  "ig_followers",
+  "fb_likes",
+];
+
+/**
+ * A typed audience seed — carries the engagement type alongside the Meta ID
+ * so Phase 1.75 can rank seeds by preference and log meaningful context.
+ */
+export interface TypedSeed {
+  id: string;
+  type: EngagementAudienceType;
+  /** Whether this seed came from a prior run (persisted) vs. created this run */
+  fromCache?: boolean;
+}
+
+/**
+ * Sort seeds by the preference order defined in LOOKALIKE_SOURCE_PREFERENCE.
+ * Higher-quality engagement audiences come first.
+ */
+export function rankSeedsByPreference(seeds: TypedSeed[]): TypedSeed[] {
+  return [...seeds].sort((a, b) => {
+    const ai = LOOKALIKE_SOURCE_PREFERENCE.indexOf(a.type);
+    const bi = LOOKALIKE_SOURCE_PREFERENCE.indexOf(b.type);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+}
+
+/**
+ * Check whether a custom audience is ready to seed a lookalike.
+ *
+ * Meta's operation_status.code:
+ *   200 = Normal / ready
+ *   400 = Processing (not ready yet — retry)
+ *   401 = Error
+ *   600 = Too small / Empty
+ *
+ * Returns null on API error (treat as not-ready, non-fatal).
+ */
+export async function checkAudienceReadiness(
+  audienceId: string,
+  token?: string,
+): Promise<{ ready: boolean; code: number; description: string } | null> {
+  const effectiveToken = token || process.env.META_ACCESS_TOKEN;
+  if (!effectiveToken) return null;
+  try {
+    const res = await graphGetWithToken<{
+      id: string;
+      operation_status?: { code: number; description: string };
+      approximate_count_lower_bound?: number;
+    }>(
+      `/${audienceId}`,
+      { fields: "id,operation_status,approximate_count_lower_bound" },
+      effectiveToken,
+    );
+    const code = res.operation_status?.code ?? 200;
+    const description = res.operation_status?.description ?? "Unknown";
+    // 200 = Normal; 400 = still processing; anything else = problem
+    return { ready: code === 200, code, description };
+  } catch (err) {
+    console.warn(`[checkAudienceReadiness] API error for ${audienceId}:`, err);
+    return null;
+  }
+}
+
 export interface EngagementAudienceSpec {
   type: EngagementAudienceType;
   name: string;

@@ -262,6 +262,13 @@ export interface PageAudienceGroup {
    * selection state. Both are merged into custom_audiences targeting at launch.
    */
   engagementAudienceIds?: string[];
+  /**
+   * Best engagement audience ID per type from the most recent successful run.
+   * Used by Phase 1.75 as fallback seeds on re-launch if no fresh audiences
+   * were created in this run (e.g. if Phase 1.5 was skipped because audiences
+   * already exist). Keyed by EngagementAudienceType.
+   */
+  engagementAudiencesByType?: Partial<Record<EngagementType, string>>;
   /** Populated at launch — IDs of lookalike audiences created in Meta */
   lookalikeAudienceIds?: string[];
 }

@@ -23,9 +23,11 @@ import {
   createMetaAd,
   createEngagementAudience,
   fetchAdAccountTosStatus,
+  checkAudienceReadiness,
+  rankSeedsByPreference,
   MetaApiError,
 } from "@/lib/meta/client";
-import type { EngagementAudienceType } from "@/lib/meta/client";
+import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import { validateCampaignPayload } from "@/lib/meta/campaign";
 import {
   buildAdSetPayload,
@@ -405,6 +407,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const engagementAudiencesCreated: NonNullable<LaunchSummary["engagementAudiencesCreated"]> = [];
   const engagementAudiencesFailed: NonNullable<LaunchSummary["engagementAudiencesFailed"]> = [];
   const pageGroupAudienceIds = new Map<string, string[]>();
+  // Typed seeds for Phase 1.75 — same data as pageGroupAudienceIds but with
+  // engagement type attached so we can rank by preference before trying lookalikes.
+  const pageGroupTypedSeeds = new Map<string, TypedSeed[]>();
 
   const enabledPageGroupSets = draft.adSetSuggestions.filter(
     (s) => s.enabled && s.sourceType === "page_group",
@@ -563,6 +568,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const existing = new Set(group.engagementAudienceIds ?? []);
       for (const id of ids) existing.add(id);
       group.engagementAudienceIds = Array.from(existing);
+    }
+  }
+
+  // Build typed seeds from engagementAudiencesCreated for preference-ranked lookalike creation.
+  // Seed = one typed entry per successfully created engagement audience.
+  for (const group of draft.audiences.pageGroups) {
+    const freshSeeds: TypedSeed[] = engagementAudiencesCreated
+      .filter((ea) => {
+        // Match by checking if this group's pages produced this audience
+        const pageName = group.pageIds
+          .map((pid) => pageNameMap.get(pid) || pid)
+          .find((n) => ea.name.startsWith(n));
+        return !!pageName && group.engagementTypes.includes(ea.type as EngagementAudienceType);
+      })
+      .map((ea) => ({ id: ea.id, type: ea.type as EngagementAudienceType }));
+
+    // Also include persisted seeds from a prior run (stored in engagementAudiencesByType).
+    // These are tried AFTER fresh ones but are useful if no fresh audiences were created.
+    const stored = group.engagementAudiencesByType ?? {};
+    const cachedSeeds: TypedSeed[] = (Object.entries(stored) as [EngagementAudienceType, string][])
+      .filter(([, id]) => !!id && !freshSeeds.some((s) => s.id === id))
+      .map(([type, id]) => ({ id, type, fromCache: true }));
+
+    const allSeeds = [...freshSeeds, ...cachedSeeds];
+    if (allSeeds.length > 0) {
+      pageGroupTypedSeeds.set(group.id, allSeeds);
+    }
+
+    // Persist best ID per type for future runs
+    if (freshSeeds.length > 0) {
+      const byType: Partial<Record<EngagementAudienceType, string>> = { ...(group.engagementAudiencesByType ?? {}) };
+      for (const seed of freshSeeds) byType[seed.type] = seed.id;
+      group.engagementAudiencesByType = byType;
     }
   }
 
@@ -741,7 +779,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const needsLookalikes =
     draft.audiences.pageGroups.some(
-      (g) => g.lookalike && (pageGroupAudienceIds.get(g.id)?.length ?? 0) > 0,
+      (g) => g.lookalike && (pageGroupTypedSeeds.get(g.id)?.length ?? 0) > 0,
     ) ||
     splalGroups.some((g) => enabledSplalGroupIds.has(g.id) && (splalEngagementIds.get(g.id)?.length ?? 0) > 0);
 
@@ -753,100 +791,215 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Hard ceiling for the entire lookalike phase (non-blocking).
-  const LAL_PHASE_TIMEOUT_MS = 15_000;
+  // Phase 1.75 has a generous timeout — lookalikes run non-blocking alongside
+  // ad-set/creative creation but the response waits for the promise to settle.
+  // With poll/retry (5s + 10s + 15s per seed), 120s gives enough headroom for
+  // 2–3 groups with a couple of retries each.
+  const LAL_PHASE_TIMEOUT_MS = 120_000;
+
+  // ── Inner helper: poll one audience until ready (or deadline) ────────────
+  async function pollUntilReady(
+    audienceId: string,
+    deadline: number,
+  ): Promise<{ ready: boolean; retriesUsed: number; code: number; description: string }> {
+    const RETRY_DELAYS = [5_000, 10_000, 15_000];
+    let retriesUsed = 0;
+    let lastCode = 400;
+    let lastDescription = "not checked";
+
+    for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+      if (Date.now() >= deadline) break;
+
+      const status = await checkAudienceReadiness(audienceId, userFbToken ?? undefined);
+      if (status) {
+        lastCode = status.code;
+        lastDescription = status.description;
+        console.log(
+          `[launch-campaign] Phase 1.75 readiness — ${audienceId} attempt ${attempt + 1}:` +
+          ` code=${status.code} (${status.description})`,
+        );
+        if (status.ready) return { ready: true, retriesUsed, code: status.code, description: status.description };
+      }
+
+      if (attempt < RETRY_DELAYS.length) {
+        const waitMs = Math.min(RETRY_DELAYS[attempt], deadline - Date.now());
+        if (waitMs <= 0) break;
+        console.log(
+          `[launch-campaign] Phase 1.75 — ${audienceId} not ready (code=${lastCode}),` +
+          ` waiting ${waitMs}ms before retry ${attempt + 2}…`,
+        );
+        await new Promise((r) => setTimeout(r, waitMs));
+        retriesUsed++;
+      }
+    }
+
+    return { ready: false, retriesUsed, code: lastCode, description: lastDescription };
+  }
+
+  // ── Inner helper: attempt one lookalike with readiness check + retry ──────
+  async function tryLookalikeWithReadiness(
+    seed: TypedSeed,
+    lalName: string,
+    startingRatio: number,
+    endingRatio: number,
+    range: string,
+    deadline: number,
+    context: string,
+  ): Promise<{ success: boolean; lookalikId?: string; error?: string; skippedReason?: string }> {
+    if (Date.now() >= deadline) {
+      return { success: false, error: "Phase timeout reached before attempt", skippedReason: "phase timeout" };
+    }
+
+    console.log(
+      `[launch-campaign] ${context} ▶ lookalike attempt` +
+      `\n  seedId:    ${seed.id}` +
+      `\n  seedType:  ${seed.type}${seed.fromCache ? " (persisted from prior run)" : " (created this run)"}` +
+      `\n  lalName:   ${lalName}` +
+      `\n  range:     ${range}` +
+      `\n  country:   ${lookalikeCountry}`,
+    );
+
+    // Check source readiness before creating the lookalike.
+    const readiness = await pollUntilReady(seed.id, deadline);
+    console.log(
+      `[launch-campaign] ${context} readiness result — ${seed.id}:` +
+      ` ready=${readiness.ready} | code=${readiness.code} (${readiness.description})` +
+      ` | retries=${readiness.retriesUsed}`,
+    );
+
+    if (!readiness.ready) {
+      const isStillProcessing = readiness.code === 400;
+      const error = isStillProcessing
+        ? `Lookalike skipped — source audience created but still processing after ${readiness.retriesUsed + 1} check(s). Re-launch to retry once Meta finishes populating the audience.`
+        : `Lookalike skipped — source audience not ready (code=${readiness.code}: ${readiness.description})`;
+      return {
+        success: false,
+        error,
+        skippedReason: isStillProcessing ? "source audience still processing" : "source audience not ready",
+      };
+    }
+
+    const lalStart = Date.now();
+    try {
+      const result = await createLookalikeAudience(adAccountId, {
+        name: lalName,
+        originAudienceId: seed.id,
+        startingRatio,
+        endingRatio,
+        country: lookalikeCountry,
+      });
+      lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
+      console.log(`[launch-campaign] ${context} ✓ Lookalike created → ${result.id}`);
+      return { success: true, lookalikId: result.id };
+    } catch (err) {
+      const message = formatMetaError(err);
+      const is2654 = message.includes("2654");
+      console.error(`[launch-campaign] ${context} ✗ Lookalike creation failed:`, message);
+      return {
+        success: false,
+        error: is2654
+          ? `Lookalike skipped — source audience created but not ready yet: ${message}`
+          : message,
+        skippedReason: is2654 ? "source audience still processing" : undefined,
+      };
+    }
+  }
 
   const lookalikePromise = (async () => {
     if (!needsLookalikes) return;
 
     const lalPhaseDeadline = Date.now() + LAL_PHASE_TIMEOUT_MS;
 
-    // Brief delay to let engagement audiences propagate — capped so it
-    // doesn't eat into the total phase budget.
+    // One-time global wait after fresh engagement-audience creation to give
+    // Meta a head start before the first readiness check.
     if (engagementAudiencesCreated.length > 0) {
-      const waitMs = Math.min(5_000, lalPhaseDeadline - Date.now());
-      if (waitMs > 0) {
-        console.log(`[launch-campaign] Phase 1.75 — waiting ${waitMs}ms for engagement audiences to propagate…`);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      const initialWait = Math.min(20_000, lalPhaseDeadline - Date.now());
+      if (initialWait > 0) {
+        console.log(
+          `[launch-campaign] Phase 1.75 — waiting ${initialWait}ms for newly created` +
+          ` engagement audiences to propagate before readiness checks…`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, initialWait));
       }
     }
 
+    // ── Page group lookalikes ─────────────────────────────────────────────
     for (const group of draft.audiences.pageGroups) {
-      // Hard phase timeout — skip remaining lookalikes
       if (Date.now() >= lalPhaseDeadline) {
-        console.log("[launch-campaign] Phase 1.75 — hard timeout reached, skipping remaining lookalikes");
         if (group.lookalike) {
           const ranges = group.lookalikeRanges?.length ? group.lookalikeRanges : ["0-1%"];
           for (const range of ranges) {
             lookalikeAudiencesFailed.push({
               name: `${group.name || "Page Group"} — Lookalike`,
               range,
-              error: "Lookalike phase timeout reached (15s limit)",
+              error: "Lookalike phase timeout reached (120s limit)",
               skippedReason: "phase timeout",
             });
           }
+          console.log("[launch-campaign] Phase 1.75 — hard timeout, skipping", group.name);
         }
         continue;
       }
 
       if (!group.lookalike) continue;
+
       const ranges = group.lookalikeRanges?.length ? group.lookalikeRanges : ["0-1%"];
-      const seedIds = pageGroupAudienceIds.get(group.id) ?? [];
-      if (seedIds.length === 0) {
-        // No engagement source audiences available — standard page ad set is still created.
+      const allSeeds = pageGroupTypedSeeds.get(group.id) ?? [];
+
+      if (allSeeds.length === 0) {
         const noTypes = !group.engagementTypes || group.engagementTypes.length === 0;
-        const skipReason = noTypes
-          ? "no engagement types selected for this group"
-          : "no engagement source audiences were successfully created (check permissions / capability badges)";
-        console.log(
-          `[launch-campaign] Phase 1.75 — skipping lookalikes for "${group.name}": ${skipReason}`,
-        );
         for (const range of ranges) {
           lookalikeAudiencesFailed.push({
             name: `${group.name || "Page Group"} — Lookalike`,
             range,
             error: noTypes
-              ? "Lookalike skipped — no engagement types are selected for this group."
-              : "Lookalike skipped — no engagement source audiences could be created. Check page capability badges in the Audiences step.",
-            skippedReason: noTypes ? "no types selected" : "source audience not ready",
+              ? "Lookalike skipped — no engagement types selected for this group."
+              : "Lookalike skipped — no source audiences available (all engagement audience creation failed).",
+            skippedReason: noTypes ? "no types selected" : "no source audiences",
           });
         }
         continue;
       }
 
+      // Rank seeds: highest-quality engagement types first
+      const rankedSeeds = rankSeedsByPreference(allSeeds);
       const groupName = pageNameMap.get(group.pageIds[0]) || group.name || "Page Group";
       const lookalikeIds: string[] = [];
+
+      console.log(
+        `[launch-campaign] Phase 1.75 — "${group.name}" | ${rankedSeeds.length} seed(s) ranked:`,
+        rankedSeeds.map((s) => `${s.type}=${s.id}${s.fromCache ? "(cached)" : "(fresh)"}`).join(", "),
+      );
 
       for (const range of ranges) {
         if (Date.now() >= lalPhaseDeadline) break;
 
         const { startingRatio, endingRatio } = parseLookalikeRange(range);
         const pctLabel = `${Math.round(endingRatio * 100)}%`;
+        const lalName = `${groupName} — ${pctLabel} Lookalike`;
 
-        for (const seedId of seedIds) {
+        // Try seeds in preference order — stop once one succeeds per range
+        let succeeded = false;
+        for (const seed of rankedSeeds) {
           if (Date.now() >= lalPhaseDeadline) break;
+          if (succeeded) break;
 
-          const lalName = `${groupName} — ${pctLabel} Lookalike`;
-          const lalStart = Date.now();
-          try {
-            const result = await createLookalikeAudience(adAccountId, {
-              name: lalName,
-              originAudienceId: seedId,
-              startingRatio,
-              endingRatio,
-              country: lookalikeCountry,
-            });
-            lookalikeIds.push(result.id);
-            lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
-          } catch (err) {
-            const message = formatMetaError(err);
-            const isNotReady = message.includes("2654") || message.includes("not ready") || message.includes("timed out");
-            console.error(`[launch-campaign] Phase 1.75 ✗ Lookalike failed (fast):`, message);
+          const result = await tryLookalikeWithReadiness(
+            seed, lalName, startingRatio, endingRatio, range, lalPhaseDeadline,
+            `Phase 1.75 "${group.name}"`,
+          );
+
+          if (result.success && result.lookalikId) {
+            lookalikeIds.push(result.lookalikId);
+            succeeded = true;
+          } else if (!succeeded) {
+            // Only record the failure for the last seed tried; earlier failures
+            // are superseded by subsequent attempts.
             lookalikeAudiencesFailed.push({
               name: lalName,
               range,
-              error: message,
-              skippedReason: isNotReady ? "source audience not ready" : undefined,
+              error: result.error ?? "Unknown error",
+              skippedReason: result.skippedReason,
             });
           }
         }
@@ -856,7 +1009,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // ── Phase 1.75b — Lookalikes for SelectedPagesLookalikeGroups ──────────
-    // Creates lookalikes keyed by range so each ad set targets the right tier.
     for (const splalGroup of splalGroups) {
       if (Date.now() >= lalPhaseDeadline) {
         if (enabledSplalGroupIds.has(splalGroup.id)) {
@@ -865,7 +1017,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             lookalikeAudiencesFailed.push({
               name: `${splalGroup.name} — Lookalike (${range})`,
               range,
-              error: "Lookalike phase timeout reached",
+              error: "Lookalike phase timeout reached (120s limit)",
               skippedReason: "phase timeout",
             });
           }
@@ -875,19 +1027,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       if (!enabledSplalGroupIds.has(splalGroup.id)) continue;
 
-      const seedIds = splalEngagementIds.get(splalGroup.id) ?? [];
-      if (seedIds.length === 0) {
+      const flatSeedIds = splalEngagementIds.get(splalGroup.id) ?? [];
+      if (flatSeedIds.length === 0) {
         console.log(`[launch-campaign] Phase 1.75b — no seeds for SPLAL group "${splalGroup.name}"`);
         for (const range of (splalGroup.lookalikeRanges ?? ["0-1%"])) {
           lookalikeAudiencesFailed.push({
             name: `${splalGroup.name} — Lookalike (${range})`,
             range,
-            error: "No seed audiences available (all pages skipped or engagement creation failed)",
-            skippedReason: "source audience not ready",
+            error: "No source audiences available (all pages skipped or engagement creation failed)",
+            skippedReason: "no source audiences",
           });
         }
         continue;
       }
+
+      // Build typed seeds for SPLAL from engagementAudiencesCreated
+      const splalTypedSeeds: TypedSeed[] = engagementAudiencesCreated
+        .filter((ea) => flatSeedIds.includes(ea.id))
+        .map((ea) => ({ id: ea.id, type: ea.type as EngagementAudienceType }));
+      const splalRankedSeeds = rankSeedsByPreference(
+        splalTypedSeeds.length > 0
+          ? splalTypedSeeds
+          : flatSeedIds.map((id) => ({ id, type: "fb_engagement_365d" as EngagementAudienceType })),
+      );
+
+      console.log(
+        `[launch-campaign] Phase 1.75b SPLAL "${splalGroup.name}" | ${splalRankedSeeds.length} seed(s):`,
+        splalRankedSeeds.map((s) => `${s.type}=${s.id}`).join(", "),
+      );
 
       const lookalikesPerRange: Record<string, string[]> = {};
       const ranges = splalGroup.lookalikeRanges?.length ? splalGroup.lookalikeRanges : (["0-1%"] as const);
@@ -899,37 +1066,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const pctLabel = `${Math.round(endingRatio * 100)}%`;
         const rangeIds: string[] = [];
 
-        for (const seedId of seedIds) {
+        for (const seed of splalRankedSeeds) {
           if (Date.now() >= lalPhaseDeadline) break;
 
           const lalName = `${splalGroup.name || "Selected Pages"} — ${pctLabel} Lookalike`;
-          const lalStart = Date.now();
-          try {
-            const result = await createLookalikeAudience(adAccountId, {
-              name: lalName,
-              originAudienceId: seedId,
-              startingRatio,
-              endingRatio,
-              country: lookalikeCountry,
-            });
-            rangeIds.push(result.id);
-            lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
-          } catch (err) {
-            const message = formatMetaError(err);
-            const isNotReady = message.includes("2654") || message.includes("not ready") || message.includes("timed out");
-            console.error(`[launch-campaign] Phase 1.75b ✗ SPLAL lookalike failed:`, message);
+          const result = await tryLookalikeWithReadiness(
+            seed, lalName, startingRatio, endingRatio, range, lalPhaseDeadline,
+            `Phase 1.75b SPLAL "${splalGroup.name}"`,
+          );
+          if (result.success && result.lookalikId) {
+            rangeIds.push(result.lookalikId);
+          } else {
             lookalikeAudiencesFailed.push({
-              name: lalName,
-              range,
-              error: message,
-              skippedReason: isNotReady ? "source audience not ready" : undefined,
+              name: lalName, range,
+              error: result.error ?? "Unknown error",
+              skippedReason: result.skippedReason,
             });
           }
         }
 
-        if (rangeIds.length > 0) {
-          lookalikesPerRange[range] = rangeIds;
-        }
+        if (rangeIds.length > 0) lookalikesPerRange[range] = rangeIds;
       }
 
       splalGroup.lookalikeAudienceIdsByRange = lookalikesPerRange;
