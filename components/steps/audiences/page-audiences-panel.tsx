@@ -21,6 +21,20 @@ import {
   type PageLoadMode,
   PAGE_LOAD_MODE_LIMITS,
 } from "@/lib/hooks/useMeta";
+import {
+  classifyPages,
+  filterPagesByGenres,
+  buildGenrePageCounts,
+  getPageBuckets,
+  readGenreCache,
+  writeGenreCache,
+  updatePageGenreOverride,
+  ALL_GENRE_BUCKETS,
+  GENRE_LABELS,
+  GENRE_COLORS,
+  type GenreBucket,
+  type PageGenreClassification,
+} from "@/lib/genre-classification";
 
 interface PageAudiencesPanelProps {
   groups: PageAudienceGroup[];
@@ -140,14 +154,45 @@ function inferCapabilities(page: MetaApiPage): PageCapabilities {
   };
 }
 
+function GenreChip({
+  bucket,
+  size = "normal",
+  onClick,
+  active,
+}: {
+  bucket: GenreBucket;
+  size?: "normal" | "small";
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  const colors = GENRE_COLORS[bucket];
+  const label = GENRE_LABELS[bucket];
+  const base = size === "small" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-1.5 py-0.5";
+  const ring = active ? "ring-1 ring-white/60" : "";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      className={`rounded-full font-medium leading-none whitespace-nowrap ${base} ${colors} ${ring} ${onClick ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function PageRow({
   page,
   selected,
   onToggle,
+  classification,
+  onEditGenre,
 }: {
   page: MetaApiPage;
   selected: boolean;
   onToggle: () => void;
+  classification?: PageGenreClassification;
+  onEditGenre?: (pageId: string) => void;
 }) {
   // Prefer enriched fields, fall back to raw API fields
   const fbFollowers = page.facebookFollowers ?? page.fan_count;
@@ -186,6 +231,22 @@ function PageRow({
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1 self-start">
+        {/* Genre chips (primary + secondary max 2 shown) */}
+        {classification && (
+          <div className="flex flex-wrap justify-end gap-0.5 max-w-[120px]">
+            {[classification.primaryBucket, classification.secondaryBucket]
+              .filter((b): b is GenreBucket => !!b)
+              .map((b) => (
+                <GenreChip
+                  key={b}
+                  bucket={b}
+                  size="small"
+                  onClick={onEditGenre ? () => onEditGenre(page.id) : undefined}
+                />
+              ))}
+          </div>
+        )}
+
         {page.category && (
           <Badge variant="outline" className="text-[10px]">
             {page.category}
@@ -524,6 +585,13 @@ export function PageAudiencesPanel({
   const [confirmClearGroupId, setConfirmClearGroupId] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
+  // ── Genre classification state ────────────────────────────────────────────
+  const [genreClassifications, setGenreClassifications] = useState<Record<string, PageGenreClassification>>(
+    () => readGenreCache(),
+  );
+  const [activeGenreFilters, setActiveGenreFilters] = useState<GenreBucket[]>([]);
+  const [editingPageGenre, setEditingPageGenre] = useState<string | null>(null);
+
   const CONFIRM_THRESHOLD = 5;
 
   // ── Real page data ───────────────────────────────────────────────────────
@@ -550,6 +618,15 @@ export function PageAudiencesPanel({
       setSelectedLoadMode(userPages.loadMode);
     }
   }, [userPages.loadMode, userPages.loading]);
+
+  // Auto-classify pages whenever userPages data changes (after load/enrich)
+  useEffect(() => {
+    if (userPages.data.length === 0) return;
+    const updated = classifyPages(userPages.data, genreClassifications);
+    setGenreClassifications(updated);
+    writeGenreCache(updated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userPages.data]);
 
   // All pages available for selection (deduped across all sources)
   const allPages = useMemo(() => {
@@ -616,21 +693,44 @@ export function PageAudiencesPanel({
     [applyFilters, additionalPages.pages],
   );
 
-  // User's own Facebook pages — deduped then filtered by userPagesSearch
-  const filteredUserPages = useMemo(() => {
+  // User's own Facebook pages — deduped, search-filtered, then genre-filtered
+  const uniqueUserPages = useMemo(() => {
     const existingIds = new Set([
       ...businessPages.data.map((p) => p.id),
       ...additionalPages.pages.map((p) => p.id),
     ]);
-    const unique = userPages.data.filter((p) => !existingIds.has(p.id));
-    if (!userPagesSearch.trim()) return unique;
-    const q = userPagesSearch.toLowerCase();
-    return unique.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.instagramUsername?.toLowerCase().includes(q) ?? false),
-    );
-  }, [userPages.data, businessPages.data, additionalPages.pages, userPagesSearch]);
+    return userPages.data.filter((p) => !existingIds.has(p.id));
+  }, [userPages.data, businessPages.data, additionalPages.pages]);
+
+  const filteredUserPages = useMemo(() => {
+    let pages = uniqueUserPages;
+    // Text search
+    if (userPagesSearch.trim()) {
+      const q = userPagesSearch.toLowerCase();
+      pages = pages.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.instagramUsername?.toLowerCase().includes(q) ?? false),
+      );
+    }
+    // Genre filter (union)
+    if (activeGenreFilters.length > 0) {
+      pages = filterPagesByGenres(pages, activeGenreFilters, genreClassifications);
+    }
+    return pages;
+  }, [uniqueUserPages, userPagesSearch, activeGenreFilters, genreClassifications]);
+
+  // Count of pages per genre bucket (from full unique set, not filtered)
+  const genrePageCounts = useMemo(
+    () => buildGenrePageCounts(uniqueUserPages, genreClassifications),
+    [uniqueUserPages, genreClassifications],
+  );
+
+  // Genres that have at least 1 page
+  const activeGenreBuckets = useMemo(
+    () => ALL_GENRE_BUCKETS.filter((b) => (genrePageCounts[b] ?? 0) > 0),
+    [genrePageCounts],
+  );
 
   // ── Custom audiences for optional group enrichment ───────────────────────
   const customAudiences = useFetchCustomAudiences(adAccountId);
@@ -1412,47 +1512,201 @@ export function PageAudiencesPanel({
 
                     {/* ── Search input (shown once we have pages) ──────────── */}
                     {userPages.count > 0 && (
-                      <div className="mt-2">
+                      <div className="mt-2 space-y-2">
                         <SearchInput
                           value={userPagesSearch}
                           onChange={(e) => setUserPagesSearch(e.target.value)}
                           onClear={() => setUserPagesSearch("")}
                           placeholder="Search Facebook pages…"
                         />
-                        {userPagesSearch.trim() && (
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Showing {filteredUserPages.length} of {userPages.data.filter((p) => {
-                              const existingIds = new Set([
-                                ...businessPages.data.map((x) => x.id),
-                                ...additionalPages.pages.map((x) => x.id),
-                              ]);
-                              return !existingIds.has(p.id);
-                            }).length}
+
+                        {/* ── Genre filter bar ─────────────────────────────── */}
+                        {activeGenreBuckets.length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-medium text-muted-foreground">Filter by genre</span>
+                              {activeGenreFilters.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveGenreFilters([])}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                                >
+                                  Clear filter
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {activeGenreBuckets.map((bucket) => {
+                                const isActive = activeGenreFilters.includes(bucket);
+                                const count = genrePageCounts[bucket] ?? 0;
+                                return (
+                                  <button
+                                    key={bucket}
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveGenreFilters((prev) =>
+                                        prev.includes(bucket)
+                                          ? prev.filter((b) => b !== bucket)
+                                          : [...prev, bucket],
+                                      );
+                                    }}
+                                    className={`flex items-center gap-1 rounded-full text-[10px] font-medium px-2 py-0.5 leading-none transition-opacity ${GENRE_COLORS[bucket]} ${isActive ? "ring-1 ring-white/60 opacity-100" : "opacity-60 hover:opacity-90"}`}
+                                  >
+                                    {GENRE_LABELS[bucket]}
+                                    <span className="rounded-full bg-black/20 px-1 py-px text-[9px] font-bold">{count}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Genre bulk actions */}
+                            {activeGenreFilters.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1.5">
+                                <span className="text-[11px] text-muted-foreground">
+                                  {filteredUserPages.length} page{filteredUserPages.length !== 1 ? "s" : ""} in selected genres
+                                </span>
+                                <div className="ml-auto flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const ids = filteredUserPages.map((p) => p.id);
+                                      const merged = Array.from(new Set([...group.pageIds, ...ids]));
+                                      updateGroup(group.id, { pageIds: merged });
+                                    }}
+                                    className="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground hover:opacity-90"
+                                  >
+                                    Select all ({filteredUserPages.length})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const ids = filteredUserPages.map((p) => p.id);
+                                      const genreLabel = activeGenreFilters.map((b) => GENRE_LABELS[b]).join(" + ");
+                                      const newGroup: PageAudienceGroup = {
+                                        id: crypto.randomUUID(),
+                                        name: genreLabel,
+                                        pageIds: ids,
+                                        engagementTypes: ["fb_likes", "fb_engagement_365d", "ig_followers", "ig_engagement_365d"],
+                                        lookalike: false,
+                                        lookalikeRanges: ["0-1%"],
+                                        customAudienceIds: [],
+                                      };
+                                      onChange([...groups, newGroup]);
+                                      setExpandedGroupId(newGroup.id);
+                                    }}
+                                    className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
+                                  >
+                                    Create group
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const ids = filteredUserPages.map((p) => p.id);
+                                      const next = group.pageIds.filter((id) => !ids.includes(id));
+                                      updateGroup(group.id, { pageIds: next });
+                                    }}
+                                    className="rounded border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                                  >
+                                    Deselect all
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Result count */}
+                        {(userPagesSearch.trim() || activeGenreFilters.length > 0) && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Showing {filteredUserPages.length} of {uniqueUserPages.length}
                           </p>
                         )}
                       </div>
                     )}
+
+                    {/* ── Genre override dialog ─────────────────────────────── */}
+                    {editingPageGenre && (() => {
+                      const page = uniqueUserPages.find((p) => p.id === editingPageGenre);
+                      if (!page) return null;
+                      const current = genreClassifications[editingPageGenre];
+                      return (
+                        <div className="mt-2 rounded-md border border-border bg-card px-3 py-2.5 space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-foreground">{page.name} — genre override</span>
+                            <button type="button" onClick={() => setEditingPageGenre(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+                          </div>
+                          <p className="text-muted-foreground">Click a genre to set as primary. Auto-classification will be replaced.</p>
+                          <div className="flex flex-wrap gap-1">
+                            {ALL_GENRE_BUCKETS.map((b) => {
+                              const isActive = current?.primaryBucket === b || current?.secondaryBucket === b || current?.tertiaryBucket === b;
+                              return (
+                                <button
+                                  key={b}
+                                  type="button"
+                                  onClick={() => {
+                                    updatePageGenreOverride(editingPageGenre, { primary: b });
+                                    setGenreClassifications((prev) => ({
+                                      ...prev,
+                                      [editingPageGenre]: {
+                                        ...(prev[editingPageGenre] ?? { pageId: editingPageGenre, scores: {}, matchedSignals: [], classifiedAt: new Date().toISOString() }),
+                                        primaryBucket: b,
+                                        secondaryBucket: undefined,
+                                        tertiaryBucket: undefined,
+                                        isManualOverride: true,
+                                        classifiedAt: new Date().toISOString(),
+                                      },
+                                    }));
+                                    setEditingPageGenre(null);
+                                  }}
+                                  className={`rounded-full text-[10px] font-medium px-1.5 py-0.5 ${GENRE_COLORS[b]} ${isActive ? "ring-1 ring-white/60" : "opacity-60 hover:opacity-100"}`}
+                                >
+                                  {GENRE_LABELS[b]}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {current?.isManualOverride && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const fresh = classifyPages([page], {})[page.id];
+                                if (fresh) {
+                                  setGenreClassifications((prev) => ({ ...prev, [page.id]: fresh }));
+                                  writeGenreCache({ ...genreClassifications, [page.id]: fresh });
+                                }
+                                setEditingPageGenre(null);
+                              }}
+                              className="text-[10px] text-muted-foreground underline hover:text-foreground"
+                            >
+                              Reset to auto-classification
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* ── Empty state ───────────────────────────────────────── */}
                     {!userPages.loading && userPages.loaded && filteredUserPages.length === 0 && !userPages.error && (
                       <p className="mt-2 text-xs text-muted-foreground">
                         {userPages.count === 0
                           ? "No pages found — reconnect Facebook with correct permissions."
-                          : userPagesSearch
-                            ? "No pages match your search."
+                          : userPagesSearch || activeGenreFilters.length > 0
+                            ? "No pages match your search or genre filter."
                             : "All your Facebook pages are already shown above."}
                       </p>
                     )}
 
                     {/* ── Page list ─────────────────────────────────────────── */}
                     {filteredUserPages.length > 0 && (
-                      <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-card">
+                      <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border bg-card">
                         {filteredUserPages.map((p) => (
                           <PageRow
                             key={p.id}
                             page={p}
                             selected={group.pageIds.includes(p.id)}
                             onToggle={() => togglePage(group.id, p.id)}
+                            classification={genreClassifications[p.id]}
+                            onEditGenre={setEditingPageGenre}
                           />
                         ))}
                       </div>

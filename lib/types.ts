@@ -86,6 +86,8 @@ export interface MetaApiPage {
   igLinkSource?: "instagram_business_account" | "connected_instagram_account" | null;
   /** Capability flags — inferred from enrichment or recorded after launch */
   capabilities?: PageCapabilities;
+  /** Genre classification result — populated client-side by genre-classification engine */
+  genreClassification?: import("@/lib/genre-classification").PageGenreClassification;
 }
 
 /** Paginated result for additional (personal) pages */
