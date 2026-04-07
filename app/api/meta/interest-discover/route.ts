@@ -646,15 +646,27 @@ function buildWeightedSceneTags(
     }
   }
 
-  // 5. Manual hints (highest individual weight)
+  // 5. Manual hints — two passes:
+  //   a) If the hint maps to a known scene tag, add it as a weighted tag
+  //   b) Always collect the raw hint text for direct Meta search (regardless of tag match)
   for (const hint of rawHints) {
     const normalized = hint.trim().toLowerCase().replace(/[\s-]+/g, "_");
     if (ALL_SCENE_TAGS.has(normalized as SceneTag)) {
       addWeight(normalized as SceneTag, W_HINT, "manual-hint");
+      logs.push(`  scene-hint matched tag: ${normalized}`);
+    } else {
+      logs.push(`  scene-hint NOT a scene tag (will search directly): "${hint.trim()}"`);
     }
   }
 
   return { tagWeights, logs };
+}
+
+/** Collect raw hint strings that should be searched directly against Meta's API */
+function extractDirectHintTerms(rawHints: string[]): string[] {
+  return rawHints
+    .map((h) => h.trim())
+    .filter((h) => h.length >= 2);
 }
 
 // ── Confidence calculator ─────────────────────────────────────────────────────
@@ -794,7 +806,7 @@ function scoreInterest(
 ): number {
   let score = 0;
 
-  // Path relevance
+  // Path relevance (most important signal)
   const pathPattern = CLUSTER_PATH_PATTERNS[clusterLabel];
   if (pathPattern) {
     const text = [interest.name, ...(interest.path ?? [])].join(" ");
@@ -810,19 +822,23 @@ function scoreInterest(
     }
   }
   if (bestKwWeight > 0) {
-    // Scale: at max weight 120, add 20; proportional below
     score += Math.min((bestKwWeight / 120) * 20, 20);
   }
 
-  // Audience size bonus
+  // Audience-size-aware scoring: prefer niche/specific interests.
+  // Smaller audiences = more targeted = higher value.
   const size = interest.audience_size ?? 0;
-  if (size >= 1_000_000) score += 5;
-  score += Math.log10(size + 1) * 2;
-
-  // At high confidence, penalise very generic large interests
-  if (confidence >= 75 && size > 500_000_000) {
-    score -= 10; // penalise "Everyone" type interests
+  if (size > 0) {
+    if      (size < 500_000)      score += 10;  // very niche — highly specific
+    else if (size < 2_000_000)    score += 8;   // niche
+    else if (size < 10_000_000)   score += 5;   // targeted
+    else if (size < 50_000_000)   score += 2;   // medium
+    else if (size < 200_000_000)  score += 0;   // large — neutral
+    else                          score -= 8;   // mega-broad — penalise
   }
+
+  // Extra penalty at high confidence for generic mega-interests
+  if (confidence >= 50 && size > 100_000_000) score -= 5;
 
   return score;
 }
@@ -852,42 +868,64 @@ async function discoverForCluster(
   confidence: number,
   token: string,
   globalSeen: Set<string>,
+  directHintTerms: string[] = [],
 ): Promise<{ cluster: DiscoverCluster; termsUsed: string[] }> {
-  const allTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
+  const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
+
+  // Scene hints always go first (they are the user's explicit signal) — deduplicated
+  const entitySet = new Set(entityTerms.map((t) => t.toLowerCase()));
+  const extraHints = directHintTerms.filter((h) => !entitySet.has(h.toLowerCase()));
+  const allTerms = [...extraHints, ...entityTerms];
+
   const sceneKeywords = buildSceneKeywords(tagWeights);
 
-  // Minimum score threshold scales with confidence
-  const minScore = confidence >= 75 ? 20 : confidence >= 50 ? 10 : 0;
+  // Minimum score floor (only applied at high confidence)
+  const minScore = confidence >= 75 ? 15 : confidence >= 50 ? 5 : 0;
 
   console.info(
-    `[interest-discover] cluster="${clusterLabel}" confidence=${confidence} ` +
-    `terms(${allTerms.length}): ${allTerms.slice(0, 6).join(", ")}${allTerms.length > 6 ? "…" : ""}`,
+    `[interest-discover] cluster="${clusterLabel}" confidence=${confidence}` +
+    ` hints(${extraHints.length}): ${extraHints.slice(0, 4).join(", ")}` +
+    ` | entity-terms(${entityTerms.length}): ${entityTerms.slice(0, 5).join(", ")}${entityTerms.length > 5 ? "…" : ""}`,
   );
 
+  // ── Phase 1: search all terms ──────────────────────────────────────────────
   const raw: (RawInterest & { searchTerm: string })[] = [];
   const BATCH = 4;
-  for (let i = 0; i < allTerms.length; i += BATCH) {
-    const batch = allTerms.slice(i, i + BATCH);
-    const results = await Promise.all(batch.map((t) => searchMeta(token, t)));
-    for (let j = 0; j < batch.length; j++) {
-      for (const item of results[j]) {
-        if (!globalSeen.has(item.id)) {
-          globalSeen.add(item.id);
-          raw.push({ ...item, searchTerm: batch[j] });
+  // Use a per-cluster seen set so hint terms can surface interests that were
+  // deduped by globalSeen in another cluster. Hints are high-priority.
+  const localSeen = new Set<string>();
+
+  async function runTermsBatch(terms: string[]) {
+    for (let i = 0; i < terms.length; i += BATCH) {
+      const batch = terms.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map((t) => searchMeta(token, t)));
+      for (let j = 0; j < batch.length; j++) {
+        for (const item of results[j]) {
+          if (!localSeen.has(item.id)) {
+            localSeen.add(item.id);
+            if (!globalSeen.has(item.id)) globalSeen.add(item.id);
+            raw.push({ ...item, searchTerm: batch[j] });
+          }
         }
       }
+      console.info(
+        `[interest-discover] cluster="${clusterLabel}" searched batch [${batch.join(", ")}] → ` +
+        results.map((r, ri) => `"${batch[ri]}":${r.length}`).join(", "),
+      );
     }
   }
 
-  const filtered = raw.filter((i) => passesBlocklist(i, clusterLabel));
-  const removedByBlocklist = raw.length - filtered.length;
+  await runTermsBatch(allTerms);
 
-  if (removedByBlocklist > 0) {
+  // ── Phase 2: filter & score ────────────────────────────────────────────────
+  const blocklisted = raw.filter((i) => !passesBlocklist(i, clusterLabel));
+  if (blocklisted.length > 0) {
     console.info(
-      `[interest-discover] cluster="${clusterLabel}" blocked ${removedByBlocklist}: ` +
-      raw.filter((i) => !passesBlocklist(i, clusterLabel)).map((i) => i.name).join(", "),
+      `[interest-discover] cluster="${clusterLabel}" blocklist removed ${blocklisted.length}: ` +
+      blocklisted.map((i) => i.name).join(", "),
     );
   }
+  const filtered = raw.filter((i) => passesBlocklist(i, clusterLabel));
 
   const scored = filtered.map((i) => ({
     id: i.id,
@@ -898,28 +936,57 @@ async function discoverForCluster(
     relevanceScore: scoreInterest(i, clusterLabel, sceneKeywords, confidence),
   }));
 
-  // Apply score floor
-  const aboveFloor = scored.filter((i) => (i.relevanceScore ?? 0) >= minScore);
-  const removedByScore = scored.length - aboveFloor.length;
+  // Log all scored results for debugging
+  console.info(
+    `[interest-discover] cluster="${clusterLabel}" scored(${scored.length}): ` +
+    scored
+      .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0))
+      .slice(0, 10)
+      .map((i) => `${i.name}[score=${i.relevanceScore?.toFixed(0)},size=${i.audienceSize?.toLocaleString() ?? "?"}]`)
+      .join(", "),
+  );
 
-  if (removedByScore > 0 && process.env.NODE_ENV === "development") {
+  let aboveFloor = scored.filter((i) => (i.relevanceScore ?? 0) >= minScore);
+
+  // ── Phase 3: progressive fallback if too few results ──────────────────────
+  if (aboveFloor.length < 2 && minScore > 0) {
     console.info(
-      `[interest-discover] cluster="${clusterLabel}" score-floor(${minScore}) removed ${removedByScore}: ` +
-      scored
-        .filter((i) => (i.relevanceScore ?? 0) < minScore)
-        .map((i) => `${i.name}[${i.relevanceScore?.toFixed(0)}]`)
-        .join(", "),
+      `[interest-discover] cluster="${clusterLabel}" score-floor(${minScore}) left ${aboveFloor.length} results; lowering to 0`,
     );
+    aboveFloor = scored; // accept all scored results
   }
 
-  const maxResults = confidence >= 75 ? 5 : 6;
+  // If still empty, try curated seeds as a last resort (even at high confidence)
+  if (aboveFloor.length < 2) {
+    const seeds = (CURATED_SEEDS[clusterLabel] ?? []).filter(
+      (s) => !localSeen.has(s) && !allTerms.some((t) => t.toLowerCase() === s.toLowerCase()),
+    );
+    if (seeds.length > 0) {
+      console.info(
+        `[interest-discover] cluster="${clusterLabel}" fallback — searching curated seeds: ${seeds.slice(0, 6).join(", ")}`,
+      );
+      await runTermsBatch(seeds.slice(0, 8));
+      // Re-score everything
+      const fallbackFiltered = raw.filter((i) => passesBlocklist(i, clusterLabel));
+      const fallbackScored = fallbackFiltered.map((i) => ({
+        id: i.id, name: i.name,
+        audienceSize: i.audience_size,
+        path: i.path,
+        searchTerm: i.searchTerm,
+        relevanceScore: scoreInterest(i, clusterLabel, sceneKeywords, confidence),
+      }));
+      aboveFloor = fallbackScored; // use all results with no floor
+    }
+  }
+
+  const maxResults = confidence >= 75 ? 6 : 8;
   const interests = aboveFloor
     .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0))
     .slice(0, maxResults);
 
   console.info(
-    `[interest-discover] cluster="${clusterLabel}" final(${interests.length}): ` +
-    interests.map((i) => `${i.name}[${i.relevanceScore?.toFixed(1)}]`).join(", "),
+    `[interest-discover] cluster="${clusterLabel}" FINAL(${interests.length}): ` +
+    interests.map((i) => `${i.name}[${i.relevanceScore?.toFixed(1)}, ${((i.audienceSize ?? 0) / 1e6).toFixed(1)}M]`).join(" | "),
   );
 
   return {
@@ -1032,6 +1099,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.debug(`[interest-discover] weighted signal log (${weightLogs.length} entries):\n` + weightLogs.slice(0, 40).join("\n"));
   }
 
+  // Collect raw hints as direct search terms (independent of scene-tag mapping)
+  const directHintTerms = extractDirectHintTerms(rawHints);
+  if (directHintTerms.length > 0) {
+    console.info(`[interest-discover] direct-hint search terms: ${directHintTerms.join(", ")}`);
+  }
+
   const targetLabels = clusterLabel ? [clusterLabel] : ALL_CLUSTER_LABELS;
   const globalSeen = new Set<string>();
   const clusterSeeds: Record<string, string[]> = {};
@@ -1044,6 +1117,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       confidence,
       token,
       globalSeen,
+      directHintTerms,
     );
     clusterSeeds[label] = termsUsed;
     if (cluster.interests.length > 0) clusters.push(cluster);

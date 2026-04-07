@@ -62,22 +62,69 @@ export function useUploadAsset(): UseUploadAssetReturn {
     const ext = params.file.name.split(".").pop()?.toLowerCase() ?? "mp4";
     const storagePath = `videos/${crypto.randomUUID()}.${ext}`;
 
+    const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "(NEXT_PUBLIC_SUPABASE_URL not set)";
     console.log(
       "[useUploadAsset] Video upload path: Supabase Storage →",
       storagePath,
+      `| bucket: ${STORAGE_BUCKET}`,
+      `| project: ${projectUrl}`,
       `| size: ${(params.file.size / 1024 / 1024).toFixed(2)} MB`,
     );
 
     // Step 1: upload directly to Supabase Storage (no serverless intermediary)
-    const { error: storageError } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(storagePath, params.file, {
+    const tryUpload = async () =>
+      supabase.storage.from(STORAGE_BUCKET).upload(storagePath, params.file, {
         contentType: params.file.type || "video/mp4",
         upsert: false,
       });
 
+    let { error: storageError } = await tryUpload();
+
+    // Auto-recovery: if the bucket doesn't exist, ask the server to create it
+    // then retry the upload once.
+    if (storageError && /bucket.*not.*found|not.*found|does.*not.*exist/i.test(storageError.message)) {
+      console.warn(
+        `[useUploadAsset] Bucket "${STORAGE_BUCKET}" not found (project: ${projectUrl}). ` +
+        `Attempting auto-creation via /api/storage/ensure-bucket…`,
+      );
+      try {
+        const ensureRes = await fetch("/api/storage/ensure-bucket", { method: "POST" });
+        const ensureJson = (await ensureRes.json()) as { exists?: boolean; created?: boolean; error?: string };
+        if (ensureRes.ok) {
+          console.info(
+            `[useUploadAsset] Bucket ${ensureJson.created ? "created" : "confirmed"} — retrying upload`,
+          );
+          const retryResult = await tryUpload();
+          storageError = retryResult.error;
+        } else {
+          console.error("[useUploadAsset] ensure-bucket failed:", ensureJson.error);
+          throw new Error(
+            `Storage bucket "${STORAGE_BUCKET}" does not exist and could not be created automatically. ` +
+            `Fix: run supabase/schema.sql in the Supabase SQL editor, or set SUPABASE_SERVICE_ROLE_KEY in your environment. ` +
+            `Detail: ${ensureJson.error ?? "unknown"}`,
+          );
+        }
+      } catch (ensureErr) {
+        if (ensureErr instanceof Error && ensureErr.message.includes("Storage bucket")) throw ensureErr;
+        console.error("[useUploadAsset] ensure-bucket network error:", ensureErr);
+        // Fall through to the generic error below
+      }
+    }
+
     if (storageError) {
-      throw new Error(`Storage upload failed: ${storageError.message}`);
+      console.error(
+        `[useUploadAsset] Storage upload failed:`,
+        `bucket=${STORAGE_BUCKET}`,
+        `path=${storagePath}`,
+        `project=${projectUrl}`,
+        `error="${storageError.message}"`,
+      );
+      throw new Error(
+        `Storage upload failed: ${storageError.message}` +
+        (storageError.message.includes("Bucket") || storageError.message.includes("bucket")
+          ? ` — check that the "${STORAGE_BUCKET}" bucket exists in Supabase Storage`
+          : ""),
+      );
     }
 
     console.log("[useUploadAsset] Storage upload complete, handing off to server");

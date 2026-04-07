@@ -253,18 +253,26 @@ function PageRow({
           </Badge>
         )}
 
-        {/* IG capability — shown once enrichment has run */}
+        {/* IG capability badge — only shown once enrichment has run */}
         {page.hasInstagramLinked != null && (
-          <Badge
-            variant={page.hasInstagramLinked ? "primary" : "outline"}
-            className="text-[10px]"
+          <span
+            title={
+              page.hasInstagramLinked
+                ? `IG ID: ${page.instagramAccountId ?? "unknown"} (via ${page.igLinkSource ?? "unknown"})`
+                : `No Instagram account found for this page`
+            }
           >
-            {page.hasInstagramLinked
-              ? page.igLinkSource === "connected_instagram_account"
-                ? "IG connected ✓"
-                : "IG source ✓"
-              : "No IG source"}
-          </Badge>
+            <Badge
+              variant={page.hasInstagramLinked ? "primary" : "outline"}
+              className="text-[10px]"
+            >
+              {page.hasInstagramLinked
+                ? page.igLinkSource === "connected_instagram_account"
+                  ? "IG connected ✓"
+                  : "IG source ✓"
+                : "No IG found"}
+            </Badge>
+          </span>
         )}
 
         {/* FB source failures — only visible after a failed launch attempt */}
@@ -589,7 +597,7 @@ export function PageAudiencesPanel({
   const [genreClassifications, setGenreClassifications] = useState<Record<string, PageGenreClassification>>(
     () => readGenreCache(),
   );
-  const [activeGenreFilters, setActiveGenreFilters] = useState<GenreBucket[]>([]);
+  const [activeGenreFilters, setActiveGenreFilters] = useState<(GenreBucket | "unclassified")[]>([]);
   const [editingPageGenre, setEditingPageGenre] = useState<string | null>(null);
 
   const CONFIRM_THRESHOLD = 5;
@@ -723,6 +731,14 @@ export function PageAudiencesPanel({
   // Count of pages per genre bucket (from full unique set, not filtered)
   const genrePageCounts = useMemo(
     () => buildGenrePageCounts(uniqueUserPages, genreClassifications),
+    [uniqueUserPages, genreClassifications],
+  );
+
+  const unclassifiedCount = useMemo(
+    () => uniqueUserPages.filter((p) => {
+      const c = genreClassifications[p.id];
+      return !c || c.isUnclassified;
+    }).length,
     [uniqueUserPages, genreClassifications],
   );
 
@@ -1557,6 +1573,23 @@ export function PageAudiencesPanel({
                                   </button>
                                 );
                               })}
+                              {/* Unclassified chip */}
+                              {unclassifiedCount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveGenreFilters((prev) =>
+                                      prev.includes("unclassified")
+                                        ? prev.filter((b) => b !== "unclassified")
+                                        : [...prev, "unclassified"],
+                                    );
+                                  }}
+                                  className={`flex items-center gap-1 rounded-full text-[10px] font-medium px-2 py-0.5 leading-none transition-opacity bg-zinc-700 text-zinc-300 ${activeGenreFilters.includes("unclassified") ? "ring-1 ring-white/40 opacity-100" : "opacity-50 hover:opacity-80"}`}
+                                >
+                                  Unclassified
+                                  <span className="rounded-full bg-black/20 px-1 py-px text-[9px] font-bold">{unclassifiedCount}</span>
+                                </button>
+                              )}
                             </div>
 
                             {/* Genre bulk actions */}
@@ -1581,7 +1614,9 @@ export function PageAudiencesPanel({
                                     type="button"
                                     onClick={() => {
                                       const ids = filteredUserPages.map((p) => p.id);
-                                      const genreLabel = activeGenreFilters.map((b) => GENRE_LABELS[b]).join(" + ");
+                                      const genreLabel = activeGenreFilters
+                                        .map((b) => b === "unclassified" ? "Unclassified" : GENRE_LABELS[b])
+                                        .join(" + ");
                                       const newGroup: PageAudienceGroup = {
                                         id: crypto.randomUUID(),
                                         name: genreLabel,

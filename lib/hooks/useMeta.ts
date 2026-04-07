@@ -937,18 +937,22 @@ export function useFetchUserPages(): UserPagesFetchState {
           enrichedPages = enrichedPages.map((p) => {
             const enriched = enrichJson.data![p.id];
             if (!enriched) return p;
+            // When the enrich call fell back to basic fields (no IG data), we must
+            // NOT overwrite hasInstagramLinked with false — the previous value (from
+            // a prior full-enrich run, or the raw API fields) is more accurate.
+            const enrichFellBack = !!enrichJson.fallback;
             const merged = {
               ...p,
               pictureUrl:         enriched.pictureUrl         ?? p.pictureUrl,
               facebookFollowers:  enriched.facebookFollowers  ?? p.facebookFollowers,
-              instagramAccountId: enriched.instagramAccountId ?? p.instagramAccountId,
-              instagramUsername:  enriched.instagramUsername  ?? p.instagramUsername,
-              instagramFollowers: enriched.instagramFollowers ?? p.instagramFollowers,
-              hasInstagramLinked: enriched.hasInstagramLinked ?? p.hasInstagramLinked,
-              // Track which field exposed the IG account so the diagnostic panel
-              // can show the exact source without re-querying.
-              igLinkSource: (enriched as { igLinkSource?: "instagram_business_account" | "connected_instagram_account" | null }).igLinkSource
-                ?? p.igLinkSource,
+              // IG fields: only overwrite when we actually requested IG data
+              instagramAccountId: enrichFellBack ? p.instagramAccountId : (enriched.instagramAccountId ?? p.instagramAccountId),
+              instagramUsername:  enrichFellBack ? p.instagramUsername  : (enriched.instagramUsername  ?? p.instagramUsername),
+              instagramFollowers: enrichFellBack ? p.instagramFollowers : (enriched.instagramFollowers ?? p.instagramFollowers),
+              hasInstagramLinked: enrichFellBack ? p.hasInstagramLinked : (enriched.hasInstagramLinked ?? p.hasInstagramLinked),
+              igLinkSource: enrichFellBack
+                ? p.igLinkSource
+                : ((enriched as { igLinkSource?: "instagram_business_account" | "connected_instagram_account" | null }).igLinkSource ?? p.igLinkSource),
             };
             if (enriched.hasInstagramLinked) {
               console.info(

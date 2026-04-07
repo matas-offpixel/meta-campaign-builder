@@ -269,6 +269,9 @@ function generateSuggestions(
 ): AdSetSuggestion[] {
   const baseSuggestions: Omit<AdSetSuggestion, "geoLocations" | "locationLabel">[] = [];
   const age = suggestAgeRange(audiences);
+  // Declared here (before any forEach that references it) to avoid TDZ crash in the
+  // minified/bundled build where the original let/const was placed further down.
+  const RANGE_LABELS: Record<string, string> = { "0-1%": "1%", "1-2%": "2%", "2-3%": "3%" };
 
   audiences.pageGroups.forEach((g) => {
     if (g.pageIds.length === 0) return;
@@ -353,7 +356,6 @@ function generateSuggestions(
   });
 
   // Lookalike ad sets from page groups with lookalike enabled
-  const RANGE_LABELS: Record<string, string> = { "0-1%": "1%", "1-2%": "2%", "2-3%": "3%" };
   audiences.pageGroups.forEach((g) => {
     if (!g.lookalike || g.pageIds.length === 0) return;
     const ranges = g.lookalikeRanges?.length ? g.lookalikeRanges : ["0-1%"];

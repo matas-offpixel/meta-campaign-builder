@@ -478,6 +478,8 @@ export interface PageGenreClassification {
   matchedSignals: string[];
   /** True if the user overrode the auto-classification */
   isManualOverride: boolean;
+  /** True when no seed matched and no category fallback was available */
+  isUnclassified?: boolean;
   classifiedAt: string; // ISO timestamp
 }
 
@@ -488,10 +490,57 @@ const W_ARTIST  = 10;
 const W_LABEL   = 6;
 const W_EVENT   = 5;
 const W_KEYWORD = 3;
+/** Low-confidence category / pattern fallback */
+const W_FALLBACK = 2;
+
+// ─── Broad single-word / short-phrase keywords per bucket ─────────────────
+// These are intentionally generic so any page that mentions "techno" at all
+// gets at least a fallback score. Kept lower than the curated SEEDS weights.
+const BROAD_KEYWORDS: Partial<Record<GenreBucket, string[]>> = {
+  techno_peak:         ["techno", "hard techno", "rave", "peak time", "industrial techno"],
+  techno_raw:          ["techno", "hypnotic", "berlin techno", "underground techno"],
+  melodic_house_techno:["melodic techno", "melodic house", "organic house", "afro house melodic"],
+  progressive_house:   ["progressive house", "progressive", "trance house"],
+  amapiano_afro_house: ["amapiano", "afro house", "afrobeats", "afro tech"],
+  underground_house:   ["minimal", "deep tech", "micro house", "underground house"],
+  deep_house:          ["deep house", "soulful house", "jackin"],
+  classic_house:       ["classic house", "acid house", "chicago house", "old school house"],
+  disco_nu_disco:      ["disco", "nu disco", "funk", "boogie", "italo"],
+  tech_house:          ["tech house", "techhouse"],
+  trance:              ["trance", "psytrance", "psy-trance", "psy trance", "uplifting trance", "hard trance"],
+  "140_garage_grime":  ["garage", "grime", "dubstep", "bassline", "bass music", "140bpm"],
+  breaks_breakbeat:    ["breaks", "breakbeat", "big beat", "uk bass"],
+  dance_pop_commercial:["edm", "big room", "festival edm", "commercial house", "pop dance"],
+  drum_and_bass:       ["drum and bass", "dnb", "drum & bass", "jungle", "neurofunk"],
+};
+
+// ─── Category-based fallback buckets ──────────────────────────────────────
+// Maps Meta page category strings (lowercase) to a low-confidence bucket
+// assignment. This ensures even unnamed/generic pages get some classification.
+const CATEGORY_FALLBACK: Array<{ patterns: string[]; bucket: GenreBucket; score: number }> = [
+  { patterns: ["drum and bass", "dnb"],                           bucket: "drum_and_bass",          score: W_FALLBACK * 2 },
+  { patterns: ["trance"],                                          bucket: "trance",                 score: W_FALLBACK * 2 },
+  { patterns: ["techno"],                                          bucket: "techno_peak",            score: W_FALLBACK * 2 },
+  { patterns: ["deep house"],                                      bucket: "deep_house",             score: W_FALLBACK * 2 },
+  { patterns: ["tech house"],                                      bucket: "tech_house",             score: W_FALLBACK * 2 },
+  { patterns: ["disco", "nu disco", "nu-disco"],                   bucket: "disco_nu_disco",         score: W_FALLBACK * 2 },
+  { patterns: ["amapiano", "afro house"],                          bucket: "amapiano_afro_house",    score: W_FALLBACK * 2 },
+  // Generic music category → lowest-confidence fallback, just enough to show up
+  { patterns: ["dj", "disc jockey"],                               bucket: "tech_house",             score: W_FALLBACK },
+  { patterns: ["music label", "record label", "record company"],   bucket: "underground_house",      score: W_FALLBACK },
+  { patterns: ["music festival", "festival"],                      bucket: "dance_pop_commercial",   score: W_FALLBACK },
+  { patterns: ["nightclub", "night club", "club"],                 bucket: "techno_peak",            score: W_FALLBACK },
+  { patterns: ["concert venue", "venue"],                          bucket: "underground_house",      score: W_FALLBACK },
+  { patterns: ["musician/band", "musician", "band"],               bucket: "underground_house",      score: W_FALLBACK },
+  { patterns: ["event", "event promoter", "event planner"],        bucket: "dance_pop_commercial",   score: W_FALLBACK },
+  { patterns: ["music", "performing arts", "entertainment"],       bucket: "dance_pop_commercial",   score: W_FALLBACK },
+  { patterns: ["arts & entertainment", "arts and entertainment"],  bucket: "dance_pop_commercial",   score: W_FALLBACK },
+];
 
 function scoreAgainst(
   text: string,
   seeds: BucketSeeds,
+  bucket: GenreBucket,
 ): { score: number; matched: string[] } {
   const lower = text.toLowerCase();
   let score = 0;
@@ -501,6 +550,14 @@ function scoreAgainst(
     if (lower.includes(kw.toLowerCase())) {
       score += W_KEYWORD;
       matched.push(kw);
+    }
+  }
+  // Also check broad keywords for this bucket (lower weight)
+  const broad = BROAD_KEYWORDS[bucket] ?? [];
+  for (const bkw of broad) {
+    if (!seeds.keywords.includes(bkw) && lower.includes(bkw.toLowerCase())) {
+      score += W_FALLBACK;
+      matched.push(`~${bkw}`);
     }
   }
   for (const artist of seeds.artists) {
@@ -526,8 +583,35 @@ function scoreAgainst(
 }
 
 /**
+ * Apply category-based fallback scoring when no seed matched.
+ * Returns the bucket + score pair with the highest category confidence.
+ */
+function applyCategoryFallback(
+  corpus: string,
+  category: string,
+): { bucket: GenreBucket; score: number; signal: string } | null {
+  const catLower = category.toLowerCase().trim();
+  const corpusLower = corpus.toLowerCase();
+
+  for (const entry of CATEGORY_FALLBACK) {
+    for (const pat of entry.patterns) {
+      if (catLower.includes(pat) || corpusLower.includes(pat)) {
+        return { bucket: entry.bucket, score: entry.score, signal: `category:${pat}` };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Classify a single Facebook page into up to 3 genre buckets.
  * Runs purely client-side with no external calls.
+ *
+ * Strategy:
+ *   1. Score against all bucket seed dictionaries (artists, labels, events, keywords).
+ *   2. Also check broad single-word keywords at lower weight.
+ *   3. If still no match, apply category-based fallback.
+ *   4. If still nothing, mark isUnclassified = true (user can override manually).
  */
 export function classifyPage(page: MetaApiPage): PageGenreClassification {
   // Build a search corpus from available page signals
@@ -543,10 +627,20 @@ export function classifyPage(page: MetaApiPage): PageGenreClassification {
   const allMatched: string[] = [];
 
   for (const bucket of ALL_GENRE_BUCKETS) {
-    const { score, matched } = scoreAgainst(corpus, SEEDS[bucket]);
+    const { score, matched } = scoreAgainst(corpus, SEEDS[bucket], bucket);
     if (score > 0) {
       scores[bucket] = score;
       allMatched.push(...matched.map((m) => `[${GENRE_LABELS[bucket]}] ${m}`));
+    }
+  }
+
+  // ── Fallback: use page category if nothing matched ───────────────────────
+  const hasAnyMatch = Object.keys(scores).length > 0;
+  if (!hasAnyMatch) {
+    const fallback = applyCategoryFallback(corpus, page.category ?? "");
+    if (fallback) {
+      scores[fallback.bucket] = fallback.score;
+      allMatched.push(`[${GENRE_LABELS[fallback.bucket]}] ${fallback.signal}`);
     }
   }
 
@@ -556,13 +650,22 @@ export function classifyPage(page: MetaApiPage): PageGenreClassification {
   );
 
   const [first, second, third] = ranked;
+  const isUnclassified = ranked.length === 0;
 
-  if (process.env.NODE_ENV === "development" && ranked.length > 0) {
-    console.debug(
-      `[genre-classify] ${page.name}`,
-      ranked.slice(0, 3).map(([b, s]) => `${GENRE_LABELS[b]}=${s}`).join(" | "),
-      "signals:", allMatched.slice(0, 5).join(", "),
-    );
+  if (process.env.NODE_ENV === "development") {
+    if (isUnclassified) {
+      console.debug(
+        `[genre-classify] UNCLASSIFIED: "${page.name}"`,
+        `| category: "${page.category ?? "none"}"`,
+        `| igHandle: "${page.instagramUsername ?? "none"}"`,
+      );
+    } else {
+      console.debug(
+        `[genre-classify] ${page.name}`,
+        ranked.slice(0, 3).map(([b, s]) => `${GENRE_LABELS[b]}=${s}`).join(" | "),
+        "signals:", allMatched.slice(0, 5).join(", "),
+      );
+    }
   }
 
   return {
@@ -573,13 +676,15 @@ export function classifyPage(page: MetaApiPage): PageGenreClassification {
     scores,
     matchedSignals: allMatched,
     isManualOverride: false,
+    isUnclassified,
     classifiedAt: new Date().toISOString(),
   };
 }
 
 /**
  * Classify an array of pages, returning a map from page ID to classification.
- * Already-classified pages (non-override) are skipped to preserve performance.
+ * Manual overrides are never overwritten. Unclassified pages are always
+ * re-attempted (in case enrichment now provides an IG handle or category).
  */
 export function classifyPages(
   pages: MetaApiPage[],
@@ -588,12 +693,18 @@ export function classifyPages(
   const result: Record<string, PageGenreClassification> = { ...existing };
 
   for (const page of pages) {
-    // Skip if already classified and not a forced re-run
-    if (result[page.id] && !result[page.id].isManualOverride) {
-      // Re-classify if the page has new enrichment data (IG handle now available)
-      const prev = result[page.id];
-      const hadIg = prev.matchedSignals.some((s) => s.includes("@") || s.toLowerCase().includes("ig"));
-      if (!hadIg && !page.instagramUsername) continue; // no new signal, skip
+    const prev = result[page.id];
+
+    if (prev) {
+      // Never overwrite a manual override
+      if (prev.isManualOverride) continue;
+
+      // Re-run if: previously unclassified (maybe category or IG handle just loaded)
+      // OR if we now have an IG handle we didn't have before.
+      const hasNewIgSignal =
+        page.instagramUsername &&
+        !prev.matchedSignals.some((s) => s.includes(page.instagramUsername ?? "__NEVER__"));
+      if (!prev.isUnclassified && !hasNewIgSignal) continue;
     }
 
     result[page.id] = classifyPage(page);
@@ -604,19 +715,23 @@ export function classifyPages(
 
 /**
  * Get all pages that match ANY of the provided genre buckets (union logic).
+ * Pass "unclassified" as a special string in activeGenres to include
+ * pages with no bucket assignment.
  */
 export function filterPagesByGenres(
   pages: MetaApiPage[],
-  activeGenres: GenreBucket[],
+  activeGenres: (GenreBucket | "unclassified")[],
   classifications: Record<string, PageGenreClassification>,
 ): MetaApiPage[] {
   if (activeGenres.length === 0) return pages;
 
-  const genreSet = new Set(activeGenres);
+  const includeUnclassified = activeGenres.includes("unclassified");
+  const genreSet = new Set(activeGenres.filter((g): g is GenreBucket => g !== "unclassified"));
 
   return pages.filter((page) => {
     const c = classifications[page.id];
-    if (!c) return false;
+    if (!c || c.isUnclassified) return includeUnclassified;
+    if (genreSet.size === 0) return false;
     return (
       (c.primaryBucket   && genreSet.has(c.primaryBucket))   ||
       (c.secondaryBucket && genreSet.has(c.secondaryBucket)) ||
