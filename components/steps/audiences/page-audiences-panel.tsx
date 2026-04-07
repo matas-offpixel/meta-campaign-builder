@@ -924,33 +924,16 @@ export function PageAudiencesPanel({
                   />
                 )}
 
-                {/* Page usage mode */}
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-2">
-                  <p className="text-xs font-medium text-foreground">Page usage at launch</p>
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <Checkbox checked={true} onChange={() => {}} disabled className="mt-0.5 shrink-0" />
-                    <div>
-                      <span className="text-xs font-medium">Standard page audience ad set</span>
-                      <p className="text-[11px] text-muted-foreground">Always created — targets people who interact with selected pages.</p>
-                    </div>
-                  </label>
-                  <label className="flex items-start gap-2 cursor-pointer" onClick={() => updateGroup(group.id, { createEngagementAudiences: !(group.createEngagementAudiences ?? true) })}>
-                    <Checkbox checked={group.createEngagementAudiences ?? true} onChange={() => {}} className="mt-0.5 shrink-0" />
-                    <div>
-                      <span className="text-xs font-medium">Engagement source audiences</span>
-                      <p className="text-[11px] text-muted-foreground">
-                        Creates FB Likes / FB Engagement / IG Followers audiences to seed lookalikes.
-                        Uncheck if your pages lack the required Meta event-source permission.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
                 {/* Engagement types */}
-                <div className={group.createEngagementAudiences === false ? "opacity-40 pointer-events-none" : ""}>
-                  <label className="mb-1.5 block text-sm font-medium">
-                    Engagement Types
-                  </label>
+                <div>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <label className="block text-sm font-medium">Engagement Types</label>
+                    <span className="text-[11px] text-muted-foreground">
+                      {group.engagementTypes.length === 0
+                        ? "None selected — standard page ad set only"
+                        : `${group.engagementTypes.length} type${group.engagementTypes.length !== 1 ? "s" : ""} selected`}
+                    </span>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {ENGAGEMENT_OPTIONS.map((eo) => (
                       <button

@@ -59,35 +59,44 @@ export function WizardShell({ draftId }: WizardShellProps) {
   const { mutate: launchCampaign, loading: launching, error: launchError, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
 
-  // After a launch with permission failures, auto-set createEngagementAudiences=false
-  // for page groups where every page had a permission failure. This prevents
-  // repeated failed attempts on the next launch without needing manual UI intervention.
+  // After a launch, auto-deselect engagement types that failed with permission errors
+  // for every page in a group. This prevents repeated failed API calls on the next launch
+  // without requiring manual intervention.
   useEffect(() => {
     if (!launchSummary?.engagementAudiencesFailed?.length) return;
 
-    const permFailedPageIds = new Set(
-      launchSummary.engagementAudiencesFailed
-        .filter((f) => f.isPermissionFailure && f.pageId)
-        .map((f) => f.pageId!),
-    );
-    if (permFailedPageIds.size === 0) return;
+    // Collect per-type permission failures — map: pageId → Set<engagementType>
+    const permFailedByPage = new Map<string, Set<string>>();
+    for (const f of launchSummary.engagementAudiencesFailed) {
+      if (!f.isPermissionFailure || !f.pageId || !f.type) continue;
+      if (!permFailedByPage.has(f.pageId)) permFailedByPage.set(f.pageId, new Set());
+      permFailedByPage.get(f.pageId)!.add(f.type);
+    }
+    if (permFailedByPage.size === 0) return;
 
     const currentGroups = draftRef.current.audiences.pageGroups;
     const updated = currentGroups.map((g) => {
-      // Only update groups that aren't already standard-only and have pages
-      if (g.createEngagementAudiences === false || g.pageIds.length === 0) return g;
-      // Disable engagement if every page in the group had a permission failure
-      const allFailed = g.pageIds.every((id) => permFailedPageIds.has(id));
-      if (!allFailed) return g;
-      console.log(
-        `[WizardShell] Auto-disabling engagement audiences for group "${g.name}"` +
-        ` — all pages had permission failures`,
+      if (g.pageIds.length === 0 || g.engagementTypes.length === 0) return g;
+
+      // A type should be deselected only if ALL pages in the group failed it with a permission error
+      const typesToRemove = g.engagementTypes.filter((et) =>
+        g.pageIds.every((pageId) => permFailedByPage.get(pageId)?.has(et)),
       );
-      return { ...g, createEngagementAudiences: false as const };
+      if (typesToRemove.length === 0) return g;
+
+      console.log(
+        `[WizardShell] Auto-deselecting engagement types for group "${g.name}":`,
+        typesToRemove,
+        "— all pages in group had permission failures for these types",
+      );
+      return {
+        ...g,
+        engagementTypes: g.engagementTypes.filter((et) => !typesToRemove.includes(et)),
+      };
     });
 
     const changed = updated.some(
-      (g, i) => g.createEngagementAudiences !== currentGroups[i].createEngagementAudiences,
+      (g, i) => g.engagementTypes.length !== currentGroups[i].engagementTypes.length,
     );
     if (changed) {
       updateAudiences({ ...draftRef.current.audiences, pageGroups: updated });

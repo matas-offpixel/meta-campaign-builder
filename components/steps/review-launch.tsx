@@ -392,44 +392,76 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
 
   // ── Page group health ─────────────────────────────────────────────────────
   const pageGroupHealth = draft.audiences.pageGroups.map((g) => {
-    const isStandardOnly = g.createEngagementAudiences === false;
+    const noTypesSelected = !g.engagementTypes || g.engagementTypes.length === 0;
     const hasManualAudiences = (g.customAudienceIds ?? []).some(isRealId);
 
     const selectedPages = g.pageIds
       .map((id) => cachedPages.find((p) => p.id === id))
       .filter(Boolean);
 
-    const noIgPages = selectedPages.filter((p) => {
+    const hasIg = (p: (typeof selectedPages)[number]) => {
       if (!p) return false;
-      const caps = p.capabilities;
-      if (caps?.igFollowersSource === false) return true;
-      return !(p.hasInstagramLinked ?? !!(p.instagram_business_account?.id ?? p.connected_instagram_account?.id));
-    });
-    const allPagesNoIg = selectedPages.length > 0 && noIgPages.length === selectedPages.length;
+      if (p.capabilities?.igFollowersSource === false) return false;
+      return !!(p.hasInstagramLinked ?? (p.instagram_business_account?.id ?? p.connected_instagram_account?.id));
+    };
+    const allPagesNoIg = selectedPages.length > 0 && selectedPages.every((p) => !hasIg(p));
     const fbCapFailed =
       selectedPages.some((p) => p?.capabilities?.fbLikesSource === false) ||
       selectedPages.some((p) => p?.capabilities?.fbEngagementSource === false);
 
-    const lookalikesExpected = g.lookalike && !isStandardOnly;
+    // Per engagement-type prediction
+    const igTypesSelected =
+      g.engagementTypes.includes("ig_followers") ||
+      g.engagementTypes.includes("ig_engagement_365d");
+    const fbTypesSelected =
+      g.engagementTypes.includes("fb_likes") ||
+      g.engagementTypes.includes("fb_engagement_365d");
+
+    const typeHealth = {
+      fb_likes: g.engagementTypes.includes("fb_likes")
+        ? (selectedPages.some((p) => p?.capabilities?.fbLikesSource === false) ? "cap_failed" : "ok")
+        : "not_selected",
+      fb_engagement_365d: g.engagementTypes.includes("fb_engagement_365d")
+        ? (selectedPages.some((p) => p?.capabilities?.fbEngagementSource === false) ? "cap_failed" : "ok")
+        : "not_selected",
+      ig_followers: g.engagementTypes.includes("ig_followers")
+        ? (allPagesNoIg ? "no_ig" : "ok")
+        : "not_selected",
+      ig_engagement_365d: g.engagementTypes.includes("ig_engagement_365d")
+        ? (allPagesNoIg ? "no_ig" : "ok")
+        : "not_selected",
+    } as Record<string, "ok" | "cap_failed" | "no_ig" | "not_selected">;
+
+    // Any type expected to produce an audience?
+    const anyTypeWillSucceed =
+      typeHealth.fb_likes === "ok" ||
+      typeHealth.fb_engagement_365d === "ok" ||
+      typeHealth.ig_followers === "ok" ||
+      typeHealth.ig_engagement_365d === "ok";
+
+    const lookalikesExpected = !!(g.lookalike && !noTypesSelected);
     const lookalikeBlocked =
       lookalikesExpected &&
-      (allPagesNoIg || fbCapFailed || selectedPages.some((p) => p?.capabilities?.lookalikeEligible === false));
+      !anyTypeWillSucceed;
 
-    // Predict whether this group can produce any custom audiences at launch.
-    // Standard-only + no manual audiences = WILL be aborted at launch.
-    const willHaveEmptyTargeting = isStandardOnly && !hasManualAudiences;
+    // Group will have empty targeting if no types selected AND no manual audiences
+    const willHaveEmptyTargeting = noTypesSelected && !hasManualAudiences;
 
     return {
       id: g.id,
       name: g.name || "Untitled",
       pageCount: g.pageIds.length,
-      isStandardOnly,
+      noTypesSelected,
       hasManualAudiences,
       willHaveEmptyTargeting,
       lookalikesExpected,
       lookalikeBlocked,
       allPagesNoIg,
       fbCapFailed,
+      fbTypesSelected,
+      igTypesSelected,
+      anyTypeWillSucceed,
+      typeHealth,
     };
   });
 
@@ -465,17 +497,18 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
           const g = draft.audiences.pageGroups.find((x) => x.id === s.sourceId);
           if (!g) { audiencesOk = false; reason = "Group not found"; break; }
           const hasManual = (g.customAudienceIds ?? []).some(isRealId);
-          if (g.createEngagementAudiences === false && !hasManual) {
+          const noTypes = !g.engagementTypes || g.engagementTypes.length === 0;
+          if (noTypes && !hasManual) {
             audiencesOk = false;
-            reason = "Engagement disabled + no custom audiences — will be ABORTED";
-            detail = "Enable engagement audiences or manually select custom audiences";
+            reason = "No engagement types selected + no custom audiences — will be ABORTED";
+            detail = "Select at least one engagement type or add a custom audience";
           } else if (g.pageIds.length === 0 && !hasManual) {
             audiencesOk = false;
             reason = "No pages selected and no custom audiences";
           } else {
-            detail = g.createEngagementAudiences === false
+            detail = noTypes
               ? `Standard-only (${g.customAudienceIds?.length ?? 0} manual audiences)`
-              : `${g.pageIds.length} pages → engagement audiences will be created at launch`;
+              : `${g.pageIds.length} page${g.pageIds.length !== 1 ? "s" : ""} — ${g.engagementTypes.length} type${g.engagementTypes.length !== 1 ? "s" : ""} selected`;
           }
           break;
         }
@@ -505,7 +538,8 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
 
   const hasInterestWarnings = interestHealth.some((g) => g.empty || g.allInvalid);
   const hasPageWarnings = pageGroupHealth.some(
-    (g) => g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed,
+    (g) => g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed ||
+           Object.values(g.typeHealth).some((s) => s === "cap_failed" || s === "no_ig"),
   );
   const hasAdSetWarnings = adSetHealth.some((s) => !s.audiencesOk);
   const hasAnyWarning = hasInterestWarnings || hasPageWarnings || hasAdSetWarnings;
@@ -603,9 +637,26 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
             <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Page Groups
             </p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {pageGroupHealth.map((g) => {
                 const warn = g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed;
+                const TYPE_LABELS: Record<string, string> = {
+                  fb_likes: "FB Likes",
+                  fb_engagement_365d: "FB Engagement",
+                  ig_followers: "IG Followers",
+                  ig_engagement_365d: "IG Engagement",
+                };
+                const statusIcon = (s: string) => {
+                  if (s === "ok") return <span className="text-success font-medium">✓</span>;
+                  if (s === "not_selected") return <span className="text-muted-foreground">—</span>;
+                  return <span className="text-warning font-medium">✗</span>;
+                };
+                const statusNote = (key: string, s: string) => {
+                  if (s === "cap_failed") return " (permission failure)";
+                  if (s === "no_ig") return " (no linked IG)";
+                  if (s === "not_selected") return " (not selected)";
+                  return "";
+                };
                 return (
                   <div key={g.id} className="flex items-start gap-2">
                     {g.willHaveEmptyTargeting ? (
@@ -620,27 +671,39 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
                       <span className="text-muted-foreground">
                         {" "}({g.pageCount} page{g.pageCount !== 1 ? "s" : ""})
                       </span>
-                      {g.willHaveEmptyTargeting ? (
+                      {g.willHaveEmptyTargeting && (
                         <div className="mt-0.5 font-medium text-destructive">
-                          Will be ABORTED — engagement disabled and no custom audiences selected
-                        </div>
-                      ) : g.isStandardOnly ? (
-                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                          <span className="text-success">✓ Standard targeting ({g.hasManualAudiences ? "manual audiences" : "engagement"})</span>
-                          <span className="text-warning">✗ Engagement source audiences disabled</span>
-                          {g.lookalikesExpected && (
-                            <span className="text-warning">✗ Lookalikes disabled</span>
-                          )}
-                        </div>
-                      ) : null}
-                      {!g.isStandardOnly && g.allPagesNoIg && (
-                        <div className="mt-0.5 text-[11px] text-warning">
-                          No linked Instagram — IG source audiences will be skipped
+                          Will be ABORTED — no engagement types selected and no custom audiences
                         </div>
                       )}
-                      {!g.isStandardOnly && g.fbCapFailed && (
+                      {/* Per-type status grid */}
+                      {!g.willHaveEmptyTargeting && (
+                        <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
+                          {(["fb_likes", "fb_engagement_365d", "ig_followers", "ig_engagement_365d"] as const).map((key) => {
+                            const s = g.typeHealth[key];
+                            return (
+                              <span
+                                key={key}
+                                className={
+                                  s === "ok" ? "text-success" :
+                                  s === "not_selected" ? "text-muted-foreground/60" :
+                                  "text-warning"
+                                }
+                              >
+                                {statusIcon(s)} {TYPE_LABELS[key]}{statusNote(key, s)}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {!g.noTypesSelected && g.lookalikeBlocked && (
                         <div className="mt-0.5 text-[11px] text-warning">
-                          FB source audience permission failures from a previous launch
+                          ✗ Lookalikes blocked — no types predicted to succeed
+                        </div>
+                      )}
+                      {g.noTypesSelected && g.hasManualAudiences && (
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          Standard-only (manual audiences selected)
                         </div>
                       )}
                     </div>

@@ -414,9 +414,9 @@ export function buildEmptyTargetingReason(
       if (!group) return "page group not found in draft";
       const hasUserAudiences = (group.customAudienceIds ?? []).some((id) => /^\d{10,}$/.test(id));
       const hasEngagementAudiences = (group.engagementAudienceIds ?? []).some((id) => /^\d{10,}$/.test(id));
-      if (group.createEngagementAudiences === false && !hasUserAudiences)
-        return "engagement source audiences disabled and no custom audiences selected — " +
-               "this group is standard-only but has no audiences to target";
+      if ((!group.engagementTypes || group.engagementTypes.length === 0) && !hasUserAudiences)
+        return "no engagement types selected and no custom audiences selected — " +
+               "select at least one engagement type or add a custom audience";
       if (!hasEngagementAudiences && !hasUserAudiences)
         return "all engagement audience creation failed and no custom audiences were manually selected";
       return "no valid custom audience IDs (all IDs failed real-ID validation)";

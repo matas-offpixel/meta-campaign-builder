@@ -364,11 +364,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const group = draft.audiences.pageGroups.find((g) => g.id === adSet.sourceId);
     if (!group || group.pageIds.length === 0) continue;
 
-    // Honour the "engagement source audiences" toggle — skip if disabled.
-    if (group.createEngagementAudiences === false) {
+    // Skip if no engagement types are selected — group is effectively standard-only.
+    if (!group.engagementTypes || group.engagementTypes.length === 0) {
       console.log(
         `[launch-campaign] Phase 1.5 — skipping engagement audiences for "${group.name}":`,
-        "createEngagementAudiences=false (standard page ad set only)",
+        "no engagement types selected",
       );
       continue;
     }
@@ -478,7 +478,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           }
 
           const userFacingError = isPermission
-            ? `${message} — Page can be used for standard targeting, but not for engagement audience generation with current permissions. Disable "Engagement source audiences" for this group.`
+            ? `${message} — Page can be used for standard targeting, but not for engagement audience generation with current permissions. Deselect the failing engagement type(s) for this group to suppress future attempts.`
             : message;
 
           engagementAudiencesFailed.push({
@@ -693,12 +693,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const ranges = group.lookalikeRanges?.length ? group.lookalikeRanges : ["0-1%"];
       const seedIds = pageGroupAudienceIds.get(group.id) ?? [];
       if (seedIds.length === 0) {
-        // Engagement audiences were either disabled or all failed for this group.
-        // The standard page ad set is still created — lookalikes simply have no seed.
-        const engDisabled = group.createEngagementAudiences === false;
-        const skipReason = engDisabled
-          ? "engagement source audiences disabled for this group"
-          : "no engagement source audiences were successfully created (check permissions)";
+        // No engagement source audiences available — standard page ad set is still created.
+        const noTypes = !group.engagementTypes || group.engagementTypes.length === 0;
+        const skipReason = noTypes
+          ? "no engagement types selected for this group"
+          : "no engagement source audiences were successfully created (check permissions / capability badges)";
         console.log(
           `[launch-campaign] Phase 1.75 — skipping lookalikes for "${group.name}": ${skipReason}`,
         );
@@ -706,10 +705,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           lookalikeAudiencesFailed.push({
             name: `${group.name || "Page Group"} — Lookalike`,
             range,
-            error: engDisabled
-              ? "Lookalike skipped — engagement source audiences are disabled for this group."
-              : "Lookalike skipped — no engagement source audiences could be created. This page may lack the required event-source permission. Standard page ad set was still created.",
-            skippedReason: engDisabled ? "engagement disabled" : "source audience not ready",
+            error: noTypes
+              ? "Lookalike skipped — no engagement types are selected for this group."
+              : "Lookalike skipped — no engagement source audiences could be created. Check page capability badges in the Audiences step.",
+            skippedReason: noTypes ? "no types selected" : "source audience not ready",
           });
         }
         continue;
