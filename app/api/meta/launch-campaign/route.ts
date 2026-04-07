@@ -22,6 +22,7 @@ import {
   createMetaCreative,
   createMetaAd,
   createEngagementAudience,
+  fetchAdAccountTosStatus,
   MetaApiError,
 } from "@/lib/meta/client";
 import type { EngagementAudienceType } from "@/lib/meta/client";
@@ -109,6 +110,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 400 },
     );
   }
+
+  // ── Fetch user's Facebook OAuth token ─────────────────────────────────────
+  // The provider_token is the user's Facebook access token stored after OAuth.
+  // It runs in the same permission context as Ads Manager and is preferred over
+  // META_ACCESS_TOKEN (which is a static system/app token with weaker permissions)
+  // for engagement audience creation on user-managed pages.
+  let userFbToken: string | null = null;
+  try {
+    const { data: fbTokenRow, error: fbTokenError } = await supabase
+      .from("user_facebook_tokens")
+      .select("provider_token")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (fbTokenError) {
+      console.warn("[launch-campaign] Could not read user_facebook_tokens:", fbTokenError.message);
+    } else {
+      userFbToken = fbTokenRow?.provider_token ?? null;
+    }
+  } catch (err) {
+    console.warn("[launch-campaign] Exception fetching user Facebook token:", err);
+  }
+  console.log(
+    "[launch-campaign] User Facebook token:",
+    userFbToken
+      ? `PRESENT (len=${userFbToken.length}, prefix=${userFbToken.slice(0, 10)}…)`
+      : "MISSING — engagement audiences will use META_ACCESS_TOKEN (system token)",
+  );
 
   const adAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId;
   console.log(
@@ -271,6 +299,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const phase15Start = Date.now();
 
+  // ── Ad account ToS preflight ──────────────────────────────────────────────
+  // Custom Audience Terms of Service must be accepted before engagement audiences
+  // can be created. Check now and log — does not block execution.
+  {
+    const tosStatus = await fetchAdAccountTosStatus(adAccountId, userFbToken ?? undefined);
+    if (tosStatus.fetched) {
+      const tosFlag = tosStatus.customAudienceTos;
+      console.log(
+        `[launch-campaign] Phase 1.5 — ToS check for ${adAccountId}:` +
+        ` custom_audience_tos=${tosFlag === true ? "ACCEPTED" : tosFlag === false ? "NOT ACCEPTED ⚠" : "unknown"}` +
+        ` | raw: ${JSON.stringify(tosStatus.rawTosAccepted)}`,
+      );
+      if (tosFlag === false) {
+        console.warn(
+          "[launch-campaign] Phase 1.5 ⚠ Custom Audience ToS NOT accepted for this ad account." +
+          " Engagement audience creation will likely fail with a terms-related error." +
+          " Accept the Custom Audience TOS at business.facebook.com/ads/manage/customaudiences/tos/",
+        );
+      }
+    } else {
+      console.warn(
+        `[launch-campaign] Phase 1.5 — ToS check failed (non-fatal): ${tosStatus.error ?? "unknown error"}`,
+      );
+    }
+  }
+
   // ── Build page→IG map ─────────────────────────────────────────────────────
   // Source 1 (preferred): client-provided map derived from the enriched pages
   // cache. This was fetched using the user's Facebook OAuth token and correctly
@@ -413,17 +467,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const pageName = pageNameMap.get(pageId) || group.name || "Page Group";
         const audienceName = `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`;
 
-        // Log the exact audience creation parameters for diagnostics.
-        if (isIgType) {
-          console.log(
-            `[launch-campaign] Phase 1.5 → creating ${et} audience` +
-            `\n  page:       ${pageId} (${pageName})` +
-            `\n  igId:       ${igId}` +
-            `\n  igSource:   ${pageId in clientIgMap ? "client-cache (user OAuth token)" : "server-fetch (system token)"}` +
-            `\n  sourceType: ${sourceType}` +
-            `\n  adAccount:  ${adAccountId}`,
-          );
-        }
+        // Context log for every attempt
+        console.log(
+          `[launch-campaign] Phase 1.5 → attempting ${et}` +
+          `\n  page:         ${pageId} (${pageName})` +
+          `\n  sourceType:   ${sourceType}` +
+          `\n  sourceId:     ${sourceId}` +
+          `\n  sourceIsPage: ${sourceId === pageId}` +
+          (isIgType ? `\n  igId:         ${igId}` +
+            `\n  igSource:     ${pageId in clientIgMap ? "client-cache (user OAuth)" : "server-fetch (system token)"}` : "") +
+          `\n  tokenPath:    ${userFbToken ? "user-oauth-token" : "META_ACCESS_TOKEN (system)"}` +
+          `\n  adAccount:    ${adAccountId}`,
+        );
 
         const eaStart = Date.now();
         try {
@@ -432,6 +487,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             name: audienceName,
             sourceId,
             sourceType,
+            userToken: userFbToken ?? undefined,
+            pageId,
+            pageName,
           });
           createdIds.push(result.id);
           engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
@@ -561,13 +619,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const pageName = pageNameMap.get(pageId) || pageId;
         const audienceName = `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et} [SPLAL]`;
 
-        if (isIgType) {
-          console.log(
-            `[launch-campaign] Phase 1.5b → SPLAL ${et}` +
-            ` | page=${pageId} igId=${igId}` +
-            ` | source=${pageId in clientIgMap ? "client-cache" : "server-fetch"}`,
-          );
-        }
+        console.log(
+          `[launch-campaign] Phase 1.5b → SPLAL attempting ${et}` +
+          `\n  page:         ${pageId} (${pageName})` +
+          `\n  sourceType:   ${sourceType}` +
+          `\n  sourceId:     ${sourceId}` +
+          (isIgType ? `\n  igId:         ${igId}` +
+            `\n  igSource:     ${pageId in clientIgMap ? "client-cache (user OAuth)" : "server-fetch (system token)"}` : "") +
+          `\n  tokenPath:    ${userFbToken ? "user-oauth-token" : "META_ACCESS_TOKEN (system)"}`,
+        );
 
         const eaStart = Date.now();
         try {
@@ -576,6 +636,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             name: audienceName,
             sourceId,
             sourceType,
+            userToken: userFbToken ?? undefined,
+            pageId,
+            pageName,
           });
           pageEngIds.push(result.id);
           createdIds.push(result.id);
@@ -624,6 +687,43 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     "created:", engagementAudiencesCreated.length,
     "failed:", engagementAudiencesFailed.length,
   );
+
+  // ── Side-by-side engagement result summary ────────────────────────────────
+  {
+    const allGroupsToLog = draft.audiences.pageGroups.filter((g) => g.pageIds.length > 0);
+    const allTypes: EngagementAudienceType[] = ["fb_likes", "fb_engagement_365d", "ig_followers", "ig_engagement_365d"];
+    const lines: string[] = [
+      "[launch-campaign] ══ Engagement Audience Results (per page group) ══",
+      `  Token context: ${userFbToken ? "user-oauth-token" : "META_ACCESS_TOKEN (system — weaker permissions)"}`,
+    ];
+    for (const g of allGroupsToLog) {
+      lines.push(`\n  Group: "${g.name}" (${g.pageIds.length} page${g.pageIds.length !== 1 ? "s" : ""})`);
+      lines.push(`    Standard targeting capable: YES (always)`);
+      for (const et of allTypes) {
+        if (!g.engagementTypes.includes(et)) {
+          lines.push(`    ${et.padEnd(22)} NOT SELECTED`);
+          continue;
+        }
+        for (const pageId of g.pageIds) {
+          const pname = pageNameMap.get(pageId) || pageId;
+          const successEntry = engagementAudiencesCreated.find(
+            (e) => e.name.startsWith(pname) && e.type === et,
+          );
+          const failEntry = engagementAudiencesFailed.find(
+            (e) => e.pageId === pageId && e.type === et,
+          );
+          if (successEntry) {
+            lines.push(`    ${et.padEnd(22)} ✓ SUCCESS → id=${successEntry.id} | page=${pageId} (${pname})`);
+          } else if (failEntry) {
+            lines.push(`    ${et.padEnd(22)} ✗ FAILED  → page=${pageId} (${pname}) | ${failEntry.error}`);
+          } else {
+            lines.push(`    ${et.padEnd(22)} — (not attempted for page=${pageId})`);
+          }
+        }
+      }
+    }
+    console.log(lines.join("\n"));
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 2 + 3 — Create ad sets AND creatives in PARALLEL

@@ -82,7 +82,18 @@ export async function graphGet<T>(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
   }
+  return graphGetWithToken<T>(path, params, token);
+}
 
+/**
+ * GET request against the Graph API with an explicit token.
+ * Use when you want to call as the user (OAuth token) rather than the app token.
+ */
+export async function graphGetWithToken<T>(
+  path: string,
+  params: Record<string, string> = {},
+  token: string,
+): Promise<T> {
   const url = new URL(`${BASE}${path}`);
   url.searchParams.set("access_token", token);
   for (const [key, value] of Object.entries(params)) {
@@ -91,7 +102,6 @@ export async function graphGet<T>(
 
   let response: Response;
   try {
-    // cache: "no-store" ensures Route Handlers always fetch fresh data
     response = await fetch(url.toString(), { cache: "no-store" });
   } catch (err) {
     throw new Error(`Network error calling Meta API: ${String(err)}`);
@@ -363,6 +373,45 @@ export async function fetchInstagramAccounts(): Promise<
   return Array.from(seen.values());
 }
 
+// ─── Ad account diagnostics ──────────────────────────────────────────────────
+
+/**
+ * Fetch the tos_accepted field for an ad account to check whether the
+ * Custom Audience Terms of Service have been accepted.
+ * Returns a structured result — never throws.
+ */
+export async function fetchAdAccountTosStatus(
+  adAccountId: string,
+  token?: string,
+): Promise<{
+  fetched: boolean;
+  customAudienceTos: boolean | null;
+  rawTosAccepted: Record<string, unknown> | null;
+  error?: string;
+}> {
+  const effectiveToken = token || process.env.META_ACCESS_TOKEN;
+  if (!effectiveToken) {
+    return { fetched: false, customAudienceTos: null, rawTosAccepted: null, error: "no token available" };
+  }
+  try {
+    const res = await graphGetWithToken<{ tos_accepted?: Record<string, unknown> }>(
+      `/${adAccountId}`,
+      { fields: "tos_accepted" },
+      effectiveToken,
+    );
+    const tos = res.tos_accepted ?? null;
+    const accepted = tos ? (tos["custom_audience_tos"] === 1 || tos["custom_audience_tos"] === true) : null;
+    return { fetched: true, customAudienceTos: accepted, rawTosAccepted: tos };
+  } catch (err) {
+    return {
+      fetched: false,
+      customAudienceTos: null,
+      rawTosAccepted: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 // ─── Engagement custom audience creation ────────────────────────────────────
 
 export type EngagementAudienceType =
@@ -371,12 +420,22 @@ export type EngagementAudienceType =
   | "ig_followers"
   | "ig_engagement_365d";
 
-interface EngagementAudienceSpec {
+export interface EngagementAudienceSpec {
   type: EngagementAudienceType;
   name: string;
   /** Facebook Page ID (for fb_* types) or Instagram Account ID (for ig_* types) */
   sourceId: string;
   sourceType: "page" | "ig_business";
+  /**
+   * User-level Facebook OAuth token (provider_token from Supabase OAuth).
+   * When provided, preferred over META_ACCESS_TOKEN so the call runs in the
+   * same permission context as the user's Ads Manager session.
+   */
+  userToken?: string;
+  /** For diagnostics only — the FB page ID this audience is associated with */
+  pageId?: string;
+  /** For diagnostics only — the page name */
+  pageName?: string;
 }
 
 /**
@@ -468,9 +527,22 @@ export async function createEngagementAudience(
   adAccountId: string,
   spec: EngagementAudienceSpec,
 ): Promise<{ id: string }> {
-  const token = process.env.META_ACCESS_TOKEN;
+  // ── Token selection ────────────────────────────────────────────────────────
+  // Prefer the user's OAuth token (provider_token) over the static server token.
+  // The user token runs in the same permission context as Ads Manager, which is
+  // required for event-source audience creation on pages the user manages.
+  const systemToken = process.env.META_ACCESS_TOKEN;
+  const token = spec.userToken || systemToken;
+  const tokenSource = spec.userToken
+    ? `user-oauth-token (len=${spec.userToken.length}, prefix=${spec.userToken.slice(0, 10)}…)`
+    : systemToken
+      ? `META_ACCESS_TOKEN/system (len=${systemToken.length}, prefix=${systemToken.slice(0, 10)}…)`
+      : "MISSING";
+
   if (!token) {
-    throw new MetaApiError("META_ACCESS_TOKEN is not configured. Add it to .env.local.");
+    throw new MetaApiError(
+      "No access token available — META_ACCESS_TOKEN is not set and no user token was provided.",
+    );
   }
 
   const paramsOrUnsupported = buildEngagementFormParams(spec);
@@ -481,17 +553,25 @@ export async function createEngagementAudience(
   }
 
   const params = paramsOrUnsupported;
+  const endpoint = `${BASE}/${adAccountId}/customaudiences`;
 
+  // ── Full pre-attempt context log ──────────────────────────────────────────
   console.log(
-    `[createEngagementAudience] Creating "${spec.name}" (${spec.type}) ` +
-    `for ${spec.sourceType}=${spec.sourceId} in ${adAccountId}`,
-    `\n  Outgoing form params:`,
-    `\n    name: ${params.name}`,
-    `\n    prefill: ${params.prefill}`,
-    `\n    rule: ${params.rule}`,
+    `[createEngagementAudience] ▶ Attempt` +
+    `\n  adAccountId:  ${adAccountId}` +
+    `\n  pageId:       ${spec.pageId ?? "(not set)"}` +
+    `\n  pageName:     ${spec.pageName ?? "(not set)"}` +
+    `\n  audienceType: ${spec.type}` +
+    `\n  tokenSource:  ${tokenSource}` +
+    `\n  sourceType:   ${spec.sourceType}` +
+    `\n  sourceId:     ${spec.sourceId}` +
+    `\n  sourceIdIsPageId: ${spec.sourceId === spec.pageId}` +
+    `\n  endpoint:     POST ${endpoint}` +
+    `\n  formParams:   name=${params.name} | prefill=${params.prefill}` +
+    `\n  rule:         ${params.rule}`,
   );
 
-  const url = new URL(`${BASE}/${adAccountId}/customaudiences`);
+  const url = new URL(endpoint);
   url.searchParams.set("access_token", token);
 
   const formBody = new URLSearchParams(params);
@@ -513,10 +593,15 @@ export async function createEngagementAudience(
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
     console.error(
-      "[createEngagementAudience] Meta API error:",
-      "\n  adAccountId:", adAccountId,
-      "\n  Form params:", JSON.stringify(params, null, 2),
-      "\n  Meta error response:", JSON.stringify(json, null, 2),
+      `[createEngagementAudience] ✗ Meta API error` +
+      `\n  adAccountId:    ${adAccountId}` +
+      `\n  pageId:         ${spec.pageId ?? "(not set)"}` +
+      `\n  audienceType:   ${spec.type}` +
+      `\n  tokenSource:    ${tokenSource}` +
+      `\n  sourceType:     ${spec.sourceType}` +
+      `\n  sourceId:       ${spec.sourceId}` +
+      `\n  formParams:     ${JSON.stringify(params)}` +
+      `\n  rawMetaError:   ${JSON.stringify(json)}`,
     );
     throw new MetaApiError(
       (e.message as string) ?? `HTTP ${response.status}`,
@@ -525,12 +610,14 @@ export async function createEngagementAudience(
       e.fbtrace_id as string | undefined,
       e.error_subcode as number | undefined,
       (e.error_user_msg ?? e.error_user_title) as string | undefined,
+      e as Record<string, unknown>,
     );
   }
 
   const result = json as { id: string };
   console.log(
-    `[createEngagementAudience] ✓ Created "${params.name}" → ${result.id} in ${adAccountId}`,
+    `[createEngagementAudience] ✓ Created "${params.name}" → ${result.id}` +
+    ` | tokenSource: ${tokenSource}`,
   );
 
   return result;
