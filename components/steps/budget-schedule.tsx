@@ -300,6 +300,25 @@ function generateSuggestions(
       advantagePlus: false,
       enabled: true,
     });
+    // Lookalike ad sets from this custom audience group (one per tier)
+    if (g.lookalike && g.lookalikeRanges?.length) {
+      for (const range of g.lookalikeRanges) {
+        const pctLabel = RANGE_LABELS[range] ?? range;
+        baseSuggestions.push({
+          id: `as_ca_lal_${g.id}_${range}`,
+          name: `${g.name || "Custom Audiences"} — ${pctLabel} Lookalike`,
+          sourceType: "custom_group_lookalike",
+          sourceId: g.id,
+          sourceName: `${g.name || "Untitled"} ${pctLabel} Lookalike`,
+          lookalikeRange: range,
+          ageMin: age.min,
+          ageMax: age.max,
+          budgetPerDay: 0,
+          advantagePlus: false,
+          enabled: true,
+        });
+      }
+    }
   });
 
   audiences.savedAudiences.audienceIds.forEach((id, i) => {

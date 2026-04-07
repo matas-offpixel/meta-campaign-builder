@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ChevronDown, ChevronUp, XCircle, Loader2, Download } from "lucide-react";
-import type { CustomAudienceGroup, CustomAudience } from "@/lib/types";
+import { Plus, Trash2, ChevronDown, ChevronUp, XCircle, Loader2, Download, Shuffle } from "lucide-react";
+import type { CustomAudienceGroup, CustomAudience, LookalikeRange } from "@/lib/types";
 import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
 
 interface CustomAudiencesPanelProps {
@@ -36,6 +36,9 @@ const TYPE_BADGE_VARIANT: Record<CustomAudience["type"], "success" | "primary" |
 };
 
 const CONFIRM_THRESHOLD = 5;
+
+const LOOKALIKE_RANGES: LookalikeRange[] = ["0-1%", "1-2%", "2-3%"];
+const RANGE_LABELS: Record<LookalikeRange, string> = { "0-1%": "1%", "1-2%": "2%", "2-3%": "3%" };
 
 function createEmptyGroup(): CustomAudienceGroup {
   return {
@@ -355,6 +358,77 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                     </div>
                   </div>
                 )}
+
+                {/* Lookalike expansion */}
+                <div className="rounded-lg border border-border p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Shuffle className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm font-medium">Lookalike Expansion</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const patch: Partial<CustomAudienceGroup> = { lookalike: !group.lookalike };
+                        if (!group.lookalike && !group.lookalikeRanges?.length) {
+                          patch.lookalikeRanges = ["0-1%"];
+                        }
+                        updateGroup(group.id, patch);
+                      }}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors
+                        ${group.lookalike
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border-strong text-muted-foreground hover:border-foreground/20"
+                        }`}
+                    >
+                      {group.lookalike ? "On" : "Off"}
+                    </button>
+                  </div>
+
+                  {group.lookalike && (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="mb-1.5 text-[11px] text-muted-foreground">
+                          Lookalike tiers — one ad set per tier, sourced from the {group.audienceIds.length || "selected"} audience{group.audienceIds.length !== 1 ? "s" : ""} above
+                        </p>
+                        <div className="flex gap-1.5">
+                          {LOOKALIKE_RANGES.map((r) => {
+                            const active = (group.lookalikeRanges ?? []).includes(r);
+                            return (
+                              <button
+                                key={r}
+                                type="button"
+                                onClick={() => {
+                                  const current = group.lookalikeRanges ?? [];
+                                  const next = active
+                                    ? current.filter((x) => x !== r)
+                                    : [...current, r];
+                                  updateGroup(group.id, { lookalikeRanges: next.length > 0 ? next : ["0-1%"] });
+                                }}
+                                className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors
+                                  ${active
+                                    ? "border-primary bg-primary-light text-primary"
+                                    : "border-border text-muted-foreground hover:bg-muted"
+                                  }`}
+                              >
+                                {RANGE_LABELS[r]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {group.audienceIds.length === 0 && (
+                        <p className="text-[11px] text-warning">Select at least one source audience above to enable lookalike creation.</p>
+                      )}
+                      {group.audienceIds.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Will create {(group.lookalikeRanges ?? ["0-1%"]).map((r) => RANGE_LABELS[r as LookalikeRange] ?? r).join(", ")} lookalike ad set{(group.lookalikeRanges?.length ?? 1) !== 1 ? "s" : ""} at launch using existing audiences as seeds.
+                          {" "}Audiences are already in Meta — no waiting for code 441.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </Card>

@@ -30,6 +30,9 @@ const BASE = `https://graph.facebook.com/${API_VERSION}`;
 type SceneTag =
   // Electronic sub-genres
   | "techno"
+  | "hard_techno"
+  | "hardcore"
+  | "psy_trance"
   | "tech_house"
   | "deep_house"
   | "house_music"
@@ -39,8 +42,9 @@ type SceneTag =
   | "afrobeats"
   | "garage_uk"
   | "edm_mainstage"
-  // Cross-genre
+  // Cultural positioning
   | "underground_dance"
+  | "queer_underground"
   | "festival_circuit"
   // City scenes
   | "london_scene"
@@ -48,9 +52,21 @@ type SceneTag =
   | "ibiza_scene"
   | "amsterdam_scene"
   | "nyc_scene"
-  // Adjacent
+  // Fashion / media
   | "dance_media"
-  | "rave_fashion";
+  | "rave_fashion"
+  | "avant_garde_fashion"
+  | "editorial_fashion";
+
+// For sceneHints validation — set of all valid tags
+const ALL_SCENE_TAGS = new Set<SceneTag>([
+  "techno", "hard_techno", "hardcore", "psy_trance",
+  "tech_house", "deep_house", "house_music", "progressive_house",
+  "drum_and_bass", "trance", "afrobeats", "garage_uk", "edm_mainstage",
+  "underground_dance", "queer_underground", "festival_circuit",
+  "london_scene", "berlin_scene", "ibiza_scene", "amsterdam_scene", "nyc_scene",
+  "dance_media", "rave_fashion", "avant_garde_fashion", "editorial_fashion",
+]);
 
 // ── Entity classifiers ────────────────────────────────────────────────────────
 // Ordered from most-specific (named entity) to most-general (category fallback).
@@ -176,6 +192,51 @@ const ENTITY_CLASSIFIERS: ClassifierRule[] = [
   { pattern: /\bdazed\b/i, tags: ["rave_fashion", "dance_media"] },
   { pattern: /\bi.d\s*magazine|i-d\s*mag/i, tags: ["rave_fashion", "dance_media"] },
 
+  // ── Hard techno / industrial / fast techno ────────────────────────────────
+  { pattern: /\bfury\b/i, tags: ["hard_techno", "underground_dance", "festival_circuit"] },
+  { pattern: /\bhard\s*techno\b/i, tags: ["hard_techno", "underground_dance"] },
+  { pattern: /\bindustrial\s*techno\b/i, tags: ["hard_techno", "techno"] },
+  { pattern: /\bawakenings\b/i, tags: ["hard_techno", "techno", "festival_circuit"] },
+  { pattern: /\brebekah\b/i, tags: ["hard_techno", "techno"] },
+  { pattern: /\bblawan\b/i, tags: ["hard_techno", "techno"] },
+  { pattern: /\bkarenn\b/i, tags: ["hard_techno", "techno"] },
+  { pattern: /\btrym\b/i, tags: ["hard_techno"] },
+  { pattern: /\boscar\s*mulero\b/i, tags: ["hard_techno", "techno"] },
+  { pattern: /\bbinary\s*function|arcadia|pole\s*position|renegade\b/i, tags: ["hard_techno", "festival_circuit"] },
+
+  // ── Hardcore / gabber ─────────────────────────────────────────────────────
+  { pattern: /\bdefqon\.?1\b|\bq.?dance\b/i, tags: ["hardcore", "festival_circuit"] },
+  { pattern: /\bgabber\b|\bhardstyle\b|\bhardcore\s*rave\b/i, tags: ["hardcore"] },
+  { pattern: /\bnoisecontrollers\b|\bcoone\b|\bheadhunterz\b/i, tags: ["hardcore"] },
+
+  // ── Psytrance ─────────────────────────────────────────────────────────────
+  { pattern: /\bpsytrance\b|\bpsy.?trance\b|\bgoa\s*trance\b/i, tags: ["psy_trance", "festival_circuit"] },
+  { pattern: /\bozora\b|\bshankra\b|\bspirit\s*festival\b/i, tags: ["psy_trance", "festival_circuit"] },
+  { pattern: /\binfected\s*mushroom\b|\bastrix\b|\bshpongle\b/i, tags: ["psy_trance"] },
+
+  // ── Queer underground ─────────────────────────────────────────────────────
+  { pattern: /\bpxssy\s*palace\b|\bbody\s*movements\b|\bprotect\s*ya\s*neck\b/i, tags: ["queer_underground", "underground_dance"] },
+  { pattern: /\bvogue\s*ball\b|\bballroom\b|\bhouse\s*of\b/i, tags: ["queer_underground"] },
+  { pattern: /\bqueer\s*(rave|night|club|party)\b/i, tags: ["queer_underground", "underground_dance"] },
+  { pattern: /\blgbtq.?\s*(night|club|dance)\b/i, tags: ["queer_underground"] },
+
+  // ── Avant-garde / editorial fashion ──────────────────────────────────────
+  { pattern: /\braf\s*simons\b/i, tags: ["avant_garde_fashion", "editorial_fashion"] },
+  { pattern: /\bmaison\s*margiela\b/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\brick\s*owens\b/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\byohji\s*yamamoto\b/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\bcomme\s*des\s*gar[cç][oô]ns\b|\bcdg\b/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\bann\s*demeulemeester\b/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\bdamir\s*doma\b/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\balexander\s*wang\b(?!.*restaurant)/i, tags: ["avant_garde_fashion"] },
+  { pattern: /\bdazed\b(?!.*confused\s*records)/i, tags: ["editorial_fashion", "avant_garde_fashion"] },
+  { pattern: /\bi.?d\s*mag(?:azine)?\b/i, tags: ["editorial_fashion"] },
+  { pattern: /\banother\s*mag(?:azine)?\b/i, tags: ["editorial_fashion", "avant_garde_fashion"] },
+  { pattern: /\bv\s*mag(?:azine)?\b/i, tags: ["editorial_fashion"] },
+  { pattern: /\bmetal\s*mag(?:azine)?\b/i, tags: ["editorial_fashion", "avant_garde_fashion"] },
+  { pattern: /\bsystem\s*mag(?:azine)?\b/i, tags: ["editorial_fashion"] },
+  { pattern: /\bself\s*service\b|\bgarage\s*mag\b|\b032c\b/i, tags: ["editorial_fashion"] },
+
   // ── Genre keywords in name (lower confidence) ─────────────────────────────
   { pattern: /\btechno\b/i, tags: ["techno"] },
   { pattern: /\btech.?house\b/i, tags: ["tech_house"] },
@@ -279,6 +340,40 @@ const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
     "Brooklyn Mirage", "House of Yes", "Nowadays",
     "Output Brooklyn",
   ],
+  hard_techno: [
+    "Awakenings", "Awakenings Festival", "Rebekah",
+    "Blawan", "Paula Temple", "Karenn",
+    "Oscar Mulero", "Trym", "Phase (artist)",
+    "hard techno", "industrial techno",
+  ],
+  hardcore: [
+    "Q-Dance", "Defqon.1", "Noisecontrollers",
+    "Coone", "Headhunterz", "Hardstyle music",
+    "gabber music", "Thunderdome", "hardcore music",
+  ],
+  psy_trance: [
+    "psytrance", "Goa trance", "Infected Mushroom",
+    "Astrix", "Ozora Festival", "Spirit Festival",
+    "Shpongle", "Ott (musician)",
+  ],
+  queer_underground: [
+    "queer clubbing", "LGBTQ nightlife",
+    "Pxssy Palace", "Body Movements Festival",
+    "ballroom culture", "vogue ball",
+    "queer rave",
+  ],
+  avant_garde_fashion: [
+    "Maison Margiela", "Raf Simons", "Comme des Garçons",
+    "Rick Owens", "Yohji Yamamoto", "Ann Demeulemeester",
+    "Damir Doma", "Alexander Wang (designer)",
+    "Balenciaga (fashion brand)", "avant-garde fashion",
+  ],
+  editorial_fashion: [
+    "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
+    "V Magazine", "METAL Magazine", "System Magazine",
+    "Garage Magazine", "032c", "Tank Magazine",
+    "GQ", "Vogue (magazine)",
+  ],
   dance_media: [
     "Mixmag", "Resident Advisor", "DJ Mag",
     "Boiler Room", "Red Bull Music Academy", "FACT Magazine",
@@ -295,24 +390,27 @@ const SCENE_ENTITY_MAP: Partial<Record<SceneTag, string[]>> = {
 
 const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
   "Music & Nightlife": [
-    "techno", "tech_house", "deep_house", "house_music", "progressive_house",
+    "techno", "hard_techno", "hardcore", "psy_trance",
+    "tech_house", "deep_house", "house_music", "progressive_house",
     "drum_and_bass", "trance", "afrobeats", "garage_uk", "edm_mainstage",
-    "underground_dance", "festival_circuit",
+    "underground_dance", "queer_underground", "festival_circuit",
     "london_scene", "berlin_scene", "ibiza_scene", "amsterdam_scene", "nyc_scene",
   ],
   "Fashion & Streetwear": [
-    "rave_fashion", "underground_dance", "ibiza_scene",
+    "avant_garde_fashion", "editorial_fashion",
+    "rave_fashion", "queer_underground", "underground_dance",
   ],
   "Lifestyle & Nightlife": [
-    "ibiza_scene", "festival_circuit", "underground_dance",
+    "ibiza_scene", "festival_circuit", "underground_dance", "queer_underground",
     "london_scene", "berlin_scene", "amsterdam_scene",
   ],
   "Activities & Culture": [
     "london_scene", "berlin_scene", "amsterdam_scene", "underground_dance",
+    "queer_underground", "avant_garde_fashion",
   ],
   "Media & Entertainment": [
-    "dance_media", "underground_dance",
-    "techno", "tech_house", "deep_house", "house_music",
+    "dance_media", "editorial_fashion", "underground_dance",
+    "techno", "hard_techno", "tech_house", "deep_house", "house_music",
     "drum_and_bass", "festival_circuit",
   ],
 };
@@ -340,12 +438,15 @@ const CLUSTER_PATH_PATTERNS: Record<string, RegExp> = {
 
 const CURATED_SEEDS: Record<string, string[]> = {
   "Music & Nightlife": [
-    "house music", "techno music", "electronic dance music",
-    "Boiler Room", "Tomorrowland", "music festival", "nightclub",
+    "Boiler Room", "Resident Advisor", "Awakenings Festival",
+    "Berghain", "techno music", "underground dance music",
+    "electronic dance music", "music festival", "nightclub",
   ],
   "Fashion & Streetwear": [
-    "Gucci", "Louis Vuitton", "Balenciaga", "Prada", "Versace",
-    "streetwear", "luxury fashion", "Dazed magazine", "i-D magazine",
+    "Maison Margiela", "Raf Simons", "Balenciaga (fashion brand)",
+    "Comme des Garçons", "Rick Owens", "GQ",
+    "Dazed & Confused (magazine)", "i-D (magazine)", "Another Magazine",
+    "METAL Magazine", "Alexander Wang (designer)", "Ann Demeulemeester",
   ],
   "Lifestyle & Nightlife": [
     "luxury travel", "luxury hotels", "Four Seasons Hotels",
@@ -372,13 +473,19 @@ const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
     /\b(parenting|mommy|toddler|pregnancy|new.?mum|new.?mom)\b/i,
     /\b(cooking|recipe|food.?blog|baking|culinary)\b/i,
     /\b(coding|programming|software.?engineer|web.?develop)\b/i,
+    /\b(performing\s*arts|classical\s*music|opera|ballet|musical\s*theatre|orchestra)\b/i,
+    /\b(rock\s*music|punk\s*rock|metal\s*music|indie\s*rock|alternative\s*rock|pop\s*rock)\b/i,
   ],
   "Fashion & Streetwear": [
     /\b(video.?game|gaming|esport|gamer)\b/i,
     /\b(language.?learn|ielts|toefl|exam.?prep)\b/i,
     /\b(parenting|mommy|toddler|pregnancy)\b/i,
     /\b(cryptocurrency|forex|stock.?market)\b/i,
-    /\b(cooking|recipe|culinary)\b/i,
+    /\b(cooking|recipe|culinary|food.?blog)\b/i,
+    /\b(pop\s*music|chart\s*music|mainstream|top.?40)\b/i,
+    /\b(celebrity|reality\s*tv|soap\s*opera|talent\s*show)\b/i,
+    /\b(gym|fitness|bodybuilding|crossfit|workout)\b/i,
+    /\b(sports?\s*team|football|basketball|cricket)\b/i,
   ],
   "Lifestyle & Nightlife": [
     /\b(video.?game|gaming|esport|gamer)\b/i,
@@ -722,7 +829,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  let body: { pageContext?: unknown; campaignName?: unknown; clusterLabel?: unknown };
+  let body: { pageContext?: unknown; campaignName?: unknown; clusterLabel?: unknown; sceneHints?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -734,6 +841,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   ) as PageContextItem[];
   const clusterLabel =
     typeof body.clusterLabel === "string" ? body.clusterLabel.trim() : undefined;
+
+  // sceneHints: array of scene tag strings the user manually specifies to bias discovery
+  const rawHints: string[] = Array.isArray(body.sceneHints)
+    ? (body.sceneHints as unknown[]).filter((h): h is string => typeof h === "string")
+    : [];
 
   if (pages.length === 0 && !body.campaignName) {
     return NextResponse.json(
@@ -753,7 +865,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Stage 1: classify pages → scene tags
   const sceneTags = classifyPages(pages);
+
+  // Apply manual scene hints — treat known tags directly, use as search terms for unknown
+  const hintTagsApplied: string[] = [];
+  for (const hint of rawHints) {
+    const normalized = hint.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (ALL_SCENE_TAGS.has(normalized as SceneTag)) {
+      sceneTags.add(normalized as SceneTag);
+      hintTagsApplied.push(normalized);
+    }
+  }
+
   const detectedSceneTags = [...sceneTags];
+  if (hintTagsApplied.length > 0) {
+    console.info(`[interest-discover] sceneHints applied: ${hintTagsApplied.join(", ")}`);
+  }
 
   console.info(
     `[interest-discover] mode=${clusterLabel ? `single:${clusterLabel}` : "all"}, ` +

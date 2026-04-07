@@ -1169,6 +1169,55 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // ── Phase 1.75d — Lookalikes from Custom Audience Groups ─────────────────
+    // Uses pre-existing audiences from the ad account as sources, so no
+    // readiness polling needed — these audiences are already in Meta.
+    for (const caGroup of draft.audiences.customAudienceGroups) {
+      if (!caGroup.lookalike || !caGroup.lookalikeRanges?.length || caGroup.audienceIds.length === 0) continue;
+      if (Date.now() >= lalPhaseDeadline) {
+        console.log(`[launch-campaign] Phase 1.75d — timeout, skipping custom group "${caGroup.name}"`);
+        break;
+      }
+
+      caGroup.lookalikeAudienceIdsByRange = {};
+
+      for (const range of caGroup.lookalikeRanges) {
+        if (Date.now() >= lalPhaseDeadline) break;
+
+        const { startingRatio, endingRatio } = parseLookalikeRange(range);
+        const pctLabel = `${Math.round(endingRatio * 100)}%`;
+        const lalName = `${caGroup.name || "Custom Audiences"} — ${pctLabel} Lookalike`;
+        let succeeded = false;
+
+        for (const audienceId of caGroup.audienceIds) {
+          if (succeeded || Date.now() >= lalPhaseDeadline) break;
+          const lalStart = Date.now();
+          console.log(
+            `[launch-campaign] Phase 1.75d ▶ "${lalName}" (source=${audienceId})`,
+          );
+          try {
+            const result = await createLookalikeAudience(adAccountId, {
+              name: lalName,
+              originAudienceId: audienceId,
+              startingRatio,
+              endingRatio,
+              country: lookalikeCountry,
+            });
+            caGroup.lookalikeAudienceIdsByRange[range] = [result.id];
+            lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
+            succeeded = true;
+            console.log(`[launch-campaign] Phase 1.75d ✓ "${lalName}" → ${result.id}`);
+          } catch (err) {
+            const message = formatMetaError(err);
+            console.error(`[launch-campaign] Phase 1.75d ✗ "${lalName}" (source=${audienceId}):`, message);
+            if (!succeeded) {
+              lookalikeAudiencesFailed.push({ name: lalName, range, error: message });
+            }
+          }
+        }
+      }
+    }
+
     console.log(
       "[launch-campaign] Phase 1.75 done —",
       "lookalikes created:", lookalikeAudiencesCreated.length,
@@ -1187,7 +1236,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const adSetLaunchResults: Record<string, AdSetLaunchResult> = {};
 
   // Split ad sets: standard ones can proceed now, lookalike ones must wait
-  const LOOKALIKE_TYPES = new Set(["lookalike_group", "selected_pages_lookalike"]);
+  const LOOKALIKE_TYPES = new Set(["lookalike_group", "selected_pages_lookalike", "custom_group_lookalike"]);
   const standardSets = enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
   const lookalikeSets = enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
@@ -1564,6 +1613,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     updatedEngagementStatuses: draft.audiences.pageGroups
       .filter((g) => (g.engagementAudienceStatuses?.length ?? 0) > 0)
       .map((g) => ({ groupId: g.id, statuses: g.engagementAudienceStatuses! })),
+    updatedCustomGroupLookalikes: draft.audiences.customAudienceGroups
+      .filter((g) => g.lookalikeAudienceIdsByRange && Object.keys(g.lookalikeAudienceIdsByRange).length > 0)
+      .map((g) => ({ groupId: g.id, lookalikeAudienceIdsByRange: g.lookalikeAudienceIdsByRange! })),
     interestReplacements: interestReplacements.length > 0 ? interestReplacements : undefined,
     adSetsCreated,
     adSetsFailed,

@@ -109,3 +109,35 @@ create trigger user_facebook_tokens_updated_at
 -- ─────────────────────────────────────────────────────────────────────────────
 -- alter table campaign_drafts add column if not exists status text not null default 'draft';
 -- alter table campaign_drafts add column if not exists ad_account_id text;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- campaign-assets Storage Bucket
+-- Used for video uploads: client uploads directly to Supabase Storage,
+-- server fetches + streams to Meta, then removes the object.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'campaign-assets',
+  'campaign-assets',
+  false,
+  209715200,  -- 200 MB
+  array['video/mp4', 'video/quicktime', 'video/webm', 'image/jpeg', 'image/png']
+)
+on conflict (id) do nothing;
+
+-- RLS: authenticated users can upload and read their own files
+create policy "Authenticated users can upload campaign assets"
+  on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'campaign-assets');
+
+create policy "Authenticated users can read campaign assets"
+  on storage.objects for select
+  to authenticated
+  using (bucket_id = 'campaign-assets');
+
+create policy "Authenticated users can delete their campaign assets"
+  on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'campaign-assets');

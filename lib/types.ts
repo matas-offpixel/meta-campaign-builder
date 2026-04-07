@@ -313,6 +313,16 @@ export interface CustomAudienceGroup {
   id: string;
   name: string;
   audienceIds: string[];
+  /** When true, lookalike ad sets will be created from this group's audiences at launch */
+  lookalike?: boolean;
+  /** Lookalike percentage tiers to create ad sets for (e.g. ["0-1%", "1-2%"]) */
+  lookalikeRanges?: LookalikeRange[];
+  /**
+   * Lookalike audience IDs created at launch, keyed by range string.
+   * e.g. { "0-1%": ["123456789012345"] }
+   * Populated by Phase 1.75d of the launch pipeline.
+   */
+  lookalikeAudienceIdsByRange?: Record<string, string[]>;
 }
 
 export interface SavedAudienceSelection {
@@ -538,10 +548,12 @@ export interface AdSetSuggestion {
   sourceType:
     | "page_group"
     | "custom_group"
+    /** Lookalike from a CustomAudienceGroup using pre-existing audiences as seeds */
+    | "custom_group_lookalike"
     | "saved_audience"
     | "interest_group"
     | "lookalike_group"
-    /** Lookalike from My Facebook Pages (SelectedPagesLookalikeGroup) */
+    /** @deprecated Lookalike from My Facebook Pages (SelectedPagesLookalikeGroup) */
     | "selected_pages_lookalike";
   sourceId: string;
   sourceName: string;
@@ -724,6 +736,14 @@ export interface LaunchSummary {
   updatedEngagementStatuses?: Array<{
     groupId: string;
     statuses: EngagementAudienceStatus[];
+  }>;
+  /**
+   * Lookalike audience IDs created for custom audience groups (Phase 1.75d).
+   * Wizard-shell persists these back to draft.audiences.customAudienceGroups.
+   */
+  updatedCustomGroupLookalikes?: Array<{
+    groupId: string;
+    lookalikeAudienceIdsByRange: Record<string, string[]>;
   }>;
   /** Deprecated interests that were auto-replaced during ad set creation */
   interestReplacements?: { deprecated: string; replacement: string | null; adSetName: string }[];

@@ -122,6 +122,23 @@ export function WizardShell({ draftId }: WizardShellProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launchSummary]);
 
+  // After launch, persist custom group lookalike IDs back into the draft.
+  useEffect(() => {
+    if (!launchSummary?.updatedCustomGroupLookalikes?.length) return;
+    const currentCAGroups = draftRef.current.audiences.customAudienceGroups;
+    let changed = false;
+    const updated = currentCAGroups.map((g) => {
+      const incoming = launchSummary.updatedCustomGroupLookalikes!.find((u) => u.groupId === g.id);
+      if (!incoming) return g;
+      changed = true;
+      return { ...g, lookalikeAudienceIdsByRange: incoming.lookalikeAudienceIdsByRange };
+    });
+    if (changed) {
+      updateAudiences({ ...draftRef.current.audiences, customAudienceGroups: updated });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchSummary]);
+
   // Template state
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);

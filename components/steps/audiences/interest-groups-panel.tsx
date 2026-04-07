@@ -115,6 +115,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const [discoverFromPagesError, setDiscoverFromPagesError] = useState<Record<string, string | null>>({});
   // Per-cluster: which interests are checked — keyed by groupId+clusterLabel+interestId
   const [clusterSelections, setClusterSelections] = useState<Record<string, Record<string, boolean>>>({});
+  // Scene hints per group — free-text field that maps to scene tags for better discovery
+  const [sceneHintsByGroup, setSceneHintsByGroup] = useState<Record<string, string>>({});
 
   const activeSearch = searchByGroup[activeSearchGroupId ?? ""] ?? "";
   const searchState = useInterestSearch(activeSearch);
@@ -278,6 +280,13 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     setDiscoverSceneTags((prev) => ({ ...prev, [groupId]: [] }));
 
     try {
+      // Parse scene hints: comma-separated free text → array of tokens
+      const rawHints = sceneHintsByGroup[groupId] ?? "";
+      const sceneHints = rawHints
+        .split(/[,;]+/)
+        .map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"))
+        .filter(Boolean);
+
       const res = await fetch("/api/meta/interest-discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -288,8 +297,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
             instagramUsername: p.instagramUsername,
           })),
           campaignName,
-          // Single-cluster mode when a cluster type is set — avoids cross-cluster bleed
           ...(effectiveClusterType ? { clusterLabel: effectiveClusterType } : {}),
+          ...(sceneHints.length > 0 ? { sceneHints } : {}),
         }),
       });
 
@@ -676,6 +685,19 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         <RefreshCw className="h-3.5 w-3.5" />
                       </button>
                     )}
+                  </div>
+
+                  {/* Scene hints — optional nudge for niche subgenre discovery */}
+                  <div>
+                    <Input
+                      label="Scene hints (optional)"
+                      value={sceneHintsByGroup[group.id] ?? ""}
+                      onChange={(e) => setSceneHintsByGroup((prev) => ({ ...prev, [group.id]: e.target.value }))}
+                      placeholder="e.g. hard_techno, queer_underground, avant_garde_fashion"
+                    />
+                    <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+                      Comma-separated scene tags to bias discovery. Helps when page names don&apos;t clearly signal the niche (e.g. <span className="font-mono">hard_techno</span>, <span className="font-mono">editorial_fashion</span>, <span className="font-mono">psy_trance</span>).
+                    </p>
                   </div>
 
                   <Button
