@@ -46,9 +46,11 @@ type SuggestionType =
   | "junk"              // other unusable targeting categories
   | "unknown";
 
-// ── Universal junk hard-exclusion ────────────────────────────────────────────
-// Patterns that match Meta's junk behavioural / demographic categories which
-// should NEVER appear in interest-cluster suggestion panels.
+// ── Universal junk regex — TELEMETRY ONLY (Landing 1) ────────────────────────
+// Primary defence is now the structural taxonomy-root filter (path[0] must be
+// "Interests"). These regexes remain as a debug assertion that fires if any
+// final suggestion still looks junky — signalling a bug in the enrichment or
+// structural filter, not a new regex to add.
 
 const UNIVERSAL_JUNK: RegExp[] = [
   // Facebook access / browser / device usage
@@ -365,6 +367,53 @@ function audienceSizeBand(size: number): string {
   return "mega (200M+)";
 }
 
+// ── Path-based classifier (Landing 1 — primary classifier) ───────────────────
+// Meta's `path[]` is the authoritative taxonomy. Classify by inspecting the
+// joined path string rather than name regex. This is:
+//   1. More accurate — Meta tells us exactly where the interest sits
+//   2. Locale-stable — paths are in the account's primary language but the
+//      categorical structure is stable across languages
+//   3. Cheaper — no brittle name regex to maintain
+
+function classifyFromPath(path: string[]): SuggestionType {
+  if (!path || path.length === 0) return "unknown";
+  const joined = path.map((s) => s.toLowerCase()).join(" > ");
+
+  // Music-related branches
+  if (/\bmusic\b/.test(joined)) {
+    if (/(streaming|audio\s*apps?|music\s*(and\s*)?audio|music\s*apps?|apps?\s*and\s*sites)/.test(joined))
+      return "music_platform";
+    if (/(record\s*label|recordings?\b)/.test(joined)) return "label";
+    if (/(magazine|publication|media|press|news|journalism)/.test(joined)) return "music_media";
+    if (/(festival|event|concert)/.test(joined)) return "festival";
+    if (/(venue|night\s*club|club\b)/.test(joined)) return "venue";
+    if (/(dj\b|disc\s*jockey|musician|artist|performer|singer|band)/.test(joined)) return "artist";
+    if (/(genre|techno|house|electronic|drum|bass|hip.?hop|jazz|rock|metal|pop|country|classical|indie|dance|edm|reggae|soul|funk|disco|punk|wave)/.test(joined))
+      return "genre";
+    return "genre";
+  }
+
+  // Nightlife / club culture (can live outside Music path)
+  if (/(nightlife|night\s*club|club\s*culture|rave|underground)/.test(joined)) return "nightlife";
+
+  // Fashion / shopping branches
+  if (/(fashion|shopping|apparel|clothing|footwear|accessories|style|beauty)/.test(joined)) {
+    if (/(magazine|publication|editorial|press)/.test(joined)) return "fashion_media";
+    if (/(streetwear|sneaker|hypebeast|skate)/.test(joined)) return "streetwear";
+    return "fashion_brand";
+  }
+
+  // Media / entertainment / publications
+  if (/(magazine|publication|news|journalism|broadcasting|media|entertainment|tv\s*channels?|radio)/.test(joined))
+    return "media";
+
+  // Lifestyle / hobbies / travel / food / sport — lifestyle lane
+  if (/(lifestyle|hobby|hobbies|recreation|travel|food|drink|wellness|fitness|sport|outdoor|creative|art|culture|photography)/.test(joined))
+    return "lifestyle_brand";
+
+  return "unknown";
+}
+
 // ── Exported types ────────────────────────────────────────────────────────────
 
 export interface SuggestedInterest {
@@ -372,6 +421,8 @@ export interface SuggestedInterest {
   name: string;
   audienceSize: number | null;
   path?: string[];
+  /** Taxonomy root (path[0]) — always "Interests" after Landing 1 structural filter */
+  taxonomyRoot?: string;
   score: number;
   likelyDeprecated?: boolean;
   audienceSizeBand?: string;
@@ -392,6 +443,12 @@ export interface SuggestionsDebugInfo {
   fallbackUsed: boolean;
   fallbackSeedNames: string[];
   rawSuggestionCount: number;
+  /** Landing 1: enrichment + structural filter telemetry */
+  enrichedCandidateCount: number;
+  droppedMissingPathCount: number;
+  droppedNonInterestCount: number;
+  droppedNonInterestRoots: Record<string, number>;
+  finalInterestOnlyCount: number;
   excludedBySeedCount: number;
   excludedJunkCount: number;
   excludedByClusterBlocklistCount: number;
@@ -403,7 +460,114 @@ export interface SuggestionsDebugInfo {
   tokenPrefix: string;
   metaError?: string;
   top5Raw: string[];
-  top10ScoreBreakdown: Array<{ name: string; type: string; score: number; sizeBand: string }>;
+  top10ScoreBreakdown: Array<{ name: string; type: string; score: number; sizeBand: string; path: string[] }>;
+}
+
+// ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
+// Calls Meta's adinterestvalid endpoint to get authoritative taxonomy metadata
+// (path, audience_size) for every candidate ID. This is the source of truth
+// for the structural taxonomy-root filter.
+//
+// Docs: https://developers.facebook.com/docs/marketing-api/audiences/reference/targeting-search/#interestvalidation
+// Payload: interest_fbid_list=JSON array of ID strings. Returns { data: [{id, name, valid, audience_size, path?, ...}] }
+
+export interface EnrichedInterest {
+  id: string;
+  name: string;
+  valid: boolean;
+  audienceSize: number;
+  audienceSizeLower?: number;
+  audienceSizeUpper?: number;
+  path: string[];
+  topic?: string;
+  description?: string;
+}
+
+async function enrichCandidates(
+  ids: string[],
+  token: string,
+  apiBase: string,
+): Promise<{ enriched: Map<string, EnrichedInterest>; error?: string; httpStatus: number }> {
+  const enriched = new Map<string, EnrichedInterest>();
+  if (ids.length === 0) return { enriched, httpStatus: 0 };
+
+  // Deduplicate, batch in groups of 50 (Meta's practical batch ceiling)
+  const unique = Array.from(new Set(ids));
+  const BATCH = 50;
+  let lastHttpStatus = 0;
+  let lastError: string | undefined;
+
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const batch = unique.slice(i, i + BATCH);
+    const payload = JSON.stringify(batch);
+    const url =
+      `${apiBase}/search` +
+      `?access_token=${encodeURIComponent(token)}` +
+      `&type=adinterestvalid` +
+      `&interest_fbid_list=${encodeURIComponent(payload)}`;
+
+    const urlSafe = url.replace(token, token.slice(0, 12) + "…");
+    console.info(
+      `[interest-suggestions] ▶ enrichment call (batch ${i / BATCH + 1}):` +
+      `\n  ids: ${batch.length}` +
+      `\n  url (safe): ${urlSafe}`,
+    );
+
+    let res: Response;
+    try {
+      res = await fetch(url, { cache: "no-store" });
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.error(`[interest-suggestions] ✗ enrichment network error:`, err);
+      continue;
+    }
+    lastHttpStatus = res.status;
+
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok || json.error) {
+      const e = (json.error ?? {}) as Record<string, unknown>;
+      lastError = (e.message as string) ?? `HTTP ${res.status}`;
+      console.error(
+        `[interest-suggestions] ✗ enrichment Meta error: ${lastError}` +
+        `\n  full: ${JSON.stringify(e)}`,
+      );
+      continue;
+    }
+
+    const data = (json.data as Array<{
+      id?: string;
+      name?: string;
+      valid?: boolean;
+      audience_size?: number;
+      audience_size_lower_bound?: number;
+      audience_size_upper_bound?: number;
+      path?: string[];
+      topic?: string;
+      description?: string;
+    }>) ?? [];
+
+    for (const row of data) {
+      if (!row.id) continue;
+      enriched.set(row.id, {
+        id: row.id,
+        name: row.name ?? "",
+        valid: row.valid ?? true,
+        audienceSize: row.audience_size ?? row.audience_size_upper_bound ?? 0,
+        audienceSizeLower: row.audience_size_lower_bound,
+        audienceSizeUpper: row.audience_size_upper_bound,
+        path: row.path ?? [],
+        topic: row.topic,
+        description: row.description,
+      });
+    }
+  }
+
+  console.info(
+    `[interest-suggestions] enrichment complete: ${enriched.size}/${unique.length} IDs resolved` +
+    (lastError ? ` (with errors: ${lastError})` : ""),
+  );
+
+  return { enriched, httpStatus: lastHttpStatus, error: lastError };
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -650,7 +814,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // ── Step 6: classify, filter, and score ───────────────────────────────────
+  // ── Step 5b: enrichment — fetch authoritative taxonomy metadata ──────────
+  // Landing 1: call adinterestvalid to get path[] for every raw candidate.
+  // The path is the authoritative taxonomy root that tells us whether this
+  // candidate is an Interest, a Behavior, or a Demographic. This replaces the
+  // entire regex-based junk-filtering layer.
+
+  const candidateIds = raw.map((r) => r.id).filter(Boolean);
+  const { enriched } = await enrichCandidates(candidateIds, token, BASE);
+
+  // ── Step 6: filter, classify, and score ──────────────────────────────────
   const typeScores = cluster
     ? (CLUSTER_TYPE_SCORES[cluster] ?? DEFAULT_TYPE_SCORES)
     : DEFAULT_TYPE_SCORES;
@@ -661,66 +834,104 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const blockedNames: string[] = [];
 
   let excludedBySeed = 0;
+  let droppedMissingPath = 0;
+  let droppedNonInterest = 0;
+  const droppedNonInterestRoots: Record<string, number> = {};
   let excludedJunk = 0;
   let excludedByCluster = 0;
   let excludedByType = 0;
   const excludedByTypeBreakdown: Record<string, number> = {};
 
   for (const item of raw) {
-    const itemPath = item.path ?? [];
-    const text = [item.name, ...itemPath].join(" ");
-
     // 6a. Exclude already-selected IDs
     if (excludeIds.has(item.id)) { excludedBySeed++; continue; }
 
-    // 6b. Universal junk hard-exclusion (device ownership, life events, FB access…)
-    if (!debugBypass && isUniversalJunk(item.name, itemPath)) {
-      excludedJunk++;
+    // Landing 1: use authoritative enriched metadata when available, falling
+    // back to the path Meta returned in the suggestion response.
+    const enrichedMeta = enriched.get(item.id);
+    const itemPath = (enrichedMeta?.path?.length ? enrichedMeta.path : item.path) ?? [];
+    const size = enrichedMeta?.audienceSize ?? item.audience_size ?? 0;
+    const text = [item.name, ...itemPath].join(" ");
+
+    // 6b. STRUCTURAL FILTER — primary defence (Landing 1)
+    // Drop candidates with no path[] at all. Meta's Interests taxonomy always
+    // returns a path; missing path means the candidate is unresolvable or
+    // deprecated and therefore unsafe to surface.
+    if (!debugBypass && itemPath.length === 0) {
+      droppedMissingPath++;
       blockedNames.push(item.name);
-      console.info(`[interest-suggestions] Stage B junk-drop: "${item.name}" (path: ${JSON.stringify(itemPath)})`);
+      console.info(`[interest-suggestions] Stage B drop (missing path): "${item.name}"`);
       continue;
     }
 
-    // 6c. Cluster supplementary blocklist
+    // 6c. STRUCTURAL FILTER — taxonomy root must be "Interests"
+    // This single check replaces UNIVERSAL_JUNK. Behaviors, Demographics, and
+    // Life events all live under different taxonomy roots and get dropped here.
+    if (!debugBypass && itemPath[0] !== "Interests") {
+      droppedNonInterest++;
+      const root = itemPath[0] || "(empty)";
+      droppedNonInterestRoots[root] = (droppedNonInterestRoots[root] ?? 0) + 1;
+      blockedNames.push(item.name);
+      console.info(
+        `[interest-suggestions] Stage B drop (non-Interests root): "${item.name}" ` +
+        `→ path[0]="${root}" full path=${JSON.stringify(itemPath)}`,
+      );
+      continue;
+    }
+
+    // 6d. Zero / invalid audience size (inactive or deprecated interest)
+    if (!debugBypass && size === 0 && enrichedMeta && !enrichedMeta.valid) {
+      droppedMissingPath++; // bucket with missing-path for telemetry
+      blockedNames.push(item.name);
+      console.info(`[interest-suggestions] Stage B drop (invalid/zero-size): "${item.name}"`);
+      continue;
+    }
+
+    // 6e. Cluster supplementary blocklist — handles within-Interests pollution
+    // (e.g. video games under Interests > Games when cluster is Fashion).
     if (!debugBypass && blocklist.some((p) => p.test(text))) {
       excludedByCluster++;
       blockedNames.push(item.name);
       continue;
     }
 
-    // 6d. Type classification + type-score gating
-    const sType = debugBypass ? "unknown" : classifySuggestion(item.name, itemPath);
+    // 6f. Classify from path (primary) — name-based classifier only as a
+    // last-resort fallback when path is unexpectedly short.
+    const sType: SuggestionType = debugBypass
+      ? "unknown"
+      : (classifyFromPath(itemPath) !== "unknown"
+          ? classifyFromPath(itemPath)
+          : classifySuggestion(item.name, itemPath));
+
     const typeBonus = (typeScores as Record<string, number>)[sType] ?? 0;
 
+    // With structural filter in place, type-score-based dropping is redundant
+    // for junk types (they never reach here). Keep the guard for defence in
+    // depth, but in practice it should rarely fire.
     if (!debugBypass && typeBonus <= -999) {
       excludedByType++;
       excludedByTypeBreakdown[sType] = (excludedByTypeBreakdown[sType] ?? 0) + 1;
       blockedNames.push(item.name);
-      console.info(`[interest-suggestions] Stage C type-drop: "${item.name}" → type="${sType}"`);
+      console.info(`[interest-suggestions] Stage C type-drop: "${item.name}" → type="${sType}" path=${JSON.stringify(itemPath)}`);
       continue;
     }
 
-    // 6e. Compute score
-    const size = item.audience_size ?? 0;
+    // 6g. Compute score
     let score = sizeBandScore(size);
     score += typeBonus;
-
-    // Bonus for cluster path match (secondary signal — avoids double-counting
-    // when type score already captured the right lane)
     if (!debugBypass && pathPattern?.test(text)) score += 10;
 
-    // Deprecation penalty
     const deprecated = !debugBypass && isKnownDeprecated(item.name);
     if (deprecated) score -= 15;
 
-    // Penalise mega-broad single-word generics with no path context
     if (!debugBypass && /^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name)) score -= 10;
 
     suggestions.push({
       id: item.id,
-      name: item.name,
+      name: enrichedMeta?.name || item.name,
       audienceSize: size > 0 ? size : null,
-      path: itemPath.length > 0 ? itemPath : undefined,
+      path: itemPath,
+      taxonomyRoot: itemPath[0],
       score,
       likelyDeprecated: deprecated || undefined,
       audienceSizeBand: audienceSizeBand(size),
@@ -745,24 +956,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     type: s.suggestionType,
     score: s.score,
     sizeBand: s.audienceSizeBand ?? "unknown",
+    path: s.path ?? [],
   }));
 
+  const finalInterestOnlyCount = finalSuggestions.length;
+
   console.info(
-    `[interest-suggestions] ── Stage D: pipeline summary ──` +
-    `\n  raw:                    ${raw.length}` +
-    `\n  excluded by seed:       ${excludedBySeed}` +
-    `\n  excluded junk:          ${excludedJunk}` +
-    `\n  excluded cluster list:  ${excludedByCluster}` +
-    `\n  excluded by type:       ${excludedByType} (${JSON.stringify(excludedByTypeBreakdown)})` +
-    `\n  scored:                 ${suggestions.length}` +
-    `\n  returned (capped):      ${finalSuggestions.length}` +
-    `\n  debug-bypass:           ${debugBypass}` +
+    `[interest-suggestions] ── Stage D: pipeline summary (Landing 1) ──` +
+    `\n  raw:                        ${raw.length}` +
+    `\n  enriched (adinterestvalid): ${enriched.size}/${candidateIds.length}` +
+    `\n  excluded by seed:           ${excludedBySeed}` +
+    `\n  dropped (missing path):     ${droppedMissingPath}` +
+    `\n  dropped (non-Interests):    ${droppedNonInterest} — roots: ${JSON.stringify(droppedNonInterestRoots)}` +
+    `\n  excluded (cluster list):    ${excludedByCluster}` +
+    `\n  excluded (type):            ${excludedByType} ${JSON.stringify(excludedByTypeBreakdown)}` +
+    `\n  scored:                     ${suggestions.length}` +
+    `\n  returned (capped):          ${finalSuggestions.length}` +
+    `\n  debug-bypass:               ${debugBypass}` +
     (finalSuggestions.length > 0
-      ? `\n  Stage E final names: ${finalSuggestions.map((s) => `"${s.name}"[${s.suggestionType}]`).join(", ")}`
+      ? `\n  Stage E final: ${finalSuggestions.map((s) => `"${s.name}"[${s.suggestionType}|${s.taxonomyRoot}]`).join(", ")}`
       : ""),
   );
 
-  // ── Junk-leak assertion: catch any exclusion failures before they reach the client
+  // ── Junk-leak assertion (telemetry) — fires if the structural filter missed
+  // anything or if the path-based classifier accepted a non-Interests root.
+  // This should NEVER fire after Landing 1; if it does, it's a real bug.
   if (!debugBypass) {
     const JUNK_LEAK_PATTERNS = [
       /\bservices?\b/i, /\bfriends?\s+of\b/i, /\bbirthday\b/i,
@@ -771,12 +989,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       /\bprotective\b/i, /\bhealthcare\b/i, /\binstallation\b/i, /\brepair\b/i,
     ];
     for (const s of finalSuggestions) {
+      // Structural assertion — primary check
+      if (s.taxonomyRoot !== "Interests") {
+        console.error(
+          `[interest-suggestions] ⚠ STRUCTURAL LEAK: "${s.name}" has taxonomyRoot="${s.taxonomyRoot}" ` +
+          `(should be "Interests"). path=${JSON.stringify(s.path)}. ` +
+          `This is a bug in the enrichment/structural filter.`,
+        );
+      }
+      // Regex telemetry — secondary check (should be redundant now)
       const leakHit = JUNK_LEAK_PATTERNS.find((p) => p.test(s.name));
       if (leakHit) {
         console.error(
-          `[interest-suggestions] ⚠ JUNK LEAK: "${s.name}" [type=${s.suggestionType}] survived exclusion. ` +
-          `Matched leak-check pattern: ${leakHit}. ` +
-          `This is an exclusion bug — add a fix to UNIVERSAL_JUNK or classifySuggestion.`,
+          `[interest-suggestions] ⚠ JUNK LEAK (regex telemetry): "${s.name}" ` +
+          `[type=${s.suggestionType}|root=${s.taxonomyRoot}] matched ${leakHit} — ` +
+          `this should not happen with taxonomy-root filtering. Inspect path: ${JSON.stringify(s.path)}`,
         );
       }
     }
@@ -785,7 +1012,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Classify emptyReason
   let emptyReason: string | undefined;
   if (finalSuggestions.length === 0 && raw.length > 0) {
-    if (excludedJunk + excludedByType + excludedByCluster >= raw.length - excludedBySeed)
+    const droppedAll = droppedMissingPath + droppedNonInterest + excludedByCluster + excludedByType;
+    if (droppedAll >= raw.length - excludedBySeed)
       emptyReason = "blocklist_filtered";
     else
       emptyReason = "scored_out";
@@ -806,6 +1034,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     fallbackUsed,
     fallbackSeedNames,
     rawSuggestionCount: raw.length,
+    enrichedCandidateCount: enriched.size,
+    droppedMissingPathCount: droppedMissingPath,
+    droppedNonInterestCount: droppedNonInterest,
+    droppedNonInterestRoots,
+    finalInterestOnlyCount,
     excludedBySeedCount: excludedBySeed,
     excludedJunkCount: excludedJunk,
     excludedByClusterBlocklistCount: excludedByCluster,
