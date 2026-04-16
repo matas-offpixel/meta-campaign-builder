@@ -7,6 +7,7 @@ export const CLUSTER_LABELS = [
   "Lifestyle & Nightlife",
   "Activities & Culture",
   "Media & Entertainment",
+  "Sports & Live Events",
 ] as const;
 
 export type ClusterLabel = typeof CLUSTER_LABELS[number];
@@ -19,6 +20,11 @@ const CLUSTER_NAME_MAP: Record<string, ClusterLabel> = {
   "Lifestyle & Nightlife": "Lifestyle & Nightlife",
   "Activities & Culture": "Activities & Culture",
   "Media & Entertainment": "Media & Entertainment",
+  "Sports & Live Events": "Sports & Live Events",
+  "Sports": "Sports & Live Events",
+  "Live Sports": "Sports & Live Events",
+  "Matchday": "Sports & Live Events",
+  "Fanpark": "Sports & Live Events",
 };
 
 /** Infer a cluster label from a group name, or return null. */
@@ -26,9 +32,12 @@ export function inferClusterFromName(name: string): ClusterLabel | null {
   // Exact match first
   const exact = CLUSTER_NAME_MAP[name];
   if (exact) return exact;
-  // Fuzzy: check if any label words appear
+  // Fuzzy: check if any label words appear. Order matters — more specific
+  // patterns (sports) are tried before broader music/nightlife patterns.
   const lower = name.toLowerCase();
-  if (/music|venue|club|dj|festival|nightl/i.test(lower)) return "Music & Nightlife";
+  if (/\b(sport|sports|football|soccer|match\s*day|matchday|fanpark|fan\s*zone|premier\s*league|champions\s*league|screening|boxing|mma|ufc|rugby|cricket|f1|formula\s*1|motorsport)\b/i.test(lower))
+    return "Sports & Live Events";
+  if (/music|venue|\bclub\b|dj|festival|nightl/i.test(lower)) return "Music & Nightlife";
   if (/fashion|streetwear|style|luxury.?brand|designer/i.test(lower)) return "Fashion & Streetwear";
   if (/lifestyle|nightlife|bar|hotel|premium/i.test(lower)) return "Lifestyle & Nightlife";
   if (/activit|culture|art|creative|design|exhibit/i.test(lower)) return "Activities & Culture";
@@ -43,6 +52,7 @@ const INTEREST_GROUP_TEMPLATES: Array<{ name: string; clusterType: ClusterLabel 
   { name: "Lifestyle & Nightlife", clusterType: "Lifestyle & Nightlife" },
   { name: "Activities & Culture", clusterType: "Activities & Culture" },
   { name: "Media & Entertainment", clusterType: "Media & Entertainment" },
+  { name: "Sports & Live Events", clusterType: "Sports & Live Events" },
 ];
 
 /**

@@ -720,7 +720,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     if (!effectiveClusterType) {
       setDiscoverFromPagesError((prev) => ({
         ...prev,
-        [groupId]: "Pick a cluster for this group (Music, Fashion, Lifestyle, Activities, or Media) before regenerating.",
+        [groupId]: "Pick a cluster for this group (Music, Fashion, Lifestyle, Activities, Media, or Sports) before regenerating.",
       }));
       return;
     }

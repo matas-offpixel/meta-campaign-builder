@@ -577,6 +577,11 @@ const CULTURE_ENTITIES: Partial<Record<SceneTag, string[]>> = {
   drum_and_bass: ["graffiti art", "street culture", "urban art"],
 };
 
+// Sports & Live Events has no existing SceneTag → entity mapping. Page-derived
+// signals rarely carry sports-specific tags today, so the cluster relies on
+// curated seeds + hint-derived seeds for retrieval. Empty bank is intentional.
+const SPORTS_ENTITIES: Partial<Record<SceneTag, string[]>> = {};
+
 function getClusterEntities(clusterLabel: string): Partial<Record<SceneTag, string[]>> {
   switch (clusterLabel) {
     case "Music & Nightlife": return MUSIC_ENTITIES;
@@ -584,6 +589,7 @@ function getClusterEntities(clusterLabel: string): Partial<Record<SceneTag, stri
     case "Lifestyle & Nightlife": return LIFESTYLE_ENTITIES;
     case "Media & Entertainment": return MEDIA_ENTITIES;
     case "Activities & Culture": return CULTURE_ENTITIES;
+    case "Sports & Live Events": return SPORTS_ENTITIES;
     default: return MUSIC_ENTITIES;
   }
 }
@@ -627,6 +633,9 @@ const CLUSTER_SCENE_FILTER: Record<string, SceneTag[]> = {
     "progressive_house", "drum_and_bass", "trance", "afrobeats", "garage_uk",
     "edm_mainstage", "festival_circuit", "queer_underground",
   ],
+  // Sports is driven by curated seeds and hint-derived seeds rather than the
+  // shared scene-tag vocabulary, so this list is intentionally empty.
+  "Sports & Live Events": [],
 };
 
 const CLUSTER_PATH_PATTERNS: Record<string, RegExp> = {
@@ -638,6 +647,8 @@ const CLUSTER_PATH_PATTERNS: Record<string, RegExp> = {
     /lifestyle|travel|hotel|dining|fitness|sport|food|drink|hobby|recreation|outdoor|wellness/i,
   "Activities & Culture":
     /art|culture|design|museum|photography|creative|gallery|exhibition|theatre|cinema/i,
+  "Sports & Live Events":
+    /\b(sport|sports|football|soccer|league|tournament|match|fan|supporter|stadium|broadcast|pub|bar|screening|boxing|mma|ufc|rugby|cricket|f1|formula\s*1|motorsport)\b/i,
   "Media & Entertainment":
     /media|magazine|publication|news|journalism|radio|streaming|podcast|broadcast/i,
 };
@@ -669,6 +680,16 @@ const CURATED_SEEDS: Record<string, string[]> = {
   "Media & Entertainment": [
     "Mixmag", "Resident Advisor", "Boiler Room", "DJ Mag",
     "FACT Magazine", "NTS Radio", "Rinse FM",
+  ],
+  // Order intentional: competitions & fan identity come first, broadcasters +
+  // viewing behaviour next, fitness last as lower-priority support.
+  "Sports & Live Events": [
+    "Premier League", "UEFA Champions League", "UEFA Europa League",
+    "FIFA World Cup", "La Liga", "Serie A", "Bundesliga", "Ligue 1",
+    "Football fans", "Sports fans", "Soccer fans",
+    "Sky Sports", "BT Sport", "TNT Sports", "ESPN",
+    "sports bar", "pub", "live events", "watch party", "fan zone",
+    "Football", "Soccer", "Sports (sports)",
   ],
 };
 
@@ -733,6 +754,18 @@ const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
     /\b(video.?game|gaming|esport|the\s*sims)\b/i,
     /\b(stock.?market|cryptocurrency|forex)\b/i,
     /\b(home\s*decor|gardening|DIY)\b/i,
+  ],
+  "Sports & Live Events": [
+    // Off-cluster creative categories
+    /\b(street\s*art|mural|gallery|exhibition|contemporary\s*art|fine\s*art|sculpture)\b/i,
+    /\b(fashion\s*week|haute\s*couture|runway|catwalk|streetwear|designer\s*brand)\b/i,
+    // Off-cluster underground music
+    /\b(techno|hard\s*techno|electronic\s*dance\s*music|deep\s*house|drum\s*and\s*bass|disc\s*jockey|record\s*label|nightclub|rave)\b/i,
+    // Generic noise
+    /\b(video.?game|esport|gaming|the\s*sims)\b/i,
+    /\b(parenting|mommy|toddler|pregnancy)\b/i,
+    /\b(cryptocurrency|forex|stock.?market)\b/i,
+    /\b(language.?learn|ielts|toefl)\b/i,
   ],
 };
 
@@ -1244,6 +1277,8 @@ const CLUSTER_DESCRIPTIONS: Record<string, string> = {
     "art, creative spaces, exhibitions, cultural venues, design, urban culture",
   "Media & Entertainment":
     "music publications, radio, podcasts, streaming, editorial platforms",
+  "Sports & Live Events":
+    "teams, leagues, tournaments, fan audiences, sports broadcasters, matchday viewing, fanpark and screening behaviour",
 };
 
 const ALL_CLUSTER_LABELS = Object.keys(CLUSTER_DESCRIPTIONS);
@@ -1266,7 +1301,16 @@ type HintIntent =
   | "nightlife_social"
   | "music_scene"
   | "fashion_editorial"
-  | "general_culture";
+  | "general_culture"
+  // Sports & Live Events intents (used for sports_live_events cluster only).
+  | "football_soccer"
+  | "sports_fandom"
+  | "sports_broadcast"
+  | "sports_bar_social"
+  | "combat_sports"
+  | "motorsport"
+  | "live_viewing_event"
+  | "gym_fitness";
 
 const HINT_INTENT_PATTERNS: Array<{ intent: HintIntent; pattern: RegExp }> = [
   {
@@ -1293,6 +1337,47 @@ const HINT_INTENT_PATTERNS: Array<{ intent: HintIntent; pattern: RegExp }> = [
     intent: "fashion_editorial",
     pattern:
       /\b(fashion|editorial|streetwear|designer|runway|magazine|magazines|vogue|style)\b/i,
+  },
+  // ── Sports & Live Events intents ───────────────────────────────────────────
+  {
+    intent: "football_soccer",
+    pattern:
+      /\b(football|soccer|premier\s+league|champions\s+league|europa\s+league|world\s+cup|la\s+liga|serie\s+a|bundesliga|ligue\s+1|fanpark|matchday)\b/i,
+  },
+  {
+    intent: "sports_fandom",
+    pattern:
+      /\b(fan|fans|supporter|supporters|fandom|fanbase|fan\s+zone|matchday|supporter\s+culture|ultras|terraces)\b/i,
+  },
+  {
+    intent: "sports_broadcast",
+    pattern:
+      /\b(sky\s+sports|bt\s+sport|tnt\s+sports|espn|broadcast|broadcasting|sports\s+media|sports\s+tv|sports\s+television|screening|live\s+stream|live\s+sports)\b/i,
+  },
+  {
+    intent: "sports_bar_social",
+    pattern:
+      /\b(pub|sports\s+bar|bar\s+viewing|beer|pint|watch\s+party|screening\s+party|fan\s+zone|matchday\s+pub|fanpark)\b/i,
+  },
+  {
+    intent: "combat_sports",
+    pattern:
+      /\b(boxing|mma|mixed\s+martial\s+arts|ufc|karate|kickbox(ing)?|muay\s*thai|judo|taekwondo|bjj|jiu.?jitsu|wrestling)\b/i,
+  },
+  {
+    intent: "motorsport",
+    pattern:
+      /\b(f1|formula\s*1|formula\s+one|motogp|nascar|motorsport|motor\s+racing|grand\s+prix)\b/i,
+  },
+  {
+    intent: "live_viewing_event",
+    pattern:
+      /\b(live\s+sports|viewing|screening|watch\s+party|fan\s+zone|fanpark|stadium|arena|matchday)\b/i,
+  },
+  {
+    intent: "gym_fitness",
+    pattern:
+      /\b(gym|fitness|crossfit|weight\s+training|weights?|training|exercise|workout|bodybuilding|virgin\s+active|24.?hour\s+fitness|boxing\s+fitness)\b/i,
   },
 ];
 
@@ -1345,6 +1430,40 @@ const INTENT_SEED_TERMS: Record<HintIntent, string[]> = {
     "fashion", "editorial fashion",
   ],
   general_culture: [],
+  // Sports & Live Events seeds. Order inside each intent loosely prioritises
+  // the most concrete Meta interest names first.
+  football_soccer: [
+    "Premier League", "UEFA Champions League", "UEFA Europa League",
+    "FIFA World Cup", "La Liga", "Serie A", "Bundesliga", "Ligue 1",
+    "Football", "Soccer", "Football fans",
+  ],
+  sports_fandom: [
+    "Football fans", "Sports fans", "Soccer fans", "fan culture",
+    "matchday", "supporter culture",
+  ],
+  sports_broadcast: [
+    "Sky Sports", "BT Sport", "TNT Sports", "ESPN",
+    "sports broadcasting", "sports television", "sports media",
+  ],
+  sports_bar_social: [
+    "sports bar", "pub", "bar viewing", "beer", "watch party",
+    "fan zone", "stadium atmosphere",
+  ],
+  combat_sports: [
+    "Boxing", "UFC", "Mixed martial arts", "Martial arts",
+    "Combat sports",
+  ],
+  motorsport: [
+    "Formula 1", "MotoGP", "Motorsport", "Grand Prix",
+  ],
+  live_viewing_event: [
+    "live events", "live sports", "watch party", "screening",
+    "fan zone", "stadium",
+  ],
+  gym_fitness: [
+    "gym", "fitness", "CrossFit", "Virgin Active", "24 Hour Fitness",
+    "weight training", "training", "exercise",
+  ],
 };
 
 // Combat-sport terms are injected only when the hint text explicitly mentions
@@ -1371,10 +1490,13 @@ function hintHasCombatSport(rawHints: string[]): boolean {
 function deriveHintIntentSeedTerms(
   intents: Set<HintIntent>,
   combatSport: boolean,
+  allowedIntents?: HintIntent[] | null,
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+  const allowed = allowedIntents ? new Set(allowedIntents) : null;
   for (const intent of intents) {
+    if (allowed && !allowed.has(intent)) continue;
     for (const t of INTENT_SEED_TERMS[intent] ?? []) {
       const key = t.toLowerCase();
       if (seen.has(key)) continue;
@@ -1382,12 +1504,19 @@ function deriveHintIntentSeedTerms(
       out.push(t);
     }
   }
-  if (combatSport && intents.has("sport_fitness")) {
-    for (const t of COMBAT_SPORT_EXTRA_SEEDS) {
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(t);
+  if (combatSport && (intents.has("sport_fitness") || intents.has("combat_sports"))) {
+    // For A&C we only add combat seeds when A&C explicitly invited them via
+    // sport_fitness; for Sports cluster we always want them when combat_sports
+    // intent fires.
+    const intentOkForCombat =
+      (!allowed || allowed.has("sport_fitness") || allowed.has("combat_sports"));
+    if (intentOkForCombat) {
+      for (const t of COMBAT_SPORT_EXTRA_SEEDS) {
+        const key = t.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(t);
+      }
     }
   }
   return out;
@@ -1419,6 +1548,17 @@ const INTENT_POSITIVE_FAMILIES: Record<HintIntent, string[]> = {
     "streetwear", "style",
   ],
   general_culture: [],
+  // Sports intents participate in the post-scoring bias only for the sports
+  // cluster (see applyHintBiasForActivitiesCulture is scoped to A&C — sports
+  // does not run that helper, so these arrays currently act as metadata).
+  football_soccer: [],
+  sports_fandom: [],
+  sports_broadcast: [],
+  sports_bar_social: [],
+  combat_sports: [],
+  motorsport: [],
+  live_viewing_event: [],
+  gym_fitness: [],
 };
 
 const INTENT_NEGATIVE_FAMILIES: Record<HintIntent, string[]> = {
@@ -1434,6 +1574,30 @@ const INTENT_NEGATIVE_FAMILIES: Record<HintIntent, string[]> = {
   music_scene: [],
   fashion_editorial: [],
   general_culture: [],
+  football_soccer: [],
+  sports_fandom: [],
+  sports_broadcast: [],
+  sports_bar_social: [],
+  combat_sports: [],
+  motorsport: [],
+  live_viewing_event: [],
+  gym_fitness: [],
+};
+
+// Per-cluster allowlist for hint-intent seed injection. Prevents a
+// "football fanpark" hint from leaking sports seeds into Activities &
+// Culture, or an "art gallery" hint from leaking art seeds into
+// Sports & Live Events.
+const CLUSTER_INTENT_ALLOWLIST: Partial<Record<string, HintIntent[]>> = {
+  "Activities & Culture": [
+    "sport_fitness", "art_design", "nightlife_social", "music_scene",
+    "fashion_editorial", "general_culture",
+  ],
+  "Sports & Live Events": [
+    "football_soccer", "sports_fandom", "sports_broadcast",
+    "sports_bar_social", "combat_sports", "motorsport",
+    "live_viewing_event", "gym_fitness",
+  ],
 };
 
 function buildIntentFamilies(intents: Set<HintIntent>): {
@@ -1565,6 +1729,69 @@ function applyHintBiasForActivitiesCulture<
   return { adjusted, filteredOutNames, biasApplied: true, combatSportDemotedNames };
 }
 
+// ── Sports & Live Events diversification ─────────────────────────────────────
+// Lightweight, additive layer that only runs for the Sports cluster. Other
+// clusters continue to use plain score-sorted slicing.
+type SportsBucket = "competition" | "fan" | "broadcaster" | "social" | "fitness" | "other";
+
+const SPORTS_BUCKET_PATTERNS: Array<{ bucket: SportsBucket; pattern: RegExp }> = [
+  { bucket: "competition", pattern: /\b(premier\s*league|champions\s*league|europa\s*league|world\s*cup|la\s*liga|serie\s*a|bundesliga|ligue\s*1|league|tournament|competition|cup|championship|efl|mls|uefa|fifa)\b/i },
+  { bucket: "fan",         pattern: /\b(fan|fans|supporter|supporters|fandom|matchday|ultras|terraces)\b/i },
+  { bucket: "broadcaster", pattern: /\b(sky\s*sports|bt\s*sport|tnt\s*sports|espn|dazn|beIN|broadcast|sports\s*(media|television|tv)|radio)\b/i },
+  { bucket: "social",      pattern: /\b(pub|sports\s*bar|bar|beer|pint|watch\s*party|fan\s*zone|fanpark|stadium|arena|nightlife|live\s*event|live\s*events|screening)\b/i },
+  { bucket: "fitness",     pattern: /\b(gym|fitness|crossfit|virgin\s*active|24.?hour\s*fitness|weight\s*training|training|exercise|workout|bodybuilding|running)\b/i },
+];
+
+function classifySportsBucket<T extends { name: string; path?: string[] }>(
+  interest: T,
+): SportsBucket {
+  const haystack = [interest.name, ...(interest.path ?? [])].join(" ");
+  for (const { bucket, pattern } of SPORTS_BUCKET_PATTERNS) {
+    if (pattern.test(haystack)) return bucket;
+  }
+  return "other";
+}
+
+// Soft caps on the visible result. Picked greedily in score order; overflow is
+// backfilled at the end so we never under-fill the list if only one bucket is
+// represented in the candidate pool.
+const SPORTS_BUCKET_CAPS: Record<SportsBucket, number> = {
+  competition: 3,
+  fan: 2,
+  broadcaster: 2,
+  social: 2,
+  fitness: 1,
+  other: 3,
+};
+
+function diversifySportsLiveEvents<T extends { name: string; path?: string[] }>(
+  sorted: T[],
+  maxResults: number,
+): { picked: T[]; bucketCounts: Record<SportsBucket, number> } {
+  const picked: T[] = [];
+  const overflow: T[] = [];
+  const counts: Record<SportsBucket, number> = {
+    competition: 0, fan: 0, broadcaster: 0, social: 0, fitness: 0, other: 0,
+  };
+  for (const item of sorted) {
+    if (picked.length >= maxResults) break;
+    const bucket = classifySportsBucket(item);
+    if (counts[bucket] < SPORTS_BUCKET_CAPS[bucket]) {
+      picked.push(item);
+      counts[bucket] += 1;
+    } else {
+      overflow.push(item);
+    }
+  }
+  // Backfill from overflow if we under-filled the slot budget due to caps.
+  for (const item of overflow) {
+    if (picked.length >= maxResults) break;
+    picked.push(item);
+    counts[classifySportsBucket(item)] += 1;
+  }
+  return { picked, bucketCounts: counts };
+}
+
 async function discoverForCluster(
   clusterLabel: string,
   tagWeights: Map<SceneTag, number>,
@@ -1584,6 +1811,7 @@ async function discoverForCluster(
     filteredOutNames: string[];
     combatSportDemotedNames: string[];
   };
+  sportsBucketDistribution?: Record<SportsBucket, number>;
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
 
@@ -1593,9 +1821,13 @@ async function discoverForCluster(
   // candidate retrieval is driven by the hint rather than the default art pack.
   const entitySet = new Set(entityTerms.map((t) => t.toLowerCase()));
   const extraHints = directHintTerms.filter((h) => !entitySet.has(h.toLowerCase()));
+  // Inject concrete hint-derived seeds for clusters that participate in the
+  // intent system (Activities & Culture, Sports & Live Events). Other clusters
+  // continue to rely purely on entity terms + direct hint phrases.
+  const intentAllowlist = CLUSTER_INTENT_ALLOWLIST[clusterLabel];
   const intentSeedTerms =
-    clusterLabel === "Activities & Culture" && hintIntents.size > 0
-      ? deriveHintIntentSeedTerms(hintIntents, combatSportHinted).filter(
+    intentAllowlist && hintIntents.size > 0
+      ? deriveHintIntentSeedTerms(hintIntents, combatSportHinted, intentAllowlist).filter(
           (t) => !entitySet.has(t.toLowerCase()) &&
             !extraHints.some((h) => h.toLowerCase() === t.toLowerCase()),
         )
@@ -1762,9 +1994,25 @@ async function discoverForCluster(
   }
 
   const maxResults = confidence >= 75 ? 6 : 8;
-  const interests = aboveFloor
-    .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0))
-    .slice(0, maxResults);
+  const sorted = aboveFloor
+    .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
+
+  // Sports-specific bucket diversification so competitions/fans/broadcasters
+  // don't get crowded out by fitness or generic live-music entries in the
+  // visible top slice. Only active for Sports & Live Events.
+  let interests = sorted.slice(0, maxResults);
+  let sportsBucketDistribution: Record<SportsBucket, number> | undefined;
+  if (clusterLabel === "Sports & Live Events" && sorted.length > 0) {
+    const diversified = diversifySportsLiveEvents(sorted, maxResults);
+    interests = diversified.picked;
+    sportsBucketDistribution = diversified.bucketCounts;
+    console.info(
+      `[interest-discover] sports-diversify buckets=` +
+      Object.entries(diversified.bucketCounts)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" "),
+    );
+  }
 
   console.info(
     `[interest-discover] cluster="${clusterLabel}" ── FINAL(${interests.length}) ──\n` +
@@ -1781,6 +2029,7 @@ async function discoverForCluster(
     },
     termsUsed: allTerms,
     hintBias: hintBiasMeta,
+    sportsBucketDistribution,
   };
 }
 
