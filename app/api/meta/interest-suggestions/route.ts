@@ -581,12 +581,24 @@ export interface SuggestionsDebugInfo {
   highConfidenceClusterGate?: boolean;
   /** Landing 2c expansion stage telemetry */
   expansionAttempted?: boolean;
+  expansionMode?: "candidate_expansion" | "seed_rescue_expansion" | "none";
   expansionTriggerReason?: string;
+  expansionReasonSkipped?: string;
   expansionSeedNames?: string[];
+  expansionSeedSourceBreakdown?: Record<"primary_candidate" | "uncapped_trusted_original" | "curated_rescue", number>;
+  curatedExpansionSeedsUsed?: string[];
   expansionRawCount?: number;
   expansionNewCandidateCount?: number;
   expansionAddedToFinalCount?: number;
-  expansionPerSeedStats?: Record<string, { status: "ok" | "empty" | "error"; count: number; errMsg?: string }>;
+  expansionPerSeedStats?: Record<
+    string,
+    {
+      status: "ok" | "empty" | "error";
+      count: number;
+      errMsg?: string;
+      source?: "primary_candidate" | "uncapped_trusted_original" | "curated_rescue";
+    }
+  >;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -1721,6 +1733,67 @@ const CLUSTER_FIT_RULES: Partial<Record<ClusterKey, {
   },
 };
 
+// ── Landing 2c — Stage R2 curated rescue seeds ──────────────────────────────
+// Hand-curated, cluster-specific seed names used when first-pass per-seed
+// retrieval is too thin to feed candidate_expansion. These seeds are NOT
+// hardcoded as final suggestions — they go through Meta's adinterestsuggestion
+// just like any other expansion seed and pass the full pipeline (enrichment,
+// structural filter, blocklist, classifier, cluster fit, final gate). They
+// only widen the input to that pipeline so on-cluster candidates have a chance
+// to surface.
+//
+// Rules of thumb when adding entries:
+//   - Use exact names that resolve cleanly via adinterestsuggestion.
+//   - Bias toward strong, unambiguous nodes that anchor the cluster identity.
+//   - Avoid anything that would self-classify off-cluster (would be wasted).
+const CURATED_RESCUE_SEEDS: Partial<Record<ClusterKey, ReadonlyArray<string>>> = {
+  music_platforms: [
+    "SoundCloud",
+    "TIDAL",
+    "Deezer",
+    "YouTube Music",
+    "Amazon Music",
+    "Mixmag",
+    "Resident Advisor",
+  ],
+  music_general: [
+    "Spotify",
+    "Music festivals",
+    "Live music",
+    "Mixmag",
+    "Resident Advisor",
+  ],
+  electronic_music_nightlife: [
+    "House music",
+    "Tech house",
+    "Music festivals",
+    "Mixmag",
+    "Resident Advisor",
+    "Awakenings",
+  ],
+  fashion_editorial: [
+    "Vogue",
+    "SHOWstudio",
+    "Rick Owens",
+    "Raf Simons",
+    "Maison Margiela",
+    "Comme des Garçons",
+    "Fashion photography",
+    "Editorial fashion",
+  ],
+  fashion_brands: [
+    "Rick Owens",
+    "Raf Simons",
+    "Maison Margiela",
+    "Comme des Garçons",
+    "Yohji Yamamoto",
+  ],
+  literature_media: [
+    "Literary magazine",
+    "Independent magazine",
+  ],
+};
+
 type ClusterFitClass = "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
 
 function computeClusterFit(
@@ -2425,25 +2498,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // ── Landing 2c — Stage R2: trusted-source expansion ────────────────────────
+  // ── Landing 2c — Stage R2: expansion + seed rescue ─────────────────────────
   // First-pass retrieval is one-hop: each original seed produces ~5-30
   // suggestions. For tightly clustered seed sets that one hop often returns
   // too few on-cluster candidates (Meta's adinterestsuggestion is biased
-  // toward broad audiences). Stage R2 picks the most reliable surfaces from
-  // the first pass and runs second-hop calls from them, merging new on-cluster
-  // candidates back into the suggestion pool.
+  // toward broad audiences). Stage R2 widens the input to the same scoring
+  // pipeline using one of two modes:
   //
-  // Strict gating:
-  //   - Only runs on high-confidence clusters
-  //   - Expansion seeds are ONLY trusted+onCluster originals OR top primary-
-  //     fit first-pass candidates. Never ambiguous, never weak.
-  //   - Capped at 4 expansion seeds, deduped against original seed names.
-  //   - New candidates only — overlaps with first-pass are skipped (already
-  //     credited via original sourceSeeds).
-  //   - Same enrichment, structural filter, classification, and cluster fit
-  //     as first-pass.
-  //   - Synthetic agreement is capped lower (×20 vs ×35) so expansion items
-  //     can't outrank well-corroborated first-pass items.
+  //   1. candidate_expansion — when first-pass produced primary candidates
+  //      that aren't original seeds. We re-query Meta from those primary
+  //      candidates to fan out into adjacent on-cluster nodes.
+  //
+  //   2. seed_rescue_expansion — when first-pass produced few/zero primary
+  //      candidates. We rely on:
+  //        (a) trusted+onCluster ORIGINALS that were never individually
+  //            queried in pass 1 (only matters when seed count > MAX_SEEDS_FOR_RETRIEVAL)
+  //        (b) hand-curated cluster-specific rescue seeds (CURATED_RESCUE_SEEDS).
+  //      Re-querying an original seed that was already queried in pass 1 is
+  //      wasted — adinterestsuggestion is deterministic and would return the
+  //      same pool. Curated rescue is the actual lever that makes empty
+  //      clusters productive.
+  //
+  // Both modes go through the same enrichment, structural filter, blocklist,
+  // classifier, cluster-fit rules, and final eligibility gate. Synthetic
+  // agreement is capped lower (×20 vs ×35) so expansion items can't outrank
+  // well-corroborated first-pass items.
 
   const HIGH_CONFIDENCE_THRESHOLD = 0.60;
   const isHighConfidenceCluster =
@@ -2451,66 +2530,127 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     dominantCluster.clusterKey !== "unknown" &&
     dominantCluster.confidence >= HIGH_CONFIDENCE_THRESHOLD;
 
+  type ExpansionMode = "candidate_expansion" | "seed_rescue_expansion" | "none";
+  type ExpansionSeedSource = "primary_candidate" | "uncapped_trusted_original" | "curated_rescue";
+
+  let expansionMode: ExpansionMode = "none";
   let expansionAttempted = false;
   let expansionTriggerReason = "";
+  let expansionReasonSkipped: string | undefined;
   let expansionSeedNames: string[] = [];
   let expansionRawCount = 0;
   let expansionNewCandidateCount = 0;
   let expansionAddedToFinalCount = 0;
-  const expansionPerSeedStats: Record<string, { status: "ok" | "empty" | "error"; count: number; errMsg?: string }> = {};
+  const expansionPerSeedStats: Record<
+    string,
+    { status: "ok" | "empty" | "error"; count: number; errMsg?: string; source?: ExpansionSeedSource }
+  > = {};
+  const expansionSeedSourceBreakdown: Record<ExpansionSeedSource, number> = {
+    primary_candidate: 0,
+    uncapped_trusted_original: 0,
+    curated_rescue: 0,
+  };
+  const curatedExpansionSeedsUsed: string[] = [];
 
-  const FIRST_PASS_PRIMARY_MIN = 10; // expand if fewer than 10 primary/secondary survive first pass
-  const MAX_EXPANSION_SEEDS = 4;
+  const FIRST_PASS_PRIMARY_MIN = 10;
+  const MAX_PRIMARY_CANDIDATES = 2;
+  const MAX_UNCAPPED_TRUSTED = 2;
+  const MAX_CURATED = 3;
+  const MAX_TOTAL_EXPANSION_SEEDS = 5;
 
-  if (isHighConfidenceCluster && !debugBypass) {
+  // Determine mode + skip reason
+  let onClusterFirstPassCount = 0;
+  if (!isHighConfidenceCluster) {
+    expansionReasonSkipped = dominantCluster.clusterKey === "unknown"
+      ? "unknown_cluster"
+      : `low_confidence_cluster (confidence=${dominantCluster.confidence.toFixed(2)} < ${HIGH_CONFIDENCE_THRESHOLD})`;
+  } else if (debugBypass) {
+    expansionReasonSkipped = "debug_bypass";
+  } else {
     const onClusterFirstPass = suggestions.filter(
       (s) => s.clusterFitClass === "primary" || s.clusterFitClass === "secondary",
     );
+    const primaryFirstPass = suggestions.filter((s) => s.clusterFitClass === "primary");
+    onClusterFirstPassCount = onClusterFirstPass.length;
 
-    if (onClusterFirstPass.length < FIRST_PASS_PRIMARY_MIN) {
-      // Pick expansion seeds: top trusted+onCluster originals first, then top
-      // primary-fit first-pass candidates. Both are filtered against original
-      // seed names to avoid re-querying the same node.
-      const trustedSeedExpansion = Array.from(seedProfiles.values())
-        .filter((p) => p.bucket === "trusted" && p.onDominantCluster)
-        .sort((a, b) => b.reliability - a.reliability)
-        .slice(0, 2)
-        .map((p) => p.name);
-
-      const primaryCandidateExpansion = onClusterFirstPass
-        .filter((s) => s.clusterFitClass === "primary")
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 2)
-        .map((s) => s.name);
-
+    if (onClusterFirstPass.length >= FIRST_PASS_PRIMARY_MIN) {
+      expansionReasonSkipped =
+        `first_pass_primary_secondary=${onClusterFirstPass.length} >= ${FIRST_PASS_PRIMARY_MIN}`;
+    } else {
+      // Eligible for expansion. Build a prioritised seed list across three
+      // sources. The total is capped at MAX_TOTAL_EXPANSION_SEEDS.
       const seenLower = new Set<string>(seedNamesSent.map((n) => n.toLowerCase()));
-      const picked: string[] = [];
-      for (const n of [...trustedSeedExpansion, ...primaryCandidateExpansion]) {
-        const lower = n.toLowerCase();
-        if (seenLower.has(lower)) continue;
-        seenLower.add(lower);
-        picked.push(n);
-        if (picked.length >= MAX_EXPANSION_SEEDS) break;
-      }
-      expansionSeedNames = picked;
-      expansionTriggerReason =
-        `first-pass primary/secondary=${onClusterFirstPass.length} < ${FIRST_PASS_PRIMARY_MIN}`;
+      const queriedLower = new Set<string>(retrievalSeeds.map((s) => s.name.toLowerCase()));
+      const descriptors: Array<{ name: string; source: ExpansionSeedSource }> = [];
 
-      if (picked.length === 0) {
-        console.info(
-          `[interest-suggestions] ── Stage R2 skipped — no eligible expansion seeds available ` +
-          `(trusted+onCluster originals=${trustedSeedExpansion.length}, top primary candidates=${primaryCandidateExpansion.length}, ` +
-          `all already sent in first pass)`,
-        );
+      // (a) Top primary first-pass candidates (deduped vs sent seed names).
+      //     Re-querying primary candidates fans out into adjacent on-cluster
+      //     nodes that the original seeds didn't surface directly.
+      const primaryCands = primaryFirstPass
+        .filter((c) => !seenLower.has(c.name.toLowerCase()))
+        .sort((a, b) => b.score - a.score);
+      for (const c of primaryCands) {
+        if (descriptors.filter((d) => d.source === "primary_candidate").length >= MAX_PRIMARY_CANDIDATES) break;
+        descriptors.push({ name: c.name, source: "primary_candidate" });
+        seenLower.add(c.name.toLowerCase());
+      }
+
+      // (b) Trusted+onCluster originals that were NOT queried individually
+      //     in pass 1 (retrievalSeeds was capped at MAX_SEEDS_FOR_RETRIEVAL).
+      //     Re-querying already-queried originals would be wasted —
+      //     adinterestsuggestion is deterministic.
+      const uncappedTrusted = Array.from(seedProfiles.values())
+        .filter((p) => p.bucket === "trusted" && p.onDominantCluster)
+        .filter((p) => !queriedLower.has(p.name.toLowerCase()))
+        .filter((p) => !seenLower.has(p.name.toLowerCase()))
+        .sort((a, b) => b.reliability - a.reliability);
+      for (const p of uncappedTrusted) {
+        if (descriptors.filter((d) => d.source === "uncapped_trusted_original").length >= MAX_UNCAPPED_TRUSTED) break;
+        descriptors.push({ name: p.name, source: "uncapped_trusted_original" });
+        seenLower.add(p.name.toLowerCase());
+      }
+
+      // (c) Curated cluster-specific rescue seeds. These are the actual lever
+      //     that prevents empty results when first-pass primary candidates
+      //     are sparse and all trusted originals were queried in pass 1.
+      const curated = CURATED_RESCUE_SEEDS[dominantCluster.clusterKey] ?? [];
+      for (const name of curated) {
+        if (descriptors.filter((d) => d.source === "curated_rescue").length >= MAX_CURATED) break;
+        if (descriptors.length >= MAX_TOTAL_EXPANSION_SEEDS) break;
+        const lower = name.toLowerCase();
+        if (seenLower.has(lower)) continue;
+        descriptors.push({ name, source: "curated_rescue" });
+        curatedExpansionSeedsUsed.push(name);
+        seenLower.add(lower);
+      }
+
+      const finalDescriptors = descriptors.slice(0, MAX_TOTAL_EXPANSION_SEEDS);
+      expansionSeedNames = finalDescriptors.map((d) => d.name);
+      for (const d of finalDescriptors) {
+        expansionSeedSourceBreakdown[d.source]++;
+      }
+
+      if (finalDescriptors.length === 0) {
+        expansionReasonSkipped =
+          `no_eligible_expansion_seeds (primaryCands=${primaryCands.length}, uncappedTrusted=${uncappedTrusted.length}, curated=${curated.length}, all deduped against ${seenLower.size} seen names)`;
       } else {
         expansionAttempted = true;
+        expansionMode = expansionSeedSourceBreakdown.primary_candidate > 0
+          ? "candidate_expansion"
+          : "seed_rescue_expansion";
+        expansionTriggerReason =
+          `first_pass_primary_secondary=${onClusterFirstPass.length}<${FIRST_PASS_PRIMARY_MIN}; mode=${expansionMode}`;
+
         console.info(
-          `[interest-suggestions] ── Stage R2: expansion (${picked.length} seeds) ── ` +
-          `[trigger: ${expansionTriggerReason}]\n  seeds: ${picked.join(", ")}`,
+          `[interest-suggestions] ── Stage R2: expansion (${finalDescriptors.length} seeds, mode=${expansionMode}) ──` +
+          `\n  trigger: ${expansionTriggerReason}` +
+          `\n  source breakdown: primary_candidate=${expansionSeedSourceBreakdown.primary_candidate}, uncapped_trusted_original=${expansionSeedSourceBreakdown.uncapped_trusted_original}, curated_rescue=${expansionSeedSourceBreakdown.curated_rescue}` +
+          `\n  curated seeds used: ${curatedExpansionSeedsUsed.length > 0 ? curatedExpansionSeedsUsed.join(", ") : "(none)"}` +
+          `\n  seeds: ${finalDescriptors.map((d) => `${d.name}[${d.source}]`).join(", ")}`,
         );
 
         const expansionResults = await Promise.allSettled(
-          picked.map((name) => callMeta([name], `expansion:${name}`)),
+          finalDescriptors.map((d) => callMeta([d.name], `expansion[${d.source}]:${d.name}`)),
         );
 
         // Pool expansion items separately — each entry tracks WHICH expansion
@@ -2524,9 +2664,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         >();
 
         expansionResults.forEach((result, idx) => {
-          const seedName = picked[idx];
+          const descriptor = finalDescriptors[idx];
+          const seedName = descriptor.name;
+          const source = descriptor.source;
           if (result.status === "rejected") {
-            expansionPerSeedStats[seedName] = { status: "error", count: 0, errMsg: String(result.reason) };
+            expansionPerSeedStats[seedName] = { status: "error", count: 0, errMsg: String(result.reason), source };
             return;
           }
           const value = result.value;
@@ -2535,15 +2677,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               status: "error",
               count: 0,
               errMsg: value.errMsg ?? `http ${value.httpStatus}`,
+              source,
             };
             return;
           }
           const items = value.data ?? [];
           if (items.length === 0) {
-            expansionPerSeedStats[seedName] = { status: "empty", count: 0 };
+            expansionPerSeedStats[seedName] = { status: "empty", count: 0, source };
             return;
           }
-          expansionPerSeedStats[seedName] = { status: "ok", count: items.length };
+          expansionPerSeedStats[seedName] = { status: "ok", count: items.length, source };
           for (const item of items) {
             if (!item || !item.id) continue;
             const existing = expansionPool.get(item.id);
@@ -2608,7 +2751,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             // expansion candidates can't outrank well-corroborated first-pass
             // ones. Even a 100% agreement rate among expansion seeds tops out
             // around the first-pass median.
-            const expansionAgreement = sources.length / picked.length; // 0..1
+            const expansionAgreement = sources.length / finalDescriptors.length; // 0..1
             const expansionAgreementPoints = Math.round(expansionAgreement * 20);
 
             const sizeBandPoints = sizeBandScore(size);
@@ -2678,9 +2821,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           `per-seed: ${JSON.stringify(expansionPerSeedStats)}`,
         );
       }
-    } else {
-      expansionTriggerReason = `first-pass primary/secondary=${onClusterFirstPass.length} ≥ ${FIRST_PASS_PRIMARY_MIN}, no expansion needed`;
     }
+  }
+
+  // Stage R2 explicit skip log (only fires when we deliberately did not expand)
+  if (!expansionAttempted && expansionReasonSkipped) {
+    console.info(
+      `[interest-suggestions] ── Stage R2 skipped — reason: ${expansionReasonSkipped}` +
+      (onClusterFirstPassCount > 0 ? ` (first-pass primary/secondary=${onClusterFirstPassCount})` : ""),
+    );
   }
 
   suggestions.sort((a, b) => b.score - a.score);
@@ -2817,9 +2966,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n  excluded (cluster list):    ${excludedByCluster}` +
     `\n  excluded (type):            ${excludedByType} ${JSON.stringify(excludedByTypeBreakdown)}` +
     `\n  scored (post-expansion):    ${suggestions.length}` +
-    `\n  expansion (Stage R2):       ${expansionAttempted ? `ON [${expansionTriggerReason}] seeds=${expansionSeedNames.length} raw=${expansionRawCount} new=${expansionNewCandidateCount}` : (expansionTriggerReason || "off")}` +
+    `\n  expansion (Stage R2):       ${expansionAttempted ? `ON mode=${expansionMode} [${expansionTriggerReason}] seeds=${expansionSeedNames.length} raw=${expansionRawCount} new=${expansionNewCandidateCount}` : `OFF (${expansionReasonSkipped ?? "n/a"})`}` +
     (expansionAttempted
-      ? `\n    expansion seeds:           ${expansionSeedNames.join(", ")}` +
+      ? `\n    source breakdown:          ${JSON.stringify(expansionSeedSourceBreakdown)}` +
+        (curatedExpansionSeedsUsed.length > 0
+          ? `\n    curated seeds used:        ${curatedExpansionSeedsUsed.join(", ")}`
+          : "") +
+        `\n    expansion seeds:           ${expansionSeedNames.join(", ")}` +
         `\n    per-seed:                  ${JSON.stringify(expansionPerSeedStats)}`
       : "") +
     `\n  high-conf cluster gate:     ${isHighConfidenceCluster ? "ACTIVE" : "off"} (cluster confidence=${dominantCluster.confidence.toFixed(2)})` +
@@ -2973,8 +3126,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     survivorFitDistribution,
     highConfidenceClusterGate: isHighConfidenceCluster,
     expansionAttempted,
+    expansionMode,
     expansionTriggerReason,
+    expansionReasonSkipped,
     expansionSeedNames,
+    expansionSeedSourceBreakdown,
+    curatedExpansionSeedsUsed,
     expansionRawCount,
     expansionNewCandidateCount,
     expansionAddedToFinalCount,
