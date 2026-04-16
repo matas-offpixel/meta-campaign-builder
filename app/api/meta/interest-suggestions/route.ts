@@ -478,6 +478,27 @@ export interface SuggestionsDebugInfo {
   unionPoolSize?: number;
   maxSeedsCapped?: boolean;
   retrievalSeedCount?: number;
+  /** Landing 2b-i: seed profiling + dominant cluster inference (observation only) */
+  seedProfiles?: Record<string, {
+    name: string;
+    bucket: SeedBucket;
+    reliability: number;
+    ambiguityScore: number;
+    domain: string;
+    entityType: SuggestionType;
+    pathDepth: number;
+    path: string[];
+    audienceSize: number;
+    onDominantCluster: boolean;
+    flags: string[];
+  }>;
+  dominantCluster?: DominantCluster;
+  trustedSeedCount?: number;
+  weakSeedCount?: number;
+  ambiguousSeedCount?: number;
+  conflictingSeedCount?: number;
+  seedEnrichmentResolved?: number;
+  seedEnrichmentRequested?: number;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -585,6 +606,185 @@ async function enrichCandidates(
   );
 
   return { enriched, httpStatus: lastHttpStatus, error: lastError };
+}
+
+// ── Landing 2b-i: seed profiling + dominant cluster inference ────────────────
+// OBSERVATION ONLY — these signals are logged and returned in debug, but
+// DO NOT influence scoring yet. Scoring changes land in 2b-ii/iii/iv.
+
+type SeedBucket = "trusted" | "weak" | "ambiguous" | "conflicting";
+
+export interface SeedProfile {
+  id: string;
+  name: string;
+  path: string[];
+  audienceSize: number;
+  domain: string;
+  entityType: SuggestionType;
+  pathDepth: number;
+  ambiguityScore: number;  // 0..1, higher = more ambiguous
+  reliability: number;     // 0..1
+  bucket: SeedBucket;
+  onDominantCluster: boolean;
+  flags: string[];
+}
+
+export interface DominantCluster {
+  path: string[];
+  confidence: number;
+  supporters: string[];
+  depth: number;
+  band: "high" | "medium" | "low";
+}
+
+// Hand-curated list of interest names that collide with unrelated Meta interests.
+// Grows empirically from exclusionReason telemetry. Lowercased, exact-match.
+const AMBIGUOUS_NAME_LIST = new Set([
+  "gala", "id", "i.d.", "i-d", "dance", "metal", "eclipse", "apple",
+  "cosmos", "prism", "venus", "eden", "atlas", "vice", "fact", "kid",
+  "love", "mood", "echo", "halo", "metro", "faith", "pure", "true",
+  "icon", "nova", "zen", "vogue", "rage", "stone", "mint", "cloud",
+  "spark", "blaze", "palace", "supreme", "culture", "noise", "fade",
+]);
+
+// Single-word common-English terms that match too many Meta nodes. Lowercase.
+const COMMON_WORD_PATTERN = /^[a-z]{1,5}$/;
+
+function lcpPaths(a: readonly string[], b: readonly string[]): number {
+  let n = 0;
+  const max = Math.min(a.length, b.length);
+  while (n < max && a[n].toLowerCase() === b[n].toLowerCase()) n++;
+  return n;
+}
+
+function profileSeedPartial(
+  id: string,
+  name: string,
+  enriched: Map<string, EnrichedInterest>,
+): Omit<SeedProfile, "bucket" | "onDominantCluster"> {
+  const e = enriched.get(id);
+  const path = e?.path ?? [];
+  const audienceSize = e?.audienceSize ?? 0;
+  const pathDepth = path.length;
+  const domain = path.length > 0 ? path[path.length - 1] : "(unknown)";
+  const entityType: SuggestionType = path.length > 0 ? classifyFromPath(path) : "unknown";
+  const nameLower = name.trim().toLowerCase();
+
+  const flags: string[] = [];
+  let ambiguity = 0;
+
+  if (AMBIGUOUS_NAME_LIST.has(nameLower)) {
+    ambiguity += 0.35;
+    flags.push("ambiguous_name");
+  }
+  if (nameLower.length <= 3) {
+    ambiguity += 0.30;
+    flags.push("short_name");
+  } else if (COMMON_WORD_PATTERN.test(nameLower) && !nameLower.match(/\d/)) {
+    ambiguity += 0.20;
+    flags.push("common_word");
+  }
+  if (pathDepth === 0) {
+    ambiguity += 0.25;
+    flags.push("no_path");
+  } else if (pathDepth < 3) {
+    ambiguity += 0.15;
+    flags.push("shallow_path");
+  }
+  if (audienceSize > 100_000_000) {
+    ambiguity += 0.15;
+    flags.push("very_broad_audience");
+  }
+  if (/\b(magazine|media|network|records?|group)\b/i.test(name) && pathDepth < 4) {
+    ambiguity += 0.10;
+    flags.push("generic_media_label");
+  }
+
+  const ambiguityScore = Math.max(0, Math.min(1, ambiguity));
+
+  let reliability = 0.55;
+  reliability -= ambiguityScore;
+  if (pathDepth >= 4) reliability += 0.15;
+  else if (pathDepth >= 3) reliability += 0.05;
+  else reliability -= 0.10;
+  if (audienceSize > 0 && audienceSize < 10_000_000) reliability += 0.10;
+  if (entityType !== "unknown") reliability += 0.10;
+  else reliability -= 0.05;
+
+  reliability = Math.max(0, Math.min(1, reliability));
+
+  return { id, name, path, audienceSize, domain, entityType, pathDepth, ambiguityScore, reliability, flags };
+}
+
+function inferDominantCluster(
+  seeds: Array<{ id: string; reliability: number; path: string[] }>,
+): DominantCluster {
+  const empty: DominantCluster = {
+    path: ["Interests"], confidence: 0, supporters: [], depth: 0, band: "low",
+  };
+  if (seeds.length === 0) return empty;
+
+  const totalReliability = seeds.reduce((sum, s) => sum + s.reliability, 0) || 1;
+
+  for (const depth of [3, 2] as const) {
+    const buckets = new Map<string, { weight: number; supporters: string[]; path: string[] }>();
+    for (const s of seeds) {
+      if (s.path.length < depth + 1) continue;
+      const slice = s.path.slice(0, depth + 1);
+      const key = slice.map((v) => v.toLowerCase()).join(" > ");
+      const existing = buckets.get(key) ?? { weight: 0, supporters: [], path: slice };
+      existing.weight += s.reliability;
+      existing.supporters.push(s.id);
+      buckets.set(key, existing);
+    }
+    if (buckets.size === 0) continue;
+
+    const sorted = [...buckets.values()].sort((a, b) => b.weight - a.weight);
+    const winner = sorted[0];
+    const confidence = winner.weight / totalReliability;
+
+    const qualifies =
+      depth === 2
+        ? confidence >= 0.35
+        : (winner.supporters.length >= 2 || confidence >= 0.60);
+
+    if (qualifies) {
+      const band: DominantCluster["band"] =
+        confidence >= 0.60 ? "high" : confidence >= 0.35 ? "medium" : "low";
+      return { path: winner.path, confidence, supporters: winner.supporters, depth, band };
+    }
+  }
+
+  return empty;
+}
+
+function finaliseSeedBucket(
+  profile: Omit<SeedProfile, "bucket" | "onDominantCluster">,
+  cluster: DominantCluster,
+): { bucket: SeedBucket; onDominantCluster: boolean } {
+  if (cluster.confidence < 0.35 || cluster.path.length === 0) {
+    // No reliable cluster — use reliability alone
+    const bucket: SeedBucket =
+      profile.reliability >= 0.70 ? "trusted"
+      : profile.reliability >= 0.40 ? "weak"
+      : "ambiguous";
+    return { bucket, onDominantCluster: false };
+  }
+
+  const common = lcpPaths(profile.path, cluster.path);
+  const onDominantCluster = profile.path.length > 0 && common >= cluster.path.length - 1;
+
+  // Conflicting: seed has a real path that clearly diverges from the dominant cluster
+  if (profile.pathDepth >= 3 && common <= Math.max(1, cluster.path.length - 2)) {
+    return { bucket: "conflicting", onDominantCluster: false };
+  }
+
+  const bucket: SeedBucket =
+    onDominantCluster && profile.reliability >= 0.70 ? "trusted"
+    : onDominantCluster && profile.reliability >= 0.40 ? "weak"
+    : "ambiguous";
+
+  return { bucket, onDominantCluster };
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -734,6 +934,54 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const data = (json.data as MetaRaw) ?? [];
     return { ok: true, data, httpStatus, urlSafe, payloadValue };
   }
+
+  // ── Step 3.5: seed enrichment + profiling + cluster inference (2b-i) ─────
+  // OBSERVATION ONLY — populates seedProfiles + dominantCluster in the debug
+  // payload and logs them, but does not influence retrieval or scoring yet.
+  // Graceful: if enrichment fails, every seed is profiled as "ambiguous" with
+  // empty path and we fall back to a zero-confidence cluster.
+
+  const seedIdsForEnrichment = sortedSeeds.filter((s) => s.hasRealId).map((s) => s.id);
+  let seedEnriched = new Map<string, EnrichedInterest>();
+  try {
+    const res = await enrichCandidates(seedIdsForEnrichment, token, BASE);
+    seedEnriched = res.enriched;
+  } catch (err) {
+    console.error(`[interest-suggestions] ✗ seed enrichment threw — proceeding with empty profiles:`, err);
+  }
+
+  const partialSeedProfiles = sortedSeeds.map((s) =>
+    profileSeedPartial(s.id, s.name, seedEnriched),
+  );
+
+  const dominantCluster = inferDominantCluster(
+    partialSeedProfiles.map((p) => ({ id: p.id, reliability: p.reliability, path: p.path })),
+  );
+
+  const seedProfiles = new Map<string, SeedProfile>();
+  for (const p of partialSeedProfiles) {
+    const { bucket, onDominantCluster } = finaliseSeedBucket(p, dominantCluster);
+    seedProfiles.set(p.id, { ...p, bucket, onDominantCluster });
+  }
+
+  const bucketCounts = { trusted: 0, weak: 0, ambiguous: 0, conflicting: 0 };
+  for (const p of seedProfiles.values()) bucketCounts[p.bucket]++;
+
+  console.info(
+    `[interest-suggestions] ── Stage S: seed profiling (Landing 2b-i, observation only) ──` +
+    Array.from(seedProfiles.values()).map((p) =>
+      `\n  • ${p.name.padEnd(26)} [${p.bucket.padEnd(11)}] r=${p.reliability.toFixed(2)} amb=${p.ambiguityScore.toFixed(2)} ` +
+      `depth=${p.pathDepth} type=${p.entityType}` +
+      (p.flags.length ? ` flags=${p.flags.join(",")}` : "") +
+      (p.path.length ? ` path=${p.path.join(" > ")}` : " path=(none)"),
+    ).join("") +
+    `\n  Dominant cluster: ${dominantCluster.path.join(" > ") || "(none)"}` +
+    ` — confidence=${dominantCluster.confidence.toFixed(2)} (${dominantCluster.band.toUpperCase()})` +
+    ` depth=${dominantCluster.depth}` +
+    ` supporters=${dominantCluster.supporters.length}/${sortedSeeds.length}` +
+    `\n  Bucket counts: trusted=${bucketCounts.trusted} weak=${bucketCounts.weak} ambiguous=${bucketCounts.ambiguous} conflicting=${bucketCounts.conflicting}` +
+    `\n  Enrichment: ${seedEnriched.size}/${seedIdsForEnrichment.length} seeds resolved`,
+  );
 
   // ── Step 4: per-seed parallel retrieval (Landing 2a) ──────────────────────
   // Meta's adinterestsuggestion blends signal across seeds when called with the
@@ -1138,6 +1386,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     unionPoolSize: pool.size,
     maxSeedsCapped,
     retrievalSeedCount: retrievalSeeds.length,
+    seedProfiles: Object.fromEntries(
+      Array.from(seedProfiles.entries()).map(([id, p]) => [
+        id,
+        {
+          name: p.name,
+          bucket: p.bucket,
+          reliability: p.reliability,
+          ambiguityScore: p.ambiguityScore,
+          domain: p.domain,
+          entityType: p.entityType,
+          pathDepth: p.pathDepth,
+          path: p.path,
+          audienceSize: p.audienceSize,
+          onDominantCluster: p.onDominantCluster,
+          flags: p.flags,
+        },
+      ]),
+    ),
+    dominantCluster,
+    trustedSeedCount: bucketCounts.trusted,
+    weakSeedCount: bucketCounts.weak,
+    ambiguousSeedCount: bucketCounts.ambiguous,
+    conflictingSeedCount: bucketCounts.conflicting,
+    seedEnrichmentRequested: seedIdsForEnrichment.length,
+    seedEnrichmentResolved: seedEnriched.size,
   };
 
   return NextResponse.json({
