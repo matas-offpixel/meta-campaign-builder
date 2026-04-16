@@ -621,6 +621,10 @@ export interface SuggestionsDebugInfo {
   /** Landing 2f — diversification Phase 2 backfill preference */
   selectedPhase1BucketCounts?: Record<string, number>;
   selectedPhase2BucketCounts?: Record<string, number>;
+  /** Landing 2g — weak-fill deferral in final composition */
+  weakFillApplied?: boolean;
+  weakFillSkippedCount?: number;
+  weakFillSkippedNames?: string[];
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -2201,6 +2205,77 @@ function capPlanFor(clusterKey: ClusterKey): CapPlan | null {
   return null;
 }
 
+// ── Weak-fill detection (Landing 2g) ────────────────────────────────────────
+// Narrow, cluster-scoped list of names/classes that should only fill slots
+// when no stronger alternatives remain. Does NOT change gates, scores, or
+// classifier — this is purely a final-composition deferral signal used by
+// diversifyFinalSuggestions.
+//
+// EMN: broad non-electronic music genres (pop, hip-hop, rap, r&b/soul,
+//      mainstream/commercial). House / Dance / Club music are NOT weak
+//      because they classify as electronic_genre.
+// FED: generic_fashion_media (Fashion blog, Fashion models).
+const EMN_WEAK_GENRE_PATTERN =
+  /\b(pop|hip[-\s]?hop|rap|rhythm[-\s]and[-\s]blues|r&b|r and b|rnb|soul|mainstream|commercial|k[-\s]?pop|j[-\s]?pop)\b/i;
+
+type WeakFillContext = {
+  eligibleMediaCount: number;
+  eligibleFestivalCount: number;
+  eligibleNightlifeOrMiscCount: number;
+  eligibleEditorialCount: number;
+};
+
+function computeWeakFillContext(
+  eligible: SuggestedInterest[],
+  clusterKey: ClusterKey,
+): WeakFillContext {
+  let media = 0, festival = 0, misc = 0, editorial = 0;
+  for (const s of eligible) {
+    if (clusterKey === "electronic_music_nightlife") {
+      if (s.candidateClass === "music_media") media++;
+      else if (
+        s.candidateClass === "electronic_music_festival" ||
+        s.candidateClass === "generic_music_festival"
+      ) festival++;
+      else if (
+        s.candidateClass === "nightlife_venue" ||
+        s.candidateClass === "music_artist_electronic" ||
+        s.candidateClass === "music_artist_other"
+      ) misc++;
+    } else if (clusterKey === "fashion_editorial") {
+      if (s.candidateClass === "fashion_editorial_media") editorial++;
+    }
+  }
+  return {
+    eligibleMediaCount: media,
+    eligibleFestivalCount: festival,
+    eligibleNightlifeOrMiscCount: misc,
+    eligibleEditorialCount: editorial,
+  };
+}
+
+function isWeakFillCandidate(
+  clusterKey: ClusterKey,
+  s: SuggestedInterest,
+  ctx: WeakFillContext,
+): boolean {
+  if (clusterKey === "electronic_music_nightlife") {
+    // Only trigger once the composition already has real anchors.
+    const hasAnchors = ctx.eligibleMediaCount >= 2 || ctx.eligibleFestivalCount >= 1;
+    if (!hasAnchors) return false;
+    if (s.candidateClass !== "music_genre_other") return false;
+    return EMN_WEAK_GENRE_PATTERN.test(s.name ?? "");
+  }
+  if (clusterKey === "fashion_editorial") {
+    // generic_fashion_media (Fashion blog / Fashion models) → deferral kicks
+    // in only once we already have enough editorial primaries that we don't
+    // need to lean on weaker fillers to make the set feel fashion-y.
+    if (ctx.eligibleEditorialCount < 3) return false;
+    return s.candidateClass === "generic_fashion_media";
+  }
+  return false;
+}
+
 // ── Rescue-seed predicted buckets (Landing 2e) ──────────────────────────────
 // When we pick curated rescue seeds for Stage R2, we want to bias toward
 // seeds whose PREDICTED diversity bucket is under-represented in the current
@@ -2387,6 +2462,9 @@ function diversifyFinalSuggestions(
   applied: boolean;
   phase1GroupCounts: Record<string, number>;
   phase2GroupCounts: Record<string, number>;
+  weakFillApplied: boolean;
+  weakFillFlagByName: Record<string, boolean>;
+  weakFillDeferredInPhase2: string[];
 } {
   const bucketByName: Record<string, DiversityBucket> = {};
   const distributionBefore: Record<string, number> = {};
@@ -2402,6 +2480,17 @@ function diversifyFinalSuggestions(
     distributionBefore[b] = (distributionBefore[b] ?? 0) + 1;
   }
 
+  // Weak-fill flags. Context is computed ONCE from the full eligible pool so
+  // "EMN has 2+ media" / "FED has 3+ editorial" is stable across both phases.
+  const weakCtx = computeWeakFillContext(eligible, clusterKey);
+  const weakFillFlagByName: Record<string, boolean> = {};
+  let weakFillApplied = false;
+  for (const s of eligible) {
+    const flag = isWeakFillCandidate(clusterKey, s, weakCtx);
+    weakFillFlagByName[s.name] = flag;
+    if (flag) weakFillApplied = true;
+  }
+
   const plan = capPlanFor(clusterKey);
   if (!plan) {
     const picked = eligible.slice(0, max);
@@ -2413,16 +2502,29 @@ function diversifyFinalSuggestions(
       picked, bucketByName, distributionBefore, distributionAfter,
       skippedAtCap: [], applied: false,
       phase1GroupCounts, phase2GroupCounts,
+      weakFillApplied: false, weakFillFlagByName, weakFillDeferredInPhase2: [],
     };
   }
+
+  // Stable-reorder eligible so weak-fill items process AFTER all non-weak
+  // items of the same score. This ensures a non-weak item never loses a cap
+  // slot to a weak one in Phase 1 just because the weak item scored higher
+  // on size/typeBonus.
+  const phase1Order = eligible
+    .map((s, idx) => ({ s, idx, weak: weakFillFlagByName[s.name] === true }))
+    .sort((a, b) => {
+      if (a.weak !== b.weak) return a.weak ? 1 : -1;
+      return a.idx - b.idx;
+    })
+    .map((e) => e.s);
 
   const picked: SuggestedInterest[] = [];
   const skipped: SuggestedInterest[] = [];
   const skippedAtCap: Array<{ name: string; bucket: DiversityBucket; group: string }> = [];
   const capCounts: Record<string, number> = {};
 
-  // ── Phase 1 — score-ordered greedy pick, respecting per-group caps.
-  for (const s of eligible) {
+  // ── Phase 1 — score-ordered greedy pick (non-weak first), per-group caps.
+  for (const s of phase1Order) {
     if (picked.length >= max) break;
     const bucket = bucketByName[s.name] ?? "other";
     const group = plan.group[bucket] ?? "other";
@@ -2438,13 +2540,16 @@ function diversifyFinalSuggestions(
     }
   }
 
-  // ── Phase 2 — fill remaining slots from skipped, preferring the group
-  //     with the lowest current count in picked[]. This avoids all remaining
-  //     fill going back to whichever group dominated Phase 1's score order.
-  //     Tiebreak by score desc, then by original order.
+  // ── Phase 2 — fill remaining slots. Order of preference:
+  //     1. non-weak before weak                 ← keeps weak at the bottom
+  //     2. lowest current count in picked[]     ← cap-group diversity
+  //     3. score desc                           ← tie-break on quality
+  //     4. original index                       ← stable
+  const weakFillDeferredInPhase2: string[] = [];
   const skippedQueue = [...skipped];
   while (picked.length < max && skippedQueue.length > 0) {
     let bestIdx = -1;
+    let bestWeak = true;
     let bestCurrent = Number.POSITIVE_INFINITY;
     let bestScore = Number.NEGATIVE_INFINITY;
     for (let i = 0; i < skippedQueue.length; i++) {
@@ -2452,10 +2557,16 @@ function diversifyFinalSuggestions(
       const bucket = bucketByName[s.name] ?? "other";
       const group = plan.group[bucket] ?? "other";
       const cur = capCounts[group] ?? 0;
-      if (cur < bestCurrent || (cur === bestCurrent && s.score > bestScore)) {
+      const weak = weakFillFlagByName[s.name] === true;
+      const better =
+        (weak !== bestWeak && !weak) ||
+        (weak === bestWeak && cur < bestCurrent) ||
+        (weak === bestWeak && cur === bestCurrent && s.score > bestScore);
+      if (bestIdx < 0 || better) {
+        bestIdx = i;
+        bestWeak = weak;
         bestCurrent = cur;
         bestScore = s.score;
-        bestIdx = i;
       }
     }
     if (bestIdx < 0) break;
@@ -2466,6 +2577,11 @@ function diversifyFinalSuggestions(
     phase2GroupCounts[group] = (phase2GroupCounts[group] ?? 0) + 1;
     picked.push(chosen);
   }
+  // Any remaining weak items we didn't add — either because max was reached
+  // or because they were the last resort never pulled — go into debug.
+  for (const s of skippedQueue) {
+    if (weakFillFlagByName[s.name]) weakFillDeferredInPhase2.push(s.name);
+  }
 
   for (const s of picked) {
     const b = bucketByName[s.name] ?? "other";
@@ -2475,6 +2591,7 @@ function diversifyFinalSuggestions(
     picked, bucketByName, distributionBefore, distributionAfter,
     skippedAtCap, applied: true,
     phase1GroupCounts, phase2GroupCounts,
+    weakFillApplied, weakFillFlagByName, weakFillDeferredInPhase2,
   };
 }
 
@@ -3848,6 +3965,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n    bucket dist (after):       ${JSON.stringify(diversification.distributionAfter)}` +
     `\n    phase1 groups picked:      ${JSON.stringify(diversification.phase1GroupCounts)}` +
     `\n    phase2 groups picked:      ${JSON.stringify(diversification.phase2GroupCounts)}` +
+    (diversification.weakFillApplied
+      ? `\n    weak-fill deferred:        ${diversification.weakFillDeferredInPhase2.length}` +
+        (diversification.weakFillDeferredInPhase2.length > 0
+          ? ` (${diversification.weakFillDeferredInPhase2.slice(0, 10).join(", ")})`
+          : "")
+      : "") +
     (diversification.skippedAtCap.length > 0
       ? `\n    skipped at cap:            ${diversification.skippedAtCap.slice(0, 20).map((x) => `${x.name}[${x.bucket}→${x.group}]`).join(", ")}`
       : "") +
@@ -3860,7 +3983,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               : "";
             const bucket = diversityBucketByName[s.name];
             const bucketTag = bucket ? ` [bucket=${bucket}]` : "";
-            return `\n    • "${s.name}" [${s.suggestionType}]${bucketTag}${tag} ${fmtBreakdown(s)}`;
+            const weakTag = diversification.weakFillFlagByName[s.name] ? ` [weak-fill]` : "";
+            return `\n    • "${s.name}" [${s.suggestionType}]${bucketTag}${weakTag}${tag} ${fmtBreakdown(s)}`;
           })
           .join("")
       : ""),
@@ -4012,6 +4136,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     diversificationSkippedAtCap: diversification.skippedAtCap,
     selectedPhase1BucketCounts: diversification.phase1GroupCounts,
     selectedPhase2BucketCounts: diversification.phase2GroupCounts,
+    weakFillApplied: diversification.weakFillApplied,
+    weakFillSkippedCount: diversification.weakFillDeferredInPhase2.length,
+    weakFillSkippedNames: diversification.weakFillDeferredInPhase2,
     curatedRescueCandidatesConsidered,
     curatedRescueCandidatesPicked: curatedExpansionSeedsUsed,
     underrepresentedBucketsBeforeExpansion,
