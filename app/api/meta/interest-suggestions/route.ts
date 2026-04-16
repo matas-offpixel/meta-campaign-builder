@@ -612,6 +612,12 @@ export interface SuggestionsDebugInfo {
   survivorBucketDistributionBefore?: Record<string, number>;
   survivorBucketDistributionAfter?: Record<string, number>;
   diversificationSkippedAtCap?: Array<{ name: string; bucket: string; group: string }>;
+  /** Landing 2e rescue-seed priority + thin-pool recall */
+  curatedRescueCandidatesConsidered?: string[];
+  curatedRescueCandidatesPicked?: string[];
+  underrepresentedBucketsBeforeExpansion?: Record<string, number>;
+  rescueSeedPriorityOrder?: Array<{ name: string; bucket: string; group: string; missingWeight: number }>;
+  thinPoolRecallBoostActive?: boolean;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -1966,21 +1972,69 @@ const CURATED_RESCUE_SEEDS: Partial<Record<ClusterKey, ReadonlyArray<string>>> =
     "Resident Advisor",
   ],
   electronic_music_nightlife: [
-    "House music",
-    "Tech house",
-    "Music festivals",
+    // media — widen non-genre refinement nodes first
     "Mixmag",
     "Resident Advisor",
+    "DJ Mag",
+    "NTS Radio",
+    "Record label",
+    // nightlife / misc — venues + DJ-centric refinement
+    "Disc jockeys",
+    "Parties",
+    "Berghain",
+    "Fabric",
+    "Boiler Room",
+    // festival
     "Awakenings",
+    "Dekmantel",
+    "Tomorrowland",
+    "Time Warp",
+    "Sonar",
+    // genre (kept last — bucket-aware ordering promotes these only
+    // when genre coverage is missing from the current eligible set)
+    "Tech house",
+    "Deep house",
+    "Electro house",
+    "Electro",
+    "Dance music",
+    "Club music",
+    "House music",
   ],
   fashion_editorial: [
+    // editorial — widen high-quality magazines first
     "Vogue",
+    "Dazed",
+    "i-D",
+    "Another Magazine",
     "SHOWstudio",
+    "Nylon",
+    "Paper",
+    "Elle",
+    "Glamour",
+    "Harper's Bazaar",
+    "W Magazine",
+    "Cosmopolitan",
+    "The Face",
+    "Purple",
+    "Numéro",
+    "Document Journal",
+    "System Magazine",
+    // brand_designer — widen beyond avant-garde into luxury
     "Rick Owens",
     "Raf Simons",
     "Maison Margiela",
     "Comme des Garçons",
+    "Helmut Lang",
+    "Prada",
+    "Chanel",
+    "Gucci",
+    "Louis Vuitton",
+    "Versace",
+    "Burberry",
+    "Dolce & Gabbana",
+    // photography
     "Fashion photography",
+    // generic_fashion catch
     "Editorial fashion",
   ],
   fashion_brands: [
@@ -2142,6 +2196,110 @@ function capPlanFor(clusterKey: ClusterKey): CapPlan | null {
   if (clusterKey === "electronic_music_nightlife") return EMN_CAP_PLAN;
   if (clusterKey === "fashion_editorial") return FED_CAP_PLAN;
   return null;
+}
+
+// ── Rescue-seed predicted buckets (Landing 2e) ──────────────────────────────
+// When we pick curated rescue seeds for Stage R2, we want to bias toward
+// seeds whose PREDICTED diversity bucket is under-represented in the current
+// eligible set. The real bucket is only known AFTER the pipeline runs on the
+// expansion results, so we use a deterministic hand-curated mapping here.
+// Missing entries fall through to "other".
+const RESCUE_SEED_PREDICTED_BUCKET: Partial<Record<ClusterKey, Record<string, DiversityBucket>>> = {
+  electronic_music_nightlife: {
+    // media
+    "mixmag": "media",
+    "resident advisor": "media",
+    "dj mag": "media",
+    "dj magazine": "media",
+    "nts radio": "media",
+    "nts": "media",
+    "record label": "media",
+    "the wire": "media",
+    "fact": "media",
+    "crack": "media",
+    "clash": "media",
+    // nightlife (venues) / artist (DJs) / other → all collapse to EMN "misc"
+    "disc jockey": "artist",
+    "disc jockeys": "artist",
+    "parties": "nightlife",
+    "berghain": "nightlife",
+    "fabric": "nightlife",
+    "fabric london": "nightlife",
+    "boiler room": "nightlife",
+    "tresor": "nightlife",
+    "panorama bar": "nightlife",
+    // festival
+    "awakenings": "festival",
+    "dekmantel": "festival",
+    "tomorrowland": "festival",
+    "time warp": "festival",
+    "sonar": "festival",
+    "sónar": "festival",
+    "movement festival": "festival",
+    "boiler room festival": "festival",
+    "dgtl": "festival",
+    "amsterdam dance event": "festival",
+    "ade": "festival",
+    "creamfields": "festival",
+    "music festivals": "festival",
+    // genre (kept broad — bucket-aware ordering will push these down when
+    // genre slots are already filled)
+    "house music": "genre",
+    "tech house": "genre",
+    "deep house": "genre",
+    "electro house": "genre",
+    "electro": "genre",
+    "dance music": "genre",
+    "club music": "genre",
+    "techno": "genre",
+    "live music": "media",
+  },
+  fashion_editorial: {
+    // editorial
+    "vogue": "editorial",
+    "dazed": "editorial",
+    "i-d": "editorial",
+    "another magazine": "editorial",
+    "showstudio": "editorial",
+    "nylon": "editorial",
+    "paper": "editorial",
+    "elle": "editorial",
+    "glamour": "editorial",
+    "harper's bazaar": "editorial",
+    "w magazine": "editorial",
+    "cosmopolitan": "editorial",
+    "the face": "editorial",
+    "purple": "editorial",
+    "numéro": "editorial",
+    "numero": "editorial",
+    "document journal": "editorial",
+    "system magazine": "editorial",
+    // brand_designer
+    "rick owens": "brand_designer",
+    "comme des garçons": "brand_designer",
+    "comme des garcons": "brand_designer",
+    "prada": "brand_designer",
+    "chanel": "brand_designer",
+    "gucci": "brand_designer",
+    "louis vuitton": "brand_designer",
+    "versace": "brand_designer",
+    "burberry": "brand_designer",
+    "dolce & gabbana": "brand_designer",
+    "dolce and gabbana": "brand_designer",
+    "helmut lang": "brand_designer",
+    "raf simons": "brand_designer",
+    "maison margiela": "brand_designer",
+    // photography
+    "fashion photography": "photography",
+    // generic_fashion catch
+    "editorial fashion": "generic_fashion",
+  },
+};
+
+function predictRescueBucket(name: string, clusterKey: ClusterKey): DiversityBucket {
+  const table = RESCUE_SEED_PREDICTED_BUCKET[clusterKey];
+  if (!table) return "other";
+  return table[name.toLowerCase()] ?? "other";
 }
 
 function diversifyFinalSuggestions(
@@ -3035,6 +3193,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     curated_rescue: 0,
   };
   const curatedExpansionSeedsUsed: string[] = [];
+  // Landing 2e telemetry — rescue seed priority / thin-pool recall boost
+  let curatedRescueCandidatesConsidered: string[] = [];
+  let underrepresentedBucketsBeforeExpansion: Record<string, number> = {};
+  let rescueSeedPriorityOrder: Array<{
+    name: string;
+    bucket: DiversityBucket;
+    group: string;
+    missingWeight: number;
+  }> = [];
+  let thinPoolRecallBoostActive = false;
 
   const FIRST_PASS_PRIMARY_MIN = 10;
   const MAX_PRIMARY_CANDIDATES = 2;
@@ -3097,10 +3265,67 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // (c) Curated cluster-specific rescue seeds. These are the actual lever
       //     that prevents empty results when first-pass primary candidates
       //     are sparse and all trusted originals were queried in pass 1.
-      const curated = CURATED_RESCUE_SEEDS[dominantCluster.clusterKey] ?? [];
+      const curatedSource = CURATED_RESCUE_SEEDS[dominantCluster.clusterKey] ?? [];
+      curatedRescueCandidatesConsidered = [...curatedSource];
+
+      // Bucket-aware rescue ordering: prefer seeds whose PREDICTED diversity
+      // bucket is under-represented in the current eligible set. Applies only
+      // to EMN / FED where we have a cap plan + predicted-bucket table.
+      const plan = capPlanFor(dominantCluster.clusterKey);
+      let curated: string[] = [...curatedSource];
+      if (
+        plan &&
+        (dominantCluster.clusterKey === "electronic_music_nightlife" ||
+          dominantCluster.clusterKey === "fashion_editorial")
+      ) {
+        const currentByGroup: Record<string, number> = {};
+        for (const s of suggestions) {
+          if (s.clusterFitClass !== "primary" && s.clusterFitClass !== "secondary") continue;
+          const bucket = diversityDisplayBucket(s.candidateClass, dominantCluster.clusterKey);
+          const group = plan.group[bucket] ?? "other";
+          currentByGroup[group] = (currentByGroup[group] ?? 0) + 1;
+        }
+        const missingByGroup: Record<string, number> = {};
+        for (const [group, limit] of Object.entries(plan.limit)) {
+          missingByGroup[group] = Math.max(0, limit - (currentByGroup[group] ?? 0));
+        }
+        underrepresentedBucketsBeforeExpansion = missingByGroup;
+
+        const scored = curatedSource.map((name, idx) => {
+          const bucket = predictRescueBucket(name, dominantCluster.clusterKey);
+          const group = plan.group[bucket] ?? "other";
+          const missingWeight = missingByGroup[group] ?? 0;
+          return { name, bucket, group, missingWeight, originalIdx: idx };
+        });
+        scored.sort((a, b) => {
+          if (a.missingWeight !== b.missingWeight) return b.missingWeight - a.missingWeight;
+          return a.originalIdx - b.originalIdx;
+        });
+        curated = scored.map((s) => s.name);
+        rescueSeedPriorityOrder = scored.map(({ name, bucket, group, missingWeight }) => ({
+          name, bucket, group, missingWeight,
+        }));
+      }
+
+      // Thin-pool recall boost: allow +1 curated seed beyond the normal cap
+      // ONLY for EMN/FED when high-confidence and first-pass primary/secondary
+      // count is very thin. Keeps default behaviour identical everywhere else.
+      let maxCuratedLocal: number = MAX_CURATED;
+      let maxTotalLocal: number = MAX_TOTAL_EXPANSION_SEEDS;
+      if (
+        isHighConfidenceCluster &&
+        (dominantCluster.clusterKey === "electronic_music_nightlife" ||
+          dominantCluster.clusterKey === "fashion_editorial") &&
+        onClusterFirstPass.length < 6
+      ) {
+        maxCuratedLocal = MAX_CURATED + 1;
+        maxTotalLocal = MAX_TOTAL_EXPANSION_SEEDS + 1;
+        thinPoolRecallBoostActive = true;
+      }
+
       for (const name of curated) {
-        if (descriptors.filter((d) => d.source === "curated_rescue").length >= MAX_CURATED) break;
-        if (descriptors.length >= MAX_TOTAL_EXPANSION_SEEDS) break;
+        if (descriptors.filter((d) => d.source === "curated_rescue").length >= maxCuratedLocal) break;
+        if (descriptors.length >= maxTotalLocal) break;
         const lower = name.toLowerCase();
         if (seenLower.has(lower)) continue;
         descriptors.push({ name, source: "curated_rescue" });
@@ -3108,7 +3333,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         seenLower.add(lower);
       }
 
-      const finalDescriptors = descriptors.slice(0, MAX_TOTAL_EXPANSION_SEEDS);
+      const finalDescriptors = descriptors.slice(0, maxTotalLocal);
       expansionSeedNames = finalDescriptors.map((d) => d.name);
       for (const d of finalDescriptors) {
         expansionSeedSourceBreakdown[d.source]++;
@@ -3129,7 +3354,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           `[interest-suggestions] ── Stage R2: expansion (${finalDescriptors.length} seeds, mode=${expansionMode}) ──` +
           `\n  trigger: ${expansionTriggerReason}` +
           `\n  source breakdown: primary_candidate=${expansionSeedSourceBreakdown.primary_candidate}, uncapped_trusted_original=${expansionSeedSourceBreakdown.uncapped_trusted_original}, curated_rescue=${expansionSeedSourceBreakdown.curated_rescue}` +
-          `\n  curated seeds used: ${curatedExpansionSeedsUsed.length > 0 ? curatedExpansionSeedsUsed.join(", ") : "(none)"}` +
+          `\n  curated considered: ${curatedRescueCandidatesConsidered.length} | picked: ${curatedExpansionSeedsUsed.length > 0 ? curatedExpansionSeedsUsed.join(", ") : "(none)"}` +
+          (Object.keys(underrepresentedBucketsBeforeExpansion).length > 0
+            ? `\n  underrepresented buckets:   ${JSON.stringify(underrepresentedBucketsBeforeExpansion)}`
+            : "") +
+          (rescueSeedPriorityOrder.length > 0
+            ? `\n  rescue priority:            ${rescueSeedPriorityOrder.slice(0, 8).map((r) => `${r.name}[${r.bucket}→${r.group}/miss=${r.missingWeight}]`).join(", ")}${rescueSeedPriorityOrder.length > 8 ? " …" : ""}`
+            : "") +
+          (thinPoolRecallBoostActive ? `\n  thin-pool recall boost: ACTIVE (+1 curated cap)` : "") +
           `\n  seeds: ${finalDescriptors.map((d) => `${d.name}[${d.source}]`).join(", ")}`,
         );
 
@@ -3467,6 +3699,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         (curatedExpansionSeedsUsed.length > 0
           ? `\n    curated seeds used:        ${curatedExpansionSeedsUsed.join(", ")}`
           : "") +
+        (curatedRescueCandidatesConsidered.length > 0
+          ? `\n    curated considered:        ${curatedRescueCandidatesConsidered.length} (picked ${curatedExpansionSeedsUsed.length})`
+          : "") +
+        (Object.keys(underrepresentedBucketsBeforeExpansion).length > 0
+          ? `\n    underrepresented buckets:  ${JSON.stringify(underrepresentedBucketsBeforeExpansion)}`
+          : "") +
+        (thinPoolRecallBoostActive ? `\n    thin-pool recall boost:    ACTIVE (+1 curated cap)` : "") +
         `\n    expansion seeds:           ${expansionSeedNames.join(", ")}` +
         `\n    per-seed:                  ${JSON.stringify(expansionPerSeedStats)}`
       : "") +
@@ -3646,6 +3885,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     survivorBucketDistributionBefore: diversification.distributionBefore,
     survivorBucketDistributionAfter: diversification.distributionAfter,
     diversificationSkippedAtCap: diversification.skippedAtCap,
+    curatedRescueCandidatesConsidered,
+    curatedRescueCandidatesPicked: curatedExpansionSeedsUsed,
+    underrepresentedBucketsBeforeExpansion,
+    rescueSeedPriorityOrder,
+    thinPoolRecallBoostActive,
   };
 
   return NextResponse.json({
