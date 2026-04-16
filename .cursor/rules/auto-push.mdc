@@ -1,0 +1,10 @@
+---
+description: Always push commits to remote immediately after creating them
+alwaysApply: true
+---
+
+# Auto-push after every commit
+
+After every `git commit`, immediately run `git push origin main`.
+
+Never leave a commit unpushed. Vercel is connected to GitHub and deploys automatically on every push to `main`.

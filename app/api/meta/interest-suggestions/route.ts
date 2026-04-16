@@ -428,6 +428,10 @@ export interface SuggestedInterest {
   audienceSizeBand?: string;
   /** Classified suggestion type for client-side display and diagnostics */
   suggestionType: SuggestionType;
+  /** Landing 2a: fraction of retrieval seeds that surfaced this candidate (0–1) */
+  seedAgreement?: number;
+  /** Landing 2a: IDs of seeds that surfaced this candidate */
+  sourceSeedIds?: string[];
 }
 
 export interface SuggestionsDebugInfo {
@@ -460,7 +464,20 @@ export interface SuggestionsDebugInfo {
   tokenPrefix: string;
   metaError?: string;
   top5Raw: string[];
-  top10ScoreBreakdown: Array<{ name: string; type: string; score: number; sizeBand: string; path: string[] }>;
+  top10ScoreBreakdown: Array<{
+    name: string;
+    type: string;
+    score: number;
+    sizeBand: string;
+    path: string[];
+    seedAgreement?: number;
+    sources?: string[];
+  }>;
+  /** Landing 2a: per-seed retrieval telemetry */
+  perSeedStats?: Record<string, { seedName: string; status: "ok" | "empty" | "error"; count: number; errMsg?: string; errCode?: unknown }>;
+  unionPoolSize?: number;
+  maxSeedsCapped?: boolean;
+  retrievalSeedCount?: number;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -718,57 +735,107 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return { ok: true, data, httpStatus, urlSafe, payloadValue };
   }
 
-  // ── Step 4: attempt 1 — all seeds ─────────────────────────────────────────
-  const allSeedNames = sortedSeeds.map((s) => s.name);
-  let metaResult = await callMeta(allSeedNames, "attempt-1/all-seeds");
+  // ── Step 4: per-seed parallel retrieval (Landing 2a) ──────────────────────
+  // Meta's adinterestsuggestion blends signal across seeds when called with the
+  // full list, drowning per-seed neighbourhoods. Landing 2a runs one call per
+  // seed in parallel, then unions the results while tracking which seeds
+  // surfaced each candidate. Cross-seed agreement becomes the dominant
+  // ranking signal (S_agree) downstream.
 
-  let fallbackUsed = false;
-  let fallbackSeedNames: string[] = [];
+  const MAX_SEEDS_FOR_RETRIEVAL = 8;
+  const retrievalSeeds = sortedSeeds.slice(0, MAX_SEEDS_FOR_RETRIEVAL);
+  const maxSeedsCapped = sortedSeeds.length > MAX_SEEDS_FOR_RETRIEVAL;
+  const allSeedNames = retrievalSeeds.map((s) => s.name);
 
-  // ── Step 4b: fallback — retry with top 1-2 highest-confidence seeds ───────
-  // Triggered when Meta returns 500 or empty result on the full seed list.
-  const needsFallback =
-    !metaResult.ok ||
-    (metaResult.ok && metaResult.data.length === 0 && sortedSeeds.length > 1);
+  console.info(
+    `[interest-suggestions] ── Stage R1: per-seed parallel retrieval (${retrievalSeeds.length} calls) ──` +
+    (maxSeedsCapped ? ` [capped from ${sortedSeeds.length}]` : ""),
+  );
 
-  if (needsFallback) {
-    const topSeeds = sortedSeeds.filter((s) => s.hasRealId).slice(0, 2);
-    const fallbackPool = topSeeds.length > 0 ? topSeeds : sortedSeeds.slice(0, 1);
-    fallbackSeedNames = fallbackPool.map((s) => s.name);
+  // Each entry is the result of a single-seed adinterestsuggestion call.
+  type SeedCallOutcome = Awaited<ReturnType<typeof callMeta>>;
+  const perSeedResults = await Promise.allSettled(
+    retrievalSeeds.map((s) => callMeta([s.name], `seed:${s.id}(${s.name})`)),
+  );
 
-    console.info(
-      `[interest-suggestions] fallback triggered (${!metaResult.ok ? "Meta error" : "empty result"})` +
-      ` — retrying with top seeds: ${JSON.stringify(fallbackSeedNames)}`,
-    );
+  interface CandidateAccumulator {
+    item: { id: string; name: string; audience_size?: number; path?: string[] };
+    sourceSeeds: Set<string>;
+  }
 
-    const fallbackResult = await callMeta(fallbackSeedNames, "attempt-2/fallback-seeds");
-    fallbackUsed = true;
+  const pool = new Map<string, CandidateAccumulator>();
+  const perSeedStats: Record<string, { seedName: string; status: "ok" | "empty" | "error"; count: number; errMsg?: string; errCode?: unknown }> = {};
+  let anySuccess = false;
+  let firstMetaError: { errMsg: string; errCode: unknown; httpStatus: number; urlSafe: string } | null = null;
+  let firstMetaHttpStatus = 0;
+  let firstMetaUrlSafe = "";
 
-    if (fallbackResult.ok) {
-      metaResult = fallbackResult;
-    } else {
-      const errCode = fallbackResult.errCode;
-      let emptyReason = "meta_500_fallback_seeds";
-      if (typeof errCode === "number") {
-        if (errCode === 190 || errCode === 102) emptyReason = "token_expired";
-        else if (errCode === 200 || errCode === 10) emptyReason = "token_permission";
-        else if (errCode === 100) emptyReason = "invalid_request";
+  for (let i = 0; i < retrievalSeeds.length; i++) {
+    const seed = retrievalSeeds[i];
+    const settled = perSeedResults[i];
+
+    if (settled.status !== "fulfilled") {
+      perSeedStats[seed.id] = {
+        seedName: seed.name, status: "error", count: 0,
+        errMsg: settled.reason instanceof Error ? settled.reason.message : String(settled.reason),
+      };
+      continue;
+    }
+
+    const r: SeedCallOutcome = settled.value;
+    // Capture metadata from the first call (for debug)
+    if (i === 0) {
+      firstMetaHttpStatus = r.httpStatus;
+      firstMetaUrlSafe = r.urlSafe;
+    }
+
+    if (!r.ok) {
+      perSeedStats[seed.id] = {
+        seedName: seed.name, status: "error", count: 0,
+        errMsg: r.errMsg, errCode: r.errCode,
+      };
+      if (!firstMetaError) {
+        firstMetaError = { errMsg: r.errMsg, errCode: r.errCode, httpStatus: r.httpStatus, urlSafe: r.urlSafe };
       }
-      return NextResponse.json({
-        error: fallbackResult.errMsg, code: errCode, emptyReason,
-        debug: {
-          metaHttpStatus: fallbackResult.httpStatus, tokenPrefix,
-          metaUrl: fallbackResult.urlSafe, payloadMode: "interest_list",
-          seedNamesSent: fallbackSeedNames, seedCount: fallbackSeedNames.length,
-          fallbackUsed: true, fallbackSeedNames,
-        },
-      }, { status: 502 });
+      continue;
+    }
+
+    anySuccess = true;
+    perSeedStats[seed.id] = {
+      seedName: seed.name,
+      status: r.data.length > 0 ? "ok" : "empty",
+      count: r.data.length,
+    };
+
+    for (const item of r.data) {
+      if (!item.id) continue;
+      const existing = pool.get(item.id);
+      if (existing) {
+        existing.sourceSeeds.add(seed.id);
+      } else {
+        pool.set(item.id, { item, sourceSeeds: new Set([seed.id]) });
+      }
     }
   }
 
-  // Surface error from attempt-1 when fallback wasn't triggered but it failed
-  if (!metaResult.ok) {
-    const errCode = metaResult.errCode;
+  // Landing 2a keeps `fallbackUsed`/`fallbackSeedNames` in the debug shape for
+  // backward compatibility; per-seed retrieval doesn't need the old fallback.
+  const fallbackUsed = false;
+  const fallbackSeedNames: string[] = [];
+  const seedNamesSent = allSeedNames;
+
+  console.info(
+    `[interest-suggestions] per-seed retrieval complete:` +
+    Object.entries(perSeedStats).map(([id, s]) =>
+      `\n  • ${s.seedName}(${id}): ${s.status} — ${s.count} candidates` +
+      (s.errMsg ? ` [error: ${s.errMsg}]` : ""),
+    ).join("") +
+    `\n  union pool size: ${pool.size} unique candidates`,
+  );
+
+  // All seeds errored — surface the first error (usually indicates token issue)
+  if (!anySuccess) {
+    const errCode = firstMetaError?.errCode;
     let emptyReason = "meta_500_all_seeds";
     if (typeof errCode === "number") {
       if (errCode === 190 || errCode === 102) emptyReason = "token_expired";
@@ -776,29 +843,29 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       else if (errCode === 100) emptyReason = "invalid_request";
     }
     return NextResponse.json({
-      error: metaResult.errMsg, code: errCode, emptyReason,
+      error: firstMetaError?.errMsg ?? "All per-seed calls failed", code: errCode, emptyReason,
       debug: {
-        metaHttpStatus: metaResult.httpStatus, tokenPrefix,
-        metaUrl: metaResult.urlSafe, payloadMode: "interest_list",
-        seedNamesSent: allSeedNames, seedCount: allSeedNames.length,
+        metaHttpStatus: firstMetaError?.httpStatus ?? 0, tokenPrefix,
+        metaUrl: firstMetaError?.urlSafe ?? "", payloadMode: "interest_list",
+        seedNamesSent, seedCount: seedNamesSent.length,
         fallbackUsed, fallbackSeedNames,
+        perSeedStats,
       },
     }, { status: 502 });
   }
 
   // ── Step 5: unpack raw results ────────────────────────────────────────────
-  const raw = metaResult.data;
-  const metaHttpStatus = metaResult.httpStatus;
-  const metaUrlSafe = metaResult.urlSafe;
-  const payloadValue = metaResult.payloadValue;
-  const seedNamesSent = fallbackUsed ? fallbackSeedNames : allSeedNames;
+  // Reconstruct a raw-array view (for downstream code that iterates the pool).
+  const raw = Array.from(pool.values()).map((entry) => entry.item);
+  const metaHttpStatus = firstMetaHttpStatus;
+  const metaUrlSafe = firstMetaUrlSafe;
 
   const top5Raw = raw.slice(0, 5).map((r) => `${r.name}(${r.id})`);
   console.info(
-    `[interest-suggestions] ── Stage A: raw Meta results (${raw.length}) ──` +
+    `[interest-suggestions] ── Stage A: pooled raw results (${raw.length}) ──` +
     (raw.length > 0
-      ? `\n  all names: ${raw.map((r) => r.name).join(" | ")}`
-      : " (empty — Meta returned nothing)"),
+      ? `\n  top names: ${raw.slice(0, 20).map((r) => r.name).join(" | ")}`
+      : " (empty — all seeds returned 0 results)"),
   );
 
   if (raw.length === 0) {
@@ -810,6 +877,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         rawSuggestionCount: 0, tokenPrefix,
         payloadMode: "interest_list", seedNamesSent, seedCount: seedNamesSent.length,
         fallbackUsed, fallbackSeedNames,
+        perSeedStats,
       },
     });
   }
@@ -916,9 +984,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    // 6g. Compute score
+    // 6g. Cross-seed agreement (Landing 2a) — primary relevance signal
+    // S_agree = (seeds that surfaced this candidate) / (total retrieval seeds)
+    // Range [0, 1]. A candidate surfaced by 3/3 seeds is overwhelmingly more
+    // relevant than one surfaced by 1/3 — this is the main quality unlock.
+    const accumulator = pool.get(item.id);
+    const sourceSeedIds = accumulator ? Array.from(accumulator.sourceSeeds) : [];
+    const S_agree = retrievalSeeds.length > 0 ? sourceSeedIds.length / retrievalSeeds.length : 0;
+
+    // 6h. Compute score
+    const S_agree_points = Math.round(S_agree * 35); // weight = 35 (per Landing 2 design)
     let score = sizeBandScore(size);
     score += typeBonus;
+    score += S_agree_points;
     if (!debugBypass && pathPattern?.test(text)) score += 10;
 
     const deprecated = !debugBypass && isKnownDeprecated(item.name);
@@ -936,6 +1014,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       likelyDeprecated: deprecated || undefined,
       audienceSizeBand: audienceSizeBand(size),
       suggestionType: sType,
+      seedAgreement: S_agree,
+      sourceSeedIds,
     });
   }
 
@@ -957,13 +1037,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     score: s.score,
     sizeBand: s.audienceSizeBand ?? "unknown",
     path: s.path ?? [],
+    seedAgreement: s.seedAgreement,
+    sources: s.sourceSeedIds,
   }));
 
   const finalInterestOnlyCount = finalSuggestions.length;
 
   console.info(
-    `[interest-suggestions] ── Stage D: pipeline summary (Landing 1) ──` +
-    `\n  raw:                        ${raw.length}` +
+    `[interest-suggestions] ── Stage D: pipeline summary (Landing 2a) ──` +
+    `\n  retrieval seeds:            ${retrievalSeeds.length}${maxSeedsCapped ? ` (capped from ${sortedSeeds.length})` : ""}` +
+    `\n  union pool size:            ${pool.size}` +
+    `\n  raw (from pool):            ${raw.length}` +
     `\n  enriched (adinterestvalid): ${enriched.size}/${candidateIds.length}` +
     `\n  excluded by seed:           ${excludedBySeed}` +
     `\n  dropped (missing path):     ${droppedMissingPath}` +
@@ -974,7 +1058,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n  returned (capped):          ${finalSuggestions.length}` +
     `\n  debug-bypass:               ${debugBypass}` +
     (finalSuggestions.length > 0
-      ? `\n  Stage E final: ${finalSuggestions.map((s) => `"${s.name}"[${s.suggestionType}|${s.taxonomyRoot}]`).join(", ")}`
+      ? `\n  Stage E final: ${finalSuggestions.map((s) => `"${s.name}"[${s.suggestionType}|agree=${((s.seedAgreement ?? 0) * 100).toFixed(0)}%|score=${s.score}]`).join(", ")}`
       : ""),
   );
 
@@ -1050,6 +1134,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     tokenPrefix,
     top5Raw,
     top10ScoreBreakdown,
+    perSeedStats,
+    unionPoolSize: pool.size,
+    maxSeedsCapped,
+    retrievalSeedCount: retrievalSeeds.length,
   };
 
   return NextResponse.json({
