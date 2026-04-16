@@ -702,6 +702,17 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     const effectiveClusterType =
       group?.clusterType ?? (group?.name ? (inferClusterFromName(group.name) ?? undefined) : undefined);
 
+    // Require an explicit cluster for a group-scoped regenerate. Without one,
+    // the backend would fan out to all five clusters — which is precisely the
+    // "campaign-wide leakage" we want to avoid.
+    if (!effectiveClusterType) {
+      setDiscoverFromPagesError((prev) => ({
+        ...prev,
+        [groupId]: "Pick a cluster for this group (Music, Fashion, Lifestyle, Activities, or Media) before regenerating.",
+      }));
+      return;
+    }
+
     setDiscoveringFromPages(groupId);
     setDiscoverFromPagesError((prev) => ({ ...prev, [groupId]: null }));
     setDiscoverClusters((prev) => ({ ...prev, [groupId]: [] }));
@@ -709,12 +720,15 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     setDiscoverSceneTags((prev) => ({ ...prev, [groupId]: [] }));
 
     try {
-      // Parse scene hints: comma-separated free text → array of tokens
+      // Parse scene hints: split on commas/semicolons/newlines; keep each
+      // phrase as natural-language text. Do NOT underscore-join words — the
+      // backend intent classifier relies on real word boundaries, and Meta's
+      // interest search works better on the unmangled phrase too.
       const rawHints = sceneHintsByGroup[groupId] ?? "";
       const sceneHints = rawHints
-        .split(/[,;]+/)
-        .map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"))
-        .filter(Boolean);
+        .split(/[,;\n]+/)
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0);
 
       const res = await fetch("/api/meta/interest-discover", {
         method: "POST",
@@ -729,7 +743,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
           engagementTypesPresent,
           genreDistribution,
           campaignName,
-          ...(effectiveClusterType ? { clusterLabel: effectiveClusterType } : {}),
+          clusterLabel: effectiveClusterType,
           ...(sceneHints.length > 0 ? { sceneHints } : {}),
         }),
       });

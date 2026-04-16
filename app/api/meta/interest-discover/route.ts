@@ -926,11 +926,28 @@ function buildWeightedSceneTags(
   return { tagWeights, logs };
 }
 
-/** Collect raw hint strings that should be searched directly against Meta's API */
+/**
+ * Collect raw hint strings that should be searched directly against Meta's API.
+ *
+ * A natural-language sentence ("suggest sport activities for people into
+ * nightlife clubbing") is a terrible Meta /search query — it returns nothing.
+ * We keep only short (≤ 4 word) phrases as direct terms; longer hints still
+ * drive intent classification and intent-seed generation upstream.
+ */
 function extractDirectHintTerms(rawHints: string[]): string[] {
-  return rawHints
-    .map((h) => h.trim())
-    .filter((h) => h.length >= 2);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawHints) {
+    const trimmed = raw.trim();
+    if (trimmed.length < 2) continue;
+    const wordCount = trimmed.split(/\s+/).length;
+    if (wordCount > 4) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 // ── Confidence calculator ─────────────────────────────────────────────────────
@@ -1278,12 +1295,60 @@ const HINT_INTENT_PATTERNS: Array<{ intent: HintIntent; pattern: RegExp }> = [
 function classifyHintIntents(rawHints: string[]): Set<HintIntent> {
   const intents = new Set<HintIntent>();
   if (rawHints.length === 0) return intents;
-  const joined = rawHints.map((h) => h.trim()).filter(Boolean).join(" | ");
+  // Normalise before regex matching: replace "_" and "-" with spaces so that
+  // word boundaries (\b) fire even if a caller passed an underscore-joined
+  // token like "suggest_sport_activities_for_people_into_nightlife_clubbing".
+  // This is defensive — the frontend now sends natural-language phrases.
+  const joined = rawHints
+    .map((h) => h.trim().replace(/[_-]+/g, " "))
+    .filter(Boolean)
+    .join(" | ");
   for (const { intent, pattern } of HINT_INTENT_PATTERNS) {
     if (pattern.test(joined)) intents.add(intent);
   }
   if (intents.size === 0 && joined.length > 0) intents.add("general_culture");
   return intents;
+}
+
+// Seed terms injected into the candidate pool when a given intent is active.
+// Kept narrow: each list is the concrete set of Meta-searchable phrases a human
+// buyer would try first for that intent. Used only for the Activities & Culture
+// cluster when hint intents are detected.
+const INTENT_SEED_TERMS: Record<HintIntent, string[]> = {
+  sport_fitness: [
+    "sports", "fitness", "physical fitness", "gym", "exercise", "workout",
+    "running", "cycling", "yoga", "pilates", "boxing", "martial arts",
+    "dance", "movement", "wellness", "healthy lifestyle", "recreation",
+    "social sports",
+  ],
+  art_design: [
+    "contemporary art", "art gallery", "photography", "design", "architecture",
+  ],
+  nightlife_social: [
+    "nightlife", "social event", "dance", "parties",
+  ],
+  music_scene: [
+    "live music", "music festival",
+  ],
+  fashion_editorial: [
+    "fashion", "editorial fashion",
+  ],
+  general_culture: [],
+};
+
+/** Concatenate intent seed lists in a stable, deduped order. */
+function deriveHintIntentSeedTerms(intents: Set<HintIntent>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const intent of intents) {
+    for (const t of INTENT_SEED_TERMS[intent] ?? []) {
+      const key = t.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
 }
 
 // Positive / negative keyword families per intent. These are matched against
@@ -1431,10 +1496,20 @@ async function discoverForCluster(
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
 
-  // Scene hints always go first (they are the user's explicit signal) — deduplicated
+  // Scene hints always go first (they are the user's explicit signal) — deduplicated.
+  // For Activities & Culture specifically, when hint intents are detected, we
+  // also inject concrete intent-derived seed terms (sports/fitness/etc.) so
+  // candidate retrieval is driven by the hint rather than the default art pack.
   const entitySet = new Set(entityTerms.map((t) => t.toLowerCase()));
   const extraHints = directHintTerms.filter((h) => !entitySet.has(h.toLowerCase()));
-  const allTerms = [...extraHints, ...entityTerms];
+  const intentSeedTerms =
+    clusterLabel === "Activities & Culture" && hintIntents.size > 0
+      ? deriveHintIntentSeedTerms(hintIntents).filter(
+          (t) => !entitySet.has(t.toLowerCase()) &&
+            !extraHints.some((h) => h.toLowerCase() === t.toLowerCase()),
+        )
+      : [];
+  const allTerms = [...extraHints, ...intentSeedTerms, ...entityTerms];
 
   const sceneKeywords = buildSceneKeywords(tagWeights, clusterLabel);
 
@@ -1445,7 +1520,10 @@ async function discoverForCluster(
     `[interest-discover] ═══ CLUSTER: "${clusterLabel}" ═══ confidence=${confidence}\n` +
     `  candidate-pool(${allTerms.length}): ${allTerms.join(", ")}\n` +
     `  entity-terms(${entityTerms.length}): ${entityTerms.join(", ")}\n` +
-    `  hints(${extraHints.length}): ${extraHints.join(", ")}`,
+    `  hints(${extraHints.length}): ${extraHints.join(", ")}` +
+    (intentSeedTerms.length > 0
+      ? `\n  intent-seeds(${intentSeedTerms.length}): ${intentSeedTerms.join(", ")}`
+      : ""),
   );
 
   // ── Phase 1: search all terms ──────────────────────────────────────────────
@@ -1718,13 +1796,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Classify free-text hints into high-level intents (used by Activities & Culture only)
   const hintIntents = classifyHintIntents(rawHints);
-  if (hintIntents.size > 0) {
-    console.info(
-      `[interest-discover] hint-intents: ${[...hintIntents].join(",")}`,
-    );
-  }
+  const hintFallbackUsed =
+    rawHints.length > 0 && (hintIntents.size === 0 || (hintIntents.size === 1 && hintIntents.has("general_culture")));
+  console.info(
+    `[interest-discover] request: clusterLabel=${clusterLabel ?? "<ALL>"}  rawHints=${JSON.stringify(rawHints)}  ` +
+    `intents=${hintIntents.size > 0 ? [...hintIntents].join(",") : "<none>"}  ` +
+    `hintFallback=${hintFallbackUsed}`,
+  );
 
   const targetLabels = clusterLabel ? [clusterLabel] : ALL_CLUSTER_LABELS;
+  console.info(
+    `[interest-discover] scope: ${clusterLabel ? `single-cluster "${clusterLabel}"` : `multi-cluster (${targetLabels.length})`}`,
+  );
   const globalSeen = new Set<string>();
   const clusterSeeds: Record<string, string[]> = {};
   const clusters: DiscoverCluster[] = [];
@@ -1759,7 +1842,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   const firstBias = Object.values(hintBiasByCluster)[0];
-  const hintIntelligence = hintIntents.size > 0
+  // Populate hintIntelligence whenever any hint text was provided, even if
+  // no intents were matched — so callers can distinguish "no hint"
+  // (hintIntelligence === null) from "hint provided but unparsed"
+  // (hintIntentsDetected === []).
+  const hintIntelligence = rawHints.length > 0
     ? {
         hintIntentsDetected: [...hintIntents],
         hintPositiveFamilies: firstBias?.positive ?? [],
