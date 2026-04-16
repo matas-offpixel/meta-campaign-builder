@@ -888,6 +888,23 @@ export interface HintIntelligenceDebug {
     /** Generic broad / international / sub-sport rows softly demoted to
      *  protect entity-row ranking when entities are detected. */
     sportsGenericRowsDemotedNames: string[];
+    /** team_club precision pass: rows that strongly match the resolved
+     *  club entity (canonical / F.C. / FC / supporters / Stadium / TV /
+     *  Academy / Women / Youth / direct entity-token prefix). Stable-
+     *  partitioned to the top of the sports candidate list. */
+    sportsStrongEntityRowNames?: string[];
+    /** team_club precision pass: generic broad-football rows softly demoted
+     *  by an additional -20 (e.g. "Football", "football fans", "English
+     *  football teams", "Fan convention", broad league/audience filler). */
+    sportsGenericFootballFallbackDemotedNames?: string[];
+    /** Whether the team_club precision pass actually executed. */
+    sportsTeamClubPrecisionPassApplied?: boolean;
+    /** Sports false-positive cleanup: rows hard-demoted (-50) by the new
+     *  isSportsFalsePositiveRow rule (Premier League ambiguity, video-game
+     *  leakage, sub-sport leakage, cross-league clutter, gym-intent
+     *  football demotion). Names are accompanied by a reason suffix on
+     *  matchReason. Surfaced for dev diagnostics only. */
+    sportsFalsePositiveDemotedNames?: string[];
   };
 }
 
@@ -2074,20 +2091,33 @@ function buildSportsBroadFallbackSeeds(
   };
 
   if (family === "football") {
-    // Always-relevant broad football anchors.
-    push("Football");
-    push("Football fans");
     if (subtype === "team_club") {
-      push("UEFA Champions League");
-      // Domain-specific league only when an entity actually plays there.
+      // Tight team_club fallback (max 3 in practice). Order:
+      //   1. Premier League (only if a detected club is actually in EPL)
+      //   2. Mapped top-flight league (only if a detected club plays there)
+      //   3. UEFA Champions League
+      //   4. Football fans
+      //   5. Football  (last-resort breadth; only if room remains)
+      // Soccer is intentionally excluded — Football already covers that.
+      const teamClubCap = Math.min(cap, 3);
+      const inEpl = entities.some((e) => PREMIER_LEAGUE_CLUBS.has(e.canonical));
+      if (inEpl) push("Premier League");
       const leagues = new Set<string>();
       for (const e of entities) {
         if (CLUB_LEAGUE_MAP[e.canonical]) leagues.add(CLUB_LEAGUE_MAP[e.canonical]);
-        else if (PREMIER_LEAGUE_CLUBS.has(e.canonical)) leagues.add("Premier League");
       }
-      for (const l of leagues) push(l);
-      push("Soccer");
-    } else if (subtype === "competition") {
+      for (const l of leagues) {
+        if (out.length < teamClubCap) push(l);
+      }
+      if (out.length < teamClubCap) push("UEFA Champions League");
+      if (out.length < teamClubCap) push("Football fans");
+      if (out.length < teamClubCap) push("Football");
+      return out.slice(0, teamClubCap);
+    }
+    // Always-relevant broad football anchors for non-team-club subtypes.
+    push("Football");
+    push("Football fans");
+    if (subtype === "competition") {
       // Competition mode: keep it general. Avoid pulling specific national
       // top flights (La Liga / Serie A / etc.) unless the entity matches.
       push("International football");
@@ -2116,6 +2146,218 @@ function buildSportsBroadFallbackSeeds(
   return out;
 }
 
+// ── team_club entity-first ranking + tighter generic demotion ────────────────
+// These helpers run only when clusterLabel === "Sports & Live Events" AND
+// sportsEntitySubtype === "team_club" AND at least one entity is detected.
+// They keep ranking deterministic and surgical: never mutate non-sports rows.
+
+/** Variants that almost always denote the resolved club entity itself.
+ *  Used as suffixes after the club canonical (or the first canonical token)
+ *  to recognise rows like "Arsenal F.C.", "Arsenal F.C. supporters",
+ *  "Arsenal Stadium", "Arsenal TV", "Arsenal Academy", "Arsenal Women",
+ *  "Arsenal Youth". `""` covers the bare canonical itself. */
+const STRONG_TEAM_ENTITY_VARIANTS = [
+  "",
+  "f.c.",
+  "fc",
+  "f.c",
+  "supporters",
+  "supporter",
+  "stadium",
+  "tv",
+  "academy",
+  "women",
+  "youth",
+  "u21",
+  "u23",
+  "fans",
+];
+
+/** Generic broad-football rows that get an additional -20 demotion when the
+ *  user's prompt resolved to a specific club (subtype === "team_club"). The
+ *  patterns are intentionally narrow: nothing here matches Premier League /
+ *  UEFA Champions League / UEFA Europa League / club rows / broadcasters /
+ *  stadium rows, which must keep their score. */
+const TEAM_CLUB_GENERIC_FALLBACK_PATTERNS: RegExp[] = [
+  /^football$/i,
+  /^football \(football\)$/i,
+  /^football \(sports?\)$/i,
+  /^football fans$/i,
+  /^football fans \(football\)$/i,
+  /^football fans \(sports?\)$/i,
+  /^sports? fans$/i,
+  /^soccer fans$/i,
+  /^english football teams?(?:\s*\(.*\))?$/i,
+  /^european football leagues?(?:\s+and\s+competitions?)?$/i,
+  /^european football news(?:\s+and\s+content)?$/i,
+  /^fan convention$/i,
+];
+const TEAM_CLUB_GENERIC_FALLBACK_PENALTY = -20;
+
+/** Build a stable list of canonical aliases used to detect strong entity
+ *  rows. For each entity we include the canonical and a "stem" with any
+ *  trailing F.C. / FC / C.F. stripped so "Liverpool F.C." also matches
+ *  "Liverpool TV" / "Liverpool supporters". */
+function buildEntityStems(entities: SportsEntity[]): Array<{
+  canonical: string;
+  stem: string;
+}> {
+  const out: Array<{ canonical: string; stem: string }> = [];
+  for (const e of entities) {
+    const canon = e.canonical.toLowerCase().trim();
+    if (!canon) continue;
+    const stem = canon
+      .replace(/\b(f\.?c\.?|c\.?f\.?|s\.?l\.?|s\.?s\.?c\.?|a\.?s\.?|a\.?c\.?|s\.?s\.?)\b\.?/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    out.push({ canonical: canon, stem: stem || canon });
+  }
+  return out;
+}
+
+/** True when the candidate is a strong club-entity row for any of the
+ *  detected entities. Match is normalized — exact canonical hit, canonical-
+ *  prefix-then-variant, stem-prefix-then-variant, or token-prefix start. */
+function isStrongTeamEntityRow<T extends { name: string; path?: string[] }>(
+  item: T,
+  entities: SportsEntity[],
+): boolean {
+  if (entities.length === 0) return false;
+  const nameLower = item.name.toLowerCase().trim();
+  if (!nameLower) return false;
+  const stems = buildEntityStems(entities);
+  for (const { canonical, stem } of stems) {
+    // 1. Exact canonical row.
+    if (nameLower === canonical) return true;
+    // 2. "<canonical> <variant>" or "<stem> <variant>" — covers F.C. /
+    //    supporters / Stadium / TV / Academy / Women / Youth.
+    for (const base of [canonical, stem]) {
+      if (!base) continue;
+      const baseEsc = escapeRegexLiteral(base);
+      for (const v of STRONG_TEAM_ENTITY_VARIANTS) {
+        const vPart = v ? `\\s+${escapeRegexLiteral(v)}\\b` : "";
+        const re = new RegExp(`^${baseEsc}${vPart}(?:\\s*\\(.*\\))?$`, "i");
+        if (re.test(nameLower)) return true;
+      }
+    }
+    // 3. Token-prefix start: "Arsenal …" anywhere as the first token chunk.
+    const baseEsc = escapeRegexLiteral(stem || canonical);
+    if (new RegExp(`^${baseEsc}\\b`, "i").test(nameLower)) return true;
+  }
+  return false;
+}
+
+/** True when the row is a generic football fallback that should be demoted
+ *  for a team_club prompt. Premier League / UEFA Champions League / UEFA
+ *  Europa League / club entity rows / broadcasters / stadiums are never
+ *  matched here. */
+function isGenericFootballFallbackRow<T extends { name: string; path?: string[] }>(
+  item: T,
+  entities: SportsEntity[],
+): boolean {
+  if (isStrongTeamEntityRow(item, entities)) return false;
+  const nameLower = item.name.toLowerCase().trim();
+  return TEAM_CLUB_GENERIC_FALLBACK_PATTERNS.some((p) => p.test(nameLower));
+}
+
+// ── Sports false-positive cleanup (gym/cross-league/Premier-League-ambiguity) ─
+
+const SPORTS_FALSE_POSITIVE_PENALTY = -50;
+
+/** Allow rule for the English Premier League canonical Meta row. */
+function isAllowedEnglishPremierLeagueRow<T extends { name: string; path?: string[] }>(
+  item: T,
+): boolean {
+  const n = item.name.toLowerCase().trim();
+  return (
+    n === "premier league" ||
+    n === "premier league (football league)" ||
+    n === "premier league (football)" ||
+    n === "english premier league" ||
+    n === "english premier league (football)"
+  );
+}
+
+const PREMIER_LEAGUE_AMBIGUOUS_PATTERN = /\b(indian|bangladesh|egyptian|saudi|chinese|pakistan|kazakhstan|caribbean|nepal|hong\s*kong|sri\s*lanka|south\s*africa|kenya|ghana|nigeria|moroccan|israeli|emirates|uae|qatar|caribbean)\s+premier\s+league\b/i;
+const VIDEO_GAME_SPORTS_PATTERN = /\b(sports?\s*games?|video\s*games?|esports?|e[-\s]?sports?|esoccer|fifa\s*\d{2,4}\b|pro\s*evolution\s*soccer|football\s*manager)\b/i;
+const FOOTBALL_SUBSPORT_PATTERN = /\b(beach\s*soccer|futsal|five[-\s]?a[-\s]?side|seven[-\s]?a[-\s]?side|mini[-\s]?football|small[-\s]?sided|street\s*football|walking\s*football)\b/i;
+const CRICKET_LEAGUE_CLUTTER_PATTERN = /\b(cricket|t20|ipl|big\s*bash|county\s*cricket|test\s*cricket|odi)\b/i;
+const FOOTBALL_COMPETITION_KEY_PATTERN = /\b(premier\s*league|champions\s*league|europa\s*league|world\s*cup|uefa|fifa|international\s*football|football\s*competitions?|football\s*leagues?\s+and\s+competitions?)\b/i;
+// Hint terms that explicitly opt into football-context discovery even when
+// the user's primary intent is gym/fitness.
+const FOOTBALL_OPT_IN_HINT_PATTERN = /\b(football|soccer|club|fan|fans|matchday|screening|world\s*cup|champions\s*league|europa\s*league|premier\s*league|fanpark|fan\s*zone|stadium)\b/i;
+
+/** Return a reason string when the row should be hard-demoted (-50), or
+ *  null when nothing applies. Sports-only; never called for other clusters. */
+function isSportsFalsePositiveRow<T extends { name: string; path?: string[] }>(
+  item: T,
+  intents: Set<HintIntent>,
+  entities: SportsEntity[],
+  dominantFamily: SportFamily | null,
+  subtype: SportsEntitySubtype | null,
+  rawHintText: string,
+): string | null {
+  const name = item.name;
+  const nameLower = name.toLowerCase();
+  const haystack = `${name} ${(item.path ?? []).join(" ")}`;
+
+  // (A) Premier League ambiguity — keep the English football league.
+  if (/\bpremier\s+league\b/i.test(nameLower) && !isAllowedEnglishPremierLeagueRow(item)) {
+    if (PREMIER_LEAGUE_AMBIGUOUS_PATTERN.test(nameLower)) {
+      return ";premier-league-ambiguous-demote";
+    }
+  }
+
+  // (B) Video-game sports leakage.
+  if (VIDEO_GAME_SPORTS_PATTERN.test(haystack)) {
+    return ";video-game-demote";
+  }
+
+  // (C) Football sub-format leakage (only when the hint context is football
+  //     fandom / live viewing). Skip when the hint itself names the variant.
+  const footballishIntent =
+    intents.has("football_soccer") ||
+    intents.has("sports_fandom") ||
+    intents.has("live_viewing_event");
+  if (footballishIntent && FOOTBALL_SUBSPORT_PATTERN.test(haystack)) {
+    const matched = haystack.match(FOOTBALL_SUBSPORT_PATTERN)?.[0]?.toLowerCase() ?? "";
+    const firstWord = matched.split(/\s+/)[0] ?? "";
+    if (firstWord && !rawHintText.includes(firstWord)) {
+      return ";subsport-demote";
+    }
+  }
+
+  // (D) Cross-sport league clutter (e.g. cricket leagues) for football
+  //     contexts. Entity rows are never demoted here (we already protect
+  //     them in the boost pass).
+  const isFootballContext =
+    dominantFamily === "football" ||
+    subtype === "team_club" ||
+    subtype === "competition";
+  if (isFootballContext && CRICKET_LEAGUE_CLUTTER_PATTERN.test(haystack)) {
+    // Don't accidentally demote a row whose name happens to mention the
+    // resolved entity (defensive — rare for cricket).
+    const isEntityRow = entities.some((e) =>
+      nameLower.includes(e.canonical.toLowerCase()),
+    );
+    if (!isEntityRow) return ";cross-league-demote";
+  }
+
+  // (E) Gym-first intent cleanup — when the user clearly wants gym/fitness
+  //     and there's no football opt-in, demote generic football competition
+  //     rows so they don't crowd out CrossFit / fitness / training results.
+  const gymish = intents.has("gym_fitness") || intents.has("sport_fitness");
+  const fanish = intents.has("football_soccer") || intents.has("sports_fandom");
+  const hintOptsIntoFootball = FOOTBALL_OPT_IN_HINT_PATTERN.test(rawHintText);
+  if (gymish && !fanish && !hintOptsIntoFootball) {
+    if (FOOTBALL_COMPETITION_KEY_PATTERN.test(nameLower)) {
+      return ";gym-intent-football-demote";
+    }
+  }
+
+  return null;
+}
+
 /**
  * Apply Sports-only post-scoring: exact/prefix entity boosts, dominant-family
  * boost, cross-sport demotion, and entity-aware broad-row demotion. Mutates
@@ -2130,6 +2372,8 @@ function applySportsEntityBoost(
   entities: SportsEntity[],
   family: SportFamily | null,
   subtype: SportsEntitySubtype | null,
+  intents: Set<HintIntent> = new Set(),
+  rawHintText: string = "",
 ): {
   exactBoosted: string[];
   prefixBoosted: string[];
@@ -2138,14 +2382,23 @@ function applySportsEntityBoost(
   /** Generic football / fan / competition rows that were softly demoted to
    *  protect entity-row ranking. Surfaced for dev diagnostics only. */
   genericDemoted: string[];
+  /** team_club precision pass: rows softly demoted by the new -20 generic
+   *  fallback rule (e.g. "Football", "football fans", "English football
+   *  teams", "Fan convention"). */
+  teamClubGenericDemoted: string[];
+  /** Sports false-positive cleanup: rows hard-demoted by -50. */
+  falsePositiveDemoted: string[];
 } {
   const exactBoosted: string[] = [];
   const prefixBoosted: string[] = [];
   const familyBoosted: string[] = [];
   const suppressed: string[] = [];
   const genericDemoted: string[] = [];
+  const teamClubGenericDemoted: string[] = [];
+  const falsePositiveDemoted: string[] = [];
   const canonicals = entities.map((e) => e.canonical.toLowerCase());
   const hasEntities = entities.length > 0;
+  const teamClubMode = subtype === "team_club" && hasEntities;
 
   for (const item of scored) {
     const nameLower = item.name.toLowerCase();
@@ -2232,10 +2485,49 @@ function applySportsEntityBoost(
           genericDemoted.push(item.name);
         }
       }
+
+      // team_club precision pass: extra -20 on broad football fallback rows
+      // ("Football", "football fans", "English football teams", "Fan
+      // convention", etc.). Premier League / UEFA Champions League / UEFA
+      // Europa League / club rows / broadcasters / stadiums are protected
+      // by isGenericFootballFallbackRow.
+      if (teamClubMode && isGenericFootballFallbackRow(item, entities)) {
+        item.relevanceScore = (item.relevanceScore ?? 0) + TEAM_CLUB_GENERIC_FALLBACK_PENALTY;
+        item.matchReason = `${item.matchReason ?? ""};team-club-generic-demote`;
+        teamClubGenericDemoted.push(item.name);
+      }
+    }
+
+    // Sports false-positive cleanup. Always evaluated for the Sports cluster,
+    // independent of the entity-aware soft penalties above. Entity rows get
+    // a free pass — the helper checks Premier League allow + entity mentions
+    // internally, but we also short-circuit on a clear entity hit.
+    if (!entityHit) {
+      const reason = isSportsFalsePositiveRow(
+        item,
+        intents,
+        entities,
+        family,
+        subtype,
+        rawHintText,
+      );
+      if (reason) {
+        item.relevanceScore = (item.relevanceScore ?? 0) + SPORTS_FALSE_POSITIVE_PENALTY;
+        item.matchReason = `${item.matchReason ?? ""}${reason}`;
+        falsePositiveDemoted.push(item.name);
+      }
     }
   }
 
-  return { exactBoosted, prefixBoosted, familyBoosted, suppressed, genericDemoted };
+  return {
+    exactBoosted,
+    prefixBoosted,
+    familyBoosted,
+    suppressed,
+    genericDemoted,
+    teamClubGenericDemoted,
+    falsePositiveDemoted,
+  };
 }
 
 // ── Sports & Live Events diversification ─────────────────────────────────────
@@ -2401,6 +2693,10 @@ async function discoverForCluster(
     prefixMatchBoostedNames: string[];
     entityRowsBoostedNames: string[];
     genericRowsDemotedNames: string[];
+    strongEntityRowNames: string[];
+    genericFootballFallbackDemotedNames: string[];
+    teamClubPrecisionPassApplied: boolean;
+    falsePositiveDemotedNames: string[];
   };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
@@ -2620,8 +2916,9 @@ async function discoverForCluster(
   }
 
   // Sports-only post-scoring: exact-entity boost + cross-sport suppression
-  // + entity-aware broad-row demotion. Runs before the sort so boosted /
-  // penalised candidates land in the right slice. Other clusters skip this.
+  // + entity-aware broad-row demotion + sports false-positive cleanup. Runs
+  // before the sort so boosted / penalised candidates land in the right
+  // slice. Other clusters skip this.
   let sportsResolution:
     | {
         entitiesDetected: string[];
@@ -2638,14 +2935,24 @@ async function discoverForCluster(
         prefixMatchBoostedNames: string[];
         entityRowsBoostedNames: string[];
         genericRowsDemotedNames: string[];
+        strongEntityRowNames: string[];
+        genericFootballFallbackDemotedNames: string[];
+        teamClubPrecisionPassApplied: boolean;
+        falsePositiveDemotedNames: string[];
       }
     | undefined;
-  if (isSports && (sportsEntities.length > 0 || sportsFamily)) {
+  // Sports false-positive cleanup runs on every Sports request so generic
+  // garbage like "Indian Premier League" or "sports games (video games)"
+  // never sneaks past, even when no entity or intent was detected.
+  const sportsRawHintText = directHintTerms.join(" ").toLowerCase();
+  if (isSports) {
     const boostResult = applySportsEntityBoost(
       aboveFloor,
       sportsEntities,
       sportsFamily,
       sportsSubtype,
+      hintIntents,
+      sportsRawHintText,
     );
     const entityRowsBoosted = Array.from(
       new Set([...boostResult.exactBoosted, ...boostResult.prefixBoosted]),
@@ -2665,6 +2972,10 @@ async function discoverForCluster(
       prefixMatchBoostedNames: boostResult.prefixBoosted,
       entityRowsBoostedNames: entityRowsBoosted,
       genericRowsDemotedNames: boostResult.genericDemoted,
+      strongEntityRowNames: [],
+      genericFootballFallbackDemotedNames: boostResult.teamClubGenericDemoted,
+      teamClubPrecisionPassApplied: false,
+      falsePositiveDemotedNames: boostResult.falsePositiveDemoted,
     };
     console.info(
       `[sports-resolve] family=${sportsFamily ?? "<none>"} subtype=${sportsSubtype ?? "<none>"} ` +
@@ -2674,13 +2985,46 @@ async function discoverForCluster(
       `[sports-resolve] exact=${boostResult.exactBoosted.join(", ") || "<none>"}\n` +
       `[sports-resolve] prefix=${boostResult.prefixBoosted.join(", ") || "<none>"}\n` +
       `[sports-resolve] suppressed=${boostResult.suppressed.join(", ") || "<none>"}\n` +
-      `[sports-resolve] generic-demoted=${boostResult.genericDemoted.join(", ") || "<none>"}`,
+      `[sports-resolve] generic-demoted=${boostResult.genericDemoted.join(", ") || "<none>"}\n` +
+      `[sports-resolve] team-club-generic-demoted=${boostResult.teamClubGenericDemoted.join(", ") || "<none>"}\n` +
+      `[sports-resolve] false-positive-demoted=${boostResult.falsePositiveDemoted.join(", ") || "<none>"}`,
     );
   }
 
   const maxResults = confidence >= 75 ? 6 : 8;
-  const sorted = aboveFloor
+  let sorted = aboveFloor
     .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
+
+  // team_club entity-first ranking: stable-partition strong club-entity rows
+  // to the top while preserving score order within each partition. Runs only
+  // for Sports + team_club + at least one entity. No-op for everything else.
+  if (
+    isSports &&
+    sportsSubtype === "team_club" &&
+    sportsEntities.length > 0 &&
+    sorted.length > 0
+  ) {
+    const strong: typeof sorted = [];
+    const rest: typeof sorted = [];
+    const strongNames: string[] = [];
+    for (const item of sorted) {
+      if (isStrongTeamEntityRow(item, sportsEntities)) {
+        strong.push(item);
+        strongNames.push(item.name);
+      } else {
+        rest.push(item);
+      }
+    }
+    sorted = [...strong, ...rest];
+    if (sportsResolution) {
+      sportsResolution.strongEntityRowNames = strongNames;
+      sportsResolution.teamClubPrecisionPassApplied = true;
+    }
+    console.info(
+      `[sports-resolve] team-club-precision strong(${strong.length})=` +
+      `${strongNames.slice(0, 8).join(", ") || "<none>"}`,
+    );
+  }
 
   // Sports-specific bucket diversification so competitions/fans/broadcasters
   // don't get crowded out by fitness or generic live-music entries in the
@@ -2906,6 +3250,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         sportsSuppressedCrossSportNames: sportsResolution.suppressedCrossSportNames,
         sportsEntityRowsBoostedNames: sportsResolution.entityRowsBoostedNames,
         sportsGenericRowsDemotedNames: sportsResolution.genericRowsDemotedNames,
+        sportsStrongEntityRowNames: sportsResolution.strongEntityRowNames,
+        sportsGenericFootballFallbackDemotedNames:
+          sportsResolution.genericFootballFallbackDemotedNames,
+        sportsTeamClubPrecisionPassApplied:
+          sportsResolution.teamClubPrecisionPassApplied,
+        sportsFalsePositiveDemotedNames: sportsResolution.falsePositiveDemotedNames,
       };
     }
   }
