@@ -819,11 +819,15 @@ export interface HintIntelligenceDebug {
   hintNegativeFamilies: string[];
   hintBiasApplied: boolean;
   hintFilteredOutNames: string[];
+  /** Candidates matching combat-sport patterns that were soft-demoted because
+   * the hint did not explicitly mention boxing / MMA / martial arts. */
+  hintCombatSportDemotedNames?: string[];
   byCluster: Record<string, {
     applied: boolean;
     positive: string[];
     negative: string[];
     filteredOutNames: string[];
+    combatSportDemotedNames: string[];
   }>;
 }
 
@@ -1314,10 +1318,17 @@ function classifyHintIntents(rawHints: string[]): Set<HintIntent> {
 // Kept narrow: each list is the concrete set of Meta-searchable phrases a human
 // buyer would try first for that intent. Used only for the Activities & Culture
 // cluster when hint intents are detected.
+//
+// Notes:
+// - sport_fitness intentionally excludes combat-specific terms (boxing, MMA,
+//   martial arts). Those are only injected when the hint explicitly mentions
+//   them — see COMBAT_SPORT_HINT_PATTERN below. This prevents "Martial arts"
+//   and "Mixed martial arts" from dominating results for hints like
+//   "suggest sport activities for people into nightlife clubbing".
 const INTENT_SEED_TERMS: Record<HintIntent, string[]> = {
   sport_fitness: [
     "sports", "fitness", "physical fitness", "gym", "exercise", "workout",
-    "running", "cycling", "yoga", "pilates", "boxing", "martial arts",
+    "running", "cycling", "yoga", "pilates",
     "dance", "movement", "wellness", "healthy lifestyle", "recreation",
     "social sports",
   ],
@@ -1336,12 +1347,43 @@ const INTENT_SEED_TERMS: Record<HintIntent, string[]> = {
   general_culture: [],
 };
 
-/** Concatenate intent seed lists in a stable, deduped order. */
-function deriveHintIntentSeedTerms(intents: Set<HintIntent>): string[] {
+// Combat-sport terms are injected only when the hint text explicitly mentions
+// them. Otherwise "Martial arts (sports)" / "Mixed martial arts" crowd out the
+// broader nightlife-adjacent activity/movement interests the hint actually
+// implies.
+const COMBAT_SPORT_HINT_PATTERN =
+  /\b(boxing|mma|mixed\s+martial\s+arts|martial\s+arts|karate|kickbox(ing)?|muay\s*thai|judo|taekwondo|bjj|jiu.?jitsu|wrestling)\b/i;
+const COMBAT_SPORT_EXTRA_SEEDS = ["boxing", "martial arts", "mixed martial arts"];
+const COMBAT_SPORT_CANDIDATE_PATTERN =
+  /\b(martial\s+arts|mixed\s+martial\s+arts|artistic\s+gymnastics|karate|kickbox(ing)?|muay\s+thai|judo|taekwondo|jiu.?jitsu|bjj|mma)\b/i;
+
+function hintHasCombatSport(rawHints: string[]): boolean {
+  if (rawHints.length === 0) return false;
+  const joined = rawHints.map((h) => h.trim().replace(/[_-]+/g, " ")).join(" | ");
+  return COMBAT_SPORT_HINT_PATTERN.test(joined);
+}
+
+/**
+ * Concatenate intent seed lists in a stable, deduped order.
+ * When `combatSport` is true (the hint explicitly mentioned boxing/MMA/etc),
+ * combat-specific seeds are re-added.
+ */
+function deriveHintIntentSeedTerms(
+  intents: Set<HintIntent>,
+  combatSport: boolean,
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const intent of intents) {
     for (const t of INTENT_SEED_TERMS[intent] ?? []) {
+      const key = t.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  if (combatSport && intents.has("sport_fitness")) {
+    for (const t of COMBAT_SPORT_EXTRA_SEEDS) {
       const key = t.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1421,15 +1463,38 @@ function buildIntentFamilies(intents: Set<HintIntent>): {
   };
 }
 
-/** Match a keyword against a candidate's name+path as a whole-word substring. */
+/** Escape user-supplied text so it can be embedded safely into a RegExp. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Token-aware match: the keyword must appear as whole words, with real
+ * separator boundaries on either side. This stops "art" from matching
+ * inside "martial arts" / "artistic gymnastics", and "mural" from matching
+ * inside "intramural", etc. Multi-word keywords (e.g. "street art",
+ * "martial arts") are matched as a whole phrase, with \s+ collapsing any
+ * amount of whitespace between tokens.
+ */
 function keywordMatches(text: string, keyword: string): boolean {
   if (!keyword) return false;
-  return text.toLowerCase().includes(keyword.toLowerCase());
+  const kw = keyword.toLowerCase().trim();
+  if (!kw) return false;
+  const pattern = kw.includes(" ")
+    ? new RegExp(`\\b${kw.split(/\s+/).map(escapeRegex).join("\\s+")}\\b`, "i")
+    : new RegExp(`\\b${escapeRegex(kw)}\\b`, "i");
+  return pattern.test(text);
 }
 
 /**
  * Re-score / filter Activities & Culture candidates according to hint intents.
  * Additive only: if no intents or no matches, returns the original scored list.
+ *
+ * `combatSportHinted` controls whether combat-sport candidates (martial arts,
+ * MMA, boxing, karate, etc.) are allowed to keep their raw score. When the
+ * hint does NOT explicitly mention combat sports, these candidates are still
+ * eligible but get a soft demotion so they don't crowd out broader
+ * nightlife-adjacent activity/movement interests.
  */
 function applyHintBiasForActivitiesCulture<
   T extends {
@@ -1441,18 +1506,26 @@ function applyHintBiasForActivitiesCulture<
 >(
   scored: T[],
   families: ReturnType<typeof buildIntentFamilies>,
+  combatSportHinted: boolean,
 ): {
   adjusted: T[];
   filteredOutNames: string[];
   biasApplied: boolean;
+  combatSportDemotedNames: string[];
 } {
   if (families.positive.length === 0 && families.negative.length === 0) {
-    return { adjusted: scored, filteredOutNames: [], biasApplied: false };
+    return {
+      adjusted: scored,
+      filteredOutNames: [],
+      biasApplied: false,
+      combatSportDemotedNames: [],
+    };
   }
   const filteredOutNames: string[] = [];
+  const combatSportDemotedNames: string[] = [];
   const adjusted: T[] = [];
   for (const item of scored) {
-    const corpus = [item.name, ...(item.path ?? [])].join(" ").toLowerCase();
+    const corpus = [item.name, ...(item.path ?? [])].join(" ");
     const negHit = families.negative.some((kw) => keywordMatches(corpus, kw));
     const posHit = families.positive.some((kw) => keywordMatches(corpus, kw));
     // Drop if clearly negative and nothing positive rescues it, and the caller
@@ -1463,17 +1536,33 @@ function applyHintBiasForActivitiesCulture<
     }
     const current = item.relevanceScore ?? 0;
     let delta = 0;
+    let combatDemoted = false;
     if (posHit) delta += 25;
     if (negHit) delta -= 15;
+    // Soft-demote combat-sport candidates when the hint didn't ask for them.
+    // They stay eligible, just no longer dominate the top of the list.
+    if (
+      !combatSportHinted &&
+      families.hasSportFitness &&
+      COMBAT_SPORT_CANDIDATE_PATTERN.test(item.name)
+    ) {
+      delta -= 25;
+      combatDemoted = true;
+      combatSportDemotedNames.push(item.name);
+    }
     const nextItem = { ...item };
     if (delta !== 0) {
       nextItem.relevanceScore = current + delta;
-      const tag = posHit && !negHit ? "hint+" : negHit && !posHit ? "hint-" : "hint~";
-      nextItem.matchReason = `${item.matchReason ?? "score"};${tag}`;
+      const tags: string[] = [];
+      if (posHit && !negHit) tags.push("hint+");
+      else if (negHit && !posHit) tags.push("hint-");
+      else if (posHit && negHit) tags.push("hint~");
+      if (combatDemoted) tags.push("combat-demote");
+      nextItem.matchReason = `${item.matchReason ?? "score"};${tags.join(",")}`;
     }
     adjusted.push(nextItem);
   }
-  return { adjusted, filteredOutNames, biasApplied: true };
+  return { adjusted, filteredOutNames, biasApplied: true, combatSportDemotedNames };
 }
 
 async function discoverForCluster(
@@ -1484,6 +1573,7 @@ async function discoverForCluster(
   globalSeen: Set<string>,
   directHintTerms: string[] = [],
   hintIntents: Set<HintIntent> = new Set(),
+  combatSportHinted: boolean = false,
 ): Promise<{
   cluster: DiscoverCluster;
   termsUsed: string[];
@@ -1492,6 +1582,7 @@ async function discoverForCluster(
     positive: string[];
     negative: string[];
     filteredOutNames: string[];
+    combatSportDemotedNames: string[];
   };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
@@ -1504,7 +1595,7 @@ async function discoverForCluster(
   const extraHints = directHintTerms.filter((h) => !entitySet.has(h.toLowerCase()));
   const intentSeedTerms =
     clusterLabel === "Activities & Culture" && hintIntents.size > 0
-      ? deriveHintIntentSeedTerms(hintIntents).filter(
+      ? deriveHintIntentSeedTerms(hintIntents, combatSportHinted).filter(
           (t) => !entitySet.has(t.toLowerCase()) &&
             !extraHints.some((h) => h.toLowerCase() === t.toLowerCase()),
         )
@@ -1640,17 +1731,19 @@ async function discoverForCluster(
     positive: string[];
     negative: string[];
     filteredOutNames: string[];
+    combatSportDemotedNames: string[];
   } | undefined;
   if (clusterLabel === "Activities & Culture" && hintIntents.size > 0) {
     const families = buildIntentFamilies(hintIntents);
-    const { adjusted, filteredOutNames, biasApplied } =
-      applyHintBiasForActivitiesCulture(aboveFloor, families);
+    const { adjusted, filteredOutNames, biasApplied, combatSportDemotedNames } =
+      applyHintBiasForActivitiesCulture(aboveFloor, families, combatSportHinted);
     aboveFloor = adjusted;
     hintBiasMeta = {
       applied: biasApplied,
       positive: families.positive,
       negative: families.negative,
       filteredOutNames,
+      combatSportDemotedNames,
     };
     if (biasApplied) {
       console.info(
@@ -1658,8 +1751,12 @@ async function discoverForCluster(
         `[hint] positive=${families.positive.slice(0, 12).join(",")}\n` +
         `[hint] negative=${families.negative.slice(0, 12).join(",")}\n` +
         (filteredOutNames.length > 0
-          ? `[hint] filtered=${filteredOutNames.join(", ")}`
-          : `[hint] filtered=<none>`),
+          ? `[hint] filtered=${filteredOutNames.join(", ")}\n`
+          : `[hint] filtered=<none>\n`) +
+        `[hint] combatSportHinted=${combatSportHinted}` +
+        (combatSportDemotedNames.length > 0
+          ? `  demoted=${combatSportDemotedNames.join(", ")}`
+          : ""),
       );
     }
   }
@@ -1796,12 +1893,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Classify free-text hints into high-level intents (used by Activities & Culture only)
   const hintIntents = classifyHintIntents(rawHints);
+  const combatSportHinted = hintHasCombatSport(rawHints);
   const hintFallbackUsed =
     rawHints.length > 0 && (hintIntents.size === 0 || (hintIntents.size === 1 && hintIntents.has("general_culture")));
   console.info(
     `[interest-discover] request: clusterLabel=${clusterLabel ?? "<ALL>"}  rawHints=${JSON.stringify(rawHints)}  ` +
     `intents=${hintIntents.size > 0 ? [...hintIntents].join(",") : "<none>"}  ` +
-    `hintFallback=${hintFallbackUsed}`,
+    `combatSport=${combatSportHinted}  hintFallback=${hintFallbackUsed}`,
   );
 
   const targetLabels = clusterLabel ? [clusterLabel] : ALL_CLUSTER_LABELS;
@@ -1816,6 +1914,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     positive: string[];
     negative: string[];
     filteredOutNames: string[];
+    combatSportDemotedNames: string[];
   }> = {};
 
   for (const label of targetLabels) {
@@ -1827,6 +1926,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       globalSeen,
       directHintTerms,
       hintIntents,
+      combatSportHinted,
     );
     clusterSeeds[label] = termsUsed;
     if (cluster.interests.length > 0) clusters.push(cluster);
@@ -1853,6 +1953,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         hintNegativeFamilies: firstBias?.negative ?? [],
         hintBiasApplied: Object.values(hintBiasByCluster).some((b) => b.applied),
         hintFilteredOutNames: Object.values(hintBiasByCluster).flatMap((b) => b.filteredOutNames),
+        hintCombatSportDemotedNames: Object.values(hintBiasByCluster).flatMap((b) => b.combatSportDemotedNames),
         byCluster: hintBiasByCluster,
       }
     : null;

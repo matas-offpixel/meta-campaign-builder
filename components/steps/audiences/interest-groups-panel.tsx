@@ -697,10 +697,22 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const handleDiscoverFromPages = useCallback(async (groupId: string) => {
     if (discoveringFromPages === groupId) return;
 
-    // Resolve cluster type: stored on group, or inferred from name
+    // Resolve cluster type: stored on group, or inferred from name.
+    // IMPORTANT: `groups` and `sceneHintsByGroup` must be in the deps array
+    // below so we read the current cluster chip selection (stored in
+    // group.clusterType) rather than a stale snapshot from mount-time.
     const group = groups.find((g) => g.id === groupId);
-    const effectiveClusterType =
-      group?.clusterType ?? (group?.name ? (inferClusterFromName(group.name) ?? undefined) : undefined);
+    const inferredFromName = group?.name ? inferClusterFromName(group.name) : null;
+    const effectiveClusterType = group?.clusterType ?? inferredFromName ?? undefined;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.info(
+        `[discover-ui] group="${group?.name ?? "<unknown>"}" ` +
+        `clusterType="${group?.clusterType ?? ""}" ` +
+        `inferredFromName="${inferredFromName ?? ""}" ` +
+        `clusterLabel="${effectiveClusterType ?? ""}"`,
+      );
+    }
 
     // Require an explicit cluster for a group-scoped regenerate. Without one,
     // the backend would fan out to all five clusters — which is precisely the
@@ -779,7 +791,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     } finally {
       setDiscoveringFromPages(null);
     }
-  }, [discoveringFromPages, pageContext, customAudienceSignals, engagementTypesPresent, genreDistribution, campaignName]);
+  }, [discoveringFromPages, groups, sceneHintsByGroup, pageContext, customAudienceSignals, engagementTypesPresent, genreDistribution, campaignName]);
 
   const toggleClusterInterest = (groupId: string, interestId: string) => {
     setClusterSelections((prev) => ({
