@@ -605,6 +605,13 @@ export interface SuggestionsDebugInfo {
       source?: "primary_candidate" | "uncapped_trusted_original" | "curated_rescue";
     }
   >;
+  /** Landing 2d diversification (post-gate, pre-cap reorder) */
+  diversificationApplied?: boolean;
+  diversificationCluster?: string | null;
+  eligiblePreDiversificationCount?: number;
+  survivorBucketDistributionBefore?: Record<string, number>;
+  survivorBucketDistributionAfter?: Record<string, number>;
+  diversificationSkippedAtCap?: Array<{ name: string; bucket: string; group: string }>;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -807,6 +814,7 @@ const ELECTRONIC_GENRES = new Set([
   "techno", "hard techno", "minimal techno", "acid techno", "industrial techno",
   "house", "deep house", "tech house", "minimal house", "acid house",
   "progressive house", "melodic house", "melodic techno", "afro house",
+  "electro house", "tropical house",
   "trance", "psytrance", "progressive trance", "goa trance",
   "drum and bass", "dnb", "drum n bass", "jungle", "liquid dnb",
   "dubstep", "bass music", "uk garage", "2-step", "2 step", "speed garage",
@@ -814,6 +822,20 @@ const ELECTRONIC_GENRES = new Set([
   "ambient", "idm", "glitch", "downtempo",
   "industrial", "ebm", "hardcore", "gabber", "hardstyle",
   "footwork", "juke", "grime", "trap",
+  // Broad electronic-adjacent anchors — classify as electronic_genre so they
+  // survive the cluster, but are demoted to primary +10 (not +20) via the
+  // BROAD_GENRE_SOFT_DEMOTE table so tight anchors (Tech house, Deep house,
+  // Techno) rank above them.
+  "dance music", "club music",
+]);
+
+// Bare broad anchors that still belong to the electronic cluster but should
+// NOT outrank tight anchors. Used only inside computeClusterFit for the
+// electronic_music_nightlife cluster. Names are normaliseName() form.
+const BROAD_GENRE_SOFT_DEMOTE = new Set([
+  "house music",
+  "dance music",
+  "club music",
 ]);
 
 const OTHER_GENRES = new Set([
@@ -887,6 +909,7 @@ const MUSIC_MEDIA = new Set([
   "the wire", "the wire magazine", "ra sessions",
   "loud and quiet", "crack magazine", "crack",
   "clash", "clash magazine",
+  "nts radio", "nts",
 ]);
 
 // Tight electronic / underground music media. Used to distinguish tight
@@ -898,6 +921,7 @@ const ELECTRONIC_MUSIC_MEDIA = new Set([
   "fact", "fact magazine", "the wire", "the wire magazine",
   "ra sessions", "crack", "crack magazine",
   "clash", "clash magazine",
+  "nts radio", "nts",
 ]);
 
 // Tight editorial fashion media (high-end / avant-garde / art-fashion).
@@ -1680,6 +1704,24 @@ function classifyCandidate(name: string, path: string[]): CandidateClass {
     return "nightlife_venue";
   }
 
+  // 1b. Explicit per-name refinement overrides for nodes that don't fit a
+  //     dict but carry strong cluster meaning. These are Meta taxonomy nodes
+  //     we've observed as useful refinement anchors for electronic/nightlife
+  //     clusters. Keep the list small and deterministic.
+  //
+  // "Disc jockey(s)" → electronic-artist adjacent (same diversity bucket).
+  if (/^disc\s+jockeys?$/.test(norm)) return "music_artist_electronic";
+  // "Record label" → music_media (label is music-industry infrastructure;
+  // classify alongside RA/Mixmag/DJ Mag so it survives the gate and joins
+  // the "media" diversity bucket).
+  if (/^record\s+labels?$/.test(norm)) return "music_media";
+  // "Parties" (Meta's "Parties (event)" node) → nightlife_venue, but ONLY
+  // when path confirms nightlife/events context so we don't catch political
+  // parties or similar unrelated nodes.
+  if (/^parties$/.test(norm) && /\b(nightlife|events?|social|entertainment|hobbies)\b/.test(pathJoined)) {
+    return "nightlife_venue";
+  }
+
   // 2. Leaf-name semantic markers — these beat path context.
   //    A node whose own name says "Lifestyle" should NOT inherit "fashion"
   //    from a parent path.
@@ -1984,6 +2026,189 @@ const WEAK_SECONDARY_POINTS: Partial<Record<CandidateClass, number>> = {
   generic_music_media: 2,     // radio/concerts in a broad music cluster — demoted
 };
 
+// ── Final diversification layer (post-gate, pre-cap) ────────────────────────
+// The ranking model produces a score-ordered list. On narrow cultural
+// clusters (electronic music / nightlife, fashion editorial) that list can
+// end up dominated by one candidate family (e.g. all genres, no media /
+// nightlife / festival). Meta Audience Manager's "similar interests" panel
+// mixes families; we replicate that SHAPE here with a soft per-bucket cap.
+//
+// Soft behaviour:
+//   phase 1 — walk the eligible list by score, pick into final slots, but
+//             skip candidates whose family cap is already full.
+//   phase 2 — if slots remain, fill with the skipped candidates in score
+//             order so a thin pool never leaves us empty.
+//
+// This is purely a reorder — no new drops, no gate change, no score edits.
+
+type DiversityBucket =
+  | "genre" | "festival" | "media" | "nightlife" | "artist"          // EMN
+  | "editorial" | "brand_designer" | "generic_fashion"
+  | "photography" | "design"                                          // FED
+  | "other";
+
+function diversityDisplayBucket(
+  candidateClass: CandidateClass | undefined,
+  clusterKey: ClusterKey,
+): DiversityBucket {
+  if (clusterKey === "electronic_music_nightlife") {
+    switch (candidateClass) {
+      case "electronic_genre":
+      case "music_genre_other":
+        return "genre";
+      case "electronic_music_festival":
+      case "generic_music_festival":
+        return "festival";
+      case "music_media":
+      case "generic_music_media":
+        return "media";
+      case "nightlife_venue":
+        return "nightlife";
+      case "music_artist_electronic":
+      case "music_artist_other":
+        return "artist";
+      default:
+        return "other";
+    }
+  }
+  if (clusterKey === "fashion_editorial") {
+    switch (candidateClass) {
+      case "fashion_editorial_media":
+        return "editorial";
+      case "fashion_brand":
+      case "fashion_designer":
+        return "brand_designer";
+      case "fashion_media":
+      case "generic_fashion_media":
+        return "generic_fashion";
+      case "fashion_photography":
+        return "photography";
+      case "art_design":
+      case "generic_design":
+        return "design";
+      default:
+        return "other";
+    }
+  }
+  return "other";
+}
+
+// Maps DisplayBucket → cap-group. Multiple display buckets can share one
+// cap-group (e.g. nightlife/artist/other share EMN "misc" with cap 2).
+type CapPlan = { group: Record<DiversityBucket, string>; limit: Record<string, number> };
+
+const EMN_CAP_PLAN: CapPlan = {
+  group: {
+    genre: "genre",
+    festival: "festival",
+    media: "media",
+    nightlife: "misc",
+    artist: "misc",
+    other: "misc",
+    // unused in EMN but must be typed — route to "misc" as a safe default
+    editorial: "misc", brand_designer: "misc", generic_fashion: "misc",
+    photography: "misc", design: "misc",
+  },
+  limit: {
+    genre: 4,
+    festival: 2,
+    media: 2,
+    misc: 2, // nightlife + artist + other combined
+  },
+};
+
+const FED_CAP_PLAN: CapPlan = {
+  group: {
+    editorial: "editorial",
+    brand_designer: "brand_designer",
+    generic_fashion: "generic_fashion",
+    photography: "photo_design",
+    design: "photo_design",
+    other: "other",
+    // unused in FED — safe default
+    genre: "other", festival: "other", media: "other",
+    nightlife: "other", artist: "other",
+  },
+  limit: {
+    editorial: 3,
+    brand_designer: 3,
+    generic_fashion: 2,
+    photo_design: 1,      // photography + design combined
+    other: 2,
+  },
+};
+
+function capPlanFor(clusterKey: ClusterKey): CapPlan | null {
+  if (clusterKey === "electronic_music_nightlife") return EMN_CAP_PLAN;
+  if (clusterKey === "fashion_editorial") return FED_CAP_PLAN;
+  return null;
+}
+
+function diversifyFinalSuggestions(
+  eligible: SuggestedInterest[],
+  clusterKey: ClusterKey,
+  max: number,
+): {
+  picked: SuggestedInterest[];
+  bucketByName: Record<string, DiversityBucket>;
+  distributionBefore: Record<string, number>;
+  distributionAfter: Record<string, number>;
+  skippedAtCap: Array<{ name: string; bucket: DiversityBucket; group: string }>;
+  applied: boolean;
+} {
+  const bucketByName: Record<string, DiversityBucket> = {};
+  const distributionBefore: Record<string, number> = {};
+  const distributionAfter: Record<string, number> = {};
+
+  // Always compute display buckets so debug/logging is available even when
+  // the cluster has no diversity plan.
+  for (const s of eligible) {
+    const b = diversityDisplayBucket(s.candidateClass, clusterKey);
+    bucketByName[s.name] = b;
+    distributionBefore[b] = (distributionBefore[b] ?? 0) + 1;
+  }
+
+  const plan = capPlanFor(clusterKey);
+  if (!plan) {
+    const picked = eligible.slice(0, max);
+    for (const s of picked) {
+      const b = bucketByName[s.name] ?? "other";
+      distributionAfter[b] = (distributionAfter[b] ?? 0) + 1;
+    }
+    return { picked, bucketByName, distributionBefore, distributionAfter, skippedAtCap: [], applied: false };
+  }
+
+  const picked: SuggestedInterest[] = [];
+  const skipped: SuggestedInterest[] = [];
+  const skippedAtCap: Array<{ name: string; bucket: DiversityBucket; group: string }> = [];
+  const capCounts: Record<string, number> = {};
+
+  for (const s of eligible) {
+    if (picked.length >= max) break;
+    const bucket = bucketByName[s.name] ?? "other";
+    const group = plan.group[bucket] ?? "other";
+    const limit = plan.limit[group] ?? max;
+    const current = capCounts[group] ?? 0;
+    if (current < limit) {
+      picked.push(s);
+      capCounts[group] = current + 1;
+    } else {
+      skipped.push(s);
+      skippedAtCap.push({ name: s.name, bucket, group });
+    }
+  }
+  // Phase 2 — fill any remaining slots with skipped items (score order).
+  for (const s of skipped) {
+    if (picked.length >= max) break;
+    picked.push(s);
+  }
+  for (const s of picked) {
+    const b = bucketByName[s.name] ?? "other";
+    distributionAfter[b] = (distributionAfter[b] ?? 0) + 1;
+  }
+  return { picked, bucketByName, distributionBefore, distributionAfter, skippedAtCap, applied: true };
+}
+
 function computeClusterFit(
   candidateName: string,
   candidatePath: string[],
@@ -2053,6 +2278,23 @@ function computeClusterFit(
   }
 
   if (rules.primary.includes(candidateClass)) {
+    // Per-name soft demote for broad genre anchors (bare "House music" /
+    // "Dance music" / "Club music"). Still primary (survives strict gate)
+    // but scored at +10 so tight anchors like Tech house / Deep house /
+    // Techno (+20) and on-cluster refinement media (Mixmag, RA, NTS,
+    // Record label → +20 primary or +20 via music_media primary) rank above.
+    if (
+      cluster.clusterKey === "electronic_music_nightlife" &&
+      candidateClass === "electronic_genre" &&
+      BROAD_GENRE_SOFT_DEMOTE.has(normaliseName(candidateName))
+    ) {
+      return {
+        fitClass: "primary",
+        points: 10,
+        candidateClass,
+        reason: `${candidateClass} ∈ primary[${cluster.clusterKey}] (broad_genre_soft_demote, +10)`,
+      };
+    }
     return {
       fitClass: "primary",
       points: 20,
@@ -3115,7 +3357,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // Cap at top 10 — show fewer strong suggestions rather than a noisy list
   const MAX_SUGGESTIONS = 10;
-  const finalSuggestions = eligibleSuggestions.slice(0, MAX_SUGGESTIONS);
+
+  // ── Final diversification layer (Landing 2d) ──────────────────────────────
+  // For electronic_music_nightlife and fashion_editorial, mix families so the
+  // top-N isn't dominated by a single bucket (e.g. all genres, no media).
+  // Purely a reorder — no drops, no gate change, no score edits.
+  const diversification = diversifyFinalSuggestions(
+    eligibleSuggestions,
+    dominantCluster.clusterKey,
+    MAX_SUGGESTIONS,
+  );
+  const finalSuggestions = diversification.picked;
+  const diversityBucketByName = diversification.bucketByName;
 
   // Distribution of cluster-fit classes among the surviving final suggestions
   const survivorFitDistribution: Record<string, number> = {};
@@ -3227,6 +3480,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n  seed quality dist:          ${JSON.stringify(seedQualityDistribution)}` +
     `\n  debug-bypass:               ${debugBypass}` +
     `\n  expansion in final:         ${expansionAddedToFinalCount}` +
+    `\n  diversification:            ${diversification.applied ? `ON (cluster=${dominantCluster.clusterKey})` : "off"}` +
+    `\n    eligible (pre-diversify):  ${eligibleSuggestions.length}` +
+    `\n    bucket dist (before):      ${JSON.stringify(diversification.distributionBefore)}` +
+    `\n    bucket dist (after):       ${JSON.stringify(diversification.distributionAfter)}` +
+    (diversification.skippedAtCap.length > 0
+      ? `\n    skipped at cap:            ${diversification.skippedAtCap.slice(0, 20).map((x) => `${x.name}[${x.bucket}→${x.group}]`).join(", ")}`
+      : "") +
     (finalSuggestions.length > 0
       ? `\n  Stage E final (top ${finalSuggestions.length}):` +
         finalSuggestions
@@ -3234,7 +3494,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             const tag = (s.expansionSourceSeeds?.length ?? 0) > 0
               ? ` [R2:${s.expansionSourceSeeds!.join("|")}]`
               : "";
-            return `\n    • "${s.name}" [${s.suggestionType}]${tag} ${fmtBreakdown(s)}`;
+            const bucket = diversityBucketByName[s.name];
+            const bucketTag = bucket ? ` [bucket=${bucket}]` : "";
+            return `\n    • "${s.name}" [${s.suggestionType}]${bucketTag}${tag} ${fmtBreakdown(s)}`;
           })
           .join("")
       : ""),
@@ -3378,6 +3640,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     expansionNewCandidateCount,
     expansionAddedToFinalCount,
     expansionPerSeedStats,
+    diversificationApplied: diversification.applied,
+    diversificationCluster: diversification.applied ? dominantCluster.clusterKey : null,
+    eligiblePreDiversificationCount: eligibleSuggestions.length,
+    survivorBucketDistributionBefore: diversification.distributionBefore,
+    survivorBucketDistributionAfter: diversification.distributionAfter,
+    diversificationSkippedAtCap: diversification.skippedAtCap,
   };
 
   return NextResponse.json({
