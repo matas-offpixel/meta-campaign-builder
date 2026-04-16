@@ -443,13 +443,19 @@ export interface SuggestedInterest {
     | "music_genre_other"
     | "music_artist_electronic"
     | "music_artist_other"
-    | "music_festival"
+    | "electronic_music_festival"
+    | "generic_music_festival"
     | "nightlife_venue"
     | "music_media"
+    | "generic_music_media"
     | "fashion_brand"
     | "fashion_designer"
+    | "fashion_editorial_media"
     | "fashion_media"
+    | "fashion_photography"
+    | "generic_fashion_media"
     | "art_design"
+    | "generic_design"
     | "film_tv"
     | "lifestyle"
     | "sports"
@@ -881,6 +887,60 @@ const MUSIC_MEDIA = new Set([
   "the wire", "the wire magazine", "ra sessions",
   "loud and quiet", "crack magazine", "crack",
   "clash", "clash magazine",
+]);
+
+// Tight electronic / underground music media. Used to distinguish tight
+// electronic media (→ "music_media") from broader music journalism / rock
+// rags / pop rags (→ "generic_music_media"). Names listed here take
+// precedence; everything else in MUSIC_MEDIA falls to generic.
+const ELECTRONIC_MUSIC_MEDIA = new Set([
+  "resident advisor", "ra", "mixmag", "dj mag", "dj magazine",
+  "fact", "fact magazine", "the wire", "the wire magazine",
+  "ra sessions", "crack", "crack magazine",
+  "clash", "clash magazine",
+]);
+
+// Tight editorial fashion media (high-end / avant-garde / art-fashion).
+// These are treated as "fashion_editorial_media" (primary for editorial
+// cluster). Broader fashion journalism / streetwear media (Highsnobiety,
+// Hypebeast, BoF, WWD, SSENSE) still classifies as "fashion_media"
+// (secondary for editorial cluster).
+const FASHION_EDITORIAL_MEDIA = new Set([
+  "vogue", "vogue magazine", "vogue italia", "vogue paris",
+  "british vogue", "american vogue",
+  "dazed", "dazed & confused", "dazed confused", "dazed and confused",
+  "dazed & confused magazine",
+  "i-d", "i.d.", "id magazine", "i-d magazine",
+  "another magazine", "anOther magazine",
+  "harper's bazaar", "harpers bazaar", "w magazine", "the gentlewoman",
+  "purple magazine", "self service", "self service magazine",
+  "032c", "fantastic man", "document journal", "system magazine",
+  "numero", "numéro", "l'officiel", "lofficiel",
+  "showstudio",
+  "metal magazine", // editorial-adjacent art/fashion publication
+  "pop magazine", "love magazine", "interview magazine",
+  "wallpaper magazine", "wallpaper",
+  "the face", "the face magazine",
+  "re-edition", "buffalo zine",
+]);
+
+// Electronic / underground music festivals. When NIGHTLIFE_EVENTS matches
+// a festival name, this refines the class: if the name is in
+// ELECTRONIC_FESTIVALS → "electronic_music_festival", else
+// → "generic_music_festival". Also used when the classifier detects
+// festival context via keyword + music path.
+const ELECTRONIC_FESTIVALS = new Set([
+  "awakenings", "movement festival", "tomorrowland",
+  "time warp", "dekmantel", "sonar", "sónar", "dgtl",
+  "mysteryland",
+  "dimensions festival", "unknown festival", "nuits sonores",
+  "exit festival", "ultra music festival",
+  "decibel festival",
+  "freqs of nature", "fusion festival", "hospitality in the park",
+  "gala festival",
+  "boiler room festival",
+  "amsterdam dance event", "ade",
+  "creamfields",
 ]);
 
 const NIGHTLIFE_EVENTS = new Set([
@@ -1541,13 +1601,30 @@ type CandidateClass =
   | "music_genre_other"
   | "music_artist_electronic"
   | "music_artist_other"
-  | "music_festival"
+  // Festivals split into electronic (tight primary) vs generic (Country music
+  // festivals, classical music festivals, etc. — secondary at best)
+  | "electronic_music_festival"
+  | "generic_music_festival"
   | "nightlife_venue"
+  // Music media split: "music_media" is the tight electronic/underground media
+  // (RA, Mixmag, DJ Mag, FACT, The Wire). Broader music radio / Rolling Stone /
+  // NME / Kerrang / concerts-and-live-music → "generic_music_media"
   | "music_media"
+  | "generic_music_media"
   | "fashion_brand"
   | "fashion_designer"
+  // Fashion media split: "fashion_editorial_media" is tight editorial
+  // (Vogue, Dazed, i-D, Another, 032c, SHOWstudio, etc.). Broader fashion
+  // journalism/streetwear (Highsnobiety, Hypebeast, BoF, SSENSE) →
+  // "fashion_media". Fashion blogs, generic fashion models/bloggers →
+  // "generic_fashion_media".
+  | "fashion_editorial_media"
   | "fashion_media"
+  | "fashion_photography"
+  | "generic_fashion_media"
   | "art_design"
+  // Interior/industrial/graphic design → off-cluster for fashion_editorial
+  | "generic_design"
   | "film_tv"
   | "lifestyle"
   | "sports"
@@ -1583,16 +1660,53 @@ function classifyCandidate(name: string, path: string[]): CandidateClass {
   if (matchesDict(name, MUSIC_PLATFORMS)) return "music_platform";
   if (matchesDict(name, FASHION_BRANDS)) return "fashion_brand";
   if (matchesDict(name, ELECTRONIC_ARTISTS)) return "music_artist_electronic";
+
+  // Fashion media: editorial takes precedence over broader fashion_media
+  if (matchesDict(name, FASHION_EDITORIAL_MEDIA)) return "fashion_editorial_media";
   if (matchesDict(name, FASHION_MEDIA)) return "fashion_media";
-  if (matchesDict(name, MUSIC_MEDIA)) return "music_media";
+
+  // Music media: tight electronic/underground takes precedence; broader
+  // rags fall to generic_music_media
+  if (matchesDict(name, MUSIC_MEDIA)) {
+    return matchesDict(name, ELECTRONIC_MUSIC_MEDIA) ? "music_media" : "generic_music_media";
+  }
+
   if (matchesDict(name, NIGHTLIFE_EVENTS)) {
-    return /festival/i.test(norm) ? "music_festival" : "nightlife_venue";
+    if (/festival/i.test(norm)) {
+      return matchesDict(name, ELECTRONIC_FESTIVALS)
+        ? "electronic_music_festival"
+        : "generic_music_festival";
+    }
+    return "nightlife_venue";
   }
 
   // 2. Leaf-name semantic markers — these beat path context.
   //    A node whose own name says "Lifestyle" should NOT inherit "fashion"
   //    from a parent path.
   if (/\blifestyle\b/.test(leaf) || /\blifestyle\b/.test(nameLower)) return "lifestyle";
+
+  // 2a. Fashion photography — specific discipline, always primary for editorial
+  if (/\bfashion\s+photography\b/.test(nameLower)) return "fashion_photography";
+
+  // 2b. Generic design (interior / industrial / graphic) — off-cluster for
+  //     fashion_editorial. Kept separate from "art_design" which is broader
+  //     fine art / architecture / painting.
+  if (/\b(interior|industrial|graphic|product)\s+design\b/.test(nameLower)) {
+    return "generic_design";
+  }
+
+  // 2c. Fashion blogs / generic fashion models / fashion bloggers → demoted.
+  //     These are legitimate fashion adjacencies but too broad to rank
+  //     alongside real editorial/designer/brand nodes.
+  if (
+    /\b(fashion|style)\b/.test(nameLower) &&
+    /\b(blog|blogs|bloggers?)\b/.test(nameLower)
+  ) {
+    return "generic_fashion_media";
+  }
+  if (/\bfashion\s+(models?|modelling|modeling)\b/.test(nameLower)) {
+    return "generic_fashion_media";
+  }
 
   // 3. Strong off-music categorical markers (check before music context)
   if (
@@ -1645,7 +1759,35 @@ function classifyCandidate(name: string, path: string[]): CandidateClass {
   // 4. Music context — only after non-music has been ruled out
   const musicContextInPath = /\bmusic\b/.test(pathJoined) || /\belectronic\b/.test(pathJoined);
 
-  if (musicContextInPath && /\bfestivals?\b/.test(nameLower)) return "music_festival";
+  // 4a. Festival-in-name within music context. Split into electronic-tight
+  //     vs generic based on dict membership + keyword signals.
+  if (musicContextInPath && /\bfestivals?\b/.test(nameLower)) {
+    // Explicit non-electronic genre markers (country/folk/classical/jazz/
+    // metal/pop/rock) → generic
+    if (/\b(country|folk|bluegrass|classical|jazz|pop|rock|metal|christian|gospel|reggae|hip[\s-]?hop)\b/.test(nameLower)) {
+      return "generic_music_festival";
+    }
+    // Electronic markers in name or path → electronic festival
+    if (
+      matchesDict(name, ELECTRONIC_FESTIVALS) ||
+      /\b(electronic|techno|house|rave|edm|dance\s+music|club)\b/.test(nameLower) ||
+      /\b(electronic|techno|house|rave|edm|dance)\b/.test(pathJoined)
+    ) {
+      return "electronic_music_festival";
+    }
+    // Default for an unqualified "Music festivals" / "Festivals" node
+    return "generic_music_festival";
+  }
+
+  // 4b. Generic music media by keyword (no specific dict match): music radio,
+  //     concerts, live music, etc. — broadly adjacent but too generic for a
+  //     tight cluster primary slot.
+  if (
+    musicContextInPath &&
+    /\b(radio|concerts?|live\s+music|live\s+performances?|concerts?\s+and\s+live\s+music)\b/.test(nameLower)
+  ) {
+    return "generic_music_media";
+  }
 
   if (ELECTRONIC_GENRES.has(norm) ||
       // catch a few common broad terms Meta returns that aren't in the strict dict
@@ -1691,21 +1833,24 @@ const CLUSTER_FIT_RULES: Partial<Record<ClusterKey, {
 }>> = {
   music_platforms: {
     primary: ["music_platform"],
-    secondary: ["music_media"], // adjacent: music journalism / publication
-    // Music genres, artists, festivals, nightlife → off-cluster.
-    // Spotify suggestion seeds frequently leak music genres, but a music
-    // platform cluster is about platforms, not catalogues.
+    secondary: ["music_media"], // tight electronic/underground music journalism
+    // Everything else (music genres, artists, festivals, nightlife, generic
+    // music media, fashion) → off-cluster for a platforms cluster.
   },
   electronic_music_nightlife: {
     primary: [
       "electronic_genre",
       "music_artist_electronic",
       "nightlife_venue",
-      "music_festival",
-      "music_media",
+      "electronic_music_festival",
+      "music_media", // tight electronic-specific media (RA, Mixmag, etc.)
     ],
-    secondary: ["music_genre_other"], // broader music genres can be loosely adjacent
-    // Films, sports, lifestyle, fashion, generic music platforms → off-cluster.
+    secondary: [
+      "music_genre_other",          // broader genres (still music)
+      "generic_music_festival",     // Country/classical/rock festivals — allowed but demoted
+    ],
+    // generic_music_media (Music radio, Concerts and live music),
+    // music_platform, film_tv, lifestyle, fashion → off-cluster.
   },
   music_general: {
     primary: [
@@ -1713,19 +1858,34 @@ const CLUSTER_FIT_RULES: Partial<Record<ClusterKey, {
       "music_genre_other",
       "music_artist_electronic",
       "music_artist_other",
-      "music_festival",
+      "electronic_music_festival",
+      "generic_music_festival",
       "music_media",
     ],
-    secondary: ["music_platform", "nightlife_venue"],
+    secondary: [
+      "music_platform",
+      "nightlife_venue",
+      "generic_music_media",       // radio/concerts are OK in a broad music cluster
+    ],
   },
   fashion_editorial: {
-    primary: ["fashion_brand", "fashion_designer", "fashion_media"],
-    secondary: ["art_design"], // adjacent culture
-    // Lifestyle, films, music genres, generic literature → off-cluster.
+    primary: [
+      "fashion_brand",
+      "fashion_designer",
+      "fashion_editorial_media",   // Vogue, Dazed, i-D, SHOWstudio, etc.
+      "fashion_photography",
+    ],
+    secondary: [
+      "fashion_media",              // Highsnobiety, Hypebeast, BoF, SSENSE — allowed but demoted
+      "generic_fashion_media",      // Fashion blog, Fashion models — allowed but demoted
+      "art_design",
+    ],
+    // generic_design (interior/industrial/graphic design), film_tv, music,
+    // literature → off-cluster.
   },
   fashion_brands: {
     primary: ["fashion_brand", "fashion_designer"],
-    secondary: ["fashion_media"],
+    secondary: ["fashion_editorial_media", "fashion_media"],
   },
   literature_media: {
     primary: ["literature"],
