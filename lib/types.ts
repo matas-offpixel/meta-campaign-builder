@@ -168,6 +168,12 @@ export interface InterestSuggestion {
   name: string;
   audienceSize?: number;
   path?: string[];
+  /** How this interest entered the group */
+  source?: "search" | "suggested" | "manual" | "ai_discovery";
+  /** Validation status — set at launch preflight or when explicitly checked */
+  status?: "valid" | "deprecated" | "replaced" | "unknown" | "invalid";
+  /** Populated when status === "replaced" */
+  replacement?: { id: string; name: string } | null;
 }
 
 export type Genre =

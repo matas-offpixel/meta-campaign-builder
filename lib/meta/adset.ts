@@ -768,6 +768,33 @@ const HARDCODED_DEPRECATED_INTERESTS: Array<{
   { matchName: "niteroi contemporary art museum", replaceName: "Contemporary art museums" },
   // Deprecated media interest — replace with broader electronic music interest
   { matchName: "dj magazine", replaceName: "Electronic dance music" },
+  // ── Fashion / editorial publications that are frequently deprecated ────────
+  // METAL Magazine regularly loses its Meta interest ID; drop rather than
+  // blindly replace with something irrelevant.
+  { matchName: "metal magazine", replaceName: null },
+  { matchName: "heavy metal (magazine)", replaceName: null },
+  { matchName: "heavy metal magazine", replaceName: null },
+  // These editorial interests appear in discovery results but tend to be
+  // unstable; prefer the canonical magazine names below.
+  { matchName: "list of fashion magazines", replaceName: "Fashion" },
+  { matchName: "list of literary magazines", replaceName: null },
+  // ── Music publications ─────────────────────────────────────────────────────
+  { matchName: "mixmag media", replaceName: "Mixmag" },
+  { matchName: "fact (uk magazine)", replaceName: "Electronic music" },
+  { matchName: "fact magazine", replaceName: "Electronic music" },
+  // ── Nightlife / fictional titles that match club-related searches ──────────
+  // "The Sims 2: Nightlife" sometimes surfaces for nightlife-adjacent searches
+  { matchName: "the sims 2: nightlife", replaceName: null },
+  { matchName: "the sims 2 nightlife", replaceName: null },
+  // ── Deprecated geo interests ───────────────────────────────────────────────
+  { matchName: "ibiza rocks", replaceName: "Ibiza" },
+  // ── Deprecated music-scene interests ──────────────────────────────────────
+  { matchName: "new rave", replaceName: "Indie rock" },
+  { matchName: "fidget house", replaceName: "Electronic dance music" },
+  { matchName: "electroclash", replaceName: "Electronic music" },
+  // ── Generic or low-signal interests that should never survive sanitisation ─
+  { matchName: "music genre", replaceName: null },
+  { matchName: "list of music genres", replaceName: null },
 ];
 
 function hardcodedOverride(

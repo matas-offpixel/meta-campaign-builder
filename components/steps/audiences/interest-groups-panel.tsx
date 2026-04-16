@@ -8,8 +8,10 @@ import { SearchInput } from "@/components/ui/search-input";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Plus, Trash2, ChevronDown, ChevronUp, Sparkles, Wand2, Loader2, CheckSquare, Square, RefreshCw,
+  Plus, Trash2, ChevronDown, ChevronUp, Sparkles, Wand2, Loader2,
+  CheckSquare, Square, RefreshCw, AlertTriangle, Lightbulb, Info,
 } from "lucide-react";
+import type { SuggestedInterest } from "@/app/api/meta/interest-suggestions/route";
 import type { InterestGroup, InterestSuggestion, AudienceSettings, MetaApiPage } from "@/lib/types";
 import type {
   DiscoverCluster,
@@ -47,6 +49,93 @@ function createEmptyInterestGroup(): InterestGroup {
     interests: [],
     aiPrompt: "",
   };
+}
+
+// ── Known-deprecated names — client-side fast check for chip indicator ──────
+const LIKELY_DEPRECATED_NAMES = new Set([
+  "metal magazine", "dj magazine", "dj mag", "fact magazine",
+  "the sims 2: nightlife", "list of fashion magazines",
+  "list of music genres", "music genre", "new rave", "fidget house",
+  "electroclash", "heavy metal (magazine)", "heavy metal magazine",
+  "mixmag media", "fact (uk magazine)", "ibiza rocks",
+]);
+
+function isLikelyDeprecated(name: string): boolean {
+  return LIKELY_DEPRECATED_NAMES.has(
+    name.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim(),
+  );
+}
+
+// ── Cluster interest count safety ───────────────────────────────────────────
+
+const CLUSTER_COUNT = { min: 2, recommended: [3, 8], max: 12 } as const;
+
+function clusterCountStatus(count: number): "empty" | "low" | "good" | "high" | "over" {
+  if (count === 0) return "empty";
+  if (count < CLUSTER_COUNT.min) return "low";
+  if (count <= CLUSTER_COUNT.recommended[1]) return "good";
+  if (count <= CLUSTER_COUNT.max) return "high";
+  return "over";
+}
+
+// ── Related interest suggestions hook ────────────────────────────────────────
+
+function useRelatedSuggestions(
+  selectedInterests: Array<{ id: string; name: string }>,
+  cluster: string,
+) {
+  const [suggestions, setSuggestions] = useState<SuggestedInterest[]>([]);
+  const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Only fetch when there are real Meta interest IDs selected
+    const realInterests = selectedInterests.filter((i) => /^\d{5,}$/.test(i.id));
+    if (realInterests.length === 0) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setLoading(true);
+
+      const url = new URL("/api/meta/interest-suggestions", window.location.origin);
+      realInterests.forEach((i) => {
+        url.searchParams.append("ids[]", i.id);
+        url.searchParams.append("names[]", i.name);
+      });
+      if (cluster) url.searchParams.set("cluster", cluster);
+
+      fetch(url.toString(), { signal: controller.signal })
+        .then(async (res) => {
+          const json = (await res.json()) as { suggestions?: SuggestedInterest[]; error?: string };
+          if (!res.ok || json.error) return;
+          setSuggestions(json.suggestions ?? []);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          // Non-fatal — suggestions are a nice-to-have
+          console.warn("[useRelatedSuggestions] fetch error:", err);
+        })
+        .finally(() => setLoading(false));
+    }, 600); // debounce — wait until user stops adding/removing
+
+    return () => {
+      clearTimeout(timer);
+      abortRef.current?.abort();
+    };
+  }, [
+    // Re-run when selected IDs change OR cluster changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    selectedInterests.map((i) => i.id).join(","),
+    cluster,
+  ]);
+
+  return { suggestions, loading };
 }
 
 function useInterestSearch(query: string) {
@@ -102,6 +191,166 @@ function useInterestSearch(query: string) {
   }, [query]);
 
   return { results, loading, error };
+}
+
+// ── Selected interests + related suggestions sub-component ───────────────────
+// Extracted as its own component so it can call useRelatedSuggestions
+// (hooks cannot be called inside .map() callbacks).
+
+interface GroupInterestSectionProps {
+  group: InterestGroup;
+  cluster: string;
+  onAdd: (interest: InterestSuggestion) => void;
+  onRemove: (id: string) => void;
+}
+
+function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterestSectionProps) {
+  const selectedIds = useMemo(() => new Set(group.interests.map((i) => i.id)), [group.interests]);
+  const { suggestions, loading: sugLoading } = useRelatedSuggestions(group.interests, cluster);
+
+  // Filter suggestions to only those not already selected
+  const filteredSuggestions = useMemo(
+    () => suggestions.filter((s) => !selectedIds.has(s.id)).slice(0, 12),
+    [suggestions, selectedIds],
+  );
+
+  const countStatus = clusterCountStatus(group.interests.length);
+
+  const countBannerConfig = {
+    empty: null,
+    low: { color: "border-warning/40 bg-warning/5 text-warning", icon: <AlertTriangle className="h-3 w-3 shrink-0" />, text: `Add ${CLUSTER_COUNT.min - group.interests.length} more interest${CLUSTER_COUNT.min - group.interests.length !== 1 ? "s" : ""} for a usable cluster (minimum ${CLUSTER_COUNT.min})` },
+    good: null,
+    high: { color: "border-warning/40 bg-warning/5 text-warning", icon: <Info className="h-3 w-3 shrink-0" />, text: `${group.interests.length} interests — getting crowded. Recommended: 3–8 per cluster.` },
+    over: { color: "border-destructive/40 bg-destructive/5 text-destructive", icon: <AlertTriangle className="h-3 w-3 shrink-0" />, text: `${group.interests.length} interests — too many. Split into multiple groups or remove the least relevant ones. Meta may dilute reach.` },
+  } as const;
+
+  const banner = countBannerConfig[countStatus];
+
+  return (
+    <div className="space-y-3">
+      {/* ── Selected chips ─────────────────────────────────────────────── */}
+      {group.interests.length > 0 && (
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-sm font-medium">
+              Selected Interests
+            </label>
+            <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${
+              countStatus === "good" ? "bg-success/10 text-success" :
+              countStatus === "low" ? "bg-warning/10 text-warning" :
+              countStatus === "over" ? "bg-destructive/10 text-destructive" :
+              countStatus === "high" ? "bg-warning/10 text-warning" :
+              "bg-muted text-muted-foreground"
+            }`}>
+              {group.interests.length} / {CLUSTER_COUNT.recommended[1]} rec.
+            </span>
+          </div>
+          {banner && (
+            <div className={`mb-2 flex items-start gap-1.5 rounded-lg border px-3 py-2 text-[11px] ${banner.color}`}>
+              {banner.icon}
+              <span>{banner.text}</span>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {group.interests.map((interest) => {
+              const deprecated = isLikelyDeprecated(interest.name) || interest.status === "deprecated";
+              return (
+                <span
+                  key={interest.id}
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border ${
+                    deprecated
+                      ? "bg-warning/10 border-warning/40 text-warning pr-1"
+                      : "bg-primary/10 border-primary/30 text-primary pr-1"
+                  }`}
+                  title={deprecated ? "This interest may be deprecated and will be replaced or removed at launch" : undefined}
+                >
+                  {deprecated && (
+                    <AlertTriangle className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                  )}
+                  <span className="max-w-[180px] truncate">{interest.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(interest.id)}
+                    className="ml-0.5 rounded-full p-0.5 opacity-60 hover:opacity-100"
+                    aria-label={`Remove ${interest.name}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+          {group.interests.some((i) => isLikelyDeprecated(i.name) || i.status === "deprecated") && (
+            <p className="mt-1.5 text-[10px] text-warning/80">
+              ⚠ Some interests may be deprecated and will be automatically replaced or removed at launch.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Related suggestions panel ─────────────────────────────────── */}
+      {group.interests.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Lightbulb className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+            <span className="text-[11px] font-semibold text-foreground">Related interests</span>
+            {sugLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            <span className="ml-auto text-[10px] text-muted-foreground/60">
+              {group.interests.length === 1
+                ? "Add more to refine suggestions"
+                : "Suggestions based on your selection"}
+            </span>
+          </div>
+          {filteredSuggestions.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {filteredSuggestions.map((s) => {
+                const sizeColor =
+                  (s.audienceSizeBand?.startsWith("micro") || s.audienceSizeBand?.startsWith("niche"))
+                    ? "text-success"
+                    : s.audienceSizeBand?.startsWith("mega") || s.audienceSizeBand?.startsWith("broad")
+                      ? "text-destructive/60"
+                      : "text-muted-foreground";
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => onAdd({ id: s.id, name: s.name, audienceSize: s.audienceSize ?? undefined, path: s.path, source: "suggested" })}
+                    title={`${s.audienceSizeBand ?? ""}${s.likelyDeprecated ? " · may be deprecated" : ""}`}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-primary/10 hover:border-primary/40 hover:text-primary ${
+                      s.likelyDeprecated
+                        ? "border-warning/30 bg-warning/5 text-warning/80"
+                        : "border-border bg-white text-foreground"
+                    }`}
+                  >
+                    <Plus className="h-2.5 w-2.5 shrink-0" />
+                    <span className="max-w-[160px] truncate">{s.name}</span>
+                    {s.audienceSize != null && (
+                      <span className={`shrink-0 text-[9px] opacity-60 ${sizeColor}`}>
+                        {s.audienceSize >= 1_000_000
+                          ? `${(s.audienceSize / 1_000_000).toFixed(1)}M`
+                          : s.audienceSize >= 1_000
+                            ? `${Math.round(s.audienceSize / 1_000)}K`
+                            : s.audienceSize}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ) : sugLoading ? (
+            <p className="text-[10px] text-muted-foreground">Fetching suggestions from Meta…</p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground/60">
+              No suggestions available — try searching manually above.
+            </p>
+          )}
+          <p className="text-[9px] text-muted-foreground/40 italic">
+            Some suggestions may be replaced or removed at launch if Meta no longer supports them.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function InterestGroupsPanel({ groups, audiences, onChange, campaignName }: InterestGroupsPanelProps) {
@@ -1124,24 +1373,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                   );
                 })()}
 
-                {group.interests.length > 0 && (
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium">
-                      Selected Interests ({group.interests.length})
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {group.interests.map((interest) => (
-                        <Badge
-                          key={interest.id}
-                          variant="primary"
-                          onRemove={() => removeInterest(group.id, interest.id)}
-                        >
-                          {interest.name}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <GroupInterestSection
+                  group={group}
+                  cluster={group.clusterType ?? inferClusterFromName(group.name) ?? ""}
+                  onAdd={(interest) => addInterest(group.id, interest)}
+                  onRemove={(id) => removeInterest(group.id, id)}
+                />
               </div>
             )}
           </Card>
