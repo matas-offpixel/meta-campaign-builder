@@ -436,6 +436,32 @@ export interface SuggestedInterest {
   weightedSeedAgreement?: number;
   /** Landing 2b-ii: domain-fit class against the inferred dominant cluster */
   clusterFitClass?: "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
+  /** Landing 2b-ii (intent-aware): the candidate's fine-grained class (music_platform, electronic_genre, film_tv, lifestyle, …) */
+  candidateClass?:
+    | "music_platform"
+    | "electronic_genre"
+    | "music_genre_other"
+    | "music_artist_electronic"
+    | "music_artist_other"
+    | "music_festival"
+    | "nightlife_venue"
+    | "music_media"
+    | "fashion_brand"
+    | "fashion_designer"
+    | "fashion_media"
+    | "art_design"
+    | "film_tv"
+    | "lifestyle"
+    | "sports"
+    | "gaming"
+    | "food_drink"
+    | "travel"
+    | "literature"
+    | "tech_general"
+    | "general_other"
+    | "unknown";
+  /** Landing 2b-ii (intent-aware): which cluster-fit rule fired */
+  clusterFitReason?: string;
   /** Landing 2b-ii: surfacing-seed quality class */
   seedQualityClass?: "all_good" | "all_bad" | "mixed" | "no_seeds";
   /** Landing 2b-ii: per-component score breakdown for transparency */
@@ -493,6 +519,8 @@ export interface SuggestionsDebugInfo {
     /** Landing 2b-ii: weighted agreement, fit, quality, components */
     weightedAgreement?: number;
     clusterFit?: "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
+    candidateClass?: SuggestedInterest["candidateClass"];
+    clusterFitReason?: string;
     seedQuality?: "all_good" | "all_bad" | "mixed" | "no_seeds";
     components?: {
       sizeBand: number;
@@ -1461,42 +1489,279 @@ function finaliseSeedBucket(
 //                    flat S_agree count from 2a). A candidate surfaced by 2
 //                    trusted seeds should outrank one surfaced by 4 ambiguous
 //                    seeds.
-//   2. S_cluster_fit — domain-family fit between the candidate and the
-//                    inferred dominant cluster. Boost on primary, mild boost
-//                    on secondary, penalise off-cluster.
+//   2. S_cluster_fit — INTENT-aware fit between the candidate and the
+//                    inferred dominant cluster. The candidate is first
+//                    classified into a fine-grained CandidateClass, then
+//                    matched against a per-cluster primary/secondary table.
+//                    Broad family overlap alone (e.g. just "music") no longer
+//                    grants secondary credit — adjacency must be meaningful.
 //   3. S_seed_quality — bonus when ALL surfacing seeds are trusted+onCluster,
 //                    penalty when ALL are ambiguous/conflicting.
 //
 // Plus a hard quarantine: candidates whose only surfacing seeds are ambiguous
 // (e.g. surfaced ONLY by "Gala") are dropped before scoring.
 
-const KNOWN_DOMAIN_FAMILIES = new Set<DomainFamily>([
-  "music", "electronic_music", "music_platform", "nightlife",
-  "fashion", "fashion_editorial", "media", "literature", "entertainment",
-]);
+// Fine-grained candidate classification. Distinct from NormalisedEntityType
+// (which targets seeds): candidates can be any Meta interest taxonomy node,
+// including films, sports, lifestyle, etc., that seeds rarely are.
+type CandidateClass =
+  | "music_platform"
+  | "electronic_genre"
+  | "music_genre_other"
+  | "music_artist_electronic"
+  | "music_artist_other"
+  | "music_festival"
+  | "nightlife_venue"
+  | "music_media"
+  | "fashion_brand"
+  | "fashion_designer"
+  | "fashion_media"
+  | "art_design"
+  | "film_tv"
+  | "lifestyle"
+  | "sports"
+  | "gaming"
+  | "food_drink"
+  | "travel"
+  | "literature"
+  | "tech_general"
+  | "general_other"
+  | "unknown";
+
+/**
+ * Classify a candidate into a single CandidateClass using deterministic rules.
+ *
+ * Order of precedence:
+ *   1. Specific entity dictionaries (most reliable — e.g. "Spotify" → music_platform)
+ *   2. Leaf-name semantic markers that beat path context (e.g. leaf=Lifestyle
+ *      wins over path containing "Fashion")
+ *   3. Strong off-music categorical markers (film/tv, sports, gaming, food,
+ *      travel, literature) — surfaced before music context so a "Crime drama"
+ *      under Entertainment > Music compilations doesn't get mis-tagged
+ *   4. Music context (after non-music has been ruled out)
+ *   5. Fashion / art / tech path catch-alls
+ *   6. Last resort: general_other / unknown
+ */
+function classifyCandidate(name: string, path: string[]): CandidateClass {
+  const norm = normaliseName(name);
+  const nameLower = name.toLowerCase();
+  const pathJoined = path.map((p) => p.toLowerCase()).join(" > ");
+  const leaf = (path[path.length - 1] ?? "").toLowerCase();
+
+  // 1. Specific entities
+  if (matchesDict(name, MUSIC_PLATFORMS)) return "music_platform";
+  if (matchesDict(name, FASHION_BRANDS)) return "fashion_brand";
+  if (matchesDict(name, ELECTRONIC_ARTISTS)) return "music_artist_electronic";
+  if (matchesDict(name, FASHION_MEDIA)) return "fashion_media";
+  if (matchesDict(name, MUSIC_MEDIA)) return "music_media";
+  if (matchesDict(name, NIGHTLIFE_EVENTS)) {
+    return /festival/i.test(norm) ? "music_festival" : "nightlife_venue";
+  }
+
+  // 2. Leaf-name semantic markers — these beat path context.
+  //    A node whose own name says "Lifestyle" should NOT inherit "fashion"
+  //    from a parent path.
+  if (/\blifestyle\b/.test(leaf) || /\blifestyle\b/.test(nameLower)) return "lifestyle";
+
+  // 3. Strong off-music categorical markers (check before music context)
+  if (
+    /\b(films?|movies?|cinema|tv\s*shows?|television|drama|sitcom|reality\s*tv|anime|animation|crime\s*(drama|films?|shows?))\b/.test(
+      nameLower,
+    ) ||
+    /\b(films?|movies?|cinema|tv\s*shows?|television|drama|series|entertainment\s*shows?)\b/.test(pathJoined)
+  ) {
+    return "film_tv";
+  }
+
+  if (
+    /\bsports?\b/.test(pathJoined) ||
+    /\b(football|soccer|basketball|tennis|golf|hockey|baseball|cricket|rugby|formula\s*1|nfl|nba|mlb|nhl)\b/.test(
+      nameLower,
+    )
+  ) {
+    return "sports";
+  }
+
+  if (
+    /\b(games?|gaming|video\s*games?|esports?|consoles?)\b/.test(pathJoined) ||
+    /\b(video\s*games?|gaming|esports?|playstation|xbox|nintendo)\b/.test(nameLower)
+  ) {
+    return "gaming";
+  }
+
+  if (
+    /\bfood\s*(and|&)?\s*drink\b/.test(pathJoined) ||
+    /\b(cooking|cuisine|wine|beer|coffee|restaurants?|recipes?|baking)\b/.test(nameLower)
+  ) {
+    return "food_drink";
+  }
+
+  if (
+    /\btravel\b/.test(pathJoined) ||
+    /\b(travel|tourism|hotels?|airlines?|destinations?|vacations?)\b/.test(nameLower)
+  ) {
+    return "travel";
+  }
+
+  if (
+    /\b(books?|literature|literary|reading)\b/.test(pathJoined) ||
+    /\bliterary\b/i.test(name) ||
+    /\b(novel|poetry|fiction|non[\s-]?fiction)\b/.test(nameLower)
+  ) {
+    return "literature";
+  }
+
+  // 4. Music context — only after non-music has been ruled out
+  const musicContextInPath = /\bmusic\b/.test(pathJoined) || /\belectronic\b/.test(pathJoined);
+
+  if (musicContextInPath && /\bfestivals?\b/.test(nameLower)) return "music_festival";
+
+  if (ELECTRONIC_GENRES.has(norm) ||
+      // catch a few common broad terms Meta returns that aren't in the strict dict
+      /^(electronic music|electronic dance music|edm)$/i.test(norm)) {
+    return "electronic_genre";
+  }
+
+  if (OTHER_GENRES.has(norm) && musicContextInPath) return "music_genre_other";
+
+  if (musicContextInPath) {
+    if (
+      /\b(artist|band|singer|musician|rapper|dj)\b/.test(nameLower) ||
+      /\bmusicians?\s*(and|&)?\s*bands?\b/.test(pathJoined)
+    ) {
+      return "music_artist_other";
+    }
+    return "music_genre_other";
+  }
+
+  // 5. Fashion / art / tech path catch-alls
+  if (/\bfashion\b/.test(pathJoined) || /\bclothing\b/.test(pathJoined)) return "fashion_designer";
+
+  if (/\b(art|design|architecture|painting|sculpture|photography|graphic\s*design)\b/.test(pathJoined)) {
+    return "art_design";
+  }
+
+  if (/\b(technology|computers?|software|hardware|gadgets?)\b/.test(pathJoined)) return "tech_general";
+
+  // 6. Last resort
+  if (path.length > 0 && path[0] === "Interests") return "general_other";
+  return "unknown";
+}
+
+/**
+ * Per-cluster candidate-class expectations. Strict by design: only classes
+ * that are genuinely on-cluster get primary/secondary. Anything else with a
+ * known class → off_cluster. Only "general_other" / "unknown" stay neutral
+ * so we don't punish sparse-path nodes.
+ */
+const CLUSTER_FIT_RULES: Partial<Record<ClusterKey, {
+  primary: ReadonlyArray<CandidateClass>;
+  secondary: ReadonlyArray<CandidateClass>;
+}>> = {
+  music_platforms: {
+    primary: ["music_platform"],
+    secondary: ["music_media"], // adjacent: music journalism / publication
+    // Music genres, artists, festivals, nightlife → off-cluster.
+    // Spotify suggestion seeds frequently leak music genres, but a music
+    // platform cluster is about platforms, not catalogues.
+  },
+  electronic_music_nightlife: {
+    primary: [
+      "electronic_genre",
+      "music_artist_electronic",
+      "nightlife_venue",
+      "music_festival",
+      "music_media",
+    ],
+    secondary: ["music_genre_other"], // broader music genres can be loosely adjacent
+    // Films, sports, lifestyle, fashion, generic music platforms → off-cluster.
+  },
+  music_general: {
+    primary: [
+      "electronic_genre",
+      "music_genre_other",
+      "music_artist_electronic",
+      "music_artist_other",
+      "music_festival",
+      "music_media",
+    ],
+    secondary: ["music_platform", "nightlife_venue"],
+  },
+  fashion_editorial: {
+    primary: ["fashion_brand", "fashion_designer", "fashion_media"],
+    secondary: ["art_design"], // adjacent culture
+    // Lifestyle, films, music genres, generic literature → off-cluster.
+  },
+  fashion_brands: {
+    primary: ["fashion_brand", "fashion_designer"],
+    secondary: ["fashion_media"],
+  },
+  literature_media: {
+    primary: ["literature"],
+    secondary: [],
+  },
+};
 
 type ClusterFitClass = "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
 
 function computeClusterFit(
-  candidateFamilies: DomainFamily[],
+  candidateName: string,
+  candidatePath: string[],
   cluster: DominantCluster,
-): { fitClass: ClusterFitClass; points: number } {
+): {
+  fitClass: ClusterFitClass;
+  points: number;
+  candidateClass: CandidateClass;
+  reason: string;
+} {
+  const candidateClass = classifyCandidate(candidateName, candidatePath);
+
   if (cluster.clusterKey === "unknown" || cluster.confidence < 0.35) {
-    return { fitClass: "unknown_cluster", points: 0 };
+    return { fitClass: "unknown_cluster", points: 0, candidateClass, reason: "no_dominant_cluster" };
   }
-  const primary = new Set(primaryExpectedFamilies(cluster.clusterKey));
-  const secondary = new Set(secondaryExpectedFamilies(cluster.clusterKey));
-  const hasPrimary = candidateFamilies.some((f) => primary.has(f));
-  if (hasPrimary) return { fitClass: "primary", points: 20 };
-  const hasSecondary = candidateFamilies.some((f) => secondary.has(f));
-  if (hasSecondary) return { fitClass: "secondary", points: 5 };
-  // Has a known domain family but doesn't intersect the cluster's expected
-  // families → it clearly belongs elsewhere → penalise.
-  const hasAnyKnown = candidateFamilies.some((f) => KNOWN_DOMAIN_FAMILIES.has(f));
-  if (hasAnyKnown) return { fitClass: "off_cluster", points: -15 };
-  // No family signal — neutral (don't penalise; many valid Interests have
-  // sparse paths and could still be on-cluster).
-  return { fitClass: "neutral", points: 0 };
+
+  const rules = CLUSTER_FIT_RULES[cluster.clusterKey];
+  if (!rules) {
+    // Cluster keys without explicit rules (e.g. taxonomy:* fallbacks) get a
+    // neutral verdict — we don't have enough cluster definition to penalise.
+    return { fitClass: "neutral", points: 0, candidateClass, reason: `no_rules_for_${cluster.clusterKey}` };
+  }
+
+  if (rules.primary.includes(candidateClass)) {
+    return {
+      fitClass: "primary",
+      points: 20,
+      candidateClass,
+      reason: `${candidateClass} ∈ primary[${cluster.clusterKey}]`,
+    };
+  }
+
+  if (rules.secondary.includes(candidateClass)) {
+    return {
+      fitClass: "secondary",
+      points: 5,
+      candidateClass,
+      reason: `${candidateClass} ∈ secondary[${cluster.clusterKey}]`,
+    };
+  }
+
+  // Sparse-signal candidate — neutral, no penalty
+  if (candidateClass === "unknown" || candidateClass === "general_other") {
+    return {
+      fitClass: "neutral",
+      points: 0,
+      candidateClass,
+      reason: `${candidateClass} (no signal)`,
+    };
+  }
+
+  // Clearly belongs to another category → penalise
+  return {
+    fitClass: "off_cluster",
+    points: -15,
+    candidateClass,
+    reason: `${candidateClass} ∉ rules[${cluster.clusterKey}]`,
+  };
 }
 
 type SeedQualityClass = "all_good" | "all_bad" | "mixed" | "no_seeds";
@@ -2060,12 +2325,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const S_agree_w = weightedAgreement.value;
     const S_agree_w_points = Math.round(S_agree_w * 35); // same magnitude as 2a's S_agree weight
 
-    // 6j. Landing 2b-ii: candidate cluster fit
-    // Reuse seed-side family inference to classify the candidate, then compare
-    // against the dominant cluster's primary/secondary expected families.
-    const candidateEntityType = inferNormalisedEntityType(item.name, itemPath);
-    const candidateFamilies = inferDomainFamilies(item.name, itemPath, candidateEntityType);
-    const fit = computeClusterFit(candidateFamilies, dominantCluster);
+    // 6j. Landing 2b-ii (intent-aware): candidate cluster fit
+    // Classify the candidate into a fine-grained CandidateClass (music_platform
+    // vs music_genre_other vs film_tv vs lifestyle, …) then look it up in a
+    // per-cluster rules table. This replaces the old family-overlap fit, which
+    // gave broad credit (e.g. "Alternative rock" had family=[music], scored
+    // secondary on a music_platforms cluster). Now music genres are off_cluster
+    // for music_platforms, films are off_cluster for electronic_music_nightlife,
+    // and lifestyle leaves don't auto-inherit fashion from a parent path.
+    const fit = computeClusterFit(item.name, itemPath, dominantCluster);
     const S_cluster_fit_points = debugBypass ? 0 : fit.points;
 
     // Track distributions for debug telemetry
@@ -2107,6 +2375,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       sourceSeedIds,
       weightedSeedAgreement: S_agree_w,
       clusterFitClass: fit.fitClass,
+      candidateClass: fit.candidateClass,
+      clusterFitReason: fit.reason,
       seedQualityClass: seedQualityResult.qualityClass,
       scoreBreakdown: {
         sizeBand: sizeBandPoints,
@@ -2144,6 +2414,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     sources: s.sourceSeedIds,
     weightedAgreement: s.weightedSeedAgreement,
     clusterFit: s.clusterFitClass,
+    candidateClass: s.candidateClass,
+    clusterFitReason: s.clusterFitReason,
     seedQuality: s.seedQualityClass,
     components: s.scoreBreakdown
       ? {
@@ -2170,13 +2442,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       `size=${b.sizeBand}`,
       `type=${b.typeBonus}`,
       `agreeW=${b.weightedAgreement}`,
-      `fit=${b.clusterFit}(${s.clusterFitClass})`,
+      `fit=${b.clusterFit}(${s.clusterFitClass}|${s.candidateClass ?? "?"})`,
       `seedQ=${b.seedQuality}(${s.seedQualityClass})`,
     ];
     if (b.pathPattern) parts.push(`path=${b.pathPattern}`);
     if (b.deprecation) parts.push(`dep=${b.deprecation}`);
     if (b.genericName) parts.push(`gen=${b.genericName}`);
-    return `${parts.join(" ")} → ${b.total}`;
+    const reason = s.clusterFitReason ? `  reason: ${s.clusterFitReason}` : "";
+    return `${parts.join(" ")} → ${b.total}${reason}`;
   };
 
   console.info(
