@@ -80,21 +80,53 @@ function clusterCountStatus(count: number): "empty" | "low" | "good" | "high" | 
 
 // ── Related interest suggestions hook ────────────────────────────────────────
 
+type SuggestionsEmptyReason =
+  | "no_ids"
+  | "no_valid_ids"
+  | "meta_error"
+  | "token_expired"
+  | "token_permission"
+  | "invalid_request"
+  | "network_error"
+  | "meta_returned_empty"
+  | "all_excluded"
+  | "blocklist_filtered"
+  | "scored_out"
+  | null;
+
 function useRelatedSuggestions(
   selectedInterests: Array<{ id: string; name: string }>,
   cluster: string,
 ) {
   const [suggestions, setSuggestions] = useState<SuggestedInterest[]>([]);
   const [loading, setLoading] = useState(false);
+  const [emptyReason, setEmptyReason] = useState<SuggestionsEmptyReason>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    // Only fetch when there are real Meta interest IDs selected
     const realInterests = selectedInterests.filter((i) => /^\d{5,}$/.test(i.id));
+
     if (realInterests.length === 0) {
       setSuggestions([]);
+      setEmptyReason(selectedInterests.length > 0 ? "no_valid_ids" : "no_ids");
+      setBackendError(null);
+
+      if (selectedInterests.length > 0) {
+        // Some interests selected but none have real Meta IDs — log for debugging
+        console.warn(
+          "[useRelatedSuggestions] selected interests have no real Meta IDs:",
+          selectedInterests.map((i) => `${i.name}(${i.id})`).join(", "),
+        );
+      }
       return;
     }
+
+    console.info(
+      `[useRelatedSuggestions] scheduling fetch — cluster="${cluster}"` +
+      `\n  seeds (${realInterests.length}): ${realInterests.map((i) => `${i.name}(${i.id})`).join(", ")}` +
+      `\n  non-real IDs dropped: ${selectedInterests.length - realInterests.length}`,
+    );
 
     const timer = setTimeout(() => {
       abortRef.current?.abort();
@@ -102,7 +134,12 @@ function useRelatedSuggestions(
       abortRef.current = controller;
 
       setLoading(true);
+      setBackendError(null);
 
+      // Build the URL manually with explicit repeated params for arrays.
+      // Each id and name is appended as ids[]=<val> and names[]=<val>.
+      // The URLSearchParams approach encodes [] as %5B%5D which decodes correctly
+      // on the server, but we use explicit URLSearchParams to be safe.
       const url = new URL("/api/meta/interest-suggestions", window.location.origin);
       realInterests.forEach((i) => {
         url.searchParams.append("ids[]", i.id);
@@ -110,32 +147,55 @@ function useRelatedSuggestions(
       });
       if (cluster) url.searchParams.set("cluster", cluster);
 
-      fetch(url.toString(), { signal: controller.signal })
+      const urlStr = url.toString();
+      console.info(`[useRelatedSuggestions] fetching: ${urlStr.replace(/access_token=[^&]+/, "access_token=…")}`);
+
+      fetch(urlStr, { signal: controller.signal })
         .then(async (res) => {
-          const json = (await res.json()) as { suggestions?: SuggestedInterest[]; error?: string };
-          if (!res.ok || json.error) return;
+          const json = (await res.json()) as {
+            suggestions?: SuggestedInterest[];
+            count?: number;
+            error?: string;
+            emptyReason?: SuggestionsEmptyReason;
+            debug?: Record<string, unknown>;
+          };
+
+          console.info(
+            `[useRelatedSuggestions] response HTTP ${res.status}:` +
+            `\n  suggestions: ${json.count ?? json.suggestions?.length ?? 0}` +
+            `\n  emptyReason: ${json.emptyReason ?? "(none)"}` +
+            `\n  error: ${json.error ?? "(none)"}` +
+            (json.debug ? `\n  debug: ${JSON.stringify(json.debug)}` : ""),
+          );
+
+          if (!res.ok || json.error) {
+            setBackendError(json.error ?? `HTTP ${res.status}`);
+            setEmptyReason(json.emptyReason ?? "meta_error");
+            setSuggestions([]);
+            return;
+          }
+
           setSuggestions(json.suggestions ?? []);
+          setEmptyReason(json.emptyReason ?? null);
         })
         .catch((err: unknown) => {
           if (err instanceof DOMException && err.name === "AbortError") return;
-          // Non-fatal — suggestions are a nice-to-have
-          console.warn("[useRelatedSuggestions] fetch error:", err);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[useRelatedSuggestions] fetch error:", msg);
+          setBackendError(msg);
+          setEmptyReason("network_error");
         })
         .finally(() => setLoading(false));
-    }, 600); // debounce — wait until user stops adding/removing
+    }, 600);
 
     return () => {
       clearTimeout(timer);
       abortRef.current?.abort();
     };
-  }, [
-    // Re-run when selected IDs change OR cluster changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    selectedInterests.map((i) => i.id).join(","),
-    cluster,
-  ]);
+  }, [selectedInterests.map((i) => i.id).join(","), cluster]);
 
-  return { suggestions, loading };
+  return { suggestions, loading, emptyReason, backendError };
 }
 
 function useInterestSearch(query: string) {
@@ -206,7 +266,7 @@ interface GroupInterestSectionProps {
 
 function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterestSectionProps) {
   const selectedIds = useMemo(() => new Set(group.interests.map((i) => i.id)), [group.interests]);
-  const { suggestions, loading: sugLoading } = useRelatedSuggestions(group.interests, cluster);
+  const { suggestions, loading: sugLoading, emptyReason, backendError } = useRelatedSuggestions(group.interests, cluster);
 
   // Filter suggestions to only those not already selected
   const filteredSuggestions = useMemo(
@@ -300,6 +360,31 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
                 ? "Add more to refine suggestions"
                 : "Suggestions based on your selection"}
             </span>
+            {/* Debug bypass — fetch without blocklist/path filtering */}
+            {(emptyReason === "blocklist_filtered" || emptyReason === "meta_returned_empty" || backendError) && (
+              <button
+                type="button"
+                title="Re-fetch without local filtering (debug)"
+                className="text-[9px] text-muted-foreground/40 hover:text-primary underline"
+                onClick={() => {
+                  const realInterests = group.interests.filter((i) => /^\d{5,}$/.test(i.id));
+                  if (realInterests.length === 0) return;
+                  const url = new URL("/api/meta/interest-suggestions", window.location.origin);
+                  realInterests.forEach((i) => {
+                    url.searchParams.append("ids[]", i.id);
+                    url.searchParams.append("names[]", i.name);
+                  });
+                  if (cluster) url.searchParams.set("cluster", cluster);
+                  url.searchParams.set("debug", "1");
+                  console.info("[interest-suggestions] debug bypass URL:", url.toString());
+                  fetch(url.toString()).then((r) => r.json()).then((d) => {
+                    console.info("[interest-suggestions] debug bypass result:", JSON.stringify(d, null, 2));
+                  });
+                }}
+              >
+                debug raw
+              </button>
+            )}
           </div>
           {filteredSuggestions.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -339,6 +424,28 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
             </div>
           ) : sugLoading ? (
             <p className="text-[10px] text-muted-foreground">Fetching suggestions from Meta…</p>
+          ) : backendError ? (
+            <p className="text-[10px] text-destructive/70">
+              {emptyReason === "token_permission"
+                ? "Suggestions unavailable — token lacks ads_management permission"
+                : emptyReason === "token_expired"
+                  ? "Suggestions unavailable — Meta token expired"
+                  : emptyReason === "invalid_request"
+                    ? "Suggestions unavailable — invalid request to Meta"
+                    : `Suggestions unavailable: ${backendError}`}
+            </p>
+          ) : emptyReason === "meta_returned_empty" ? (
+            <p className="text-[10px] text-muted-foreground/60">
+              No suggestions returned by Meta for this selection.
+            </p>
+          ) : emptyReason === "blocklist_filtered" ? (
+            <p className="text-[10px] text-muted-foreground/60">
+              Suggestions were filtered out by cluster rules — try searching manually above.
+            </p>
+          ) : emptyReason === "no_valid_ids" ? (
+            <p className="text-[10px] text-warning/70">
+              Selected interests have no valid Meta IDs yet — suggestions will appear after using Search or Discover.
+            </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/60">
               No suggestions available — try searching manually above.

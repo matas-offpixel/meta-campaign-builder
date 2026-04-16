@@ -136,6 +136,23 @@ function audienceSizeBand(size: number): string {
   return "mega (200M+)";
 }
 
+export interface SuggestionsDebugInfo {
+  receivedIds: string[];
+  receivedNames: string[];
+  validSeedCount: number;
+  invalidSeedIds: string[];
+  metaUrl: string;
+  metaHttpStatus: number;
+  rawCount: number;
+  afterExcludeCount: number;
+  afterBlocklistCount: number;
+  finalCount: number;
+  blockedNames: string[];
+  tokenPrefix: string;
+  metaError?: string;
+  top5Raw: string[];
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -153,50 +170,128 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const ids = params.getAll("ids[]");
   const names = params.getAll("names[]");
   const cluster = params.get("cluster") ?? "";
+  // ?debug=1 disables all local filtering so we can see raw Meta output
+  const debugBypass = params.get("debug") === "1";
   const excludeIds = new Set([
     ...ids,
     ...params.getAll("exclude[]"),
   ]);
 
-  // Need at least one selected interest to build suggestions
+  // ── Step 1: validate received params ──────────────────────────────────────
+  console.info(
+    `[interest-suggestions] ▶ request — cluster="${cluster}" debug=${debugBypass}` +
+    `\n  ids received (${ids.length}): ${ids.join(", ") || "(none)"}` +
+    `\n  names received (${names.length}): ${names.join(", ") || "(none)"}`,
+  );
+
   if (ids.length === 0) {
-    return NextResponse.json({ suggestions: [], count: 0 });
+    console.info("[interest-suggestions] ✗ no IDs received — returning empty");
+    return NextResponse.json({
+      suggestions: [], count: 0,
+      emptyReason: "no_ids",
+      debug: { receivedIds: [], receivedNames: [], validSeedCount: 0 },
+    });
   }
 
-  // Build interest_list payload (parallel id/name arrays → object array)
+  // ── Step 2: filter to real Meta numeric IDs ───────────────────────────────
+  const ID_RE = /^\d{5,}$/;
   const interestList = ids
     .map((id, i) => ({ id, name: names[i] ?? "" }))
-    .filter((x) => /^\d{5,}$/.test(x.id)); // only real Meta IDs
+    .filter((x) => ID_RE.test(x.id));
+
+  const invalidIds = ids.filter((id) => !ID_RE.test(id));
+
+  console.info(
+    `[interest-suggestions] seed filtering:` +
+    `\n  valid seeds (${interestList.length}): ${interestList.map((x) => `${x.name}(${x.id})`).join(", ") || "(none)"}` +
+    `\n  invalid/dropped IDs (${invalidIds.length}): ${invalidIds.join(", ") || "(none)"}`,
+  );
 
   if (interestList.length === 0) {
-    return NextResponse.json({ suggestions: [], count: 0 });
+    console.info("[interest-suggestions] ✗ all IDs failed real-Meta-ID validation — returning empty");
+    return NextResponse.json({
+      suggestions: [], count: 0,
+      emptyReason: "no_valid_ids",
+      debug: { receivedIds: ids, receivedNames: names, validSeedCount: 0, invalidSeedIds: invalidIds },
+    });
   }
 
-  const url = new URL(`${BASE}/search`);
-  url.searchParams.set("access_token", token);
-  url.searchParams.set("type", "adinterestsuggestion");
-  url.searchParams.set("interest_list", JSON.stringify(interestList));
-  url.searchParams.set("limit", "30");
+  // ── Step 3: build Meta URL ────────────────────────────────────────────────
+  // Construct the URL with a plain template string rather than URLSearchParams
+  // for the interest_list value — this avoids double-encoding the JSON array.
+  const tokenPrefix = token.slice(0, 12) + "…";
+  const interestListJson = JSON.stringify(interestList);
 
+  // Manually build the query string so interest_list is encoded exactly once
+  const metaUrl =
+    `${BASE}/search` +
+    `?access_token=${encodeURIComponent(token)}` +
+    `&type=adinterestsuggestion` +
+    `&interest_list=${encodeURIComponent(interestListJson)}` +
+    `&limit=30`;
+
+  // Log without the full token
+  const metaUrlSafe =
+    `${BASE}/search` +
+    `?access_token=${tokenPrefix}` +
+    `&type=adinterestsuggestion` +
+    `&interest_list=${encodeURIComponent(interestListJson)}` +
+    `&limit=30`;
+
+  console.info(
+    `[interest-suggestions] ▶ calling Meta:` +
+    `\n  token prefix: ${tokenPrefix}` +
+    `\n  url (safe): ${metaUrlSafe}`,
+  );
+
+  // ── Step 4: call Meta ─────────────────────────────────────────────────────
   let res: Response;
+  let metaHttpStatus = 0;
   try {
-    res = await fetch(url.toString(), { cache: "no-store" });
+    res = await fetch(metaUrl, { cache: "no-store" });
+    metaHttpStatus = res.status;
   } catch (err) {
-    console.error("[/api/meta/interest-suggestions] Network error:", err);
-    return NextResponse.json({ error: "Network error contacting Meta API" }, { status: 502 });
+    console.error("[interest-suggestions] ✗ network error:", err);
+    return NextResponse.json({
+      error: "Network error contacting Meta API",
+      emptyReason: "network_error",
+    }, { status: 502 });
   }
 
   const json = (await res.json()) as Record<string, unknown>;
 
+  console.info(
+    `[interest-suggestions] Meta response: HTTP ${metaHttpStatus}` +
+    `\n  has error: ${!!json.error}` +
+    `\n  raw body preview: ${JSON.stringify(json).slice(0, 300)}`,
+  );
+
   if (!res.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
-    console.error("[/api/meta/interest-suggestions] Meta error:", JSON.stringify(json));
+    const errMsg = (e.message as string) ?? `HTTP ${metaHttpStatus}`;
+    const errCode = e.code;
+    const errSubcode = e.error_subcode;
+    console.error(
+      `[interest-suggestions] ✗ Meta API error:` +
+      `\n  message: ${errMsg}` +
+      `\n  code: ${errCode}` +
+      `\n  subcode: ${errSubcode}` +
+      `\n  full error: ${JSON.stringify(e)}`,
+    );
+    // Classify the error so the frontend can show a useful message
+    let emptyReason = "meta_error";
+    if (typeof errCode === "number") {
+      if (errCode === 190 || errCode === 102) emptyReason = "token_expired";
+      else if (errCode === 200 || errCode === 10) emptyReason = "token_permission";
+      else if (errCode === 100) emptyReason = "invalid_request";
+    }
     return NextResponse.json(
-      { error: (e.message as string) ?? `HTTP ${res.status}`, code: e.code },
+      { error: errMsg, code: errCode, emptyReason, debug: { metaHttpStatus, tokenPrefix, metaUrl: metaUrlSafe } },
       { status: 502 },
     );
   }
 
+  // ── Step 5: parse raw results ─────────────────────────────────────────────
   const raw = (json.data as Array<{
     id: string;
     name: string;
@@ -204,33 +299,52 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     path?: string[];
   }>) ?? [];
 
-  // ── Filter and score ──────────────────────────────────────────────────────
+  const top5Raw = raw.slice(0, 5).map((r) => `${r.name}(${r.id})`);
+  console.info(
+    `[interest-suggestions] raw results: ${raw.length}` +
+    (raw.length > 0 ? `\n  top5: ${top5Raw.join(", ")}` : " (empty — Meta returned nothing)"),
+  );
 
+  if (raw.length === 0) {
+    return NextResponse.json({
+      suggestions: [], count: 0,
+      emptyReason: "meta_returned_empty",
+      debug: { validSeedCount: interestList.length, rawCount: 0, tokenPrefix },
+    });
+  }
+
+  // ── Step 6: filter and score ──────────────────────────────────────────────
   const pathPattern = CLUSTER_PATH_PATTERNS[cluster];
-  const blocklist = CLUSTER_BLOCKLIST[cluster] ?? [];
+  const blocklist = debugBypass ? [] : (CLUSTER_BLOCKLIST[cluster] ?? []);
 
   const suggestions: SuggestedInterest[] = [];
+  const blockedNames: string[] = [];
+  let afterExclude = 0;
 
   for (const item of raw) {
-    // Exclude already-selected or explicitly excluded IDs
+    // 6a. Exclude already-selected IDs
     if (excludeIds.has(item.id)) continue;
+    afterExclude++;
 
-    // Apply cluster blocklist
+    // 6b. Apply cluster blocklist (disabled in debug bypass)
     const text = [item.name, ...(item.path ?? [])].join(" ");
-    if (blocklist.some((p) => p.test(text))) continue;
+    if (!debugBypass && blocklist.some((p) => p.test(text))) {
+      blockedNames.push(item.name);
+      continue;
+    }
 
     const size = item.audience_size ?? 0;
     let score = sizeBandScore(size);
 
     // Reward if the interest's path/name matches the cluster
-    if (pathPattern?.test(text)) score += 20;
+    if (!debugBypass && pathPattern?.test(text)) score += 20;
 
-    // Penalise known-deprecated names
-    const deprecated = isKnownDeprecated(item.name);
+    // Penalise known-deprecated names (still score, but don't drop)
+    const deprecated = !debugBypass && isKnownDeprecated(item.name);
     if (deprecated) score -= 15;
 
-    // Penalise mega-broad generic terms
-    if (/^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name)) score -= 10;
+    // Penalise mega-broad single-word generics
+    if (!debugBypass && /^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name)) score -= 10;
 
     suggestions.push({
       id: item.id,
@@ -243,15 +357,48 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // Sort by score descending (Meta already sorts by semantic relevance;
-  // our re-sort refines by cluster-fit and size discipline on top)
   suggestions.sort((a, b) => b.score - a.score);
 
   console.info(
-    `[interest-suggestions] cluster="${cluster}" seed-interests=${interestList.length}` +
-    ` raw=${raw.length} after-filter=${suggestions.length}` +
-    ` top5: ${suggestions.slice(0, 5).map((s) => `${s.name}(${s.score})`).join(", ")}`,
+    `[interest-suggestions] filtering pipeline:` +
+    `\n  raw:              ${raw.length}` +
+    `\n  after exclude:    ${afterExclude}` +
+    `\n  blocked by list:  ${blockedNames.length} (${blockedNames.slice(0, 5).join(", ")})` +
+    `\n  final:            ${suggestions.length}` +
+    `\n  debug-bypass:     ${debugBypass}` +
+    (suggestions.length > 0
+      ? `\n  top5 final: ${suggestions.slice(0, 5).map((s) => `${s.name}(score=${s.score})`).join(", ")}`
+      : ""),
   );
 
-  return NextResponse.json({ suggestions, count: suggestions.length });
+  // Classify emptyReason when suggestions are 0 but raw > 0
+  let emptyReason: string | undefined;
+  if (suggestions.length === 0 && raw.length > 0) {
+    if (blockedNames.length > 0 && afterExclude === 0) emptyReason = "all_excluded";
+    else if (blockedNames.length > 0) emptyReason = "blocklist_filtered";
+    else emptyReason = "scored_out";
+  }
+
+  const debugInfo: SuggestionsDebugInfo = {
+    receivedIds: ids,
+    receivedNames: names,
+    validSeedCount: interestList.length,
+    invalidSeedIds: invalidIds,
+    metaUrl: metaUrlSafe,
+    metaHttpStatus,
+    rawCount: raw.length,
+    afterExcludeCount: afterExclude,
+    afterBlocklistCount: afterExclude - blockedNames.length,
+    finalCount: suggestions.length,
+    blockedNames,
+    tokenPrefix,
+    top5Raw,
+  };
+
+  return NextResponse.json({
+    suggestions,
+    count: suggestions.length,
+    ...(emptyReason ? { emptyReason } : {}),
+    debug: debugInfo,
+  });
 }
