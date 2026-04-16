@@ -2671,6 +2671,56 @@ function diversifyFinalSuggestions(
   };
 }
 
+// ── Dev-only validation summary formatter ───────────────────────────────────
+// formatValidationSummary takes the final suggestion list and a minimal set
+// of signals and returns a single compact string suitable for console.info.
+// It is called only when NODE_ENV !== "production" and has no effect on the
+// API response, scoring, or any runtime path.
+//
+// Output shape (one line each, prefixed for easy grep):
+//   [val] cluster=…  conf=… finalCount=…
+//   [val] diversify=on/off  weakFill=on/off  weakAccepted=N
+//   [val] weakRejected: <name1>, <name2>     (omitted if empty)
+//   [val] rescuePicked: <name1>, …           (omitted if empty)
+//   [val] 1: <name> [<candidateClass> | <clusterFitClass>]
+//   ...
+type ValidationSummaryInput = {
+  clusterKey: string;
+  confidence: number;
+  diversificationApplied: boolean;
+  weakFillApplied: boolean;
+  weakFillAcceptedCount: number;
+  weakFillRejectedByFinalCapNames: string[];
+  curatedRescueSeedsPicked: string[];
+};
+
+function formatValidationSummary(
+  suggestions: SuggestedInterest[],
+  ctx: ValidationSummaryInput,
+): string {
+  const header =
+    `[val] cluster=${ctx.clusterKey}  conf=${ctx.confidence.toFixed(2)}  finalCount=${suggestions.length}`;
+  const flags =
+    `[val] diversify=${ctx.diversificationApplied ? "on" : "off"}` +
+    `  weakFill=${ctx.weakFillApplied ? "on" : "off"}` +
+    `  weakAccepted=${ctx.weakFillAcceptedCount}`;
+  const rejected = ctx.weakFillRejectedByFinalCapNames.length > 0
+    ? `[val] weakRejected: ${ctx.weakFillRejectedByFinalCapNames.join(", ")}`
+    : "";
+  const rescued = ctx.curatedRescueSeedsPicked.length > 0
+    ? `[val] rescuePicked: ${ctx.curatedRescueSeedsPicked.join(", ")}`
+    : "";
+  const rows = suggestions
+    .slice(0, 10)
+    .map((s, i) =>
+      `[val] ${String(i + 1).padStart(2)}: ${s.name} [${s.candidateClass ?? "?"} | ${s.clusterFitClass ?? "?"}]`,
+    )
+    .join("\n");
+  return [header, flags, rejected, rescued, rows]
+    .filter(Boolean)
+    .join("\n");
+}
+
 // Classifies a candidate against the dominant cluster and returns its fit
 // class, score contribution, and reason. Order of operations:
 //   1. Low-confidence/unknown cluster → unknown_cluster (no penalty).
@@ -4079,6 +4129,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           .join("")
       : ""),
   );
+
+  // ── Dev validation summary ──────────────────────────────────────────────────
+  // Compact, grep-friendly one-block summary. Printed after Stage D/E so the
+  // full breakdown is visible above this line in the same log run. Never
+  // emitted in production (NODE_ENV check) and has NO effect on the response.
+  if (process.env.NODE_ENV !== "production") {
+    console.info(formatValidationSummary(finalSuggestions, {
+      clusterKey: dominantCluster.clusterKey,
+      confidence: dominantCluster.confidence,
+      diversificationApplied: diversification.applied,
+      weakFillApplied: diversification.weakFillApplied,
+      weakFillAcceptedCount: diversification.weakFillAcceptedCount,
+      weakFillRejectedByFinalCapNames: diversification.weakFillRejectedByFinalCap,
+      curatedRescueSeedsPicked: curatedExpansionSeedsUsed ?? [],
+    }));
+  }
 
   // ── Junk-leak assertion (telemetry) — fires if the structural filter missed
   // anything or if the path-based classifier accepted a non-Interests root.
