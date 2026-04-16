@@ -616,8 +616,11 @@ export interface SuggestionsDebugInfo {
   curatedRescueCandidatesConsidered?: string[];
   curatedRescueCandidatesPicked?: string[];
   underrepresentedBucketsBeforeExpansion?: Record<string, number>;
-  rescueSeedPriorityOrder?: Array<{ name: string; bucket: string; group: string; missingWeight: number }>;
+  rescueSeedPriorityOrder?: Array<{ name: string; bucket: string; group: string; missingWeight: number; priorityScore: number }>;
   thinPoolRecallBoostActive?: boolean;
+  /** Landing 2f — diversification Phase 2 backfill preference */
+  selectedPhase1BucketCounts?: Record<string, number>;
+  selectedPhase2BucketCounts?: Record<string, number>;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -2302,6 +2305,75 @@ function predictRescueBucket(name: string, clusterKey: ClusterKey): DiversityBuc
   return table[name.toLowerCase()] ?? "other";
 }
 
+// ── Cluster-specific rescue group priority (Landing 2f) ─────────────────────
+// Raw missingCapacity was too easily dominated by whichever group has the
+// largest cap (EMN genre cap=4 → missingWeight=3 when empty, outranking
+// media/misc/festival missing=2). This table encodes *intent* so non-genre
+// refinement is preferred even when its cap is smaller. Higher = preferred.
+//
+// Used only for curated rescue seed ordering in Stage R2. Has NO effect on:
+//   - first-pass retrieval
+//   - the strict eligibility gate
+//   - the diversification cap plan itself
+//   - music_platforms (absent from this table → no reordering happens)
+const CLUSTER_RESCUE_GROUP_PRIORITY: Partial<Record<ClusterKey, Record<string, number>>> = {
+  electronic_music_nightlife: {
+    media: 4,
+    misc: 3,
+    festival: 2,
+    genre: 0,
+  },
+  fashion_editorial: {
+    editorial: 4,
+    brand_designer: 3,
+    photo_design: 2,
+    other: -1,
+    generic_fashion: -2,
+  },
+};
+
+// Saturation penalty — pushes a group's rescue seeds further down when the
+// current eligible set already has enough of that group, so e.g. genre
+// rescue seeds don't keep crowding out media/misc when genre is already
+// represented.
+function rescueSaturationPenalty(
+  clusterKey: ClusterKey,
+  group: string,
+  currentByGroup: Record<string, number>,
+): number {
+  if (
+    clusterKey === "electronic_music_nightlife" &&
+    group === "genre" &&
+    (currentByGroup["genre"] ?? 0) >= 2
+  ) {
+    return 5;
+  }
+  if (
+    clusterKey === "fashion_editorial" &&
+    group === "generic_fashion" &&
+    (currentByGroup["generic_fashion"] ?? 0) >= 1
+  ) {
+    return 3;
+  }
+  return 0;
+}
+
+// Combined priority score for a curated rescue seed. Higher is better.
+// When the seed's group has 0 missing capacity we drive the score deep
+// negative (but preserve relative group order among saturated groups so
+// the debug log still makes sense).
+function computeRescuePriorityScore(
+  clusterKey: ClusterKey,
+  group: string,
+  missingWeight: number,
+  currentByGroup: Record<string, number>,
+): number {
+  const groupPriority = CLUSTER_RESCUE_GROUP_PRIORITY[clusterKey]?.[group] ?? 0;
+  if (missingWeight <= 0) return -100 + groupPriority;
+  const penalty = rescueSaturationPenalty(clusterKey, group, currentByGroup);
+  return groupPriority + missingWeight - penalty;
+}
+
 function diversifyFinalSuggestions(
   eligible: SuggestedInterest[],
   clusterKey: ClusterKey,
@@ -2313,10 +2385,14 @@ function diversifyFinalSuggestions(
   distributionAfter: Record<string, number>;
   skippedAtCap: Array<{ name: string; bucket: DiversityBucket; group: string }>;
   applied: boolean;
+  phase1GroupCounts: Record<string, number>;
+  phase2GroupCounts: Record<string, number>;
 } {
   const bucketByName: Record<string, DiversityBucket> = {};
   const distributionBefore: Record<string, number> = {};
   const distributionAfter: Record<string, number> = {};
+  const phase1GroupCounts: Record<string, number> = {};
+  const phase2GroupCounts: Record<string, number> = {};
 
   // Always compute display buckets so debug/logging is available even when
   // the cluster has no diversity plan.
@@ -2333,7 +2409,11 @@ function diversifyFinalSuggestions(
       const b = bucketByName[s.name] ?? "other";
       distributionAfter[b] = (distributionAfter[b] ?? 0) + 1;
     }
-    return { picked, bucketByName, distributionBefore, distributionAfter, skippedAtCap: [], applied: false };
+    return {
+      picked, bucketByName, distributionBefore, distributionAfter,
+      skippedAtCap: [], applied: false,
+      phase1GroupCounts, phase2GroupCounts,
+    };
   }
 
   const picked: SuggestedInterest[] = [];
@@ -2341,6 +2421,7 @@ function diversifyFinalSuggestions(
   const skippedAtCap: Array<{ name: string; bucket: DiversityBucket; group: string }> = [];
   const capCounts: Record<string, number> = {};
 
+  // ── Phase 1 — score-ordered greedy pick, respecting per-group caps.
   for (const s of eligible) {
     if (picked.length >= max) break;
     const bucket = bucketByName[s.name] ?? "other";
@@ -2350,21 +2431,51 @@ function diversifyFinalSuggestions(
     if (current < limit) {
       picked.push(s);
       capCounts[group] = current + 1;
+      phase1GroupCounts[group] = (phase1GroupCounts[group] ?? 0) + 1;
     } else {
       skipped.push(s);
       skippedAtCap.push({ name: s.name, bucket, group });
     }
   }
-  // Phase 2 — fill any remaining slots with skipped items (score order).
-  for (const s of skipped) {
-    if (picked.length >= max) break;
-    picked.push(s);
+
+  // ── Phase 2 — fill remaining slots from skipped, preferring the group
+  //     with the lowest current count in picked[]. This avoids all remaining
+  //     fill going back to whichever group dominated Phase 1's score order.
+  //     Tiebreak by score desc, then by original order.
+  const skippedQueue = [...skipped];
+  while (picked.length < max && skippedQueue.length > 0) {
+    let bestIdx = -1;
+    let bestCurrent = Number.POSITIVE_INFINITY;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < skippedQueue.length; i++) {
+      const s = skippedQueue[i];
+      const bucket = bucketByName[s.name] ?? "other";
+      const group = plan.group[bucket] ?? "other";
+      const cur = capCounts[group] ?? 0;
+      if (cur < bestCurrent || (cur === bestCurrent && s.score > bestScore)) {
+        bestCurrent = cur;
+        bestScore = s.score;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+    const chosen = skippedQueue.splice(bestIdx, 1)[0];
+    const bucket = bucketByName[chosen.name] ?? "other";
+    const group = plan.group[bucket] ?? "other";
+    capCounts[group] = (capCounts[group] ?? 0) + 1;
+    phase2GroupCounts[group] = (phase2GroupCounts[group] ?? 0) + 1;
+    picked.push(chosen);
   }
+
   for (const s of picked) {
     const b = bucketByName[s.name] ?? "other";
     distributionAfter[b] = (distributionAfter[b] ?? 0) + 1;
   }
-  return { picked, bucketByName, distributionBefore, distributionAfter, skippedAtCap, applied: true };
+  return {
+    picked, bucketByName, distributionBefore, distributionAfter,
+    skippedAtCap, applied: true,
+    phase1GroupCounts, phase2GroupCounts,
+  };
 }
 
 function computeClusterFit(
@@ -3201,6 +3312,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     bucket: DiversityBucket;
     group: string;
     missingWeight: number;
+    priorityScore: number;
   }> = [];
   let thinPoolRecallBoostActive = false;
 
@@ -3269,8 +3381,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       curatedRescueCandidatesConsidered = [...curatedSource];
 
       // Bucket-aware rescue ordering: prefer seeds whose PREDICTED diversity
-      // bucket is under-represented in the current eligible set. Applies only
-      // to EMN / FED where we have a cap plan + predicted-bucket table.
+      // bucket is under-represented AND whose cluster-intent priority is
+      // higher. Applies only to EMN / FED where we have a cap plan + a
+      // predicted-bucket table. Raw missingWeight alone was too easily
+      // dominated by whichever group had the largest cap (EMN genre cap=4),
+      // so we now score via:
+      //     priorityScore = groupPriority + missingWeight - saturationPenalty
+      // with -100 floor when missingWeight = 0. See CLUSTER_RESCUE_GROUP_PRIORITY.
       const plan = capPlanFor(dominantCluster.clusterKey);
       let curated: string[] = [...curatedSource];
       if (
@@ -3295,15 +3412,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           const bucket = predictRescueBucket(name, dominantCluster.clusterKey);
           const group = plan.group[bucket] ?? "other";
           const missingWeight = missingByGroup[group] ?? 0;
-          return { name, bucket, group, missingWeight, originalIdx: idx };
+          const priorityScore = computeRescuePriorityScore(
+            dominantCluster.clusterKey,
+            group,
+            missingWeight,
+            currentByGroup,
+          );
+          return { name, bucket, group, missingWeight, priorityScore, originalIdx: idx };
         });
         scored.sort((a, b) => {
-          if (a.missingWeight !== b.missingWeight) return b.missingWeight - a.missingWeight;
+          if (a.priorityScore !== b.priorityScore) return b.priorityScore - a.priorityScore;
           return a.originalIdx - b.originalIdx;
         });
         curated = scored.map((s) => s.name);
-        rescueSeedPriorityOrder = scored.map(({ name, bucket, group, missingWeight }) => ({
-          name, bucket, group, missingWeight,
+        rescueSeedPriorityOrder = scored.map(({ name, bucket, group, missingWeight, priorityScore }) => ({
+          name, bucket, group, missingWeight, priorityScore,
         }));
       }
 
@@ -3359,7 +3482,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             ? `\n  underrepresented buckets:   ${JSON.stringify(underrepresentedBucketsBeforeExpansion)}`
             : "") +
           (rescueSeedPriorityOrder.length > 0
-            ? `\n  rescue priority:            ${rescueSeedPriorityOrder.slice(0, 8).map((r) => `${r.name}[${r.bucket}→${r.group}/miss=${r.missingWeight}]`).join(", ")}${rescueSeedPriorityOrder.length > 8 ? " …" : ""}`
+            ? `\n  rescue priority:            ${rescueSeedPriorityOrder.slice(0, 8).map((r) => `${r.name}[${r.bucket}→${r.group}/miss=${r.missingWeight}/score=${r.priorityScore}]`).join(", ")}${rescueSeedPriorityOrder.length > 8 ? " …" : ""}`
             : "") +
           (thinPoolRecallBoostActive ? `\n  thin-pool recall boost: ACTIVE (+1 curated cap)` : "") +
           `\n  seeds: ${finalDescriptors.map((d) => `${d.name}[${d.source}]`).join(", ")}`,
@@ -3723,6 +3846,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n    eligible (pre-diversify):  ${eligibleSuggestions.length}` +
     `\n    bucket dist (before):      ${JSON.stringify(diversification.distributionBefore)}` +
     `\n    bucket dist (after):       ${JSON.stringify(diversification.distributionAfter)}` +
+    `\n    phase1 groups picked:      ${JSON.stringify(diversification.phase1GroupCounts)}` +
+    `\n    phase2 groups picked:      ${JSON.stringify(diversification.phase2GroupCounts)}` +
     (diversification.skippedAtCap.length > 0
       ? `\n    skipped at cap:            ${diversification.skippedAtCap.slice(0, 20).map((x) => `${x.name}[${x.bucket}→${x.group}]`).join(", ")}`
       : "") +
@@ -3885,6 +4010,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     survivorBucketDistributionBefore: diversification.distributionBefore,
     survivorBucketDistributionAfter: diversification.distributionAfter,
     diversificationSkippedAtCap: diversification.skippedAtCap,
+    selectedPhase1BucketCounts: diversification.phase1GroupCounts,
+    selectedPhase2BucketCounts: diversification.phase2GroupCounts,
     curatedRescueCandidatesConsidered,
     curatedRescueCandidatesPicked: curatedExpansionSeedsUsed,
     underrepresentedBucketsBeforeExpansion,
