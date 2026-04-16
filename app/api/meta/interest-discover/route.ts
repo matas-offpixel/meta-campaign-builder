@@ -905,6 +905,23 @@ export interface HintIntelligenceDebug {
      *  football demotion). Names are accompanied by a reason suffix on
      *  matchReason. Surfaced for dev diagnostics only. */
     sportsFalsePositiveDemotedNames?: string[];
+    /** team_club entity recovery: canonical names rescued from a direct
+     *  Meta /search of the resolved entity seeds (e.g. "Arsenal F.C.",
+     *  "Arsenal F.C. supporters") even when absent from the broad pool. */
+    sportsRecoveredEntityNames?: string[];
+    /** Same as sportsRecoveredEntityNames but the Meta interest IDs. */
+    sportsRecoveredEntityIds?: string[];
+    /** Recovered rows whose name exactly matches a resolved entity canonical. */
+    sportsRecoveredExactNames?: string[];
+    /** Recovered rows that matched the entity by token-prefix only. */
+    sportsRecoveredPrefixNames?: string[];
+    /** True when at least one entity row was recovered for this request. */
+    sportsRecoveryApplied?: boolean;
+    /** Gym-first hard exclusion: football/competition/video-game rows
+     *  removed from the candidate pool before final selection. */
+    sportsHardExcludedNames?: string[];
+    /** True when the gym-first hard exclusion path executed. */
+    sportsHardExclusionApplied?: boolean;
   };
 }
 
@@ -2260,6 +2277,56 @@ function isGenericFootballFallbackRow<T extends { name: string; path?: string[] 
   return TEAM_CLUB_GENERIC_FALLBACK_PATTERNS.some((p) => p.test(nameLower));
 }
 
+// ── Sports team_club entity recovery ─────────────────────────────────────────
+// When the Sports request resolves to a specific club, Meta sometimes returns
+// only the stadium row (e.g. "Arsenal Stadium") in the broad discovery pool
+// while "Arsenal F.C." / "Arsenal F.C. supporters" are filtered out by the
+// score floor. The recovery pass re-queries the canonical entity seeds and
+// rescues any strong-match rows so they survive into the visible top slice.
+
+/** Score boosts applied to recovered entity rows. Set high enough to clear
+ *  the score floor and outrank broad football fallbacks (Premier League /
+ *  UEFA Champions League / football fans / Football). */
+const SPORTS_RECOVERY_EXACT_BOOST = 200;
+const SPORTS_RECOVERY_PREFIX_BOOST = 150;
+
+/** Run direct Meta /search calls for the resolved entity seeds and keep only
+ *  rows that strongly match the detected club entity. Each result is tagged
+ *  with `recoveryKind` ("exact" | "prefix") for downstream provenance. */
+async function runSportsEntityRecovery(
+  token: string,
+  entities: SportsEntity[],
+  searchSeeds: string[],
+): Promise<Array<RawInterest & { searchTerm: string; recoveryKind: "exact" | "prefix" }>> {
+  if (entities.length === 0 || searchSeeds.length === 0) return [];
+  const out: Array<RawInterest & { searchTerm: string; recoveryKind: "exact" | "prefix" }> = [];
+  const seen = new Set<string>();
+  const canonicalsLower = entities.map((e) => e.canonical.toLowerCase());
+  const BATCH = 4;
+  for (let i = 0; i < searchSeeds.length; i += BATCH) {
+    const batch = searchSeeds.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map((t) => searchMeta(token, t)));
+    for (let j = 0; j < batch.length; j++) {
+      for (const item of results[j]) {
+        if (seen.has(item.id)) continue;
+        if (!isStrongTeamEntityRow(item, entities)) continue;
+        const nameLower = item.name.toLowerCase().trim();
+        const kind: "exact" | "prefix" = canonicalsLower.includes(nameLower) ? "exact" : "prefix";
+        seen.add(item.id);
+        out.push({ ...item, searchTerm: batch[j], recoveryKind: kind });
+      }
+    }
+  }
+  return out;
+}
+
+// ── Sports gym-first hard exclusion ──────────────────────────────────────────
+// When the user clearly wants gym/fitness and there is no football opt-in, we
+// already demote football competition rows in the boost pass. The hard
+// exclusion takes the next step and removes them from the candidate pool
+// entirely so they cannot survive into the visible top slice. Sports-only.
+const SPORTS_GYM_FIRST_HARD_EXCLUDE_PATTERN = /\b(premier\s+league|uefa\s+champions\s+league|uefa\s+europa\s+league|fifa\s+world\s+cup|international\s+football\s+leagues?\s+and\s+competitions?|beach\s+soccer|futsal|sports?\s*games?|video\s*games?|esports?|e[-\s]?sports?|esoccer)\b/i;
+
 // ── Sports false-positive cleanup (gym/cross-league/Premier-League-ambiguity) ─
 
 const SPORTS_FALSE_POSITIVE_PENALTY = -50;
@@ -2697,6 +2764,13 @@ async function discoverForCluster(
     genericFootballFallbackDemotedNames: string[];
     teamClubPrecisionPassApplied: boolean;
     falsePositiveDemotedNames: string[];
+    recoveredEntityNames: string[];
+    recoveredEntityIds: string[];
+    recoveredExactNames: string[];
+    recoveredPrefixNames: string[];
+    recoveryApplied: boolean;
+    hardExcludedNames: string[];
+    hardExclusionApplied: boolean;
   };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
@@ -2800,6 +2874,33 @@ async function discoverForCluster(
 
   await runTermsBatch(allTerms);
 
+  // ── Sports team-club entity recovery ────────────────────────────────────
+  // Re-search canonical entity seeds (Tier-1) and rescue strong-match rows
+  // before scoring so they cannot be lost to the score floor. Each rescued
+  // row is tagged with its kind so the scoring pass can apply the correct
+  // provenance suffix and a giant boost. No-op for non-sports clusters.
+  const sportsRecoveredIdToKind = new Map<string, "exact" | "prefix">();
+  const sportsRecoveredEntityNames: string[] = [];
+  const sportsRecoveredEntityIds: string[] = [];
+  if (
+    isSports &&
+    sportsSubtype === "team_club" &&
+    sportsEntities.length > 0 &&
+    sportsTier1Seeds.length > 0
+  ) {
+    const recovered = await runSportsEntityRecovery(token, sportsEntities, sportsTier1Seeds);
+    for (const item of recovered) {
+      sportsRecoveredIdToKind.set(item.id, item.recoveryKind);
+      sportsRecoveredEntityIds.push(item.id);
+      sportsRecoveredEntityNames.push(item.name);
+      if (!localSeen.has(item.id)) {
+        localSeen.add(item.id);
+        if (!globalSeen.has(item.id)) globalSeen.add(item.id);
+        raw.push(item);
+      }
+    }
+  }
+
   // ── Phase 2: filter & score ────────────────────────────────────────────────
   const blocklisted = raw.filter((i) => !passesBlocklist(i, clusterLabel));
   if (blocklisted.length > 0) {
@@ -2823,6 +2924,27 @@ async function discoverForCluster(
       matchReason: reason,
     };
   });
+
+  // Apply recovery boost + provenance suffix so rescued entity rows easily
+  // clear the score floor and outrank broad football fallbacks. Mutates
+  // `scored` in place.
+  const sportsRecoveredExactNames: string[] = [];
+  const sportsRecoveredPrefixNames: string[] = [];
+  if (sportsRecoveredIdToKind.size > 0) {
+    for (const item of scored) {
+      const kind = sportsRecoveredIdToKind.get(item.id);
+      if (!kind) continue;
+      if (kind === "exact") {
+        item.relevanceScore = (item.relevanceScore ?? 0) + SPORTS_RECOVERY_EXACT_BOOST;
+        item.matchReason = `${item.matchReason ?? ""};entity-recovered-exact`;
+        sportsRecoveredExactNames.push(item.name);
+      } else {
+        item.relevanceScore = (item.relevanceScore ?? 0) + SPORTS_RECOVERY_PREFIX_BOOST;
+        item.matchReason = `${item.matchReason ?? ""};entity-recovered-prefix`;
+        sportsRecoveredPrefixNames.push(item.name);
+      }
+    }
+  }
 
   console.info(
     `[interest-discover] cluster="${clusterLabel}" scored(${scored.length}): ` +
@@ -2874,6 +2996,38 @@ async function discoverForCluster(
         };
       });
       aboveFloor = fallbackScored;
+    }
+  }
+
+  // ── Sports gym-first hard exclusion ─────────────────────────────────────
+  // When the prompt is clearly gym/fitness with no football opt-in, drop
+  // football competition / sub-format / video-game rows from the candidate
+  // pool entirely so they cannot survive into the visible top slice.
+  // Recovered entity rows are always preserved (paranoia — wouldn't co-occur
+  // with gym-only intent in normal flow). Sports-only.
+  const sportsHardExcludedNames: string[] = [];
+  let sportsHardExclusionApplied = false;
+  if (isSports) {
+    const sportsRawHintTextEarly = directHintTerms.join(" ").toLowerCase();
+    const gymish = hintIntents.has("gym_fitness") || hintIntents.has("sport_fitness");
+    const fanish = hintIntents.has("football_soccer") || hintIntents.has("sports_fandom");
+    const optsIntoFootball = FOOTBALL_OPT_IN_HINT_PATTERN.test(sportsRawHintTextEarly);
+    if (gymish && !fanish && !optsIntoFootball) {
+      const before = aboveFloor.length;
+      aboveFloor = aboveFloor.filter((item) => {
+        if (sportsRecoveredIdToKind.has(item.id)) return true;
+        const haystack = `${item.name} ${(item.path ?? []).join(" ")}`;
+        if (SPORTS_GYM_FIRST_HARD_EXCLUDE_PATTERN.test(haystack)) {
+          sportsHardExcludedNames.push(item.name);
+          return false;
+        }
+        return true;
+      });
+      sportsHardExclusionApplied = true;
+      console.info(
+        `[sports-recovery] gym-first hard-exclude removed=${before - aboveFloor.length}: ` +
+        (sportsHardExcludedNames.slice(0, 8).join(", ") || "<none>"),
+      );
     }
   }
 
@@ -2939,6 +3093,13 @@ async function discoverForCluster(
         genericFootballFallbackDemotedNames: string[];
         teamClubPrecisionPassApplied: boolean;
         falsePositiveDemotedNames: string[];
+        recoveredEntityNames: string[];
+        recoveredEntityIds: string[];
+        recoveredExactNames: string[];
+        recoveredPrefixNames: string[];
+        recoveryApplied: boolean;
+        hardExcludedNames: string[];
+        hardExclusionApplied: boolean;
       }
     | undefined;
   // Sports false-positive cleanup runs on every Sports request so generic
@@ -2976,6 +3137,13 @@ async function discoverForCluster(
       genericFootballFallbackDemotedNames: boostResult.teamClubGenericDemoted,
       teamClubPrecisionPassApplied: false,
       falsePositiveDemotedNames: boostResult.falsePositiveDemoted,
+      recoveredEntityNames: sportsRecoveredEntityNames,
+      recoveredEntityIds: sportsRecoveredEntityIds,
+      recoveredExactNames: sportsRecoveredExactNames,
+      recoveredPrefixNames: sportsRecoveredPrefixNames,
+      recoveryApplied: sportsRecoveredIdToKind.size > 0,
+      hardExcludedNames: sportsHardExcludedNames,
+      hardExclusionApplied: sportsHardExclusionApplied,
     };
     console.info(
       `[sports-resolve] family=${sportsFamily ?? "<none>"} subtype=${sportsSubtype ?? "<none>"} ` +
@@ -2988,6 +3156,11 @@ async function discoverForCluster(
       `[sports-resolve] generic-demoted=${boostResult.genericDemoted.join(", ") || "<none>"}\n` +
       `[sports-resolve] team-club-generic-demoted=${boostResult.teamClubGenericDemoted.join(", ") || "<none>"}\n` +
       `[sports-resolve] false-positive-demoted=${boostResult.falsePositiveDemoted.join(", ") || "<none>"}`,
+    );
+    console.info(
+      `[sports-recovery] subtype=${sportsSubtype ?? "<none>"} ` +
+      `recovered=${sportsRecoveredIdToKind.size} ` +
+      `hardExcluded=${sportsHardExcludedNames.length}`,
     );
   }
 
@@ -3256,6 +3429,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         sportsTeamClubPrecisionPassApplied:
           sportsResolution.teamClubPrecisionPassApplied,
         sportsFalsePositiveDemotedNames: sportsResolution.falsePositiveDemotedNames,
+        sportsRecoveredEntityNames: sportsResolution.recoveredEntityNames,
+        sportsRecoveredEntityIds: sportsResolution.recoveredEntityIds,
+        sportsRecoveredExactNames: sportsResolution.recoveredExactNames,
+        sportsRecoveredPrefixNames: sportsResolution.recoveredPrefixNames,
+        sportsRecoveryApplied: sportsResolution.recoveryApplied,
+        sportsHardExcludedNames: sportsResolution.hardExcludedNames,
+        sportsHardExclusionApplied: sportsResolution.hardExclusionApplied,
       };
     }
   }
