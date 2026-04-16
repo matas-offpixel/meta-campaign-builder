@@ -748,7 +748,7 @@ const FASHION_BRANDS = new Set([
   "balenciaga", "comme des garçons", "comme des garcons", "cdg",
   "yohji yamamoto", "issey miyake", "ann demeulemeester", "dries van noten",
   "alexander mcqueen", "vetements", "off-white", "off white",
-  "supreme", "stüssy", "stussy", "palace", "palace skateboards", "bape", "a bathing ape",
+  "supreme", "stüssy", "stussy", "palace skateboards", "bape", "a bathing ape",
   "acne studios", "ganni", "prada", "miu miu", "gucci", "louis vuitton",
   "chanel", "hermès", "hermes", "saint laurent", "ysl",
   "loewe", "jacquemus", "the row", "khaite", "lemaire",
@@ -767,10 +767,10 @@ const FASHION_BRANDS = new Set([
 const FASHION_MEDIA = new Set([
   "dazed", "dazed & confused", "dazed confused", "dazed and confused",
   "dazed & confused magazine", "i-d", "i.d.", "id magazine", "i-d magazine",
-  "another magazine", "another", "vogue", "vogue magazine",
+  "another magazine", "vogue magazine",
   "harper's bazaar", "harpers bazaar", "w magazine", "the gentlewoman",
-  "purple magazine", "purple", "self service", "self service magazine",
-  "032c", "fantastic man", "document journal", "system magazine", "system",
+  "purple magazine", "self service", "self service magazine",
+  "032c", "fantastic man", "document journal", "system magazine",
   "metal magazine", "heavy metal magazine", // niche fashion-art publications
   "numero", "numéro", "l'officiel", "lofficiel",
   "ssense", "highsnobiety", "hypebeast", "hypebae",
@@ -788,27 +788,30 @@ const MUSIC_MEDIA = new Set([
 ]);
 
 const NIGHTLIFE_EVENTS = new Set([
-  // Venues
+  // Venues — multi-word / distinct-name entries only.
+  // Bare single words (fabric, concrete, output, fold, basement, ultra,
+  // movement, meadows, gala) removed: too homonymous with unrelated Meta
+  // nodes. If Meta surfaces them as real venues it uses the qualified form.
   "boiler room", "berghain", "panorama bar", "panoramabar",
-  "fabric", "fabric london", "tresor", "robert johnson",
-  "concrete", "concrete paris", "rex club", "printworks",
+  "fabric london", "tresor", "robert johnson",
+  "concrete paris", "rex club", "printworks",
   "printworks london", "warehouse project", "the warehouse project",
-  "output", "halcyon", "smartbar", "corsica studios",
-  "village underground", "fold", "bassiani", "khidi",
+  "halcyon", "smartbar", "corsica studios",
+  "village underground", "bassiani", "khidi",
   "de school", "shelter amsterdam", "trouw", "thuishaven",
   "about blank", "about:blank", "sisyphos", "kater blau",
   "ritter butzke", "salon zur wilden renate", "griessmuehle",
-  "nowadays", "nowadays nyc", "basement", "brooklyn mirage",
-  "e1", "e1 london", "phonox", "corsica",
+  "nowadays nyc", "brooklyn mirage",
+  "e1 london", "phonox",
   // Festivals
-  "awakenings", "movement", "movement festival", "tomorrowland",
+  "awakenings", "movement festival", "tomorrowland",
   "time warp", "dekmantel", "sonar", "sónar", "dgtl",
-  "lowlands", "mysteryland", "creamfields", "dimensions",
+  "lowlands", "mysteryland", "creamfields",
   "dimensions festival", "unknown festival", "nuits sonores",
-  "exit festival", "ultra music festival", "ultra",
-  "decibel festival", "meadows in the mountains", "meadows",
+  "exit festival", "ultra music festival",
+  "decibel festival", "meadows in the mountains",
   "freqs of nature", "fusion festival", "hospitality in the park",
-  "gala", "gala festival", // "Gala" as a festival (ambiguous w/ Met Gala)
+  "gala festival", // qualified form only — "gala" bare is hard_ambiguous
   "boiler room festival",
 ]);
 
@@ -839,9 +842,40 @@ function normaliseName(name: string): string {
   return name
     .toLowerCase()
     .trim()
-    .replace(/\s*\((?:music|magazine|fashion\s*brand|fashion|brand|website|company|product\/service|tv\s*program|film|band|musician|artist|author|book|movie|publication|media|event|dj|record\s*label|genre)\)\s*$/i, "")
+    .replace(
+      // Strip trailing "(category)" noise that Meta adds to disambiguate nodes.
+      /\s*\((?:music|magazine|fashion\s*brand|fashion|brand|clothing|clothing\s*brand|apparel|designer|fashion\s*label|retail|website|website\/service|company|business|product\/service|app|application|service|technology|technology\s*company|software|streaming|subscription|platform|tv\s*program|film|band|band\/musician|musician|artist|author|book|movie|publication|media|event|dj|record\s*label|genre|actor|actress|singer|rapper)\)\s*$/i,
+      "",
+    )
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Deterministic fuzzy-ish dictionary match.
+ * Returns true when `name` (after normalisation) either:
+ *   (a) matches an entry exactly, or
+ *   (b) starts with an entry's full word sequence (word-boundary prefix).
+ * Case b handles variants like "Spotify Music" / "SoundCloud App" that Meta
+ * occasionally surfaces instead of the canonical entity name.
+ *
+ * Only full word prefixes count — "spotify" will NOT match "spotifan".
+ */
+function matchesDict(name: string, dict: Set<string>): boolean {
+  const norm = normaliseName(name);
+  if (!norm) return false;
+  if (dict.has(norm)) return true;
+  const nameWords = norm.split(" ").filter(Boolean);
+  for (const entry of dict) {
+    const entryWords = entry.split(" ").filter(Boolean);
+    if (entryWords.length === 0 || entryWords.length > nameWords.length) continue;
+    let match = true;
+    for (let i = 0; i < entryWords.length; i++) {
+      if (nameWords[i] !== entryWords[i]) { match = false; break; }
+    }
+    if (match) return true;
+  }
+  return false;
 }
 
 function lcpPaths(a: readonly string[], b: readonly string[]): number {
@@ -865,23 +899,27 @@ function inferNormalisedEntityType(
     /\belectronic\b/.test(pathJoined) ||
     /\bgenres?\b/.test(pathJoined);
 
+  // All dictionary checks use matchesDict (exact or word-prefix match) so
+  // variants like "Spotify Music" / "SoundCloud App" resolve correctly.
+
   // 1. Music platforms — unique entity names, dictionary authoritative
-  if (MUSIC_PLATFORMS.has(norm)) return "platform";
+  if (matchesDict(rawName, MUSIC_PLATFORMS)) return "platform";
 
   // 2. Fashion brands — unique entity names, dictionary authoritative
-  if (FASHION_BRANDS.has(norm)) return "fashion_brand";
+  if (matchesDict(rawName, FASHION_BRANDS)) return "fashion_brand";
 
   // 3. Electronic artists/DJs — unique names
-  if (ELECTRONIC_ARTISTS.has(norm)) return "artist";
+  if (matchesDict(rawName, ELECTRONIC_ARTISTS)) return "artist";
 
   // 4. Fashion media publications
-  if (FASHION_MEDIA.has(norm)) return "media_publication";
+  if (matchesDict(rawName, FASHION_MEDIA)) return "media_publication";
 
   // 5. Music media publications
-  if (MUSIC_MEDIA.has(norm)) return "media_publication";
+  if (matchesDict(rawName, MUSIC_MEDIA)) return "media_publication";
 
-  // 6. Nightlife venues/events
-  if (NIGHTLIFE_EVENTS.has(norm)) return "nightlife_event";
+  // 6. Nightlife venues/events — single-word homonyms intentionally removed
+  //    from dict so bare "Gala" / "Fabric" fall through to hard_ambiguous.
+  if (matchesDict(rawName, NIGHTLIFE_EVENTS)) return "nightlife_event";
 
   // 7. Genre match — require music context to guard against homonyms
   //    ("house" could be the genre, or anything else)
@@ -920,7 +958,7 @@ function inferDomainFamilies(
 
   switch (entityType) {
     case "platform": {
-      if (MUSIC_PLATFORMS.has(norm) || /\bmusic\b/.test(pathJoined)) {
+      if (matchesDict(rawName, MUSIC_PLATFORMS) || /\bmusic\b/.test(pathJoined)) {
         families.add("music");
         families.add("music_platform");
       } else {
@@ -938,7 +976,7 @@ function inferDomainFamilies(
     }
     case "artist": {
       families.add("music");
-      if (ELECTRONIC_ARTISTS.has(norm) || /electronic/.test(pathJoined)) {
+      if (matchesDict(rawName, ELECTRONIC_ARTISTS) || /electronic/.test(pathJoined)) {
         families.add("electronic_music");
         families.add("nightlife");
       }
@@ -946,16 +984,23 @@ function inferDomainFamilies(
     }
     case "media_publication": {
       families.add("media");
-      if (FASHION_MEDIA.has(norm) ||
+      // Literary publications: tag literature ONLY (do not also tag fashion).
+      // Catches "Literary magazine" + path/name signals so it stays out of
+      // fashion_editorial cluster matching.
+      const isLiterary = /\bliterary\b/i.test(rawName) ||
+                         /\bliterature\b/.test(pathJoined) ||
+                         /\bbook\b/.test(pathJoined);
+      if (isLiterary) {
+        families.add("literature");
+        break;
+      }
+      if (matchesDict(rawName, FASHION_MEDIA) ||
           /\bfashion\b/.test(pathJoined) ||
           /\beditorial\b/.test(pathJoined)) {
         families.add("fashion");
         families.add("fashion_editorial");
-      } else if (MUSIC_MEDIA.has(norm) || /\bmusic\b/.test(pathJoined)) {
+      } else if (matchesDict(rawName, MUSIC_MEDIA) || /\bmusic\b/.test(pathJoined)) {
         families.add("music");
-      } else if (/\bliterature\b/.test(pathJoined) || /\bbook\b/.test(pathJoined) ||
-                 /\bliterary\b/i.test(rawName)) {
-        families.add("literature");
       }
       break;
     }
@@ -966,7 +1011,7 @@ function inferDomainFamilies(
     case "nightlife_event": {
       families.add("nightlife");
       families.add("entertainment");
-      if (NIGHTLIFE_EVENTS.has(norm)) {
+      if (matchesDict(rawName, NIGHTLIFE_EVENTS)) {
         families.add("music");
         families.add("electronic_music");
       }
@@ -1283,16 +1328,35 @@ function inferDominantClusterHybrid(
 }
 
 // ── Map cluster key → which domain families count as on-cluster ──────────────
+//
+// Split into PRIMARY (must-have to be considered fully on-cluster) and
+// SECONDARY (corroborating, but not sufficient on its own). A seed that only
+// matches a secondary family is still rendered "weak" rather than "trusted",
+// and onDominantCluster=false. This stops loose matches like "Literary
+// magazine" (families: media, literature) from being absorbed into a
+// fashion_editorial cluster on the strength of the generic "media" tag.
 
-function expectedFamiliesForCluster(clusterKey: ClusterKey): DomainFamily[] {
+function primaryExpectedFamilies(clusterKey: ClusterKey): DomainFamily[] {
   switch (clusterKey) {
-    case "electronic_music_nightlife": return ["electronic_music", "nightlife", "music"];
-    case "music_platforms":            return ["music_platform", "music", "media"];
-    case "music_general":              return ["music", "electronic_music", "nightlife"];
-    case "fashion_editorial":          return ["fashion_editorial", "fashion", "media"];
+    case "electronic_music_nightlife": return ["electronic_music", "nightlife"];
+    case "music_platforms":            return ["music_platform"];
+    case "music_general":              return ["music", "electronic_music"];
+    case "fashion_editorial":          return ["fashion_editorial", "fashion"];
     case "fashion_brands":             return ["fashion"];
-    case "literature_media":           return ["literature", "media"];
-    default:                           return []; // unknown / taxonomy:*
+    case "literature_media":           return ["literature"];
+    default:                           return [];
+  }
+}
+
+function secondaryExpectedFamilies(clusterKey: ClusterKey): DomainFamily[] {
+  switch (clusterKey) {
+    case "electronic_music_nightlife": return ["music", "entertainment"];
+    case "music_platforms":            return ["music", "media"];
+    case "music_general":              return ["nightlife", "media"];
+    case "fashion_editorial":          return ["media"];
+    case "fashion_brands":             return [];
+    case "literature_media":           return ["media"];
+    default:                           return [];
   }
 }
 
@@ -1314,24 +1378,41 @@ function finaliseSeedBucket(
     return { bucket, onDominantCluster: false };
   }
 
-  // Domain-family match with dominant cluster
-  const expected = expectedFamiliesForCluster(cluster.clusterKey);
   const seedFamilies = new Set(profile.domainFamilies);
-  const onDominantCluster = expected.length > 0
-    ? expected.some((f) => seedFamilies.has(f))
-    : lcpPaths(profile.path, cluster.path) >= cluster.path.length - 1; // fallback for taxonomy:*
+  const primary = primaryExpectedFamilies(cluster.clusterKey);
+  const secondary = secondaryExpectedFamilies(cluster.clusterKey);
 
-  // Conflicting: has clear identity but no overlap with dominant cluster
-  if (!onDominantCluster && profile.normalisedEntityType !== "unknown") {
+  const primaryMatch = primary.length > 0 && primary.some((f) => seedFamilies.has(f));
+  const secondaryMatch = secondary.length > 0 && secondary.some((f) => seedFamilies.has(f));
+
+  // Fallback path-based match for taxonomy:* clusters with no families defined
+  const pathMatch = primary.length === 0 && secondary.length === 0
+    ? lcpPaths(profile.path, cluster.path) >= cluster.path.length - 1
+    : false;
+
+  // Primary match → fully on-cluster, normal bucket logic
+  if (primaryMatch || pathMatch) {
+    const bucket: SeedBucket =
+      profile.reliability >= 0.70 ? "trusted"
+      : profile.reliability >= 0.40 ? "weak"
+      : "ambiguous";
+    return { bucket, onDominantCluster: true };
+  }
+
+  // Secondary-only match → partially on-cluster: capped at "weak", and we
+  // intentionally report onDominantCluster=false so downstream consumers
+  // don't treat it as strong evidence.
+  if (secondaryMatch) {
+    return { bucket: "weak", onDominantCluster: false };
+  }
+
+  // Clear identity but no family overlap → conflicting
+  if (profile.normalisedEntityType !== "unknown") {
     return { bucket: "conflicting", onDominantCluster: false };
   }
 
-  const bucket: SeedBucket =
-    onDominantCluster && profile.reliability >= 0.70 ? "trusted"
-    : onDominantCluster && profile.reliability >= 0.40 ? "weak"
-    : "ambiguous";
-
-  return { bucket, onDominantCluster };
+  // No identity, no overlap
+  return { bucket: "ambiguous", onDominantCluster: false };
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -1527,6 +1608,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .map(([k, v]) => `${k}=${((v ?? 0) * 100).toFixed(0)}%`)
       .join(" ") || "(none)";
 
+  // Compute primary/secondary family match for log display only — does NOT
+  // affect ranking. Lets us see at a glance why a seed is on/off cluster.
+  const clusterPrimaryFamilies = new Set(primaryExpectedFamilies(dominantCluster.clusterKey));
+  const clusterSecondaryFamilies = new Set(secondaryExpectedFamilies(dominantCluster.clusterKey));
+  const clusterMatchTag = (p: SeedProfile): string => {
+    if (dominantCluster.clusterKey === "unknown" || dominantCluster.confidence < 0.35) return "";
+    const fam = new Set(p.domainFamilies);
+    const hasPrimary = Array.from(clusterPrimaryFamilies).some((f) => fam.has(f));
+    const hasSecondary = Array.from(clusterSecondaryFamilies).some((f) => fam.has(f));
+    if (hasPrimary) return " onCluster=primary";
+    if (hasSecondary) return " onCluster=secondary";
+    return " onCluster=no";
+  };
+
   console.info(
     `[interest-suggestions] ── Stage S: seed profiling (Landing 2b-i patched, observation only) ──` +
     Array.from(seedProfiles.values()).map((p) =>
@@ -1536,7 +1631,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       `watchlist=${p.watchlistClass} ` +
       `depth=${p.pathDepth}` +
       (p.path.length ? ` path=${p.path.join(" > ")}` : " path=(none)") +
-      (p.onDominantCluster ? " onCluster" : ""),
+      clusterMatchTag(p),
     ).join("") +
     `\n  Dominant cluster: ${dominantCluster.clusterKey}` +
     ` — confidence=${dominantCluster.confidence.toFixed(2)} (${dominantCluster.band.toUpperCase()})` +
