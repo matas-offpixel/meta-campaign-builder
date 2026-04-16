@@ -792,6 +792,11 @@ const HARDCODED_DEPRECATED_INTERESTS: Array<{
   { matchName: "new rave", replaceName: "Indie rock" },
   { matchName: "fidget house", replaceName: "Electronic dance music" },
   { matchName: "electroclash", replaceName: "Electronic music" },
+  // ── Deprecated culture/lifestyle interests ────────────────────────────────
+  // "Avant-garde" has historically been flagged as deprecated by Meta.
+  // Prefer "Cultural movements" as a safe broader replacement when possible.
+  { matchName: "avant-garde", replaceName: "Cultural movements" },
+  { matchName: "avant garde", replaceName: "Cultural movements" },
   // ── Generic or low-signal interests that should never survive sanitisation ─
   { matchName: "music genre", replaceName: null },
   { matchName: "list of music genres", replaceName: null },
@@ -800,17 +805,71 @@ const HARDCODED_DEPRECATED_INTERESTS: Array<{
 function hardcodedOverride(
   interest: { id: string; name: string },
 ): { action: "keep" } | { action: "replace"; searchName: string } | { action: "remove" } {
-  // Use normalizeInterestName so "DJ Magazine (music publication)" normalizes to
-  // "dj magazine" and still matches the entry for "dj magazine".
+  // Match against BOTH the raw lowercase name and the normalised (parenthetical-
+  // stripped) name. Matching the raw form lets us target entries like
+  // "Heavy Metal (magazine)" without colliding with the "Heavy Metal" music
+  // genre; the normalised pass still catches "DJ Magazine (music publication)".
+  const raw = interest.name.trim().toLowerCase();
   const norm = normalizeInterestName(interest.name);
   for (const entry of HARDCODED_DEPRECATED_INTERESTS) {
-    if (norm === entry.matchName) {
+    if (raw === entry.matchName || norm === entry.matchName) {
       return entry.replaceName === null
         ? { action: "remove" }
         : { action: "replace", searchName: entry.replaceName };
     }
   }
   return { action: "keep" };
+}
+
+/**
+ * Pre-create sync sanitisation. Runs ONLY the hardcoded override table — no
+ * network calls — and is safe to invoke as a final gate immediately before
+ * `createMetaAdSet`. Replacements without a resolved Meta ID are treated as
+ * removals (launch-time callers rely on the async preflight pass to resolve
+ * real replacement IDs upstream; this helper's job is to strip anything that
+ * survived that pass by name).
+ */
+export function sanitizeTargetingInterestsBeforeLaunch<
+  T extends { id: string; name?: string },
+>(
+  interests: T[],
+): {
+  cleaned: T[];
+  removed: Array<{ id: string; name: string; reason: string }>;
+  replaced: Array<{ deprecated: string; replacementSearchName: string }>;
+} {
+  const cleaned: T[] = [];
+  const removed: Array<{ id: string; name: string; reason: string }> = [];
+  const replaced: Array<{ deprecated: string; replacementSearchName: string }> = [];
+  const seenIds = new Set<string>();
+  for (const interest of interests) {
+    const name = interest.name ?? "";
+    const ov = hardcodedOverride({ id: interest.id, name });
+    if (ov.action === "remove") {
+      removed.push({
+        id: interest.id,
+        name,
+        reason: "Hardcoded pre-launch removal — deprecated, no sensible replacement",
+      });
+      continue;
+    }
+    if (ov.action === "replace") {
+      // We can't resolve the replacement ID synchronously here; if preflight
+      // hasn't already swapped this out, drop it rather than let Meta reject
+      // the whole ad set at create time.
+      removed.push({
+        id: interest.id,
+        name,
+        reason: `Hardcoded pre-launch removal — replacement "${ov.searchName}" not resolved before create`,
+      });
+      replaced.push({ deprecated: name, replacementSearchName: ov.searchName });
+      continue;
+    }
+    if (seenIds.has(interest.id)) continue;
+    seenIds.add(interest.id);
+    cleaned.push(interest);
+  }
+  return { cleaned, removed, replaced };
 }
 
 // ── Interest name normalization & fuzzy matching ──────────────────────────────

@@ -755,6 +755,19 @@ export interface LaunchSummary {
   }>;
   /** Deprecated interests that were auto-replaced during ad set creation */
   interestReplacements?: { deprecated: string; replacement: string | null; adSetName: string }[];
+  /**
+   * Final pre-launch hardcoded sanitisation telemetry. Populated when the
+   * last-line-of-defence sanitiser ran against any ad set immediately before
+   * `createMetaAdSet`, or when a deprecated-interest retry was attempted
+   * after a Meta create failure (e.g. subcode 1870247).
+   */
+  launchInterestSanitization?: {
+    finalLaunchInterestSanitizationApplied: boolean;
+    launchRemovedDeprecatedInterests: Array<{ adSetName: string; name: string; reason: string }>;
+    launchReplacedDeprecatedInterests: Array<{ adSetName: string; deprecated: string; replacementSearchName: string }>;
+    launchRetryAttempted: number;
+    launchRetrySucceeded: number;
+  };
   adSetsCreated: {
     name: string;
     metaAdSetId: string;

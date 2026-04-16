@@ -34,6 +34,7 @@ import {
   extractDeprecatedReplacements,
   applyInterestReplacements,
   sanitiseInterests,
+  sanitizeTargetingInterestsBeforeLaunch,
   hasAudienceTargeting,
   buildEmptyTargetingReason,
 } from "@/lib/meta/adset";
@@ -173,6 +174,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const preflightStart = Date.now();
   const preflightWarnings: { stage: string; message: string }[] = [];
   const interestReplacements: NonNullable<LaunchSummary["interestReplacements"]> = [];
+
+  // ── Launch-time interest sanitisation telemetry ───────────────────────────
+  // Populated by the last-line-of-defence sanitiser that runs immediately
+  // before each `createMetaAdSet`, and by any deprecated-interest retry that
+  // fires after a Meta create failure (e.g. subcode 1870247).
+  const launchRemovedDeprecatedInterests: Array<{ adSetName: string; name: string; reason: string }> = [];
+  const launchReplacedDeprecatedInterests: Array<{ adSetName: string; deprecated: string; replacementSearchName: string }> = [];
+  let launchRetryAttempted = 0;
+  let launchRetrySucceeded = 0;
+  let finalLaunchInterestSanitizationApplied = false;
 
   // 0a. Validate campaign payload
   const campaignValidation = validateCampaignPayload({
@@ -1260,6 +1271,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           );
 
+          // ── Final pre-create sanitisation ──────────────────────────────────
+          // Runs the hardcoded override table one last time against the exact
+          // interest list we are about to send to Meta. This catches cases
+          // where preflight's async fuzzy-match path didn't strip a deprecated
+          // interest (e.g. "Heavy Metal (magazine)", "Avant-garde") even
+          // though it exists in HARDCODED_DEPRECATED_INTERESTS.
+          if (adSet.sourceType === "interest_group" && (adSetPayload.targeting.interests ?? []).length > 0) {
+            const before = adSetPayload.targeting.interests ?? [];
+            const { cleaned, removed, replaced } = sanitizeTargetingInterestsBeforeLaunch(before);
+            if (removed.length > 0 || replaced.length > 0) {
+              finalLaunchInterestSanitizationApplied = true;
+              adSetPayload.targeting.interests = cleaned;
+              for (const r of removed) {
+                launchRemovedDeprecatedInterests.push({ adSetName: adSet.name, name: r.name, reason: r.reason });
+                interestReplacements.push({
+                  deprecated: r.name,
+                  replacement: null,
+                  adSetName: adSet.name,
+                });
+              }
+              for (const r of replaced) {
+                launchReplacedDeprecatedInterests.push({
+                  adSetName: adSet.name,
+                  deprecated: r.deprecated,
+                  replacementSearchName: r.replacementSearchName,
+                });
+              }
+              console.log(
+                `[launch-campaign] Phase 2 — pre-create sanitiser stripped ${removed.length} interest(s) from "${adSet.name}":\n` +
+                removed.map((r) => `    - ${r.name}: ${r.reason}`).join("\n"),
+              );
+            }
+          }
+
           // ── Targeting trace log ──────────────────────────────────────────────
           const tgt = adSetPayload.targeting;
           const customAudIds = (tgt.custom_audiences ?? []).map((a) => a.id);
@@ -1300,27 +1345,59 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
             return { adSet, metaAdSetId: adSetRes.id, durationMs: dur };
           } catch (err) {
-            // Auto-retry for deprecated interests
+            // Auto-retry ONCE for deprecated-interest failures. Covers Meta
+            // error subcode 1870247 ("interest is deprecated") plus any other
+            // error payload that `extractDeprecatedReplacements` can parse.
             if (adSet.sourceType === "interest_group" && err instanceof MetaApiError) {
               const replacements = extractDeprecatedReplacements(err.rawErrorData, err.message);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const subcode = (err.rawErrorData as any)?.error_subcode;
+              if (subcode === 1870247) {
+                console.log(
+                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" — Meta subcode 1870247 (deprecated interest) — attempting sanitised retry`,
+                );
+              }
               if (replacements.length > 0) {
+                launchRetryAttempted += 1;
+                finalLaunchInterestSanitizationApplied = true;
                 for (const r of replacements) {
                   interestReplacements.push({
                     deprecated: r.deprecatedName || r.deprecatedId,
                     replacement: r.alternativeName || r.alternativeId,
                     adSetName: adSet.name,
                   });
+                  if (r.alternativeName || r.alternativeId) {
+                    launchReplacedDeprecatedInterests.push({
+                      adSetName: adSet.name,
+                      deprecated: r.deprecatedName || r.deprecatedId,
+                      replacementSearchName: r.alternativeName || r.alternativeId || "",
+                    });
+                  } else {
+                    launchRemovedDeprecatedInterests.push({
+                      adSetName: adSet.name,
+                      name: r.deprecatedName || r.deprecatedId,
+                      reason: "Removed after Meta returned deprecated-interest error with no alternative",
+                    });
+                  }
                 }
 
-                const retryPayload = applyInterestReplacements(
-                  buildAdSetPayload(
-                    adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
-                    draft.settings.optimisationGoal, draft.settings.objective,
-                    draft.settings.metaPixelId || draft.settings.pixelId || undefined,
-                  ),
-                  replacements,
+                const rebuiltPayload = buildAdSetPayload(
+                  adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
+                  draft.settings.optimisationGoal, draft.settings.objective,
+                  draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                 );
+                // Apply Meta's alternatives (or remove entirely when none) and
+                // run the local sync sanitiser one more time so any other
+                // deprecated names can't slip through on retry.
+                let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
+                if ((retryPayload.targeting.interests ?? []).length > 0) {
+                  const { cleaned } = sanitizeTargetingInterestsBeforeLaunch(
+                    retryPayload.targeting.interests ?? [],
+                  );
+                  retryPayload = { ...retryPayload, targeting: { ...retryPayload.targeting, interests: cleaned } };
+                }
                 const retryRes = await createMetaAdSet(adAccountId, retryPayload);
+                launchRetrySucceeded += 1;
                 const dur = elapsed(asStart);
                 console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
                 return { adSet, metaAdSetId: retryRes.id, durationMs: dur };
@@ -1617,6 +1694,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .filter((g) => g.lookalikeAudienceIdsByRange && Object.keys(g.lookalikeAudienceIdsByRange).length > 0)
       .map((g) => ({ groupId: g.id, lookalikeAudienceIdsByRange: g.lookalikeAudienceIdsByRange! })),
     interestReplacements: interestReplacements.length > 0 ? interestReplacements : undefined,
+    launchInterestSanitization:
+      finalLaunchInterestSanitizationApplied ||
+      launchRemovedDeprecatedInterests.length > 0 ||
+      launchReplacedDeprecatedInterests.length > 0 ||
+      launchRetryAttempted > 0
+        ? {
+            finalLaunchInterestSanitizationApplied,
+            launchRemovedDeprecatedInterests,
+            launchReplacedDeprecatedInterests,
+            launchRetryAttempted,
+            launchRetrySucceeded,
+          }
+        : undefined,
     adSetsCreated,
     adSetsFailed,
     creativesCreated,

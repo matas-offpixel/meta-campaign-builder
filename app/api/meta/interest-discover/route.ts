@@ -813,6 +813,20 @@ export interface DiscoverCluster {
   interests: ClusteredInterest[];
 }
 
+export interface HintIntelligenceDebug {
+  hintIntentsDetected: string[];
+  hintPositiveFamilies: string[];
+  hintNegativeFamilies: string[];
+  hintBiasApplied: boolean;
+  hintFilteredOutNames: string[];
+  byCluster: Record<string, {
+    applied: boolean;
+    positive: string[];
+    negative: string[];
+    filteredOutNames: string[];
+  }>;
+}
+
 export interface DiscoverResponse {
   clusters: DiscoverCluster[];
   clusterSeeds: Record<string, string[]>;
@@ -820,6 +834,8 @@ export interface DiscoverResponse {
   detectedSceneTags: string[];
   audienceFingerprint: AudienceFingerprint;
   totalFound: number;
+  /** Populated only when the caller supplied free-text hints (see classifyHintIntents). */
+  hintIntelligence: HintIntelligenceDebug | null;
 }
 
 // ── Weighted scene tag builder ────────────────────────────────────────────────
@@ -1213,6 +1229,188 @@ const ALL_CLUSTER_LABELS = Object.keys(CLUSTER_DESCRIPTIONS);
 
 // ── Core discovery function ───────────────────────────────────────────────────
 
+// ── Hint-intent layer (Activities & Culture) ─────────────────────────────────
+//
+// Free-text scene hints like "suggest sport activities for people into nightlife
+// clubbing" are classified into a small set of high-level intents. Those intents
+// then bias the Activities & Culture generator so sport/fitness-oriented hints
+// don't get swamped by the generic art/gallery defaults in CULTURE_ENTITIES.
+//
+// Everything else (other clusters, scoring formulas, blocklists, fallbacks)
+// is untouched.
+
+type HintIntent =
+  | "sport_fitness"
+  | "art_design"
+  | "nightlife_social"
+  | "music_scene"
+  | "fashion_editorial"
+  | "general_culture";
+
+const HINT_INTENT_PATTERNS: Array<{ intent: HintIntent; pattern: RegExp }> = [
+  {
+    intent: "sport_fitness",
+    pattern:
+      /\b(sport|sports|gym|fitness|running|runner|cycling|cyclist|football|soccer|basketball|boxing|mma|martial\s+arts|yoga|pilates|dance\s+workout|workout|exercise|movement|wellness|wellbeing|padel|tennis|swim|swimming|hiking|climbing|skating|skateboard|surf|surfing|crossfit|weights?|strength|cardio|triathlon|marathon|rugby|cricket|health|active\s+lifestyle|recreation)\b/i,
+  },
+  {
+    intent: "nightlife_social",
+    pattern:
+      /\b(nightlife|clubbing|club(s|bing)?|rave|rav(e|ing|er)s?|party|parties|going\s+out|festival|festivals|late\s+night|after\s?hours?|dj\s+set|warehouse\s+party)\b/i,
+  },
+  {
+    intent: "art_design",
+    pattern:
+      /\b(art|artist|artists|gallery|galleries|exhibition|exhibitions|street\s+art|mural|murals|visual\s+art|fine\s+art|museum|museums|design(er)?|architecture|photography|photographer|sculpture|installation)\b/i,
+  },
+  {
+    intent: "music_scene",
+    pattern:
+      /\b(music|techno|house\s+music|trance|electronic|dj|djs|record\s+label|genre|band|musician|concert|live\s+music)\b/i,
+  },
+  {
+    intent: "fashion_editorial",
+    pattern:
+      /\b(fashion|editorial|streetwear|designer|runway|magazine|magazines|vogue|style)\b/i,
+  },
+];
+
+function classifyHintIntents(rawHints: string[]): Set<HintIntent> {
+  const intents = new Set<HintIntent>();
+  if (rawHints.length === 0) return intents;
+  const joined = rawHints.map((h) => h.trim()).filter(Boolean).join(" | ");
+  for (const { intent, pattern } of HINT_INTENT_PATTERNS) {
+    if (pattern.test(joined)) intents.add(intent);
+  }
+  if (intents.size === 0 && joined.length > 0) intents.add("general_culture");
+  return intents;
+}
+
+// Positive / negative keyword families per intent. These are matched against
+// each candidate's name + path to boost or demote (and sometimes drop) it.
+const INTENT_POSITIVE_FAMILIES: Record<HintIntent, string[]> = {
+  sport_fitness: [
+    "sport", "sports", "fitness", "gym", "exercise", "workout", "training",
+    "running", "cycling", "football", "soccer", "basketball", "boxing",
+    "martial arts", "yoga", "pilates", "dance", "movement", "wellness",
+    "wellbeing", "healthy lifestyle", "recreation", "outdoor", "tennis",
+    "padel", "swimming", "hiking", "climbing", "skateboard", "surfing",
+    "crossfit", "triathlon", "marathon", "athletics", "bodybuilding",
+  ],
+  art_design: [
+    "art", "artist", "gallery", "exhibition", "museum", "photography",
+    "design", "architecture", "sculpture", "installation art", "street art",
+    "mural", "visual art", "fine art", "contemporary art",
+  ],
+  nightlife_social: [
+    "nightlife", "nightclub", "clubbing", "party", "festival", "rave",
+    "dj", "disc jockey", "social event",
+  ],
+  music_scene: ["music", "concert", "live music", "record label", "band"],
+  fashion_editorial: [
+    "fashion", "editorial", "magazine", "designer clothing", "runway",
+    "streetwear", "style",
+  ],
+  general_culture: [],
+};
+
+const INTENT_NEGATIVE_FAMILIES: Record<HintIntent, string[]> = {
+  sport_fitness: [
+    "street art", "mural", "gallery", "exhibition", "contemporary art",
+    "visual art", "fine art", "museum", "sculpture", "installation art",
+    "architecture",
+  ],
+  art_design: [
+    "gym", "fitness", "workout", "crossfit", "bodybuilding", "running club",
+  ],
+  nightlife_social: [],
+  music_scene: [],
+  fashion_editorial: [],
+  general_culture: [],
+};
+
+function buildIntentFamilies(intents: Set<HintIntent>): {
+  positive: string[];
+  negative: string[];
+  hasSportFitness: boolean;
+  hasArtDesign: boolean;
+} {
+  const positive = new Set<string>();
+  const negative = new Set<string>();
+  for (const intent of intents) {
+    for (const kw of INTENT_POSITIVE_FAMILIES[intent] ?? []) positive.add(kw);
+    for (const kw of INTENT_NEGATIVE_FAMILIES[intent] ?? []) negative.add(kw);
+  }
+  const hasSportFitness = intents.has("sport_fitness");
+  const hasArtDesign = intents.has("art_design");
+  // If sport_fitness is present WITHOUT art_design, enforce art-family negatives
+  // even if the user didn't imply them. This is the "intent override" rule.
+  if (hasSportFitness && !hasArtDesign) {
+    for (const kw of INTENT_NEGATIVE_FAMILIES.sport_fitness) negative.add(kw);
+  }
+  return {
+    positive: [...positive],
+    negative: [...negative],
+    hasSportFitness,
+    hasArtDesign,
+  };
+}
+
+/** Match a keyword against a candidate's name+path as a whole-word substring. */
+function keywordMatches(text: string, keyword: string): boolean {
+  if (!keyword) return false;
+  return text.toLowerCase().includes(keyword.toLowerCase());
+}
+
+/**
+ * Re-score / filter Activities & Culture candidates according to hint intents.
+ * Additive only: if no intents or no matches, returns the original scored list.
+ */
+function applyHintBiasForActivitiesCulture<
+  T extends {
+    name: string;
+    path?: string[];
+    relevanceScore?: number;
+    matchReason?: string;
+  },
+>(
+  scored: T[],
+  families: ReturnType<typeof buildIntentFamilies>,
+): {
+  adjusted: T[];
+  filteredOutNames: string[];
+  biasApplied: boolean;
+} {
+  if (families.positive.length === 0 && families.negative.length === 0) {
+    return { adjusted: scored, filteredOutNames: [], biasApplied: false };
+  }
+  const filteredOutNames: string[] = [];
+  const adjusted: T[] = [];
+  for (const item of scored) {
+    const corpus = [item.name, ...(item.path ?? [])].join(" ").toLowerCase();
+    const negHit = families.negative.some((kw) => keywordMatches(corpus, kw));
+    const posHit = families.positive.some((kw) => keywordMatches(corpus, kw));
+    // Drop if clearly negative and nothing positive rescues it, and the caller
+    // has a strong sport_fitness intent without art_design.
+    if (negHit && !posHit && families.hasSportFitness && !families.hasArtDesign) {
+      filteredOutNames.push(item.name);
+      continue;
+    }
+    const current = item.relevanceScore ?? 0;
+    let delta = 0;
+    if (posHit) delta += 25;
+    if (negHit) delta -= 15;
+    const nextItem = { ...item };
+    if (delta !== 0) {
+      nextItem.relevanceScore = current + delta;
+      const tag = posHit && !negHit ? "hint+" : negHit && !posHit ? "hint-" : "hint~";
+      nextItem.matchReason = `${item.matchReason ?? "score"};${tag}`;
+    }
+    adjusted.push(nextItem);
+  }
+  return { adjusted, filteredOutNames, biasApplied: true };
+}
+
 async function discoverForCluster(
   clusterLabel: string,
   tagWeights: Map<SceneTag, number>,
@@ -1220,7 +1418,17 @@ async function discoverForCluster(
   token: string,
   globalSeen: Set<string>,
   directHintTerms: string[] = [],
-): Promise<{ cluster: DiscoverCluster; termsUsed: string[] }> {
+  hintIntents: Set<HintIntent> = new Set(),
+): Promise<{
+  cluster: DiscoverCluster;
+  termsUsed: string[];
+  hintBias?: {
+    applied: boolean;
+    positive: string[];
+    negative: string[];
+    filteredOutNames: string[];
+  };
+}> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
 
   // Scene hints always go first (they are the user's explicit signal) — deduplicated
@@ -1346,6 +1554,38 @@ async function discoverForCluster(
     }
   }
 
+  // ── Hint-intent bias (Activities & Culture only) ─────────────────────────
+  // If the user provided free-text hints like "sport activities", bias the
+  // final pool so sport/fitness intents beat the generic art/gallery defaults.
+  let hintBiasMeta: {
+    applied: boolean;
+    positive: string[];
+    negative: string[];
+    filteredOutNames: string[];
+  } | undefined;
+  if (clusterLabel === "Activities & Culture" && hintIntents.size > 0) {
+    const families = buildIntentFamilies(hintIntents);
+    const { adjusted, filteredOutNames, biasApplied } =
+      applyHintBiasForActivitiesCulture(aboveFloor, families);
+    aboveFloor = adjusted;
+    hintBiasMeta = {
+      applied: biasApplied,
+      positive: families.positive,
+      negative: families.negative,
+      filteredOutNames,
+    };
+    if (biasApplied) {
+      console.info(
+        `[hint] intents=${[...hintIntents].join(",")}\n` +
+        `[hint] positive=${families.positive.slice(0, 12).join(",")}\n` +
+        `[hint] negative=${families.negative.slice(0, 12).join(",")}\n` +
+        (filteredOutNames.length > 0
+          ? `[hint] filtered=${filteredOutNames.join(", ")}`
+          : `[hint] filtered=<none>`),
+      );
+    }
+  }
+
   const maxResults = confidence >= 75 ? 6 : 8;
   const interests = aboveFloor
     .sort((a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0))
@@ -1365,6 +1605,7 @@ async function discoverForCluster(
       interests,
     },
     termsUsed: allTerms,
+    hintBias: hintBiasMeta,
   };
 }
 
@@ -1475,22 +1716,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.info(`[interest-discover] direct-hint search terms: ${directHintTerms.join(", ")}`);
   }
 
+  // Classify free-text hints into high-level intents (used by Activities & Culture only)
+  const hintIntents = classifyHintIntents(rawHints);
+  if (hintIntents.size > 0) {
+    console.info(
+      `[interest-discover] hint-intents: ${[...hintIntents].join(",")}`,
+    );
+  }
+
   const targetLabels = clusterLabel ? [clusterLabel] : ALL_CLUSTER_LABELS;
   const globalSeen = new Set<string>();
   const clusterSeeds: Record<string, string[]> = {};
   const clusters: DiscoverCluster[] = [];
+  const hintBiasByCluster: Record<string, {
+    applied: boolean;
+    positive: string[];
+    negative: string[];
+    filteredOutNames: string[];
+  }> = {};
 
   for (const label of targetLabels) {
-    const { cluster, termsUsed } = await discoverForCluster(
+    const { cluster, termsUsed, hintBias } = await discoverForCluster(
       label,
       tagWeights,
       confidence,
       token,
       globalSeen,
       directHintTerms,
+      hintIntents,
     );
     clusterSeeds[label] = termsUsed;
     if (cluster.interests.length > 0) clusters.push(cluster);
+    if (hintBias) hintBiasByCluster[label] = hintBias;
   }
 
   const searchTermsUsed = [...new Set(Object.values(clusterSeeds).flat())];
@@ -1501,6 +1758,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     clusters.map((c) => `${c.label}:${c.interests.length}`).join(", "),
   );
 
+  const firstBias = Object.values(hintBiasByCluster)[0];
+  const hintIntelligence = hintIntents.size > 0
+    ? {
+        hintIntentsDetected: [...hintIntents],
+        hintPositiveFamilies: firstBias?.positive ?? [],
+        hintNegativeFamilies: firstBias?.negative ?? [],
+        hintBiasApplied: Object.values(hintBiasByCluster).some((b) => b.applied),
+        hintFilteredOutNames: Object.values(hintBiasByCluster).flatMap((b) => b.filteredOutNames),
+        byCluster: hintBiasByCluster,
+      }
+    : null;
+
   return NextResponse.json({
     clusters,
     clusterSeeds,
@@ -1508,5 +1777,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     detectedSceneTags,
     audienceFingerprint,
     totalFound: globalSeen.size,
+    hintIntelligence,
   } satisfies DiscoverResponse);
 }
