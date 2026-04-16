@@ -143,9 +143,12 @@ export interface SuggestionsDebugInfo {
   invalidSeedIds: string[];
   metaUrl: string;
   metaHttpStatus: number;
-  /** Which Meta param was used: interest_fbid_list (IDs) or interest_list (names) */
-  payloadMode: "interest_fbid_list" | "interest_list";
-  payloadValue: string;
+  /** Always "interest_list" — adinterestsuggestion is documented name-based */
+  payloadMode: "interest_list";
+  seedNamesSent: string[];
+  seedCount: number;
+  fallbackUsed: boolean;
+  fallbackSeedNames: string[];
   rawCount: number;
   afterExcludeCount: number;
   afterBlocklistCount: number;
@@ -196,22 +199,38 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // ── Step 2: filter to real Meta numeric IDs ───────────────────────────────
+  // ── Step 2: build seed name list ─────────────────────────────────────────
+  // adinterestsuggestion is documented to use interest_list = array of name
+  // strings. interest_fbid_list is for adinterestvalid (validation), not
+  // suggestions — sending it here causes Meta 500 "unknown error".
+  //
+  // Strategy: pair each received id with its name. Prefer seeds that have a
+  // real Meta numeric ID (they were searched/discovered and are known-valid).
+  // Fall back to name-only seeds if no real IDs exist (e.g. manually typed).
+
   const ID_RE = /^\d{5,}$/;
-  const interestList = ids
-    .map((id, i) => ({ id, name: names[i] ?? "" }))
-    .filter((x) => ID_RE.test(x.id));
+  const allSeeds = ids.map((id, i) => ({
+    id,
+    name: (names[i] ?? "").trim(),
+    hasRealId: ID_RE.test(id),
+  })).filter((s) => s.name.length > 0);
 
   const invalidIds = ids.filter((id) => !ID_RE.test(id));
 
+  // Sort: real-ID seeds first (higher confidence), then name-only
+  const sortedSeeds = [
+    ...allSeeds.filter((s) => s.hasRealId),
+    ...allSeeds.filter((s) => !s.hasRealId),
+  ];
+
   console.info(
-    `[interest-suggestions] seed filtering:` +
-    `\n  valid seeds (${interestList.length}): ${interestList.map((x) => `${x.name}(${x.id})`).join(", ") || "(none)"}` +
-    `\n  invalid/dropped IDs (${invalidIds.length}): ${invalidIds.join(", ") || "(none)"}`,
+    `[interest-suggestions] seeds:` +
+    `\n  total (${sortedSeeds.length}): ${sortedSeeds.map((s) => `${s.name}(id=${s.id},realId=${s.hasRealId})`).join(", ") || "(none)"}` +
+    `\n  non-numeric IDs (${invalidIds.length}): ${invalidIds.join(", ") || "(none)"}`,
   );
 
-  if (interestList.length === 0) {
-    console.info("[interest-suggestions] ✗ all IDs failed real-Meta-ID validation — returning empty");
+  if (sortedSeeds.length === 0) {
+    console.info("[interest-suggestions] ✗ no usable seed names — returning empty");
     return NextResponse.json({
       suggestions: [], count: 0,
       emptyReason: "no_valid_ids",
@@ -219,104 +238,155 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // ── Step 3: build Meta URL ────────────────────────────────────────────────
-  // Meta adinterestsuggestion expects EITHER:
-  //   interest_fbid_list = JSON array of ID strings  e.g. ["123","456"]
-  //   interest_list      = JSON array of name strings e.g. ["Techno","Carl Cox"]
-  //
-  // Sending interest_list as an array of objects {id,name} returns:
-  //   (#100) This field must be a string.
-  //
-  // Prefer interest_fbid_list when we have real numeric IDs (always true here
-  // because we already filtered with ID_RE above). Fall back to interest_list
-  // of name strings only when no valid IDs are available.
+  // ── Step 3: Meta call helper ──────────────────────────────────────────────
+  // adinterestsuggestion: interest_list = JSON array of plain name strings.
+  // Use encodeURIComponent (not URLSearchParams) to avoid encoding spaces as +.
 
   const tokenPrefix = token.slice(0, 12) + "…";
 
-  const fbidList = interestList.map((x) => x.id);
-  const nameList = interestList.map((x) => x.name);
-  const useIdMode = fbidList.length > 0;
-
-  // Payload field name and value
-  const payloadField = useIdMode ? "interest_fbid_list" : "interest_list";
-  const payloadValue = JSON.stringify(useIdMode ? fbidList : nameList);
-
-  const metaUrl =
-    `${BASE}/search` +
-    `?access_token=${encodeURIComponent(token)}` +
-    `&type=adinterestsuggestion` +
-    `&${payloadField}=${encodeURIComponent(payloadValue)}` +
-    `&limit=30`;
-
-  const metaUrlSafe =
-    `${BASE}/search` +
-    `?access_token=${tokenPrefix}` +
-    `&type=adinterestsuggestion` +
-    `&${payloadField}=${encodeURIComponent(payloadValue)}` +
-    `&limit=30`;
-
-  console.info(
-    `[interest-suggestions] ▶ calling Meta:` +
-    `\n  token prefix: ${tokenPrefix}` +
-    `\n  payload mode: ${payloadField}` +
-    `\n  payload value: ${payloadValue}` +
-    `\n  url (safe): ${metaUrlSafe}`,
-  );
-
-  // ── Step 4: call Meta ─────────────────────────────────────────────────────
-  let res: Response;
-  let metaHttpStatus = 0;
-  try {
-    res = await fetch(metaUrl, { cache: "no-store" });
-    metaHttpStatus = res.status;
-  } catch (err) {
-    console.error("[interest-suggestions] ✗ network error:", err);
-    return NextResponse.json({
-      error: "Network error contacting Meta API",
-      emptyReason: "network_error",
-    }, { status: 502 });
+  function buildMetaUrl(seedNames: string[]): { url: string; urlSafe: string; payloadValue: string } {
+    const payloadValue = JSON.stringify(seedNames);
+    const url =
+      `${BASE}/search` +
+      `?access_token=${encodeURIComponent(token!)}` +
+      `&type=adinterestsuggestion` +
+      `&interest_list=${encodeURIComponent(payloadValue)}` +
+      `&limit=30`;
+    const urlSafe =
+      `${BASE}/search` +
+      `?access_token=${tokenPrefix}` +
+      `&type=adinterestsuggestion` +
+      `&interest_list=${encodeURIComponent(payloadValue)}` +
+      `&limit=30`;
+    return { url, urlSafe, payloadValue };
   }
 
-  const json = (await res.json()) as Record<string, unknown>;
+  type MetaRaw = Array<{ id: string; name: string; audience_size?: number; path?: string[] }>;
 
-  console.info(
-    `[interest-suggestions] Meta response: HTTP ${metaHttpStatus}` +
-    `\n  has error: ${!!json.error}` +
-    `\n  raw body preview: ${JSON.stringify(json).slice(0, 300)}`,
-  );
-
-  if (!res.ok || json.error) {
-    const e = (json.error ?? {}) as Record<string, unknown>;
-    const errMsg = (e.message as string) ?? `HTTP ${metaHttpStatus}`;
-    const errCode = e.code;
-    const errSubcode = e.error_subcode;
-    console.error(
-      `[interest-suggestions] ✗ Meta API error:` +
-      `\n  message: ${errMsg}` +
-      `\n  code: ${errCode}` +
-      `\n  subcode: ${errSubcode}` +
-      `\n  full error: ${JSON.stringify(e)}`,
+  async function callMeta(seedNames: string[], attempt: string): Promise<
+    | { ok: true; data: MetaRaw; httpStatus: number; urlSafe: string; payloadValue: string }
+    | { ok: false; errMsg: string; errCode: unknown; errSubcode: unknown; httpStatus: number; urlSafe: string; payloadValue: string }
+  > {
+    const { url, urlSafe, payloadValue } = buildMetaUrl(seedNames);
+    console.info(
+      `[interest-suggestions] ▶ Meta call (${attempt}):` +
+      `\n  token prefix: ${tokenPrefix}` +
+      `\n  payload mode: interest_list` +
+      `\n  seedCount: ${seedNames.length}` +
+      `\n  seedNamesSent: ${JSON.stringify(seedNames)}` +
+      `\n  url (safe): ${urlSafe}`,
     );
-    // Classify the error so the frontend can show a useful message
-    let emptyReason = "meta_error";
+
+    let res: Response;
+    let httpStatus = 0;
+    try {
+      res = await fetch(url, { cache: "no-store" });
+      httpStatus = res.status;
+    } catch (err) {
+      console.error(`[interest-suggestions] ✗ network error (${attempt}):`, err);
+      return { ok: false, errMsg: "Network error", errCode: null, errSubcode: null, httpStatus: 0, urlSafe, payloadValue };
+    }
+
+    const json = (await res.json()) as Record<string, unknown>;
+    console.info(
+      `[interest-suggestions] Meta response (${attempt}): HTTP ${httpStatus}` +
+      `\n  has error: ${!!json.error}` +
+      `\n  raw body preview: ${JSON.stringify(json).slice(0, 400)}`,
+    );
+
+    if (!res.ok || json.error) {
+      const e = (json.error ?? {}) as Record<string, unknown>;
+      const errMsg = (e.message as string) ?? `HTTP ${httpStatus}`;
+      const errCode = e.code;
+      const errSubcode = e.error_subcode;
+      console.error(
+        `[interest-suggestions] ✗ Meta error (${attempt}): message=${errMsg} code=${errCode} subcode=${errSubcode}` +
+        `\n  full: ${JSON.stringify(e)}`,
+      );
+      return { ok: false, errMsg, errCode, errSubcode, httpStatus, urlSafe, payloadValue };
+    }
+
+    const data = (json.data as MetaRaw) ?? [];
+    return { ok: true, data, httpStatus, urlSafe, payloadValue };
+  }
+
+  // ── Step 4: attempt 1 — all seeds ─────────────────────────────────────────
+  const allSeedNames = sortedSeeds.map((s) => s.name);
+  let metaResult = await callMeta(allSeedNames, "attempt-1/all-seeds");
+
+  let fallbackUsed = false;
+  let fallbackSeedNames: string[] = [];
+
+  // ── Step 4b: fallback — retry with top 1-2 highest-confidence seeds ───────
+  // Triggered when: Meta 500 or empty result on full seed list.
+  // Strongest seeds = real-ID seeds, capped at 2 for minimal payload.
+  const needsFallback =
+    !metaResult.ok ||
+    (metaResult.ok && metaResult.data.length === 0 && sortedSeeds.length > 1);
+
+  if (needsFallback) {
+    const topSeeds = sortedSeeds.filter((s) => s.hasRealId).slice(0, 2);
+    // If no real-ID seeds, fall back to first 1 named seed
+    const fallbackPool = topSeeds.length > 0 ? topSeeds : sortedSeeds.slice(0, 1);
+    fallbackSeedNames = fallbackPool.map((s) => s.name);
+
+    console.info(
+      `[interest-suggestions] fallback triggered (${!metaResult.ok ? "Meta error" : "empty result"})` +
+      ` — retrying with top seeds: ${JSON.stringify(fallbackSeedNames)}`,
+    );
+
+    const fallbackResult = await callMeta(fallbackSeedNames, "attempt-2/fallback-seeds");
+    fallbackUsed = true;
+
+    if (fallbackResult.ok) {
+      metaResult = fallbackResult;
+    } else {
+      // Both attempts failed — surface a specific emptyReason
+      const errCode = fallbackResult.errCode;
+      let emptyReason = "meta_500_fallback_seeds";
+      if (typeof errCode === "number") {
+        if (errCode === 190 || errCode === 102) emptyReason = "token_expired";
+        else if (errCode === 200 || errCode === 10) emptyReason = "token_permission";
+        else if (errCode === 100) emptyReason = "invalid_request";
+      }
+      return NextResponse.json({
+        error: fallbackResult.errMsg, code: errCode, emptyReason,
+        debug: {
+          metaHttpStatus: fallbackResult.httpStatus, tokenPrefix,
+          metaUrl: fallbackResult.urlSafe, payloadMode: "interest_list",
+          seedNamesSent: fallbackSeedNames, seedCount: fallbackSeedNames.length,
+          fallbackUsed: true, fallbackSeedNames,
+        },
+      }, { status: 502 });
+    }
+  }
+
+  // Surface error from attempt-1 when fallback wasn't triggered but it failed
+  if (!metaResult.ok) {
+    const errCode = metaResult.errCode;
+    let emptyReason = "meta_500_all_seeds";
     if (typeof errCode === "number") {
       if (errCode === 190 || errCode === 102) emptyReason = "token_expired";
       else if (errCode === 200 || errCode === 10) emptyReason = "token_permission";
       else if (errCode === 100) emptyReason = "invalid_request";
     }
-    return NextResponse.json(
-      { error: errMsg, code: errCode, emptyReason, debug: { metaHttpStatus, tokenPrefix, metaUrl: metaUrlSafe, payloadMode: payloadField, payloadValue } },
-      { status: 502 },
-    );
+    return NextResponse.json({
+      error: metaResult.errMsg, code: errCode, emptyReason,
+      debug: {
+        metaHttpStatus: metaResult.httpStatus, tokenPrefix,
+        metaUrl: metaResult.urlSafe, payloadMode: "interest_list",
+        seedNamesSent: allSeedNames, seedCount: allSeedNames.length,
+        fallbackUsed, fallbackSeedNames,
+      },
+    }, { status: 502 });
   }
 
   // ── Step 5: parse raw results ─────────────────────────────────────────────
-  const raw = (json.data as Array<{
-    id: string;
-    name: string;
-    audience_size?: number;
-    path?: string[];
-  }>) ?? [];
+  const raw = metaResult.data;
+  const metaHttpStatus = metaResult.httpStatus;
+  const metaUrlSafe = metaResult.urlSafe;
+  const payloadValue = metaResult.payloadValue;
+  const seedNamesSent = fallbackUsed ? fallbackSeedNames : allSeedNames;
 
   const top5Raw = raw.slice(0, 5).map((r) => `${r.name}(${r.id})`);
   console.info(
@@ -328,7 +398,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       suggestions: [], count: 0,
       emptyReason: "meta_returned_empty",
-      debug: { validSeedCount: interestList.length, rawCount: 0, tokenPrefix },
+      debug: {
+        validSeedCount: sortedSeeds.length, rawCount: 0, tokenPrefix,
+        payloadMode: "interest_list", seedNamesSent, seedCount: seedNamesSent.length,
+        fallbackUsed, fallbackSeedNames,
+      },
     });
   }
 
@@ -396,17 +470,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (blockedNames.length > 0 && afterExclude === 0) emptyReason = "all_excluded";
     else if (blockedNames.length > 0) emptyReason = "blocklist_filtered";
     else emptyReason = "scored_out";
+  } else if (suggestions.length > 0 && fallbackUsed) {
+    emptyReason = "success_after_fallback";
   }
 
   const debugInfo: SuggestionsDebugInfo = {
     receivedIds: ids,
     receivedNames: names,
-    validSeedCount: interestList.length,
+    validSeedCount: sortedSeeds.filter((s) => s.hasRealId).length,
     invalidSeedIds: invalidIds,
     metaUrl: metaUrlSafe,
     metaHttpStatus,
-    payloadMode: payloadField as "interest_fbid_list" | "interest_list",
-    payloadValue,
+    payloadMode: "interest_list",
+    seedNamesSent,
+    seedCount: seedNamesSent.length,
+    fallbackUsed,
+    fallbackSeedNames,
     rawCount: raw.length,
     afterExcludeCount: afterExclude,
     afterBlocklistCount: afterExclude - blockedNames.length,
