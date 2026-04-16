@@ -483,9 +483,13 @@ export interface SuggestionsDebugInfo {
     name: string;
     bucket: SeedBucket;
     reliability: number;
+    reliabilityInputs: Record<string, number>;
     ambiguityScore: number;
     domain: string;
     entityType: SuggestionType;
+    normalisedEntityType: NormalisedEntityType;
+    domainFamilies: DomainFamily[];
+    watchlistClass: WatchlistClass;
     pathDepth: number;
     path: string[];
     audienceSize: number;
@@ -608,47 +612,237 @@ async function enrichCandidates(
   return { enriched, httpStatus: lastHttpStatus, error: lastError };
 }
 
-// ── Landing 2b-i: seed profiling + dominant cluster inference ────────────────
+// ── Landing 2b-i (patched): seed profiling + dominant cluster inference ──────
 // OBSERVATION ONLY — these signals are logged and returned in debug, but
 // DO NOT influence scoring yet. Scoring changes land in 2b-ii/iii/iv.
+//
+// Patch rationale: Meta often returns seeds under "Interests > Additional
+// interests > [leaf]", which flattens path-based LCP to an empty consensus.
+// This patch adds a domain/type-based cluster inference layer that works
+// from entity dictionaries and deterministic name heuristics, with path
+// overlap demoted to a fallback signal.
 
 type SeedBucket = "trusted" | "weak" | "ambiguous" | "conflicting";
+
+type NormalisedEntityType =
+  | "platform"
+  | "genre"
+  | "artist"
+  | "media_publication"
+  | "fashion_brand"
+  | "nightlife_event"
+  | "lifestyle_brand"
+  | "unknown";
+
+type DomainFamily =
+  | "music"
+  | "electronic_music"
+  | "music_platform"
+  | "nightlife"
+  | "fashion"
+  | "fashion_editorial"
+  | "media"
+  | "literature"
+  | "entertainment";
+
+type ClusterKey =
+  | "electronic_music_nightlife"
+  | "music_platforms"
+  | "music_general"
+  | "fashion_editorial"
+  | "fashion_brands"
+  | "literature_media"
+  | "unknown"
+  | `taxonomy:${string}`;
+
+type WatchlistClass = "none" | "soft" | "hard_ambiguous";
 
 export interface SeedProfile {
   id: string;
   name: string;
   path: string[];
   audienceSize: number;
-  domain: string;
-  entityType: SuggestionType;
+  domain: string;                       // legacy — last path node, retained for back-compat
+  entityType: SuggestionType;           // legacy — classifyFromPath output
+  normalisedEntityType: NormalisedEntityType;
+  domainFamilies: DomainFamily[];
+  watchlistClass: WatchlistClass;
   pathDepth: number;
-  ambiguityScore: number;  // 0..1, higher = more ambiguous
-  reliability: number;     // 0..1
+  ambiguityScore: number;               // 0..1, higher = more ambiguous
+  reliability: number;                  // 0..1
+  reliabilityInputs: Record<string, number>; // per-factor contribution for debug
   bucket: SeedBucket;
   onDominantCluster: boolean;
   flags: string[];
 }
 
 export interface DominantCluster {
-  path: string[];
+  clusterKey: ClusterKey;               // NEW — primary identity
+  path: string[];                       // legacy / fallback path
   confidence: number;
   supporters: string[];
   depth: number;
   band: "high" | "medium" | "low";
+  supportByDomain: Partial<Record<DomainFamily, number>>;
+  supportByEntityType: Partial<Record<NormalisedEntityType, number>>;
+  pathContributed: boolean;
+  reason: string;                       // human-readable explanation
 }
 
-// Hand-curated list of interest names that collide with unrelated Meta interests.
-// Grows empirically from exclusionReason telemetry. Lowercased, exact-match.
-const AMBIGUOUS_NAME_LIST = new Set([
-  "gala", "id", "i.d.", "i-d", "dance", "metal", "eclipse", "apple",
-  "cosmos", "prism", "venus", "eden", "atlas", "vice", "fact", "kid",
-  "love", "mood", "echo", "halo", "metro", "faith", "pure", "true",
-  "icon", "nova", "zen", "vogue", "rage", "stone", "mint", "cloud",
-  "spark", "blaze", "palace", "supreme", "culture", "noise", "fade",
+// ── Entity dictionaries ──────────────────────────────────────────────────────
+// Hand-curated. Lowercase. Matched after normaliseName() strips suffixes
+// like "(music)", "(magazine)". These are authoritative: a hit here overrides
+// path-based classification for unambiguous entities.
+
+const MUSIC_PLATFORMS = new Set([
+  "spotify", "apple music", "soundcloud", "tidal", "bandcamp",
+  "youtube music", "deezer", "mixcloud", "beatport", "amazon music",
+  "pandora", "traxsource", "audius", "qobuz", "napster",
+  "shazam", "last.fm", "itunes",
 ]);
 
-// Single-word common-English terms that match too many Meta nodes. Lowercase.
-const COMMON_WORD_PATTERN = /^[a-z]{1,5}$/;
+const ELECTRONIC_GENRES = new Set([
+  "techno", "hard techno", "minimal techno", "acid techno", "industrial techno",
+  "house", "deep house", "tech house", "minimal house", "acid house",
+  "progressive house", "melodic house", "melodic techno", "afro house",
+  "trance", "psytrance", "progressive trance", "goa trance",
+  "drum and bass", "dnb", "drum n bass", "jungle", "liquid dnb",
+  "dubstep", "bass music", "uk garage", "2-step", "2 step", "speed garage",
+  "electro", "electroclash", "breakbeat", "breaks",
+  "ambient", "idm", "glitch", "downtempo",
+  "industrial", "ebm", "hardcore", "gabber", "hardstyle",
+  "footwork", "juke", "grime", "trap",
+]);
+
+const OTHER_GENRES = new Set([
+  "jazz", "blues", "rock", "pop", "indie", "indie rock", "alternative rock",
+  "hip hop", "hip-hop", "rap", "r&b", "soul", "funk", "disco",
+  "folk", "country", "reggae", "dancehall", "latin", "salsa",
+  "classical", "metal", "heavy metal", "punk", "hardcore punk",
+  "k-pop", "j-pop", "afrobeats", "electronic music", "electronic dance music", "edm",
+]);
+
+const ELECTRONIC_ARTISTS = new Set([
+  "carl cox", "richie hawtin", "jeff mills", "derrick may", "kevin saunderson",
+  "sven väth", "sven vath", "laurent garnier", "dj hell", "dixon",
+  "adam beyer", "nina kraviz", "amelie lens", "charlotte de witte",
+  "i hate models", "dax j", "fjaak", "dvs1", "ben klock", "marcel dettmann",
+  "rødhåd", "rodhad", "peggy gou", "honey dijon", "the blessed madonna",
+  "daphni", "floating points", "four tet", "caribou", "bonobo",
+  "fisher", "chris lake", "mk", "claude vonstroke",
+  "jamie jones", "lee burridge", "hot since 82", "solomun", "tale of us",
+  "mind against", "mathame", "sasha", "john digweed", "paul van dyk",
+  "armin van buuren", "tiësto", "tiesto", "david guetta", "calvin harris",
+  "disclosure", "bicep", "overmono", "skrillex", "deadmau5",
+  "daft punk", "justice", "moderat", "modeselektor", "apparat",
+  "boys noize", "erol alkan", "2manydjs", "sven marquardt",
+  "fred again", "fred again..", "skream", "benga", "mala",
+  "goldie", "dj hype", "dillinja", "sub focus", "andy c",
+  "aphex twin", "autechre", "squarepusher", "burial", "actress",
+  "mall grab", "denis sulta", "hammer",
+  "999999999", "9999999999",
+]);
+
+const FASHION_BRANDS = new Set([
+  "helmut lang", "rick owens", "raf simons", "maison margiela", "margiela",
+  "balenciaga", "comme des garçons", "comme des garcons", "cdg",
+  "yohji yamamoto", "issey miyake", "ann demeulemeester", "dries van noten",
+  "alexander mcqueen", "vetements", "off-white", "off white",
+  "supreme", "stüssy", "stussy", "palace", "palace skateboards", "bape", "a bathing ape",
+  "acne studios", "ganni", "prada", "miu miu", "gucci", "louis vuitton",
+  "chanel", "hermès", "hermes", "saint laurent", "ysl",
+  "loewe", "jacquemus", "the row", "khaite", "lemaire",
+  "bottega veneta", "valentino", "versace", "fendi", "celine",
+  "burberry", "dior", "christian dior", "marni", "jil sander",
+  "undercover", "junya watanabe", "sacai", "kiko kostadinov",
+  "martine rose", "craig green", "our legacy", "studio nicholson",
+  "martens", "dr martens", "doc martens",
+  "nike", "adidas", "adidas originals", "new balance", "asics",
+  "vans", "converse", "reebok", "puma",
+  "birkenstock", "salomon",
+  "patagonia", "arc'teryx", "arcteryx", "the north face",
+  "carhartt", "carhartt wip", "dickies",
+]);
+
+const FASHION_MEDIA = new Set([
+  "dazed", "dazed & confused", "dazed confused", "dazed and confused",
+  "dazed & confused magazine", "i-d", "i.d.", "id magazine", "i-d magazine",
+  "another magazine", "another", "vogue", "vogue magazine",
+  "harper's bazaar", "harpers bazaar", "w magazine", "the gentlewoman",
+  "purple magazine", "purple", "self service", "self service magazine",
+  "032c", "fantastic man", "document journal", "system magazine", "system",
+  "metal magazine", "heavy metal magazine", // niche fashion-art publications
+  "numero", "numéro", "l'officiel", "lofficiel",
+  "ssense", "highsnobiety", "hypebeast", "hypebae",
+  "business of fashion", "bof", "wwd",
+  "list of fashion magazines",
+]);
+
+const MUSIC_MEDIA = new Set([
+  "resident advisor", "ra", "mixmag", "dj mag", "dj magazine",
+  "fact", "fact magazine", "the fader", "pitchfork",
+  "rolling stone", "nme", "rock sound", "kerrang",
+  "the wire", "the wire magazine", "ra sessions",
+  "loud and quiet", "crack magazine", "crack",
+  "clash", "clash magazine",
+]);
+
+const NIGHTLIFE_EVENTS = new Set([
+  // Venues
+  "boiler room", "berghain", "panorama bar", "panoramabar",
+  "fabric", "fabric london", "tresor", "robert johnson",
+  "concrete", "concrete paris", "rex club", "printworks",
+  "printworks london", "warehouse project", "the warehouse project",
+  "output", "halcyon", "smartbar", "corsica studios",
+  "village underground", "fold", "bassiani", "khidi",
+  "de school", "shelter amsterdam", "trouw", "thuishaven",
+  "about blank", "about:blank", "sisyphos", "kater blau",
+  "ritter butzke", "salon zur wilden renate", "griessmuehle",
+  "nowadays", "nowadays nyc", "basement", "brooklyn mirage",
+  "e1", "e1 london", "phonox", "corsica",
+  // Festivals
+  "awakenings", "movement", "movement festival", "tomorrowland",
+  "time warp", "dekmantel", "sonar", "sónar", "dgtl",
+  "lowlands", "mysteryland", "creamfields", "dimensions",
+  "dimensions festival", "unknown festival", "nuits sonores",
+  "exit festival", "ultra music festival", "ultra",
+  "decibel festival", "meadows in the mountains", "meadows",
+  "freqs of nature", "fusion festival", "hospitality in the park",
+  "gala", "gala festival", // "Gala" as a festival (ambiguous w/ Met Gala)
+  "boiler room festival",
+]);
+
+// ── Watchlists ────────────────────────────────────────────────────────────────
+// HARD_AMBIGUOUS: single-word homonyms that should reduce reliability when
+// they DON'T match any entity dictionary (i.e. we can't confirm the entity).
+const HARD_AMBIGUOUS_NAMES = new Set([
+  "gala", "metal", "id", "house", "garage", "wire",
+  "fabric", "vice", "paper", "scene", "love", "dance",
+  "eclipse", "apple", "cosmos", "prism", "venus", "eden",
+  "atlas", "fact", "kid", "mood", "echo", "halo",
+  "metro", "faith", "pure", "true", "icon", "nova",
+  "zen", "rage", "stone", "mint", "cloud", "spark",
+  "blaze", "noise", "fade", "culture", "vogue",
+]);
+
+// SOFT_WATCHLIST: known entities that shouldn't be penalised just for being
+// on the list. Telemetry only — used to surface "needs extra scrutiny" in
+// mixed-signal scenarios (logged, not scored).
+const SOFT_WATCHLIST_NAMES = new Set([
+  "metal magazine", "heavy metal magazine", "heavy metal (magazine)",
+  "dazed & confused (magazine)", "i.d. (magazine)", "i-d (magazine)",
+  "another magazine", "boiler room", "carl cox", "spotify", "apple music",
+  "techno", "techno (music)", "literary magazine", "list of fashion magazines",
+]);
+
+function normaliseName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s*\((?:music|magazine|fashion\s*brand|fashion|brand|website|company|product\/service|tv\s*program|film|band|musician|artist|author|book|movie|publication|media|event|dj|record\s*label|genre)\)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function lcpPaths(a: readonly string[], b: readonly string[]): number {
   let n = 0;
@@ -656,6 +850,182 @@ function lcpPaths(a: readonly string[], b: readonly string[]): number {
   while (n < max && a[n].toLowerCase() === b[n].toLowerCase()) n++;
   return n;
 }
+
+// ── Normalised entity-type inference (dictionary-first cascade) ──────────────
+
+function inferNormalisedEntityType(
+  rawName: string,
+  path: string[],
+): NormalisedEntityType {
+  const norm = normaliseName(rawName);
+  const pathJoined = path.map((p) => p.toLowerCase()).join(" > ");
+  const nameHasMusicSuffix = /\(music\)/i.test(rawName);
+  const musicContext = nameHasMusicSuffix ||
+    /\bmusic\b/.test(pathJoined) ||
+    /\belectronic\b/.test(pathJoined) ||
+    /\bgenres?\b/.test(pathJoined);
+
+  // 1. Music platforms — unique entity names, dictionary authoritative
+  if (MUSIC_PLATFORMS.has(norm)) return "platform";
+
+  // 2. Fashion brands — unique entity names, dictionary authoritative
+  if (FASHION_BRANDS.has(norm)) return "fashion_brand";
+
+  // 3. Electronic artists/DJs — unique names
+  if (ELECTRONIC_ARTISTS.has(norm)) return "artist";
+
+  // 4. Fashion media publications
+  if (FASHION_MEDIA.has(norm)) return "media_publication";
+
+  // 5. Music media publications
+  if (MUSIC_MEDIA.has(norm)) return "media_publication";
+
+  // 6. Nightlife venues/events
+  if (NIGHTLIFE_EVENTS.has(norm)) return "nightlife_event";
+
+  // 7. Genre match — require music context to guard against homonyms
+  //    ("house" could be the genre, or anything else)
+  if ((ELECTRONIC_GENRES.has(norm) || OTHER_GENRES.has(norm)) && musicContext) {
+    return "genre";
+  }
+
+  // 8. Path-based fallback (Meta's taxonomy)
+  const pathType = classifyFromPath(path);
+  switch (pathType) {
+    case "fashion_brand":    return "fashion_brand";
+    case "fashion_media":    return "media_publication";
+    case "music_media":      return "media_publication";
+    case "music_platform":   return "platform";
+    case "genre":            return "genre";
+    case "artist":           return "artist";
+    case "venue":
+    case "festival":         return "nightlife_event";
+    case "streetwear":       return "fashion_brand";
+    case "lifestyle_brand":  return "lifestyle_brand";
+    case "media":            return "media_publication";
+    default:                 return "unknown";
+  }
+}
+
+// ── Domain family inference ──────────────────────────────────────────────────
+
+function inferDomainFamilies(
+  rawName: string,
+  path: string[],
+  entityType: NormalisedEntityType,
+): DomainFamily[] {
+  const families = new Set<DomainFamily>();
+  const norm = normaliseName(rawName);
+  const pathJoined = path.map((p) => p.toLowerCase()).join(" > ");
+
+  switch (entityType) {
+    case "platform": {
+      if (MUSIC_PLATFORMS.has(norm) || /\bmusic\b/.test(pathJoined)) {
+        families.add("music");
+        families.add("music_platform");
+      } else {
+        families.add("media");
+      }
+      break;
+    }
+    case "genre": {
+      families.add("music");
+      if (ELECTRONIC_GENRES.has(norm)) {
+        families.add("electronic_music");
+        families.add("nightlife");
+      }
+      break;
+    }
+    case "artist": {
+      families.add("music");
+      if (ELECTRONIC_ARTISTS.has(norm) || /electronic/.test(pathJoined)) {
+        families.add("electronic_music");
+        families.add("nightlife");
+      }
+      break;
+    }
+    case "media_publication": {
+      families.add("media");
+      if (FASHION_MEDIA.has(norm) ||
+          /\bfashion\b/.test(pathJoined) ||
+          /\beditorial\b/.test(pathJoined)) {
+        families.add("fashion");
+        families.add("fashion_editorial");
+      } else if (MUSIC_MEDIA.has(norm) || /\bmusic\b/.test(pathJoined)) {
+        families.add("music");
+      } else if (/\bliterature\b/.test(pathJoined) || /\bbook\b/.test(pathJoined) ||
+                 /\bliterary\b/i.test(rawName)) {
+        families.add("literature");
+      }
+      break;
+    }
+    case "fashion_brand": {
+      families.add("fashion");
+      break;
+    }
+    case "nightlife_event": {
+      families.add("nightlife");
+      families.add("entertainment");
+      if (NIGHTLIFE_EVENTS.has(norm)) {
+        families.add("music");
+        families.add("electronic_music");
+      }
+      break;
+    }
+    case "lifestyle_brand": {
+      // No family yet — reserved for future expansion
+      break;
+    }
+    case "unknown":
+    default: {
+      // Last-ditch: look for family keywords in path only
+      if (/\bmusic\b/.test(pathJoined)) families.add("music");
+      if (/\bfashion\b/.test(pathJoined)) families.add("fashion");
+      if (/\bnightlife\b/.test(pathJoined)) families.add("nightlife");
+      break;
+    }
+  }
+
+  return Array.from(families);
+}
+
+// ── Reliability computation (patched — no audience penalty) ─────────────────
+
+function computeReliability(args: {
+  entityType: NormalisedEntityType;
+  domainFamilies: DomainFamily[];
+  pathDepth: number;
+  watchlistClass: WatchlistClass;
+  audienceSize: number;
+}): { value: number; inputs: Record<string, number> } {
+  const inputs: Record<string, number> = { base: 0.55 };
+  let r = 0.55;
+
+  if (args.entityType !== "unknown") { r += 0.20; inputs.clear_entity_type = 0.20; }
+  if (args.domainFamilies.length > 0) { r += 0.10; inputs.has_domain_family = 0.10; }
+
+  if (args.watchlistClass === "hard_ambiguous") { r -= 0.30; inputs.hard_ambiguous = -0.30; }
+  // soft watchlist: no reliability change (telemetry only)
+
+  if (args.pathDepth === 0) { r -= 0.15; inputs.no_path = -0.15; }
+  else if (args.pathDepth >= 3) { r += 0.10; inputs.deep_path = 0.10; }
+
+  if (args.entityType === "unknown" && args.pathDepth < 3) {
+    r -= 0.10;
+    inputs.unknown_shallow = -0.10;
+  }
+
+  // Mild audience modifier — niche + clear identity gets a small boost.
+  // We deliberately do NOT penalise huge audiences (Spotify / Techno etc.).
+  if (args.audienceSize > 0 && args.audienceSize < 10_000_000 && args.entityType !== "unknown") {
+    r += 0.05;
+    inputs.niche_with_identity = 0.05;
+  }
+
+  return { value: Math.max(0, Math.min(1, r)), inputs };
+}
+
+// ── Seed profiling (patched) ─────────────────────────────────────────────────
 
 function profileSeedPartial(
   id: string,
@@ -667,60 +1037,177 @@ function profileSeedPartial(
   const audienceSize = e?.audienceSize ?? 0;
   const pathDepth = path.length;
   const domain = path.length > 0 ? path[path.length - 1] : "(unknown)";
-  const entityType: SuggestionType = path.length > 0 ? classifyFromPath(path) : "unknown";
+  const legacyEntityType: SuggestionType = path.length > 0 ? classifyFromPath(path) : "unknown";
   const nameLower = name.trim().toLowerCase();
+  const norm = normaliseName(name);
+
+  const normalisedEntityType = inferNormalisedEntityType(name, path);
+  const domainFamilies = inferDomainFamilies(name, path, normalisedEntityType);
+
+  // Watchlist classification — hierarchy: hard > soft > none.
+  // Hard trigger is suppressed if the entity dictionary recognised it (e.g.
+  // "Apple" ambiguous but "Apple Music" is in MUSIC_PLATFORMS → none).
+  let watchlistClass: WatchlistClass = "none";
+  if (normalisedEntityType === "unknown") {
+    if (HARD_AMBIGUOUS_NAMES.has(nameLower) || HARD_AMBIGUOUS_NAMES.has(norm)) {
+      watchlistClass = "hard_ambiguous";
+    } else if (SOFT_WATCHLIST_NAMES.has(nameLower) || SOFT_WATCHLIST_NAMES.has(norm)) {
+      watchlistClass = "soft";
+    }
+  } else if (SOFT_WATCHLIST_NAMES.has(nameLower) || SOFT_WATCHLIST_NAMES.has(norm)) {
+    watchlistClass = "soft";
+  }
 
   const flags: string[] = [];
-  let ambiguity = 0;
+  if (normalisedEntityType !== "unknown") flags.push(`type:${normalisedEntityType}`);
+  if (domainFamilies.length > 0) flags.push(`families:${domainFamilies.join("+")}`);
+  if (watchlistClass !== "none") flags.push(`watchlist:${watchlistClass}`);
+  if (pathDepth === 0) flags.push("no_path");
+  else if (pathDepth < 3) flags.push("shallow_path");
+  if (nameLower.length <= 3) flags.push("short_name");
 
-  if (AMBIGUOUS_NAME_LIST.has(nameLower)) {
-    ambiguity += 0.35;
-    flags.push("ambiguous_name");
-  }
-  if (nameLower.length <= 3) {
-    ambiguity += 0.30;
-    flags.push("short_name");
-  } else if (COMMON_WORD_PATTERN.test(nameLower) && !nameLower.match(/\d/)) {
-    ambiguity += 0.20;
-    flags.push("common_word");
-  }
-  if (pathDepth === 0) {
-    ambiguity += 0.25;
-    flags.push("no_path");
-  } else if (pathDepth < 3) {
-    ambiguity += 0.15;
-    flags.push("shallow_path");
-  }
-  if (audienceSize > 100_000_000) {
-    ambiguity += 0.15;
-    flags.push("very_broad_audience");
-  }
-  if (/\b(magazine|media|network|records?|group)\b/i.test(name) && pathDepth < 4) {
-    ambiguity += 0.10;
-    flags.push("generic_media_label");
-  }
+  const { value: reliability, inputs: reliabilityInputs } = computeReliability({
+    entityType: normalisedEntityType,
+    domainFamilies,
+    pathDepth,
+    watchlistClass,
+    audienceSize,
+  });
 
-  const ambiguityScore = Math.max(0, Math.min(1, ambiguity));
+  // ambiguityScore retained for backward compat in debug output.
+  const ambiguityScore = Math.max(0, Math.min(1,
+    (watchlistClass === "hard_ambiguous" ? 0.40 : 0) +
+    (normalisedEntityType === "unknown" ? 0.25 : 0) +
+    (pathDepth === 0 ? 0.20 : pathDepth < 3 ? 0.10 : 0)
+  ));
 
-  let reliability = 0.55;
-  reliability -= ambiguityScore;
-  if (pathDepth >= 4) reliability += 0.15;
-  else if (pathDepth >= 3) reliability += 0.05;
-  else reliability -= 0.10;
-  if (audienceSize > 0 && audienceSize < 10_000_000) reliability += 0.10;
-  if (entityType !== "unknown") reliability += 0.10;
-  else reliability -= 0.05;
-
-  reliability = Math.max(0, Math.min(1, reliability));
-
-  return { id, name, path, audienceSize, domain, entityType, pathDepth, ambiguityScore, reliability, flags };
+  return {
+    id, name, path, audienceSize, domain,
+    entityType: legacyEntityType,
+    normalisedEntityType, domainFamilies, watchlistClass,
+    pathDepth, ambiguityScore, reliability, reliabilityInputs, flags,
+  };
 }
 
-function inferDominantCluster(
-  seeds: Array<{ id: string; reliability: number; path: string[] }>,
+// ── Domain-based dominant cluster inference (primary) ────────────────────────
+
+const EMPTY_DOMINANT_CLUSTER: DominantCluster = {
+  clusterKey: "unknown",
+  path: ["Interests"],
+  confidence: 0,
+  supporters: [],
+  depth: 0,
+  band: "low",
+  supportByDomain: {},
+  supportByEntityType: {},
+  pathContributed: false,
+  reason: "no seeds or no domain signal",
+};
+
+function inferDominantClusterFromDomains(
+  profiles: Array<Pick<SeedProfile, "id" | "reliability" | "normalisedEntityType" | "domainFamilies">>,
 ): DominantCluster {
-  const empty: DominantCluster = {
-    path: ["Interests"], confidence: 0, supporters: [], depth: 0, band: "low",
+  if (profiles.length === 0) return EMPTY_DOMINANT_CLUSTER;
+
+  const totalReliability = profiles.reduce((sum, p) => sum + p.reliability, 0) || 1;
+
+  const familyWeight = new Map<DomainFamily, number>();
+  const familySupporters = new Map<DomainFamily, string[]>();
+  const entityTypeWeight = new Map<NormalisedEntityType, number>();
+
+  for (const p of profiles) {
+    for (const f of p.domainFamilies) {
+      familyWeight.set(f, (familyWeight.get(f) ?? 0) + p.reliability);
+      const list = familySupporters.get(f) ?? [];
+      list.push(p.id);
+      familySupporters.set(f, list);
+    }
+    entityTypeWeight.set(
+      p.normalisedEntityType,
+      (entityTypeWeight.get(p.normalisedEntityType) ?? 0) + p.reliability,
+    );
+  }
+
+  const share = (f: DomainFamily) => (familyWeight.get(f) ?? 0) / totalReliability;
+
+  const supportByDomain: Partial<Record<DomainFamily, number>> = {};
+  for (const [k, v] of familyWeight.entries()) supportByDomain[k] = v / totalReliability;
+
+  const supportByEntityType: Partial<Record<NormalisedEntityType, number>> = {};
+  for (const [k, v] of entityTypeWeight.entries()) supportByEntityType[k] = v / totalReliability;
+
+  const unionSupporters = (fs: DomainFamily[]): string[] => {
+    const set = new Set<string>();
+    for (const f of fs) for (const id of (familySupporters.get(f) ?? [])) set.add(id);
+    return Array.from(set);
+  };
+
+  let clusterKey: ClusterKey = "unknown";
+  let confidence = 0;
+  let supporters: string[] = [];
+  let reason = "no family reached threshold";
+
+  // Decision tree (ordered by specificity — first match wins)
+  if (share("electronic_music") >= 0.40 && share("nightlife") >= 0.30) {
+    clusterKey = "electronic_music_nightlife";
+    confidence = Math.min(1, (share("electronic_music") + share("nightlife")) / 2 + 0.15);
+    supporters = unionSupporters(["electronic_music", "nightlife"]);
+    reason = `electronic_music share ${share("electronic_music").toFixed(2)} + nightlife share ${share("nightlife").toFixed(2)}`;
+  } else if (share("music_platform") >= 0.50) {
+    clusterKey = "music_platforms";
+    confidence = share("music_platform");
+    supporters = familySupporters.get("music_platform") ?? [];
+    reason = `music_platform share ${share("music_platform").toFixed(2)}`;
+  } else if (share("fashion_editorial") >= 0.40 ||
+             (share("fashion") >= 0.40 && share("media") >= 0.40)) {
+    clusterKey = "fashion_editorial";
+    confidence = Math.max(
+      share("fashion_editorial"),
+      Math.min(share("fashion"), share("media")),
+    );
+    supporters = unionSupporters(["fashion_editorial", "fashion", "media"]);
+    reason = `fashion_editorial share ${share("fashion_editorial").toFixed(2)} / fashion ${share("fashion").toFixed(2)} + media ${share("media").toFixed(2)}`;
+  } else if (share("fashion") >= 0.50) {
+    clusterKey = "fashion_brands";
+    confidence = share("fashion");
+    supporters = familySupporters.get("fashion") ?? [];
+    reason = `fashion share ${share("fashion").toFixed(2)}`;
+  } else if (share("music") >= 0.50) {
+    clusterKey = "music_general";
+    confidence = share("music");
+    supporters = familySupporters.get("music") ?? [];
+    reason = `music share ${share("music").toFixed(2)}`;
+  } else if (share("literature") >= 0.50) {
+    clusterKey = "literature_media";
+    confidence = share("literature");
+    supporters = familySupporters.get("literature") ?? [];
+    reason = `literature share ${share("literature").toFixed(2)}`;
+  }
+
+  const band: DominantCluster["band"] =
+    confidence >= 0.60 ? "high" : confidence >= 0.35 ? "medium" : "low";
+
+  return {
+    clusterKey,
+    path: [clusterKey === "unknown" ? "Interests" : clusterKey],
+    confidence,
+    supporters,
+    depth: 0,
+    band,
+    supportByDomain,
+    supportByEntityType,
+    pathContributed: false,
+    reason,
+  };
+}
+
+function inferDominantClusterFromPath(
+  seeds: Array<{ id: string; reliability: number; path: string[] }>,
+): Omit<DominantCluster, "supportByDomain" | "supportByEntityType" | "pathContributed"> {
+  const empty = {
+    clusterKey: "unknown" as ClusterKey,
+    path: ["Interests"], confidence: 0, supporters: [] as string[], depth: 0,
+    band: "low" as const, reason: "no path consensus",
   };
   if (seeds.length === 0) return empty;
 
@@ -731,6 +1218,8 @@ function inferDominantCluster(
     for (const s of seeds) {
       if (s.path.length < depth + 1) continue;
       const slice = s.path.slice(0, depth + 1);
+      // Skip trivial "Interests > Additional interests" consensus — it's flat.
+      if (slice.length >= 2 && slice[1].toLowerCase() === "additional interests") continue;
       const key = slice.map((v) => v.toLowerCase()).join(" > ");
       const existing = buckets.get(key) ?? { weight: 0, supporters: [], path: slice };
       existing.weight += s.reliability;
@@ -745,25 +1234,79 @@ function inferDominantCluster(
 
     const qualifies =
       depth === 2
-        ? confidence >= 0.35
-        : (winner.supporters.length >= 2 || confidence >= 0.60);
+        ? confidence >= 0.45
+        : (winner.supporters.length >= 2 && confidence >= 0.50);
 
     if (qualifies) {
-      const band: DominantCluster["band"] =
-        confidence >= 0.60 ? "high" : confidence >= 0.35 ? "medium" : "low";
-      return { path: winner.path, confidence, supporters: winner.supporters, depth, band };
+      const band = confidence >= 0.60 ? "high" : confidence >= 0.35 ? "medium" : "low";
+      return {
+        clusterKey: `taxonomy:${winner.path.join(">")}` as ClusterKey,
+        path: winner.path,
+        confidence,
+        supporters: winner.supporters,
+        depth,
+        band,
+        reason: `path LCP depth=${depth} share=${confidence.toFixed(2)}`,
+      };
     }
   }
-
   return empty;
+}
+
+function inferDominantClusterHybrid(
+  profiles: Array<Pick<SeedProfile, "id" | "reliability" | "normalisedEntityType" | "domainFamilies" | "path">>,
+): DominantCluster {
+  // Primary: domain-based
+  const domainResult = inferDominantClusterFromDomains(profiles);
+  if (domainResult.clusterKey !== "unknown" && domainResult.confidence >= 0.35) {
+    return domainResult;
+  }
+
+  // Fallback: path LCP (skip "Additional interests" buckets)
+  const pathResult = inferDominantClusterFromPath(
+    profiles.map((p) => ({ id: p.id, reliability: p.reliability, path: p.path })),
+  );
+  if (pathResult.clusterKey !== "unknown" && pathResult.confidence >= 0.50) {
+    return {
+      ...pathResult,
+      supportByDomain: domainResult.supportByDomain,
+      supportByEntityType: domainResult.supportByEntityType,
+      pathContributed: true,
+    };
+  }
+
+  // No consensus — return the weak domain result for debug visibility
+  return {
+    ...domainResult,
+    reason: domainResult.reason + "; path fallback " + pathResult.reason,
+  };
+}
+
+// ── Map cluster key → which domain families count as on-cluster ──────────────
+
+function expectedFamiliesForCluster(clusterKey: ClusterKey): DomainFamily[] {
+  switch (clusterKey) {
+    case "electronic_music_nightlife": return ["electronic_music", "nightlife", "music"];
+    case "music_platforms":            return ["music_platform", "music", "media"];
+    case "music_general":              return ["music", "electronic_music", "nightlife"];
+    case "fashion_editorial":          return ["fashion_editorial", "fashion", "media"];
+    case "fashion_brands":             return ["fashion"];
+    case "literature_media":           return ["literature", "media"];
+    default:                           return []; // unknown / taxonomy:*
+  }
 }
 
 function finaliseSeedBucket(
   profile: Omit<SeedProfile, "bucket" | "onDominantCluster">,
   cluster: DominantCluster,
 ): { bucket: SeedBucket; onDominantCluster: boolean } {
-  if (cluster.confidence < 0.35 || cluster.path.length === 0) {
-    // No reliable cluster — use reliability alone
+  // Hard-ambiguous watchlist always → ambiguous, regardless of cluster
+  if (profile.watchlistClass === "hard_ambiguous") {
+    return { bucket: "ambiguous", onDominantCluster: false };
+  }
+
+  // No reliable cluster — bucket by reliability alone
+  if (cluster.clusterKey === "unknown" || cluster.confidence < 0.35) {
     const bucket: SeedBucket =
       profile.reliability >= 0.70 ? "trusted"
       : profile.reliability >= 0.40 ? "weak"
@@ -771,11 +1314,15 @@ function finaliseSeedBucket(
     return { bucket, onDominantCluster: false };
   }
 
-  const common = lcpPaths(profile.path, cluster.path);
-  const onDominantCluster = profile.path.length > 0 && common >= cluster.path.length - 1;
+  // Domain-family match with dominant cluster
+  const expected = expectedFamiliesForCluster(cluster.clusterKey);
+  const seedFamilies = new Set(profile.domainFamilies);
+  const onDominantCluster = expected.length > 0
+    ? expected.some((f) => seedFamilies.has(f))
+    : lcpPaths(profile.path, cluster.path) >= cluster.path.length - 1; // fallback for taxonomy:*
 
-  // Conflicting: seed has a real path that clearly diverges from the dominant cluster
-  if (profile.pathDepth >= 3 && common <= Math.max(1, cluster.path.length - 2)) {
+  // Conflicting: has clear identity but no overlap with dominant cluster
+  if (!onDominantCluster && profile.normalisedEntityType !== "unknown") {
     return { bucket: "conflicting", onDominantCluster: false };
   }
 
@@ -954,8 +1501,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     profileSeedPartial(s.id, s.name, seedEnriched),
   );
 
-  const dominantCluster = inferDominantCluster(
-    partialSeedProfiles.map((p) => ({ id: p.id, reliability: p.reliability, path: p.path })),
+  const dominantCluster = inferDominantClusterHybrid(
+    partialSeedProfiles.map((p) => ({
+      id: p.id,
+      reliability: p.reliability,
+      normalisedEntityType: p.normalisedEntityType,
+      domainFamilies: p.domainFamilies,
+      path: p.path,
+    })),
   );
 
   const seedProfiles = new Map<string, SeedProfile>();
@@ -967,18 +1520,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const bucketCounts = { trusted: 0, weak: 0, ambiguous: 0, conflicting: 0 };
   for (const p of seedProfiles.values()) bucketCounts[p.bucket]++;
 
+  const fmtShare = (obj: Record<string, number | undefined>): string =>
+    Object.entries(obj)
+      .filter(([, v]) => typeof v === "number" && v > 0)
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+      .map(([k, v]) => `${k}=${((v ?? 0) * 100).toFixed(0)}%`)
+      .join(" ") || "(none)";
+
   console.info(
-    `[interest-suggestions] ── Stage S: seed profiling (Landing 2b-i, observation only) ──` +
+    `[interest-suggestions] ── Stage S: seed profiling (Landing 2b-i patched, observation only) ──` +
     Array.from(seedProfiles.values()).map((p) =>
-      `\n  • ${p.name.padEnd(26)} [${p.bucket.padEnd(11)}] r=${p.reliability.toFixed(2)} amb=${p.ambiguityScore.toFixed(2)} ` +
-      `depth=${p.pathDepth} type=${p.entityType}` +
-      (p.flags.length ? ` flags=${p.flags.join(",")}` : "") +
-      (p.path.length ? ` path=${p.path.join(" > ")}` : " path=(none)"),
+      `\n  • ${p.name.padEnd(28)} [${p.bucket.padEnd(11)}] r=${p.reliability.toFixed(2)} ` +
+      `type=${p.normalisedEntityType.padEnd(18)} ` +
+      `families=[${p.domainFamilies.join(",") || "-"}] ` +
+      `watchlist=${p.watchlistClass} ` +
+      `depth=${p.pathDepth}` +
+      (p.path.length ? ` path=${p.path.join(" > ")}` : " path=(none)") +
+      (p.onDominantCluster ? " onCluster" : ""),
     ).join("") +
-    `\n  Dominant cluster: ${dominantCluster.path.join(" > ") || "(none)"}` +
+    `\n  Dominant cluster: ${dominantCluster.clusterKey}` +
     ` — confidence=${dominantCluster.confidence.toFixed(2)} (${dominantCluster.band.toUpperCase()})` +
-    ` depth=${dominantCluster.depth}` +
     ` supporters=${dominantCluster.supporters.length}/${sortedSeeds.length}` +
+    (dominantCluster.pathContributed ? " [path-fallback]" : " [domain-based]") +
+    `\n    reason: ${dominantCluster.reason}` +
+    `\n    supportByDomain: ${fmtShare(dominantCluster.supportByDomain as Record<string, number>)}` +
+    `\n    supportByEntityType: ${fmtShare(dominantCluster.supportByEntityType as Record<string, number>)}` +
     `\n  Bucket counts: trusted=${bucketCounts.trusted} weak=${bucketCounts.weak} ambiguous=${bucketCounts.ambiguous} conflicting=${bucketCounts.conflicting}` +
     `\n  Enrichment: ${seedEnriched.size}/${seedIdsForEnrichment.length} seeds resolved`,
   );
@@ -1393,9 +1959,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           name: p.name,
           bucket: p.bucket,
           reliability: p.reliability,
+          reliabilityInputs: p.reliabilityInputs,
           ambiguityScore: p.ambiguityScore,
           domain: p.domain,
           entityType: p.entityType,
+          normalisedEntityType: p.normalisedEntityType,
+          domainFamilies: p.domainFamilies,
+          watchlistClass: p.watchlistClass,
           pathDepth: p.pathDepth,
           path: p.path,
           audienceSize: p.audienceSize,
