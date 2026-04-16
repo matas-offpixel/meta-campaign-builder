@@ -269,10 +269,27 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
   const { suggestions, loading: sugLoading, emptyReason, backendError } = useRelatedSuggestions(group.interests, cluster);
 
   // Filter suggestions to only those not already selected
-  const filteredSuggestions = useMemo(
-    () => suggestions.filter((s) => !selectedIds.has(s.id)).slice(0, 12),
-    [suggestions, selectedIds],
-  );
+  const filteredSuggestions = useMemo(() => {
+    const result = suggestions.filter((s) => !selectedIds.has(s.id)).slice(0, 12);
+
+    // Client-side junk-leak assertion — fires if backend exclusion failed
+    const JUNK_LEAK = [
+      /\bservices?\b/i, /\bfriends?\s+of\b/i, /\bbirthday\b/i,
+      /\b(lived|living)\s+in\b/i, /\bfrequent\s*travel\b/i, /\bnewlywed\b/i,
+      /\bfacebook\s*access\b/i, /\b(mobile|browser)\s*access\b/i,
+      /\bprotective\b/i, /\bhealthcare\b/i, /\binstallation\b/i,
+    ];
+    for (const s of result) {
+      if (JUNK_LEAK.some((p) => p.test(s.name))) {
+        console.error(
+          `[useRelatedSuggestions] ⚠ JUNK LEAK (client): "${s.name}" [type=${s.suggestionType}] reached the render list. ` +
+          `This should have been excluded by the backend. Report this as an exclusion bug.`,
+        );
+      }
+    }
+
+    return result;
+  }, [suggestions, selectedIds]);
 
   const countStatus = clusterCountStatus(group.interests.length);
 

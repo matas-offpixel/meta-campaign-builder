@@ -59,15 +59,16 @@ const UNIVERSAL_JUNK: RegExp[] = [
   // Device ownership
   /\bown(s|er|ing|ed)?\s*(an?\s*)?(iphone|ipad|samsung|galaxy|android|kindle|tablet|pc|mac|blackberry|apple\s*device|ios\s*device)\b/i,
   /\b(iphone|galaxy)\s*owner\b/i,
-  // Life events
+  // Life events — broad "friends of" catches "friends of men/women/people/[any]"
   /\bnewlywed\b/i,
   /\brecently\s*(married|moved|graduated|started\s*a\s*(new\s*)?(job|business))\b/i,
   /\bnew\s*(parent|baby|job|home)\b/i,
   /\bexpecting\s*(a\s*)?(baby|child)\b/i,
   /\bengaged\s+(to|couple)\b/i,
-  /\bfriends?\s+of\s+(people|someone)\b/i,
-  /\b(birth)?day\s*(this\s*week|coming\s*up|soon|of\s*the\s*week)\b/i,
-  // Demographic / behavioural proxies
+  /\bfriends?\s+of\b/i,           // catches: "friends of men", "friends of women", "friends of people" etc.
+  /\bbirthday\b/i,                 // catches: "birthday this week", "people with a birthday", standalone birthday audiences
+  // Geographic / demographic proxies
+  /\b(lived|living)\s+in\b/i,     // catches: "Lived in Honduras", "Living in X"
   /\bfrequent\s*travel(l?er|ling)\b/i,
   /\bbusiness\s*travel(l?er)\b/i,
   /\bcommuter\b/i,
@@ -75,8 +76,9 @@ const UNIVERSAL_JUNK: RegExp[] = [
   /\breturned\s+from\b/i,
   /\baway\s+from\s+(home|family)\b/i,
   /\bearly\s*(technology\s*)?adopter\b/i,
-  // Service industries
-  /\b(legal|healthcare|medical|administrative|protective|installation|repair|cleaning|financial|insurance)\s*service\b/i,
+  // Service industries — use services? (not service\b) to match plural "services"
+  /\b(legal|healthcare|medical|administrative|protective|installation|repair|financial|insurance)\s*services?\b/i,
+  /\bcleaning\s*(and\s*maintenance|services?)\b/i, // "Cleaning services", "Cleaning and maintenance"
   /\blaw\s*(firm|office)\b/i,
   /\bhospital\b/i,
 ];
@@ -95,14 +97,18 @@ function classifySuggestion(name: string, path: string[]): SuggestionType {
 
   if (isUniversalJunk(name, path)) return "junk";
 
-  // Explicitly behavioural / demographic categories
+  // Explicitly behavioural / demographic categories — mirror UNIVERSAL_JUNK
+  // (isUniversalJunk already hard-drops these; these branches set the right type
+  //  when debugBypass=true so the debug output is still labelled correctly)
   if (/\b(iphone|android|galaxy|tablet|kindle|blackberry)\b/i.test(text) &&
       !/magazine|music\s*app|film|band|fashion|record/i.test(text)) return "device_owner";
-  if (/\bnewlywed|recently\s*(married|moved|graduated)\b/i.test(text)) return "life_event";
-  if (/\bfrequent\s*travel|commuter|expat\b/i.test(text)) return "demographic_proxy";
-  if (/\bservice\b/i.test(text) &&
+  if (/\bnewlywed|recently\s*(married|moved|graduated)|friends?\s+of\b|birthday\b/i.test(text)) return "life_event";
+  if (/\b(lived|living)\s+in\b|\bfrequent\s*travel|commuter|expat\b/i.test(text)) return "demographic_proxy";
+  // services? (plural) — the s is optional so both "service" and "services" match
+  if (/\bservices?\b/i.test(text) &&
       /\b(legal|healthcare|medical|admin|protective|installation|repair|cleaning|financial)\b/i.test(text))
     return "services";
+  if (/\bcleaning\s*(and\s*maintenance|services?)\b/i.test(text)) return "services";
 
   // Music streaming / platforms (check name first — these are well-known proper nouns)
   if (/\b(spotify|apple\s*music|soundcloud|tidal|deezer|bandcamp|itunes(\s*store)?|youtube(\s*(music|premium))?|amazon\s*music|pandora|audiomack|mixcloud|shazam|napster|boomplay|anghami|last\.?fm)\b/i.test(n))
@@ -625,8 +631,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const top5Raw = raw.slice(0, 5).map((r) => `${r.name}(${r.id})`);
   console.info(
-    `[interest-suggestions] raw results: ${raw.length}` +
-    (raw.length > 0 ? `\n  top5: ${top5Raw.join(", ")}` : " (empty — Meta returned nothing)"),
+    `[interest-suggestions] ── Stage A: raw Meta results (${raw.length}) ──` +
+    (raw.length > 0
+      ? `\n  all names: ${raw.map((r) => r.name).join(" | ")}`
+      : " (empty — Meta returned nothing)"),
   );
 
   if (raw.length === 0) {
@@ -669,6 +677,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (!debugBypass && isUniversalJunk(item.name, itemPath)) {
       excludedJunk++;
       blockedNames.push(item.name);
+      console.info(`[interest-suggestions] Stage B junk-drop: "${item.name}" (path: ${JSON.stringify(itemPath)})`);
       continue;
     }
 
@@ -687,6 +696,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       excludedByType++;
       excludedByTypeBreakdown[sType] = (excludedByTypeBreakdown[sType] ?? 0) + 1;
       blockedNames.push(item.name);
+      console.info(`[interest-suggestions] Stage C type-drop: "${item.name}" → type="${sType}"`);
       continue;
     }
 
@@ -738,7 +748,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }));
 
   console.info(
-    `[interest-suggestions] pipeline results:` +
+    `[interest-suggestions] ── Stage D: pipeline summary ──` +
     `\n  raw:                    ${raw.length}` +
     `\n  excluded by seed:       ${excludedBySeed}` +
     `\n  excluded junk:          ${excludedJunk}` +
@@ -748,9 +758,29 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n  returned (capped):      ${finalSuggestions.length}` +
     `\n  debug-bypass:           ${debugBypass}` +
     (finalSuggestions.length > 0
-      ? `\n  top10: ${finalSuggestions.slice(0, 10).map((s) => `${s.name}[${s.suggestionType}](${s.score})`).join(", ")}`
+      ? `\n  Stage E final names: ${finalSuggestions.map((s) => `"${s.name}"[${s.suggestionType}]`).join(", ")}`
       : ""),
   );
+
+  // ── Junk-leak assertion: catch any exclusion failures before they reach the client
+  if (!debugBypass) {
+    const JUNK_LEAK_PATTERNS = [
+      /\bservices?\b/i, /\bfriends?\s+of\b/i, /\bbirthday\b/i,
+      /\b(lived|living)\s+in\b/i, /\bfrequent\s*travel\b/i, /\bnewlywed\b/i,
+      /\bfacebook\s*access\b/i, /\b(mobile|browser)\s*access\b/i,
+      /\bprotective\b/i, /\bhealthcare\b/i, /\binstallation\b/i, /\brepair\b/i,
+    ];
+    for (const s of finalSuggestions) {
+      const leakHit = JUNK_LEAK_PATTERNS.find((p) => p.test(s.name));
+      if (leakHit) {
+        console.error(
+          `[interest-suggestions] ⚠ JUNK LEAK: "${s.name}" [type=${s.suggestionType}] survived exclusion. ` +
+          `Matched leak-check pattern: ${leakHit}. ` +
+          `This is an exclusion bug — add a fix to UNIVERSAL_JUNK or classifySuggestion.`,
+        );
+      }
+    }
+  }
 
   // Classify emptyReason
   let emptyReason: string | undefined;
