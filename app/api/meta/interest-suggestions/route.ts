@@ -464,6 +464,8 @@ export interface SuggestedInterest {
   clusterFitReason?: string;
   /** Landing 2b-ii: surfacing-seed quality class */
   seedQualityClass?: "all_good" | "all_bad" | "mixed" | "no_seeds";
+  /** Landing 2c: this candidate came from second-hop expansion (not original seeds). Names of expansion seeds that surfaced it. */
+  expansionSourceSeeds?: string[];
   /** Landing 2b-ii: per-component score breakdown for transparency */
   scoreBreakdown?: {
     sizeBand: number;
@@ -571,9 +573,20 @@ export interface SuggestionsDebugInfo {
   /** Landing 2b-ii final eligibility gate */
   droppedByFinalEligibilityCount?: number;
   droppedByFinalEligibilityNames?: string[];
+  /** Strict gate: also drops neutral candidates on high-confidence clusters */
+  droppedNeutralByFinalEligibilityCount?: number;
+  droppedNeutralByFinalEligibilityNames?: string[];
   fallbackModeUsed?: boolean;
   survivorFitDistribution?: Record<string, number>;
   highConfidenceClusterGate?: boolean;
+  /** Landing 2c expansion stage telemetry */
+  expansionAttempted?: boolean;
+  expansionTriggerReason?: string;
+  expansionSeedNames?: string[];
+  expansionRawCount?: number;
+  expansionNewCandidateCount?: number;
+  expansionAddedToFinalCount?: number;
+  expansionPerSeedStats?: Record<string, { status: "ok" | "empty" | "error"; count: number; errMsg?: string }>;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -2412,6 +2425,264 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
+  // ── Landing 2c — Stage R2: trusted-source expansion ────────────────────────
+  // First-pass retrieval is one-hop: each original seed produces ~5-30
+  // suggestions. For tightly clustered seed sets that one hop often returns
+  // too few on-cluster candidates (Meta's adinterestsuggestion is biased
+  // toward broad audiences). Stage R2 picks the most reliable surfaces from
+  // the first pass and runs second-hop calls from them, merging new on-cluster
+  // candidates back into the suggestion pool.
+  //
+  // Strict gating:
+  //   - Only runs on high-confidence clusters
+  //   - Expansion seeds are ONLY trusted+onCluster originals OR top primary-
+  //     fit first-pass candidates. Never ambiguous, never weak.
+  //   - Capped at 4 expansion seeds, deduped against original seed names.
+  //   - New candidates only — overlaps with first-pass are skipped (already
+  //     credited via original sourceSeeds).
+  //   - Same enrichment, structural filter, classification, and cluster fit
+  //     as first-pass.
+  //   - Synthetic agreement is capped lower (×20 vs ×35) so expansion items
+  //     can't outrank well-corroborated first-pass items.
+
+  const HIGH_CONFIDENCE_THRESHOLD = 0.60;
+  const isHighConfidenceCluster =
+    !debugBypass &&
+    dominantCluster.clusterKey !== "unknown" &&
+    dominantCluster.confidence >= HIGH_CONFIDENCE_THRESHOLD;
+
+  let expansionAttempted = false;
+  let expansionTriggerReason = "";
+  let expansionSeedNames: string[] = [];
+  let expansionRawCount = 0;
+  let expansionNewCandidateCount = 0;
+  let expansionAddedToFinalCount = 0;
+  const expansionPerSeedStats: Record<string, { status: "ok" | "empty" | "error"; count: number; errMsg?: string }> = {};
+
+  const FIRST_PASS_PRIMARY_MIN = 10; // expand if fewer than 10 primary/secondary survive first pass
+  const MAX_EXPANSION_SEEDS = 4;
+
+  if (isHighConfidenceCluster && !debugBypass) {
+    const onClusterFirstPass = suggestions.filter(
+      (s) => s.clusterFitClass === "primary" || s.clusterFitClass === "secondary",
+    );
+
+    if (onClusterFirstPass.length < FIRST_PASS_PRIMARY_MIN) {
+      // Pick expansion seeds: top trusted+onCluster originals first, then top
+      // primary-fit first-pass candidates. Both are filtered against original
+      // seed names to avoid re-querying the same node.
+      const trustedSeedExpansion = Array.from(seedProfiles.values())
+        .filter((p) => p.bucket === "trusted" && p.onDominantCluster)
+        .sort((a, b) => b.reliability - a.reliability)
+        .slice(0, 2)
+        .map((p) => p.name);
+
+      const primaryCandidateExpansion = onClusterFirstPass
+        .filter((s) => s.clusterFitClass === "primary")
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)
+        .map((s) => s.name);
+
+      const seenLower = new Set<string>(seedNamesSent.map((n) => n.toLowerCase()));
+      const picked: string[] = [];
+      for (const n of [...trustedSeedExpansion, ...primaryCandidateExpansion]) {
+        const lower = n.toLowerCase();
+        if (seenLower.has(lower)) continue;
+        seenLower.add(lower);
+        picked.push(n);
+        if (picked.length >= MAX_EXPANSION_SEEDS) break;
+      }
+      expansionSeedNames = picked;
+      expansionTriggerReason =
+        `first-pass primary/secondary=${onClusterFirstPass.length} < ${FIRST_PASS_PRIMARY_MIN}`;
+
+      if (picked.length === 0) {
+        console.info(
+          `[interest-suggestions] ── Stage R2 skipped — no eligible expansion seeds available ` +
+          `(trusted+onCluster originals=${trustedSeedExpansion.length}, top primary candidates=${primaryCandidateExpansion.length}, ` +
+          `all already sent in first pass)`,
+        );
+      } else {
+        expansionAttempted = true;
+        console.info(
+          `[interest-suggestions] ── Stage R2: expansion (${picked.length} seeds) ── ` +
+          `[trigger: ${expansionTriggerReason}]\n  seeds: ${picked.join(", ")}`,
+        );
+
+        const expansionResults = await Promise.allSettled(
+          picked.map((name) => callMeta([name], `expansion:${name}`)),
+        );
+
+        // Pool expansion items separately — each entry tracks WHICH expansion
+        // seeds surfaced it (for synthetic agreement).
+        const expansionPool = new Map<
+          string,
+          {
+            item: { id: string; name: string; audience_size?: number; path?: string[] };
+            sourceSeeds: Set<string>;
+          }
+        >();
+
+        expansionResults.forEach((result, idx) => {
+          const seedName = picked[idx];
+          if (result.status === "rejected") {
+            expansionPerSeedStats[seedName] = { status: "error", count: 0, errMsg: String(result.reason) };
+            return;
+          }
+          const value = result.value;
+          if (!value.ok) {
+            expansionPerSeedStats[seedName] = {
+              status: "error",
+              count: 0,
+              errMsg: value.errMsg ?? `http ${value.httpStatus}`,
+            };
+            return;
+          }
+          const items = value.data ?? [];
+          if (items.length === 0) {
+            expansionPerSeedStats[seedName] = { status: "empty", count: 0 };
+            return;
+          }
+          expansionPerSeedStats[seedName] = { status: "ok", count: items.length };
+          for (const item of items) {
+            if (!item || !item.id) continue;
+            const existing = expansionPool.get(item.id);
+            if (existing) {
+              existing.sourceSeeds.add(seedName);
+            } else {
+              expansionPool.set(item.id, { item, sourceSeeds: new Set([seedName]) });
+            }
+          }
+        });
+
+        expansionRawCount = expansionPool.size;
+
+        // Skip anything we've already scored, plus original seed IDs and any
+        // explicit excludes.
+        const firstPassIds = new Set(suggestions.map((s) => s.id));
+        const originalSeedIds = new Set(sortedSeeds.map((s) => s.id));
+        type ExpansionItem = { id: string; name: string; audience_size?: number; path?: string[] };
+        const newExpansionEntries: Array<{ item: ExpansionItem; sources: string[] }> = [];
+        for (const [id, entry] of expansionPool) {
+          if (firstPassIds.has(id) || originalSeedIds.has(id) || excludeIds.has(id)) continue;
+          newExpansionEntries.push({ item: entry.item, sources: Array.from(entry.sourceSeeds) });
+        }
+        expansionNewCandidateCount = newExpansionEntries.length;
+
+        let mergedFromExpansion = 0;
+        if (newExpansionEntries.length > 0) {
+          // Enrich the new candidates so we have authoritative path[] for
+          // structural filter + classification.
+          const newIds = newExpansionEntries.map((e) => e.item.id);
+          let newEnriched = new Map<string, EnrichedInterest>();
+          try {
+            const res = await enrichCandidates(newIds, token, BASE);
+            newEnriched = res.enriched;
+          } catch (err) {
+            console.error(`[interest-suggestions] ✗ Stage R2 enrichment threw:`, err);
+          }
+
+          // Same scoring path as the first-pass loop, with synthetic agreement.
+          for (const { item, sources } of newExpansionEntries) {
+            const enrichedMeta = newEnriched.get(item.id);
+            const itemPath = enrichedMeta?.path ?? item.path ?? [];
+            const text = `${item.name} :: ${itemPath.join(" > ")}`.toLowerCase();
+            const size = enrichedMeta?.audienceSize ?? item.audience_size ?? 0;
+
+            // Structural filter: same rules as first pass
+            if (!itemPath || itemPath.length === 0) continue;
+            if (itemPath[0] !== "Interests") continue;
+            if (size === 0 && enrichedMeta && !enrichedMeta.valid) continue;
+            if (blocklist.some((p) => p.test(text))) continue;
+
+            const sType: SuggestionType =
+              classifyFromPath(itemPath) !== "unknown"
+                ? classifyFromPath(itemPath)
+                : classifySuggestion(item.name, itemPath);
+            const rawTypeBonus = (typeScores as Record<string, number>)[sType] ?? 0;
+            if (rawTypeBonus <= -999) continue; // hard type-drop, defence in depth
+
+            const fit = computeClusterFit(item.name, itemPath, dominantCluster);
+
+            // Synthetic agreement: cap at ×20 (vs ×35 for first-pass) so
+            // expansion candidates can't outrank well-corroborated first-pass
+            // ones. Even a 100% agreement rate among expansion seeds tops out
+            // around the first-pass median.
+            const expansionAgreement = sources.length / picked.length; // 0..1
+            const expansionAgreementPoints = Math.round(expansionAgreement * 20);
+
+            const sizeBandPoints = sizeBandScore(size);
+            const rawSeedQualityPoints = 5; // assume +5: only trusted-source expansion
+            const rawPathPatternPoints = pathPattern?.test(text) ? 10 : 0;
+            const deprecated = isKnownDeprecated(item.name);
+            const deprecationPoints = deprecated ? -15 : 0;
+            const genericNamePoints = /^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name) ? -10 : 0;
+
+            const isOffCluster = fit.fitClass === "off_cluster";
+            const typeBonusPoints = isOffCluster ? Math.min(rawTypeBonus, 0) : rawTypeBonus;
+            const seedQualityPoints = isOffCluster ? Math.min(rawSeedQualityPoints, 0) : rawSeedQualityPoints;
+            const pathPatternPoints = isOffCluster ? 0 : rawPathPatternPoints;
+
+            const score =
+              sizeBandPoints +
+              typeBonusPoints +
+              expansionAgreementPoints +
+              fit.points +
+              seedQualityPoints +
+              pathPatternPoints +
+              deprecationPoints +
+              genericNamePoints;
+
+            // Track distributions consistent with first-pass telemetry
+            clusterFitDistribution[fit.fitClass] = (clusterFitDistribution[fit.fitClass] ?? 0) + 1;
+            seedQualityDistribution["all_good"] = (seedQualityDistribution["all_good"] ?? 0) + 1;
+
+            suggestions.push({
+              id: item.id,
+              name: enrichedMeta?.name || item.name,
+              audienceSize: size > 0 ? size : null,
+              path: itemPath,
+              taxonomyRoot: itemPath[0],
+              score,
+              likelyDeprecated: deprecated || undefined,
+              audienceSizeBand: audienceSizeBand(size),
+              suggestionType: sType,
+              seedAgreement: 0,
+              sourceSeedIds: [],
+              weightedSeedAgreement: 0,
+              clusterFitClass: fit.fitClass,
+              candidateClass: fit.candidateClass,
+              clusterFitReason: fit.reason,
+              seedQualityClass: "all_good",
+              expansionSourceSeeds: sources,
+              scoreBreakdown: {
+                sizeBand: sizeBandPoints,
+                typeBonus: typeBonusPoints,
+                weightedAgreement: expansionAgreementPoints,
+                clusterFit: fit.points,
+                seedQuality: seedQualityPoints,
+                pathPattern: pathPatternPoints,
+                deprecation: deprecationPoints,
+                genericName: genericNamePoints,
+                total: score,
+              },
+            });
+            mergedFromExpansion++;
+          }
+        }
+
+        console.info(
+          `[interest-suggestions] ── Stage R2 done — ` +
+          `pool=${expansionPool.size} new=${expansionNewCandidateCount} ` +
+          `merged=${mergedFromExpansion} (filtered out ${expansionNewCandidateCount - mergedFromExpansion}) ` +
+          `per-seed: ${JSON.stringify(expansionPerSeedStats)}`,
+        );
+      }
+    } else {
+      expansionTriggerReason = `first-pass primary/secondary=${onClusterFirstPass.length} ≥ ${FIRST_PASS_PRIMARY_MIN}, no expansion needed`;
+    }
+  }
+
   suggestions.sort((a, b) => b.score - a.score);
 
   // ── Landing 2b-ii final eligibility gate ────────────────────────────────────
@@ -2419,22 +2690,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // junk should never appear in results when we're confident about the cluster
   // intent. If this leaves zero candidates, prefer empty over polluted output.
   // Set ?fallback=loose to opt back into off_cluster + neutral candidates.
-  const HIGH_CONFIDENCE_THRESHOLD = 0.60;
-  const isHighConfidenceCluster =
-    !debugBypass &&
-    dominantCluster.clusterKey !== "unknown" &&
-    dominantCluster.confidence >= HIGH_CONFIDENCE_THRESHOLD;
 
   let droppedByFinalEligibility = 0;
   const droppedByFinalEligibilityNames: string[] = [];
+  let droppedNeutralByFinalEligibility = 0;
+  const droppedNeutralByFinalEligibilityNames: string[] = [];
   let fallbackModeUsed = false;
 
   let eligibleSuggestions = suggestions;
   if (isHighConfidenceCluster && !allowLooseFallback) {
+    // Strict gate: only primary + secondary survive. Both off_cluster AND
+    // neutral are dropped — neutral candidates are taxonomy nodes we can't
+    // confidently place (Doctor Who, Social science, …) and have no business
+    // appearing on a high-confidence cluster.
     eligibleSuggestions = suggestions.filter((s) => {
       if (s.clusterFitClass === "off_cluster") {
         droppedByFinalEligibility++;
         droppedByFinalEligibilityNames.push(s.name);
+        return false;
+      }
+      if (s.clusterFitClass === "neutral") {
+        droppedNeutralByFinalEligibility++;
+        droppedNeutralByFinalEligibilityNames.push(s.name);
         return false;
       }
       return true;
@@ -2456,13 +2733,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     survivorFitDistribution[k] = (survivorFitDistribution[k] ?? 0) + 1;
   }
 
-  if (droppedByFinalEligibility > 0) {
+  if (droppedByFinalEligibility > 0 || droppedNeutralByFinalEligibility > 0) {
     console.info(
       `[interest-suggestions] ── Stage G: final eligibility gate ──` +
       `\n  cluster: ${dominantCluster.clusterKey} (confidence=${dominantCluster.confidence.toFixed(2)}, threshold=${HIGH_CONFIDENCE_THRESHOLD})` +
       `\n  dropped (off_cluster): ${droppedByFinalEligibility}` +
-      `\n  names: ${droppedByFinalEligibilityNames.slice(0, 20).join(", ")}` +
-      (fallbackModeUsed ? `\n  fallback=loose was active — junk re-admitted` : ""),
+      (droppedByFinalEligibility > 0
+        ? `\n    names: ${droppedByFinalEligibilityNames.slice(0, 20).join(", ")}`
+        : "") +
+      `\n  dropped (neutral):     ${droppedNeutralByFinalEligibility}` +
+      (droppedNeutralByFinalEligibility > 0
+        ? `\n    names: ${droppedNeutralByFinalEligibilityNames.slice(0, 20).join(", ")}`
+        : "") +
+      (fallbackModeUsed ? `\n  fallback=loose was active — off_cluster + neutral re-admitted` : ""),
     );
   }
 
@@ -2485,6 +2768,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     candidateClass: s.candidateClass,
     clusterFitReason: s.clusterFitReason,
     seedQuality: s.seedQualityClass,
+    expansionSourceSeeds: s.expansionSourceSeeds,
     components: s.scoreBreakdown
       ? {
           sizeBand: s.scoreBreakdown.sizeBand,
@@ -2500,6 +2784,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }));
 
   const finalInterestOnlyCount = finalSuggestions.length;
+  expansionAddedToFinalCount = finalSuggestions.filter((s) => (s.expansionSourceSeeds?.length ?? 0) > 0).length;
 
   // Compact one-liner per final suggestion showing the full 2b-ii score
   // breakdown — this is the ranking debugging surface.
@@ -2531,18 +2816,32 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n  dropped (non-Interests):    ${droppedNonInterest} — roots: ${JSON.stringify(droppedNonInterestRoots)}` +
     `\n  excluded (cluster list):    ${excludedByCluster}` +
     `\n  excluded (type):            ${excludedByType} ${JSON.stringify(excludedByTypeBreakdown)}` +
-    `\n  scored:                     ${suggestions.length}` +
+    `\n  scored (post-expansion):    ${suggestions.length}` +
+    `\n  expansion (Stage R2):       ${expansionAttempted ? `ON [${expansionTriggerReason}] seeds=${expansionSeedNames.length} raw=${expansionRawCount} new=${expansionNewCandidateCount}` : (expansionTriggerReason || "off")}` +
+    (expansionAttempted
+      ? `\n    expansion seeds:           ${expansionSeedNames.join(", ")}` +
+        `\n    per-seed:                  ${JSON.stringify(expansionPerSeedStats)}`
+      : "") +
     `\n  high-conf cluster gate:     ${isHighConfidenceCluster ? "ACTIVE" : "off"} (cluster confidence=${dominantCluster.confidence.toFixed(2)})` +
-    `\n  dropped (final eligibility):${droppedByFinalEligibility}${fallbackModeUsed ? " [fallback=loose ACTIVE]" : ""}` +
+    `\n  dropped (off_cluster):      ${droppedByFinalEligibility}${fallbackModeUsed ? " [fallback=loose ACTIVE]" : ""}` +
+    `\n  dropped (neutral):          ${droppedNeutralByFinalEligibility}` +
     `\n  eligible after gate:        ${eligibleSuggestions.length}` +
     `\n  returned (capped):          ${finalSuggestions.length}` +
     `\n  cluster fit dist (scored):  ${JSON.stringify(clusterFitDistribution)}` +
     `\n  cluster fit dist (final):   ${JSON.stringify(survivorFitDistribution)}` +
     `\n  seed quality dist:          ${JSON.stringify(seedQualityDistribution)}` +
     `\n  debug-bypass:               ${debugBypass}` +
+    `\n  expansion in final:         ${expansionAddedToFinalCount}` +
     (finalSuggestions.length > 0
       ? `\n  Stage E final (top ${finalSuggestions.length}):` +
-        finalSuggestions.map((s) => `\n    • "${s.name}" [${s.suggestionType}] ${fmtBreakdown(s)}`).join("")
+        finalSuggestions
+          .map((s) => {
+            const tag = (s.expansionSourceSeeds?.length ?? 0) > 0
+              ? ` [R2:${s.expansionSourceSeeds!.join("|")}]`
+              : "";
+            return `\n    • "${s.name}" [${s.suggestionType}]${tag} ${fmtBreakdown(s)}`;
+          })
+          .join("")
       : ""),
   );
 
@@ -2580,9 +2879,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Classify emptyReason
   let emptyReason: string | undefined;
   if (finalSuggestions.length === 0 && raw.length > 0) {
-    if (droppedByFinalEligibility > 0 && eligibleSuggestions.length === 0) {
+    if (
+      (droppedByFinalEligibility > 0 || droppedNeutralByFinalEligibility > 0) &&
+      eligibleSuggestions.length === 0
+    ) {
       // The eligibility gate emptied the list. Caller should expand seeds or
-      // pass ?fallback=loose to opt back into off_cluster candidates.
+      // pass ?fallback=loose to opt back into off_cluster + neutral candidates.
       emptyReason = "no_oncluster_candidates";
     } else {
       const droppedAll = droppedMissingPath + droppedNonInterest + excludedByCluster + excludedByType;
@@ -2665,9 +2967,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     seedQualityDistribution,
     droppedByFinalEligibilityCount: droppedByFinalEligibility,
     droppedByFinalEligibilityNames,
+    droppedNeutralByFinalEligibilityCount: droppedNeutralByFinalEligibility,
+    droppedNeutralByFinalEligibilityNames,
     fallbackModeUsed,
     survivorFitDistribution,
     highConfidenceClusterGate: isHighConfidenceCluster,
+    expansionAttempted,
+    expansionTriggerReason,
+    expansionSeedNames,
+    expansionRawCount,
+    expansionNewCandidateCount,
+    expansionAddedToFinalCount,
+    expansionPerSeedStats,
   };
 
   return NextResponse.json({
