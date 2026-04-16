@@ -4029,7 +4029,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           ? ` (${diversification.weakFillDeferredInPhase2.slice(0, 10).join(", ")})`
           : "")
       : "") +
-    `\n    weak-fill final cap:       ${diversification.weakFillFinalCap !== null ? `ON (max=${diversification.weakFillFinalCap})` : "off"}` +
+    `\n    weak-fill final cap:       ${diversification.weakFillFinalCapApplied ? `ON (max=${diversification.weakFillFinalCap})` : "off"}` +
     `\n    weak-fill accepted:        ${diversification.weakFillAcceptedCount}` +
     (diversification.weakFillRejectedByFinalCap.length > 0
       ? `\n    weak-fill rejected by cap: ${diversification.weakFillRejectedByFinalCap.length} (${diversification.weakFillRejectedByFinalCap.slice(0, 10).join(", ")})`
