@@ -868,11 +868,26 @@ export interface HintIntelligenceDebug {
   sports?: {
     hintEntitiesDetected: string[];
     sportsDominantFamily: string | null;
+    /** Dominant entity subtype: team_club / competition / fighter / etc. */
+    sportsEntitySubtype: string | null;
     sportsEntityResolutionApplied: boolean;
+    /** Canonical entity names detected from hints (display identity). */
     sportsResolvedEntitySeeds: string[];
+    /** Meta-searchable Tier-1 seeds actually fed to /search (e.g.
+     *  "Arsenal F.C.", "Arsenal F.C. supporters", "Arsenal Stadium"). */
+    sportsResolvedEntitySearchSeeds: string[];
+    /** Tier-2 broad fallback seeds used (trimmed when entities exist). */
+    sportsBroadFallbackSeedsUsed: string[];
+    sportsTier1SeedCount: number;
+    sportsTier2SeedCount: number;
     sportsExactMatchBoostedNames: string[];
     sportsPrefixMatchBoostedNames: string[];
     sportsSuppressedCrossSportNames: string[];
+    /** Combined exact + prefix entity-row matches (the "winners"). */
+    sportsEntityRowsBoostedNames: string[];
+    /** Generic broad / international / sub-sport rows softly demoted to
+     *  protect entity-row ranking when entities are detected. */
+    sportsGenericRowsDemotedNames: string[];
   };
 }
 
@@ -1749,89 +1764,118 @@ function applyHintBiasForActivitiesCulture<
 
 type SportFamily = "football" | "combat" | "motorsport";
 
+type SportsEntitySubtype =
+  | "team_club"
+  | "competition"
+  | "fighter"
+  | "broadcaster"
+  | "venue";
+
 interface SportsEntity {
-  /** Canonical short name used as the Meta /search query (e.g. "Arsenal"). */
+  /** Detection identity (also reported in hint diagnostics). */
   canonical: string;
   /** Lower-case hint-text matchers, evaluated with word-boundary regex. */
   aliases: string[];
   family: SportFamily;
+  subtype: SportsEntitySubtype;
+  /** Optional ordered Meta-searchable seeds. When omitted, the system derives
+   *  sensible defaults (team_club → "<Name> F.C.", "<Name> F.C. supporters",
+   *  "<Name>"; everything else → [canonical]). Explicit lists are only added
+   *  when the precise stadium / variant matters for retrieval. */
+  searchSeeds?: string[];
 }
 
 // Curated football clubs (top European + selected others). Aliases avoid
 // bare common nouns like "united" or "city" to prevent false positives.
+// `searchSeeds` is set explicitly for the highest-volume clubs so we hit Meta
+// /search with stadium/TV/supporter variants alongside the canonical name.
 const FOOTBALL_CLUBS: SportsEntity[] = [
-  { canonical: "Arsenal", aliases: ["arsenal", "arsenal fc", "arsenal f.c.", "the gunners", "gooners"], family: "football" },
-  { canonical: "Chelsea", aliases: ["chelsea", "chelsea fc", "the blues"], family: "football" },
-  { canonical: "Liverpool F.C.", aliases: ["liverpool fc", "liverpool f.c.", "the reds", "lfc"], family: "football" },
-  { canonical: "Manchester United", aliases: ["manchester united", "man united", "man utd", "man u", "manunited"], family: "football" },
-  { canonical: "Manchester City", aliases: ["manchester city", "man city", "mcfc"], family: "football" },
-  { canonical: "Tottenham Hotspur", aliases: ["tottenham", "tottenham hotspur", "spurs", "thfc"], family: "football" },
-  { canonical: "Everton", aliases: ["everton", "everton fc", "toffees"], family: "football" },
-  { canonical: "Newcastle United", aliases: ["newcastle united", "newcastle fc", "nufc", "the magpies"], family: "football" },
-  { canonical: "Aston Villa", aliases: ["aston villa", "villa fc", "avfc"], family: "football" },
-  { canonical: "West Ham United", aliases: ["west ham", "west ham united", "whufc"], family: "football" },
-  { canonical: "Leeds United", aliases: ["leeds united", "leeds fc"], family: "football" },
-  { canonical: "Brighton & Hove Albion", aliases: ["brighton", "brighton hove albion", "brighton fc"], family: "football" },
-  { canonical: "Crystal Palace", aliases: ["crystal palace", "palace fc", "cpfc"], family: "football" },
-  { canonical: "Wolverhampton Wanderers", aliases: ["wolves", "wolverhampton", "wolverhampton wanderers"], family: "football" },
-  { canonical: "Leicester City", aliases: ["leicester city", "leicester fc", "lcfc"], family: "football" },
-  { canonical: "Real Madrid", aliases: ["real madrid", "los blancos"], family: "football" },
-  { canonical: "FC Barcelona", aliases: ["barcelona", "fc barcelona", "barca", "barça"], family: "football" },
-  { canonical: "Atletico Madrid", aliases: ["atletico madrid", "atlético madrid", "atletico"], family: "football" },
-  { canonical: "Sevilla FC", aliases: ["sevilla", "sevilla fc"], family: "football" },
-  { canonical: "Valencia CF", aliases: ["valencia cf", "valencia fc"], family: "football" },
-  { canonical: "Juventus", aliases: ["juventus", "juve"], family: "football" },
-  { canonical: "A.C. Milan", aliases: ["ac milan", "a.c. milan", "milan fc"], family: "football" },
-  { canonical: "Inter Milan", aliases: ["inter milan", "internazionale", "inter fc"], family: "football" },
-  { canonical: "S.S.C. Napoli", aliases: ["napoli", "ssc napoli"], family: "football" },
-  { canonical: "A.S. Roma", aliases: ["as roma", "a.s. roma", "roma fc"], family: "football" },
-  { canonical: "S.S. Lazio", aliases: ["ss lazio", "s.s. lazio", "lazio fc"], family: "football" },
-  { canonical: "FC Bayern Munich", aliases: ["bayern munich", "fc bayern", "bayern"], family: "football" },
-  { canonical: "Borussia Dortmund", aliases: ["borussia dortmund", "dortmund", "bvb"], family: "football" },
-  { canonical: "RB Leipzig", aliases: ["rb leipzig", "leipzig fc"], family: "football" },
-  { canonical: "Paris Saint-Germain F.C.", aliases: ["psg", "paris saint-germain", "paris saint germain"], family: "football" },
-  { canonical: "Olympique de Marseille", aliases: ["marseille fc", "olympique de marseille", "om marseille"], family: "football" },
-  { canonical: "Olympique Lyonnais", aliases: ["lyon fc", "olympique lyonnais"], family: "football" },
-  { canonical: "AFC Ajax", aliases: ["ajax fc", "afc ajax"], family: "football" },
-  { canonical: "FC Porto", aliases: ["fc porto", "porto fc"], family: "football" },
-  { canonical: "S.L. Benfica", aliases: ["benfica", "sl benfica"], family: "football" },
-  { canonical: "Celtic F.C.", aliases: ["celtic fc", "celtic f.c.", "celtic glasgow"], family: "football" },
-  { canonical: "Rangers F.C.", aliases: ["rangers fc", "rangers f.c.", "glasgow rangers"], family: "football" },
+  { canonical: "Arsenal", aliases: ["arsenal", "arsenal fc", "arsenal f.c.", "arsenal football club", "the gunners", "gooners"], family: "football", subtype: "team_club",
+    searchSeeds: ["Arsenal F.C.", "Arsenal F.C. supporters", "Arsenal Stadium", "Arsenal"] },
+  { canonical: "Chelsea", aliases: ["chelsea", "chelsea fc", "chelsea football club", "the blues"], family: "football", subtype: "team_club",
+    searchSeeds: ["Chelsea F.C.", "Chelsea F.C. supporters", "Stamford Bridge", "Chelsea"] },
+  { canonical: "Liverpool F.C.", aliases: ["liverpool fc", "liverpool f.c.", "liverpool football club", "the reds", "lfc"], family: "football", subtype: "team_club",
+    searchSeeds: ["Liverpool F.C.", "Liverpool F.C. supporters", "Anfield", "Liverpool"] },
+  { canonical: "Manchester United", aliases: ["manchester united", "man united", "man utd", "man u", "manunited", "manchester united fc"], family: "football", subtype: "team_club",
+    searchSeeds: ["Manchester United F.C.", "Manchester United F.C. supporters", "Old Trafford", "Manchester United"] },
+  { canonical: "Manchester City", aliases: ["manchester city", "man city", "mcfc", "manchester city fc"], family: "football", subtype: "team_club",
+    searchSeeds: ["Manchester City F.C.", "Manchester City F.C. supporters", "Etihad Stadium", "Manchester City"] },
+  { canonical: "Tottenham Hotspur", aliases: ["tottenham", "tottenham hotspur", "spurs", "thfc"], family: "football", subtype: "team_club",
+    searchSeeds: ["Tottenham Hotspur F.C.", "Tottenham Hotspur F.C. supporters", "Tottenham Hotspur Stadium", "Tottenham"] },
+  { canonical: "Everton", aliases: ["everton", "everton fc", "toffees"], family: "football", subtype: "team_club",
+    searchSeeds: ["Everton F.C.", "Everton F.C. supporters", "Everton"] },
+  { canonical: "Newcastle United", aliases: ["newcastle united", "newcastle fc", "nufc", "the magpies"], family: "football", subtype: "team_club",
+    searchSeeds: ["Newcastle United F.C.", "Newcastle United F.C. supporters", "Newcastle United"] },
+  { canonical: "Aston Villa", aliases: ["aston villa", "villa fc", "avfc"], family: "football", subtype: "team_club" },
+  { canonical: "West Ham United", aliases: ["west ham", "west ham united", "whufc"], family: "football", subtype: "team_club" },
+  { canonical: "Leeds United", aliases: ["leeds united", "leeds fc"], family: "football", subtype: "team_club" },
+  { canonical: "Brighton & Hove Albion", aliases: ["brighton", "brighton hove albion", "brighton fc"], family: "football", subtype: "team_club" },
+  { canonical: "Crystal Palace", aliases: ["crystal palace", "palace fc", "cpfc"], family: "football", subtype: "team_club" },
+  { canonical: "Wolverhampton Wanderers", aliases: ["wolves", "wolverhampton", "wolverhampton wanderers"], family: "football", subtype: "team_club" },
+  { canonical: "Leicester City", aliases: ["leicester city", "leicester fc", "lcfc"], family: "football", subtype: "team_club" },
+  { canonical: "Real Madrid", aliases: ["real madrid", "los blancos"], family: "football", subtype: "team_club",
+    searchSeeds: ["Real Madrid C.F.", "Real Madrid C.F. supporters", "Santiago Bernabéu Stadium", "Real Madrid"] },
+  { canonical: "FC Barcelona", aliases: ["barcelona", "fc barcelona", "barca", "barça"], family: "football", subtype: "team_club",
+    searchSeeds: ["FC Barcelona", "FC Barcelona supporters", "Camp Nou", "Barcelona"] },
+  { canonical: "Atletico Madrid", aliases: ["atletico madrid", "atlético madrid", "atletico"], family: "football", subtype: "team_club" },
+  { canonical: "Sevilla FC", aliases: ["sevilla", "sevilla fc"], family: "football", subtype: "team_club" },
+  { canonical: "Valencia CF", aliases: ["valencia cf", "valencia fc"], family: "football", subtype: "team_club" },
+  { canonical: "Juventus", aliases: ["juventus", "juve"], family: "football", subtype: "team_club",
+    searchSeeds: ["Juventus F.C.", "Juventus F.C. supporters", "Allianz Stadium", "Juventus"] },
+  { canonical: "A.C. Milan", aliases: ["ac milan", "a.c. milan", "milan fc"], family: "football", subtype: "team_club" },
+  { canonical: "Inter Milan", aliases: ["inter milan", "internazionale", "inter fc"], family: "football", subtype: "team_club" },
+  { canonical: "S.S.C. Napoli", aliases: ["napoli", "ssc napoli"], family: "football", subtype: "team_club" },
+  { canonical: "A.S. Roma", aliases: ["as roma", "a.s. roma", "roma fc"], family: "football", subtype: "team_club" },
+  { canonical: "S.S. Lazio", aliases: ["ss lazio", "s.s. lazio", "lazio fc"], family: "football", subtype: "team_club" },
+  { canonical: "FC Bayern Munich", aliases: ["bayern munich", "fc bayern", "bayern"], family: "football", subtype: "team_club",
+    searchSeeds: ["FC Bayern Munich", "FC Bayern Munich supporters", "Allianz Arena", "Bayern Munich"] },
+  { canonical: "Borussia Dortmund", aliases: ["borussia dortmund", "dortmund", "bvb"], family: "football", subtype: "team_club" },
+  { canonical: "RB Leipzig", aliases: ["rb leipzig", "leipzig fc"], family: "football", subtype: "team_club" },
+  { canonical: "Paris Saint-Germain F.C.", aliases: ["psg", "paris saint-germain", "paris saint germain"], family: "football", subtype: "team_club",
+    searchSeeds: ["Paris Saint-Germain F.C.", "Paris Saint-Germain F.C. supporters", "Parc des Princes", "PSG"] },
+  { canonical: "Olympique de Marseille", aliases: ["marseille fc", "olympique de marseille", "om marseille"], family: "football", subtype: "team_club" },
+  { canonical: "Olympique Lyonnais", aliases: ["lyon fc", "olympique lyonnais"], family: "football", subtype: "team_club" },
+  { canonical: "AFC Ajax", aliases: ["ajax fc", "afc ajax"], family: "football", subtype: "team_club" },
+  { canonical: "FC Porto", aliases: ["fc porto", "porto fc"], family: "football", subtype: "team_club" },
+  { canonical: "S.L. Benfica", aliases: ["benfica", "sl benfica"], family: "football", subtype: "team_club" },
+  { canonical: "Celtic F.C.", aliases: ["celtic fc", "celtic f.c.", "celtic glasgow"], family: "football", subtype: "team_club" },
+  { canonical: "Rangers F.C.", aliases: ["rangers fc", "rangers f.c.", "glasgow rangers"], family: "football", subtype: "team_club" },
 ];
 
 // Major football competitions/national teams. Aliases stay tight to avoid
 // matching bare words like "world" or "league".
 const FOOTBALL_COMPETITIONS: SportsEntity[] = [
-  { canonical: "FIFA World Cup", aliases: ["fifa world cup", "world cup"], family: "football" },
-  { canonical: "UEFA Champions League", aliases: ["uefa champions league", "champions league", "ucl"], family: "football" },
-  { canonical: "UEFA Europa League", aliases: ["uefa europa league", "europa league"], family: "football" },
-  { canonical: "Premier League", aliases: ["premier league", "epl", "english premier league"], family: "football" },
-  { canonical: "La Liga", aliases: ["la liga", "laliga"], family: "football" },
-  { canonical: "Serie A", aliases: ["serie a", "italian serie a"], family: "football" },
-  { canonical: "Bundesliga", aliases: ["bundesliga", "german bundesliga"], family: "football" },
-  { canonical: "Ligue 1", aliases: ["ligue 1", "french ligue 1"], family: "football" },
-  { canonical: "UEFA European Championship", aliases: ["uefa european championship", "euros", "euro 2024", "euro 2028"], family: "football" },
+  { canonical: "FIFA World Cup", aliases: ["fifa world cup", "world cup"], family: "football", subtype: "competition",
+    searchSeeds: ["FIFA World Cup", "International football", "Football competitions"] },
+  { canonical: "UEFA Champions League", aliases: ["uefa champions league", "champions league", "ucl"], family: "football", subtype: "competition" },
+  { canonical: "UEFA Europa League", aliases: ["uefa europa league", "europa league"], family: "football", subtype: "competition" },
+  { canonical: "Premier League", aliases: ["premier league", "epl", "english premier league"], family: "football", subtype: "competition" },
+  { canonical: "La Liga", aliases: ["la liga", "laliga"], family: "football", subtype: "competition" },
+  { canonical: "Serie A", aliases: ["serie a", "italian serie a"], family: "football", subtype: "competition" },
+  { canonical: "Bundesliga", aliases: ["bundesliga", "german bundesliga"], family: "football", subtype: "competition" },
+  { canonical: "Ligue 1", aliases: ["ligue 1", "french ligue 1"], family: "football", subtype: "competition" },
+  { canonical: "UEFA European Championship", aliases: ["uefa european championship", "euros", "euro 2024", "euro 2028"], family: "football", subtype: "competition" },
 ];
 
 // Combat sports (fighters + flagship brands). Kept compact deliberately.
 const COMBAT_ENTITIES: SportsEntity[] = [
-  { canonical: "UFC", aliases: ["ufc", "ultimate fighting championship"], family: "combat" },
-  { canonical: "Boxing", aliases: ["boxing"], family: "combat" },
-  { canonical: "Mixed martial arts", aliases: ["mma", "mixed martial arts"], family: "combat" },
-  { canonical: "Anthony Joshua", aliases: ["anthony joshua"], family: "combat" },
-  { canonical: "Tyson Fury", aliases: ["tyson fury"], family: "combat" },
-  { canonical: "Canelo Alvarez", aliases: ["canelo", "canelo alvarez"], family: "combat" },
-  { canonical: "Conor McGregor", aliases: ["conor mcgregor", "mcgregor"], family: "combat" },
-  { canonical: "Khabib Nurmagomedov", aliases: ["khabib", "khabib nurmagomedov"], family: "combat" },
+  { canonical: "UFC", aliases: ["ufc", "ultimate fighting championship"], family: "combat", subtype: "competition" },
+  { canonical: "Boxing", aliases: ["boxing"], family: "combat", subtype: "competition" },
+  { canonical: "Mixed martial arts", aliases: ["mma", "mixed martial arts"], family: "combat", subtype: "competition" },
+  { canonical: "Anthony Joshua", aliases: ["anthony joshua"], family: "combat", subtype: "fighter" },
+  { canonical: "Tyson Fury", aliases: ["tyson fury"], family: "combat", subtype: "fighter" },
+  { canonical: "Canelo Alvarez", aliases: ["canelo", "canelo alvarez"], family: "combat", subtype: "fighter" },
+  { canonical: "Conor McGregor", aliases: ["conor mcgregor", "mcgregor"], family: "combat", subtype: "fighter" },
+  { canonical: "Khabib Nurmagomedov", aliases: ["khabib", "khabib nurmagomedov"], family: "combat", subtype: "fighter" },
 ];
 
 // Motorsport (series + select drivers).
 const MOTORSPORT_ENTITIES: SportsEntity[] = [
-  { canonical: "Formula 1", aliases: ["formula 1", "formula one", "f1"], family: "motorsport" },
-  { canonical: "MotoGP", aliases: ["motogp", "moto gp"], family: "motorsport" },
-  { canonical: "NASCAR", aliases: ["nascar"], family: "motorsport" },
-  { canonical: "Lewis Hamilton", aliases: ["lewis hamilton"], family: "motorsport" },
-  { canonical: "Max Verstappen", aliases: ["max verstappen", "verstappen"], family: "motorsport" },
+  { canonical: "Formula 1", aliases: ["formula 1", "formula one", "f1"], family: "motorsport", subtype: "competition" },
+  { canonical: "MotoGP", aliases: ["motogp", "moto gp"], family: "motorsport", subtype: "competition" },
+  { canonical: "NASCAR", aliases: ["nascar"], family: "motorsport", subtype: "competition" },
+  { canonical: "Lewis Hamilton", aliases: ["lewis hamilton"], family: "motorsport", subtype: "fighter" },
+  { canonical: "Max Verstappen", aliases: ["max verstappen", "verstappen"], family: "motorsport", subtype: "fighter" },
 ];
 
 const SPORTS_ENTITY_DICT: SportsEntity[] = [
@@ -1907,32 +1951,201 @@ function dominantSportFamily(
   return null;
 }
 
-// Boost amounts kept as constants for easy tuning.
-const SPORTS_EXACT_MATCH_BOOST = 60;
-const SPORTS_PREFIX_MATCH_BOOST = 25;
-const SPORTS_FAMILY_MATCH_BOOST = 10;
+// Boost amounts kept as constants for easy tuning. Bumped (Apr 2026) so
+// entity rows clearly outrank generic football fallbacks like "UEFA Europa
+// League" or "football fans (football)" when an entity is detected.
+const SPORTS_EXACT_MATCH_BOOST = 90;
+const SPORTS_PREFIX_MATCH_BOOST = 45;
+const SPORTS_FAMILY_MATCH_BOOST = 15;
 const SPORTS_CROSS_SPORT_PENALTY = -60;
+// Soft penalties applied only when entities exist, to push generic broad
+// rows down so resolved-entity rows stay on top.
+const SPORTS_GENERIC_BROAD_PENALTY = -10;
+const SPORTS_INTL_FOOTBALL_COMP_PENALTY = -25;
+const SPORTS_COMPETITION_SUBSPORT_PENALTY = -25;
+
+// Generic broad-football rows that should not outrank Arsenal-style entity
+// rows when a club entity is detected.
+const BROAD_FOOTBALL_COMP_PATTERN = /\b(football\s*league|european\s*football|world\s*league|continental\s*football|football\s*federation|asian\s*football|african\s*football)\b/i;
+
+// Continental/regional competitions that almost always represent unrelated
+// regions when the user's hint is about an English/European club. Demoted
+// only when subtype === "team_club" AND family === "football".
+const INTL_FOOTBALL_COMP_PATTERN = /\b(CAF\s*Champions\s*League|CAF\s*Confederation\s*Cup|AFC\s*Champions\s*League|AFC\s*Cup|Copa\s*Libertadores|Copa\s*Sudamericana|CONCACAF|FIFA\s*Club\s*World\s*Cup|African\s*Cup\s*of\s*Nations|Asian\s*Cup|Egyptian\s*Premier\s*League|Indian\s*Premier\s*League|Saudi\s*Pro\s*League|Chinese\s*Super\s*League|MLS\s*Cup)\b/i;
+
+// Sub-sports that are off-target when the user asks about FIFA World Cup or
+// generic association football. Demoted only when subtype === "competition".
+const COMPETITION_SUBSPORT_NEG_PATTERN = /\b(beach\s*soccer|futsal|esoccer|college\s*soccer|esports?)\b/i;
+
+/** Resolve ordered Meta-searchable Tier-1 seeds for the detected entities.
+ *  team_club entries fall back to "<canonical> F.C." / supporters / canonical
+ *  when no explicit `searchSeeds` are provided. Other subtypes default to
+ *  just `[canonical]`. Output is deduped (case-insensitive, order preserved). */
+function resolveSportsEntitySearchSeeds(entities: SportsEntity[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (term: string) => {
+    const k = term.toLowerCase().trim();
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    out.push(term);
+  };
+  for (const e of entities) {
+    if (e.searchSeeds && e.searchSeeds.length > 0) {
+      for (const s of e.searchSeeds) push(s);
+      continue;
+    }
+    if (e.subtype === "team_club") {
+      const hasFC = /F\.?C\.?/i.test(e.canonical);
+      if (hasFC) {
+        push(e.canonical);
+        push(`${e.canonical} supporters`);
+      } else {
+        push(`${e.canonical} F.C.`);
+        push(`${e.canonical} F.C. supporters`);
+        push(e.canonical);
+      }
+      continue;
+    }
+    push(e.canonical);
+  }
+  return out;
+}
+
+/** Pick the dominant subtype from the resolved entities (most-common wins). */
+function inferDominantSubtype(entities: SportsEntity[]): SportsEntitySubtype | null {
+  if (entities.length === 0) return null;
+  const counts = new Map<SportsEntitySubtype, number>();
+  for (const e of entities) counts.set(e.subtype, (counts.get(e.subtype) ?? 0) + 1);
+  let best: SportsEntitySubtype | null = null;
+  let bestCount = 0;
+  for (const [k, v] of counts) {
+    if (v > bestCount) { best = k; bestCount = v; }
+  }
+  return best;
+}
+
+// Set of canonical names that map to a specific top-flight league. Used to
+// allow La Liga / Serie A / Bundesliga / Ligue 1 broad fallbacks only when
+// the detected entity actually belongs to that competition.
+const CLUB_LEAGUE_MAP: Record<string, string> = {
+  "Real Madrid": "La Liga",
+  "FC Barcelona": "La Liga",
+  "Atletico Madrid": "La Liga",
+  "Sevilla FC": "La Liga",
+  "Valencia CF": "La Liga",
+  "Juventus": "Serie A",
+  "A.C. Milan": "Serie A",
+  "Inter Milan": "Serie A",
+  "S.S.C. Napoli": "Serie A",
+  "A.S. Roma": "Serie A",
+  "S.S. Lazio": "Serie A",
+  "FC Bayern Munich": "Bundesliga",
+  "Borussia Dortmund": "Bundesliga",
+  "RB Leipzig": "Bundesliga",
+  "Paris Saint-Germain F.C.": "Ligue 1",
+  "Olympique de Marseille": "Ligue 1",
+  "Olympique Lyonnais": "Ligue 1",
+};
+const PREMIER_LEAGUE_CLUBS = new Set([
+  "Arsenal", "Chelsea", "Liverpool F.C.", "Manchester United", "Manchester City",
+  "Tottenham Hotspur", "Everton", "Newcastle United", "Aston Villa",
+  "West Ham United", "Leeds United", "Brighton & Hove Albion",
+  "Crystal Palace", "Wolverhampton Wanderers", "Leicester City",
+]);
+
+/** Build a tightly-trimmed broad fallback seed list for the Sports cluster.
+ *  Only used when at least one entity is detected. When no entity is detected
+ *  the cluster keeps its existing curated-seed behaviour via buildClusterTerms. */
+function buildSportsBroadFallbackSeeds(
+  family: SportFamily | null,
+  subtype: SportsEntitySubtype | null,
+  entities: SportsEntity[],
+  cap: number,
+): string[] {
+  if (cap <= 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (t: string) => {
+    const k = t.toLowerCase();
+    if (!k || seen.has(k) || out.length >= cap) return;
+    seen.add(k);
+    out.push(t);
+  };
+
+  if (family === "football") {
+    // Always-relevant broad football anchors.
+    push("Football");
+    push("Football fans");
+    if (subtype === "team_club") {
+      push("UEFA Champions League");
+      // Domain-specific league only when an entity actually plays there.
+      const leagues = new Set<string>();
+      for (const e of entities) {
+        if (CLUB_LEAGUE_MAP[e.canonical]) leagues.add(CLUB_LEAGUE_MAP[e.canonical]);
+        else if (PREMIER_LEAGUE_CLUBS.has(e.canonical)) leagues.add("Premier League");
+      }
+      for (const l of leagues) push(l);
+      push("Soccer");
+    } else if (subtype === "competition") {
+      // Competition mode: keep it general. Avoid pulling specific national
+      // top flights (La Liga / Serie A / etc.) unless the entity matches.
+      push("International football");
+      push("Soccer");
+      push("Sky Sports");
+    } else {
+      push("Premier League");
+      push("UEFA Champions League");
+      push("Soccer");
+    }
+    return out;
+  }
+  if (family === "combat") {
+    push("Boxing");
+    push("UFC");
+    push("Mixed martial arts");
+    push("Combat sports");
+    return out;
+  }
+  if (family === "motorsport") {
+    push("Formula 1");
+    push("Motorsport");
+    push("Grand Prix");
+    return out;
+  }
+  return out;
+}
 
 /**
  * Apply Sports-only post-scoring: exact/prefix entity boosts, dominant-family
- * boost, and cross-sport demotion. Mutates score + matchReason; returns the
- * names involved for hint-intelligence diagnostics.
+ * boost, cross-sport demotion, and entity-aware broad-row demotion. Mutates
+ * score + matchReason; returns the names involved for hint diagnostics.
+ *
+ * `subtype` is the dominant entity subtype (team_club / competition / etc.)
+ * and gates the entity-aware soft penalties (broad-fan / intl-comp /
+ * sub-sport). `cluster_fit` from earlier stages remains untouched.
  */
 function applySportsEntityBoost(
   scored: ClusteredInterest[],
   entities: SportsEntity[],
   family: SportFamily | null,
+  subtype: SportsEntitySubtype | null,
 ): {
   exactBoosted: string[];
   prefixBoosted: string[];
   familyBoosted: string[];
   suppressed: string[];
+  /** Generic football / fan / competition rows that were softly demoted to
+   *  protect entity-row ranking. Surfaced for dev diagnostics only. */
+  genericDemoted: string[];
 } {
   const exactBoosted: string[] = [];
   const prefixBoosted: string[] = [];
   const familyBoosted: string[] = [];
   const suppressed: string[] = [];
+  const genericDemoted: string[] = [];
   const canonicals = entities.map((e) => e.canonical.toLowerCase());
+  const hasEntities = entities.length > 0;
 
   for (const item of scored) {
     const nameLower = item.name.toLowerCase();
@@ -1987,9 +2200,42 @@ function applySportsEntityBoost(
         suppressed.push(item.name);
       }
     }
+
+    // ── Entity-aware broad-row demotion (only when entities are detected) ──
+    if (hasEntities && !entityHit) {
+      // Generic broad-football rows like "Football league (sport)",
+      // "European football leagues and competitions" etc. Soft penalty so
+      // entity rows clearly win.
+      if (family === "football" && BROAD_FOOTBALL_COMP_PATTERN.test(haystack)) {
+        item.relevanceScore = (item.relevanceScore ?? 0) + SPORTS_GENERIC_BROAD_PENALTY;
+        item.matchReason = `${item.matchReason ?? ""};broad-football-demote`;
+        genericDemoted.push(item.name);
+      }
+      // International / regional competitions when the user asked about a
+      // specific club/team — these almost always represent unrelated regions.
+      if (subtype === "team_club" && family === "football" && INTL_FOOTBALL_COMP_PATTERN.test(haystack)) {
+        item.relevanceScore = (item.relevanceScore ?? 0) + SPORTS_INTL_FOOTBALL_COMP_PENALTY;
+        item.matchReason = `${item.matchReason ?? ""};intl-comp-demote`;
+        genericDemoted.push(item.name);
+      }
+      // Sub-sport variants when the user asked about a competition (FIFA
+      // World Cup → suppress beach soccer / futsal / esoccer / etc., unless
+      // the canonical entity name itself contains that word).
+      if (subtype === "competition" && COMPETITION_SUBSPORT_NEG_PATTERN.test(haystack)) {
+        const match = haystack.match(COMPETITION_SUBSPORT_NEG_PATTERN)?.[0]?.toLowerCase() ?? "";
+        const entityMentionsSubsport = entities.some((e) =>
+          match && e.canonical.toLowerCase().includes(match.split(/\s+/)[0]),
+        );
+        if (!entityMentionsSubsport) {
+          item.relevanceScore = (item.relevanceScore ?? 0) + SPORTS_COMPETITION_SUBSPORT_PENALTY;
+          item.matchReason = `${item.matchReason ?? ""};subsport-demote`;
+          genericDemoted.push(item.name);
+        }
+      }
+    }
   }
 
-  return { exactBoosted, prefixBoosted, familyBoosted, suppressed };
+  return { exactBoosted, prefixBoosted, familyBoosted, suppressed, genericDemoted };
 }
 
 // ── Sports & Live Events diversification ─────────────────────────────────────
@@ -2040,8 +2286,8 @@ const SPORTS_BUCKET_CAPS_DEFAULT: Record<SportsBucket, number> = {
   other: 3,
 };
 
-// When the user's hint resolves to specific entities (e.g. "arsenal fans"),
-// reshape the budget so team interests dominate and broad fallbacks shrink.
+// Generic entity caps — used when entities are detected but subtype is mixed
+// or non-team/non-competition (fighter / venue / broadcaster).
 const SPORTS_BUCKET_CAPS_WITH_ENTITY: Record<SportsBucket, number> = {
   team_entity: 4,
   competition: 2,
@@ -2052,14 +2298,48 @@ const SPORTS_BUCKET_CAPS_WITH_ENTITY: Record<SportsBucket, number> = {
   other: 1,
 };
 
+// Team/club hint (e.g. "arsenal fans") — promote team rows aggressively,
+// allow some Premier League / Champions League context, demote broadcasters
+// and broad social.
+const SPORTS_BUCKET_CAPS_TEAM_CLUB: Record<SportsBucket, number> = {
+  team_entity: 5,
+  competition: 2,
+  fan: 2,
+  broadcaster: 1,
+  social: 1,
+  fitness: 0,
+  other: 1,
+};
+
+// Competition hint (e.g. "fifa world cup interests") — competition rows
+// should dominate, club rows cap low.
+const SPORTS_BUCKET_CAPS_COMPETITION: Record<SportsBucket, number> = {
+  team_entity: 1,
+  competition: 5,
+  fan: 2,
+  broadcaster: 2,
+  social: 1,
+  fitness: 0,
+  other: 1,
+};
+
+function pickSportsBucketCaps(
+  entities: SportsEntity[],
+  subtype: SportsEntitySubtype | null,
+): Record<SportsBucket, number> {
+  if (entities.length === 0) return SPORTS_BUCKET_CAPS_DEFAULT;
+  if (subtype === "team_club") return SPORTS_BUCKET_CAPS_TEAM_CLUB;
+  if (subtype === "competition") return SPORTS_BUCKET_CAPS_COMPETITION;
+  return SPORTS_BUCKET_CAPS_WITH_ENTITY;
+}
+
 function diversifySportsLiveEvents<T extends { name: string; path?: string[] }>(
   sorted: T[],
   maxResults: number,
   entities: SportsEntity[] = [],
+  subtype: SportsEntitySubtype | null = null,
 ): { picked: T[]; bucketCounts: Record<SportsBucket, number> } {
-  const caps = entities.length > 0
-    ? SPORTS_BUCKET_CAPS_WITH_ENTITY
-    : SPORTS_BUCKET_CAPS_DEFAULT;
+  const caps = pickSportsBucketCaps(entities, subtype);
   const picked: T[] = [];
   const overflow: T[] = [];
   const counts: Record<SportsBucket, number> = {
@@ -2109,11 +2389,18 @@ async function discoverForCluster(
   sportsResolution?: {
     entitiesDetected: string[];
     dominantFamily: SportFamily | null;
+    dominantSubtype: SportsEntitySubtype | null;
     resolutionApplied: boolean;
     resolvedEntitySeeds: string[];
+    resolvedEntitySearchSeeds: string[];
+    broadFallbackSeedsUsed: string[];
+    tier1SeedCount: number;
+    tier2SeedCount: number;
     suppressedCrossSportNames: string[];
     exactMatchBoostedNames: string[];
     prefixMatchBoostedNames: string[];
+    entityRowsBoostedNames: string[];
+    genericRowsDemotedNames: string[];
   };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
@@ -2136,24 +2423,41 @@ async function discoverForCluster(
         )
       : [];
 
-  // Tier 1 (sports only): named-entity search terms — clubs/competitions/
-  // fighters resolved from raw hints. Prepended so they hit Meta /search
-  // first and surface the most precise interests (e.g. "Arsenal F.C.",
-  // "Arsenal F.C. supporters") before broad fallbacks.
-  const sportsEntitySeeds =
-    clusterLabel === "Sports & Live Events" ? sportsEntities.map((e) => e.canonical) : [];
-  const sportsEntitySeedSet = new Set(sportsEntitySeeds.map((s) => s.toLowerCase()));
+  // ── Sports two-tier seed assembly ───────────────────────────────────────
+  // When at least one named sports entity is detected, replace the broad
+  // curated fallback (entityTerms) with a tightly-trimmed family-aligned
+  // subset and prepend Meta-searchable canonical entity seeds so Tier-1
+  // hits land first. When no entity exists, fall back to the existing
+  // term assembly (curated seeds via entityTerms).
+  const isSports = clusterLabel === "Sports & Live Events";
+  const sportsSubtype = isSports ? inferDominantSubtype(sportsEntities) : null;
+  const sportsTier1Seeds = isSports && sportsEntities.length > 0
+    ? resolveSportsEntitySearchSeeds(sportsEntities).slice(0, 6)
+    : [];
+  const sportsTier1Set = new Set(sportsTier1Seeds.map((s) => s.toLowerCase()));
   const filteredExtraHints = extraHints.filter(
-    (h) => !sportsEntitySeedSet.has(h.toLowerCase()),
+    (h) => !sportsTier1Set.has(h.toLowerCase()),
   );
   const filteredIntentSeeds = intentSeedTerms.filter(
-    (t) => !sportsEntitySeedSet.has(t.toLowerCase()),
+    (t) => !sportsTier1Set.has(t.toLowerCase()),
   );
+
+  // For sports + entity-detected requests, replace the (broad) curated
+  // entityTerms with the trimmed broad fallback. Other cases keep the
+  // original entityTerms list untouched.
+  const sportsTier2Seeds = isSports && sportsEntities.length > 0
+    ? buildSportsBroadFallbackSeeds(sportsFamily, sportsSubtype, sportsEntities, 4)
+        .filter((t) => !sportsTier1Set.has(t.toLowerCase()))
+    : [];
+  const broadOrEntityTerms = isSports && sportsEntities.length > 0
+    ? sportsTier2Seeds
+    : entityTerms;
+
   const allTerms = [
-    ...sportsEntitySeeds,
+    ...sportsTier1Seeds,
     ...filteredExtraHints,
     ...filteredIntentSeeds,
-    ...entityTerms,
+    ...broadOrEntityTerms,
   ];
 
   const sceneKeywords = buildSceneKeywords(tagWeights, clusterLabel);
@@ -2315,37 +2619,62 @@ async function discoverForCluster(
     }
   }
 
-  // Sports-only post-scoring: exact-entity boost + cross-sport suppression.
-  // Runs before the sort so boosted/penalised candidates land in the right
-  // slice. Other clusters skip this entirely.
+  // Sports-only post-scoring: exact-entity boost + cross-sport suppression
+  // + entity-aware broad-row demotion. Runs before the sort so boosted /
+  // penalised candidates land in the right slice. Other clusters skip this.
   let sportsResolution:
     | {
         entitiesDetected: string[];
         dominantFamily: SportFamily | null;
+        dominantSubtype: SportsEntitySubtype | null;
         resolutionApplied: boolean;
         resolvedEntitySeeds: string[];
+        resolvedEntitySearchSeeds: string[];
+        broadFallbackSeedsUsed: string[];
+        tier1SeedCount: number;
+        tier2SeedCount: number;
         suppressedCrossSportNames: string[];
         exactMatchBoostedNames: string[];
         prefixMatchBoostedNames: string[];
+        entityRowsBoostedNames: string[];
+        genericRowsDemotedNames: string[];
       }
     | undefined;
-  if (clusterLabel === "Sports & Live Events" && (sportsEntities.length > 0 || sportsFamily)) {
-    const boostResult = applySportsEntityBoost(aboveFloor, sportsEntities, sportsFamily);
+  if (isSports && (sportsEntities.length > 0 || sportsFamily)) {
+    const boostResult = applySportsEntityBoost(
+      aboveFloor,
+      sportsEntities,
+      sportsFamily,
+      sportsSubtype,
+    );
+    const entityRowsBoosted = Array.from(
+      new Set([...boostResult.exactBoosted, ...boostResult.prefixBoosted]),
+    );
     sportsResolution = {
       entitiesDetected: sportsEntities.map((e) => e.canonical),
       dominantFamily: sportsFamily,
+      dominantSubtype: sportsSubtype,
       resolutionApplied: true,
-      resolvedEntitySeeds: sportsEntitySeeds,
+      resolvedEntitySeeds: sportsEntities.map((e) => e.canonical),
+      resolvedEntitySearchSeeds: sportsTier1Seeds,
+      broadFallbackSeedsUsed: sportsTier2Seeds,
+      tier1SeedCount: sportsTier1Seeds.length,
+      tier2SeedCount: sportsTier2Seeds.length,
       suppressedCrossSportNames: boostResult.suppressed,
       exactMatchBoostedNames: boostResult.exactBoosted,
       prefixMatchBoostedNames: boostResult.prefixBoosted,
+      entityRowsBoostedNames: entityRowsBoosted,
+      genericRowsDemotedNames: boostResult.genericDemoted,
     };
     console.info(
-      `[sports-resolve] family=${sportsFamily ?? "<none>"} ` +
+      `[sports-resolve] family=${sportsFamily ?? "<none>"} subtype=${sportsSubtype ?? "<none>"} ` +
       `entities=${sportsEntities.map((e) => e.canonical).join(",") || "<none>"}\n` +
+      `[sports-resolve] tier1(${sportsTier1Seeds.length})=${sportsTier1Seeds.join(", ") || "<none>"}\n` +
+      `[sports-resolve] tier2(${sportsTier2Seeds.length})=${sportsTier2Seeds.join(", ") || "<none>"}\n` +
       `[sports-resolve] exact=${boostResult.exactBoosted.join(", ") || "<none>"}\n` +
       `[sports-resolve] prefix=${boostResult.prefixBoosted.join(", ") || "<none>"}\n` +
-      `[sports-resolve] suppressed=${boostResult.suppressed.join(", ") || "<none>"}`,
+      `[sports-resolve] suppressed=${boostResult.suppressed.join(", ") || "<none>"}\n` +
+      `[sports-resolve] generic-demoted=${boostResult.genericDemoted.join(", ") || "<none>"}`,
     );
   }
 
@@ -2358,12 +2687,17 @@ async function discoverForCluster(
   // visible top slice. Only active for Sports & Live Events.
   let interests = sorted.slice(0, maxResults);
   let sportsBucketDistribution: Record<SportsBucket, number> | undefined;
-  if (clusterLabel === "Sports & Live Events" && sorted.length > 0) {
-    const diversified = diversifySportsLiveEvents(sorted, maxResults, sportsEntities);
+  if (isSports && sorted.length > 0) {
+    const diversified = diversifySportsLiveEvents(
+      sorted,
+      maxResults,
+      sportsEntities,
+      sportsSubtype,
+    );
     interests = diversified.picked;
     sportsBucketDistribution = diversified.bucketCounts;
     console.info(
-      `[interest-discover] sports-diversify buckets=` +
+      `[interest-discover] sports-diversify subtype=${sportsSubtype ?? "<none>"} buckets=` +
       Object.entries(diversified.bucketCounts)
         .map(([k, v]) => `${k}=${v}`)
         .join(" "),
@@ -2560,11 +2894,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       sportsResolutionForResponse = {
         hintEntitiesDetected: sportsResolution.entitiesDetected,
         sportsDominantFamily: sportsResolution.dominantFamily,
+        sportsEntitySubtype: sportsResolution.dominantSubtype,
         sportsEntityResolutionApplied: sportsResolution.resolutionApplied,
         sportsResolvedEntitySeeds: sportsResolution.resolvedEntitySeeds,
+        sportsResolvedEntitySearchSeeds: sportsResolution.resolvedEntitySearchSeeds,
+        sportsBroadFallbackSeedsUsed: sportsResolution.broadFallbackSeedsUsed,
+        sportsTier1SeedCount: sportsResolution.tier1SeedCount,
+        sportsTier2SeedCount: sportsResolution.tier2SeedCount,
         sportsExactMatchBoostedNames: sportsResolution.exactMatchBoostedNames,
         sportsPrefixMatchBoostedNames: sportsResolution.prefixMatchBoostedNames,
         sportsSuppressedCrossSportNames: sportsResolution.suppressedCrossSportNames,
+        sportsEntityRowsBoostedNames: sportsResolution.entityRowsBoostedNames,
+        sportsGenericRowsDemotedNames: sportsResolution.genericRowsDemotedNames,
       };
     }
   }
