@@ -143,6 +143,9 @@ export interface SuggestionsDebugInfo {
   invalidSeedIds: string[];
   metaUrl: string;
   metaHttpStatus: number;
+  /** Which Meta param was used: interest_fbid_list (IDs) or interest_list (names) */
+  payloadMode: "interest_fbid_list" | "interest_list";
+  payloadValue: string;
   rawCount: number;
   afterExcludeCount: number;
   afterBlocklistCount: number;
@@ -217,30 +220,46 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Step 3: build Meta URL ────────────────────────────────────────────────
-  // Construct the URL with a plain template string rather than URLSearchParams
-  // for the interest_list value — this avoids double-encoding the JSON array.
-  const tokenPrefix = token.slice(0, 12) + "…";
-  const interestListJson = JSON.stringify(interestList);
+  // Meta adinterestsuggestion expects EITHER:
+  //   interest_fbid_list = JSON array of ID strings  e.g. ["123","456"]
+  //   interest_list      = JSON array of name strings e.g. ["Techno","Carl Cox"]
+  //
+  // Sending interest_list as an array of objects {id,name} returns:
+  //   (#100) This field must be a string.
+  //
+  // Prefer interest_fbid_list when we have real numeric IDs (always true here
+  // because we already filtered with ID_RE above). Fall back to interest_list
+  // of name strings only when no valid IDs are available.
 
-  // Manually build the query string so interest_list is encoded exactly once
+  const tokenPrefix = token.slice(0, 12) + "…";
+
+  const fbidList = interestList.map((x) => x.id);
+  const nameList = interestList.map((x) => x.name);
+  const useIdMode = fbidList.length > 0;
+
+  // Payload field name and value
+  const payloadField = useIdMode ? "interest_fbid_list" : "interest_list";
+  const payloadValue = JSON.stringify(useIdMode ? fbidList : nameList);
+
   const metaUrl =
     `${BASE}/search` +
     `?access_token=${encodeURIComponent(token)}` +
     `&type=adinterestsuggestion` +
-    `&interest_list=${encodeURIComponent(interestListJson)}` +
+    `&${payloadField}=${encodeURIComponent(payloadValue)}` +
     `&limit=30`;
 
-  // Log without the full token
   const metaUrlSafe =
     `${BASE}/search` +
     `?access_token=${tokenPrefix}` +
     `&type=adinterestsuggestion` +
-    `&interest_list=${encodeURIComponent(interestListJson)}` +
+    `&${payloadField}=${encodeURIComponent(payloadValue)}` +
     `&limit=30`;
 
   console.info(
     `[interest-suggestions] ▶ calling Meta:` +
     `\n  token prefix: ${tokenPrefix}` +
+    `\n  payload mode: ${payloadField}` +
+    `\n  payload value: ${payloadValue}` +
     `\n  url (safe): ${metaUrlSafe}`,
   );
 
@@ -286,7 +305,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       else if (errCode === 100) emptyReason = "invalid_request";
     }
     return NextResponse.json(
-      { error: errMsg, code: errCode, emptyReason, debug: { metaHttpStatus, tokenPrefix, metaUrl: metaUrlSafe } },
+      { error: errMsg, code: errCode, emptyReason, debug: { metaHttpStatus, tokenPrefix, metaUrl: metaUrlSafe, payloadMode: payloadField, payloadValue } },
       { status: 502 },
     );
   }
@@ -386,6 +405,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     invalidSeedIds: invalidIds,
     metaUrl: metaUrlSafe,
     metaHttpStatus,
+    payloadMode: payloadField as "interest_fbid_list" | "interest_list",
+    payloadValue,
     rawCount: raw.length,
     afterExcludeCount: afterExclude,
     afterBlocklistCount: afterExclude - blockedNames.length,
