@@ -568,6 +568,12 @@ export interface SuggestionsDebugInfo {
   quarantinedNames?: string[];
   clusterFitDistribution?: Record<string, number>;
   seedQualityDistribution?: Record<string, number>;
+  /** Landing 2b-ii final eligibility gate */
+  droppedByFinalEligibilityCount?: number;
+  droppedByFinalEligibilityNames?: string[];
+  fallbackModeUsed?: boolean;
+  survivorFitDistribution?: Record<string, number>;
+  highConfidenceClusterGate?: boolean;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -1837,6 +1843,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const cluster = params.get("cluster") ?? "";
   // ?debug=1 disables all local filtering so we can see raw Meta output
   const debugBypass = params.get("debug") === "1";
+  // ?fallback=loose lets off_cluster + neutral candidates back into the final
+  // output when the strict eligibility gate would otherwise return zero. Use
+  // sparingly — the default is to return empty rather than show off-cluster
+  // junk on a high-confidence cluster.
+  const allowLooseFallback = params.get("fallback") === "loose";
   const excludeIds = new Set([
     ...ids,
     ...params.getAll("exclude[]"),
@@ -2343,13 +2354,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // 6k. Score components
     const sizeBandPoints = sizeBandScore(size);
-    const typeBonusPoints = typeBonus;
-    const seedQualityPoints = debugBypass ? 0 : seedQualityResult.points;
-    const pathPatternPoints = !debugBypass && pathPattern?.test(text) ? 10 : 0;
+    const rawTypeBonus = typeBonus;
+    const rawSeedQualityPoints = debugBypass ? 0 : seedQualityResult.points;
+    const rawPathPatternPoints = !debugBypass && pathPattern?.test(text) ? 10 : 0;
     const deprecated = !debugBypass && isKnownDeprecated(item.name);
     const deprecationPoints = deprecated ? -15 : 0;
     const genericNamePoints =
       !debugBypass && /^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name) ? -10 : 0;
+
+    // Off-cluster suppression: a candidate that's been classified as belonging
+    // to another cluster cannot be rescued by legacy positive bonuses. Clamp
+    // typeBonus, seedQuality, and pathPattern to ≤0 so the cluster-fit penalty
+    // is the dominant signal. Negative components remain in effect.
+    const isOffCluster = !debugBypass && fit.fitClass === "off_cluster";
+    const typeBonusPoints = isOffCluster ? Math.min(rawTypeBonus, 0) : rawTypeBonus;
+    const seedQualityPoints = isOffCluster ? Math.min(rawSeedQualityPoints, 0) : rawSeedQualityPoints;
+    const pathPatternPoints = isOffCluster ? 0 : rawPathPatternPoints;
 
     const score =
       sizeBandPoints +
@@ -2394,9 +2414,57 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   suggestions.sort((a, b) => b.score - a.score);
 
+  // ── Landing 2b-ii final eligibility gate ────────────────────────────────────
+  // High-confidence cluster: drop off_cluster candidates entirely. Off-cluster
+  // junk should never appear in results when we're confident about the cluster
+  // intent. If this leaves zero candidates, prefer empty over polluted output.
+  // Set ?fallback=loose to opt back into off_cluster + neutral candidates.
+  const HIGH_CONFIDENCE_THRESHOLD = 0.60;
+  const isHighConfidenceCluster =
+    !debugBypass &&
+    dominantCluster.clusterKey !== "unknown" &&
+    dominantCluster.confidence >= HIGH_CONFIDENCE_THRESHOLD;
+
+  let droppedByFinalEligibility = 0;
+  const droppedByFinalEligibilityNames: string[] = [];
+  let fallbackModeUsed = false;
+
+  let eligibleSuggestions = suggestions;
+  if (isHighConfidenceCluster && !allowLooseFallback) {
+    eligibleSuggestions = suggestions.filter((s) => {
+      if (s.clusterFitClass === "off_cluster") {
+        droppedByFinalEligibility++;
+        droppedByFinalEligibilityNames.push(s.name);
+        return false;
+      }
+      return true;
+    });
+    // If the gate emptied the list, do NOT silently re-admit junk. The caller
+    // sees zero results and can either expand seeds or pass ?fallback=loose.
+  } else if (isHighConfidenceCluster && allowLooseFallback) {
+    fallbackModeUsed = true;
+  }
+
   // Cap at top 10 — show fewer strong suggestions rather than a noisy list
   const MAX_SUGGESTIONS = 10;
-  const finalSuggestions = suggestions.slice(0, MAX_SUGGESTIONS);
+  const finalSuggestions = eligibleSuggestions.slice(0, MAX_SUGGESTIONS);
+
+  // Distribution of cluster-fit classes among the surviving final suggestions
+  const survivorFitDistribution: Record<string, number> = {};
+  for (const s of finalSuggestions) {
+    const k = s.clusterFitClass ?? "unknown";
+    survivorFitDistribution[k] = (survivorFitDistribution[k] ?? 0) + 1;
+  }
+
+  if (droppedByFinalEligibility > 0) {
+    console.info(
+      `[interest-suggestions] ── Stage G: final eligibility gate ──` +
+      `\n  cluster: ${dominantCluster.clusterKey} (confidence=${dominantCluster.confidence.toFixed(2)}, threshold=${HIGH_CONFIDENCE_THRESHOLD})` +
+      `\n  dropped (off_cluster): ${droppedByFinalEligibility}` +
+      `\n  names: ${droppedByFinalEligibilityNames.slice(0, 20).join(", ")}` +
+      (fallbackModeUsed ? `\n  fallback=loose was active — junk re-admitted` : ""),
+    );
+  }
 
   // Build type frequency map for debug output
   const finalSuggestionTypes: Record<string, number> = {};
@@ -2464,8 +2532,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     `\n  excluded (cluster list):    ${excludedByCluster}` +
     `\n  excluded (type):            ${excludedByType} ${JSON.stringify(excludedByTypeBreakdown)}` +
     `\n  scored:                     ${suggestions.length}` +
+    `\n  high-conf cluster gate:     ${isHighConfidenceCluster ? "ACTIVE" : "off"} (cluster confidence=${dominantCluster.confidence.toFixed(2)})` +
+    `\n  dropped (final eligibility):${droppedByFinalEligibility}${fallbackModeUsed ? " [fallback=loose ACTIVE]" : ""}` +
+    `\n  eligible after gate:        ${eligibleSuggestions.length}` +
     `\n  returned (capped):          ${finalSuggestions.length}` +
-    `\n  cluster fit dist:           ${JSON.stringify(clusterFitDistribution)}` +
+    `\n  cluster fit dist (scored):  ${JSON.stringify(clusterFitDistribution)}` +
+    `\n  cluster fit dist (final):   ${JSON.stringify(survivorFitDistribution)}` +
     `\n  seed quality dist:          ${JSON.stringify(seedQualityDistribution)}` +
     `\n  debug-bypass:               ${debugBypass}` +
     (finalSuggestions.length > 0
@@ -2508,13 +2580,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Classify emptyReason
   let emptyReason: string | undefined;
   if (finalSuggestions.length === 0 && raw.length > 0) {
-    const droppedAll = droppedMissingPath + droppedNonInterest + excludedByCluster + excludedByType;
-    if (droppedAll >= raw.length - excludedBySeed)
-      emptyReason = "blocklist_filtered";
-    else
-      emptyReason = "scored_out";
+    if (droppedByFinalEligibility > 0 && eligibleSuggestions.length === 0) {
+      // The eligibility gate emptied the list. Caller should expand seeds or
+      // pass ?fallback=loose to opt back into off_cluster candidates.
+      emptyReason = "no_oncluster_candidates";
+    } else {
+      const droppedAll = droppedMissingPath + droppedNonInterest + excludedByCluster + excludedByType;
+      if (droppedAll >= raw.length - excludedBySeed)
+        emptyReason = "blocklist_filtered";
+      else
+        emptyReason = "scored_out";
+    }
   } else if (finalSuggestions.length > 0 && fallbackUsed) {
     emptyReason = "success_after_fallback";
+  } else if (finalSuggestions.length > 0 && fallbackModeUsed) {
+    emptyReason = "success_after_loose_fallback";
   }
 
   const debugInfo: SuggestionsDebugInfo = {
@@ -2583,6 +2663,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     quarantinedNames,
     clusterFitDistribution,
     seedQualityDistribution,
+    droppedByFinalEligibilityCount: droppedByFinalEligibility,
+    droppedByFinalEligibilityNames,
+    fallbackModeUsed,
+    survivorFitDistribution,
+    highConfidenceClusterGate: isHighConfidenceCluster,
   };
 
   return NextResponse.json({
