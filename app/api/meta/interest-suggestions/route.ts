@@ -1956,6 +1956,34 @@ const CURATED_RESCUE_SEEDS: Partial<Record<ClusterKey, ReadonlyArray<string>>> =
 
 type ClusterFitClass = "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
 
+// ── Hard-negative markers for specific clusters ──────────────────────────────
+// When the cluster's intent is genuinely narrow (e.g. electronic music +
+// nightlife), candidates whose name or path contains any of these markers —
+// and NO corresponding electronic counter-marker — are forced off-cluster even
+// if their class would otherwise classify as primary/secondary. This is the
+// smallest possible override: it runs before the rules.primary/secondary
+// check and otherwise leaves the fit rules alone.
+const ELECTRONIC_CLUSTER_NON_ELECTRONIC_MARKERS =
+  /\b(country|folk|bluegrass|jazz|classical|gospel|acoustic|singer[\s-]?songwriter|performing\s+arts|broadway|opera|reggae|latin\s+music|soul\s+music|blues)\b/i;
+const ELECTRONIC_CLUSTER_ROCK_MARKERS =
+  // Any form of rock music — standalone "rock", compound ("alternative rock",
+  // "classic rock"), or rock-music / rock-bands / rock-festivals phrasing.
+  /\brock\b/i;
+const ELECTRONIC_CLUSTER_COUNTER_MARKERS =
+  /\b(electronic|techno|house|rave|edm|dance\s+music|club\s+music|trance|drum\s+and\s+bass|dnb|drum\s*n\s*bass|dubstep|ambient|electro|electroclash|breakbeat|breaks|industrial\s+techno|minimal|idm|hardstyle|gabber|jungle|footwork|uk\s+garage)\b/i;
+
+// ── Per-class weak-secondary override ────────────────────────────────────────
+// Some CandidateClasses are technically allowed as "secondary" (they're too
+// broadly adjacent to drop entirely) but should rank well below real
+// secondaries. Assigning them a lower cluster-fit score is the smallest
+// surgical change that keeps them surviving the strict gate while forcing
+// them below electronic-specific / editorial-tight candidates.
+const WEAK_SECONDARY_POINTS: Partial<Record<CandidateClass, number>> = {
+  generic_fashion_media: 2,   // Fashion blog, Fashion models — survive but demoted
+  generic_music_festival: 2,  // bare "Music festivals" — demoted vs electronic festivals
+  generic_music_media: 2,     // radio/concerts in a broad music cluster — demoted
+};
+
 function computeClusterFit(
   candidateName: string,
   candidatePath: string[],
@@ -1979,6 +2007,51 @@ function computeClusterFit(
     return { fitClass: "neutral", points: 0, candidateClass, reason: `no_rules_for_${cluster.clusterKey}` };
   }
 
+  // ── Cluster-specific hard negatives (before primary/secondary lookup) ────
+  if (cluster.clusterKey === "electronic_music_nightlife") {
+    const nameLower = candidateName.toLowerCase();
+    const pathJoined = candidatePath.map((p) => p.toLowerCase()).join(" > ");
+    const hasElectronicCounter =
+      ELECTRONIC_CLUSTER_COUNTER_MARKERS.test(nameLower) ||
+      ELECTRONIC_CLUSTER_COUNTER_MARKERS.test(pathJoined);
+    if (!hasElectronicCounter) {
+      if (ELECTRONIC_CLUSTER_NON_ELECTRONIC_MARKERS.test(nameLower)) {
+        return {
+          fitClass: "off_cluster",
+          points: -15,
+          candidateClass,
+          reason: `non_electronic_marker_in_name (${cluster.clusterKey})`,
+        };
+      }
+      if (ELECTRONIC_CLUSTER_NON_ELECTRONIC_MARKERS.test(pathJoined)) {
+        return {
+          fitClass: "off_cluster",
+          points: -15,
+          candidateClass,
+          reason: `non_electronic_marker_in_path (${cluster.clusterKey})`,
+        };
+      }
+      if (ELECTRONIC_CLUSTER_ROCK_MARKERS.test(nameLower)) {
+        return {
+          fitClass: "off_cluster",
+          points: -15,
+          candidateClass,
+          reason: `rock_marker_in_name (${cluster.clusterKey})`,
+        };
+      }
+      // Rock in path alone (e.g. "Interests > Music > Alternative rock") is
+      // also disqualifying — these are rock-rooted taxonomy nodes.
+      if (/\brock\b/i.test(pathJoined)) {
+        return {
+          fitClass: "off_cluster",
+          points: -15,
+          candidateClass,
+          reason: `rock_marker_in_path (${cluster.clusterKey})`,
+        };
+      }
+    }
+  }
+
   if (rules.primary.includes(candidateClass)) {
     return {
       fitClass: "primary",
@@ -1989,6 +2062,15 @@ function computeClusterFit(
   }
 
   if (rules.secondary.includes(candidateClass)) {
+    const weak = WEAK_SECONDARY_POINTS[candidateClass];
+    if (weak !== undefined) {
+      return {
+        fitClass: "secondary",
+        points: weak,
+        candidateClass,
+        reason: `${candidateClass} ∈ secondary[${cluster.clusterKey}] (weak_secondary, +${weak})`,
+      };
+    }
     return {
       fitClass: "secondary",
       points: 5,
