@@ -2231,6 +2231,9 @@ type WeakFillContext = {
   eligibleEditorialCount: number;
 };
 
+// Counts the cluster-relevant anchor families already present in the
+// eligible pool. The result gates whether weak-fill deferral activates:
+// EMN needs ≥2 media or ≥1 festival, FED needs ≥3 editorial primaries.
 function computeWeakFillContext(
   eligible: SuggestedInterest[],
   clusterKey: ClusterKey,
@@ -2273,6 +2276,11 @@ const WEAK_FILL_FINAL_CAP: Partial<Record<ClusterKey, number>> = {
   fashion_editorial: 1,
 };
 
+// Cluster-scoped weak-fill predicate. Returns true only when the composition
+// already has enough on-cluster anchors AND the candidate matches a narrow
+// deferrable profile (broad non-electronic genre for EMN; generic fashion
+// media for FED). Used purely for ordering/admission in diversification —
+// never as a gate or score change.
 function isWeakFillCandidate(
   clusterKey: ClusterKey,
   s: SuggestedInterest,
@@ -2468,6 +2476,16 @@ function computeRescuePriorityScore(
   return groupPriority + missingWeight - penalty;
 }
 
+// Final composition layer. Takes the post-gate eligible list and emits the
+// ordered top-N for the response. Two phases: (1) non-weak-first greedy
+// pick respecting per-cluster display-bucket caps; (2) backfill preferring
+// the least-represented cap-group with non-weak items ahead of weak ones.
+// A per-cluster weak-fill final cap (WEAK_FILL_FINAL_CAP) bounds how many
+// weak-fill items can ever be admitted across both phases; once reached
+// remaining weak candidates are rejected outright and the final list is
+// allowed to return shorter than `max` rather than padded with weak tail.
+//
+// Pure composition: no retrieval, classification, scoring, or gate changes.
 function diversifyFinalSuggestions(
   eligible: SuggestedInterest[],
   clusterKey: ClusterKey,
@@ -2653,6 +2671,15 @@ function diversifyFinalSuggestions(
   };
 }
 
+// Classifies a candidate against the dominant cluster and returns its fit
+// class, score contribution, and reason. Order of operations:
+//   1. Low-confidence/unknown cluster → unknown_cluster (no penalty).
+//   2. Cluster-specific hard negatives (e.g. EMN non-electronic markers)
+//      short-circuit to off_cluster.
+//   3. Structural primary/secondary lookup from CLUSTER_FIT_RULES.
+//   4. WEAK_SECONDARY_POINTS and BROAD_GENRE_SOFT_DEMOTE apply on top.
+// This is the single source of truth for per-candidate cluster scoring —
+// callers should not re-derive fit from candidateClass alone.
 function computeClusterFit(
   candidateName: string,
   candidatePath: string[],
