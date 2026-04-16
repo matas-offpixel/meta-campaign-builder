@@ -432,6 +432,24 @@ export interface SuggestedInterest {
   seedAgreement?: number;
   /** Landing 2a: IDs of seeds that surfaced this candidate */
   sourceSeedIds?: string[];
+  /** Landing 2b-ii: reliability-weighted seed agreement (0–1) */
+  weightedSeedAgreement?: number;
+  /** Landing 2b-ii: domain-fit class against the inferred dominant cluster */
+  clusterFitClass?: "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
+  /** Landing 2b-ii: surfacing-seed quality class */
+  seedQualityClass?: "all_good" | "all_bad" | "mixed" | "no_seeds";
+  /** Landing 2b-ii: per-component score breakdown for transparency */
+  scoreBreakdown?: {
+    sizeBand: number;
+    typeBonus: number;
+    weightedAgreement: number;
+    clusterFit: number;
+    seedQuality: number;
+    pathPattern: number;
+    deprecation: number;
+    genericName: number;
+    total: number;
+  };
 }
 
 export interface SuggestionsDebugInfo {
@@ -472,6 +490,20 @@ export interface SuggestionsDebugInfo {
     path: string[];
     seedAgreement?: number;
     sources?: string[];
+    /** Landing 2b-ii: weighted agreement, fit, quality, components */
+    weightedAgreement?: number;
+    clusterFit?: "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
+    seedQuality?: "all_good" | "all_bad" | "mixed" | "no_seeds";
+    components?: {
+      sizeBand: number;
+      typeBonus: number;
+      weightedAgreement: number;
+      clusterFit: number;
+      seedQuality: number;
+      pathPattern: number;
+      deprecation: number;
+      genericName: number;
+    };
   }>;
   /** Landing 2a: per-seed retrieval telemetry */
   perSeedStats?: Record<string, { seedName: string; status: "ok" | "empty" | "error"; count: number; errMsg?: string; errCode?: unknown }>;
@@ -503,6 +535,11 @@ export interface SuggestionsDebugInfo {
   conflictingSeedCount?: number;
   seedEnrichmentResolved?: number;
   seedEnrichmentRequested?: number;
+  /** Landing 2b-ii: ranking telemetry */
+  quarantinedCount?: number;
+  quarantinedNames?: string[];
+  clusterFitDistribution?: Record<string, number>;
+  seedQualityDistribution?: Record<string, number>;
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -1415,6 +1452,105 @@ function finaliseSeedBucket(
   return { bucket: "ambiguous", onDominantCluster: false };
 }
 
+// ── Landing 2b-ii: candidate scoring helpers ─────────────────────────────────
+//
+// 2b-ii uses the seed profiles + dominantCluster from 2b-i to actually shape
+// ranking. Three new signals join sizeBandScore + typeBonus:
+//
+//   1. S_agree_w   — reliability-weighted cross-seed agreement (replaces the
+//                    flat S_agree count from 2a). A candidate surfaced by 2
+//                    trusted seeds should outrank one surfaced by 4 ambiguous
+//                    seeds.
+//   2. S_cluster_fit — domain-family fit between the candidate and the
+//                    inferred dominant cluster. Boost on primary, mild boost
+//                    on secondary, penalise off-cluster.
+//   3. S_seed_quality — bonus when ALL surfacing seeds are trusted+onCluster,
+//                    penalty when ALL are ambiguous/conflicting.
+//
+// Plus a hard quarantine: candidates whose only surfacing seeds are ambiguous
+// (e.g. surfaced ONLY by "Gala") are dropped before scoring.
+
+const KNOWN_DOMAIN_FAMILIES = new Set<DomainFamily>([
+  "music", "electronic_music", "music_platform", "nightlife",
+  "fashion", "fashion_editorial", "media", "literature", "entertainment",
+]);
+
+type ClusterFitClass = "primary" | "secondary" | "off_cluster" | "neutral" | "unknown_cluster";
+
+function computeClusterFit(
+  candidateFamilies: DomainFamily[],
+  cluster: DominantCluster,
+): { fitClass: ClusterFitClass; points: number } {
+  if (cluster.clusterKey === "unknown" || cluster.confidence < 0.35) {
+    return { fitClass: "unknown_cluster", points: 0 };
+  }
+  const primary = new Set(primaryExpectedFamilies(cluster.clusterKey));
+  const secondary = new Set(secondaryExpectedFamilies(cluster.clusterKey));
+  const hasPrimary = candidateFamilies.some((f) => primary.has(f));
+  if (hasPrimary) return { fitClass: "primary", points: 20 };
+  const hasSecondary = candidateFamilies.some((f) => secondary.has(f));
+  if (hasSecondary) return { fitClass: "secondary", points: 5 };
+  // Has a known domain family but doesn't intersect the cluster's expected
+  // families → it clearly belongs elsewhere → penalise.
+  const hasAnyKnown = candidateFamilies.some((f) => KNOWN_DOMAIN_FAMILIES.has(f));
+  if (hasAnyKnown) return { fitClass: "off_cluster", points: -15 };
+  // No family signal — neutral (don't penalise; many valid Interests have
+  // sparse paths and could still be on-cluster).
+  return { fitClass: "neutral", points: 0 };
+}
+
+type SeedQualityClass = "all_good" | "all_bad" | "mixed" | "no_seeds";
+
+function computeSeedQuality(
+  sourceSeedIds: string[],
+  seedProfiles: Map<string, SeedProfile>,
+): { qualityClass: SeedQualityClass; points: number; quarantine: boolean } {
+  if (sourceSeedIds.length === 0) {
+    return { qualityClass: "no_seeds", points: 0, quarantine: false };
+  }
+  let trustedOnCluster = 0;
+  let ambiguousOrConflicting = 0;
+  let ambiguousOnly = 0;
+  let resolved = 0;
+  for (const sid of sourceSeedIds) {
+    const p = seedProfiles.get(sid);
+    if (!p) continue;
+    resolved++;
+    if (p.bucket === "trusted" && p.onDominantCluster) trustedOnCluster++;
+    if (p.bucket === "ambiguous" || p.bucket === "conflicting") ambiguousOrConflicting++;
+    if (p.bucket === "ambiguous") ambiguousOnly++;
+  }
+  if (resolved === 0) {
+    return { qualityClass: "no_seeds", points: 0, quarantine: false };
+  }
+  // Quarantine: every surfacing seed was judged ambiguous (e.g. lone "Gala").
+  // Conflicting seeds escape quarantine because they have clear identity, just
+  // off-cluster — penalised via -25 instead.
+  const quarantine = ambiguousOnly === resolved;
+  if (trustedOnCluster === resolved) return { qualityClass: "all_good", points: 5, quarantine };
+  if (ambiguousOrConflicting === resolved) return { qualityClass: "all_bad", points: -25, quarantine };
+  return { qualityClass: "mixed", points: 0, quarantine };
+}
+
+function computeWeightedAgreement(
+  sourceSeedIds: string[],
+  retrievalSeedIds: string[],
+  seedProfiles: Map<string, SeedProfile>,
+): { value: number; weightSurfacing: number; weightTotal: number } {
+  let weightTotal = 0;
+  for (const sid of retrievalSeedIds) {
+    const p = seedProfiles.get(sid);
+    weightTotal += p ? Math.max(p.reliability, 0.05) : 0.05; // floor so weights never collapse to zero
+  }
+  let weightSurfacing = 0;
+  for (const sid of sourceSeedIds) {
+    const p = seedProfiles.get(sid);
+    weightSurfacing += p ? Math.max(p.reliability, 0.05) : 0.05;
+  }
+  const value = weightTotal > 0 ? weightSurfacing / weightTotal : 0;
+  return { value, weightSurfacing, weightTotal };
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -1818,6 +1954,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let excludedByCluster = 0;
   let excludedByType = 0;
   const excludedByTypeBreakdown: Record<string, number> = {};
+  // Landing 2b-ii telemetry
+  const quarantinedNames: string[] = [];
+  const clusterFitDistribution: Record<string, number> = {};
+  const seedQualityDistribution: Record<string, number> = {};
 
   for (const item of raw) {
     // 6a. Exclude already-selected IDs
@@ -1893,25 +2033,65 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    // 6g. Cross-seed agreement (Landing 2a) — primary relevance signal
-    // S_agree = (seeds that surfaced this candidate) / (total retrieval seeds)
-    // Range [0, 1]. A candidate surfaced by 3/3 seeds is overwhelmingly more
-    // relevant than one surfaced by 1/3 — this is the main quality unlock.
+    // 6g. Source seeds — which retrieval seeds surfaced this candidate
     const accumulator = pool.get(item.id);
     const sourceSeedIds = accumulator ? Array.from(accumulator.sourceSeeds) : [];
     const S_agree = retrievalSeeds.length > 0 ? sourceSeedIds.length / retrievalSeeds.length : 0;
 
-    // 6h. Compute score
-    const S_agree_points = Math.round(S_agree * 35); // weight = 35 (per Landing 2 design)
-    let score = sizeBandScore(size);
-    score += typeBonus;
-    score += S_agree_points;
-    if (!debugBypass && pathPattern?.test(text)) score += 10;
+    // 6h. Landing 2b-ii: seed-quality + quarantine
+    // Drop candidates whose surfacing seeds are ALL ambiguous (e.g. lone "Gala")
+    // before scoring — they pollute the result set with no upside.
+    const seedQualityResult = computeSeedQuality(sourceSeedIds, seedProfiles);
+    if (!debugBypass && seedQualityResult.quarantine) {
+      excludedBySeed++;
+      blockedNames.push(item.name);
+      quarantinedNames.push(item.name);
+      console.info(
+        `[interest-suggestions] Stage Q quarantine (ambiguous-only seeds): "${item.name}" ` +
+        `surfaced by ${sourceSeedIds.length} seed(s), all bucket=ambiguous`,
+      );
+      continue;
+    }
 
+    // 6i. Landing 2b-ii: reliability-weighted agreement (replaces 2a flat S_agree
+    // in scoring; we still expose the raw value for debugging continuity).
+    const retrievalSeedIds = retrievalSeeds.map((s) => s.id);
+    const weightedAgreement = computeWeightedAgreement(sourceSeedIds, retrievalSeedIds, seedProfiles);
+    const S_agree_w = weightedAgreement.value;
+    const S_agree_w_points = Math.round(S_agree_w * 35); // same magnitude as 2a's S_agree weight
+
+    // 6j. Landing 2b-ii: candidate cluster fit
+    // Reuse seed-side family inference to classify the candidate, then compare
+    // against the dominant cluster's primary/secondary expected families.
+    const candidateEntityType = inferNormalisedEntityType(item.name, itemPath);
+    const candidateFamilies = inferDomainFamilies(item.name, itemPath, candidateEntityType);
+    const fit = computeClusterFit(candidateFamilies, dominantCluster);
+    const S_cluster_fit_points = debugBypass ? 0 : fit.points;
+
+    // Track distributions for debug telemetry
+    clusterFitDistribution[fit.fitClass] = (clusterFitDistribution[fit.fitClass] ?? 0) + 1;
+    seedQualityDistribution[seedQualityResult.qualityClass] =
+      (seedQualityDistribution[seedQualityResult.qualityClass] ?? 0) + 1;
+
+    // 6k. Score components
+    const sizeBandPoints = sizeBandScore(size);
+    const typeBonusPoints = typeBonus;
+    const seedQualityPoints = debugBypass ? 0 : seedQualityResult.points;
+    const pathPatternPoints = !debugBypass && pathPattern?.test(text) ? 10 : 0;
     const deprecated = !debugBypass && isKnownDeprecated(item.name);
-    if (deprecated) score -= 15;
+    const deprecationPoints = deprecated ? -15 : 0;
+    const genericNamePoints =
+      !debugBypass && /^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name) ? -10 : 0;
 
-    if (!debugBypass && /^(music|fashion|art|travel|fitness|food|sports?)$/i.test(item.name)) score -= 10;
+    const score =
+      sizeBandPoints +
+      typeBonusPoints +
+      S_agree_w_points +
+      S_cluster_fit_points +
+      seedQualityPoints +
+      pathPatternPoints +
+      deprecationPoints +
+      genericNamePoints;
 
     suggestions.push({
       id: item.id,
@@ -1925,6 +2105,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       suggestionType: sType,
       seedAgreement: S_agree,
       sourceSeedIds,
+      weightedSeedAgreement: S_agree_w,
+      clusterFitClass: fit.fitClass,
+      seedQualityClass: seedQualityResult.qualityClass,
+      scoreBreakdown: {
+        sizeBand: sizeBandPoints,
+        typeBonus: typeBonusPoints,
+        weightedAgreement: S_agree_w_points,
+        clusterFit: S_cluster_fit_points,
+        seedQuality: seedQualityPoints,
+        pathPattern: pathPatternPoints,
+        deprecation: deprecationPoints,
+        genericName: genericNamePoints,
+        total: score,
+      },
     });
   }
 
@@ -1948,26 +2142,62 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     path: s.path ?? [],
     seedAgreement: s.seedAgreement,
     sources: s.sourceSeedIds,
+    weightedAgreement: s.weightedSeedAgreement,
+    clusterFit: s.clusterFitClass,
+    seedQuality: s.seedQualityClass,
+    components: s.scoreBreakdown
+      ? {
+          sizeBand: s.scoreBreakdown.sizeBand,
+          typeBonus: s.scoreBreakdown.typeBonus,
+          weightedAgreement: s.scoreBreakdown.weightedAgreement,
+          clusterFit: s.scoreBreakdown.clusterFit,
+          seedQuality: s.scoreBreakdown.seedQuality,
+          pathPattern: s.scoreBreakdown.pathPattern,
+          deprecation: s.scoreBreakdown.deprecation,
+          genericName: s.scoreBreakdown.genericName,
+        }
+      : undefined,
   }));
 
   const finalInterestOnlyCount = finalSuggestions.length;
 
+  // Compact one-liner per final suggestion showing the full 2b-ii score
+  // breakdown — this is the ranking debugging surface.
+  const fmtBreakdown = (s: SuggestedInterest): string => {
+    const b = s.scoreBreakdown;
+    if (!b) return `score=${s.score}`;
+    const parts = [
+      `size=${b.sizeBand}`,
+      `type=${b.typeBonus}`,
+      `agreeW=${b.weightedAgreement}`,
+      `fit=${b.clusterFit}(${s.clusterFitClass})`,
+      `seedQ=${b.seedQuality}(${s.seedQualityClass})`,
+    ];
+    if (b.pathPattern) parts.push(`path=${b.pathPattern}`);
+    if (b.deprecation) parts.push(`dep=${b.deprecation}`);
+    if (b.genericName) parts.push(`gen=${b.genericName}`);
+    return `${parts.join(" ")} → ${b.total}`;
+  };
+
   console.info(
-    `[interest-suggestions] ── Stage D: pipeline summary (Landing 2a) ──` +
+    `[interest-suggestions] ── Stage D: pipeline summary (Landing 2b-ii) ──` +
     `\n  retrieval seeds:            ${retrievalSeeds.length}${maxSeedsCapped ? ` (capped from ${sortedSeeds.length})` : ""}` +
     `\n  union pool size:            ${pool.size}` +
     `\n  raw (from pool):            ${raw.length}` +
     `\n  enriched (adinterestvalid): ${enriched.size}/${candidateIds.length}` +
-    `\n  excluded by seed:           ${excludedBySeed}` +
+    `\n  excluded by seed:           ${excludedBySeed} (incl. ${quarantinedNames.length} quarantined)` +
     `\n  dropped (missing path):     ${droppedMissingPath}` +
     `\n  dropped (non-Interests):    ${droppedNonInterest} — roots: ${JSON.stringify(droppedNonInterestRoots)}` +
     `\n  excluded (cluster list):    ${excludedByCluster}` +
     `\n  excluded (type):            ${excludedByType} ${JSON.stringify(excludedByTypeBreakdown)}` +
     `\n  scored:                     ${suggestions.length}` +
     `\n  returned (capped):          ${finalSuggestions.length}` +
+    `\n  cluster fit dist:           ${JSON.stringify(clusterFitDistribution)}` +
+    `\n  seed quality dist:          ${JSON.stringify(seedQualityDistribution)}` +
     `\n  debug-bypass:               ${debugBypass}` +
     (finalSuggestions.length > 0
-      ? `\n  Stage E final: ${finalSuggestions.map((s) => `"${s.name}"[${s.suggestionType}|agree=${((s.seedAgreement ?? 0) * 100).toFixed(0)}%|score=${s.score}]`).join(", ")}`
+      ? `\n  Stage E final (top ${finalSuggestions.length}):` +
+        finalSuggestions.map((s) => `\n    • "${s.name}" [${s.suggestionType}] ${fmtBreakdown(s)}`).join("")
       : ""),
   );
 
@@ -2076,6 +2306,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     conflictingSeedCount: bucketCounts.conflicting,
     seedEnrichmentRequested: seedIdsForEnrichment.length,
     seedEnrichmentResolved: seedEnriched.size,
+    quarantinedCount: quarantinedNames.length,
+    quarantinedNames,
+    clusterFitDistribution,
+    seedQualityDistribution,
   };
 
   return NextResponse.json({
