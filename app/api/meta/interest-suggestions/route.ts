@@ -625,6 +625,12 @@ export interface SuggestionsDebugInfo {
   weakFillApplied?: boolean;
   weakFillSkippedCount?: number;
   weakFillSkippedNames?: string[];
+  /** Landing 2h — hard per-cluster weak-fill final cap */
+  weakFillFinalCapApplied?: boolean;
+  weakFillFinalCapByCluster?: number | null;
+  weakFillAcceptedCount?: number;
+  weakFillRejectedByFinalCapCount?: number;
+  weakFillRejectedByFinalCapNames?: string[];
 }
 
 // ── Enrichment via adinterestvalid (Landing 1 — primary pipeline step) ───────
@@ -2254,6 +2260,19 @@ function computeWeakFillContext(
   };
 }
 
+// Hard per-cluster cap on weak-fill items admitted into the FINAL list.
+// Applied inside diversifyFinalSuggestions only (Phase 1 + Phase 2). Once
+// reached, further weak-fill candidates are rejected outright and the final
+// list is allowed to be shorter than MAX_SUGGESTIONS — we prefer a short,
+// clean result over a padded tail of weak items.
+//
+// Clusters not listed here have NO cap → weak-fill behaves as before.
+// music_platforms is intentionally absent and untouched.
+const WEAK_FILL_FINAL_CAP: Partial<Record<ClusterKey, number>> = {
+  electronic_music_nightlife: 1,
+  fashion_editorial: 1,
+};
+
 function isWeakFillCandidate(
   clusterKey: ClusterKey,
   s: SuggestedInterest,
@@ -2465,6 +2484,10 @@ function diversifyFinalSuggestions(
   weakFillApplied: boolean;
   weakFillFlagByName: Record<string, boolean>;
   weakFillDeferredInPhase2: string[];
+  weakFillFinalCap: number | null;
+  weakFillFinalCapApplied: boolean;
+  weakFillAcceptedCount: number;
+  weakFillRejectedByFinalCap: string[];
 } {
   const bucketByName: Record<string, DiversityBucket> = {};
   const distributionBefore: Record<string, number> = {};
@@ -2491,6 +2514,8 @@ function diversifyFinalSuggestions(
     if (flag) weakFillApplied = true;
   }
 
+  const weakFillFinalCap = WEAK_FILL_FINAL_CAP[clusterKey] ?? null;
+
   const plan = capPlanFor(clusterKey);
   if (!plan) {
     const picked = eligible.slice(0, max);
@@ -2503,6 +2528,10 @@ function diversifyFinalSuggestions(
       skippedAtCap: [], applied: false,
       phase1GroupCounts, phase2GroupCounts,
       weakFillApplied: false, weakFillFlagByName, weakFillDeferredInPhase2: [],
+      weakFillFinalCap,
+      weakFillFinalCapApplied: false,
+      weakFillAcceptedCount: 0,
+      weakFillRejectedByFinalCap: [],
     };
   }
 
@@ -2523,9 +2552,23 @@ function diversifyFinalSuggestions(
   const skippedAtCap: Array<{ name: string; bucket: DiversityBucket; group: string }> = [];
   const capCounts: Record<string, number> = {};
 
+  // Per-cluster hard cap on admitted weak-fill items. When the cap is reached
+  // (in either phase) further weak-fill candidates are rejected outright.
+  // A short final list is preferred over padding with weak tail items.
+  let weakFillAccepted = 0;
+  const weakFillRejectedByFinalCap: string[] = [];
+  const weakCapReached = (): boolean =>
+    weakFillFinalCap !== null && weakFillAccepted >= weakFillFinalCap;
+
   // ── Phase 1 — score-ordered greedy pick (non-weak first), per-group caps.
+  //     Weak-fill items are also subject to the weak-fill final cap.
   for (const s of phase1Order) {
     if (picked.length >= max) break;
+    const isWeak = weakFillFlagByName[s.name] === true;
+    if (isWeak && weakCapReached()) {
+      weakFillRejectedByFinalCap.push(s.name);
+      continue;
+    }
     const bucket = bucketByName[s.name] ?? "other";
     const group = plan.group[bucket] ?? "other";
     const limit = plan.limit[group] ?? max;
@@ -2534,6 +2577,7 @@ function diversifyFinalSuggestions(
       picked.push(s);
       capCounts[group] = current + 1;
       phase1GroupCounts[group] = (phase1GroupCounts[group] ?? 0) + 1;
+      if (isWeak) weakFillAccepted++;
     } else {
       skipped.push(s);
       skippedAtCap.push({ name: s.name, bucket, group });
@@ -2545,6 +2589,9 @@ function diversifyFinalSuggestions(
   //     2. lowest current count in picked[]     ← cap-group diversity
   //     3. score desc                           ← tie-break on quality
   //     4. original index                       ← stable
+  //     Weak-fill is additionally subject to weakFillFinalCap. Once that cap
+  //     is reached, every remaining weak candidate is rejected and the loop
+  //     terminates cleanly — it does NOT backfill with weak junk.
   const weakFillDeferredInPhase2: string[] = [];
   const skippedQueue = [...skipped];
   while (picked.length < max && skippedQueue.length > 0) {
@@ -2571,14 +2618,21 @@ function diversifyFinalSuggestions(
     }
     if (bestIdx < 0) break;
     const chosen = skippedQueue.splice(bestIdx, 1)[0];
+    const isWeak = weakFillFlagByName[chosen.name] === true;
+    if (isWeak && weakCapReached()) {
+      weakFillRejectedByFinalCap.push(chosen.name);
+      continue;
+    }
     const bucket = bucketByName[chosen.name] ?? "other";
     const group = plan.group[bucket] ?? "other";
     capCounts[group] = (capCounts[group] ?? 0) + 1;
     phase2GroupCounts[group] = (phase2GroupCounts[group] ?? 0) + 1;
     picked.push(chosen);
+    if (isWeak) weakFillAccepted++;
   }
-  // Any remaining weak items we didn't add — either because max was reached
-  // or because they were the last resort never pulled — go into debug.
+  // Any weak items still in the queue (max reached before they were ever
+  // considered best) are reported as deferred. These were NOT rejected by
+  // the cap — they simply weren't needed.
   for (const s of skippedQueue) {
     if (weakFillFlagByName[s.name]) weakFillDeferredInPhase2.push(s.name);
   }
@@ -2592,6 +2646,10 @@ function diversifyFinalSuggestions(
     skippedAtCap, applied: true,
     phase1GroupCounts, phase2GroupCounts,
     weakFillApplied, weakFillFlagByName, weakFillDeferredInPhase2,
+    weakFillFinalCap,
+    weakFillFinalCapApplied: weakFillFinalCap !== null && weakFillApplied,
+    weakFillAcceptedCount: weakFillAccepted,
+    weakFillRejectedByFinalCap,
   };
 }
 
@@ -3971,6 +4029,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           ? ` (${diversification.weakFillDeferredInPhase2.slice(0, 10).join(", ")})`
           : "")
       : "") +
+    `\n    weak-fill final cap:       ${diversification.weakFillFinalCap !== null ? `ON (max=${diversification.weakFillFinalCap})` : "off"}` +
+    `\n    weak-fill accepted:        ${diversification.weakFillAcceptedCount}` +
+    (diversification.weakFillRejectedByFinalCap.length > 0
+      ? `\n    weak-fill rejected by cap: ${diversification.weakFillRejectedByFinalCap.length} (${diversification.weakFillRejectedByFinalCap.slice(0, 10).join(", ")})`
+      : `\n    weak-fill rejected by cap: 0`) +
     (diversification.skippedAtCap.length > 0
       ? `\n    skipped at cap:            ${diversification.skippedAtCap.slice(0, 20).map((x) => `${x.name}[${x.bucket}→${x.group}]`).join(", ")}`
       : "") +
@@ -4139,6 +4202,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     weakFillApplied: diversification.weakFillApplied,
     weakFillSkippedCount: diversification.weakFillDeferredInPhase2.length,
     weakFillSkippedNames: diversification.weakFillDeferredInPhase2,
+    weakFillFinalCapApplied: diversification.weakFillFinalCapApplied,
+    weakFillFinalCapByCluster: diversification.weakFillFinalCap,
+    weakFillAcceptedCount: diversification.weakFillAcceptedCount,
+    weakFillRejectedByFinalCapCount: diversification.weakFillRejectedByFinalCap.length,
+    weakFillRejectedByFinalCapNames: diversification.weakFillRejectedByFinalCap,
     curatedRescueCandidatesConsidered,
     curatedRescueCandidatesPicked: curatedExpansionSeedsUsed,
     underrepresentedBucketsBeforeExpansion,
