@@ -962,6 +962,17 @@ export interface HintIntelligenceDebug {
     personaBucketDistributionBefore: Record<string, number>;
     personaBucketDistributionAfter: Record<string, number>;
     personaDiversificationApplied: boolean;
+    /** Additive per-cluster breakdown for tuning. Surfaces every cluster
+     *  that applied any persona bias (the aggregated fields above only
+     *  report the first matched cluster + merged boosted/demoted name
+     *  lists). Each map is keyed by cluster label. */
+    personaAppliedByCluster?: Record<string, string[]>;
+    personaSeedTermsUsedByCluster?: Record<string, string[]>;
+    personaPositiveBoostedNamesByCluster?: Record<string, string[]>;
+    personaNegativeDemotedNamesByCluster?: Record<string, string[]>;
+    personaGenericRowsDemotedNamesByCluster?: Record<string, string[]>;
+    personaBucketDistributionBeforeByCluster?: Record<string, Record<string, number>>;
+    personaBucketDistributionAfterByCluster?: Record<string, Record<string, number>>;
   };
 }
 
@@ -2871,29 +2882,54 @@ const PERSONA_POSITIVE_BOOST = 60;
 const PERSONA_NEGATIVE_DEMOTE = -40;
 const PERSONA_GENERIC_DEMOTE = -20;
 /** Soft per-bucket cap used when persona-aware diversification runs.
- *  Buckets listed in any matching persona's preferredBuckets get an extra
- *  slot. Generic buckets ("generic_*") are capped harder. */
+ *  Buckets listed in any matching persona's preferredBuckets get the
+ *  larger cap; non-preferred buckets get the smaller cap when the persona
+ *  has *any* preferences declared (so the persona's identity actually
+ *  reshapes the visible slice). Generic buckets ("generic_*") are always
+ *  capped hardest. */
+const PERSONA_BUCKET_CAP_PREFERRED = 6;
+const PERSONA_BUCKET_CAP_NON_PREFERRED = 2;
 const PERSONA_BUCKET_CAP_DEFAULT = 3;
-const PERSONA_BUCKET_CAP_PREFERRED = 5;
 const PERSONA_BUCKET_CAP_GENERIC = 1;
 const PERSONA_SEED_INJECT_CAP = 12;
 
+/** Compile persona positive / negative / guard patterns into RegExps with
+ *  safe defaults: plain phrases (no regex metacharacters) get word-
+ *  boundary anchors so "vans" / "supreme" / "palace" never match within
+ *  "Vans Warped Tour" / "Supreme Court" / "Palace of Versailles". Patterns
+ *  that *do* contain regex syntax are taken verbatim so authors can write
+ *  precise expressions when needed (see fashionista's "i\\.d\\." style
+ *  patterns or streetwear's "vans \\(brand\\)").
+ *
+ *  For phrases that start or end with a non-word character (hyphens,
+ *  punctuation), word boundaries are relaxed to lookarounds so the
+ *  phrase still anchors against word characters on the relevant side.
+ */
 function compilePersonaPatternMatchers(
   patterns: string[] | undefined,
 ): RegExp[] {
   if (!patterns || patterns.length === 0) return [];
   const matchers: RegExp[] = [];
-  for (const p of patterns) {
+  for (const raw of patterns) {
+    const looksLikeRegex = /[\\^$*+?()[\]{}|]/.test(raw);
     try {
-      // Treat each entry as a relaxed substring match (escape minimal regex
-      // metacharacters that could realistically slip in). We compile rather
-      // than substring-test so callers can use anchors / word boundaries
-      // when they want stricter precision.
-      matchers.push(new RegExp(p, "i"));
+      if (looksLikeRegex) {
+        matchers.push(new RegExp(raw, "i"));
+        continue;
+      }
+      const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const startsWord = /^[\w]/.test(raw);
+      const endsWord = /[\w]$/.test(raw);
+      const prefix = startsWord ? "\\b" : "(?:^|[^\\w])";
+      const suffix = endsWord ? "\\b" : "(?:[^\\w]|$)";
+      matchers.push(new RegExp(`${prefix}${escaped}${suffix}`, "i"));
     } catch {
-      // Fall back to literal substring on bad pattern.
-      const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      matchers.push(new RegExp(escaped, "i"));
+      const safe = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      try {
+        matchers.push(new RegExp(safe, "i"));
+      } catch {
+        // Skip unrecoverable patterns rather than crash discovery.
+      }
     }
   }
   return matchers;
@@ -2921,12 +2957,23 @@ type PersonaBiasOutcome = {
   positiveBoostedNames: string[];
   negativeDemotedNames: string[];
   genericDemotedNames: string[];
+  /** Rows where a positive pattern matched but a falsePositiveGuard
+   *  suppressed the boost (e.g. "Supreme Court", "Palace of Versailles",
+   *  "Vans Warped Tour"). Surfaced in dev logs only — not part of the
+   *  response payload. */
+  falsePositiveSuppressedNames: string[];
 };
 
 /** Apply persona-aware boosts / demotions to scored rows in place.
  *  Multiple personas can match the same request (one per detected alias);
  *  positives compound additively, negatives are applied once per row to
- *  avoid stacking penalties on the same item. */
+ *  avoid stacking penalties on the same item.
+ *
+ *  False-positive guards are checked **per row**: if any guard pattern
+ *  matches the row (across any of the active biases), the positive boost
+ *  is suppressed even when a positivePattern matched. This lets noisy
+ *  brand names like Supreme / Palace / Vans / Nike still serve as
+ *  positive seeds without polluting the output with unrelated rows. */
 function applyPersonaBias<T extends PersonaScoredRow>(
   scored: T[],
   biases: PersonaClusterBias[],
@@ -2937,27 +2984,38 @@ function applyPersonaBias<T extends PersonaScoredRow>(
     positiveBoostedNames: [],
     negativeDemotedNames: [],
     genericDemotedNames: [],
+    falsePositiveSuppressedNames: [],
   };
   if (biases.length === 0 || scored.length === 0) return outcome;
   outcome.applied = true;
 
-  // Pre-compile all positive / negative matchers once. Track which rows
-  // have already been negative-demoted to avoid stacking penalties.
+  // Pre-compile all positive / negative / guard matchers once. Track which
+  // rows have already been negative-demoted to avoid stacking penalties.
   const positiveMatchers = biases.flatMap((b) =>
     compilePersonaPatternMatchers(b.positivePatterns),
   );
   const negativeMatchers = biases.flatMap((b) =>
     compilePersonaPatternMatchers(b.negativePatterns),
   );
+  const guardMatchers = biases.flatMap((b) =>
+    compilePersonaPatternMatchers(b.falsePositiveGuards),
+  );
   const anyDemoteGeneric = biases.some((b) => b.demoteGeneric === true);
   const negDemotedIds = new Set<string>();
   const genericDemotedIds = new Set<string>();
 
   for (const row of scored) {
-    if (rowMatchesAnyPattern(row, positiveMatchers)) {
+    const positiveMatched = rowMatchesAnyPattern(row, positiveMatchers);
+    const guardMatched = positiveMatched && guardMatchers.length > 0
+      ? rowMatchesAnyPattern(row, guardMatchers)
+      : false;
+    if (positiveMatched && !guardMatched) {
       row.relevanceScore = (row.relevanceScore ?? 0) + PERSONA_POSITIVE_BOOST;
       row.matchReason = `${row.matchReason ?? ""};persona-positive`;
       outcome.positiveBoostedNames.push(row.name);
+    } else if (positiveMatched && guardMatched) {
+      row.matchReason = `${row.matchReason ?? ""};persona-fp-guard`;
+      outcome.falsePositiveSuppressedNames.push(row.name);
     }
     if (
       !negDemotedIds.has(row.id) &&
@@ -3003,9 +3061,15 @@ function diversifyPersonaAware<T extends PersonaScoredRow>(
   );
   const picked: T[] = [];
   const counts: Record<string, number> = {};
+  // When the persona declares preferredBuckets, non-preferred / non-generic
+  // buckets get the tighter NON_PREFERRED cap so the persona's identity
+  // actually reshapes the visible top slice (this addresses the "before
+  // and after distributions look identical" feedback). When the persona
+  // declares no preferences we fall back to the looser DEFAULT cap.
   const capFor = (bucket: string): number => {
     if (bucket.startsWith("generic_")) return PERSONA_BUCKET_CAP_GENERIC;
     if (preferred.has(bucket)) return PERSONA_BUCKET_CAP_PREFERRED;
+    if (preferred.size > 0) return PERSONA_BUCKET_CAP_NON_PREFERRED;
     return PERSONA_BUCKET_CAP_DEFAULT;
   };
   // First pass: respect caps strictly.
@@ -3370,7 +3434,9 @@ async function discoverForCluster(
       `negDemoted(${personaBiasOutcome.negativeDemotedNames.length})=` +
       `${personaBiasOutcome.negativeDemotedNames.slice(0, 8).join(", ") || "<none>"} ` +
       `genericDemoted(${personaBiasOutcome.genericDemotedNames.length})=` +
-      `${personaBiasOutcome.genericDemotedNames.slice(0, 8).join(", ") || "<none>"}`,
+      `${personaBiasOutcome.genericDemotedNames.slice(0, 8).join(", ") || "<none>"} ` +
+      `fpGuardSuppressed(${personaBiasOutcome.falsePositiveSuppressedNames.length})=` +
+      `${personaBiasOutcome.falsePositiveSuppressedNames.slice(0, 8).join(", ") || "<none>"}`,
     );
   }
 
@@ -3895,6 +3961,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let personaResolutionForResponse:
     | NonNullable<HintIntelligenceDebug["persona"]>
     | undefined;
+  // Per-cluster persona breakdown — additive payload field. Surfaces
+  // every cluster that applied any persona bias, keyed by cluster label.
+  const personaAppliedByCluster: Record<string, string[]> = {};
+  const personaSeedTermsUsedByCluster: Record<string, string[]> = {};
+  const personaPositiveBoostedNamesByCluster: Record<string, string[]> = {};
+  const personaNegativeDemotedNamesByCluster: Record<string, string[]> = {};
+  const personaGenericRowsDemotedNamesByCluster: Record<string, string[]> = {};
+  const personaBucketDistributionBeforeByCluster: Record<
+    string,
+    Record<string, number>
+  > = {};
+  const personaBucketDistributionAfterByCluster: Record<
+    string,
+    Record<string, number>
+  > = {};
 
   for (const label of targetLabels) {
     const { cluster, termsUsed, hintBias, sportsResolution, personaResolution } = await discoverForCluster(
@@ -3950,40 +4031,77 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           sportsResolution.gymFirstPostFilterDroppedNames,
       };
     }
-    if (personaResolution && !personaResolutionForResponse) {
-      // Surface the first cluster that actually applied persona bias.
-      // Other clusters' persona detail is still in dev console logs; we
-      // can extend this to a per-cluster map later if the UI needs it.
-      personaResolutionForResponse = {
-        personaDetected: personaResolution.personaDetected,
-        personaClusterApplied: label,
-        personaSeedTermsUsed: personaResolution.personaSeedTermsUsed,
-        personaPositiveBoostedNames:
-          personaResolution.personaPositiveBoostedNames,
-        personaNegativeDemotedNames:
-          personaResolution.personaNegativeDemotedNames,
-        personaGenericRowsDemotedNames:
-          personaResolution.personaGenericRowsDemotedNames,
-        personaBucketDistributionBefore:
-          personaResolution.personaBucketDistributionBefore,
-        personaBucketDistributionAfter:
-          personaResolution.personaBucketDistributionAfter,
-        personaDiversificationApplied:
-          personaResolution.personaDiversificationApplied,
-      };
-    } else if (personaResolution && personaResolutionForResponse) {
-      // Merge subsequent cluster boosts/demotes into the same payload so
-      // the response reflects every persona-affected name regardless of
-      // which cluster the persona originally bound to.
-      personaResolutionForResponse.personaPositiveBoostedNames.push(
-        ...personaResolution.personaPositiveBoostedNames,
-      );
-      personaResolutionForResponse.personaNegativeDemotedNames.push(
-        ...personaResolution.personaNegativeDemotedNames,
-      );
-      personaResolutionForResponse.personaGenericRowsDemotedNames.push(
-        ...personaResolution.personaGenericRowsDemotedNames,
-      );
+    if (personaResolution) {
+      // Per-cluster maps (additive). Always populated — these are how
+      // tuners see which cluster did what.
+      personaAppliedByCluster[label] = personaResolution.personaDetected;
+      personaSeedTermsUsedByCluster[label] =
+        personaResolution.personaSeedTermsUsed;
+      personaPositiveBoostedNamesByCluster[label] =
+        personaResolution.personaPositiveBoostedNames;
+      personaNegativeDemotedNamesByCluster[label] =
+        personaResolution.personaNegativeDemotedNames;
+      personaGenericRowsDemotedNamesByCluster[label] =
+        personaResolution.personaGenericRowsDemotedNames;
+      personaBucketDistributionBeforeByCluster[label] =
+        personaResolution.personaBucketDistributionBefore;
+      personaBucketDistributionAfterByCluster[label] =
+        personaResolution.personaBucketDistributionAfter;
+
+      if (!personaResolutionForResponse) {
+        // Aggregated payload pinned to the first cluster that matched.
+        personaResolutionForResponse = {
+          personaDetected: personaResolution.personaDetected,
+          personaClusterApplied: label,
+          personaSeedTermsUsed: personaResolution.personaSeedTermsUsed,
+          personaPositiveBoostedNames:
+            personaResolution.personaPositiveBoostedNames,
+          personaNegativeDemotedNames:
+            personaResolution.personaNegativeDemotedNames,
+          personaGenericRowsDemotedNames:
+            personaResolution.personaGenericRowsDemotedNames,
+          personaBucketDistributionBefore:
+            personaResolution.personaBucketDistributionBefore,
+          personaBucketDistributionAfter:
+            personaResolution.personaBucketDistributionAfter,
+          personaDiversificationApplied:
+            personaResolution.personaDiversificationApplied,
+        };
+      } else {
+        // Merge subsequent cluster boosts/demotes into the aggregated
+        // payload so it reflects every persona-affected name regardless
+        // of which cluster the persona originally bound to.
+        personaResolutionForResponse.personaPositiveBoostedNames.push(
+          ...personaResolution.personaPositiveBoostedNames,
+        );
+        personaResolutionForResponse.personaNegativeDemotedNames.push(
+          ...personaResolution.personaNegativeDemotedNames,
+        );
+        personaResolutionForResponse.personaGenericRowsDemotedNames.push(
+          ...personaResolution.personaGenericRowsDemotedNames,
+        );
+      }
+    }
+  }
+
+  // Attach the per-cluster maps additively to the aggregated payload (only
+  // when at least one cluster reported a persona).
+  if (personaResolutionForResponse) {
+    if (Object.keys(personaAppliedByCluster).length > 0) {
+      personaResolutionForResponse.personaAppliedByCluster =
+        personaAppliedByCluster;
+      personaResolutionForResponse.personaSeedTermsUsedByCluster =
+        personaSeedTermsUsedByCluster;
+      personaResolutionForResponse.personaPositiveBoostedNamesByCluster =
+        personaPositiveBoostedNamesByCluster;
+      personaResolutionForResponse.personaNegativeDemotedNamesByCluster =
+        personaNegativeDemotedNamesByCluster;
+      personaResolutionForResponse.personaGenericRowsDemotedNamesByCluster =
+        personaGenericRowsDemotedNamesByCluster;
+      personaResolutionForResponse.personaBucketDistributionBeforeByCluster =
+        personaBucketDistributionBeforeByCluster;
+      personaResolutionForResponse.personaBucketDistributionAfterByCluster =
+        personaBucketDistributionAfterByCluster;
     }
   }
 

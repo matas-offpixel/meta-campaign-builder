@@ -3,8 +3,9 @@
 // A persona represents an audience identity (e.g. "underground raver",
 // "luxury fashion shopper"), independent of the cluster it appears in.
 // Each persona ships per-cluster biases — seed terms, positive / negative
-// pattern hints, preferred buckets — that nudge discovery toward that
-// identity rather than the cluster's broad centre of gravity.
+// pattern hints, false-positive guards, preferred buckets — that nudge
+// discovery toward that identity rather than the cluster's broad centre
+// of gravity.
 //
 // Used by:
 //   - app/api/meta/interest-discover/route.ts (detection + scoring +
@@ -12,11 +13,17 @@
 //   - components/steps/audiences/interest-groups-panel.tsx (persona chip
 //     row beneath the scene-hint input)
 //
-// Phase 1 scope: Fashion & Streetwear, Music & Nightlife, Lifestyle &
-// Nightlife. Sports & Live Events keeps its existing dedicated logic;
-// persona definitions for Sports are present but only inject seed terms,
-// not aggressive biases (so the existing entity-recovery / gym-first
-// passes keep their precedence).
+// Phase 1+ scope: Fashion & Streetwear, Music & Nightlife, Lifestyle &
+// Nightlife. Sports & Live Events keeps its dedicated entity-recovery /
+// gym-first pipeline; persona definitions for Sports are intentionally
+// absent so that pipeline is never perturbed.
+//
+// Matcher safety: positivePatterns / negativePatterns are compiled
+// **with word-boundary anchors by default** (see
+// compilePersonaPatternMatchers in route.ts) so plain phrases like "vans"
+// or "supreme" no longer fire on "Vans Warped Tour" / "Supreme Court".
+// For rare tail cases (e.g. "Palace of Versailles") use
+// falsePositiveGuards on the per-cluster bias.
 //
 // No DB / package changes; static module-scope tables only.
 
@@ -24,6 +31,8 @@ export type AudiencePersonaKey =
   | "fashionista"
   | "luxury_fashion"
   | "streetwear_sneakerhead"
+  | "tech_house_essex_glam"
+  | "zen_yoga_organic_house"
   | "hipster_alt"
   | "ibiza_bro"
   | "underground_raver"
@@ -39,16 +48,27 @@ export type AudiencePersonaKey =
  *  request is applied. */
 export type PersonaClusterBias = {
   clusterLabel: string;
-  /** Seed terms prepended (after sports tier-1, before generic cluster
-   *  seeds) so Meta returns persona-aligned candidates first. */
+  /** Seed terms prepended (after sports tier-1 + user hints, before
+   *  generic cluster seeds) so Meta returns persona-aligned candidates
+   *  first. */
   seedTerms: string[];
-  /** Extra positive substring/word patterns to boost during scoring. */
+  /** Extra positive substring/word patterns to boost during scoring.
+   *  Plain phrases are anchored with word boundaries automatically; use
+   *  explicit regex syntax (e.g. backslash-b, parentheses, alternations)
+   *  to opt out. */
   positivePatterns?: string[];
   /** Pattern hints for opposed personas — rows matching these get
-   *  demoted, never hard-excluded. */
+   *  demoted, never hard-excluded. Same anchoring rules as
+   *  positivePatterns. */
   negativePatterns?: string[];
+  /** Patterns whose match SUPPRESSES a positive hit on the same row.
+   *  Used to neutralise known-noisy brand collisions
+   *  (e.g. "Palace of Versailles" / "Supreme Court" /
+   *  "Vans Warped Tour"). */
+  falsePositiveGuards?: string[];
   /** Persona-aware diversification bucket weights (cluster-specific
-   *  bucket names; see classifyForPersonaBucket below). */
+   *  bucket names; see classifyForPersonaBucket below). Buckets in this
+   *  list get the larger cap during persona-aware diversification. */
   preferredBuckets?: string[];
   /** When true, generic cluster-centre rows get a soft demotion so the
    *  persona seeds and boosted rows surface above them. */
@@ -94,32 +114,43 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
   fashionista: {
     key: "fashionista",
     label: "Fashionista / avant-garde",
-    description: "Editorial, designer-led, avant-garde fashion audience.",
+    description:
+      "High-end melodic / progressive crowd: editorial, designer-led, runway-adjacent fashion audience.",
     aliases: ["fashionista", "avant-garde fashion", "editorial fashion"],
     eventStyles: ["fashion week", "avant-garde", "editorial", "design-led"],
     coreIdentityTerms: [
-      "Rick Owens", "Maison Margiela", "Comme des Garçons", "Yohji Yamamoto",
-      "Raf Simons", "Ann Demeulemeester", "Dazed", "i-D", "Another Magazine",
-      "METAL Magazine", "SHOWstudio",
+      "Rick Owens", "Maison Margiela", "Comme des Garçons", "Helmut Lang",
+      "Yohji Yamamoto", "Raf Simons", "Ann Demeulemeester", "Dazed & Confused",
+      "i-D", "Another Magazine", "METAL Magazine", "SHOWstudio", "032c",
     ],
     clusterBiases: [
       {
         clusterLabel: FASHION,
         seedTerms: [
-          "Rick Owens", "Maison Margiela", "Comme des Garçons", "Yohji Yamamoto",
-          "Raf Simons", "Dazed", "i-D", "Another Magazine", "SHOWstudio",
-          "avant-garde fashion",
+          "Rick Owens", "Maison Margiela", "Comme des Garçons", "Helmut Lang",
+          "Yohji Yamamoto", "Raf Simons", "Ann Demeulemeester",
+          "Dazed & Confused", "i-D magazine", "Another Magazine",
+          "METAL Magazine", "SHOWstudio", "032c",
         ],
         positivePatterns: [
-          "rick owens", "margiela", "comme des garcons", "comme des garçons",
-          "yohji", "raf simons", "ann demeulemeester", "helmut lang",
-          "dazed", "i-d", "i\\.d\\.", "another magazine", "metal magazine",
-          "showstudio", "the face", "purple magazine", "system magazine",
-          "editorial fashion", "avant-garde", "fashion week",
+          "rick owens", "maison margiela", "margiela", "comme des garcons",
+          "comme des garçons", "helmut lang", "yohji yamamoto", "raf simons",
+          "ann demeulemeester", "dazed", "i-d magazine", "another magazine",
+          "metal magazine", "showstudio", "032c", "the face magazine",
+          "purple magazine", "system magazine", "editorial fashion",
+          "avant-garde fashion", "fashion week",
         ],
         negativePatterns: [
           "fast fashion", "h&m", "zara", "shein", "primark", "topshop",
-          "shopping mall", "mass market", "discount", "louis vuitton retail",
+          "shopping mall", "discount fashion", "sportswear",
+          "prettylittlething", "boohoo", "asos", "fashion nova",
+          "white fox", "missguided", "river island",
+        ],
+        falsePositiveGuards: [
+          // "i-d" plain string can appear in "id software", "id badge".
+          // Only allow within fashion-magazine context — guard on
+          // standalone tech / identity contexts.
+          "id software", "id badge", "identity card",
         ],
         preferredBuckets: ["editorial_media", "designer_house"],
         demoteGeneric: true,
@@ -130,30 +161,38 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
   luxury_fashion: {
     key: "luxury_fashion",
     label: "Luxury fashion",
-    description: "Heritage luxury houses and premium-shopper audience.",
+    description:
+      "VIP / premium / upscale heritage-luxury houses + jewellery audience.",
     aliases: ["luxury fashion", "luxury shopper", "luxury brands"],
     eventStyles: ["luxury launch", "premium gala", "high fashion", "couture"],
     coreIdentityTerms: [
       "Gucci", "Prada", "Chanel", "Dior", "Louis Vuitton", "Fendi",
-      "Armani", "Versace", "Cartier", "Rolex", "Bvlgari",
+      "Versace", "Burberry", "Givenchy", "Armani", "Bottega Veneta",
+      "Yves Saint Laurent", "Cartier", "Tiffany & Co.", "Rolex", "Bvlgari",
+      "Van Cleef & Arpels", "Chopard",
     ],
     clusterBiases: [
       {
         clusterLabel: FASHION,
         seedTerms: [
           "Gucci", "Prada", "Chanel", "Dior", "Louis Vuitton", "Fendi",
-          "Versace", "Cartier", "Rolex", "Bvlgari", "luxury goods",
-          "premium fashion",
+          "Versace", "Burberry", "Givenchy", "Bottega Veneta",
+          "Yves Saint Laurent", "Cartier", "Tiffany & Co.", "Rolex",
+          "Bvlgari",
         ],
         positivePatterns: [
           "gucci", "prada", "chanel", "dior", "louis vuitton", "fendi",
-          "armani", "versace", "burberry", "cartier", "rolex", "bvlgari",
-          "tiffany", "hermes", "hermès", "balenciaga", "saint laurent",
+          "armani", "versace", "burberry", "givenchy", "bottega veneta",
+          "yves saint laurent", "saint laurent", "cartier", "rolex",
+          "bvlgari", "tiffany & co", "van cleef", "chopard",
+          "balenciaga", "hermes", "hermès",
           "luxury goods", "premium fashion", "luxury lifestyle", "couture",
         ],
         negativePatterns: [
-          "supreme", "stussy", "palace", "vans", "thrift", "streetwear",
-          "sneakerhead", "hypebeast", "fast fashion", "h&m", "zara",
+          "supreme", "stussy", "stüssy", "palace skateboards", "vans shoes",
+          "thrift", "streetwear", "sneakerhead", "hypebeast",
+          "fast fashion", "h&m", "zara", "prettylittlething", "boohoo",
+          "asos", "yoga apparel", "lululemon", "alo yoga",
         ],
         preferredBuckets: ["luxury_brand", "designer_house"],
         demoteGeneric: true,
@@ -164,31 +203,158 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
   streetwear_sneakerhead: {
     key: "streetwear_sneakerhead",
     label: "Streetwear / sneakerheads",
-    description: "Streetwear, sneaker culture, hype-driven youth audience.",
+    description:
+      "Streetwear / sneaker culture / hype-driven youth audience.",
     aliases: ["streetwear", "sneakerhead", "sneaker culture", "hypebeast"],
     eventStyles: ["streetwear drop", "sneaker launch", "hype event"],
     coreIdentityTerms: [
-      "Supreme", "Stussy", "Palace", "Vans", "Nike", "New Balance",
-      "Hypebeast", "sneakerheads", "streetwear culture",
+      "Supreme", "Stüssy", "Palace", "Vans", "Nike", "Adidas",
+      "New Balance", "Hypebeast", "sneakerheads", "streetwear culture",
     ],
     clusterBiases: [
       {
         clusterLabel: FASHION,
         seedTerms: [
-          "Supreme", "Stussy", "Palace", "Vans", "Nike", "New Balance",
-          "sneakerheads", "Hypebeast", "streetwear culture", "sneaker collecting",
+          "Supreme New York", "Stüssy", "Palace Skateboards",
+          "Vans (brand)", "Nike sneakers", "Adidas Originals",
+          "New Balance", "sneakerheads", "Hypebeast",
+          "streetwear culture", "sneaker collecting",
         ],
         positivePatterns: [
-          "supreme", "stussy", "palace", "vans", "nike", "new balance",
-          "adidas", "yeezy", "off-white", "off white", "fear of god",
-          "bape", "hypebeast", "sneaker", "sneakerhead", "streetwear",
-          "hype culture", "skate", "skateboarding",
+          "supreme new york", "stussy", "stüssy", "palace skateboards",
+          "vans \\(brand\\)", "vans shoes", "vans clothing", "nike",
+          "adidas", "new balance", "yeezy", "off-white", "off white",
+          "fear of god", "bape", "a bathing ape", "kith", "aime leon dore",
+          "hypebeast", "highsnobiety", "complex magazine",
+          "sneaker collecting", "sneakerhead", "streetwear",
+          "skate culture", "skateboarding",
         ],
         negativePatterns: [
           "couture", "haute couture", "fashion week shows", "literary magazine",
-          "luxury goods", "premium fashion",
+          "luxury goods", "premium fashion", "yoga apparel", "lululemon",
+          "alo yoga", "wellness fashion",
+        ],
+        falsePositiveGuards: [
+          // High-noise brand-name collisions.
+          "supreme court", "the supremes", "supreme being",
+          "supreme leader", "supreme commander",
+          "palace of versailles", "palace of westminster",
+          "buckingham palace", "alexandra palace", "crystal palace",
+          "vans warped tour",
+          "nike of samothrace", "nike missile", "nike (mythology)",
         ],
         preferredBuckets: ["streetwear_brand", "sneaker_culture"],
+        demoteGeneric: true,
+      },
+    ],
+  },
+
+  tech_house_essex_glam: {
+    key: "tech_house_essex_glam",
+    label: "Tech house / Essex glam",
+    description:
+      "Tech-house party crowd + UK glam clubbing / Essex going-out fashion.",
+    aliases: [
+      "tech house essex glam", "essex glam", "essex fashion",
+      "clubwear glam", "going out outfit", "glam clubbing",
+    ],
+    eventStyles: ["tech house party", "glam clubbing", "bottle service"],
+    coreIdentityTerms: [
+      "Nike", "Adidas", "JD Sports", "Gymshark", "Zara",
+      "PrettyLittleThing", "BoohooMAN", "ASOS", "White Fox",
+      "clubwear", "glam nightlife", "going out outfit",
+    ],
+    clusterBiases: [
+      {
+        clusterLabel: FASHION,
+        seedTerms: [
+          "PrettyLittleThing", "BoohooMAN", "ASOS", "White Fox Boutique",
+          "Fashion Nova", "Missguided", "River Island", "Meshki",
+          "Gymshark", "JD Sports", "Zara", "going out outfits", "clubwear",
+        ],
+        positivePatterns: [
+          "prettylittlething", "boohooman", "boohoo", "asos", "white fox",
+          "fashion nova", "missguided", "river island", "meshki",
+          "gymshark", "jd sports", "zara", "h&m", "shein",
+          "clubwear", "going out outfit", "going out top",
+          "glam nightlife", "party wear", "nightclub fashion",
+        ],
+        negativePatterns: [
+          "rick owens", "maison margiela", "comme des garcons",
+          "yohji yamamoto", "raf simons", "ann demeulemeester",
+          "couture", "avant-garde fashion", "editorial fashion",
+          "luxury goods", "yoga apparel", "lululemon", "alo yoga",
+          "slow fashion",
+        ],
+        falsePositiveGuards: [
+          "zara phillips", "zara tindall", "zara hadid",
+          "nike of samothrace", "nike missile",
+        ],
+        preferredBuckets: [
+          "clubwear_glam", "sneaker_culture", "streetwear_brand",
+        ],
+        demoteGeneric: true,
+      },
+    ],
+  },
+
+  zen_yoga_organic_house: {
+    key: "zen_yoga_organic_house",
+    label: "Zen / yoga / organic house",
+    description:
+      "Wellness-led, retreat / yoga / ambient & organic-house audience.",
+    aliases: [
+      "zen yoga", "yoga organic", "zen yoga organic house", "organic house",
+      "yoga retreat", "wellness lifestyle", "wellness fashion",
+    ],
+    eventStyles: ["yoga retreat", "wellness retreat", "organic house party"],
+    coreIdentityTerms: [
+      "yoga", "pilates", "wellness", "Lululemon", "Alo Yoga",
+      "Free People", "mindfulness", "yoga retreat", "organic lifestyle",
+      "slow fashion", "conscious living", "afro house", "organic house",
+    ],
+    clusterBiases: [
+      {
+        clusterLabel: FASHION,
+        seedTerms: [
+          "Lululemon", "Alo Yoga", "Free People", "yoga apparel",
+          "activewear", "athleisure", "slow fashion", "conscious lifestyle",
+          "wellness fashion", "retreat wear",
+        ],
+        positivePatterns: [
+          "lululemon", "alo yoga", "free people", "yoga apparel",
+          "activewear", "athleisure", "slow fashion", "conscious lifestyle",
+          "ethical fashion", "sustainable fashion", "boho fashion",
+          "retreat wear", "wellness fashion",
+        ],
+        negativePatterns: [
+          "hard techno", "industrial techno", "supreme", "stussy",
+          "palace skateboards", "vans (brand)", "couture",
+          "luxury goods", "fashion week", "clubwear",
+          "going out outfit", "prettylittlething", "boohoo",
+        ],
+        preferredBuckets: ["wellness_fashion", "alt_lifestyle"],
+        demoteGeneric: true,
+      },
+      {
+        clusterLabel: LIFESTYLE,
+        seedTerms: [
+          "yoga", "pilates", "mindfulness", "wellness", "yoga retreat",
+          "Lululemon", "Alo Yoga", "Free People", "organic lifestyle",
+          "conscious living", "afro house", "organic house",
+          "ambient music",
+        ],
+        positivePatterns: [
+          "yoga", "pilates", "mindfulness", "wellness", "wellbeing",
+          "yoga retreat", "lululemon", "alo yoga", "free people",
+          "healthy lifestyle", "organic lifestyle", "conscious living",
+          "ambient music", "organic house", "afro house",
+        ],
+        negativePatterns: [
+          "vip", "bottle service", "hard techno", "industrial",
+          "warehouse rave", "commercial festival", "edm",
+        ],
+        preferredBuckets: ["wellness_culture", "alt_lifestyle"],
         demoteGeneric: true,
       },
     ],
@@ -207,31 +373,16 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
     ],
     clusterBiases: [
       {
-        clusterLabel: FASHION,
-        seedTerms: [
-          "Patagonia", "Carhartt", "vintage fashion", "thrift", "indie style",
-          "Berlin fashion", "urban creatives",
-        ],
-        positivePatterns: [
-          "patagonia", "carhartt", "vintage", "thrift", "indie",
-          "berlin", "alt culture", "subculture", "creatives",
-        ],
-        negativePatterns: [
-          "luxury goods", "premium fashion", "couture", "louis vuitton",
-          "gucci", "prada", "rolex",
-        ],
-        preferredBuckets: ["alt_lifestyle", "streetwear_brand"],
-        demoteGeneric: true,
-      },
-      {
         clusterLabel: LIFESTYLE,
         seedTerms: [
           "vinyl culture", "coffee culture", "independent venues",
-          "Berlin culture", "urban creatives", "indie bars", "third-wave coffee",
+          "Berlin culture", "urban creatives", "indie bars",
+          "third-wave coffee",
         ],
         positivePatterns: [
-          "vinyl", "record store", "coffee", "indie venue", "berlin",
-          "creative city", "underground community", "alt lifestyle",
+          "vinyl", "record store", "coffee culture", "indie venue",
+          "berlin", "creative city", "underground community",
+          "alt lifestyle", "subculture",
         ],
         negativePatterns: [
           "vip", "bottle service", "luxury hotel", "five star",
@@ -257,27 +408,28 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         clusterLabel: MUSIC,
         seedTerms: [
           "Ibiza", "house music", "tech house", "beach club", "pool party",
-          "sunset party", "Pacha", "Ushuaïa",
+          "sunset party", "Pacha", "Ushuaïa Ibiza",
         ],
         positivePatterns: [
-          "ibiza", "beach club", "pool party", "sunset", "pacha",
-          "ushuaïa", "ushuaia", "amnesia", "house music", "tech house",
-          "vocal house", "vip",
+          "ibiza", "beach club", "pool party", "sunset party", "pacha",
+          "ushuaïa", "ushuaia", "amnesia ibiza", "house music",
+          "tech house", "vocal house", "vip nightlife",
         ],
         negativePatterns: [
           "hard techno", "industrial", "queer underground", "fetish",
           "warehouse rave", "avant-garde", "tastemaker",
         ],
         preferredBuckets: ["luxury_party", "clubbing_nightlife"],
-        demoteGeneric: false,
       },
       {
         clusterLabel: LIFESTYLE,
         seedTerms: [
           "Ibiza", "beach clubs", "luxury travel", "VIP tables", "yacht life",
         ],
-        positivePatterns: ["ibiza", "beach club", "luxury travel", "yacht", "vip"],
-        preferredBuckets: ["city_culture", "wellness_culture"],
+        positivePatterns: [
+          "ibiza", "beach club", "luxury travel", "yacht", "vip nightlife",
+        ],
+        preferredBuckets: ["luxury_party", "clubbing_nightlife"],
       },
     ],
   },
@@ -300,19 +452,31 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         clusterLabel: MUSIC,
         seedTerms: [
           "techno", "underground dance", "warehouse rave", "Berlin techno",
-          "Berghain", "industrial techno", "Resident Advisor",
+          "Berghain", "industrial techno",
         ],
         positivePatterns: [
-          "techno", "underground", "warehouse", "berlin", "berghain",
-          "tresor", "industrial", "raver", "rave", "hard techno",
-          "resident advisor", "boiler room",
+          "techno", "warehouse rave", "berlin techno", "berghain",
+          "tresor", "industrial techno", "rave culture", "underground rave",
         ],
         negativePatterns: [
-          "ibiza", "beach club", "vip", "pool party", "commercial festival",
-          "edm", "mainstream",
+          "ibiza", "beach club", "vip", "pool party",
+          "commercial festival", "edm", "mainstream",
+          "tastemaker media", "boutique festival",
+          "resident advisor", "boiler room", "mixmag",
         ],
-        preferredBuckets: ["underground_scene", "music_media", "artist_dj"],
+        preferredBuckets: ["underground_scene", "artist_dj"],
         demoteGeneric: true,
+      },
+      {
+        clusterLabel: LIFESTYLE,
+        seedTerms: [
+          "Berlin nightlife", "warehouse parties", "underground community",
+        ],
+        positivePatterns: [
+          "berlin nightlife", "warehouse", "underground community",
+        ],
+        negativePatterns: ["vip", "luxury hotel", "five star"],
+        preferredBuckets: ["alt_lifestyle", "clubbing_nightlife"],
       },
     ],
   },
@@ -328,7 +492,7 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
     eventStyles: ["hard techno party", "queer underground", "kinky"],
     coreIdentityTerms: [
       "hard techno", "queer nightlife", "fetish fashion", "industrial techno",
-      "avant-garde fashion", "underground rave",
+      "underground rave", "Berghain",
     ],
     clusterBiases: [
       {
@@ -339,25 +503,35 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         ],
         positivePatterns: [
           "hard techno", "industrial techno", "queer", "lgbt", "fetish",
-          "berghain", "herrensauna", "warehouse", "underground", "raver",
+          "berghain", "herrensauna", "warehouse",
         ],
         negativePatterns: [
-          "ibiza", "beach club", "vip", "pool party", "commercial festival",
-          "mainstream", "edm",
+          "ibiza", "beach club", "vip", "pool party",
+          "commercial festival", "mainstream", "edm",
         ],
-        preferredBuckets: ["underground_scene", "artist_dj", "music_media"],
+        preferredBuckets: ["underground_scene", "artist_dj"],
         demoteGeneric: true,
       },
       {
-        clusterLabel: FASHION,
+        clusterLabel: LIFESTYLE,
         seedTerms: [
-          "avant-garde fashion", "Rick Owens", "Maison Margiela",
-          "fetish fashion", "industrial fashion",
+          "queer nightlife", "fetish nightlife", "Berlin nightlife",
         ],
         positivePatterns: [
-          "rick owens", "margiela", "avant-garde", "fetish", "industrial",
+          "queer nightlife", "lgbt nightlife", "fetish", "berlin nightlife",
         ],
-        negativePatterns: ["luxury goods", "louis vuitton", "couture retail"],
+        preferredBuckets: ["alt_lifestyle", "clubbing_nightlife"],
+      },
+      // Lighter Fashion bias (kept for back-compat detection only — no
+      // longer surfaced as a primary Fashion chip; see PERSONAS_BY_CLUSTER).
+      {
+        clusterLabel: FASHION,
+        seedTerms: [
+          "avant-garde fashion", "Rick Owens", "fetish fashion",
+        ],
+        positivePatterns: [
+          "rick owens", "avant-garde fashion", "fetish fashion",
+        ],
         preferredBuckets: ["editorial_media", "designer_house"],
       },
     ],
@@ -380,7 +554,7 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         clusterLabel: MUSIC,
         seedTerms: [
           "melodic techno", "progressive house", "Tale Of Us", "Solomun",
-          "Afterlife", "Innervisions", "Diynamic",
+          "Afterlife (record label)", "Innervisions", "Diynamic",
         ],
         positivePatterns: [
           "melodic techno", "progressive house", "tale of us", "solomun",
@@ -409,7 +583,7 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         clusterLabel: MUSIC,
         seedTerms: [
           "tech house", "vocal house", "Ibiza house", "clubbing", "party",
-          "Fisher", "Hot Since 82",
+          "Fisher (musician)", "Hot Since 82",
         ],
         positivePatterns: [
           "tech house", "vocal house", "house music", "fisher",
@@ -417,7 +591,7 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         ],
         negativePatterns: [
           "hard techno", "industrial", "fetish", "tastemaker",
-          "boutique festival",
+          "boutique festival", "yoga", "wellness",
         ],
         preferredBuckets: ["clubbing_nightlife", "luxury_party", "artist_dj"],
       },
@@ -438,12 +612,16 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
       {
         clusterLabel: MUSIC,
         seedTerms: [
-          "disco", "disco house", "house music", "Nu-disco", "dance party",
+          "disco", "disco house", "Nu-disco", "house music", "dance party",
         ],
         positivePatterns: [
-          "disco", "nu-disco", "house music", "dance party", "feel good",
+          "disco", "nu-disco", "house music", "dance party",
+          "feel good dance",
         ],
-        negativePatterns: ["hard techno", "industrial", "fetish"],
+        negativePatterns: [
+          "hard techno", "industrial", "fetish",
+          "boutique festival", "tastemaker",
+        ],
         preferredBuckets: ["clubbing_nightlife", "artist_dj"],
       },
     ],
@@ -467,16 +645,17 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         clusterLabel: MUSIC,
         seedTerms: [
           "music festivals", "Coachella", "Tomorrowland", "Lollapalooza",
-          "Glastonbury", "Ultra Music Festival",
+          "Glastonbury Festival", "Ultra Music Festival", "EDC Las Vegas",
+          "Creamfields", "Parklife",
         ],
         positivePatterns: [
           "music festival", "coachella", "tomorrowland", "lollapalooza",
-          "glastonbury", "ultra music", "edc", "creamfields", "parklife",
-          "festival travel",
+          "glastonbury", "ultra music", "edc las vegas", "creamfields",
+          "parklife", "festival travel",
         ],
         negativePatterns: [
           "hard techno", "industrial", "queer underground", "fetish",
-          "boutique festival", "tastemaker",
+          "boutique festival", "tastemaker", "yoga", "wellness",
         ],
         preferredBuckets: ["festival", "commercial_dance"],
       },
@@ -486,7 +665,8 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
   tastemaker_festival: {
     key: "tastemaker_festival",
     label: "Tastemaker / boutique festival",
-    description: "Tastemaker media + boutique / art-x-music festival audience.",
+    description:
+      "Tastemaker media + boutique / art-x-music festival audience.",
     aliases: ["tastemaker festival", "boutique festival", "art x music"],
     eventStyles: ["boutique festival", "tastemaker", "art x music"],
     coreIdentityTerms: [
@@ -498,19 +678,31 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
         clusterLabel: MUSIC,
         seedTerms: [
           "Resident Advisor", "Boiler Room", "Mixmag", "Dekmantel",
-          "Sonar", "Nuits sonores", "Field Day", "Houghton",
+          "Sónar", "Nuits sonores", "Field Day", "Houghton Festival",
         ],
         positivePatterns: [
           "resident advisor", "boiler room", "mixmag", "dj mag",
-          "dekmantel", "sonar", "nuits sonores", "field day",
+          "dekmantel", "sonar", "sónar", "nuits sonores", "field day",
           "houghton", "boutique festival", "tastemaker",
         ],
         negativePatterns: [
           "coachella", "tomorrowland", "lollapalooza", "edc",
           "commercial festival", "mainstream", "ibiza vip",
+          "hard techno", "warehouse rave",
         ],
-        preferredBuckets: ["festival", "music_media", "underground_scene"],
+        preferredBuckets: ["festival", "music_media"],
         demoteGeneric: true,
+      },
+      {
+        clusterLabel: LIFESTYLE,
+        seedTerms: [
+          "Resident Advisor", "Boiler Room", "Mixmag",
+        ],
+        positivePatterns: [
+          "resident advisor", "boiler room", "mixmag",
+          "tastemaker media", "culture magazine",
+        ],
+        preferredBuckets: ["city_culture", "alt_lifestyle"],
       },
     ],
   },
@@ -520,13 +712,17 @@ export const AUDIENCE_PERSONAS: Record<AudiencePersonaKey, AudiencePersona> = {
 //
 // Ordered by curation priority (highest first). The UI picks the first 5
 // after dedupe + scene-tag re-ranking.
+//
+// Fashion: hard_techno_queer was deliberately removed from the chip row to
+// reduce overlap with fashionista. It still exists in the registry (with a
+// lighter Fashion bias) so stand-alone detection from raw hint text works.
 const PERSONAS_BY_CLUSTER: Record<string, AudiencePersonaKey[]> = {
   [FASHION]: [
     "fashionista",
     "luxury_fashion",
     "streetwear_sneakerhead",
-    "hipster_alt",
-    "hard_techno_queer",
+    "tech_house_essex_glam",
+    "zen_yoga_organic_house",
   ],
   [MUSIC]: [
     "underground_raver",
@@ -539,11 +735,11 @@ const PERSONAS_BY_CLUSTER: Record<string, AudiencePersonaKey[]> = {
     "melodic_progressive_luxury",
   ],
   [LIFESTYLE]: [
+    "zen_yoga_organic_house",
     "ibiza_bro",
     "hipster_alt",
-    "luxury_fashion",
-    "underground_raver",
     "tastemaker_festival",
+    "underground_raver",
   ],
   [SPORTS]: [],
 };
@@ -553,6 +749,11 @@ const PERSONA_TAG_AFFINITY: Partial<Record<AudiencePersonaKey, string[]>> = {
   fashionista: ["editorial_fashion", "avant_garde_fashion", "designer_culture"],
   luxury_fashion: ["luxury_fashion", "designer_culture"],
   streetwear_sneakerhead: ["streetwear", "sneaker_culture"],
+  tech_house_essex_glam: ["tech_house", "house_music", "clubbing_nightlife"],
+  zen_yoga_organic_house: [
+    "wellness", "wellness_culture", "yoga", "ambient_music",
+    "organic_house", "afro_house",
+  ],
   hipster_alt: ["alternative_lifestyle", "indie_culture", "berlin_culture"],
   ibiza_bro: ["ibiza", "house_music", "tech_house"],
   underground_raver: [
@@ -709,9 +910,9 @@ export function classifyForPersonaBucket(
 ): string {
   const haystack = `${item.name} ${(item.path ?? []).join(" ")}`.toLowerCase();
   if (clusterLabel === MUSIC) {
-    if (/(festival|tomorrowland|coachella|glastonbury|burning man|lollapalooza|ultra music|edc|creamfields|parklife|sonar|dekmantel|nuits sonores|field day|houghton)/.test(haystack)) return "festival";
+    if (/(festival|tomorrowland|coachella|glastonbury|burning man|lollapalooza|ultra music|edc|creamfields|parklife|sonar|sónar|dekmantel|nuits sonores|field day|houghton)/.test(haystack)) return "festival";
     if (/(resident advisor|mixmag|dj mag|boiler room|nts radio|rinse fm|music media|music magazine)/.test(haystack)) return "music_media";
-    if (/(carl cox|solomun|tale of us|adam beyer|fisher|hot since 82|disc jock|record label)/.test(haystack)) return "artist_dj";
+    if (/(carl cox|solomun|tale of us|adam beyer|fisher|hot since 82|disc jockey|record label)/.test(haystack)) return "artist_dj";
     if (/(berghain|warehouse|underground|industrial|berlin techno|tresor|herrensauna)/.test(haystack)) return "underground_scene";
     if (/(ibiza|beach club|pool party|vip|amnesia|pacha|ushuaïa|ushuaia|luxury nightlife)/.test(haystack)) return "luxury_party";
     if (/(commercial|edm|mainstream|stadium tour|pop music)/.test(haystack)) return "commercial_dance";
@@ -719,19 +920,24 @@ export function classifyForPersonaBucket(
     return "generic_music";
   }
   if (clusterLabel === FASHION) {
-    if (/(vogue|dazed|i-d|i\.d\.|another magazine|metal magazine|showstudio|the face|purple magazine|system magazine|fashion magazine|editorial)/.test(haystack)) return "editorial_media";
-    if (/(rick owens|margiela|comme des garçons|comme des garcons|yohji|raf simons|ann demeulemeester|helmut lang|balenciaga|saint laurent)/.test(haystack)) return "designer_house";
-    if (/(gucci|prada|chanel|dior|louis vuitton|fendi|armani|versace|burberry|cartier|rolex|bvlgari|tiffany|hermes|hermès|luxury goods|premium fashion|couture)/.test(haystack)) return "luxury_brand";
-    if (/(supreme|stussy|palace|off-white|off white|fear of god|bape|streetwear|hypebeast)/.test(haystack)) return "streetwear_brand";
-    if (/(sneaker|nike|new balance|adidas|yeezy|vans|jordan)/.test(haystack)) return "sneaker_culture";
-    if (/(patagonia|carhartt|vintage|thrift|indie|berlin|alt|subculture|creatives)/.test(haystack)) return "alt_lifestyle";
+    // Order matters — wellness_fashion and clubwear_glam come first so the
+    // cheaper `editorial_media` / `streetwear_brand` checks don't claim
+    // brands like Lululemon (athleisure) or Gymshark (clubwear) by accident.
+    if (/(yoga apparel|alo yoga|lululemon|free people|activewear|athleisure|slow fashion|conscious lifestyle|sustainable fashion|wellness fashion|boho fashion|retreat wear)/.test(haystack)) return "wellness_fashion";
+    if (/(prettylittlething|boohoo|asos|white fox|fashion nova|missguided|river island|meshki|clubwear|going out outfit|going out top|glam nightlife|gymshark|jd sports|\bzara\b|\bh&m\b|shein|nightclub fashion|party wear)/.test(haystack)) return "clubwear_glam";
+    if (/(vogue|dazed|i-d magazine|another magazine|metal magazine|showstudio|the face magazine|purple magazine|system magazine|032c|fashion magazine|editorial fashion)/.test(haystack)) return "editorial_media";
+    if (/(rick owens|maison margiela|margiela|comme des garçons|comme des garcons|yohji yamamoto|raf simons|ann demeulemeester|helmut lang|balenciaga|saint laurent|bottega veneta|givenchy)/.test(haystack)) return "designer_house";
+    if (/(gucci|prada|chanel|dior|louis vuitton|fendi|armani|versace|burberry|cartier|rolex|bvlgari|tiffany & co|hermes|hermès|van cleef|chopard|luxury goods|premium fashion|couture)/.test(haystack)) return "luxury_brand";
+    if (/(supreme new york|stussy|stüssy|palace skateboards|off-white|off white|fear of god|bape|a bathing ape|kith|aime leon dore|streetwear|hypebeast|highsnobiety|complex magazine)/.test(haystack)) return "streetwear_brand";
+    if (/(sneaker|nike|new balance|adidas|yeezy|vans \(brand\)|jordan|sneakerhead)/.test(haystack)) return "sneaker_culture";
+    if (/(patagonia|carhartt|vintage|thrift|indie style|berlin fashion|alt fashion|subculture|urban creatives)/.test(haystack)) return "alt_lifestyle";
     return "generic_fashion";
   }
   if (clusterLabel === LIFESTYLE) {
-    if (/(gym|fitness|crossfit|yoga|pilates|wellness|wellbeing|healthy lifestyle|running|cycling|workout)/.test(haystack)) return "wellness_culture";
-    if (/(ibiza|beach club|luxury travel|five star|resort|yacht|vip)/.test(haystack)) return "luxury_party";
+    if (/(gym|fitness|crossfit|yoga|pilates|wellness|wellbeing|healthy lifestyle|running|cycling|workout|mindfulness|retreat|lululemon|alo yoga|free people|organic lifestyle|conscious living|slow living|meditation)/.test(haystack)) return "wellness_culture";
+    if (/(ibiza|beach club|luxury travel|five star|resort|yacht|vip nightlife)/.test(haystack)) return "luxury_party";
     if (/(nightclub|clubbing|nightlife|bar|cocktail|partygoer|late night)/.test(haystack)) return "clubbing_nightlife";
-    if (/(berlin|vinyl|coffee|indie venue|independent|alt|underground community|subculture)/.test(haystack)) return "alt_lifestyle";
+    if (/(berlin|vinyl|coffee culture|indie venue|independent|alt lifestyle|underground community|subculture)/.test(haystack)) return "alt_lifestyle";
     if (/(time out|monocle|vice|lifestyle magazine|urban culture|city guide|magazine)/.test(haystack)) return "city_culture";
     if (/(food|restaurant|cocktail|cuisine|chef|brewery|wine)/.test(haystack)) return "food_culture";
     return "generic_lifestyle";
