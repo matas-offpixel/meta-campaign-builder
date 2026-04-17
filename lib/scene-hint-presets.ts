@@ -1,25 +1,40 @@
 // Deterministic, rule-based scene-hint presets per cluster.
 //
 // Used by the audience interest groups panel to render quick-pick chips
-// underneath the free-text "Scene hints" input. The presets are derived
-// from the selected cluster label plus the existing audience fingerprint
-// (dominantScenes / detected scene tags). No LLM, no external API.
+// underneath the free-text "Scene hints" input. Each preset represents a
+// DISTINCT targeting angle (scene / festival / media / nightlife /
+// lifestyle / artist) so each chip click produces a meaningfully
+// different Meta interest pool.
 //
-// The function signature is intentionally extensible so we can later feed
-// event/brand/venue/promoter context from a project dashboard without
-// rewriting the UI layer.
+// No LLM, no external API. Function signature is intentionally extensible
+// so we can later feed event/brand/venue/promoter context from a project
+// dashboard without rewriting the UI layer.
+
+/** A targeting angle. Each cluster ships at most one preset per bucket
+ *  (with rare exceptions where two angles within a cluster are clearly
+ *  distinct, e.g. designer brands vs streetwear). */
+export type SceneHintBucket =
+  | "scene"
+  | "festival"
+  | "media"
+  | "nightlife"
+  | "lifestyle"
+  | "artist";
 
 export type SceneHintPreset = {
-  /** Stable identifier (cluster + base id), used by the UI to track which
-   *  chip is currently selected for a group. */
+  /** Stable identifier (`<cluster>::<baseId>`), used by the UI to track
+   *  which chip is currently selected for a group. */
   id: string;
-  /** Short human label rendered on the chip. May be lightly tailored
-   *  using the top dominant scene tag (e.g. "Festival crossover (techno)"). */
+  /** Short human label rendered on the chip. */
   label: string;
-  /** The hint text written into the scene-hint input on click. Phrased as
-   *  natural language so the backend intent classifier picks it up. */
+  /** Short, comma-separated hint text written into the scene-hint input
+   *  on click. Phrased as natural language with concrete entity names so
+   *  the backend intent classifier + Meta search both pick it up. */
   hint: string;
-  /** Optional dev-only annotation explaining why this preset was chosen
+  /** Targeting angle. Each angle aims to produce a different result set
+   *  so the user can flip between them and see clear deltas. */
+  bucket: SceneHintBucket;
+  /** Optional dev-only annotation explaining why this preset was reordered
    *  (top scene match, intent inference, etc.). */
   reason?: string;
 };
@@ -40,330 +55,265 @@ export type SceneHintPresetParams = {
 
 const MAX_PRESETS = 6;
 
-// ── Tag → human-readable phrase ─────────────────────────────────────────────
-// Used both to convert raw tags into chip labels and to compose the hint
-// text written into the input. Keep this loose — unmapped tags fall back
-// to a simple snake_case → "snake case" conversion.
-const TAG_LABEL: Record<string, string> = {
-  hard_techno: "hard techno",
-  techno: "techno",
-  underground_dance: "underground dance",
-  festival_circuit: "festival circuit",
-  queer_underground: "queer underground",
-  psy_trance: "psytrance",
-  electronic_music: "electronic music",
-  house_music: "house music",
-  tech_house: "tech house",
-  deep_house: "deep house",
-  drum_and_bass: "drum & bass",
-  hip_hop: "hip-hop",
-  indie_rock: "indie rock",
-  afrobeats: "afrobeats",
-  reggaeton: "reggaeton",
-  jazz: "jazz",
-  avant_garde_fashion: "avant-garde fashion",
-  streetwear: "streetwear",
-  editorial_fashion: "editorial fashion",
-  luxury_fashion: "luxury fashion",
-  designer_culture: "designer culture",
-  sneaker_culture: "sneaker culture",
-  nightlife_social: "nightlife",
-  bar_culture: "bar culture",
-  food_culture: "food culture",
-  travel_culture: "travel culture",
-  wellness_culture: "wellness",
-  fitness_culture: "fitness",
-  art_design: "art & design",
-  gallery_culture: "gallery culture",
-  museum_culture: "museum culture",
-  architecture: "architecture",
-  immersive_experience: "immersive experiences",
-  film_culture: "film culture",
-  music_media: "music media",
-  streaming_platform: "streaming platforms",
-  radio_culture: "radio culture",
-  podcast_culture: "podcasts",
-  football_soccer: "football",
-  sports_fandom: "sports fandom",
-  matchday: "matchday",
-  gym_fitness: "gym & fitness",
-  combat_sports: "combat sports",
-  sport_fitness: "sport & fitness",
-  motorsport: "motorsport",
-  live_viewing_event: "live viewing",
-};
+// ── Cluster base presets (one per bucket where possible) ─────────────────────
+// Hints are intentionally short, comma-separated, and use named entities
+// where they help (festivals, media brands, designer houses, competitions,
+// streaming platforms, broadcasters) so each bucket lands in a distinctly
+// different slice of the Meta interest graph.
 
-function friendlyTag(tag: string): string {
-  return TAG_LABEL[tag] ?? tag.replace(/_/g, " ");
-}
-
-// ── Cluster-specific base presets ───────────────────────────────────────────
-// Each entry is the "always-available" set per cluster. Context-aware extras
-// are inserted in front by `buildContextualPresets()` when the fingerprint
-// supports it (e.g. underground_dance dominant → "Underground rave & techno
-// audience" preset is promoted to the top).
-
-type BasePreset = Omit<SceneHintPreset, "id"> & { baseId: string };
+type BasePreset = Omit<SceneHintPreset, "id">;
 
 const BASE_PRESETS: Record<string, BasePreset[]> = {
   "Music & Nightlife": [
     {
-      baseId: "music-underground-dance",
-      label: "Underground dance audience",
-      hint: "underground dance audience, club crowd, raver-style",
+      bucket: "scene",
+      label: "Underground rave audience",
+      hint: "underground rave, techno, underground dance, club crowd",
     },
     {
-      baseId: "music-tech-house-club",
-      label: "Tech house / club crowd",
-      hint: "tech house club crowd, dancefloor regulars",
+      bucket: "festival",
+      label: "Festival audiences (major events)",
+      hint: "music festivals, Glastonbury, Tomorrowland, Coachella, Ultra Music Festival, Burning Man, Lollapalooza, Boiler Room",
     },
     {
-      baseId: "music-festival-crossover",
-      label: "Festival crossover",
-      hint: "festival circuit audience, multi-day events crowd",
+      bucket: "media",
+      label: "Music media & tastemakers",
+      hint: "Resident Advisor, Boiler Room, Mixmag, DJ Mag, electronic music media, DJs",
     },
     {
-      baseId: "music-afterparty",
-      label: "Afterparty / nightlife behaviour",
-      hint: "afterparty crowd, nightlife regulars, late-night clubbing",
+      bucket: "nightlife",
+      label: "Afterparty & nightlife behaviour",
+      hint: "nightclub, clubbing, nightlife, late night venues, partygoers",
     },
     {
-      baseId: "music-dj-label-culture",
-      label: "DJ / label / club culture",
-      hint: "DJ culture, record label fans, underground club scene",
+      bucket: "lifestyle",
+      label: "Gym & lifestyle crossover",
+      hint: "gym, fitness, workout, running, CrossFit, healthy lifestyle",
+    },
+    {
+      bucket: "artist",
+      label: "DJs & labels ecosystem",
+      hint: "Carl Cox, Solomun, Tale Of Us, Adam Beyer, record label, electronic music",
     },
   ],
+
   "Fashion & Streetwear": [
     {
-      baseId: "fashion-editorial",
+      bucket: "scene",
       label: "Editorial fashion audience",
-      hint: "editorial fashion readers, Vogue / Dazed / i-D audience",
+      hint: "editorial fashion, runway, avant-garde fashion, fashion week",
     },
     {
-      baseId: "fashion-streetwear",
-      label: "Streetwear & subculture",
-      hint: "streetwear audience, sneaker culture, urban style",
+      bucket: "artist",
+      label: "Designer brands ecosystem",
+      hint: "Rick Owens, Maison Margiela, Comme des Garçons, Helmut Lang, Yohji Yamamoto, Raf Simons",
     },
     {
-      baseId: "fashion-avant-garde",
-      label: "Designer / avant-garde fashion",
-      hint: "avant-garde fashion, Rick Owens / Maison Margiela / designer-led audience",
+      bucket: "media",
+      label: "Fashion magazines & media",
+      hint: "Vogue, Dazed, i-D, Another Magazine, SHOWstudio, fashion magazines",
     },
     {
-      baseId: "fashion-club-crossover",
-      label: "Club-fashion crossover",
-      hint: "club fashion crossover, nightlife style, underground party fashion",
+      bucket: "nightlife",
+      label: "Streetwear & sneaker culture",
+      hint: "streetwear, sneakerheads, Hypebeast, hype culture, sneaker collecting",
     },
     {
-      baseId: "fashion-youth-culture",
-      label: "Youth culture & style media",
-      hint: "youth culture, style media readers, fashion magazine audience",
+      bucket: "lifestyle",
+      label: "Luxury lifestyle crossover",
+      hint: "luxury lifestyle, designer clothing, high fashion shoppers, premium brands",
     },
   ],
+
   "Lifestyle & Nightlife": [
     {
-      baseId: "lifestyle-going-out",
-      label: "Nightlife & going-out",
-      hint: "nightlife regulars, going-out crowd, weekend party scene",
+      bucket: "nightlife",
+      label: "Going-out & late nights",
+      hint: "nightclub, clubbing, bars, cocktails, weekend nightlife",
     },
     {
-      baseId: "lifestyle-food-bar",
-      label: "Food / drink / bar culture",
-      hint: "bar culture, cocktail crowd, foodie scene",
+      bucket: "scene",
+      label: "Alternative lifestyle audience",
+      hint: "alternative lifestyle, queer-friendly venues, underground community, subculture",
     },
     {
-      baseId: "lifestyle-fitness-wellness",
-      label: "Fitness & wellness crossover",
-      hint: "fitness and wellness audience, gym lifestyle, healthy lifestyle",
+      bucket: "lifestyle",
+      label: "Wellness & fitness",
+      hint: "wellness, gym, fitness, yoga, healthy lifestyle, mindfulness",
     },
     {
-      baseId: "lifestyle-travel",
-      label: "Travel / city-break crowd",
-      hint: "travel and city-break audience, weekend travellers",
+      bucket: "festival",
+      label: "Travel & city-break crowd",
+      hint: "city breaks, weekend travel, festival tourism, Ibiza, Berlin, Amsterdam",
     },
     {
-      baseId: "lifestyle-alternative",
-      label: "Alternative lifestyle",
-      hint: "alternative lifestyle audience, queer-friendly venues, underground community",
+      bucket: "media",
+      label: "Lifestyle media readers",
+      hint: "Time Out, Vice, Monocle, lifestyle magazines, urban culture media",
     },
   ],
+
   "Activities & Culture": [
     {
-      baseId: "activities-art-exhibition",
-      label: "Art & exhibition audience",
-      hint: "art exhibitions, gallery openings, contemporary art crowd",
+      bucket: "scene",
+      label: "Art & exhibitions audience",
+      hint: "art exhibitions, contemporary art, gallery openings, art collectors",
     },
     {
-      baseId: "activities-urban-creative",
-      label: "Urban culture & creative spaces",
-      hint: "urban culture, creative spaces, independent venues",
+      bucket: "artist",
+      label: "Galleries & institutions",
+      hint: "Tate, MoMA, Centre Pompidou, Serpentine Galleries, Saatchi Gallery, Guggenheim",
     },
     {
-      baseId: "activities-design-architecture",
-      label: "Design / architecture",
-      hint: "design and architecture audience, design week visitors",
+      bucket: "festival",
+      label: "Design weeks & cultural festivals",
+      hint: "Frieze Art Fair, Venice Biennale, London Design Week, Milan Design Week, Art Basel",
     },
     {
-      baseId: "activities-immersive",
+      bucket: "nightlife",
       label: "Immersive experiences",
-      hint: "immersive experiences, interactive installations, experiential events",
+      hint: "immersive experiences, interactive installations, late-opening galleries, experiential events",
     },
     {
-      baseId: "activities-culture-nightlife",
-      label: "Culture + nightlife crossover",
-      hint: "cultural nightlife crossover, late-opening galleries, after-hours events",
+      bucket: "lifestyle",
+      label: "Creative urban lifestyle",
+      hint: "creative spaces, independent venues, design culture, urban creatives",
     },
   ],
+
   "Media & Entertainment": [
     {
-      baseId: "media-music-media",
-      label: "Music media audience",
-      hint: "music media readers, Mixmag / Resident Advisor / DJ Mag audience",
+      bucket: "media",
+      label: "Music media & DJ press",
+      hint: "Resident Advisor, Mixmag, DJ Mag, Boiler Room, electronic music media",
     },
     {
-      baseId: "media-editorial",
-      label: "Editorial / magazine readers",
-      hint: "editorial magazine readers, long-form culture media",
+      bucket: "artist",
+      label: "Streaming platforms",
+      hint: "Spotify, Apple Music, Tidal, SoundCloud, Deezer, YouTube Music",
     },
     {
-      baseId: "media-streaming",
-      label: "Streaming / platform culture",
-      hint: "streaming platform audience, Spotify / Apple Music / Tidal listeners",
+      bucket: "scene",
+      label: "Editorial culture magazines",
+      hint: "Dazed, i-D, Vogue, Another Magazine, The Face, culture magazines",
     },
     {
-      baseId: "media-radio-podcasts",
-      label: "Radio / podcasts / tastemakers",
-      hint: "radio listeners, podcast audience, tastemaker followers",
+      bucket: "lifestyle",
+      label: "Radio, podcasts & tastemakers",
+      hint: "NTS Radio, Rinse FM, BBC Radio 1, podcasts, tastemaker radio",
     },
     {
-      baseId: "media-event-discovery",
-      label: "Event discovery / nightlife media",
-      hint: "event discovery audience, nightlife media followers, party listings readers",
+      bucket: "nightlife",
+      label: "Event discovery & nightlife listings",
+      hint: "event discovery, nightlife listings, party calendars, club listings, Resident Advisor events",
     },
   ],
+
   "Sports & Live Events": [
     {
-      baseId: "sports-fan-matchday",
+      bucket: "scene",
       label: "Fan culture & matchday",
-      hint: "football fans, matchday supporters, club fan culture",
+      hint: "football fans, matchday supporters, club fan culture, supporter identity",
     },
     {
-      baseId: "sports-watch-parties",
+      bucket: "nightlife",
       label: "Watch parties & fan zones",
-      hint: "watch party audience, fan zones, live sports screening crowd",
+      hint: "sports bar, pub screenings, fan zones, watch party, beer and football",
     },
     {
-      baseId: "sports-broad-football",
-      label: "Broad football audience",
-      hint: "broad football audience, Premier League and Champions League fans",
+      bucket: "festival",
+      label: "Major competitions",
+      hint: "Premier League, UEFA Champions League, UEFA Europa League, FIFA World Cup, UEFA Euro",
     },
     {
-      baseId: "sports-gym-crossover",
+      bucket: "media",
+      label: "Sports broadcasters & media",
+      hint: "Sky Sports, BT Sport, TNT Sports, ESPN, sports broadcasting",
+    },
+    {
+      bucket: "lifestyle",
       label: "Gym & fitness crossover",
-      hint: "gym audiences for sports screenings, fitness crowd, sport activities",
-    },
-    {
-      baseId: "sports-bars-screenings",
-      label: "Sports bars & screenings",
-      hint: "sports bar crowd, pub screenings, beer-and-football audience",
+      hint: "popular gym groups and sport activities, CrossFit, fitness crowd, gym audiences",
     },
   ],
 };
 
-// ── Contextual injections by top dominant scene ─────────────────────────────
-// Cluster-aware "promoted" presets that get prepended (and dedup against the
-// base list) when the audience fingerprint clearly leans a particular way.
-function buildContextualPresets(
+// ── Scene-aware bucket priority ──────────────────────────────────────────────
+// Light reordering only — we never duplicate, rename, or invent new presets
+// based on the fingerprint. Buckets with non-zero priority float to the
+// front (preserving relative order for ties via the base ordering).
+function bucketPriority(
   clusterLabel: string,
   topTag: string | null,
   tagSet: Set<string>,
-): BasePreset[] {
-  const promoted: BasePreset[] = [];
-  if (!topTag) return promoted;
-  const topPretty = friendlyTag(topTag);
+): Partial<Record<SceneHintBucket, number>> {
+  const p: Partial<Record<SceneHintBucket, number>> = {};
+  if (!topTag && tagSet.size === 0) return p;
 
   if (clusterLabel === "Music & Nightlife") {
     if (
-      topTag === "hard_techno" ||
+      topTag === "underground_dance" ||
       topTag === "techno" ||
-      topTag === "underground_dance"
+      topTag === "hard_techno"
     ) {
-      promoted.push({
-        baseId: "music-underground-rave-techno",
-        label: `Underground rave & ${topPretty}`,
-        hint: `underground rave audience, ${topPretty}, hard techno club crowd`,
-        reason: `top scene: ${topTag}`,
-      });
+      p.scene = 3;
+      p.media = 2;
     }
     if (topTag === "festival_circuit" || tagSet.has("festival_circuit")) {
-      promoted.push({
-        baseId: "music-festival-circuit",
-        label: "Festival circuit fans",
-        hint: "festival circuit fans, multi-day electronic festivals, dance music festivals",
-      });
+      p.festival = 3;
+    }
+    if (topTag === "nightlife_social" || tagSet.has("nightlife_social")) {
+      p.nightlife = 3;
+    }
+    if (
+      topTag === "wellness_culture" ||
+      topTag === "fitness_culture" ||
+      tagSet.has("gym_fitness")
+    ) {
+      p.lifestyle = 3;
     }
   }
 
   if (clusterLabel === "Fashion & Streetwear") {
-    if (topTag === "avant_garde_fashion" || topTag === "editorial_fashion") {
-      promoted.push({
-        baseId: "fashion-promoted-editorial",
-        label: `Editorial-led (${topPretty})`,
-        hint: `editorial fashion readers, ${topPretty}, designer-led audience`,
-        reason: `top scene: ${topTag}`,
-      });
+    if (
+      topTag === "editorial_fashion" ||
+      topTag === "avant_garde_fashion" ||
+      topTag === "luxury_fashion"
+    ) {
+      p.scene = 3;
+      p.media = 2;
     }
     if (topTag === "streetwear" || topTag === "sneaker_culture") {
-      promoted.push({
-        baseId: "fashion-promoted-streetwear",
-        label: `Streetwear-first (${topPretty})`,
-        hint: `streetwear audience, ${topPretty}, urban style crowd`,
-        reason: `top scene: ${topTag}`,
-      });
+      p.nightlife = 3;
+      p.artist = 2;
+    }
+    if (topTag === "designer_culture") {
+      p.artist = 3;
     }
   }
 
   if (clusterLabel === "Lifestyle & Nightlife") {
     if (topTag === "nightlife_social" || tagSet.has("underground_dance")) {
-      promoted.push({
-        baseId: "lifestyle-promoted-club",
-        label: `Club-going (${topPretty})`,
-        hint: `nightlife regulars, ${topPretty}, going-out crowd`,
-        reason: `top scene: ${topTag}`,
-      });
+      p.nightlife = 3;
     }
     if (topTag === "wellness_culture" || topTag === "fitness_culture") {
-      promoted.push({
-        baseId: "lifestyle-promoted-wellness",
-        label: `Wellness-led (${topPretty})`,
-        hint: `${topPretty} audience, healthy lifestyle, gym and fitness crowd`,
-        reason: `top scene: ${topTag}`,
-      });
+      p.lifestyle = 3;
+    }
+    if (topTag === "travel_culture" || tagSet.has("festival_circuit")) {
+      p.festival = 2;
     }
   }
 
   if (clusterLabel === "Activities & Culture") {
-    if (
-      topTag === "underground_dance" ||
-      topTag === "techno" ||
-      topTag === "nightlife_social"
-    ) {
-      // One nightlife-adjacent cultural preset, but never general music
-      // discovery — Activities & Culture must stay culture-led.
-      promoted.push({
-        baseId: "activities-promoted-nightlife-culture",
-        label: `Culture x nightlife (${topPretty})`,
-        hint: `cultural nightlife crossover, late-opening cultural venues, after-hours events`,
-        reason: `top scene: ${topTag}`,
-      });
-    }
     if (topTag === "art_design" || topTag === "gallery_culture") {
-      promoted.push({
-        baseId: "activities-promoted-galleries",
-        label: `Gallery-led (${topPretty})`,
-        hint: `gallery openings, ${topPretty}, contemporary art audience`,
-        reason: `top scene: ${topTag}`,
-      });
+      p.scene = 3;
+      p.artist = 2;
+    }
+    if (topTag === "immersive_experience") {
+      p.nightlife = 3;
+    }
+    if (topTag === "architecture") {
+      p.festival = 2;
     }
   }
 
@@ -373,58 +323,53 @@ function buildContextualPresets(
       topTag === "techno" ||
       topTag === "underground_dance"
     ) {
-      promoted.push({
-        baseId: "media-promoted-music-media",
-        label: `Music media (${topPretty})`,
-        hint: `electronic music media readers, ${topPretty}, club culture media audience`,
-        reason: `top scene: ${topTag}`,
-      });
+      p.media = 3;
+    }
+    if (topTag === "streaming_platform") {
+      p.artist = 3;
+    }
+    if (topTag === "podcast_culture" || topTag === "radio_culture") {
+      p.lifestyle = 3;
     }
   }
 
   if (clusterLabel === "Sports & Live Events") {
     if (topTag === "football_soccer" || tagSet.has("football_soccer")) {
-      promoted.push({
-        baseId: "sports-promoted-football",
-        label: "Football-first audience",
-        hint: "football supporters, club fan culture, matchday and screening crowd",
-        reason: `top scene: ${topTag}`,
-      });
+      p.scene = 3;
+      p.festival = 2;
+    }
+    if (topTag === "sports_fandom") {
+      p.scene = 3;
+      p.nightlife = 2;
     }
     if (
       topTag === "gym_fitness" ||
       topTag === "sport_fitness" ||
       tagSet.has("gym_fitness")
     ) {
-      promoted.push({
-        baseId: "sports-promoted-gym",
-        label: "Gym-first activity crowd",
-        hint: "popular gym groups and sport activities, fitness crowd",
-        reason: `top scene: ${topTag}`,
-      });
+      p.lifestyle = 3;
     }
-    if (topTag === "combat_sports" || tagSet.has("combat_sports")) {
-      promoted.push({
-        baseId: "sports-promoted-combat",
-        label: "Combat sports / watch parties",
-        hint: "boxing watch party, combat sports fans, UFC viewing audience",
-        reason: `top scene: ${topTag}`,
-      });
+    if (topTag === "combat_sports" || topTag === "live_viewing_event") {
+      p.nightlife = 3;
+    }
+    if (topTag === "matchday") {
+      p.scene = 3;
+      p.nightlife = 2;
     }
   }
 
-  return promoted;
+  return p;
 }
 
 /**
  * Build a stable, deduplicated list of scene-hint presets for a cluster.
  *
- * - Always returns at most {@link MAX_PRESETS} entries.
- * - Returns the cluster's base presets when no fingerprint is available.
- * - Promotes context-aware presets to the front when the top dominant
- *   scene supports it.
- * - Stable ordering: promoted (in declaration order) → base presets (in
- *   declaration order). Duplicates by `baseId` are collapsed.
+ * - Returns at most {@link MAX_PRESETS} entries (currently 6).
+ * - Returns the cluster's base presets in declaration order when no
+ *   fingerprint is available.
+ * - Lightly reorders presets so buckets matching the top dominant scene
+ *   surface first; never invents, renames, or duplicates presets.
+ * - Stable: ties resolve to base declaration order.
  */
 export function getSceneHintPresets(
   params: SceneHintPresetParams,
@@ -438,24 +383,33 @@ export function getSceneHintPresets(
     ...detectedSceneTags,
   ]);
   const topTag = dominantScenes[0]?.tag ?? null;
+  const priority = bucketPriority(clusterLabel, topTag, tagSet);
 
-  const promoted = buildContextualPresets(clusterLabel, topTag, tagSet);
+  // Stable sort: higher priority first; original index for tie-break.
+  const indexed = base.map((p, i) => ({ p, i }));
+  indexed.sort((a, b) => {
+    const pa = priority[a.p.bucket] ?? 0;
+    const pb = priority[b.p.bucket] ?? 0;
+    if (pa !== pb) return pb - pa;
+    return a.i - b.i;
+  });
 
-  const seen = new Set<string>();
+  // Deduplicate by bucket: only the first occurrence of each bucket wins.
+  // (Base lists generally have one entry per bucket already; this is
+  // belt-and-braces and prevents accidental duplicates from future edits.)
+  const seenIds = new Set<string>();
   const out: SceneHintPreset[] = [];
-  const push = (p: BasePreset) => {
-    if (seen.has(p.baseId)) return;
-    seen.add(p.baseId);
-    out.push({
-      id: `${clusterLabel}::${p.baseId}`,
-      label: p.label,
-      hint: p.hint,
-      reason: p.reason,
-    });
-  };
+  for (const { p } of indexed) {
+    const id = `${clusterLabel}::${p.bucket}`;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    const reason =
+      (priority[p.bucket] ?? 0) > 0 && topTag
+        ? `top scene: ${topTag}`
+        : undefined;
+    out.push({ id, label: p.label, hint: p.hint, bucket: p.bucket, reason });
+    if (out.length >= MAX_PRESETS) break;
+  }
 
-  for (const p of promoted) push(p);
-  for (const p of base) push(p);
-
-  return out.slice(0, MAX_PRESETS);
+  return out;
 }
