@@ -29,6 +29,10 @@ import {
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { readGenreCache } from "@/lib/genre-classification";
 import { getSceneHintPresets, type SceneHintPreset } from "@/lib/scene-hint-presets";
+import {
+  getPersonaPresetsForCluster,
+  type PersonaPreset,
+} from "@/lib/audience-personas";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -1360,6 +1364,72 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                                     "rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-50 disabled:cursor-not-allowed " +
                                     (isActive
                                       ? "border-primary bg-primary/10 text-primary font-medium"
+                                      : "border-border bg-white text-foreground hover:bg-muted")
+                                  }
+                                >
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Suggested audience personas — Phase 1 layer above the
+                        scene-hint chips. Currently active for Fashion &
+                        Streetwear, Music & Nightlife, and Lifestyle &
+                        Nightlife (clusters defined in PERSONAS_BY_CLUSTER
+                        in lib/audience-personas.ts). Empty for Sports etc.
+                        Shares selectedPresetByGroup so only one chip — scene
+                        OR persona — is highlighted at a time. */}
+                    {(() => {
+                      if (!effectiveCluster) return null;
+                      const fp = fingerprintByGroup[group.id];
+                      const personaPresets: PersonaPreset[] =
+                        getPersonaPresetsForCluster(
+                          effectiveCluster,
+                          fp?.dominantScenes,
+                          discoverSceneTags[group.id],
+                        );
+                      if (personaPresets.length === 0) return null;
+                      if (process.env.NODE_ENV !== "production") {
+                        console.info(
+                          `[persona-presets] cluster=${effectiveCluster} count=${personaPresets.length} ` +
+                            `keys=${personaPresets.map((p) => p.personaKey).join(",")}`,
+                        );
+                      }
+                      const activeId = selectedPresetByGroup[group.id];
+                      const isBusy = discoveringFromPages === group.id;
+                      return (
+                        <div className="mt-2">
+                          <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                            Suggested audience personas
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {personaPresets.map((preset) => {
+                              const isActive = activeId === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  disabled={isBusy}
+                                  title={preset.hint}
+                                  onClick={() => {
+                                    setSceneHintsByGroup((prev) => ({
+                                      ...prev,
+                                      [group.id]: preset.hint,
+                                    }));
+                                    setSelectedPresetByGroup((prev) => ({
+                                      ...prev,
+                                      [group.id]: preset.id,
+                                    }));
+                                    void handleDiscoverFromPages(group.id, preset.hint);
+                                  }}
+                                  className={
+                                    "rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-50 disabled:cursor-not-allowed " +
+                                    (isActive
+                                      ? "border-violet-500 bg-violet-500/10 text-violet-700 font-medium"
                                       : "border-border bg-white text-foreground hover:bg-muted")
                                   }
                                 >

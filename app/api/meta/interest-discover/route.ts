@@ -24,6 +24,14 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  type AudiencePersonaKey,
+  type PersonaClusterBias,
+  classifyForPersonaBucket,
+  detectPersonasFromHint,
+  isGenericClusterCenterRow,
+  resolvePersonaClusterBiases,
+} from "@/lib/audience-personas";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -938,6 +946,22 @@ export interface HintIntelligenceDebug {
     /** Names removed by the gym-first post-filter floor (rows that were
      *  not fitness/activity/wellness/nightlife-social). */
     sportsGymFirstPostFilterDroppedNames?: string[];
+  };
+  /** Audience-persona layer diagnostics. Populated only when at least one
+   *  persona was detected from the raw hint text (see
+   *  detectPersonasFromHint in lib/audience-personas.ts). Additive — the
+   *  rest of the hint-bias / sports debug payload remains unchanged when
+   *  this field is absent. */
+  persona?: {
+    personaDetected: string[];
+    personaClusterApplied: string | null;
+    personaSeedTermsUsed: string[];
+    personaPositiveBoostedNames: string[];
+    personaNegativeDemotedNames: string[];
+    personaGenericRowsDemotedNames: string[];
+    personaBucketDistributionBefore: Record<string, number>;
+    personaBucketDistributionAfter: Record<string, number>;
+    personaDiversificationApplied: boolean;
   };
 }
 
@@ -2838,6 +2862,196 @@ function diversifySportsLiveEvents<T extends { name: string; path?: string[] }>(
   return { picked, bucketCounts: counts };
 }
 
+// ── Audience persona helpers ────────────────────────────────────────────────
+// Persona biases are layered ON TOP of the existing scoring + diversification
+// passes so they are strictly additive: when no persona is detected the
+// behaviour is identical to before.
+
+const PERSONA_POSITIVE_BOOST = 60;
+const PERSONA_NEGATIVE_DEMOTE = -40;
+const PERSONA_GENERIC_DEMOTE = -20;
+/** Soft per-bucket cap used when persona-aware diversification runs.
+ *  Buckets listed in any matching persona's preferredBuckets get an extra
+ *  slot. Generic buckets ("generic_*") are capped harder. */
+const PERSONA_BUCKET_CAP_DEFAULT = 3;
+const PERSONA_BUCKET_CAP_PREFERRED = 5;
+const PERSONA_BUCKET_CAP_GENERIC = 1;
+const PERSONA_SEED_INJECT_CAP = 12;
+
+function compilePersonaPatternMatchers(
+  patterns: string[] | undefined,
+): RegExp[] {
+  if (!patterns || patterns.length === 0) return [];
+  const matchers: RegExp[] = [];
+  for (const p of patterns) {
+    try {
+      // Treat each entry as a relaxed substring match (escape minimal regex
+      // metacharacters that could realistically slip in). We compile rather
+      // than substring-test so callers can use anchors / word boundaries
+      // when they want stricter precision.
+      matchers.push(new RegExp(p, "i"));
+    } catch {
+      // Fall back to literal substring on bad pattern.
+      const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      matchers.push(new RegExp(escaped, "i"));
+    }
+  }
+  return matchers;
+}
+
+function rowMatchesAnyPattern(
+  item: { name: string; path?: string[] },
+  matchers: RegExp[],
+): boolean {
+  if (matchers.length === 0) return false;
+  const haystack = `${item.name} ${(item.path ?? []).join(" ")}`;
+  return matchers.some((m) => m.test(haystack));
+}
+
+type PersonaScoredRow = {
+  id: string;
+  name: string;
+  path?: string[];
+  relevanceScore?: number;
+  matchReason?: string;
+};
+
+type PersonaBiasOutcome = {
+  applied: boolean;
+  positiveBoostedNames: string[];
+  negativeDemotedNames: string[];
+  genericDemotedNames: string[];
+};
+
+/** Apply persona-aware boosts / demotions to scored rows in place.
+ *  Multiple personas can match the same request (one per detected alias);
+ *  positives compound additively, negatives are applied once per row to
+ *  avoid stacking penalties on the same item. */
+function applyPersonaBias<T extends PersonaScoredRow>(
+  scored: T[],
+  biases: PersonaClusterBias[],
+  clusterLabel: string,
+): PersonaBiasOutcome {
+  const outcome: PersonaBiasOutcome = {
+    applied: false,
+    positiveBoostedNames: [],
+    negativeDemotedNames: [],
+    genericDemotedNames: [],
+  };
+  if (biases.length === 0 || scored.length === 0) return outcome;
+  outcome.applied = true;
+
+  // Pre-compile all positive / negative matchers once. Track which rows
+  // have already been negative-demoted to avoid stacking penalties.
+  const positiveMatchers = biases.flatMap((b) =>
+    compilePersonaPatternMatchers(b.positivePatterns),
+  );
+  const negativeMatchers = biases.flatMap((b) =>
+    compilePersonaPatternMatchers(b.negativePatterns),
+  );
+  const anyDemoteGeneric = biases.some((b) => b.demoteGeneric === true);
+  const negDemotedIds = new Set<string>();
+  const genericDemotedIds = new Set<string>();
+
+  for (const row of scored) {
+    if (rowMatchesAnyPattern(row, positiveMatchers)) {
+      row.relevanceScore = (row.relevanceScore ?? 0) + PERSONA_POSITIVE_BOOST;
+      row.matchReason = `${row.matchReason ?? ""};persona-positive`;
+      outcome.positiveBoostedNames.push(row.name);
+    }
+    if (
+      !negDemotedIds.has(row.id) &&
+      rowMatchesAnyPattern(row, negativeMatchers)
+    ) {
+      row.relevanceScore = (row.relevanceScore ?? 0) + PERSONA_NEGATIVE_DEMOTE;
+      row.matchReason = `${row.matchReason ?? ""};persona-negative`;
+      negDemotedIds.add(row.id);
+      outcome.negativeDemotedNames.push(row.name);
+    }
+    if (
+      anyDemoteGeneric &&
+      !genericDemotedIds.has(row.id) &&
+      isGenericClusterCenterRow(row, clusterLabel)
+    ) {
+      row.relevanceScore = (row.relevanceScore ?? 0) + PERSONA_GENERIC_DEMOTE;
+      row.matchReason = `${row.matchReason ?? ""};persona-generic-demote`;
+      genericDemotedIds.add(row.id);
+      outcome.genericDemotedNames.push(row.name);
+    }
+  }
+  return outcome;
+}
+
+/** Persona-aware diversification: walk score-sorted rows and apply soft
+ *  per-bucket caps so the visible top slice does not collapse into the
+ *  same handful of central graph nodes that Meta's API returns over and
+ *  over. Buckets listed in any matching persona's preferredBuckets get
+ *  the larger cap; "generic_*" buckets get the tightest cap. */
+function diversifyPersonaAware<T extends PersonaScoredRow>(
+  sortedScored: T[],
+  maxResults: number,
+  biases: PersonaClusterBias[],
+  clusterLabel: string,
+): { picked: T[]; bucketCountsBefore: Record<string, number>; bucketCountsAfter: Record<string, number> } {
+  const before: Record<string, number> = {};
+  for (const row of sortedScored.slice(0, maxResults)) {
+    const b = classifyForPersonaBucket(row, clusterLabel);
+    before[b] = (before[b] ?? 0) + 1;
+  }
+  const preferred = new Set<string>(
+    biases.flatMap((b) => b.preferredBuckets ?? []),
+  );
+  const picked: T[] = [];
+  const counts: Record<string, number> = {};
+  const capFor = (bucket: string): number => {
+    if (bucket.startsWith("generic_")) return PERSONA_BUCKET_CAP_GENERIC;
+    if (preferred.has(bucket)) return PERSONA_BUCKET_CAP_PREFERRED;
+    return PERSONA_BUCKET_CAP_DEFAULT;
+  };
+  // First pass: respect caps strictly.
+  for (const row of sortedScored) {
+    if (picked.length >= maxResults) break;
+    const bucket = classifyForPersonaBucket(row, clusterLabel);
+    if ((counts[bucket] ?? 0) >= capFor(bucket)) continue;
+    picked.push(row);
+    counts[bucket] = (counts[bucket] ?? 0) + 1;
+  }
+  // Backfill: if we are short, top up from anything left (including capped
+  // buckets) so we never return fewer than maxResults when supply allows.
+  if (picked.length < maxResults) {
+    const pickedIds = new Set(picked.map((p) => p.id));
+    for (const row of sortedScored) {
+      if (picked.length >= maxResults) break;
+      if (pickedIds.has(row.id)) continue;
+      picked.push(row);
+      const bucket = classifyForPersonaBucket(row, clusterLabel);
+      counts[bucket] = (counts[bucket] ?? 0) + 1;
+    }
+  }
+  return { picked, bucketCountsBefore: before, bucketCountsAfter: counts };
+}
+
+/** Build the persona seed-term injection list from one or more cluster
+ *  biases, deduped against existing pool members and capped to keep the
+ *  Meta /search fan-out manageable. */
+function buildPersonaSeedTerms(
+  biases: PersonaClusterBias[],
+  excludeLowercase: Set<string>,
+): string[] {
+  const seen = new Set<string>(excludeLowercase);
+  const out: string[] = [];
+  for (const bias of biases) {
+    for (const term of bias.seedTerms) {
+      const k = term.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(term);
+      if (out.length >= PERSONA_SEED_INJECT_CAP) return out;
+    }
+  }
+  return out;
+}
+
 async function discoverForCluster(
   clusterLabel: string,
   tagWeights: Map<SceneTag, number>,
@@ -2891,6 +3105,16 @@ async function discoverForCluster(
     gymNightlifeActivitySeedsUsed: string[];
     gymFirstHardExcludedNames: string[];
     gymFirstPostFilterDroppedNames: string[];
+  };
+  personaResolution?: {
+    personaDetected: AudiencePersonaKey[];
+    personaSeedTermsUsed: string[];
+    personaPositiveBoostedNames: string[];
+    personaNegativeDemotedNames: string[];
+    personaGenericRowsDemotedNames: string[];
+    personaBucketDistributionBefore: Record<string, number>;
+    personaBucketDistributionAfter: Record<string, number>;
+    personaDiversificationApplied: boolean;
   };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
@@ -2976,12 +3200,43 @@ async function discoverForCluster(
       ? sportsTier2Seeds
       : entityTerms;
 
+  // ── Audience persona resolution ────────────────────────────────────────
+  // Detect personas from the raw hint text and resolve their cluster-scoped
+  // biases. Persona seed terms are injected AFTER user-typed hints (so the
+  // explicit user signal still wins) but BEFORE intent seeds and the
+  // broad/entity fallback so persona-aligned candidates dominate retrieval.
+  // Sports keeps its dedicated entity-first pipeline; we still detect
+  // personas there but skip the bias / diversification passes (only the
+  // seed injection runs, and only for personas that ship a Sports bias).
+  const rawHintTextForPersona = directHintTerms.join(" ");
+  const personaKeysDetected = detectPersonasFromHint(rawHintTextForPersona);
+  const personaBiases = personaKeysDetected.length > 0
+    ? resolvePersonaClusterBiases(personaKeysDetected, clusterLabel)
+    : [];
+  const personaSeedExcludeSet = new Set<string>([
+    ...sportsTier1Set,
+    ...filteredExtraHints.map((t) => t.toLowerCase()),
+    ...filteredIntentSeeds.map((t) => t.toLowerCase()),
+    ...broadOrEntityTerms.map((t) => t.toLowerCase()),
+  ]);
+  const personaSeedTerms = personaBiases.length > 0
+    ? buildPersonaSeedTerms(personaBiases, personaSeedExcludeSet)
+    : [];
+
   const allTerms = [
     ...sportsTier1Seeds,
     ...filteredExtraHints,
+    ...personaSeedTerms,
     ...filteredIntentSeeds,
     ...broadOrEntityTerms,
   ];
+
+  if (personaKeysDetected.length > 0) {
+    console.info(
+      `[persona] cluster="${clusterLabel}" personas=${personaKeysDetected.join(", ")} ` +
+      `biasesForCluster=${personaBiases.length} seeds=${personaSeedTerms.join(", ") || "<none>"}`,
+    );
+  }
 
   const sceneKeywords = buildSceneKeywords(tagWeights, clusterLabel);
 
@@ -3097,6 +3352,26 @@ async function discoverForCluster(
         sportsRecoveredPrefixNames.push(item.name);
       }
     }
+  }
+
+  // ── Persona scoring bias ─────────────────────────────────────────────────
+  // Apply persona positive boosts / negative demotions / generic demotions
+  // BEFORE the score-floor filter so persona-aligned rows can rescue
+  // themselves above minScore and opposed-persona rows can drop below it.
+  const personaBiasOutcome = applyPersonaBias(
+    scored,
+    personaBiases,
+    clusterLabel,
+  );
+  if (personaBiasOutcome.applied) {
+    console.info(
+      `[persona] cluster="${clusterLabel}" boosted(${personaBiasOutcome.positiveBoostedNames.length})=` +
+      `${personaBiasOutcome.positiveBoostedNames.slice(0, 8).join(", ") || "<none>"} ` +
+      `negDemoted(${personaBiasOutcome.negativeDemotedNames.length})=` +
+      `${personaBiasOutcome.negativeDemotedNames.slice(0, 8).join(", ") || "<none>"} ` +
+      `genericDemoted(${personaBiasOutcome.genericDemotedNames.length})=` +
+      `${personaBiasOutcome.genericDemotedNames.slice(0, 8).join(", ") || "<none>"}`,
+    );
   }
 
   console.info(
@@ -3405,12 +3680,50 @@ async function discoverForCluster(
     );
   }
 
+  // Persona-aware diversification: only runs for non-Sports clusters when at
+  // least one persona bias matched this cluster. Sports keeps its dedicated
+  // bucket pass above; we never double-diversify.
+  let personaBucketDistributionBefore: Record<string, number> = {};
+  let personaBucketDistributionAfter: Record<string, number> = {};
+  let personaDiversificationApplied = false;
+  if (!isSports && personaBiases.length > 0 && sorted.length > 0) {
+    const result = diversifyPersonaAware(
+      sorted,
+      maxResults,
+      personaBiases,
+      clusterLabel,
+    );
+    interests = result.picked;
+    personaBucketDistributionBefore = result.bucketCountsBefore;
+    personaBucketDistributionAfter = result.bucketCountsAfter;
+    personaDiversificationApplied = true;
+    console.info(
+      `[persona] cluster="${clusterLabel}" buckets(before)=` +
+      Object.entries(result.bucketCountsBefore).map(([k, v]) => `${k}=${v}`).join(" ") +
+      ` buckets(after)=` +
+      Object.entries(result.bucketCountsAfter).map(([k, v]) => `${k}=${v}`).join(" "),
+    );
+  }
+
   console.info(
     `[interest-discover] cluster="${clusterLabel}" ── FINAL(${interests.length}) ──\n` +
     interests.map((i) =>
       `  ✓ ${i.name} [score=${i.relevanceScore?.toFixed(1)}, size=${((i.audienceSize ?? 0) / 1e6).toFixed(1)}M, band=${i.audienceSizeBand}, reason=${i.matchReason}]`
     ).join("\n"),
   );
+
+  const personaResolution = personaKeysDetected.length > 0
+    ? {
+        personaDetected: personaKeysDetected,
+        personaSeedTermsUsed: personaSeedTerms,
+        personaPositiveBoostedNames: personaBiasOutcome.positiveBoostedNames,
+        personaNegativeDemotedNames: personaBiasOutcome.negativeDemotedNames,
+        personaGenericRowsDemotedNames: personaBiasOutcome.genericDemotedNames,
+        personaBucketDistributionBefore,
+        personaBucketDistributionAfter,
+        personaDiversificationApplied,
+      }
+    : undefined;
 
   return {
     cluster: {
@@ -3422,6 +3735,7 @@ async function discoverForCluster(
     hintBias: hintBiasMeta,
     sportsBucketDistribution,
     sportsResolution,
+    personaResolution,
   };
 }
 
@@ -3574,9 +3888,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let sportsResolutionForResponse:
     | NonNullable<HintIntelligenceDebug["sports"]>
     | undefined;
+  // Persona resolution is collected per cluster but the response payload
+  // currently exposes a single aggregated view (the first cluster that
+  // actually matched). This mirrors how `sports` is surfaced and keeps
+  // the response shape stable.
+  let personaResolutionForResponse:
+    | NonNullable<HintIntelligenceDebug["persona"]>
+    | undefined;
 
   for (const label of targetLabels) {
-    const { cluster, termsUsed, hintBias, sportsResolution } = await discoverForCluster(
+    const { cluster, termsUsed, hintBias, sportsResolution, personaResolution } = await discoverForCluster(
       label,
       tagWeights,
       confidence,
@@ -3629,6 +3950,41 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           sportsResolution.gymFirstPostFilterDroppedNames,
       };
     }
+    if (personaResolution && !personaResolutionForResponse) {
+      // Surface the first cluster that actually applied persona bias.
+      // Other clusters' persona detail is still in dev console logs; we
+      // can extend this to a per-cluster map later if the UI needs it.
+      personaResolutionForResponse = {
+        personaDetected: personaResolution.personaDetected,
+        personaClusterApplied: label,
+        personaSeedTermsUsed: personaResolution.personaSeedTermsUsed,
+        personaPositiveBoostedNames:
+          personaResolution.personaPositiveBoostedNames,
+        personaNegativeDemotedNames:
+          personaResolution.personaNegativeDemotedNames,
+        personaGenericRowsDemotedNames:
+          personaResolution.personaGenericRowsDemotedNames,
+        personaBucketDistributionBefore:
+          personaResolution.personaBucketDistributionBefore,
+        personaBucketDistributionAfter:
+          personaResolution.personaBucketDistributionAfter,
+        personaDiversificationApplied:
+          personaResolution.personaDiversificationApplied,
+      };
+    } else if (personaResolution && personaResolutionForResponse) {
+      // Merge subsequent cluster boosts/demotes into the same payload so
+      // the response reflects every persona-affected name regardless of
+      // which cluster the persona originally bound to.
+      personaResolutionForResponse.personaPositiveBoostedNames.push(
+        ...personaResolution.personaPositiveBoostedNames,
+      );
+      personaResolutionForResponse.personaNegativeDemotedNames.push(
+        ...personaResolution.personaNegativeDemotedNames,
+      );
+      personaResolutionForResponse.personaGenericRowsDemotedNames.push(
+        ...personaResolution.personaGenericRowsDemotedNames,
+      );
+    }
   }
 
   const searchTermsUsed = [...new Set(Object.values(clusterSeeds).flat())];
@@ -3654,6 +4010,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         hintCombatSportDemotedNames: Object.values(hintBiasByCluster).flatMap((b) => b.combatSportDemotedNames),
         byCluster: hintBiasByCluster,
         ...(sportsResolutionForResponse ? { sports: sportsResolutionForResponse } : {}),
+        ...(personaResolutionForResponse ? { persona: personaResolutionForResponse } : {}),
       }
     : null;
 
