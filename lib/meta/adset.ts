@@ -279,8 +279,15 @@ export function buildMetaTargeting(
     case "interest_group": {
       const group = audiences.interestGroups.find((g) => g.id === adSet.sourceId);
       if (group) {
+        // Belt-and-braces filter:
+        //  1. Must look like a real Meta id (covers synthetic / hint-derived ids).
+        //  2. targetabilityStatus, when present, must be "valid". Anything tagged
+        //     unresolved/discovery_only/deprecated has already been logged and
+        //     surfaced by the launch-campaign preflight pass; this is the second
+        //     line of defence in case those code paths are ever bypassed.
         const realInterests = group.interests
           .filter((i) => isRealMetaId(i.id))
+          .filter((i) => i.targetabilityStatus === undefined || i.targetabilityStatus === "valid")
           .map((i) => ({ id: i.id, name: i.name }));
         if (realInterests.length > 0) {
           targeting.interests = realInterests;

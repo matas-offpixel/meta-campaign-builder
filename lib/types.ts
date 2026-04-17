@@ -163,6 +163,27 @@ export interface SavedAudience {
   description?: string;
 }
 
+/**
+ * Live Meta targetability state for a selected interest.
+ * Distinct from `status` (which is the legacy launch-preflight outcome):
+ *
+ * - `valid`           — confirmed available as a live Meta targeting interest
+ *                       (id is Meta-shaped and either came from a confirmed
+ *                       Meta entity row or was resolved via /api/meta/interest-validate).
+ * - `pending`         — added but not yet validated (transient; background lookup in flight).
+ * - `unresolved`      — live Meta lookup found no targetable match. Kept on the
+ *                       chip for discovery/persona context only; excluded at launch.
+ * - `discovery_only`  — explicitly tagged as a discovery seed (e.g. a hint phrase
+ *                       that should never be sent to Meta targeting).
+ * - `deprecated`      — was once valid but Meta marked it deprecated.
+ */
+export type InterestTargetabilityStatus =
+  | "valid"
+  | "pending"
+  | "unresolved"
+  | "discovery_only"
+  | "deprecated";
+
 export interface InterestSuggestion {
   id: string;
   name: string;
@@ -174,6 +195,25 @@ export interface InterestSuggestion {
   status?: "valid" | "deprecated" | "replaced" | "unknown" | "invalid";
   /** Populated when status === "replaced" */
   replacement?: { id: string; name: string } | null;
+  /**
+   * Live Meta targetability state. Set at add-time (immediately for Meta-confirmed
+   * sources) and refreshed by /api/meta/interest-validate when needed. Drives the
+   * chip warning state in the UI and the launch-time skip filter. See
+   * `lib/interest-targetability.ts` for the helpers that read/write this field.
+   */
+  targetabilityStatus?: InterestTargetabilityStatus;
+  /**
+   * Up to 5 nearby valid Meta interests returned by /api/meta/interest-validate
+   * when targetabilityStatus === "unresolved". Lets the UI suggest swap targets
+   * without re-running a search. Optional and additive; never sent to Meta.
+   */
+  targetabilityReplacements?: Array<{
+    id: string;
+    name: string;
+    audienceSize?: number;
+  }>;
+  /** ISO timestamp of the last targetability check (for cache/debug). */
+  targetabilityCheckedAt?: string;
 }
 
 export type Genre =
@@ -755,6 +795,20 @@ export interface LaunchSummary {
   }>;
   /** Deprecated interests that were auto-replaced during ad set creation */
   interestReplacements?: { deprecated: string; replacement: string | null; adSetName: string }[];
+  /**
+   * Selected interests excluded from launch because their `targetabilityStatus`
+   * was not `valid` (e.g. unresolved/discovery_only/deprecated). Non-blocking —
+   * the launch still proceeds; the UI surfaces a count so the user knows.
+   */
+  interestsSkippedNotTargetable?: {
+    count: number;
+    items: Array<{
+      adSetName: string;
+      groupId?: string;
+      name: string;
+      status: InterestTargetabilityStatus;
+    }>;
+  };
   /**
    * Final pre-launch hardcoded sanitisation telemetry. Populated when the
    * last-line-of-defence sanitiser ran against any ad set immediately before

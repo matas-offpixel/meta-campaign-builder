@@ -174,6 +174,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const preflightStart = Date.now();
   const preflightWarnings: { stage: string; message: string }[] = [];
   const interestReplacements: NonNullable<LaunchSummary["interestReplacements"]> = [];
+  const interestsSkippedNotTargetable: NonNullable<LaunchSummary["interestsSkippedNotTargetable"]>["items"] = [];
 
   // ── Launch-time interest sanitisation telemetry ───────────────────────────
   // Populated by the last-line-of-defence sanitiser that runs immediately
@@ -205,7 +206,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const group = draft.audiences.interestGroups.find((g) => g.id === adSet.sourceId);
     if (!group || group.interests.length === 0) continue;
 
-    const raw = group.interests
+    // Partition by `targetabilityStatus`: anything not `valid` (or unset, for
+    // back-compat with older drafts) is excluded from the targeting payload but
+    // kept on the chip so the user still sees their discovery context.
+    // - "valid"          → goes through to sanitiseInterests + Meta targeting
+    // - undefined        → treated as "valid" (older drafts predate this field)
+    // - other statuses   → skipped, recorded for the launch summary
+    const targetableForLaunch = group.interests.filter(
+      (i) => i.targetabilityStatus === undefined || i.targetabilityStatus === "valid",
+    );
+    const nonTargetable = group.interests.filter(
+      (i) => i.targetabilityStatus !== undefined && i.targetabilityStatus !== "valid",
+    );
+    for (const i of nonTargetable) {
+      interestsSkippedNotTargetable.push({
+        adSetName: adSet.name,
+        groupId: group.id,
+        name: i.name,
+        status: i.targetabilityStatus!,
+      });
+      preflightWarnings.push({
+        stage: "interests",
+        message: `"${i.name}" in "${adSet.name}" not currently available in Meta targeting (${i.targetabilityStatus}) — skipped at launch.`,
+      });
+    }
+    if (nonTargetable.length > 0) {
+      console.log(
+        `[launch-campaign] Preflight — skipping ${nonTargetable.length} non-targetable interest(s) for "${adSet.name}":`,
+        nonTargetable.map((i) => `${i.name} (${i.targetabilityStatus})`).join(", "),
+      );
+    }
+
+    const raw = targetableForLaunch
       .filter((i) => /^\d{5,}$/.test(i.id))
       .map((i) => ({ id: i.id, name: i.name }));
 
@@ -216,6 +248,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Always update group.interests to the sanitised list, even when only
     // IDs changed (e.g. hardcoded replacement swapped ID without removal count).
+    // Non-targetable items are preserved on the chip so the user still sees
+    // them in the wizard after launch.
     if (removed.length > 0 || valid.some((v, i) => v.id !== raw[i]?.id)) {
       console.log(
         `[launch-campaign] Preflight — sanitised "${adSet.name}": ` +
@@ -238,11 +272,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Overwrite group.interests with the sanitised list so buildAdSetPayload
       // picks up the corrected IDs instead of the original deprecated ones.
       const origMap = new Map(group.interests.map((i) => [i.id, i]));
-      group.interests = valid.map((v) => ({
+      const sanitisedTargetable = valid.map((v) => ({
         ...v,
         audienceSize: origMap.get(v.id)?.audienceSize,
         path: origMap.get(v.id)?.path,
+        targetabilityStatus: "valid" as const,
       }));
+      group.interests = [...sanitisedTargetable, ...nonTargetable];
     }
   }
 
@@ -1694,6 +1730,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .filter((g) => g.lookalikeAudienceIdsByRange && Object.keys(g.lookalikeAudienceIdsByRange).length > 0)
       .map((g) => ({ groupId: g.id, lookalikeAudienceIdsByRange: g.lookalikeAudienceIdsByRange! })),
     interestReplacements: interestReplacements.length > 0 ? interestReplacements : undefined,
+    interestsSkippedNotTargetable: interestsSkippedNotTargetable.length > 0
+      ? { count: interestsSkippedNotTargetable.length, items: interestsSkippedNotTargetable }
+      : undefined,
     launchInterestSanitization:
       finalLaunchInterestSanitizationApplied ||
       launchRemovedDeprecatedInterests.length > 0 ||

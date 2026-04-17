@@ -33,6 +33,12 @@ import {
   getPersonaPresetsForCluster,
   type PersonaPreset,
 } from "@/lib/audience-personas";
+import {
+  applyTargetabilityResult,
+  enrichWithTargetability,
+  validateInterestsTargetability,
+  type InterestValidateRequestItem,
+} from "@/lib/interest-targetability";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -336,18 +342,32 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
           <div className="flex flex-wrap gap-1.5">
             {group.interests.map((interest) => {
               const deprecated = isLikelyDeprecated(interest.name) || interest.status === "deprecated";
+              const targetability = interest.targetabilityStatus;
+              const isUnresolved = targetability === "unresolved" || targetability === "discovery_only";
+              const isPending = targetability === "pending";
+              const tone = deprecated || isUnresolved
+                ? "bg-warning/10 border-warning/40 text-warning pr-1"
+                : isPending
+                  ? "bg-muted/50 border-border text-muted-foreground pr-1"
+                  : "bg-primary/10 border-primary/30 text-primary pr-1";
+              const tooltip = deprecated
+                ? "This interest may be deprecated and will be replaced or removed at launch"
+                : isUnresolved
+                  ? "Not currently available in Meta targeting. Kept for discovery context only."
+                  : isPending
+                    ? "Checking Meta targetability…"
+                    : undefined;
               return (
                 <span
                   key={interest.id}
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border ${
-                    deprecated
-                      ? "bg-warning/10 border-warning/40 text-warning pr-1"
-                      : "bg-primary/10 border-primary/30 text-primary pr-1"
-                  }`}
-                  title={deprecated ? "This interest may be deprecated and will be replaced or removed at launch" : undefined}
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border ${tone}`}
+                  title={tooltip}
                 >
-                  {deprecated && (
+                  {(deprecated || isUnresolved) && (
                     <AlertTriangle className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                  )}
+                  {isPending && (
+                    <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin opacity-70" />
                   )}
                   <span className="max-w-[180px] truncate">{interest.name}</span>
                   <button
@@ -367,6 +387,17 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
               ⚠ Some interests may be deprecated and will be automatically replaced or removed at launch.
             </p>
           )}
+          {(() => {
+            const unresolvedCount = group.interests.filter(
+              (i) => i.targetabilityStatus === "unresolved" || i.targetabilityStatus === "discovery_only",
+            ).length;
+            if (unresolvedCount === 0) return null;
+            return (
+              <p className="mt-1.5 text-[10px] text-warning/80">
+                ⚠ {unresolvedCount} interest{unresolvedCount !== 1 ? "s" : ""} not currently available in Meta targeting — kept for discovery context only and will be skipped at launch.
+              </p>
+            );
+          })()}
         </div>
       )}
 
@@ -582,10 +613,102 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     onChange(groups.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   };
 
+  // ── Background targetability validator ──────────────────────────────────
+  // Anything added with a non-Meta-shaped id (or migrated from an older draft
+  // that lacked a status) is tagged "pending". This effect batches all such
+  // chips across all groups, asks the backend to look them up against Meta's
+  // live ad-interest index, and patches the result back in place.
+  //
+  // Design notes:
+  //  - We track which ids we've already attempted in this session via a ref,
+  //    so a transient API failure doesn't loop forever.
+  //  - We keep a snapshot of `groups` in a ref so the async callback always
+  //    writes against the latest state via `onChange`.
+  //  - Today no production add-path produces a "pending" item (every add path
+  //    uses a Meta-confirmed id); this hook is in place to safely handle older
+  //    drafts and any future seed/hint-driven add paths without breaking them.
+  const groupsRef = useRef(groups);
+  useEffect(() => { groupsRef.current = groups; }, [groups]);
+  const validatedIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const pending: Array<{ groupId: string; interest: InterestSuggestion }> = [];
+    for (const g of groups) {
+      for (const i of g.interests) {
+        if (i.targetabilityStatus !== "pending") continue;
+        if (validatedIdsRef.current.has(`${g.id}::${i.id}`)) continue;
+        pending.push({ groupId: g.id, interest: i });
+      }
+    }
+    if (pending.length === 0) return;
+
+    const items: InterestValidateRequestItem[] = pending.map((p) => ({
+      id: p.interest.id,
+      name: p.interest.name,
+    }));
+    for (const p of pending) validatedIdsRef.current.add(`${p.groupId}::${p.interest.id}`);
+
+    const controller = new AbortController();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { results } = await validateInterestsTargetability(items, {
+          signal: controller.signal,
+        });
+        if (cancelled) return;
+
+        // Build {groupId → {requestedId|name → result}} lookup so we can patch
+        // each group's interests in a single onChange call below.
+        const resultByPending = new Map<number, typeof results[number]>();
+        for (let idx = 0; idx < pending.length; idx++) {
+          const r = results[idx];
+          if (r) resultByPending.set(idx, r);
+        }
+        const patchByGroup = new Map<string, Map<string, typeof results[number]>>();
+        pending.forEach((p, idx) => {
+          const r = resultByPending.get(idx);
+          if (!r) return;
+          if (!patchByGroup.has(p.groupId)) patchByGroup.set(p.groupId, new Map());
+          patchByGroup.get(p.groupId)!.set(p.interest.id, r);
+        });
+
+        const next = groupsRef.current.map((g) => {
+          const patches = patchByGroup.get(g.id);
+          if (!patches) return g;
+          const interests = g.interests.map((i) => {
+            const r = patches.get(i.id);
+            if (!r) return i;
+            return applyTargetabilityResult(i, r);
+          });
+          return { ...g, interests };
+        });
+        onChange(next);
+        if (process.env.NODE_ENV !== "production") {
+          console.info(
+            `[targetability] validated ${pending.length} interest(s):`,
+            results.map((r) => `${r.name}=${r.targetabilityStatus}`).join(", "),
+          );
+        }
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;
+        console.warn("[targetability] validation failed:", err);
+        // Leave items "pending" — they'll be retried only on next change since
+        // we've already added them to validatedIdsRef. To force a retry, the
+        // user can re-add the chip.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [groups, onChange]);
+
   const addInterest = (groupId: string, interest: InterestSuggestion) => {
     const group = groups.find((g) => g.id === groupId);
     if (!group || group.interests.some((i) => i.id === interest.id)) return;
-    updateGroup(groupId, { interests: [...group.interests, interest] });
+    const tagged = enrichWithTargetability(interest);
+    updateGroup(groupId, { interests: [...group.interests, tagged] });
   };
 
   const removeInterest = (groupId: string, interestId: string) => {
@@ -837,7 +960,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       }
     }
     if (toAdd.length > 0) {
-      updateGroup(groupId, { interests: [...group.interests, ...toAdd] });
+      updateGroup(groupId, {
+        interests: [...group.interests, ...toAdd.map(enrichWithTargetability)],
+      });
     }
     // Clear clusters after adding (keep selections so user can re-open)
     setDiscoverClusters((prev) => ({ ...prev, [groupId]: [] }));
@@ -880,7 +1005,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     const existingIds = new Set(group.interests.map((i) => i.id));
     const deduped = toAdd.filter((i) => !existingIds.has(i.id));
     if (deduped.length > 0) {
-      updateGroup(groupId, { interests: [...group.interests, ...deduped] });
+      updateGroup(groupId, {
+        interests: [...group.interests, ...deduped.map(enrichWithTargetability)],
+      });
     }
     setDiscoveredSuggestions((prev) => ({ ...prev, [groupId]: [] }));
   };

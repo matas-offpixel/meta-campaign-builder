@@ -168,6 +168,21 @@ function buildLaunchEvents(summary: LaunchSummary): LaunchEvent[] {
     }
   }
 
+  // Interests skipped because they are not currently available in Meta
+  // targeting. These remain on the wizard chip for discovery context only;
+  // the launch still succeeds without them.
+  if (summary.interestsSkippedNotTargetable?.items?.length) {
+    for (const s of summary.interestsSkippedNotTargetable.items) {
+      events.push({
+        id: uid("int-skip"),
+        stage: "adset",
+        entity: s.adSetName,
+        status: "warning",
+        label: `Interest "${s.name}" skipped — not currently available in Meta targeting (${s.status})`,
+      });
+    }
+  }
+
   // Ad sets
   for (const s of summary.adSetsCreated) {
     const ageLabel = s.ageMode === "suggested" ? "Advantage+" : "strict";
@@ -380,6 +395,17 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
       {(summary.interestReplacements?.length ?? 0) > 0 && (
         <div className="flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-xs">
           <span className="font-medium text-warning">↻ {summary.interestReplacements!.length} deprecated interest{summary.interestReplacements!.length !== 1 ? "s" : ""} handled</span>
+        </div>
+      )}
+      {(summary.interestsSkippedNotTargetable?.count ?? 0) > 0 && (
+        <div
+          className="flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-xs"
+          title="These interests stayed on your audience chips for discovery context but were skipped at launch because Meta doesn't currently expose them as targetable interests."
+        >
+          <AlertTriangle className="h-3 w-3 text-warning" />
+          <span className="font-medium text-warning">
+            {summary.interestsSkippedNotTargetable!.count} interest{summary.interestsSkippedNotTargetable!.count !== 1 ? "s" : ""} skipped (not targetable)
+          </span>
         </div>
       )}
     </div>

@@ -261,6 +261,21 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     draft.audiences.selectedPagesLookalikeGroups = [];
   }
 
+  // Backfill `targetabilityStatus` on existing selected interests so older
+  // drafts don't lose chips at launch under the new skip-non-targetable rule.
+  // Heuristic: a Meta-shaped numeric id (10+ digits) is treated as `valid`;
+  // anything synthetic is marked `pending` so the UI's background validator
+  // (in interest-groups-panel.tsx) re-checks it on next render.
+  if (Array.isArray(draft.audiences.interestGroups)) {
+    for (const g of draft.audiences.interestGroups) {
+      if (!Array.isArray(g.interests)) continue;
+      for (const i of g.interests) {
+        if (i.targetabilityStatus) continue;
+        i.targetabilityStatus = /^\d{10,}$/.test(i.id) ? "valid" : "pending";
+      }
+    }
+  }
+
   // Migrate lookalikeRange → lookalikeRanges on page groups
   if (Array.isArray(draft.audiences.pageGroups)) {
     for (const g of draft.audiences.pageGroups) {
