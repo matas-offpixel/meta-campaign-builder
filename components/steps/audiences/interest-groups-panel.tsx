@@ -28,6 +28,7 @@ import {
 } from "@/lib/interest-suggestions";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { readGenreCache } from "@/lib/genre-classification";
+import { getSceneHintPresets, type SceneHintPreset } from "@/lib/scene-hint-presets";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -498,6 +499,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const [clusterSelections, setClusterSelections] = useState<Record<string, Record<string, boolean>>>({});
   // Scene hints per group — free-text field that maps to scene tags for better discovery
   const [sceneHintsByGroup, setSceneHintsByGroup] = useState<Record<string, string>>({});
+  // Tracks the currently-selected scene hint preset chip per group (used for
+  // styling the active chip). Cleared when the user types manually.
+  const [selectedPresetByGroup, setSelectedPresetByGroup] = useState<Record<string, string>>({});
   // Audience fingerprint returned from the backend per group
   const [fingerprintByGroup, setFingerprintByGroup] = useState<Record<string, AudienceFingerprint>>({});
 
@@ -694,7 +698,13 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     }
   }, [groups]);
 
-  const handleDiscoverFromPages = useCallback(async (groupId: string) => {
+  const handleDiscoverFromPages = useCallback(async (
+    groupId: string,
+    /** Optional override for the scene-hint text. Used by the preset chip
+     *  click handler so the new hint is sent immediately without waiting
+     *  for the `sceneHintsByGroup` state update to flush. */
+    hintOverride?: string,
+  ) => {
     if (discoveringFromPages === groupId) return;
 
     // Resolve cluster type: stored on group, or inferred from name.
@@ -736,7 +746,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       // phrase as natural-language text. Do NOT underscore-join words — the
       // backend intent classifier relies on real word boundaries, and Meta's
       // interest search works better on the unmangled phrase too.
-      const rawHints = sceneHintsByGroup[groupId] ?? "";
+      const rawHints = hintOverride ?? sceneHintsByGroup[groupId] ?? "";
       const sceneHints = rawHints
         .split(/[,;\n]+/)
         .map((h) => h.trim())
@@ -1286,12 +1296,81 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                     <Input
                       label="Scene hints (optional)"
                       value={sceneHintsByGroup[group.id] ?? ""}
-                      onChange={(e) => setSceneHintsByGroup((prev) => ({ ...prev, [group.id]: e.target.value }))}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSceneHintsByGroup((prev) => ({ ...prev, [group.id]: v }));
+                        // Manual edit invalidates any active preset selection.
+                        setSelectedPresetByGroup((prev) => {
+                          if (!prev[group.id]) return prev;
+                          const next = { ...prev };
+                          delete next[group.id];
+                          return next;
+                        });
+                      }}
                       placeholder="e.g. hard_techno, queer_underground, avant_garde_fashion"
                     />
                     <p className="mt-0.5 text-[10px] text-muted-foreground/70">
                       Comma-separated scene tags to bias discovery. Helps when page names don&apos;t clearly signal the niche (e.g. <span className="font-mono">hard_techno</span>, <span className="font-mono">editorial_fashion</span>, <span className="font-mono">psy_trance</span>).
                     </p>
+
+                    {/* Suggested scene hints — quick-pick chips per cluster */}
+                    {(() => {
+                      if (!effectiveCluster) return null;
+                      const fp = fingerprintByGroup[group.id];
+                      const presets: SceneHintPreset[] = getSceneHintPresets({
+                        clusterLabel: effectiveCluster,
+                        dominantScenes: fp?.dominantScenes,
+                        detectedSceneTags: discoverSceneTags[group.id],
+                      });
+                      if (presets.length === 0) return null;
+                      if (process.env.NODE_ENV !== "production") {
+                        const top = fp?.dominantScenes?.[0]?.tag ?? "<none>";
+                        console.info(
+                          `[scene-hints] cluster=${effectiveCluster} presets=${presets.length} topScene=${top}`,
+                        );
+                      }
+                      const activeId = selectedPresetByGroup[group.id];
+                      const isBusy = discoveringFromPages === group.id;
+                      return (
+                        <div className="mt-2">
+                          <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                            Suggested scene hints
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {presets.map((preset) => {
+                              const isActive = activeId === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  disabled={isBusy}
+                                  title={preset.hint}
+                                  onClick={() => {
+                                    setSceneHintsByGroup((prev) => ({
+                                      ...prev,
+                                      [group.id]: preset.hint,
+                                    }));
+                                    setSelectedPresetByGroup((prev) => ({
+                                      ...prev,
+                                      [group.id]: preset.id,
+                                    }));
+                                    void handleDiscoverFromPages(group.id, preset.hint);
+                                  }}
+                                  className={
+                                    "rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-50 disabled:cursor-not-allowed " +
+                                    (isActive
+                                      ? "border-primary bg-primary/10 text-primary font-medium"
+                                      : "border-border bg-white text-foreground hover:bg-muted")
+                                  }
+                                >
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <Button
