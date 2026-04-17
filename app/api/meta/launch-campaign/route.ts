@@ -23,12 +23,16 @@ import {
   createMetaAd,
   createEngagementAudience,
   fetchAdAccountTosStatus,
+  fetchCampaignById,
   checkAudienceReadiness,
   rankSeedsByPreference,
   MetaApiError,
 } from "@/lib/meta/client";
 import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
-import { validateCampaignPayload } from "@/lib/meta/campaign";
+import {
+  mapMetaObjectiveToInternal,
+  validateCampaignPayload,
+} from "@/lib/meta/campaign";
 import {
   buildAdSetPayload,
   extractDeprecatedReplacements,
@@ -186,18 +190,41 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let launchRetrySucceeded = 0;
   let finalLaunchInterestSanitizationApplied = false;
 
-  // 0a. Validate campaign payload
-  const campaignValidation = validateCampaignPayload({
-    metaAdAccountId: adAccountId,
-    name: draft.settings.campaignName,
-    objective: draft.settings.objective,
-  });
+  // 0a. Validate campaign / attach target.
+  //
+  // In `wizardMode === "attach"` we don't validate a NEW campaign payload —
+  // instead we re-fetch the live Meta campaign and verify it's (a) reachable
+  // with this token, (b) compatible with our wizard (objective maps), and
+  // (c) not archived/deleted. The objective on the draft was mirrored from
+  // the picker selection; we re-cross-check it here against what Meta says
+  // *now* in case the campaign was edited between picker and launch.
+  const wizardMode: "new" | "attach" = draft.settings.wizardMode ?? "new";
+  const attachTargetId = draft.settings.existingMetaCampaign?.id;
+  console.log(
+    `[launch-campaign] wizardMode=${wizardMode}` +
+      (wizardMode === "attach" ? ` attachTargetId=${attachTargetId ?? "?"}` : ""),
+  );
 
-  if (!campaignValidation.isValid) {
-    return NextResponse.json(
-      { error: "Campaign validation failed", fields: campaignValidation.errors },
-      { status: 400 },
-    );
+  if (wizardMode === "attach") {
+    if (!attachTargetId) {
+      return NextResponse.json(
+        { error: "Attach mode requires an existing campaign id" },
+        { status: 400 },
+      );
+    }
+  } else {
+    const campaignValidation = validateCampaignPayload({
+      metaAdAccountId: adAccountId,
+      name: draft.settings.campaignName,
+      objective: draft.settings.objective,
+    });
+
+    if (!campaignValidation.isValid) {
+      return NextResponse.json(
+        { error: "Campaign validation failed", fields: campaignValidation.errors },
+        { status: 400 },
+      );
+    }
   }
 
   // 0b. Pre-sanitise interests for interest_group ad sets
@@ -308,39 +335,126 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   console.log(`[launch-campaign] Preflight done in ${phaseDurations["preflight"]}ms — ${preflightWarnings.length} warning(s)`);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 1 — Create campaign (fatal — abort if this fails)
+  // PHASE 1 — Resolve `metaCampaignId`
+  //   - "new"    → POST a fresh campaign (fatal on failure)
+  //   - "attach" → re-fetch the picker's selection, validate compatibility,
+  //                and reuse its id; never POST a campaign.
   // ═══════════════════════════════════════════════════════════════════════════
 
   const phase1Start = Date.now();
   let metaCampaignId: string;
 
-  try {
-    const campaignPayload = {
-      adAccountId,
-      name: draft.settings.campaignName.trim(),
-      objective: draft.settings.objective,
-      status: "PAUSED" as const,
-    };
-    console.log("[launch-campaign] Phase 1 payload:", JSON.stringify(campaignPayload, null, 2));
+  if (wizardMode === "attach") {
+    try {
+      console.log(
+        `[launch-campaign] Phase 1 (attach) — re-fetching live campaign ${attachTargetId}`,
+      );
+      const live = await fetchCampaignById(attachTargetId!);
+      if (!live) {
+        return NextResponse.json(
+          {
+            error:
+              "Selected existing campaign not found in Meta. It may have been deleted, archived, or moved out of this ad account.",
+            metaError: { error: "campaign_not_found", campaignId: attachTargetId },
+          },
+          { status: 404 },
+        );
+      }
 
-    const campaignRes = await createMetaCampaign(campaignPayload);
-    metaCampaignId = campaignRes.id;
-    phaseDurations["campaign"] = elapsed(phase1Start);
-    console.log(`[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} (${phaseDurations["campaign"]}ms)`);
-  } catch (err) {
-    const message = err instanceof MetaApiError ? err.message : String(err);
-    console.error(
-      "[launch-campaign] Phase 1 ✗  campaign creation failed:",
-      message,
-      err instanceof MetaApiError ? err.toJSON() : "",
-    );
-    return NextResponse.json(
-      {
-        error: `Failed to create campaign: ${message}`,
-        metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
-      },
-      { status: 502 },
-    );
+      const internal = mapMetaObjectiveToInternal(live.objective);
+      if (!internal) {
+        return NextResponse.json(
+          {
+            error: `Selected campaign has an unsupported objective "${live.objective ?? "unknown"}". This wizard can only add ad sets to campaigns whose objective maps to one of: purchase, registration, traffic, awareness, engagement.`,
+          },
+          { status: 400 },
+        );
+      }
+      if (live.buying_type && live.buying_type !== "AUCTION") {
+        return NextResponse.json(
+          {
+            error: `Selected campaign uses buying type "${live.buying_type}" — this wizard only creates AUCTION ad sets.`,
+          },
+          { status: 400 },
+        );
+      }
+      const blocked = new Set(["ARCHIVED", "DELETED"]);
+      if (live.effective_status && blocked.has(live.effective_status)) {
+        return NextResponse.json(
+          {
+            error: `Selected campaign is ${live.effective_status.toLowerCase()} — can't add new ad sets to it.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      // Cross-check against the snapshot mirrored onto draft.settings.objective
+      // by the picker. If the live campaign's objective changed underneath us
+      // we abort — the user needs to re-pick (their optimisation goal might
+      // not be valid for the new objective).
+      if (internal !== draft.settings.objective) {
+        return NextResponse.json(
+          {
+            error: `Selected campaign's objective changed since you picked it (was "${draft.settings.objective}", now "${internal}"). Re-open Step 1 and re-select.`,
+          },
+          { status: 409 },
+        );
+      }
+
+      metaCampaignId = live.id;
+      preflightWarnings.push({
+        stage: "campaign",
+        message: `Adding ad set + ads to existing campaign "${live.name}" (${live.id}).`,
+      });
+      phaseDurations["campaign"] = elapsed(phase1Start);
+      console.log(
+        `[launch-campaign] Phase 1 (attach) ✓  campaignId: ${metaCampaignId}` +
+          ` name="${live.name}" objective=${live.objective} (${phaseDurations["campaign"]}ms)`,
+      );
+    } catch (err) {
+      const message = err instanceof MetaApiError ? err.message : String(err);
+      console.error(
+        "[launch-campaign] Phase 1 (attach) ✗  could not re-fetch live campaign:",
+        message,
+        err instanceof MetaApiError ? err.toJSON() : "",
+      );
+      return NextResponse.json(
+        {
+          error: `Failed to verify the existing campaign: ${message}`,
+          metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
+        },
+        { status: 502 },
+      );
+    }
+  } else {
+    try {
+      const campaignPayload = {
+        adAccountId,
+        name: draft.settings.campaignName.trim(),
+        objective: draft.settings.objective,
+        status: "PAUSED" as const,
+      };
+      console.log("[launch-campaign] Phase 1 payload:", JSON.stringify(campaignPayload, null, 2));
+
+      const campaignRes = await createMetaCampaign(campaignPayload);
+      metaCampaignId = campaignRes.id;
+      phaseDurations["campaign"] = elapsed(phase1Start);
+      console.log(`[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} (${phaseDurations["campaign"]}ms)`);
+    } catch (err) {
+      const message = err instanceof MetaApiError ? err.message : String(err);
+      console.error(
+        "[launch-campaign] Phase 1 ✗  campaign creation failed:",
+        message,
+        err instanceof MetaApiError ? err.toJSON() : "",
+      );
+      return NextResponse.json(
+        {
+          error: `Failed to create campaign: ${message}`,
+          metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
+        },
+        { status: 502 },
+      );
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

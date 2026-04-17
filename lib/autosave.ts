@@ -240,6 +240,12 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     draft.settings.metaAdAccountId = canonical || undefined;
 
     console.log("[migrateDraft] adAccountId:", a, "| metaAdAccountId:", b, "→ canonical:", canonical || "(empty)");
+
+    // Backfill wizardMode for drafts created before the "Add to existing
+    // campaign" flow existed. They are all "new" by definition.
+    if (!draft.settings.wizardMode) {
+      draft.settings.wizardMode = "new";
+    }
   }
 
   if (Array.isArray(draft.creatives)) {

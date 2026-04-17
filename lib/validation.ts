@@ -32,6 +32,25 @@ function validateAccountSetup(draft: CampaignDraft): ValidationResult {
 
 function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
+  const mode = draft.settings.wizardMode ?? "new";
+
+  if (mode === "attach") {
+    // In attach mode the campaign name + objective come from the live Meta
+    // campaign — only the picker selection + an optimisation goal are needed.
+    const existing = draft.settings.existingMetaCampaign;
+    if (!existing?.id) {
+      errors.push("Pick the existing campaign you want to add an ad set to");
+    }
+    if (!draft.settings.optimisationGoal) {
+      errors.push("Optimisation goal is required");
+    }
+    if (!draft.settings.objective) {
+      // Should never trigger since handlePickCampaign sets this — defensive.
+      errors.push("Selected campaign has an unsupported objective");
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
   if (!draft.settings.campaignName.trim()) errors.push("Campaign name is required");
   if (!draft.settings.objective) errors.push("Campaign objective is required");
   if (!draft.settings.optimisationGoal) errors.push("Optimisation goal is required");

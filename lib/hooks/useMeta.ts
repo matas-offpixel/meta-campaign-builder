@@ -18,6 +18,8 @@ import type {
   MetaInstagramAccount,
   CustomAudience,
   PagePost,
+  MetaCampaignSummary,
+  MetaCampaignsResponse,
 } from "@/lib/types";
 import {
   FB_TOKEN_STORAGE_KEY,
@@ -376,6 +378,200 @@ export function useFetchPagePosts(
   }, [pageId, enabled, limit, refetchCounter]);
 
   return { ...inner, refetch };
+}
+
+// ─── useFetchCampaigns ────────────────────────────────────────────────────────
+
+/**
+ * Discriminated UI state for the "Add to existing campaign" picker. Mirrors
+ * {@link PagePostsStatus} so the picker can mount the right empty / loading /
+ * error branch without re-deriving state.
+ */
+export type CampaignsStatus =
+  | "idle"
+  | "loading"
+  | "success"
+  | "empty"
+  | "error";
+
+export interface CampaignsState {
+  status: CampaignsStatus;
+  data: MetaCampaignSummary[];
+  error: string | null;
+  /** True when at least one more page is available from the API. */
+  hasMore: boolean;
+  /** Re-run the fetch from page 1 with the current filter / search. */
+  refetch: () => void;
+  /** Append the next page of results, if any. No-op when `!hasMore`. */
+  loadMore: () => void;
+  /** True while a `loadMore` request is in flight. */
+  loadingMore: boolean;
+}
+
+interface UseFetchCampaignsOptions {
+  enabled?: boolean;
+  /** "relevant" (active+paused, recency-sorted) | "all". */
+  filter?: "relevant" | "all";
+  /** Case-insensitive substring match on campaign name. */
+  search?: string;
+  /** Initial page size — server-capped at 50. */
+  limit?: number;
+}
+
+/**
+ * Live-fetches Meta campaigns under the given ad account for the picker.
+ * Supports server-side cursor pagination via `loadMore()`. Cancels in-flight
+ * requests when the inputs (account / filter / search) change so the UI
+ * never displays stale results.
+ */
+export function useFetchCampaigns(
+  adAccountId: string | undefined,
+  options: UseFetchCampaignsOptions = {},
+): CampaignsState {
+  const { enabled = true, filter = "relevant", search, limit = 25 } = options;
+
+  const [inner, setInner] = useState<{
+    status: CampaignsStatus;
+    data: MetaCampaignSummary[];
+    error: string | null;
+    hasMore: boolean;
+    nextCursor?: string;
+  }>({ status: "idle", data: [], error: null, hasMore: false });
+
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refetchCounter, setRefetchCounter] = useState(0);
+  const refetch = useCallback(() => setRefetchCounter((n) => n + 1), []);
+
+  // Stable ref to the latest cursor so `loadMore` doesn't depend on `inner`
+  // (which would close over a stale value otherwise). Updated via effect
+  // (not during render) to satisfy the React Hooks ref rules.
+  const cursorRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    cursorRef.current = inner.nextCursor;
+  }, [inner.nextCursor]);
+
+  const buildUrl = useCallback(
+    (after?: string): string => {
+      const params = new URLSearchParams({
+        adAccountId: adAccountId ?? "",
+        filter,
+        limit: String(limit),
+      });
+      if (search?.trim()) params.set("search", search.trim());
+      if (after) params.set("after", after);
+      return `/api/meta/campaigns?${params.toString()}`;
+    },
+    [adAccountId, filter, limit, search],
+  );
+
+  // First-page fetch — re-runs whenever inputs change or `refetch` is called.
+  useEffect(() => {
+    if (!enabled || !adAccountId) {
+      setInner({ status: "idle", data: [], error: null, hasMore: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    setInner({ status: "loading", data: [], error: null, hasMore: false });
+
+    console.log(
+      `[useFetchCampaigns] fetch start adAccountId=${adAccountId} filter=${filter}` +
+        ` search=${search ?? "-"}`,
+    );
+
+    fetch(buildUrl(), { signal: controller.signal })
+      .then(async (res) => {
+        const json = (await res.json()) as Partial<MetaCampaignsResponse> & {
+          error?: string;
+        };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        const data = Array.isArray(json.data) ? json.data : [];
+        const hasMore = Boolean(json.paging?.hasMore);
+        console.log(
+          `[useFetchCampaigns] fetch success adAccountId=${adAccountId}` +
+            ` count=${data.length} hasMore=${hasMore}`,
+        );
+        setInner({
+          status: data.length === 0 ? "empty" : "success",
+          data,
+          error: null,
+          hasMore,
+          nextCursor: json.paging?.after,
+        });
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const msg =
+          err instanceof Error ? err.message : "Failed to load campaigns";
+        console.error(
+          `[useFetchCampaigns] fetch failure adAccountId=${adAccountId} reason=${msg}`,
+        );
+        setInner({
+          status: "error",
+          data: [],
+          error: msg,
+          hasMore: false,
+        });
+      });
+
+    return () => controller.abort();
+  }, [adAccountId, enabled, filter, search, limit, refetchCounter, buildUrl]);
+
+  const loadMore = useCallback(() => {
+    const after = cursorRef.current;
+    if (!enabled || !adAccountId || !after || loadingMore) return;
+
+    setLoadingMore(true);
+    console.log(
+      `[useFetchCampaigns] loadMore start adAccountId=${adAccountId} after=yes`,
+    );
+
+    fetch(buildUrl(after))
+      .then(async (res) => {
+        const json = (await res.json()) as Partial<MetaCampaignsResponse> & {
+          error?: string;
+        };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        const more = Array.isArray(json.data) ? json.data : [];
+        const hasMore = Boolean(json.paging?.hasMore);
+        console.log(
+          `[useFetchCampaigns] loadMore success adAccountId=${adAccountId}` +
+            ` added=${more.length} hasMore=${hasMore}`,
+        );
+        setInner((prev) => ({
+          ...prev,
+          status: "success",
+          data: [...prev.data, ...more],
+          hasMore,
+          nextCursor: json.paging?.after,
+        }));
+      })
+      .catch((err: unknown) => {
+        const msg =
+          err instanceof Error ? err.message : "Failed to load more campaigns";
+        console.error(
+          `[useFetchCampaigns] loadMore failure adAccountId=${adAccountId} reason=${msg}`,
+        );
+        // Don't blow away the existing data on a paging failure — surface
+        // the error and let the user retry.
+        setInner((prev) => ({ ...prev, error: msg }));
+      })
+      .finally(() => setLoadingMore(false));
+  }, [adAccountId, enabled, loadingMore, buildUrl]);
+
+  return {
+    status: inner.status,
+    data: inner.data,
+    error: inner.error,
+    hasMore: inner.hasMore,
+    refetch,
+    loadMore,
+    loadingMore,
+  };
 }
 
 // ─── useFetchCustomAudiences ──────────────────────────────────────────────────

@@ -57,7 +57,10 @@ interface LaunchEvent {
 
 /** Build a flat chronological event list from a completed LaunchSummary.
  *  Every event id is globally unique using a monotonic counter. */
-function buildLaunchEvents(summary: LaunchSummary): LaunchEvent[] {
+function buildLaunchEvents(
+  summary: LaunchSummary,
+  draft: CampaignDraft,
+): LaunchEvent[] {
   let seq = 0;
   const uid = (prefix: string) => `${prefix}-${seq++}`;
   const events: LaunchEvent[] = [];
@@ -76,13 +79,17 @@ function buildLaunchEvents(summary: LaunchSummary): LaunchEvent[] {
     }
   }
 
-  // Campaign
+  // Campaign — wording differs for "attach" vs fresh campaign creation.
+  const isAttach = draft.settings.wizardMode === "attach";
+  const attachedName = draft.settings.existingMetaCampaign?.name;
   events.push({
     id: uid("campaign"),
     stage: "campaign",
-    entity: "Campaign",
+    entity: isAttach ? "Existing campaign" : "Campaign",
     status: "success",
-    label: `Campaign created`,
+    label: isAttach
+      ? `Attached to existing campaign${attachedName ? ` "${attachedName}"` : ""}`
+      : `Campaign created`,
     metaId: summary.metaCampaignId,
     durationMs: summary.phaseDurations?.campaign,
   });
@@ -927,9 +934,9 @@ export function ReviewLaunch({
   // Events to display in the feed
   const launchEvents = useMemo<LaunchEvent[]>(() => {
     if (isLaunching) return PENDING_EVENTS;
-    if (launchSummary) return buildLaunchEvents(launchSummary);
+    if (launchSummary) return buildLaunchEvents(launchSummary, draft);
     return [];
-  }, [isLaunching, launchSummary]);
+  }, [isLaunching, launchSummary, draft]);
 
   // After a launch, persist any page capability failures back into the cache so
   // the page audience panel shows updated badges on the next visit.
@@ -1078,25 +1085,60 @@ export function ReviewLaunch({
       {/* Campaign Summary */}
       <Card>
         <CardTitle>Campaign Summary</CardTitle>
-        <div className="mt-3 divide-y divide-border">
-          <SummaryRow label="Campaign" value={draft.settings.campaignName} />
-          <SummaryRow label="Code" value={draft.settings.campaignCode} />
-          <SummaryRow
-            label="Objective"
-            value={
-              draft.settings.objective.charAt(0).toUpperCase() +
-              draft.settings.objective.slice(1)
-            }
-          />
-          <SummaryRow
-            label="Optimisation"
-            value={draft.settings.optimisationGoal.replace(/_/g, " ")}
-          />
-          <SummaryRow
-            label="Ad Account"
-            value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
-          />
-        </div>
+        {draft.settings.wizardMode === "attach" && draft.settings.existingMetaCampaign ? (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              This launch will create <span className="font-medium text-foreground">1 new ad set</span> and its ads under an
+              existing campaign in your ad account. The campaign itself will not be modified.
+            </p>
+            <div className="divide-y divide-border">
+              <SummaryRow
+                label="Existing Campaign"
+                value={draft.settings.existingMetaCampaign.name}
+              />
+              <SummaryRow
+                label="Campaign ID"
+                value={draft.settings.existingMetaCampaign.id}
+              />
+              <SummaryRow
+                label="Objective"
+                value={
+                  draft.settings.objective.charAt(0).toUpperCase() +
+                  draft.settings.objective.slice(1) +
+                  ` (${draft.settings.existingMetaCampaign.objective})`
+                }
+              />
+              <SummaryRow
+                label="Optimisation"
+                value={draft.settings.optimisationGoal.replace(/_/g, " ")}
+              />
+              <SummaryRow
+                label="Ad Account"
+                value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 divide-y divide-border">
+            <SummaryRow label="Campaign" value={draft.settings.campaignName} />
+            <SummaryRow label="Code" value={draft.settings.campaignCode} />
+            <SummaryRow
+              label="Objective"
+              value={
+                draft.settings.objective.charAt(0).toUpperCase() +
+                draft.settings.objective.slice(1)
+              }
+            />
+            <SummaryRow
+              label="Optimisation"
+              value={draft.settings.optimisationGoal.replace(/_/g, " ")}
+            />
+            <SummaryRow
+              label="Ad Account"
+              value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
+            />
+          </div>
+        )}
       </Card>
 
       {/* Optimisation Strategy Summary */}

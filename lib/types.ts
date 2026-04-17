@@ -731,6 +731,72 @@ export interface CampaignSettings {
   metaPixelId?: string;
   /** Primary Instagram Business Account for this campaign */
   metaIGAccountId?: string;
+
+  // ── Wizard mode (additive) ────────────────────────────────────────────────
+  /**
+   * `"new"` (default): wizard creates a brand-new campaign at launch.
+   * `"attach"`: launch skips campaign creation and adds a new ad set + ads
+   * under {@link existingMetaCampaign}. Selected via the Step 1 toggle.
+   */
+  wizardMode?: "new" | "attach";
+
+  /**
+   * Snapshot of the live Meta campaign chosen via the picker when
+   * {@link wizardMode} is `"attach"`. Captured at selection time so the
+   * review step can show the chosen campaign without re-fetching, and so
+   * the launch route can re-validate against the live campaign.
+   */
+  existingMetaCampaign?: {
+    id: string;
+    name: string;
+    /** Raw Meta objective, e.g. "OUTCOME_ENGAGEMENT". */
+    objective: string;
+    /** Raw configured status, e.g. "ACTIVE", "PAUSED". */
+    status: string;
+    /** Raw effective status (delivery state), if returned by Meta. */
+    effectiveStatus?: string;
+    /** When the picker captured this snapshot. */
+    capturedAt: string;
+  };
+}
+
+// ─── Live Meta campaign list (used by the "Add to existing" picker) ─────────
+
+/**
+ * One row returned by `GET /api/meta/campaigns?adAccountId=...`. Shaped for
+ * the campaign picker UI: includes raw Meta fields plus a derived
+ * `compatible` flag and reason so the UI can mark unselectable rows.
+ */
+export interface MetaCampaignSummary {
+  id: string;
+  name: string;
+  /** Raw Meta objective string, e.g. "OUTCOME_TRAFFIC". */
+  objective: string;
+  /** Internal objective if the raw Meta value maps to one we support. */
+  internalObjective?: CampaignObjective;
+  /** Configured status, e.g. "ACTIVE". */
+  status: string;
+  /** Delivery state (more granular than `status`). */
+  effectiveStatus?: string;
+  /** "AUCTION" | "RESERVED". */
+  buyingType?: string;
+  createdTime?: string;
+  updatedTime?: string;
+  /** True when this wizard can create a new ad set under this campaign. */
+  compatible: boolean;
+  /** When `compatible === false`, why. */
+  incompatibleReason?: string;
+}
+
+/** Cursor-paged response shape for `/api/meta/campaigns`. */
+export interface MetaCampaignsResponse {
+  data: MetaCampaignSummary[];
+  count: number;
+  paging: {
+    /** Cursor to pass back as `after=` for the next page, if any. */
+    after?: string;
+    hasMore: boolean;
+  };
 }
 
 // ─── Launch summary (populated after a successful launch) ───

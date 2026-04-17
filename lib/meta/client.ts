@@ -249,6 +249,133 @@ export async function fetchPages(businessId?: string): Promise<MetaApiPage[]> {
   return res.data;
 }
 
+// ─── Campaign listing (live, account-wide) ─────────────────────────────────
+
+/**
+ * Raw row returned by `GET /{ad_account_id}/campaigns`. Internal — the
+ * `/api/meta/campaigns` route maps these to {@link MetaCampaignSummary}.
+ */
+export interface RawMetaCampaign {
+  id: string;
+  name: string;
+  objective?: string;
+  status?: string;
+  effective_status?: string;
+  buying_type?: string;
+  created_time?: string;
+  updated_time?: string;
+}
+
+export interface FetchCampaignsResult {
+  data: RawMetaCampaign[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
+/**
+ * Cursor-paginated list of campaigns under an ad account. Used by the
+ * "Add to existing campaign" picker.
+ *
+ * Filters via Meta's `effective_status` URL param (server-side filter, not
+ * post-fetch) so the relevant view is cheap. When `nameContains` is set we
+ * additionally apply `filtering=[{field:"name",operator:"CONTAIN",value}]`.
+ *
+ * Default sort: most recently updated first (`?date_preset` is unrelated;
+ * we sort client-side after fetch since Meta doesn't expose a stable
+ * orderBy for `/{ad_account}/campaigns`).
+ *
+ * Requires: ads_read or ads_management permission.
+ */
+export async function fetchCampaignsForAccount(params: {
+  adAccountId: string;
+  /** When `"relevant"`, request only ACTIVE + PAUSED campaigns. */
+  filter?: "relevant" | "all";
+  /** Optional case-insensitive substring match on campaign name. */
+  nameContains?: string;
+  /** Page size — capped at 50. */
+  limit?: number;
+  /** Pagination cursor returned by a previous call. */
+  after?: string;
+}): Promise<FetchCampaignsResult> {
+  const {
+    adAccountId,
+    filter = "relevant",
+    nameContains,
+    limit = 25,
+    after,
+  } = params;
+
+  const fields = [
+    "id",
+    "name",
+    "objective",
+    "status",
+    "effective_status",
+    "buying_type",
+    "created_time",
+    "updated_time",
+  ].join(",");
+
+  const queryParams: Record<string, string> = {
+    fields,
+    limit: String(Math.min(Math.max(1, limit), 50)),
+  };
+
+  // Server-side status filter for the "relevant" view. Meta accepts a JSON
+  // array of effective_status values via the dedicated query param.
+  if (filter === "relevant") {
+    queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+  }
+
+  if (nameContains?.trim()) {
+    queryParams.filtering = JSON.stringify([
+      { field: "name", operator: "CONTAIN", value: nameContains.trim() },
+    ]);
+  }
+
+  if (after) queryParams.after = after;
+
+  const res = await graphGet<GraphPagedResponse<RawMetaCampaign>>(
+    `/${adAccountId}/campaigns`,
+    queryParams,
+  );
+
+  // Sort newest first by updated_time then created_time so the picker's
+  // "recency" promise holds even when Meta returns a non-deterministic order.
+  const sorted = [...(res.data ?? [])].sort((a, b) => {
+    const aT = Date.parse(a.updated_time ?? a.created_time ?? "") || 0;
+    const bT = Date.parse(b.updated_time ?? b.created_time ?? "") || 0;
+    return bT - aT;
+  });
+
+  return {
+    data: sorted,
+    nextCursor: res.paging?.cursors?.after,
+    hasMore: !!res.paging?.next,
+  };
+}
+
+/**
+ * Re-fetch a single live Meta campaign. Used by the launch route to
+ * re-validate "Add to existing campaign" mode just before creating ad sets.
+ * Returns `null` when the campaign no longer exists or the token can't see it.
+ *
+ * Requires: ads_read permission.
+ */
+export async function fetchCampaignById(
+  campaignId: string,
+): Promise<RawMetaCampaign | null> {
+  try {
+    const res = await graphGet<RawMetaCampaign>(`/${campaignId}`, {
+      fields:
+        "id,name,objective,status,effective_status,buying_type,created_time,updated_time",
+    });
+    return res ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Cursor-paginated personal pages from /me/accounts.
  * Designed for the "Load more" flow — call repeatedly with the cursor returned
