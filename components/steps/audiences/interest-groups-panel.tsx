@@ -36,6 +36,7 @@ import {
 import {
   applyTargetabilityResult,
   enrichWithTargetability,
+  isMetaConfirmedId,
   validateInterestsTargetability,
   type InterestValidateRequestItem,
 } from "@/lib/interest-targetability";
@@ -264,6 +265,156 @@ function useInterestSearch(query: string) {
   return { results, loading, error };
 }
 
+// ── Unresolved-interest chip with replacement popover ────────────────────────
+// Renders a warning-toned chip whose name is a button. Clicking opens a
+// dropdown listing up to 5 replacement suggestions (from
+// `interest.targetabilityReplacements`, populated by /api/meta/interest-validate)
+// plus a "Re-check" action that re-runs validation in place.
+//
+// The popover handles its own click-outside / Escape state. All persistence
+// goes through the parent callbacks (`onReplace` / `onRecheck` / `onRemove`)
+// so autosave is triggered the same way as any other selection change.
+
+interface UnresolvedInterestChipProps {
+  interest: InterestSuggestion;
+  isPending: boolean;
+  onReplace: (replacement: { id: string; name: string; audienceSize?: number }) => void;
+  onRecheck: () => void;
+  onRemove: () => void;
+}
+
+function UnresolvedInterestChip({
+  interest,
+  isPending,
+  onReplace,
+  onRecheck,
+  onRemove,
+}: UnresolvedInterestChipProps) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (!wrapperRef.current) return;
+      if (wrapperRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const replacements = interest.targetabilityReplacements ?? [];
+
+  return (
+    <span ref={wrapperRef} className="relative inline-flex">
+      <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 pr-1 text-xs font-medium text-warning">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="inline-flex items-center gap-1 rounded outline-none focus-visible:ring-1 focus-visible:ring-warning/60"
+          title="Not currently available in Meta targeting — click to fix"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          {isPending ? (
+            <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin opacity-70" />
+          ) : (
+            <AlertTriangle className="h-2.5 w-2.5 shrink-0 opacity-70" />
+          )}
+          <span className="max-w-[180px] truncate underline decoration-dotted underline-offset-2">
+            {interest.name}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="ml-0.5 rounded-full p-0.5 opacity-60 hover:opacity-100"
+          aria-label={`Remove ${interest.name}`}
+        >
+          ×
+        </button>
+      </span>
+      {open && (
+        <div
+          role="dialog"
+          className="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
+        >
+          <div className="mb-2">
+            <p className="truncate text-[12px] font-semibold text-foreground" title={interest.name}>
+              {interest.name}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Not currently available in Meta targeting. Will be skipped at launch unless replaced or resolved.
+            </p>
+          </div>
+          {replacements.length > 0 ? (
+            <div className="space-y-0.5">
+              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                Replace with…
+              </p>
+              {replacements.slice(0, 5).map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-[11px] hover:bg-muted"
+                  onClick={() => {
+                    onReplace(r);
+                    setOpen(false);
+                  }}
+                  title={`Swap to "${r.name}"`}
+                >
+                  <span className="truncate">{r.name}</span>
+                  {typeof r.audienceSize === "number" && r.audienceSize > 0 && (
+                    <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                      {Intl.NumberFormat("en", { notation: "compact" }).format(r.audienceSize)}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px] italic text-muted-foreground">
+              No replacement suggestions available. Try Re-check, or remove this chip.
+            </p>
+          )}
+          <div className="mt-2 flex items-center justify-between border-t border-border pt-1.5">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-primary disabled:cursor-wait disabled:opacity-50"
+              onClick={() => {
+                onRecheck();
+                setOpen(false);
+              }}
+              disabled={isPending}
+            >
+              <RefreshCw className={`h-3 w-3 ${isPending ? "animate-spin" : ""}`} />
+              Re-check
+            </button>
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-destructive"
+              onClick={() => {
+                onRemove();
+                setOpen(false);
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 // ── Selected interests + related suggestions sub-component ───────────────────
 // Extracted as its own component so it can call useRelatedSuggestions
 // (hooks cannot be called inside .map() callbacks).
@@ -273,9 +424,16 @@ interface GroupInterestSectionProps {
   cluster: string;
   onAdd: (interest: InterestSuggestion) => void;
   onRemove: (id: string) => void;
+  /** Swap an unresolved chip with one of its targetabilityReplacements. */
+  onReplace: (
+    interestId: string,
+    replacement: { id: string; name: string; audienceSize?: number },
+  ) => void;
+  /** Force a fresh /api/meta/interest-validate lookup for one chip. */
+  onRecheck: (interestId: string) => void;
 }
 
-function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterestSectionProps) {
+function GroupInterestSection({ group, cluster, onAdd, onRemove, onReplace, onRecheck }: GroupInterestSectionProps) {
   const selectedIds = useMemo(() => new Set(group.interests.map((i) => i.id)), [group.interests]);
   const { suggestions, loading: sugLoading, emptyReason, backendError } = useRelatedSuggestions(group.interests, cluster);
 
@@ -343,17 +501,37 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
             {group.interests.map((interest) => {
               const deprecated = isLikelyDeprecated(interest.name) || interest.status === "deprecated";
               const targetability = interest.targetabilityStatus;
-              const isUnresolved = targetability === "unresolved" || targetability === "discovery_only";
+              const isUnresolved = targetability === "unresolved";
+              const isDiscoveryOnly = targetability === "discovery_only";
               const isPending = targetability === "pending";
-              const tone = deprecated || isUnresolved
+
+              // Unresolved chips get the interactive popover so the user can
+              // pick a replacement or re-check. Everything else stays as the
+              // existing static chip.
+              if (isUnresolved) {
+                return (
+                  <UnresolvedInterestChip
+                    key={interest.id}
+                    interest={interest}
+                    isPending={false}
+                    onReplace={(repl) => onReplace(interest.id, repl)}
+                    onRecheck={() => onRecheck(interest.id)}
+                    onRemove={() => onRemove(interest.id)}
+                  />
+                );
+              }
+
+              const tone = deprecated
                 ? "bg-warning/10 border-warning/40 text-warning pr-1"
-                : isPending
-                  ? "bg-muted/50 border-border text-muted-foreground pr-1"
-                  : "bg-primary/10 border-primary/30 text-primary pr-1";
+                : isDiscoveryOnly
+                  ? "bg-muted border-border text-muted-foreground pr-1"
+                  : isPending
+                    ? "bg-muted/50 border-border text-muted-foreground pr-1"
+                    : "bg-primary/10 border-primary/30 text-primary pr-1";
               const tooltip = deprecated
                 ? "This interest may be deprecated and will be replaced or removed at launch"
-                : isUnresolved
-                  ? "Not currently available in Meta targeting. Kept for discovery context only."
+                : isDiscoveryOnly
+                  ? "Kept as a discovery context seed — not sent to Meta targeting at launch."
                   : isPending
                     ? "Checking Meta targetability…"
                     : undefined;
@@ -363,7 +541,7 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
                   className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border ${tone}`}
                   title={tooltip}
                 >
-                  {(deprecated || isUnresolved) && (
+                  {deprecated && (
                     <AlertTriangle className="h-2.5 w-2.5 shrink-0 opacity-70" />
                   )}
                   {isPending && (
@@ -389,12 +567,12 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove }: GroupInterest
           )}
           {(() => {
             const unresolvedCount = group.interests.filter(
-              (i) => i.targetabilityStatus === "unresolved" || i.targetabilityStatus === "discovery_only",
+              (i) => i.targetabilityStatus === "unresolved",
             ).length;
             if (unresolvedCount === 0) return null;
             return (
               <p className="mt-1.5 text-[10px] text-warning/80">
-                ⚠ {unresolvedCount} interest{unresolvedCount !== 1 ? "s" : ""} not currently available in Meta targeting — kept for discovery context only and will be skipped at launch.
+                ⚠ {unresolvedCount} interest{unresolvedCount !== 1 ? "s" : ""} not currently available in Meta targeting — click each chip to swap in a replacement, re-check, or remove. Skipped at launch unless resolved.
               </p>
             );
           })()}
@@ -717,6 +895,74 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
     updateGroup(groupId, {
       interests: group.interests.filter((i) => i.id !== interestId),
     });
+  };
+
+  /**
+   * Swap an unresolved chip with one of the suggested replacements returned by
+   * /api/meta/interest-validate. Preserves the chip's position in the array so
+   * the user's mental model of order is intact, copies forward optional local
+   * metadata (path), and tags `targetabilityStatus` based on whether the new
+   * id looks Meta-confirmed.
+   *
+   * If the replacement id is already present elsewhere in the same group, the
+   * unresolved chip is just removed (no duplicate added).
+   */
+  const replaceInterest = (
+    groupId: string,
+    interestId: string,
+    replacement: { id: string; name: string; audienceSize?: number },
+  ) => {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    if (!group.interests.some((i) => i.id === interestId)) return;
+    const isDup = group.interests.some(
+      (i) => i.id === replacement.id && i.id !== interestId,
+    );
+    if (isDup) {
+      updateGroup(groupId, {
+        interests: group.interests.filter((i) => i.id !== interestId),
+      });
+      validatedIdsRef.current.delete(`${groupId}::${interestId}`);
+      return;
+    }
+    const isMetaId = isMetaConfirmedId(replacement.id);
+    const interests = group.interests.map((i) => {
+      if (i.id !== interestId) return i;
+      const next: InterestSuggestion = {
+        ...i,
+        id: replacement.id,
+        name: replacement.name,
+        audienceSize: replacement.audienceSize ?? i.audienceSize,
+        targetabilityStatus: isMetaId ? "valid" : "pending",
+        targetabilityCheckedAt: new Date().toISOString(),
+        targetabilityReplacements: undefined,
+      };
+      return next;
+    });
+    validatedIdsRef.current.delete(`${groupId}::${interestId}`);
+    if (!isMetaId) validatedIdsRef.current.delete(`${groupId}::${replacement.id}`);
+    updateGroup(groupId, { interests });
+  };
+
+  /**
+   * Force a fresh targetability check for one chip. Marks it `pending` and
+   * clears it from the validator's "already attempted" set so the existing
+   * background effect picks it up on the next render.
+   */
+  const recheckInterest = (groupId: string, interestId: string) => {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const interests = group.interests.map((i) =>
+      i.id === interestId
+        ? {
+            ...i,
+            targetabilityStatus: "pending" as const,
+            targetabilityReplacements: undefined,
+          }
+        : i,
+    );
+    validatedIdsRef.current.delete(`${groupId}::${interestId}`);
+    updateGroup(groupId, { interests });
   };
 
   const handleAutoGenerate = () => {
@@ -1804,6 +2050,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                   cluster={group.clusterType ?? inferClusterFromName(group.name) ?? ""}
                   onAdd={(interest) => addInterest(group.id, interest)}
                   onRemove={(id) => removeInterest(group.id, id)}
+                  onReplace={(id, repl) => replaceInterest(group.id, id, repl)}
+                  onRecheck={(id) => recheckInterest(group.id, id)}
                 />
               </div>
             )}
