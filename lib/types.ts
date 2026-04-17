@@ -494,6 +494,19 @@ export interface PagePost {
   likes: number;
   comments: number;
   shares: number;
+  /** Public URL for the post — populated when the live Graph API is available. */
+  permalinkUrl?: string;
+  /**
+   * Whether Meta considers this post eligible for promotion as an ad.
+   * Mirrors the Graph `is_eligible_for_promotion` field; when undefined the
+   * post hasn't been checked (e.g. mock data, or older API responses).
+   */
+  eligibleForPromotion?: boolean;
+  /**
+   * When `eligibleForPromotion === false`, Meta sometimes returns a
+   * human-readable reason via `ineligible_for_promotion_reason`.
+   */
+  ineligibleReason?: string;
 }
 
 export interface AdCreativeDraft {

@@ -17,6 +17,7 @@ import type {
   MetaApiPixel,
   MetaInstagramAccount,
   CustomAudience,
+  PagePost,
 } from "@/lib/types";
 import {
   FB_TOKEN_STORAGE_KEY,
@@ -273,6 +274,108 @@ export function useFetchInstagramAccounts(): MetaFetchState<IGWithPage> {
   }, []);
 
   return state;
+}
+
+// ─── useFetchPagePosts ────────────────────────────────────────────────────────
+
+/**
+ * Discriminated UI state for the existing-post picker. Each value maps to a
+ * concrete render branch in `components/steps/creatives.tsx`:
+ *
+ *   idle    — no pageId yet (or hook disabled); render the "select a page" hint
+ *   loading — request in flight
+ *   success — at least one usable post returned
+ *   empty   — request succeeded but the page has no eligible published posts
+ *   error   — request failed (network or Meta API error)
+ */
+export type PagePostsStatus =
+  | "idle"
+  | "loading"
+  | "success"
+  | "empty"
+  | "error";
+
+export interface PagePostsState {
+  status: PagePostsStatus;
+  data: PagePost[];
+  error: string | null;
+  /** Manually re-run the fetch (e.g. for a "Try again" button). */
+  refetch: () => void;
+}
+
+interface UseFetchPagePostsOptions {
+  /** When false the hook stays in `idle` and never fetches. */
+  enabled?: boolean;
+  /** Hard cap on posts returned by the API. Defaults to the server default. */
+  limit?: number;
+}
+
+/**
+ * Loads recent published posts for the given Facebook Page. The hook:
+ *   - returns `idle` when disabled or `pageId` is empty (no fetch issued)
+ *   - cancels in-flight requests when `pageId` changes
+ *   - logs `pageId` + outcome to the browser console for debugging
+ */
+export function useFetchPagePosts(
+  pageId: string | undefined,
+  options: UseFetchPagePostsOptions = {},
+): PagePostsState {
+  const { enabled = true, limit } = options;
+
+  const [inner, setInner] = useState<{
+    status: PagePostsStatus;
+    data: PagePost[];
+    error: string | null;
+  }>({ status: "idle", data: [], error: null });
+
+  // Bumping this counter re-runs the fetch effect for a manual refetch.
+  const [refetchCounter, setRefetchCounter] = useState(0);
+  const refetch = useCallback(() => setRefetchCounter((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!enabled || !pageId) {
+      setInner({ status: "idle", data: [], error: null });
+      return;
+    }
+
+    const controller = new AbortController();
+    setInner({ status: "loading", data: [], error: null });
+
+    const params = new URLSearchParams({ pageId });
+    if (limit) params.set("limit", String(limit));
+    const url = `/api/meta/page-posts?${params.toString()}`;
+
+    console.log(`[useFetchPagePosts] fetch start pageId=${pageId}`);
+
+    fetch(url, { signal: controller.signal })
+      .then(async (res) => {
+        const json = (await res.json()) as { data?: PagePost[]; error?: string };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        const data = Array.isArray(json.data) ? json.data : [];
+        console.log(
+          `[useFetchPagePosts] fetch success pageId=${pageId} count=${data.length}`,
+        );
+        setInner({
+          status: data.length === 0 ? "empty" : "success",
+          data,
+          error: null,
+        });
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const msg = err instanceof Error ? err.message : "Failed to load posts";
+        console.error(
+          `[useFetchPagePosts] fetch failure pageId=${pageId} reason=${msg}`,
+        );
+        setInner({ status: "error", data: [], error: msg });
+      });
+
+    return () => controller.abort();
+  }, [pageId, enabled, limit, refetchCounter]);
+
+  return { ...inner, refetch };
 }
 
 // ─── useFetchCustomAudiences ──────────────────────────────────────────────────

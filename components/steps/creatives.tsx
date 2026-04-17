@@ -10,8 +10,8 @@ import { SearchInput } from "@/components/ui/search-input";
 import {
   Plus, Copy, Trash2, ImageIcon, Video, Upload, Play,
   ClipboardCopy, Check, FileText, ShieldOff,
-  Heart, MessageCircle, Share2, ChevronDown, ChevronUp,
-  AlertCircle, Maximize2, X,
+  ChevronDown, ChevronUp,
+  AlertCircle, Maximize2, X, RefreshCw, ExternalLink,
 } from "lucide-react";
 import type {
   AdCreativeDraft, CTAType, AssetMode, AssetRatio,
@@ -19,8 +19,12 @@ import type {
 } from "@/lib/types";
 import { useUploadAsset } from "@/lib/hooks/useUploadAsset";
 import { getAspectRatioSlots } from "@/lib/meta/upload";
-import { CTA_OPTIONS, MOCK_PAGE_POSTS } from "@/lib/mock-data";
-import { useFetchPages, useFetchInstagramAccounts } from "@/lib/hooks/useMeta";
+import { CTA_OPTIONS } from "@/lib/mock-data";
+import {
+  useFetchPages,
+  useFetchInstagramAccounts,
+  useFetchPagePosts,
+} from "@/lib/hooks/useMeta";
 import {
   createDefaultCreative,
   createDefaultAssetVariation,
@@ -371,15 +375,21 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   };
 
   // ─── Existing post picker ───
+  // Only kick off the network request when the user is actually inside the
+  // existing-post mode AND a page is selected. Switching back to "Create New"
+  // disables the hook (status → idle, in-flight requests aborted).
+  const existingPostsEnabled =
+    (active?.sourceType ?? "new") === "existing_post" &&
+    Boolean(active?.identity?.pageId);
+  const pagePosts = useFetchPagePosts(active?.identity?.pageId, {
+    enabled: existingPostsEnabled,
+  });
+
   const filteredPosts = useMemo(() => {
-    if (!active) return [];
-    const pageId = active.identity?.pageId;
-    let posts = MOCK_PAGE_POSTS.filter((p) => p.pageId === pageId);
-    if (postSearch) {
-      posts = posts.filter((p) => p.message.toLowerCase().includes(postSearch.toLowerCase()));
-    }
-    return posts;
-  }, [active, postSearch]);
+    if (!postSearch) return pagePosts.data;
+    const q = postSearch.toLowerCase();
+    return pagePosts.data.filter((p) => p.message.toLowerCase().includes(q));
+  }, [pagePosts.data, postSearch]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -760,73 +770,168 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                       : "Select a Facebook Page above to see available posts."}
                   </CardDescription>
 
-                  {active.identity?.pageId && (
-                    <div className="mt-4 space-y-3">
-                      <SearchInput
-                        value={postSearch}
-                        onChange={(e) => setPostSearch(e.target.value)}
-                        onClear={() => setPostSearch("")}
-                        placeholder="Search posts..."
-                      />
-                      <div className="max-h-64 space-y-2 overflow-y-auto">
-                        {filteredPosts.length === 0 && (
-                          <p className="py-4 text-center text-sm text-muted-foreground">No posts found for this page.</p>
-                        )}
-                        {filteredPosts.map((post) => {
-                          const isSelected = active.existingPost?.postId === post.id;
-                          return (
-                            <button
-                              key={post.id}
-                              type="button"
-                              onClick={() => updateAd(active.id, {
-                                existingPost: { postId: post.id, postPreview: post.message },
-                              })}
-                              className={`w-full rounded-lg border p-3 text-left transition-colors
-                                ${isSelected ? "border-primary bg-primary-light" : "border-border hover:bg-muted/50"}`}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
-                                  {post.type === "video" ? (
-                                    <Video className="h-4 w-4 text-muted-foreground" />
-                                  ) : post.type === "link" ? (
-                                    <FileText className="h-4 w-4 text-muted-foreground" />
-                                  ) : (
-                                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                  )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="line-clamp-2 text-sm">{post.message}</p>
-                                  <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
-                                    <span>{new Date(post.createdAt).toLocaleDateString()}</span>
-                                    <span className="flex items-center gap-0.5"><Heart className="h-3 w-3" />{post.likes.toLocaleString()}</span>
-                                    <span className="flex items-center gap-0.5"><MessageCircle className="h-3 w-3" />{post.comments.toLocaleString()}</span>
-                                    <span className="flex items-center gap-0.5"><Share2 className="h-3 w-3" />{post.shares.toLocaleString()}</span>
-                                  </div>
-                                </div>
-                                {isSelected && <Badge variant="primary">Selected</Badge>}
-                              </div>
-                            </button>
-                          );
-                        })}
+                  <div className="mt-4 space-y-3">
+                    {/* idle — no page selected yet */}
+                    {pagePosts.status === "idle" && (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                        Pick a Facebook Page above to load its recent posts.
                       </div>
+                    )}
 
-                      {/* Optional CTA/URL override for existing posts */}
-                      <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
-                        <Input
-                          label="Destination URL (optional)"
-                          value={active.destinationUrl}
-                          onChange={(e) => updateAd(active.id, { destinationUrl: e.target.value })}
-                          placeholder="https://..."
-                        />
-                        <Select
-                          label="CTA (optional)"
-                          value={active.cta}
-                          onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
-                          options={CTA_OPTIONS}
-                        />
+                    {/* loading */}
+                    {pagePosts.status === "loading" && (
+                      <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
+                        <Spinner /> Loading posts…
                       </div>
-                    </div>
-                  )}
+                    )}
+
+                    {/* error — with retry */}
+                    {pagePosts.status === "error" && (
+                      <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-4 text-sm">
+                        <div className="flex items-start gap-2 text-destructive">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div className="flex-1">
+                            <p className="font-medium">Couldn&rsquo;t load posts for this page.</p>
+                            {pagePosts.error && (
+                              <p className="mt-0.5 text-xs opacity-80">{pagePosts.error}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => pagePosts.refetch()}
+                          >
+                            <RefreshCw className="mr-1 h-3.5 w-3.5" /> Try again
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* empty */}
+                    {pagePosts.status === "empty" && (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                        <p>No eligible published posts found for this page.</p>
+                        <p className="mt-1 text-xs">
+                          Publish a post on the Page first, or pick a different Page.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* success — search + list */}
+                    {pagePosts.status === "success" && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <SearchInput
+                              value={postSearch}
+                              onChange={(e) => setPostSearch(e.target.value)}
+                              onClear={() => setPostSearch("")}
+                              placeholder="Search posts..."
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => pagePosts.refetch()}
+                            title="Reload posts"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+
+                        <div className="max-h-80 space-y-2 overflow-y-auto">
+                          {filteredPosts.length === 0 ? (
+                            <p className="py-4 text-center text-sm text-muted-foreground">
+                              No posts match &ldquo;{postSearch}&rdquo;.
+                            </p>
+                          ) : (
+                            filteredPosts.map((post) => {
+                              const isSelected = active.existingPost?.postId === post.id;
+                              const ineligible = post.eligibleForPromotion === false;
+                              return (
+                                <button
+                                  key={post.id}
+                                  type="button"
+                                  onClick={() => updateAd(active.id, {
+                                    existingPost: { postId: post.id, postPreview: post.message },
+                                  })}
+                                  className={`group w-full rounded-lg border p-3 text-left transition-colors
+                                    ${isSelected
+                                      ? "border-primary bg-primary-light"
+                                      : "border-border hover:bg-muted/50"}`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                                      {post.imageUrl ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                          src={post.imageUrl}
+                                          alt=""
+                                          className="h-full w-full object-cover"
+                                        />
+                                      ) : post.type === "video" ? (
+                                        <Video className="h-4 w-4 text-muted-foreground" />
+                                      ) : post.type === "link" ? (
+                                        <FileText className="h-4 w-4 text-muted-foreground" />
+                                      ) : (
+                                        <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="line-clamp-2 text-sm">{post.message}</p>
+                                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                        <span>{new Date(post.createdAt).toLocaleDateString()}</span>
+                                        {post.permalinkUrl && (
+                                          <a
+                                            href={post.permalinkUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-0.5 hover:text-foreground"
+                                          >
+                                            View on Facebook <ExternalLink className="h-3 w-3" />
+                                          </a>
+                                        )}
+                                        {ineligible && (
+                                          <Badge variant="outline" className="border-amber-500/40 text-amber-600">
+                                            Not eligible to promote
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {ineligible && post.ineligibleReason && (
+                                        <p className="mt-1 text-[11px] text-amber-700/80">
+                                          {post.ineligibleReason}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {isSelected && <Badge variant="primary">Selected</Badge>}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Optional CTA/URL override for existing posts — preserved from prior UI */}
+                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+                          <Input
+                            label="Destination URL (optional)"
+                            value={active.destinationUrl}
+                            onChange={(e) => updateAd(active.id, { destinationUrl: e.target.value })}
+                            placeholder="https://..."
+                          />
+                          <Select
+                            label="CTA (optional)"
+                            value={active.cta}
+                            onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
+                            options={CTA_OPTIONS}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </Card>
               )}
 
