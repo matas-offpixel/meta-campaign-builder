@@ -922,6 +922,22 @@ export interface HintIntelligenceDebug {
     sportsHardExcludedNames?: string[];
     /** True when the gym-first hard exclusion path executed. */
     sportsHardExclusionApplied?: boolean;
+    /** True when the Sports request entered gym-first mode (gym/fitness
+     *  intent with no football opt-in). Drives fallback seed selection
+     *  and the post-filter floor. */
+    sportsGymFirstMode?: boolean;
+    /** Gym-first fallback seeds appended to the search pool in place of
+     *  the football-led Tier-2 / curated entityTerms list. */
+    sportsGymFirstFallbackSeedsUsed?: string[];
+    /** Nightlife-aware activity seeds appended when nightlife_social is
+     *  detected alongside gym-first mode. */
+    sportsGymNightlifeActivitySeedsUsed?: string[];
+    /** Names removed by the gym-first hard exclusion (broader than the
+     *  generic sportsHardExcludedNames list). */
+    sportsGymFirstHardExcludedNames?: string[];
+    /** Names removed by the gym-first post-filter floor (rows that were
+     *  not fitness/activity/wellness/nightlife-social). */
+    sportsGymFirstPostFilterDroppedNames?: string[];
   };
 }
 
@@ -2325,7 +2341,106 @@ async function runSportsEntityRecovery(
 // already demote football competition rows in the boost pass. The hard
 // exclusion takes the next step and removes them from the candidate pool
 // entirely so they cannot survive into the visible top slice. Sports-only.
-const SPORTS_GYM_FIRST_HARD_EXCLUDE_PATTERN = /\b(premier\s+league|uefa\s+champions\s+league|uefa\s+europa\s+league|fifa\s+world\s+cup|international\s+football\s+leagues?\s+and\s+competitions?|beach\s+soccer|futsal|sports?\s*games?|video\s*games?|esports?|e[-\s]?sports?|esoccer)\b/i;
+//
+// The pattern catches: domestic + UEFA cup competitions (incl. women's
+// variants), FIFA World Cup, broad league/news/team/fans rows, the literal
+// "Football (football)" / "Football (sports)" rows, fan convention,
+// sub-format football (beach/futsal), and video-game sports leakage.
+const SPORTS_GYM_FIRST_HARD_EXCLUDE_PATTERN = /\b(premier\s+league|champions\s+league|europa\s+league|world\s+cup|fa\s+cup|copa\s+(america|libertadores|del\s+rey)|international\s+football\s+leagues?\s+and\s+competitions?|european\s+football\s+(leagues?|news|content|competitions?)|english\s+football\s+(teams?|clubs?)|national\s+football\s+team|football\s+(fans?|news|content|teams?|clubs?|club)|football\s+\((football|sports?)\)|fan\s+convention|beach\s+soccer|futsal|sports?\s+games?|video\s+games?|esports?|e[-\s]?sports?|esoccer)\b/i;
+
+// ── Sports gym-first mode (no football, no fan signal) ───────────────────────
+// Fitness / activity / nightlife-social pivot used when the prompt is clearly
+// gym-first (e.g. "popular gym groups and sport activities for tech house /
+// ibiza ravers"). Replaces the football-led Tier-2 fallback so neither the
+// search pool nor the visible slice ends up dominated by football rows.
+
+/** Hard cap on gym-first fallback seeds appended to the search pool. */
+const SPORTS_GYM_FIRST_FALLBACK_CAP = 12;
+
+/** Ordered, conservative gym-first fallback. Trimmed to the first
+ *  SPORTS_GYM_FIRST_FALLBACK_CAP after dedupe against tier-1 / hint terms. */
+const SPORTS_GYM_FIRST_FALLBACK_SEEDS: readonly string[] = [
+  "CrossFit",
+  "Virgin Active",
+  "24 Hour Fitness",
+  "weight training",
+  "exercise",
+  "workout",
+  "running",
+  "boxing fitness",
+  "martial arts",
+  "yoga",
+  "pilates",
+  "cycling",
+  "fitness and wellness",
+  "healthy lifestyle",
+  "recreation",
+  "dance",
+  "nightclub",
+  "clubbing",
+  "rave",
+  "electronic dance music",
+  "Ibiza",
+  "nightlife",
+];
+
+/** Gym-first strict mode detection: gym/fitness intent without any football
+ *  or fan opt-in (hint text or intent set). Sports cluster only — caller is
+ *  expected to gate on isSports. */
+function isGymFirstSportsHint(
+  intents: Set<HintIntent>,
+  rawHintText: string,
+): boolean {
+  const gymish = intents.has("gym_fitness") || intents.has("sport_fitness");
+  if (!gymish) return false;
+  if (intents.has("football_soccer") || intents.has("sports_fandom")) return false;
+  if (FOOTBALL_OPT_IN_HINT_PATTERN.test(rawHintText)) return false;
+  return true;
+}
+
+/** Compact nightlife-aware activity seed list for gym-first sports prompts.
+ *  Appended after the gym-first fallback when nightlife_social is detected,
+ *  with a small set of hint-derived extras (Ibiza / EDM / rave). */
+function buildGymNightlifeActivitySeeds(
+  intents: Set<HintIntent>,
+  rawHintText: string,
+): string[] {
+  if (!intents.has("nightlife_social")) return [];
+  const seeds: string[] = [
+    "dance",
+    "running",
+    "cycling",
+    "boxing fitness",
+    "martial arts",
+    "yoga",
+    "pilates",
+    "exercise",
+    "fitness and wellness",
+    "healthy lifestyle",
+    "nightclub",
+    "clubbing",
+    "rave",
+  ];
+  const txt = rawHintText.toLowerCase();
+  if (/\bibiza\b/.test(txt)) seeds.push("Ibiza");
+  if (/\b(tech\s*house|house\s*music|house)\b/.test(txt)) {
+    seeds.push("electronic dance music");
+  }
+  if (/\b(ravers?|rave)\b/.test(txt) && !seeds.includes("rave")) seeds.push("rave");
+  return seeds;
+}
+
+/** Allow-list for the gym-first post-filter: a row must look like a
+ *  fitness / activity / wellness / nightlife-social interest to survive.
+ *  Recovered entity rows are exempted by the caller. */
+const SPORTS_GYM_FIRST_ALLOWED_PATTERN = /\b(fitness|gym|gymnasium|exercise|workout|work\s*out|training|weight\s*training|running|jogging|cycling|spinning|yoga|pilates|boxing|martial\s+arts|combat|wellness|wellbeing|recreation|recreational|dance|dancing|nightclub|nightclubs|clubbing|club\s+culture|rave|raver|raves|nightlife|electronic\s+dance\s+music|edm|techno|house\s+music|tech\s+house|ibiza|crossfit|cross\s*fit|virgin\s+active|24\s*hour\s+fitness|aerobic|aerobics|hiit|calisthenics|bodybuilding|powerlifting|swimming|athletic|sports?\s+activit(y|ies))\b/i;
+
+function isGymFirstAllowedSportsRow<T extends { name: string; path?: string[] }>(
+  item: T,
+): boolean {
+  const haystack = `${item.name} ${(item.path ?? []).join(" ")}`;
+  return SPORTS_GYM_FIRST_ALLOWED_PATTERN.test(haystack);
+}
 
 // ── Sports false-positive cleanup (gym/cross-league/Premier-League-ambiguity) ─
 
@@ -2771,6 +2886,11 @@ async function discoverForCluster(
     recoveryApplied: boolean;
     hardExcludedNames: string[];
     hardExclusionApplied: boolean;
+    gymFirstMode: boolean;
+    gymFirstFallbackSeedsUsed: string[];
+    gymNightlifeActivitySeedsUsed: string[];
+    gymFirstHardExcludedNames: string[];
+    gymFirstPostFilterDroppedNames: string[];
   };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
@@ -2819,9 +2939,42 @@ async function discoverForCluster(
     ? buildSportsBroadFallbackSeeds(sportsFamily, sportsSubtype, sportsEntities, 4)
         .filter((t) => !sportsTier1Set.has(t.toLowerCase()))
     : [];
-  const broadOrEntityTerms = isSports && sportsEntities.length > 0
-    ? sportsTier2Seeds
-    : entityTerms;
+
+  // ── Gym-first sports mode ─────────────────────────────────────────────────
+  // For Sports requests with gym/fitness intent and no football opt-in, swap
+  // the football-led Tier-2 / curated entityTerms for the gym-first fallback
+  // and append nightlife-aware activity seeds when nightlife_social is set.
+  const sportsRawHintTextForMode = directHintTerms.join(" ").toLowerCase();
+  const isGymFirstMode =
+    isSports && isGymFirstSportsHint(hintIntents, sportsRawHintTextForMode);
+  const gymFirstFallbackSeeds: string[] = [];
+  const gymNightlifeActivitySeeds: string[] = [];
+  if (isGymFirstMode) {
+    const seen = new Set<string>([
+      ...sportsTier1Set,
+      ...filteredExtraHints.map((t) => t.toLowerCase()),
+      ...filteredIntentSeeds.map((t) => t.toLowerCase()),
+    ]);
+    for (const seed of SPORTS_GYM_FIRST_FALLBACK_SEEDS) {
+      const key = seed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      gymFirstFallbackSeeds.push(seed);
+      if (gymFirstFallbackSeeds.length >= SPORTS_GYM_FIRST_FALLBACK_CAP) break;
+    }
+    for (const seed of buildGymNightlifeActivitySeeds(hintIntents, sportsRawHintTextForMode)) {
+      const key = seed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      gymNightlifeActivitySeeds.push(seed);
+    }
+  }
+
+  const broadOrEntityTerms = isGymFirstMode
+    ? [...gymFirstFallbackSeeds, ...gymNightlifeActivitySeeds]
+    : isSports && sportsEntities.length > 0
+      ? sportsTier2Seeds
+      : entityTerms;
 
   const allTerms = [
     ...sportsTier1Seeds,
@@ -2999,36 +3152,57 @@ async function discoverForCluster(
     }
   }
 
-  // ── Sports gym-first hard exclusion ─────────────────────────────────────
+  // ── Sports gym-first hard exclusion + post-filter ───────────────────────
   // When the prompt is clearly gym/fitness with no football opt-in, drop
   // football competition / sub-format / video-game rows from the candidate
-  // pool entirely so they cannot survive into the visible top slice.
-  // Recovered entity rows are always preserved (paranoia — wouldn't co-occur
-  // with gym-only intent in normal flow). Sports-only.
+  // pool entirely so they cannot survive into the visible top slice. Then
+  // apply a strict gym-first allow-list so leftover non-fitness/non-social
+  // rows are removed too. Recovered entity rows are always preserved.
+  // Sports-only.
   const sportsHardExcludedNames: string[] = [];
+  const sportsGymFirstHardExcludedNames: string[] = [];
+  const sportsGymFirstPostFilterDroppedNames: string[] = [];
   let sportsHardExclusionApplied = false;
-  if (isSports) {
-    const sportsRawHintTextEarly = directHintTerms.join(" ").toLowerCase();
-    const gymish = hintIntents.has("gym_fitness") || hintIntents.has("sport_fitness");
-    const fanish = hintIntents.has("football_soccer") || hintIntents.has("sports_fandom");
-    const optsIntoFootball = FOOTBALL_OPT_IN_HINT_PATTERN.test(sportsRawHintTextEarly);
-    if (gymish && !fanish && !optsIntoFootball) {
-      const before = aboveFloor.length;
-      aboveFloor = aboveFloor.filter((item) => {
-        if (sportsRecoveredIdToKind.has(item.id)) return true;
-        const haystack = `${item.name} ${(item.path ?? []).join(" ")}`;
-        if (SPORTS_GYM_FIRST_HARD_EXCLUDE_PATTERN.test(haystack)) {
-          sportsHardExcludedNames.push(item.name);
-          return false;
-        }
-        return true;
-      });
-      sportsHardExclusionApplied = true;
-      console.info(
-        `[sports-recovery] gym-first hard-exclude removed=${before - aboveFloor.length}: ` +
-        (sportsHardExcludedNames.slice(0, 8).join(", ") || "<none>"),
-      );
-    }
+  if (isSports && isGymFirstMode) {
+    const beforeHard = aboveFloor.length;
+    aboveFloor = aboveFloor.filter((item) => {
+      if (sportsRecoveredIdToKind.has(item.id)) return true;
+      const haystack = `${item.name} ${(item.path ?? []).join(" ")}`;
+      if (SPORTS_GYM_FIRST_HARD_EXCLUDE_PATTERN.test(haystack)) {
+        sportsHardExcludedNames.push(item.name);
+        sportsGymFirstHardExcludedNames.push(item.name);
+        return false;
+      }
+      return true;
+    });
+    sportsHardExclusionApplied = true;
+    const removedHard = beforeHard - aboveFloor.length;
+
+    // Post-filter floor: in gym-first mode, every visible row must look like a
+    // fitness / activity / wellness / nightlife-social interest. Recovered
+    // entity rows are exempt.
+    const beforePost = aboveFloor.length;
+    aboveFloor = aboveFloor.filter((item) => {
+      if (sportsRecoveredIdToKind.has(item.id)) return true;
+      if (isGymFirstAllowedSportsRow(item)) return true;
+      sportsGymFirstPostFilterDroppedNames.push(item.name);
+      return false;
+    });
+    const removedPost = beforePost - aboveFloor.length;
+
+    console.info(
+      `[sports-recovery] gym-first hard-exclude removed=${removedHard}: ` +
+      (sportsGymFirstHardExcludedNames.slice(0, 8).join(", ") || "<none>"),
+    );
+    console.info(
+      `[sports-gym-first] active=true fallback=${gymFirstFallbackSeeds.length} ` +
+      `nightlife=${gymNightlifeActivitySeeds.length} ` +
+      `hardExcluded=${removedHard} postFilterDropped=${removedPost}`,
+    );
+  } else if (isSports) {
+    console.info(
+      `[sports-gym-first] active=false fallback=0 hardExcluded=0 postFilterDropped=0`,
+    );
   }
 
   // ── Hint-intent bias (Activities & Culture only) ─────────────────────────
@@ -3100,6 +3274,11 @@ async function discoverForCluster(
         recoveryApplied: boolean;
         hardExcludedNames: string[];
         hardExclusionApplied: boolean;
+        gymFirstMode: boolean;
+        gymFirstFallbackSeedsUsed: string[];
+        gymNightlifeActivitySeedsUsed: string[];
+        gymFirstHardExcludedNames: string[];
+        gymFirstPostFilterDroppedNames: string[];
       }
     | undefined;
   // Sports false-positive cleanup runs on every Sports request so generic
@@ -3144,6 +3323,11 @@ async function discoverForCluster(
       recoveryApplied: sportsRecoveredIdToKind.size > 0,
       hardExcludedNames: sportsHardExcludedNames,
       hardExclusionApplied: sportsHardExclusionApplied,
+      gymFirstMode: isGymFirstMode,
+      gymFirstFallbackSeedsUsed: gymFirstFallbackSeeds,
+      gymNightlifeActivitySeedsUsed: gymNightlifeActivitySeeds,
+      gymFirstHardExcludedNames: sportsGymFirstHardExcludedNames,
+      gymFirstPostFilterDroppedNames: sportsGymFirstPostFilterDroppedNames,
     };
     console.info(
       `[sports-resolve] family=${sportsFamily ?? "<none>"} subtype=${sportsSubtype ?? "<none>"} ` +
@@ -3436,6 +3620,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         sportsRecoveryApplied: sportsResolution.recoveryApplied,
         sportsHardExcludedNames: sportsResolution.hardExcludedNames,
         sportsHardExclusionApplied: sportsResolution.hardExclusionApplied,
+        sportsGymFirstMode: sportsResolution.gymFirstMode,
+        sportsGymFirstFallbackSeedsUsed: sportsResolution.gymFirstFallbackSeedsUsed,
+        sportsGymNightlifeActivitySeedsUsed:
+          sportsResolution.gymNightlifeActivitySeedsUsed,
+        sportsGymFirstHardExcludedNames: sportsResolution.gymFirstHardExcludedNames,
+        sportsGymFirstPostFilterDroppedNames:
+          sportsResolution.gymFirstPostFilterDroppedNames,
       };
     }
   }
