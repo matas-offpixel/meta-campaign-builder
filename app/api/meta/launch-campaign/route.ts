@@ -2161,93 +2161,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const rawMessage = isMetaErr ? err.message : String(err);
         const userMsg = isMetaErr ? (err.userMsg ?? "") : "";
 
-        // ── (#100) instagram_actor_id retry ─────────────────────────────────
-        // When Meta rejects with (#100) and the message references instagram_actor_id,
-        // we have two chances to recover:
-        //   1. Parse "Valid actor IDs: [xxx]" from the error (Meta sometimes embeds this).
-        //   2. Fall back to GET /{adAccountId}/instagram_accounts to fetch valid ids.
-        // Either way: rebuild the payload with the suggested actor id and retry once.
-        //
-        // This handles agency workflows where the Page-linked IG account is not
-        // in the BM asset list but IS valid for ads (the initial Phase 0e
-        // resolution should already have set the right id, but Meta's error
-        // response is the authoritative fallback when that fails).
-        if (isMetaErr && isIgActorError(err)) {
-          console.warn(
-            `[launch-campaign] Phase 3 ⚠ "${creative.name}": (#100) instagram_actor_id rejected` +
-              ` — attempting recovery`,
-          );
-
-          let recoveryActorIds = parseValidActorIdsFromError(err);
-          console.log(
-            `[launch-campaign] Phase 3 — recovery: parsed actor ids from error:` +
-              ` [${recoveryActorIds.join(", ") || "none"}]`,
-          );
-
-          if (recoveryActorIds.length === 0) {
-            // Nothing in the error message — try the ad account endpoint as a fallback.
-            const adAccountActors = await fetchAdAccountIgActors(
-              adAccountId,
-              userFbToken ?? undefined,
-            );
-            recoveryActorIds = adAccountActors.map((a) => a.id);
-            console.log(
-              `[launch-campaign] Phase 3 — recovery: fetched ${recoveryActorIds.length} actor(s)` +
-                ` from ${adAccountId}/instagram_accounts: [${recoveryActorIds.join(", ")}]`,
-            );
-          }
-
-          if (recoveryActorIds.length > 0) {
-            const retryActorId = recoveryActorIds[0];
-            console.log(
-              `[launch-campaign] Phase 3 — retrying "${creative.name}" with actor id ${retryActorId}`,
-            );
-            try {
-              const retryCrv = {
-                ...creative,
-                identity: { ...creative.identity, instagramActorId: retryActorId },
-              };
-              const retryPayload = buildCreativePayload(retryCrv);
-              if (strictMode) sanitizeCreativeForStrictMode(retryPayload);
-              console.log(
-                `[launch-campaign] Phase 3 — retry OUTBOUND payload for "${creative.name}":`,
-                JSON.stringify(retryPayload, null, 2),
-              );
-              const retryRes = await createMetaCreative(adAccountId, retryPayload);
-              metaCreativeId = retryRes.id;
-              const dur = elapsed(cStart);
-              console.log(
-                `[launch-campaign] Phase 3 ✓ (retry) "${creative.name}" → ${metaCreativeId}` +
-                  ` actorId=${retryActorId} (${dur}ms)`,
-              );
-
-              const cIdx = updatedCreatives.findIndex((c) => c.id === creative.id);
-              if (cIdx !== -1) updatedCreatives[cIdx] = { ...updatedCreatives[cIdx], metaCreativeId };
-
-              creativesCreated.push({
-                name: creative.name,
-                metaCreativeId,
-                identityMode: "page_and_ig",
-                durationMs: dur,
-                ads: [],
-                adsFailed: [],
-              });
-              continue; // skip the failure path below
-            } catch (retryErr) {
-              const retryMsg = retryErr instanceof MetaApiError ? retryErr.message : String(retryErr);
-              console.error(
-                `[launch-campaign] Phase 3 ✗ (retry failed) "${creative.name}": ${retryMsg}`,
-              );
-              // Fall through to failure recording with the retry error message.
-              creativesFailed.push({ name: creative.name, error: retryMsg });
-              continue;
-            }
-          }
-          // No recovery ids available — record the original error.
-          console.error(`[launch-campaign] Phase 3 ✗ "${creative.name}": (#100) actor error, no recovery ids found`);
-          creativesFailed.push({ name: creative.name, error: rawMessage });
-          continue;
-        }
+        // NOTE: the instagram_actor_id retry block has been removed.
+        // new_ad link/video creatives no longer send instagram_actor_id, so the
+        // (#100) actor rejection can no longer be triggered by those branches.
+        // ig_existing_post uses instagram_user_id — also no actor field.
+        // If a future branch re-introduces instagram_actor_id, add targeted
+        // retry logic here (not a blanket actor-swap loop).
 
         const isAppModeError =
           rawMessage.toLowerCase().includes("development") ||

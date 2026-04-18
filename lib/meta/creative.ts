@@ -283,14 +283,21 @@ function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
     if (imageUrl) linkData.image_url = imageUrl;
   }
 
+  // page_id + link_data only — no instagram_actor_id.
+  // Sending instagram_actor_id for link/image creatives triggers (#100)
+  // when the id is not in the ad account's authorised actor list.
+  // The Page identity alone is sufficient for standard link/image ads.
   const spec: MetaObjectStorySpec = {
     page_id: creative.identity.pageId,
     link_data: linkData,
   };
-  const igActor = resolveIgActorForPayload(creative.name, creative.identity, "buildLinkCreative");
-  if (igActor.source !== "none") {
-    spec.instagram_actor_id = igActor.id;
-  }
+
+  console.log(
+    `[buildLinkCreative] "${creative.name}": new_ad` +
+      `\n  page_id = ${spec.page_id}` +
+      `\n  instagram_actor_id = OMITTED (page-only identity)` +
+      `\n  payload keys: [name, object_story_spec{page_id, link_data}]`,
+  );
 
   return {
     name: creative.name || "Ad Creative",
@@ -323,14 +330,19 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
     videoData.title = creative.headline;
   }
 
+  // page_id + video_data only — no instagram_actor_id for same reasons as
+  // buildLinkCreative. Page identity is sufficient for video ads.
   const spec: MetaObjectStorySpec = {
     page_id: creative.identity.pageId,
     video_data: videoData,
   };
-  const igActor = resolveIgActorForPayload(creative.name, creative.identity, "buildVideoCreative");
-  if (igActor.source !== "none") {
-    spec.instagram_actor_id = igActor.id;
-  }
+
+  console.log(
+    `[buildVideoCreative] "${creative.name}": new_ad` +
+      `\n  page_id = ${spec.page_id}` +
+      `\n  instagram_actor_id = OMITTED (page-only identity)` +
+      `\n  payload keys: [name, object_story_spec{page_id, video_data}]`,
+  );
 
   return {
     name: creative.name || "Ad Creative",
