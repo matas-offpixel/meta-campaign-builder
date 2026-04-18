@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchPixels, MetaApiError } from "@/lib/meta/client";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -20,9 +21,24 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // ── Resolve freshest available token ─────────────────────────────────────
+  let token: string;
+  let tokenSource: string;
   try {
-    const pixels = await fetchPixels(adAccountId);
-    return Response.json({ data: pixels, count: pixels.length });
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    tokenSource = resolved.source;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "No Meta token available";
+    console.error("[/api/meta/pixels] token resolution failed:", msg);
+    return Response.json({ error: msg }, { status: 502 });
+  }
+
+  console.info(`[/api/meta/pixels] token source=${tokenSource} adAccount=${adAccountId}`);
+
+  try {
+    const pixels = await fetchPixels(adAccountId, token);
+    return Response.json({ data: pixels, count: pixels.length, tokenSource });
   } catch (err) {
     if (err instanceof MetaApiError) {
       return Response.json(err.toJSON(), { status: 502 });

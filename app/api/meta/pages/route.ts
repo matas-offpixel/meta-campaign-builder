@@ -1,7 +1,7 @@
 /**
  * GET /api/meta/pages?adAccountId=act_xxx
  *
- * Returns all Facebook Pages accessible to the authenticated token, from
+ * Returns all Facebook Pages accessible to the authenticated user, from
  * three sources (deduplicated by page ID):
  *
  *   1. Business Manager owned pages — via /{businessId}/owned_pages
@@ -12,6 +12,10 @@
  * Fetching all three covers the most common access patterns.
  * Sources that fail (e.g. missing permissions) are silently skipped
  * so partial results are always returned.
+ *
+ * The route resolves the freshest available Facebook token for the current
+ * user (DB first, then META_ACCESS_TOKEN env-var fallback) so the list
+ * stays correct after a reconnect without requiring a full redeploy.
  */
 
 import { type NextRequest } from "next/server";
@@ -20,22 +24,29 @@ import {
   fetchPages,
   fetchBusinessIdForAccount,
   MetaApiError,
+  graphGetWithToken,
   graphGet,
 } from "@/lib/meta/client";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import type { MetaApiPage } from "@/lib/types";
 
 type GraphPagedResponse<T> = { data: T[] };
 
 /** Fetch client pages for a BM — requires business_management or pages_read_engagement */
-async function fetchClientPages(businessId: string): Promise<MetaApiPage[]> {
+async function fetchClientPages(businessId: string, token?: string): Promise<MetaApiPage[]> {
   try {
-    const res = await graphGet<GraphPagedResponse<MetaApiPage>>(
-      `/${businessId}/client_pages`,
-      {
-        fields: "id,name,fan_count,category,picture{url},instagram_business_account",
-        limit: "200",
-      },
-    );
+    const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
+    const params = { fields, limit: "200" };
+    const res = token
+      ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(
+          `/${businessId}/client_pages`,
+          params,
+          token,
+        )
+      : await graphGet<GraphPagedResponse<MetaApiPage>>(
+          `/${businessId}/client_pages`,
+          params,
+        );
     return res.data ?? [];
   } catch {
     return [];
@@ -43,12 +54,13 @@ async function fetchClientPages(businessId: string): Promise<MetaApiPage[]> {
 }
 
 /** Fetch personal pages the token owner directly manages via /me/accounts */
-async function fetchPersonalPages(): Promise<MetaApiPage[]> {
+async function fetchPersonalPages(token?: string): Promise<MetaApiPage[]> {
   try {
-    const res = await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", {
-      fields: "id,name,fan_count,category,picture{url},instagram_business_account",
-      limit: "200",
-    });
+    const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
+    const params = { fields, limit: "200" };
+    const res = token
+      ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>("/me/accounts", params, token)
+      : await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", params);
     return res.data ?? [];
   } catch {
     return [];
@@ -77,21 +89,35 @@ export async function GET(req: NextRequest) {
 
   const adAccountId = req.nextUrl.searchParams.get("adAccountId") ?? undefined;
 
+  // ── Resolve freshest available token ─────────────────────────────────────
+  let token: string | undefined;
+  let tokenSource: string = "env";
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    tokenSource = resolved.source;
+  } catch {
+    // Fall back to graphGet's internal META_ACCESS_TOKEN below
+    token = undefined;
+  }
+
+  console.info(`[/api/meta/pages] token source=${tokenSource} adAccount=${adAccountId ?? "none"}`);
+
   try {
     const [personalPages, businessPages, clientPages] = await Promise.all([
       // Always fetch personal pages
-      fetchPersonalPages(),
+      fetchPersonalPages(token),
 
       // Try BM owned/client pages if we have an ad account
       adAccountId
-        ? fetchBusinessIdForAccount(adAccountId).then((businessId) =>
-            businessId ? fetchPages(businessId) : [],
+        ? fetchBusinessIdForAccount(adAccountId, token).then((businessId) =>
+            businessId ? fetchPages(businessId, token) : [],
           )
         : Promise.resolve([]),
 
       adAccountId
-        ? fetchBusinessIdForAccount(adAccountId).then((businessId) =>
-            businessId ? fetchClientPages(businessId) : [],
+        ? fetchBusinessIdForAccount(adAccountId, token).then((businessId) =>
+            businessId ? fetchClientPages(businessId, token) : [],
           )
         : Promise.resolve([]),
     ]);
@@ -106,6 +132,7 @@ export async function GET(req: NextRequest) {
     return Response.json({
       data: pages,
       count: pages.length,
+      tokenSource,
       sources: {
         business: businessPages.length,
         client: clientPages.length,

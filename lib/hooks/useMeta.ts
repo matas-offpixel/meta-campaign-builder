@@ -47,7 +47,8 @@ type IGWithPage = MetaInstagramAccount & { linkedPageId: string };
 
 async function apiFetch<T>(url: string): Promise<T[]> {
   const res = await fetch(url);
-  // code + type are present when the server returns a MetaApiError (toJSON())
+  // code + type are present when the server returns a MetaApiError (toJSON()).
+  // tokenSource is included by routes that use resolveServerMetaToken.
   const json = (await res.json()) as {
     data?: T[];
     error?: string;
@@ -55,7 +56,14 @@ async function apiFetch<T>(url: string): Promise<T[]> {
     code?: number;
     /** Meta Graph API error type (e.g. "OAuthException") */
     type?: string;
+    /** Which credential the route used: "db" | "env" */
+    tokenSource?: string;
   };
+
+  // Log token source for diagnostics (matches the server [resolveToken] log).
+  if (json.tokenSource) {
+    console.info(`[apiFetch] ${url} tokenSource=${json.tokenSource}`);
+  }
 
   if (!res.ok || json.error) {
     const errMsg = json.error ?? `HTTP ${res.status}`;
@@ -85,6 +93,8 @@ async function apiFetch<T>(url: string): Promise<T[]> {
 let _adAccountsCache: MetaAdAccount[] | null = null;
 // key: adAccountId ?? "__me__"
 const _pagesCache = new Map<string, MetaApiPage[]>();
+// key: adAccountId
+const _pixelsCache = new Map<string, MetaApiPixel[]>();
 
 // ─── Facebook token-expiry state ──────────────────────────────────────────────
 //
@@ -104,6 +114,7 @@ export function setFbTokenExpiredGlobal(expired: boolean): void {
     // ── In-memory data caches ────────────────────────────────────────────────
     _adAccountsCache = null;
     _pagesCache.clear();
+    _pixelsCache.clear();
 
     // ── localStorage caches ──────────────────────────────────────────────────
     if (typeof window !== "undefined") {
@@ -122,7 +133,7 @@ export function setFbTokenExpiredGlobal(expired: boolean): void {
 
     console.warn(
       "[fb-token] Expired/invalid token detected — all caches cleared.",
-      "Module: _adAccountsCache, _pagesCache.",
+      "Module: _adAccountsCache, _pagesCache, _pixelsCache.",
       "localStorage: facebook_provider_token, meta_user_pages_v2.",
     );
   }
@@ -322,9 +333,11 @@ export function useFetchAdditionalPages(
 export function useFetchPixels(
   adAccountId: string | undefined,
 ): MetaFetchState<MetaApiPixel> {
+  const cached = adAccountId ? (_pixelsCache.get(adAccountId) ?? null) : null;
+
   const [state, setState] = useState<MetaFetchState<MetaApiPixel>>({
-    data: [],
-    loading: false,
+    data: cached ?? [],
+    loading: adAccountId !== undefined && cached === null,
     error: null,
   });
 
@@ -335,25 +348,32 @@ export function useFetchPixels(
     }
 
     let cancelled = false;
-    setState({ data: [], loading: true, error: null });
+    // Only show loading spinner if we have no cached data yet
+    if (!_pixelsCache.has(adAccountId)) {
+      setState((s) => ({ ...s, loading: true }));
+    }
 
     apiFetch<MetaApiPixel>(
       `/api/meta/pixels?adAccountId=${encodeURIComponent(adAccountId)}`,
     )
       .then((data) => {
-        if (!cancelled) setState({ data, loading: false, error: null });
+        if (!cancelled) {
+          _pixelsCache.set(adAccountId, data);
+          setState({ data, loading: false, error: null });
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           const msg =
             err instanceof Error ? err.message : "Failed to load pixels";
-          setState({ data: [], loading: false, error: msg });
+          setState({ data: _pixelsCache.get(adAccountId) ?? [], loading: false, error: msg });
         }
       });
 
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adAccountId]);
 
   return state;

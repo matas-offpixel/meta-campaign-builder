@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAdAccounts, MetaApiError } from "@/lib/meta/client";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 
 export async function GET() {
   // ── 1. Verify Supabase session ────────────────────────────────────────────
@@ -12,17 +13,32 @@ export async function GET() {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  // ── 2. Fetch from Meta Graph API ──────────────────────────────────────────
+  // ── 2. Resolve freshest available token ───────────────────────────────────
+  let token: string;
+  let tokenSource: string;
   try {
-    const accounts = await fetchAdAccounts();
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    tokenSource = resolved.source;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "No Meta token available";
+    console.error("[/api/meta/ad-accounts] token resolution failed:", msg);
+    return Response.json({ error: msg }, { status: 502 });
+  }
+
+  console.info(`[/api/meta/ad-accounts] token source=${tokenSource}`);
+
+  // ── 3. Fetch from Meta Graph API ──────────────────────────────────────────
+  try {
+    const accounts = await fetchAdAccounts(token);
 
     return Response.json({
       data: accounts,
       count: accounts.length,
+      tokenSource,
     });
   } catch (err) {
     if (err instanceof MetaApiError) {
-      // Surface Meta's own error message to the caller so it is easy to debug
       return Response.json(err.toJSON(), { status: 502 });
     }
 

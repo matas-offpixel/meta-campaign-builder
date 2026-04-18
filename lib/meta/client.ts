@@ -193,14 +193,14 @@ async function graphPost<T>(
  *
  * GET /me/adaccounts
  */
-export async function fetchAdAccounts(): Promise<MetaAdAccount[]> {
-  const res = await graphGet<GraphPagedResponse<MetaAdAccount>>(
-    "/me/adaccounts",
-    {
-      fields: "id,name,account_id,currency,account_status,timezone_name,business",
-      limit: "100",
-    },
-  );
+export async function fetchAdAccounts(token?: string): Promise<MetaAdAccount[]> {
+  const params = {
+    fields: "id,name,account_id,currency,account_status,timezone_name,business",
+    limit: "100",
+  };
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<MetaAdAccount>>("/me/adaccounts", params, token)
+    : await graphGet<GraphPagedResponse<MetaAdAccount>>("/me/adaccounts", params);
   return res.data;
 }
 
@@ -211,11 +211,12 @@ export async function fetchAdAccounts(): Promise<MetaAdAccount[]> {
  */
 export async function fetchBusinessIdForAccount(
   adAccountId: string,
+  token?: string,
 ): Promise<string | null> {
   try {
-    const res = await graphGet<{ business?: { id: string } }>(`/${adAccountId}`, {
-      fields: "business",
-    });
+    const res = token
+      ? await graphGetWithToken<{ business?: { id: string } }>(`/${adAccountId}`, { fields: "business" }, token)
+      : await graphGet<{ business?: { id: string } }>(`/${adAccountId}`, { fields: "business" });
     return res.business?.id ?? null;
   } catch {
     return null;
@@ -231,21 +232,19 @@ export async function fetchBusinessIdForAccount(
  *
  * Returns up to 200 pages.
  */
-export async function fetchPages(businessId?: string): Promise<MetaApiPage[]> {
+export async function fetchPages(businessId?: string, token?: string): Promise<MetaApiPage[]> {
   const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
 
   if (businessId) {
-    const res = await graphGet<GraphPagedResponse<MetaApiPage>>(
-      `/${businessId}/owned_pages`,
-      { fields, limit: "200" },
-    );
+    const res = token
+      ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(`/${businessId}/owned_pages`, { fields, limit: "200" }, token)
+      : await graphGet<GraphPagedResponse<MetaApiPage>>(`/${businessId}/owned_pages`, { fields, limit: "200" });
     return res.data;
   }
 
-  const res = await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", {
-    fields,
-    limit: "200",
-  });
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>("/me/accounts", { fields, limit: "200" }, token)
+    : await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", { fields, limit: "200" });
   return res.data;
 }
 
@@ -560,14 +559,11 @@ export async function fetchAdditionalPages(
  *
  * @param adAccountId - e.g. "act_1234567890"
  */
-export async function fetchPixels(adAccountId: string): Promise<MetaApiPixel[]> {
-  const res = await graphGet<GraphPagedResponse<MetaApiPixel>>(
-    `/${adAccountId}/adspixels`,
-    {
-      fields: "id,name",
-      limit: "100",
-    },
-  );
+export async function fetchPixels(adAccountId: string, token?: string): Promise<MetaApiPixel[]> {
+  const params = { fields: "id,name", limit: "100" };
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<MetaApiPixel>>(`/${adAccountId}/adspixels`, params, token)
+    : await graphGet<GraphPagedResponse<MetaApiPixel>>(`/${adAccountId}/adspixels`, params);
   return res.data;
 }
 
