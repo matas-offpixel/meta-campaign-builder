@@ -100,12 +100,25 @@ async function exchangeCodeWithFacebook(
   return { token: json.access_token, expiresIn: json.expires_in ?? null };
 }
 
-async function extendToken(
-  shortToken: string,
-): Promise<string> {
+interface ExtendTokenResult {
+  token: string;
+  /** Absolute expiry as ISO string; null when extension failed (short-lived ~2h). */
+  expiresAt: string | null;
+  extended: boolean;
+  failureReason?: string;
+}
+
+async function extendToken(shortToken: string): Promise<ExtendTokenResult> {
   const appId     = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
-  if (!appId || !appSecret) return shortToken;
+
+  if (!appId || !appSecret) {
+    console.warn(
+      "[fb-callback/direct] FACEBOOK_APP_ID or FACEBOOK_APP_SECRET missing — " +
+      "cannot extend to long-lived token. Storing SHORT-LIVED token (~2 hours).",
+    );
+    return { token: shortToken, expiresAt: null, extended: false, failureReason: "env vars missing" };
+  }
 
   const url = new URL("https://graph.facebook.com/oauth/access_token");
   url.searchParams.set("grant_type", "fb_exchange_token");
@@ -117,12 +130,33 @@ async function extendToken(
   const json = (await res.json()) as FbTokenResponse;
 
   if (!res.ok || json.error || !json.access_token) {
-    console.warn("[fb-callback/direct] long-lived extension failed; using short-lived token");
-    return shortToken;
+    const reason = json.error?.message ?? `HTTP ${res.status}`;
+    // ⚠️ This is the silent bug that causes "Session has expired" hours later.
+    // Short-lived tokens last ~2 hours; long-lived tokens last ~60 days.
+    console.error(
+      "[fb-callback/direct] ⚠️  Long-lived token extension FAILED — " +
+      "storing SHORT-LIVED token that will expire in ~2 hours!",
+      "\n  failure reason:", reason,
+      "\n  full response:", JSON.stringify(json),
+    );
+    // Compute approximate expiry for the short-lived token (~2 hours from now)
+    const shortExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    return { token: shortToken, expiresAt: shortExpiresAt, extended: false, failureReason: reason };
   }
 
-  console.info("[fb-callback/direct] token extended to long-lived, expires_in:", json.expires_in);
-  return json.access_token;
+  const expiresIn = json.expires_in ?? null;
+  const expiresAt = expiresIn
+    ? new Date(Date.now() + expiresIn * 1000).toISOString()
+    : null;
+
+  console.info(
+    "[fb-callback/direct] ✓ Token extended to long-lived.",
+    `expires_in=${expiresIn}s`,
+    `expires_at=${expiresAt ?? "unknown"}`,
+    `token_len=${json.access_token.length}`,
+    `token_prefix=${json.access_token.slice(0, 12)}…`,
+  );
+  return { token: json.access_token, expiresAt, extended: true };
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -203,9 +237,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return errorRedirect(origin, "exchange_failed", exchangeResult.error);
     }
 
-    // Extend to ~60-day long-lived token
-    const finalToken = await extendToken(exchangeResult.token);
-    console.info("[fb-callback/direct] access_token obtained, length:", finalToken.length);
+    // Extend to ~60-day long-lived token.
+    // ⚠️ If extension fails the result.extended=false and a ~2h short-lived
+    // token is stored — the user will see "Session expired" a few hours later.
+    // The failure reason is logged prominently in extendToken above.
+    const extResult = await extendToken(exchangeResult.token);
+    const finalToken = extResult.token;
+    console.info(
+      "[fb-callback/direct] access_token ready:",
+      `len=${finalToken.length}`,
+      `prefix=${finalToken.slice(0, 12)}…`,
+      `extended=${extResult.extended}`,
+      extResult.expiresAt ? `expires_at=${extResult.expiresAt}` : "expires_at=unknown",
+      extResult.failureReason ? `⚠️ failure=${extResult.failureReason}` : "",
+    );
 
     // Build the redirect response; session cookies must be written onto it
     const redirectResponse = NextResponse.redirect(`${origin}${next}`);
@@ -235,7 +280,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { error: dbError } = await supabase
       .from("user_facebook_tokens")
       .upsert(
-        { user_id: user.id, provider_token: finalToken, updated_at: new Date().toISOString() },
+        {
+          user_id: user.id,
+          provider_token: finalToken,
+          updated_at: new Date().toISOString(),
+          expires_at: extResult.expiresAt,
+        },
         { onConflict: "user_id" },
       );
 
@@ -253,7 +303,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     redirectResponse.cookies.set("fb_oauth_next",          "", clearOpts);
     redirectResponse.cookies.set("fb_oauth_redirect_uri", "", clearOpts);
 
-    console.info("[fb-callback/direct] token persisted ✓ — redirecting to", next);
+    console.info(
+      "[fb-callback/direct] token persisted ✓ — redirecting to", next,
+      extResult.extended ? "(long-lived ~60d)" : "⚠️ (short-lived ~2h — extension failed)",
+    );
     return redirectResponse;
   }
 
@@ -327,10 +380,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       "Facebook connected but no provider_token returned.");
   }
 
+  // MODE B provider_token is the raw short-lived token from Supabase session;
+  // we have no expires_in here, so expires_at is left null.
   const { error: dbError } = await supabase
     .from("user_facebook_tokens")
     .upsert(
-      { user_id: userId, provider_token: providerToken, updated_at: new Date().toISOString() },
+      {
+        user_id: userId,
+        provider_token: providerToken,
+        updated_at: new Date().toISOString(),
+        expires_at: null,
+      },
       { onConflict: "user_id" },
     );
 

@@ -234,16 +234,19 @@ export type Database = {
         Row: {
           provider_token: string;
           updated_at: string | null;
+          expires_at: string | null;
           user_id: string;
         };
         Insert: {
           provider_token: string;
           updated_at?: string | null;
+          expires_at?: string | null;
           user_id: string;
         };
         Update: {
           provider_token?: string;
           updated_at?: string | null;
+          expires_at?: string | null;
           user_id?: string;
         };
       };

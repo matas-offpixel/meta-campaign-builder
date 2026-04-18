@@ -35,6 +35,7 @@ import {
   resolvePageIgActor,
   resolveIgActorForAdAccount,
 } from "@/lib/meta/page-token";
+import { validateMetaToken } from "@/lib/meta/server-token";
 import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
   mapMetaObjectiveToInternal,
@@ -169,36 +170,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Fetch user's Facebook OAuth token ─────────────────────────────────────
   // The provider_token is the user's Facebook access token stored after OAuth.
-  // It runs in the same permission context as Ads Manager and is preferred over
-  // META_ACCESS_TOKEN (which is a static system/app token with weaker permissions)
-  // for engagement audience creation on user-managed pages.
+  // We also select updated_at / expires_at for diagnostics — these tell us
+  // exactly when the token was last refreshed and whether it is already expired
+  // at the time of launch (before any Meta API call is made).
   let userFbToken: string | null = null;
+  let dbTokenUpdatedAt: string | null = null;
+  let dbTokenExpiresAt: string | null = null;
   try {
     const { data: fbTokenRow, error: fbTokenError } = await supabase
       .from("user_facebook_tokens")
-      .select("provider_token")
+      .select("provider_token, updated_at, expires_at")
       .eq("user_id", user.id)
       .maybeSingle();
     if (fbTokenError) {
       console.warn("[launch-campaign] Could not read user_facebook_tokens:", fbTokenError.message);
-    } else {
-      userFbToken = fbTokenRow?.provider_token ?? null;
+    } else if (fbTokenRow) {
+      userFbToken     = (fbTokenRow as { provider_token?: string }).provider_token ?? null;
+      dbTokenUpdatedAt = (fbTokenRow as { updated_at?: string | null }).updated_at ?? null;
+      dbTokenExpiresAt = (fbTokenRow as { expires_at?: string | null }).expires_at ?? null;
     }
   } catch (err) {
     console.warn("[launch-campaign] Exception fetching user Facebook token:", err);
   }
+
+  // Detect pre-launch expiry from stored expiry (best-effort; validateMetaToken below is authoritative)
+  const dbTokenExpiredNow = dbTokenExpiresAt
+    ? new Date(dbTokenExpiresAt).getTime() < Date.now()
+    : false;
+
   console.log(
-    "[launch-campaign] User Facebook token:",
-    userFbToken
-      ? `PRESENT (len=${userFbToken.length}, prefix=${userFbToken.slice(0, 10)}…)`
-      : "MISSING — engagement audiences will use META_ACCESS_TOKEN (system token)",
+    "[launch-campaign] DB token diagnostics:" +
+    `\n  user_id:          ${user.id}` +
+    `\n  provider_token:   ${userFbToken ? `PRESENT len=${userFbToken.length} prefix=${userFbToken.slice(0, 12)}…` : "MISSING"}` +
+    `\n  updated_at:       ${dbTokenUpdatedAt ?? "unknown"}` +
+    `\n  expires_at:       ${dbTokenExpiresAt ?? "unknown (pre-migration row)"}` +
+    `\n  pre_launch_expiry:${dbTokenExpiredNow ? " ⚠️ EXPIRED" : " ok"}`,
   );
 
   // ── Single authoritative launch token ────────────────────────────────────
   // Resolved ONCE here and threaded through every Meta write/read call below.
   // Priority: user's personal OAuth token (DB) > META_ACCESS_TOKEN env-var.
-  // Using the user's token ensures calls run in the same permission context
-  // as Ads Manager and survive a token rotation without requiring a redeploy.
   const launchToken: string = userFbToken ?? process.env.META_ACCESS_TOKEN ?? "";
   const launchTokenSource: string = userFbToken ? "db" : "META_ACCESS_TOKEN (env)";
 
@@ -213,6 +224,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   console.log(
     `[launch-campaign] launchToken: source=${launchTokenSource} len=${launchToken.length} prefix=${launchToken.slice(0, 12)}…`,
   );
+
+  // ── Live token validation via Meta /debug_token ───────────────────────────
+  // Non-blocking: we log the result but never gate launch on it.  This gives
+  // us authoritative proof of whether the token is valid/expired *right now*,
+  // the exact expiry timestamp, and the granted scopes — all in server logs.
+  if (launchToken) {
+    validateMetaToken(launchToken).then((v) => {
+      if (v.valid) {
+        const expDate = v.expiresAt ? new Date(v.expiresAt * 1000).toISOString() : "none";
+        const expiresInH = v.expiresAt
+          ? ((v.expiresAt * 1000 - Date.now()) / 3_600_000).toFixed(1)
+          : "unknown";
+        console.log(
+          `[launch-campaign] /debug_token → VALID ✓` +
+          `\n  tokenSource:    ${launchTokenSource}` +
+          `\n  meta_app_id:    ${v.appId ?? "unknown"}` +
+          `\n  meta_user_id:   ${v.userId ?? "unknown"}` +
+          `\n  expires_at:     ${expDate}` +
+          `\n  expires_in_h:   ${expiresInH}` +
+          `\n  scopes:         ${(v.scopes ?? []).join(", ") || "(none)"}`,
+        );
+      } else {
+        console.error(
+          `[launch-campaign] /debug_token → INVALID ✗ — this token will fail all Meta API calls!` +
+          `\n  tokenSource:    ${launchTokenSource}` +
+          `\n  error:          ${v.error ?? "unknown"}` +
+          `\n  ACTION:         User must reconnect Facebook in Account Setup.`,
+        );
+      }
+    }).catch((err: unknown) => {
+      console.warn("[launch-campaign] /debug_token call threw:", err);
+    });
+  }
 
   const adAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId;
   console.log(
@@ -665,14 +709,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (wizardMode === "attach_campaign" || wizardMode === "attach_adset") {
     // Diagnostic dump so mismatches between picker context and launch context
     // are visible in server logs before the validation fetch is attempted.
-    const launchToken = userFbToken ?? process.env.META_ACCESS_TOKEN;
+    // launchToken is already resolved above (outer scope) — no redeclaration needed.
     console.log(
       `[launch-campaign] Phase 1 attach-validation ─────────────────────────────` +
       `\n  wizardMode:           ${wizardMode}` +
       `\n  attachTargetId:       ${attachTargetId ?? "(unset)"}` +
       `\n  attachTargetName:     ${draft.settings.existingMetaCampaign?.name ?? "(unset)"}` +
       `\n  adAccountId (draft):  ${adAccountId ?? "(unset)"}` +
-      `\n  tokenSource:          ${userFbToken ? `db (len=${userFbToken.length})` : `META_ACCESS_TOKEN (${launchToken ? `len=${launchToken.length}` : "MISSING"})`}` +
+      `\n  tokenSource:          ${launchTokenSource}` +
+      `\n  tokenLen:             ${launchToken.length}` +
       `\n  validation method:    fetchCampaignById (direct GET /{campaignId}) — NOT a campaign list filter` +
       `\n────────────────────────────────────────────────────────────────────────────`,
     );

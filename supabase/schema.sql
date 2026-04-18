@@ -72,7 +72,9 @@ create trigger campaign_templates_updated_at
 create table if not exists user_facebook_tokens (
   user_id         uuid primary key references auth.users (id) on delete cascade,
   provider_token  text not null,
-  updated_at      timestamptz not null default now()
+  updated_at      timestamptz not null default now(),
+  -- NULL until next reconnect; populated by /auth/facebook-callback
+  expires_at      timestamptz
 );
 
 alter table user_facebook_tokens enable row level security;
