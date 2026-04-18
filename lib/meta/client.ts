@@ -365,14 +365,22 @@ export async function fetchCampaignsForAccount(params: {
  */
 export async function fetchCampaignById(
   campaignId: string,
+  token?: string,
 ): Promise<RawMetaCampaign | null> {
   try {
-    const res = await graphGet<RawMetaCampaign>(`/${campaignId}`, {
-      fields:
-        "id,name,objective,status,effective_status,buying_type,created_time,updated_time",
-    });
+    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time";
+    const res = token
+      ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
+      : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });
     return res ?? null;
-  } catch {
+  } catch (err) {
+    // Log before swallowing so a token error doesn't silently masquerade as
+    // "campaign not found".  The caller turns null into a user-facing 404.
+    console.warn(
+      `[fetchCampaignById] id=${campaignId} returned null — error:`,
+      err instanceof Error ? err.message : String(err),
+      token ? `tokenSource=explicit len=${token.length}` : "tokenSource=META_ACCESS_TOKEN",
+    );
     return null;
   }
 }
@@ -514,14 +522,20 @@ export async function fetchAdSetsForCampaign(params: {
  */
 export async function fetchAdSetById(
   adSetId: string,
+  token?: string,
 ): Promise<RawMetaAdSet | null> {
   try {
-    const res = await graphGet<RawMetaAdSet>(`/${adSetId}`, {
-      fields:
-        "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,created_time,updated_time",
-    });
+    const fields = "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,created_time,updated_time";
+    const res = token
+      ? await graphGetWithToken<RawMetaAdSet>(`/${adSetId}`, { fields }, token)
+      : await graphGet<RawMetaAdSet>(`/${adSetId}`, { fields });
     return res ?? null;
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[fetchAdSetById] id=${adSetId} returned null — error:`,
+      err instanceof Error ? err.message : String(err),
+      token ? `tokenSource=explicit len=${token.length}` : "tokenSource=META_ACCESS_TOKEN",
+    );
     return null;
   }
 }

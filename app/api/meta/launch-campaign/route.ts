@@ -643,11 +643,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const attachedLiveAdSets: VerifiedLiveAdSet[] = [];
 
   if (wizardMode === "attach_campaign" || wizardMode === "attach_adset") {
+    // Diagnostic dump so mismatches between picker context and launch context
+    // are visible in server logs before the validation fetch is attempted.
+    const launchToken = userFbToken ?? process.env.META_ACCESS_TOKEN;
+    console.log(
+      `[launch-campaign] Phase 1 attach-validation ─────────────────────────────` +
+      `\n  wizardMode:           ${wizardMode}` +
+      `\n  attachTargetId:       ${attachTargetId ?? "(unset)"}` +
+      `\n  attachTargetName:     ${draft.settings.existingMetaCampaign?.name ?? "(unset)"}` +
+      `\n  adAccountId (draft):  ${adAccountId ?? "(unset)"}` +
+      `\n  tokenSource:          ${userFbToken ? `db (len=${userFbToken.length})` : `META_ACCESS_TOKEN (${launchToken ? `len=${launchToken.length}` : "MISSING"})`}` +
+      `\n  validation method:    fetchCampaignById (direct GET /{campaignId}) — NOT a campaign list filter` +
+      `\n────────────────────────────────────────────────────────────────────────────`,
+    );
+
     try {
       console.log(
         `[launch-campaign] Phase 1 (${wizardMode}) — re-fetching live campaign ${attachTargetId}`,
       );
-      const live = await fetchCampaignById(attachTargetId!);
+      const live = await fetchCampaignById(attachTargetId!, launchToken ?? undefined);
       if (!live) {
         return NextResponse.json(
           {
@@ -716,7 +730,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const results = await Promise.all(
           attachAdSetIds.map(async (id) => ({
             id,
-            live: await fetchAdSetById(id),
+            live: await fetchAdSetById(id, launchToken ?? undefined),
           })),
         );
 
