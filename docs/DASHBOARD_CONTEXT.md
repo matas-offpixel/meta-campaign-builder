@@ -58,9 +58,13 @@ normative.
 
 - `app/(dashboard)/**`
 - `components/dashboard/**`
-- `lib/db/clients.ts`
-- `lib/db/events.ts`
-- New `lib/db/*.ts` for reporting, assets, workflow, comms
+- `lib/db/clients.ts`, `lib/db/events.ts` — browser Supabase helpers
+- `lib/db/clients-server.ts`, `lib/db/events-server.ts` — server-only
+  counterparts using `lib/supabase/server`. Keep browser and server
+  helpers split so `next/headers` does not leak into client bundles.
+- `lib/dashboard/**` — pure helpers (formatters, milestone palette, etc.)
+- New `lib/db/*.ts` for reporting, assets, workflow, comms (follow the
+  same browser/server split convention)
 - New `supabase/migrations/*.sql` that only add dashboard tables/columns
   (never touch existing creator tables except additive columns that the
   creator ignores)

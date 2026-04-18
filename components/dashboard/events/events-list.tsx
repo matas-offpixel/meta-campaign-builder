@@ -8,39 +8,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import { listEvents, type EventWithClient } from "@/lib/db/events";
-
-function StatusPill({ status }: { status: string }) {
-  const cls =
-    status === "sold_out"
-      ? "bg-success/20 text-foreground"
-      : status === "cancelled"
-        ? "bg-destructive/20 text-foreground"
-        : status === "completed"
-          ? "bg-muted text-muted-foreground"
-          : status === "on_sale"
-            ? "bg-primary-light text-foreground"
-            : "bg-muted text-muted-foreground";
-  return (
-    <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}
-    >
-      {status.replace("_", " ")}
-    </span>
-  );
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "TBD";
-  try {
-    return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
+import { StatusPill } from "@/components/dashboard/_shared/status-pill";
+import { fmtDate } from "@/lib/dashboard/format";
 
 export function EventsList() {
   const router = useRouter();
@@ -109,7 +78,7 @@ export function EventsList() {
                         <p className="text-sm font-medium truncate">
                           {ev.name}
                         </p>
-                        <StatusPill status={ev.status} />
+                        <StatusPill status={ev.status} kind="event" />
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                         {ev.client?.name && (
@@ -125,7 +94,7 @@ export function EventsList() {
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground shrink-0 text-right">
-                      {formatDate(ev.event_date)}
+                      {ev.event_date ? fmtDate(ev.event_date) : "TBD"}
                     </div>
                   </div>
                 </Link>

@@ -17,44 +17,13 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import { listEvents, type EventWithClient } from "@/lib/db/events";
 import { listClients, type ClientRow } from "@/lib/db/clients";
-
-// ─── Date helpers ────────────────────────────────────────────────────────────
-
-function today(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function daysBetween(a: Date, b: Date): number {
-  const MS_PER_DAY = 1000 * 60 * 60 * 24;
-  return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);
-}
-
-function parseDateOnly(iso: string | null): Date | null {
-  if (!iso) return null;
-  // event_date is yyyy-mm-dd; treat as local calendar date.
-  const d = new Date(iso + "T00:00:00");
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function fmtDay(date: Date): string {
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function relativeLabel(eventDate: Date): string {
-  const diff = daysBetween(today(), eventDate);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  if (diff > 1 && diff <= 7) return `In ${diff} days`;
-  if (diff > 7) return fmtDay(eventDate);
-  if (diff === -1) return "Yesterday";
-  return fmtDay(eventDate);
-}
+import {
+  daysBetween,
+  fmtDay,
+  fmtRelative,
+  parseDateOnly,
+  today,
+} from "@/lib/dashboard/format";
 
 // ─── Partition helpers ───────────────────────────────────────────────────────
 
@@ -418,7 +387,7 @@ function EventRow({
       </div>
       <div className="shrink-0 text-right">
         <p className="text-xs font-medium text-foreground">
-          {showRelative && date ? relativeLabel(date) : date ? fmtDay(date) : "—"}
+          {showRelative && date ? fmtRelative(date) : date ? fmtDay(date) : "—"}
         </p>
         {!compact && date && (
           <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">

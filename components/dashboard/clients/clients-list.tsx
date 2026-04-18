@@ -8,22 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import { listClients, type ClientRow } from "@/lib/db/clients";
-
-function StatusPill({ status }: { status: string }) {
-  const cls =
-    status === "archived"
-      ? "bg-muted text-muted-foreground"
-      : status === "paused"
-        ? "bg-warning/15 text-foreground"
-        : "bg-primary-light text-foreground";
-  return (
-    <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}
-    >
-      {status}
-    </span>
-  );
-}
+import { StatusPill } from "@/components/dashboard/_shared/status-pill";
 
 export function ClientsList() {
   const router = useRouter();
@@ -92,7 +77,7 @@ export function ClientsList() {
                         <p className="text-sm font-medium truncate">
                           {c.name}
                         </p>
-                        <StatusPill status={c.status} />
+                        <StatusPill status={c.status} kind="client" />
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <span className="font-medium">{c.primary_type}</span>

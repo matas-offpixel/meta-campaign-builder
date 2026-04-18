@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -17,98 +17,36 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { createClient as createSupabase } from "@/lib/supabase/client";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
-  getEventById,
   deleteEventRow,
   linkDraftToEvent,
-  listDraftsForEvent,
   type EventLinkedDraft,
   type EventWithClient,
 } from "@/lib/db/events";
+import { fmtDate, fmtDateTime, fmtShort } from "@/lib/dashboard/format";
 
 interface Props {
-  eventId: string;
+  event: EventWithClient;
+  drafts: EventLinkedDraft[];
+  /** Authenticated user id, server-resolved. Needed for the new-draft handoff. */
+  userId: string;
 }
 
-// ─── Formatters ──────────────────────────────────────────────────────────────
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function fmtShort(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
-
-export function EventDetail({ eventId }: Props) {
+/**
+ * Client-side event hub. The parent server component prefetches the event,
+ * its linked drafts, and the current user. This component owns mutations
+ * (delete, draft handoff) and the local state needed for them.
+ */
+export function EventDetail({ event, drafts, userId }: Props) {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [event, setEvent] = useState<EventWithClient | null>(null);
-  const [drafts, setDrafts] = useState<EventLinkedDraft[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createSupabase();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) setUserId(user.id);
-
-      const [row, linked] = await Promise.all([
-        getEventById(eventId),
-        listDraftsForEvent(eventId),
-      ]);
-      setEvent(row);
-      setDrafts(linked);
-      setLoading(false);
-    }
-    load();
-  }, [eventId]);
-
   const handleDelete = async () => {
-    if (!event) return;
     setWorking(true);
     setError(null);
     try {
@@ -131,7 +69,6 @@ export function EventDetail({ eventId }: Props) {
    * wizard can pick it up in a future patch without changing it today.
    */
   const handleOpenCreator = async () => {
-    if (!event || !userId) return;
     setCreatingDraft(true);
     setError(null);
     try {
@@ -146,33 +83,6 @@ export function EventDetail({ eventId }: Props) {
       setCreatingDraft(false);
     }
   };
-
-  if (loading) {
-    return (
-      <>
-        <PageHeader title="Event" />
-        <main className="flex-1 flex items-center justify-center py-20">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </main>
-      </>
-    );
-  }
-
-  if (!event) {
-    return (
-      <>
-        <PageHeader title="Event not found" />
-        <main className="flex-1 flex items-center justify-center py-20">
-          <Link
-            href="/events"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            ← Back to events
-          </Link>
-        </main>
-      </>
-    );
-  }
 
   return (
     <>
@@ -265,7 +175,7 @@ export function EventDetail({ eventId }: Props) {
               <div className="flex shrink-0 items-center gap-2">
                 <Button
                   onClick={handleOpenCreator}
-                  disabled={creatingDraft || !userId}
+                  disabled={creatingDraft}
                   size="sm"
                 >
                   {creatingDraft ? (
@@ -424,7 +334,7 @@ export function EventDetail({ eventId }: Props) {
                 size="sm"
                 variant="ghost"
                 onClick={handleOpenCreator}
-                disabled={creatingDraft || !userId}
+                disabled={creatingDraft}
               >
                 <Plus className="h-3.5 w-3.5" />
                 New
@@ -499,7 +409,7 @@ export function EventDetail({ eventId }: Props) {
 // ─── Milestone timeline ──────────────────────────────────────────────────────
 
 function MilestoneTimeline({ event }: { event: EventWithClient }) {
-  // `useState` lazy initializer is the React-sanctioned escape hatch for
+  // useState lazy initializer is the React-sanctioned escape hatch for
   // reading from Date on mount without breaking the purity rule.
   const [now] = useState(() => Date.now());
   const items: Array<{ label: string; iso: string | null; date: Date | null }> =

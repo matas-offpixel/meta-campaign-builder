@@ -1,53 +1,37 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Pencil, Archive, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Archive, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
-  getClientById,
   setClientStatus,
   deleteClientRow,
   type ClientRow,
 } from "@/lib/db/clients";
-import { listEvents, type EventWithClient } from "@/lib/db/events";
-import { createClient as createSupabase } from "@/lib/supabase/client";
+import { type EventWithClient } from "@/lib/db/events";
 
 interface Props {
-  clientId: string;
+  client: ClientRow;
+  events: EventWithClient[];
 }
 
-export function ClientDetail({ clientId }: Props) {
+/**
+ * Client-side detail view. Initial row + events are server-fetched by the
+ * parent route and passed in as props. This component owns mutations
+ * (archive / unarchive / delete) and the local state needed to reflect
+ * status changes without a full page refetch.
+ */
+export function ClientDetail({ client: initial, events }: Props) {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [client, setClient] = useState<ClientRow | null>(null);
-  const [events, setEvents] = useState<EventWithClient[]>([]);
+  const [client, setClient] = useState<ClientRow>(initial);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createSupabase();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const [row, eventRows] = await Promise.all([
-        getClientById(clientId),
-        listEvents(user.id, { clientId }),
-      ]);
-      setClient(row);
-      setEvents(eventRows);
-      setLoading(false);
-    }
-    load();
-  }, [clientId]);
-
   const handleArchive = async () => {
-    if (!client) return;
     setWorking(true);
     try {
       await setClientStatus(client.id, "archived");
@@ -58,7 +42,6 @@ export function ClientDetail({ clientId }: Props) {
   };
 
   const handleUnarchive = async () => {
-    if (!client) return;
     setWorking(true);
     try {
       await setClientStatus(client.id, "active");
@@ -69,7 +52,6 @@ export function ClientDetail({ clientId }: Props) {
   };
 
   const handleDelete = async () => {
-    if (!client) return;
     setWorking(true);
     setError(null);
     try {
@@ -83,30 +65,6 @@ export function ClientDetail({ clientId }: Props) {
       setConfirmDelete(false);
     }
   };
-
-  if (loading) {
-    return (
-      <>
-        <PageHeader title="Client" />
-        <main className="flex-1 flex items-center justify-center py-20">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </main>
-      </>
-    );
-  }
-
-  if (!client) {
-    return (
-      <>
-        <PageHeader title="Client not found" />
-        <main className="flex-1 flex items-center justify-center py-20">
-          <Link href="/clients" className="text-sm text-muted-foreground hover:text-foreground">
-            ← Back to clients
-          </Link>
-        </main>
-      </>
-    );
-  }
 
   return (
     <>

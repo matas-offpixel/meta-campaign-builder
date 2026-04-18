@@ -12,8 +12,18 @@ import {
 import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import { listEvents, type EventWithClient } from "@/lib/db/events";
+import {
+  parseDateOnly,
+  parseTs,
+  MILESTONE_KINDS,
+  MILESTONE_LABEL,
+  MILESTONE_COLOR,
+  type MilestoneKind,
+} from "@/lib/dashboard/format";
 
-// ─── Date helpers ────────────────────────────────────────────────────────────
+// ─── Calendar-grid date helpers ──────────────────────────────────────────────
+// Kept local — these are calendar-grid concerns (month boundaries, ISO
+// week-numbering, yyyy-mm-dd keys for grouping) and aren't reused elsewhere.
 
 function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -32,34 +42,8 @@ function toYmd(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-function parseDateOnly(iso: string | null): Date | null {
-  if (!iso) return null;
-  const d = new Date(iso + "T00:00:00");
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-function parseTs(iso: string | null): Date | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
 
 // ─── Milestone markers ───────────────────────────────────────────────────────
-
-type MilestoneKind = "announcement" | "presale" | "general-sale" | "event";
-
-const MILESTONE_LABEL: Record<MilestoneKind, string> = {
-  announcement: "Announce",
-  presale: "Presale",
-  "general-sale": "Gen sale",
-  event: "Event",
-};
-
-const MILESTONE_COLOR: Record<MilestoneKind, string> = {
-  announcement: "bg-sky-500",
-  presale: "bg-amber-500",
-  "general-sale": "bg-violet-500",
-  event: "bg-foreground",
-};
 
 type MilestoneHit = {
   kind: MilestoneKind;
@@ -432,15 +416,9 @@ function AgendaView({ milestones }: { milestones: MilestoneHit[] }) {
 // ─── Legend ──────────────────────────────────────────────────────────────────
 
 function Legend() {
-  const items: MilestoneKind[] = [
-    "announcement",
-    "presale",
-    "general-sale",
-    "event",
-  ];
   return (
     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-2">
-      {items.map((k) => (
+      {MILESTONE_KINDS.map((k) => (
         <div key={k} className="flex items-center gap-1.5">
           <span className={`inline-block h-2 w-2 rounded-full ${MILESTONE_COLOR[k]}`} />
           <span>{MILESTONE_LABEL[k]}</span>
