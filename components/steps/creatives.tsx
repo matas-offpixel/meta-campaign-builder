@@ -34,6 +34,7 @@ import {
   useFetchPagePosts,
   useFetchInstagramPosts,
   useFetchPageIdentity,
+  useFbTokenExpired,
 } from "@/lib/hooks/useMeta";
 import {
   createDefaultCreative,
@@ -104,6 +105,7 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   // Pass adAccountId so the BM-aware /pages?adAccountId= endpoint is used,
   // and so the module-level cache key matches across wizard-step remounts.
   const pages = useFetchPages(adAccountId);
+  const fbTokenExpired = useFbTokenExpired();
   const igAccounts = useFetchInstagramAccounts();
 
   const active = creatives.find((c) => c.id === activeId);
@@ -614,8 +616,13 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                         label="Facebook Page"
                         value={active.identity?.pageId ?? ""}
                         onChange={(pageId) => handlePageChange(active.id, pageId)}
-                        placeholder="Select page…"
+                        placeholder={
+                          fbTokenExpired
+                            ? "Reconnect Facebook in Account Setup"
+                            : "Select page…"
+                        }
                         loading={pages.loading && pages.data.length === 0}
+                        disabled={fbTokenExpired}
                         emptyText="No pages found"
                         options={pages.data.map((p) => ({
                           value: p.id,
@@ -623,10 +630,17 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                           sublabel: p.category ?? undefined,
                         }))}
                       />
-                      <FieldStatus
-                        loading={pages.loading && pages.data.length === 0}
-                        error={pages.error}
-                      />
+                      {fbTokenExpired ? (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-warning">
+                          <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                          Facebook session expired — reconnect in Account Setup.
+                        </p>
+                      ) : (
+                        <FieldStatus
+                          loading={pages.loading && pages.data.length === 0}
+                          error={pages.error}
+                        />
+                      )}
                     </div>
                     <div>
                       {/* IG dropdown — three sources merged in priority order:

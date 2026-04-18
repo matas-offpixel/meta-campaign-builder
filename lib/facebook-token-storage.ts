@@ -35,3 +35,25 @@ export function clearFacebookTokenStorage(): void {
     /* ignore */
   }
 }
+
+/**
+ * Returns true when an error string is a Facebook/Meta token-expiry or
+ * invalid-token response — i.e. the problem is a stale credential, not a
+ * missing permission, a rate limit, or any other Meta API error.
+ *
+ * Patterns detected:
+ *   "Session has expired on…"        — OAuthException code 190
+ *   "Error validating access token"  — generic invalid token
+ *   "Invalid OAuth access token"     — malformed token
+ *   "(#190)"                         — Meta error-code prefix
+ */
+export function isFacebookTokenExpiredError(error: string | null | undefined): boolean {
+  if (!error) return false;
+  const msg = error.toLowerCase();
+  return (
+    msg.includes("session has expired") ||
+    msg.includes("error validating access token") ||
+    msg.includes("invalid oauth access token") ||
+    /\(#190\)/.test(error)
+  );
+}

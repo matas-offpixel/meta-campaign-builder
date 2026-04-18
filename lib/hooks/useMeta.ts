@@ -28,6 +28,8 @@ import {
   FB_TOKEN_STORAGE_KEY,
   parseStoredFacebookToken,
   serializeStoredFacebookToken,
+  clearFacebookTokenStorage,
+  isFacebookTokenExpiredError,
   type StoredFacebookToken,
 } from "@/lib/facebook-token-storage";
 
@@ -48,7 +50,13 @@ async function apiFetch<T>(url: string): Promise<T[]> {
   const json = (await res.json()) as { data?: T[]; error?: string };
 
   if (!res.ok || json.error) {
-    throw new Error(json.error ?? `HTTP ${res.status}`);
+    const errMsg = json.error ?? `HTTP ${res.status}`;
+    // Propagate token-expiry to the shared module-level flag so all components
+    // learn about the stale credential from the first failing API call.
+    if (isFacebookTokenExpiredError(errMsg)) {
+      setFbTokenExpiredGlobal(true);
+    }
+    throw new Error(errMsg);
   }
 
   return json.data ?? [];
@@ -68,6 +76,51 @@ async function apiFetch<T>(url: string): Promise<T[]> {
 let _adAccountsCache: MetaAdAccount[] | null = null;
 // key: adAccountId ?? "__me__"
 const _pagesCache = new Map<string, MetaApiPage[]>();
+
+// ─── Facebook token-expiry state ──────────────────────────────────────────────
+//
+// Shared across every hook instance.  When any apiFetch call receives a Meta
+// OAuthException / Session-expired error the flag flips to true and all
+// subscribed components are notified synchronously so the expiry banner appears
+// in the same render cycle.  The flag resets automatically on full page reload
+// (i.e. after the user reconnects via connectFacebookAccount()).
+
+let _fbTokenExpired = false;
+const _expiredListeners = new Set<(v: boolean) => void>();
+
+/** Called by apiFetch on token errors; also exported for test helpers. */
+export function setFbTokenExpiredGlobal(expired: boolean): void {
+  _fbTokenExpired = expired;
+  if (expired) {
+    // Purge in-memory data caches so stale data is not shown after reconnect
+    _adAccountsCache = null;
+    _pagesCache.clear();
+    // Remove the stale localStorage entry so useFacebookToken doesn't resurrect it
+    clearFacebookTokenStorage();
+    console.warn(
+      "[fb-token] Expired/invalid token detected — caches cleared, localStorage removed.",
+    );
+  }
+  _expiredListeners.forEach((l) => l(expired));
+}
+
+/**
+ * Returns the current token-expired flag and subscribes the component to
+ * future changes via the module-level pub/sub.
+ * @internal — used by useFacebookConnectionStatus and account-setup
+ */
+export function useFbTokenExpired(): boolean {
+  const [expired, setExpired] = useState(_fbTokenExpired);
+
+  useEffect(() => {
+    // Sync on mount (in case the flag flipped between renders)
+    setExpired(_fbTokenExpired);
+    _expiredListeners.add(setExpired);
+    return () => { _expiredListeners.delete(setExpired); };
+  }, []);
+
+  return expired;
+}
 
 // ─── useFetchAdAccounts ───────────────────────────────────────────────────────
 
@@ -1351,6 +1404,12 @@ export function useFacebookToken(): {
     const raw = typeof window !== "undefined" ? localStorage.getItem(FB_TOKEN_STORAGE_KEY) : null;
     const parsed = parseStoredFacebookToken(raw);
     if (parsed?.userId === user.id && parsed.token) {
+      console.debug("[useFacebookToken]", {
+        source: "localStorage",
+        userId: user.id,
+        tokenLength: parsed.token.length,
+        isExpired: _fbTokenExpired,
+      });
       return parsed.token;
     }
 
@@ -1371,7 +1430,12 @@ export function useFacebookToken(): {
 
       if (json.token) {
         persistTokenForUser(user.id, json.token);
-        console.info("[useFacebookToken] loaded token from Supabase storage");
+        console.info("[useFacebookToken]", {
+          source: "db",
+          userId: user.id,
+          tokenLength: json.token.length,
+          isExpired: _fbTokenExpired,
+        });
         return json.token;
       }
 
@@ -1398,9 +1462,16 @@ export function useFacebookToken(): {
     const pt = sessionData.session?.provider_token ?? null;
     if (pt) {
       persistTokenForUser(user.id, pt);
+      console.info("[useFacebookToken]", {
+        source: "session",
+        userId: user.id,
+        tokenLength: pt.length,
+        isExpired: _fbTokenExpired,
+      });
       return pt;
     }
 
+    console.warn("[useFacebookToken] no token found", { userId: user.id, isExpired: _fbTokenExpired });
     return null;
   }, []);
 
@@ -1445,14 +1516,28 @@ export function useFacebookToken(): {
   return { token, loading, refresh };
 }
 
-/** True once loading finishes and a Facebook provider token exists for the user. */
+/**
+ * Returns Facebook connection state including whether the stored token has
+ * expired (detected when any Meta API call returns an OAuthException).
+ *
+ * `connected`  — true when a non-expired token exists
+ * `expired`    — true when a token error was detected in this page session;
+ *                resets automatically on full page reload (i.e. after reconnect)
+ */
 export function useFacebookConnectionStatus(): {
   connected: boolean;
+  expired: boolean;
   loading: boolean;
   refresh: () => Promise<string | null>;
 } {
   const { token, loading, refresh } = useFacebookToken();
-  return { connected: !!token, loading, refresh };
+  const tokenExpired = useFbTokenExpired();
+  return {
+    connected: !!token && !tokenExpired,
+    expired: tokenExpired,
+    loading,
+    refresh,
+  };
 }
 
 // ─── useFetchUserPages ────────────────────────────────────────────────────────
