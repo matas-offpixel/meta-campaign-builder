@@ -24,6 +24,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import {
   type AudiencePersonaKey,
   type PersonaClusterBias,
@@ -701,6 +702,162 @@ const CURATED_SEEDS: Record<string, string[]> = {
   ],
 };
 
+// ── Discovery-mode scene hint expansion ──────────────────────────────────────
+//
+// DISCOVERY ONLY — not used in launch mode.
+//
+// Maps natural-language event/scene/festival terms to stable Meta-searchable
+// seed terms so that vague or multi-word inputs still drive useful searches.
+// Example expansions:
+//   "tech house party"  → "tech house", "house music", "electronic dance music"
+//   "Coachella"         → "Coachella Valley Music and Arts Festival", "music festival"
+//   "Ibiza house"       → "house music", "Ibiza", "beach club", "clubbing"
+//   "commercial festival" → "music festival", "pop music", "dance music"
+//
+// The expansion is deliberately loose — its goal is RETRIEVAL COVERAGE.
+// Launch sanitisation (sanitiseInterests in lib/meta/adset.ts) is unaffected.
+//
+const SCENE_HINT_EXPANSION_MAP: Array<{
+  pattern: RegExp;
+  seeds: string[];
+}> = [
+  // ── Named festivals ──────────────────────────────────────────────────────
+  { pattern: /\bcoachella\b/i,           seeds: ["Coachella Valley Music and Arts Festival", "music festival", "festival"] },
+  { pattern: /\btomorrowland\b/i,        seeds: ["Tomorrowland (music festival)", "electronic dance music", "music festival"] },
+  { pattern: /\bglastonbury\b/i,         seeds: ["Glastonbury Festival", "music festival", "rock music"] },
+  { pattern: /\blollapalooza\b/i,        seeds: ["Lollapalooza", "music festival", "alternative music"] },
+  { pattern: /\bbonnaroo\b/i,            seeds: ["Bonnaroo Music and Arts Festival", "music festival"] },
+  { pattern: /\bedc\b|\belectric\s+daisy\b/i, seeds: ["Electric Daisy Carnival", "electronic dance music", "music festival"] },
+  { pattern: /\bultra\s+music\b/i,       seeds: ["Ultra Music Festival", "electronic dance music", "music festival"] },
+  { pattern: /\bawakenings\b/i,          seeds: ["Awakenings Festival", "techno music", "music festival"] },
+  { pattern: /\bdekmantel\b/i,           seeds: ["Dekmantel", "electronic dance music", "music festival"] },
+  { pattern: /\bcreamfields\b/i,         seeds: ["Creamfields", "electronic dance music", "music festival"] },
+  { pattern: /\bparklife\b/i,            seeds: ["Parklife festival", "music festival"] },
+  { pattern: /\bfield\s+day\b/i,         seeds: ["Field Day festival", "independent music", "music festival"] },
+  { pattern: /\bhoughton\b/i,            seeds: ["Houghton Festival", "electronic dance music", "music festival"] },
+  { pattern: /\blovebox\b/i,             seeds: ["Lovebox festival", "dance music", "music festival"] },
+  { pattern: /\bsonar\b|s[oó]nar\b/i,   seeds: ["Sónar", "electronic dance music", "music festival"] },
+  { pattern: /\belectric\s+picnic\b/i,   seeds: ["Electric Picnic", "music festival"] },
+  // ── Genre / style scene terms ────────────────────────────────────────────
+  { pattern: /\btech.?house\b/i,         seeds: ["tech house", "house music", "electronic dance music", "clubbing"] },
+  { pattern: /\bibiza.?house\b/i,        seeds: ["house music", "Ibiza", "beach club", "clubbing"] },
+  { pattern: /\bdeep.?house\b/i,         seeds: ["Deep house music", "house music", "electronic music"] },
+  { pattern: /\bvocal.?house\b/i,        seeds: ["house music", "clubbing", "dance music"] },
+  { pattern: /\bdrum.?and.?bass\b|\bd&b\b|\bdnb\b/i, seeds: ["Drum and bass", "jungle music", "electronic music"] },
+  { pattern: /\bhard.?techno\b/i,        seeds: ["Hard techno", "techno music", "electronic music"] },
+  { pattern: /\bpsy.?trance\b/i,         seeds: ["Psychedelic trance music", "trance music", "electronic music"] },
+  { pattern: /\bafrobeats\b|\bafro.?beats\b/i, seeds: ["Afrobeats", "Afropop", "African music"] },
+  { pattern: /\buk.?garage\b|\bgarage\s+music\b/i, seeds: ["UK garage", "garage music", "dance music"] },
+  { pattern: /\bminimal.?techno\b/i,     seeds: ["Minimal techno", "techno music", "electronic music"] },
+  { pattern: /\bprogressive.?house\b/i,  seeds: ["Progressive house", "house music", "electronic music"] },
+  { pattern: /\bmelodic.?techno\b/i,     seeds: ["Melodic techno and house", "techno music", "electronic music"] },
+  // ── Scene / venue terms ──────────────────────────────────────────────────
+  { pattern: /\bunderground\s+(rave|party|scene|club|dance)\b/i, seeds: ["underground music", "electronic dance music", "rave"] },
+  { pattern: /\bcommercial\s+festival\b/i, seeds: ["music festival", "pop music", "dance music", "mainstream"] },
+  { pattern: /\bberlin\s*(scene|techno)?\b/i, seeds: ["techno music", "Berlin (city)", "underground music"] },
+  { pattern: /\bibiza\b/i,               seeds: ["Ibiza", "beach club", "electronic dance music", "house music"] },
+  { pattern: /\bberghain\b/i,            seeds: ["Berghain", "techno music", "underground music"] },
+  { pattern: /\bfabric\b/i,              seeds: ["Fabric nightclub", "electronic music", "clubbing"] },
+  // ── Generic catch-all expansions ────────────────────────────────────────
+  { pattern: /\bfestival\b/i,            seeds: ["music festival", "festival", "live music"] },
+  { pattern: /\bunderground\b/i,         seeds: ["underground music", "electronic dance music"] },
+  { pattern: /\brave\b/i,                seeds: ["rave", "electronic dance music", "nightclub"] },
+  { pattern: /\bnight(club|life)\b/i,    seeds: ["nightclub", "nightlife"] },
+  { pattern: /\bhouse\s+music\b/i,       seeds: ["house music", "electronic dance music", "DJ"] },
+  { pattern: /\btechno\b/i,              seeds: ["techno music", "electronic dance music"] },
+];
+
+/**
+ * DISCOVERY ONLY: Expand raw scene hints into additional Meta-searchable seed
+ * terms.  Runs BEFORE cluster entity search so that festival / genre / scene
+ * language enriches the candidate pool even when the exact phrase is not a
+ * real Meta interest.
+ */
+function expandHintToDiscoverySeeds(rawHints: string[]): string[] {
+  if (rawHints.length === 0) return [];
+  const combined = rawHints.join(" ");
+  const seeds: string[] = [];
+  // Exclude terms that literally appear in the raw hints to avoid redundancy
+  const existingLower = new Set(
+    combined.toLowerCase().split(/[\s,;]+/).filter((w) => w.length > 2),
+  );
+  const seen = new Set<string>(existingLower);
+  for (const { pattern, seeds: expansionSeeds } of SCENE_HINT_EXPANSION_MAP) {
+    if (pattern.test(combined)) {
+      for (const seed of expansionSeeds) {
+        const key = seed.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          seeds.push(seed);
+        }
+      }
+    }
+  }
+  return seeds;
+}
+
+// ── Discovery emergency fallback seeds ────────────────────────────────────────
+//
+// Searched as an absolute last resort when EVERY other path (entity terms,
+// hint terms, curated seeds, expansion seeds) returns 0 usable results.
+// These are the most stable, broadest Meta interests per cluster — chosen
+// specifically to be highly unlikely to be deprecated or removed.
+//
+const DISCOVERY_EMERGENCY_FALLBACK_SEEDS: Record<string, string[]> = {
+  "Music & Nightlife": [
+    "Electronic dance music",
+    "Music festival",
+    "Nightclub",
+    "House music",
+    "Techno music",
+    "Electronic music",
+    "Dance music",
+    "DJ",
+    "Nightlife",
+    "Rave",
+  ],
+  "Fashion & Streetwear": [
+    "Fashion",
+    "Street fashion",
+    "Sneakers",
+    "Streetwear",
+    "Luxury goods",
+    "Designer clothing",
+    "Shopping",
+  ],
+  "Lifestyle & Nightlife": [
+    "Nightlife",
+    "Cocktail",
+    "Lifestyle",
+    "Entertainment",
+    "Contemporary art",
+    "Bars and nightclubs",
+    "Electronic music",
+  ],
+  "Activities & Culture": [
+    "Arts and culture",
+    "Contemporary art",
+    "Photography",
+    "Design",
+    "Art",
+    "Entertainment",
+  ],
+  "Media & Entertainment": [
+    "Electronic music",
+    "Music",
+    "Entertainment",
+    "Online music",
+    "Radio",
+  ],
+  "Sports & Live Events": [
+    "Sport",
+    "Football",
+    "Live events",
+    "Entertainment",
+    "Watching sports",
+  ],
+};
+
 const CLUSTER_BLOCKLIST: Record<string, RegExp[]> = {
   "Music & Nightlife": [
     /\b(video.?game|gaming|esport|gamer|fortnite|minecraft|call.of.duty|league.of.legends|the\s*sims)\b/i,
@@ -1265,10 +1422,31 @@ async function searchMeta(token: string, query: string): Promise<RawInterest[]> 
   url.searchParams.set("limit", "8");
   try {
     const res = await fetch(url.toString(), { cache: "no-store" });
-    const json = (await res.json()) as { data?: RawInterest[]; error?: unknown };
-    if (!res.ok || json.error) return [];
+    const json = (await res.json()) as {
+      data?: RawInterest[];
+      error?: { message?: string; code?: number; type?: string };
+    };
+    if (!res.ok || json.error) {
+      // Detect token errors explicitly — this is the silent bug that makes
+      // ALL searches return [] and the UI show "No matching interests found".
+      const isTokenError =
+        json.error?.code === 190 ||
+        json.error?.type === "OAuthException" ||
+        (json.error?.message ?? "").toLowerCase().includes("session") ||
+        (json.error?.message ?? "").toLowerCase().includes("expired");
+      if (isTokenError) {
+        console.error(
+          `[interest-discover] ⛔ TOKEN ERROR in searchMeta for "${query}" — ` +
+          `code=${json.error?.code} type=${json.error?.type} msg=${json.error?.message}. ` +
+          `This will cause ALL searches to return empty. ` +
+          `Reconnect Facebook in Account Setup to refresh the token.`,
+        );
+      }
+      return [];
+    }
     return json.data ?? [];
-  } catch {
+  } catch (err) {
+    console.warn(`[interest-discover] searchMeta network error for "${query}":`, err);
     return [];
   }
 }
@@ -3466,7 +3644,7 @@ async function discoverForCluster(
     aboveFloor = scored;
   }
 
-  // If still empty, try curated seeds as a last resort (even at high confidence)
+  // Phase 3a: curated seeds fallback (existing logic)
   if (aboveFloor.length < 2) {
     const seeds = (CURATED_SEEDS[clusterLabel] ?? []).filter(
       (s) => !localSeen.has(s) && !allTerms.some((t) => t.toLowerCase() === s.toLowerCase()),
@@ -3490,6 +3668,51 @@ async function discoverForCluster(
         };
       });
       aboveFloor = fallbackScored;
+    }
+  }
+
+  // Phase 3b: emergency fallback — broadest stable interests when all else fails.
+  // These seeds are chosen specifically for stability and are the last line of
+  // defence before returning an empty cluster to the UI.
+  if (aboveFloor.length < 2) {
+    const emergencySeeds = (DISCOVERY_EMERGENCY_FALLBACK_SEEDS[clusterLabel] ?? []).filter(
+      (s) =>
+        !localSeen.has(s.toLowerCase()) &&
+        !allTerms.some((t) => t.toLowerCase() === s.toLowerCase()),
+    );
+    if (emergencySeeds.length > 0) {
+      console.info(
+        `[interest-discover] cluster="${clusterLabel}" EMERGENCY fallback — ` +
+        `all primary + curated paths exhausted, trying ${emergencySeeds.length} emergency seeds: ` +
+        emergencySeeds.slice(0, 5).join(", "),
+      );
+      await runTermsBatch(emergencySeeds.slice(0, 8));
+      const emergFiltered = raw.filter((i) => passesBlocklist(i, clusterLabel));
+      const emergScored = emergFiltered.map((i) => {
+        const { score, reason } = scoreInterest(i, clusterLabel, sceneKeywords, confidence);
+        return {
+          id: i.id,
+          name: i.name,
+          audienceSize: i.audience_size,
+          audienceSizeBand: audienceSizeBand(i.audience_size ?? 0),
+          path: i.path,
+          searchTerm: i.searchTerm,
+          relevanceScore: score,
+          matchReason: reason,
+        };
+      });
+      if (emergScored.length > 0) {
+        console.info(
+          `[interest-discover] cluster="${clusterLabel}" emergency fallback found ${emergScored.length} results`,
+        );
+        aboveFloor = emergScored;
+      } else {
+        console.warn(
+          `[interest-discover] cluster="${clusterLabel}" EMPTY — emergency fallback also returned nothing. ` +
+          `This likely indicates the Meta access token is expired or invalid. ` +
+          `Check [interest-discover] ⛔ TOKEN ERROR logs above.`,
+        );
+      }
     }
   }
 
@@ -3814,11 +4037,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
+  // DISCOVERY MODE: use the user's DB-stored OAuth token (DB-first, env fallback).
+  // Using process.env.META_ACCESS_TOKEN directly caused silent failures when that
+  // static token expired — all Meta searches returned [] and the UI showed
+  // "No matching interests found" with no visible error.
+  let token: string;
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    console.info(
+      `[interest-discover] token resolved: source=${resolved.source} ` +
+      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+    );
+  } catch (err) {
+    console.error("[interest-discover] no Meta access token available:", err);
     return NextResponse.json(
-      { error: "META_ACCESS_TOKEN is not configured on the server" },
-      { status: 500 },
+      {
+        error:
+          "No Facebook access token available. " +
+          "Connect your Facebook account in Account Setup and try again.",
+      },
+      { status: 401 },
     );
   }
 
@@ -3912,6 +4151,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.info(`[interest-discover] direct-hint search terms: ${directHintTerms.join(", ")}`);
   }
 
+  // DISCOVERY MODE: Expand scene/event/festival hints into additional seed terms.
+  // Maps cultural language ("tech house party", "Coachella", "Glastonbury Festival")
+  // to stable, searchable Meta interests ("house music", "music festival", etc.)
+  // so retrieval succeeds even when the exact phrase returns nothing from Meta.
+  // This is completely separate from launch-mode sanitisation.
+  const discoveryExpansionSeeds = expandHintToDiscoverySeeds(rawHints);
+  if (discoveryExpansionSeeds.length > 0) {
+    console.info(
+      `[interest-discover] discovery expansion seeds (${discoveryExpansionSeeds.length}): ` +
+      discoveryExpansionSeeds.join(", "),
+    );
+  }
+  // Merge: direct hint phrases first (user's literal input), then expansion seeds.
+  const discoveryHintTerms = [
+    ...directHintTerms,
+    ...discoveryExpansionSeeds.filter(
+      (s) => !directHintTerms.some((h) => h.toLowerCase() === s.toLowerCase()),
+    ),
+  ];
+
   // Classify free-text hints into high-level intents (used by Activities & Culture only)
   const hintIntents = classifyHintIntents(rawHints);
   const combatSportHinted = hintHasCombatSport(rawHints);
@@ -3984,7 +4243,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       confidence,
       token,
       globalSeen,
-      directHintTerms,
+      discoveryHintTerms, // expanded hints (scene terms → Meta seeds) for discovery mode
       hintIntents,
       combatSportHinted,
       label === "Sports & Live Events" ? sportsEntities : [],
