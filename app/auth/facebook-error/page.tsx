@@ -15,6 +15,7 @@ const REASON_LABELS: Record<string, string> = {
   oauth_denied:           "Facebook cancelled or denied",
   no_code:                "Callback incomplete",
   exchange_failed:        "Token exchange failed",
+  extension_failed:       "Facebook connection failed",
   csrf_mismatch:          "Security check failed",
   config_error:           "Server configuration error",
   missing_redirect_uri_cookie: "OAuth session expired",
@@ -35,6 +36,13 @@ const REASON_HINTS: Record<string, string> = {
     "FACEBOOK_APP_ID or FACEBOOK_APP_SECRET in your server environment " +
     "does not match the Meta app dashboard (Settings → Basic). " +
     "Check both values and redeploy.",
+  extension_failed:
+    "Facebook connection failed. Could not obtain a long-lived access token. " +
+    "This is almost always caused by FACEBOOK_APP_SECRET not matching the " +
+    "value in Meta app → Settings → Basic. " +
+    "Check FACEBOOK_APP_SECRET in your Vercel environment variables, " +
+    "make sure it exactly matches the App Secret shown in the Meta dashboard, " +
+    "then reconnect again.",
   csrf_mismatch:
     "The OAuth state parameter did not match. This can happen if the " +
     "connection attempt was interrupted. Please try again.",

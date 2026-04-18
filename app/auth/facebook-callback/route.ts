@@ -100,63 +100,118 @@ async function exchangeCodeWithFacebook(
   return { token: json.access_token, expiresIn: json.expires_in ?? null };
 }
 
-interface ExtendTokenResult {
-  token: string;
-  /** Absolute expiry as ISO string; null when extension failed (short-lived ~2h). */
-  expiresAt: string | null;
-  extended: boolean;
-  failureReason?: string;
-}
+/**
+ * Discriminated union — forces callers to handle failure before accessing the token.
+ * This makes it structurally impossible to store a short-lived token when extension fails.
+ */
+type ExtendTokenResult =
+  | {
+      ok: true;
+      /** Long-lived access token (~60 days) */
+      token: string;
+      /** ISO string; always set on success */
+      expiresAt: string;
+      /** Seconds until expiry as returned by Facebook */
+      expiresInSeconds: number;
+    }
+  | {
+      ok: false;
+      /** Human-readable failure reason for logs and the error page detail param */
+      error: string;
+    };
 
+/**
+ * Exchange a short-lived token for a ~60-day long-lived token.
+ *
+ * Env vars used:
+ *   FACEBOOK_APP_ID      — numeric Facebook App ID (Meta dashboard → Settings → Basic)
+ *   FACEBOOK_APP_SECRET  — Facebook App Secret   (same location — keep server-only)
+ *
+ * Returns { ok: false } on ANY failure — caller MUST abort and NOT store the
+ * short-lived token.
+ */
 async function extendToken(shortToken: string): Promise<ExtendTokenResult> {
   const appId     = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
 
+  // ── Step 1: Validate env vars ─────────────────────────────────────────────
+  console.info("[fb-callback/direct] extendToken — starting long-lived token extension");
+  console.info(
+    "[fb-callback/direct] extendToken — env vars:",
+    `FACEBOOK_APP_ID=${appId ? `set (${appId})` : "MISSING"}`,
+    `FACEBOOK_APP_SECRET=${appSecret ? `set (len=${appSecret.length})` : "MISSING"}`,
+  );
+
   if (!appId || !appSecret) {
-    console.warn(
-      "[fb-callback/direct] FACEBOOK_APP_ID or FACEBOOK_APP_SECRET missing — " +
-      "cannot extend to long-lived token. Storing SHORT-LIVED token (~2 hours).",
+    const reason =
+      !appId && !appSecret
+        ? "FACEBOOK_APP_ID and FACEBOOK_APP_SECRET are both missing from server environment"
+        : !appId
+          ? "FACEBOOK_APP_ID is missing from server environment"
+          : "FACEBOOK_APP_SECRET is missing from server environment";
+    console.error(
+      "[fb-callback/direct] extendToken FAILED —", reason,
+      "\n  ACTION: Add both env vars from Meta app dashboard → Settings → Basic.",
+      "\n  DB write SKIPPED — short-lived token NOT stored.",
     );
-    return { token: shortToken, expiresAt: null, extended: false, failureReason: "env vars missing" };
+    return { ok: false, error: reason };
   }
 
+  // ── Step 2: Log short-lived token receipt ─────────────────────────────────
+  console.info(
+    "[fb-callback/direct] extendToken — short-lived token received:",
+    `len=${shortToken.length} prefix=${shortToken.slice(0, 12)}…`,
+  );
+
+  // ── Step 3: Call fb_exchange_token ────────────────────────────────────────
   const url = new URL("https://graph.facebook.com/oauth/access_token");
   url.searchParams.set("grant_type", "fb_exchange_token");
   url.searchParams.set("client_id", appId);
   url.searchParams.set("client_secret", appSecret);
   url.searchParams.set("fb_exchange_token", shortToken);
 
-  const res  = await fetch(url.toString(), { cache: "no-store" });
-  const json = (await res.json()) as FbTokenResponse;
+  console.info("[fb-callback/direct] extendToken — calling fb_exchange_token…");
 
-  if (!res.ok || json.error || !json.access_token) {
-    const reason = json.error?.message ?? `HTTP ${res.status}`;
-    // ⚠️ This is the silent bug that causes "Session has expired" hours later.
-    // Short-lived tokens last ~2 hours; long-lived tokens last ~60 days.
-    console.error(
-      "[fb-callback/direct] ⚠️  Long-lived token extension FAILED — " +
-      "storing SHORT-LIVED token that will expire in ~2 hours!",
-      "\n  failure reason:", reason,
-      "\n  full response:", JSON.stringify(json),
-    );
-    // Compute approximate expiry for the short-lived token (~2 hours from now)
-    const shortExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-    return { token: shortToken, expiresAt: shortExpiresAt, extended: false, failureReason: reason };
+  let res: Response;
+  let json: FbTokenResponse;
+  try {
+    res  = await fetch(url.toString(), { cache: "no-store" });
+    json = (await res.json()) as FbTokenResponse;
+  } catch (err) {
+    const reason = `Network error calling Facebook token endpoint: ${String(err)}`;
+    console.error("[fb-callback/direct] extendToken FAILED —", reason,
+      "\n  DB write SKIPPED — short-lived token NOT stored.");
+    return { ok: false, error: reason };
   }
 
-  const expiresIn = json.expires_in ?? null;
-  const expiresAt = expiresIn
-    ? new Date(Date.now() + expiresIn * 1000).toISOString()
-    : null;
+  // ── Step 4: Handle Facebook API error ────────────────────────────────────
+  if (!res.ok || json.error || !json.access_token) {
+    const fbErrMsg  = json.error?.message ?? "(no message)";
+    const fbErrType = json.error?.type    ?? "(no type)";
+    const fbErrCode = json.error?.code    ?? "(no code)";
+    const reason = `Facebook rejected extension: ${fbErrMsg} (type=${fbErrType} code=${fbErrCode} HTTP=${res.status})`;
+    console.error(
+      "[fb-callback/direct] extendToken FAILED —", reason,
+      "\n  Most likely cause: FACEBOOK_APP_SECRET does not match Meta dashboard",
+      "\n  or the app is in development mode with restricted token operations.",
+      "\n  full response:", JSON.stringify(json),
+      "\n  DB write SKIPPED — short-lived token NOT stored.",
+    );
+    return { ok: false, error: reason };
+  }
+
+  // ── Step 5: Success ───────────────────────────────────────────────────────
+  const expiresInSeconds = json.expires_in ?? 5_183_944; // 60 days minus a minute as fallback
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
   console.info(
-    "[fb-callback/direct] ✓ Token extended to long-lived.",
-    `expires_in=${expiresIn}s`,
-    `expires_at=${expiresAt ?? "unknown"}`,
-    `token_len=${json.access_token.length}`,
-    `token_prefix=${json.access_token.slice(0, 12)}…`,
+    "[fb-callback/direct] extendToken SUCCEEDED ✓",
+    `\n  expires_in=${expiresInSeconds}s (~${(expiresInSeconds / 86400).toFixed(1)} days)`,
+    `\n  expires_at=${expiresAt}`,
+    `\n  token_len=${json.access_token.length}`,
+    `\n  token_prefix=${json.access_token.slice(0, 12)}…`,
   );
-  return { token: json.access_token, expiresAt, extended: true };
+  return { ok: true, token: json.access_token, expiresAt, expiresInSeconds };
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -231,28 +286,42 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.info("[fb-callback/direct] redirect_uri:", storedRedirectUri);
     console.info("[fb-callback/direct] next:", next);
 
-    // Exchange code → short-lived token
+    // ── Stage 1: Exchange auth code for short-lived token ─────────────────
     const exchangeResult = await exchangeCodeWithFacebook(code, storedRedirectUri);
     if ("error" in exchangeResult) {
       return errorRedirect(origin, "exchange_failed", exchangeResult.error);
     }
-
-    // Extend to ~60-day long-lived token.
-    // ⚠️ If extension fails the result.extended=false and a ~2h short-lived
-    // token is stored — the user will see "Session expired" a few hours later.
-    // The failure reason is logged prominently in extendToken above.
-    const extResult = await extendToken(exchangeResult.token);
-    const finalToken = extResult.token;
     console.info(
-      "[fb-callback/direct] access_token ready:",
-      `len=${finalToken.length}`,
-      `prefix=${finalToken.slice(0, 12)}…`,
-      `extended=${extResult.extended}`,
-      extResult.expiresAt ? `expires_at=${extResult.expiresAt}` : "expires_at=unknown",
-      extResult.failureReason ? `⚠️ failure=${extResult.failureReason}` : "",
+      "[fb-callback/direct] short-lived token received from Facebook ✓",
+      `len=${exchangeResult.token.length} prefix=${exchangeResult.token.slice(0, 12)}…`,
+      `expires_in=${exchangeResult.expiresIn ?? "unknown"}s`,
     );
 
-    // Build the redirect response; session cookies must be written onto it
+    // ── Stage 2: Extend to long-lived token (REQUIRED — fail closed) ───────
+    //
+    // POLICY: We NEVER store a short-lived (~2h) token.  If extension fails,
+    // the reconnect is aborted entirely and the user is sent to the error page.
+    // This prevents the "Session has expired" crash that was occurring hours
+    // after a reconnect where extension had silently failed.
+    const extResult = await extendToken(exchangeResult.token);
+
+    if (!extResult.ok) {
+      // Extension failed — abort, do NOT write to DB.
+      console.error(
+        "[fb-callback/direct] ⛔ Aborting reconnect — extension failed, DB write SKIPPED.",
+        `reason: ${extResult.error}`,
+      );
+      return errorRedirect(origin, "extension_failed", extResult.error);
+    }
+
+    // extResult.ok === true — TypeScript now knows token/expiresAt are present
+    console.info(
+      "[fb-callback/direct] long-lived token ready for DB write ✓",
+      `len=${extResult.token.length} prefix=${extResult.token.slice(0, 12)}…`,
+      `expires_at=${extResult.expiresAt} (~${(extResult.expiresInSeconds / 86400).toFixed(1)}d)`,
+    );
+
+    // ── Stage 3: Build redirect response, load Supabase session ───────────
     const redirectResponse = NextResponse.redirect(`${origin}${next}`);
 
     const supabase = createServerClient(
@@ -277,14 +346,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         "No active session. Sign in and try connecting Facebook again.");
     }
 
+    // ── Stage 4: Persist long-lived token to DB ────────────────────────────
+    // Only reached when extResult.ok === true.  Short-lived tokens are NEVER
+    // written here.
     const { error: dbError } = await supabase
       .from("user_facebook_tokens")
       .upsert(
         {
           user_id: user.id,
-          provider_token: finalToken,
+          provider_token: extResult.token,   // always the long-lived token
           updated_at: new Date().toISOString(),
-          expires_at: extResult.expiresAt,
+          expires_at: extResult.expiresAt,   // always set on success
         },
         { onConflict: "user_id" },
       );
@@ -304,8 +376,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     redirectResponse.cookies.set("fb_oauth_redirect_uri", "", clearOpts);
 
     console.info(
-      "[fb-callback/direct] token persisted ✓ — redirecting to", next,
-      extResult.extended ? "(long-lived ~60d)" : "⚠️ (short-lived ~2h — extension failed)",
+      `[fb-callback/direct] ✓ Long-lived token persisted — redirecting to ${next}`,
+      `expires_at=${extResult.expiresAt}`,
     );
     return redirectResponse;
   }
