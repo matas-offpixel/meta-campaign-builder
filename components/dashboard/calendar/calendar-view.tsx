@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -9,6 +9,8 @@ import {
   Loader2,
   Calendar as CalendarIcon,
   List,
+  Search,
+  X,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { MilestoneChip } from "@/components/dashboard/_shared/milestone-chip";
@@ -55,6 +57,32 @@ function sameDay(a: Date, b: Date): boolean {
 function toYmd(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// ─── Heatmap palette ─────────────────────────────────────────────────────────
+//
+// Each bucket is a literal string so Tailwind's content scanner picks up
+// every utility — never build the tint className from computed numbers.
+// `bg-card` is repeated in each entry so tinted cells keep a solid surface
+// (the grid wrapper is `bg-border`; losing bg-card would let the divider
+// colour bleed through). The arbitrary-value `bg-foreground/[X]` is emitted
+// after the static `bg-card` utility in Tailwind v4, so cascade order
+// resolves to the tint without needing `!`.
+
+const HEATMAP_BG_CLASSES = [
+  "bg-card",
+  "bg-card bg-foreground/[0.03]",
+  "bg-card bg-foreground/[0.06]",
+  "bg-card bg-foreground/[0.10]",
+  "bg-card bg-foreground/[0.15]",
+] as const;
+
+function heatmapTintClass(count: number): string {
+  if (count <= 0) return HEATMAP_BG_CLASSES[0];
+  if (count === 1) return HEATMAP_BG_CLASSES[1];
+  if (count <= 3) return HEATMAP_BG_CLASSES[2];
+  if (count <= 5) return HEATMAP_BG_CLASSES[3];
+  return HEATMAP_BG_CLASSES[4];
 }
 
 // ─── Milestone markers ───────────────────────────────────────────────────────
@@ -115,6 +143,10 @@ export function CalendarView() {
     () => parseCalendarView(searchParams.get("view") ?? undefined),
     [searchParams],
   );
+  const query = useMemo(
+    () => (searchParams.get("q") ?? "").trim(),
+    [searchParams],
+  );
 
   // Mutators preserve every other query param (kinds, etc).
   const writeParams = useCallback(
@@ -152,6 +184,17 @@ export function CalendarView() {
     [writeParams],
   );
 
+  const setQuery = useCallback(
+    (next: string) => {
+      writeParams((p) => {
+        const trimmed = next.trim();
+        if (trimmed === "") p.delete("q");
+        else p.set("q", trimmed);
+      });
+    },
+    [writeParams],
+  );
+
   useEffect(() => {
     async function load() {
       const supabase = createSupabase();
@@ -182,10 +225,23 @@ export function CalendarView() {
   const milestones = useMemo(() => expandMilestones(events), [events]);
 
   const filteredMilestones = useMemo(() => {
-    if (activeKinds === "all") return milestones;
-    const allowed = new Set(activeKinds);
-    return milestones.filter((m) => allowed.has(m.kind));
-  }, [milestones, activeKinds]);
+    let pool = milestones;
+    if (activeKinds !== "all") {
+      const allowed = new Set(activeKinds);
+      pool = pool.filter((m) => allowed.has(m.kind));
+    }
+    if (query) {
+      const needle = query.toLowerCase();
+      pool = pool.filter((m) => {
+        const name = m.event.name.toLowerCase();
+        const client = m.event.client?.name?.toLowerCase() ?? "";
+        return name.includes(needle) || client.includes(needle);
+      });
+    }
+    return pool;
+  }, [milestones, activeKinds, query]);
+
+  const filtersActive = activeKinds !== "all" || query !== "";
 
   return (
     <>
@@ -224,27 +280,38 @@ export function CalendarView() {
 
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl space-y-4">
-          <FilterStrip active={activeKinds} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <FilterStrip active={activeKinds} />
+            <SearchInput initialQuery={query} writeQuery={setQuery} />
+          </div>
 
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : view === "month" ? (
-            <MonthView
-              month={month}
-              milestones={filteredMilestones}
-              now={now}
-              draftByEvent={draftByEvent}
-              onPrev={() => setMonth(addMonths(month, -1))}
-              onNext={() => setMonth(addMonths(month, 1))}
-              onToday={() => setMonth(startOfMonth(now))}
-            />
+            <>
+              <MonthView
+                month={month}
+                milestones={filteredMilestones}
+                now={now}
+                draftByEvent={draftByEvent}
+                onPrev={() => setMonth(addMonths(month, -1))}
+                onNext={() => setMonth(addMonths(month, 1))}
+                onToday={() => setMonth(startOfMonth(now))}
+              />
+              {filtersActive && filteredMilestones.length === 0 && (
+                <p className="py-3 text-center text-xs text-muted-foreground">
+                  No events match these filters.
+                </p>
+              )}
+            </>
           ) : (
             <AgendaView
               milestones={filteredMilestones}
               now={now}
               draftByEvent={draftByEvent}
+              filtersActive={filtersActive}
             />
           )}
 
@@ -309,6 +376,91 @@ function FilterStrip({ active }: { active: MilestoneKind[] | "all" }) {
           </FilterChip>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Search input ────────────────────────────────────────────────────────────
+
+/**
+ * Debounced text filter for ?q=. Local useState mirrors keystrokes for
+ * responsive typing; a useEffect with setTimeout pushes the value to the
+ * URL after 250ms of quiet. The push effect is push-only — it does not
+ * call setState, so React 19's set-state-in-effect rule is satisfied.
+ *
+ * IME composition (CJK input) is suppressed: while a composition is in
+ * progress, no debounced push is scheduled and any pending push is
+ * cancelled. On compositionEnd the debounce restarts with the final value.
+ *
+ * External URL changes (back button, etc.) intentionally do not retro-
+ * actively sync into the local input value — the filter applies regardless
+ * because the parent reads from searchParams. This keeps the component
+ * lint-clean (no setState-in-effect for URL → local sync) at the cost of
+ * one rare-path UX paper-cut.
+ */
+function SearchInput({
+  initialQuery,
+  writeQuery,
+}: {
+  initialQuery: string;
+  writeQuery: (next: string) => void;
+}) {
+  const [value, setValue] = useState(initialQuery);
+  const composingRef = useRef(false);
+  const lastPushedRef = useRef(initialQuery);
+
+  useEffect(() => {
+    if (composingRef.current) return;
+    if (value === lastPushedRef.current) return;
+    const t = setTimeout(() => {
+      lastPushedRef.current = value;
+      writeQuery(value);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [value, writeQuery]);
+
+  const clear = () => {
+    setValue("");
+    // Clearing is an explicit user gesture — flush immediately, don't wait
+    // for the debounce. Update lastPushedRef so the effect treats the
+    // resulting state change as already-synced and skips a redundant push.
+    lastPushedRef.current = "";
+    writeQuery("");
+  };
+
+  return (
+    <div className="relative">
+      <Search
+        className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60"
+        aria-hidden
+      />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          // Mirror the final composed value so the debounce effect picks
+          // it up on the next render.
+          setValue(e.currentTarget.value);
+        }}
+        placeholder="Search events…"
+        aria-label="Search events"
+        className="w-56 rounded-md border border-border bg-card pl-7 pr-7 py-1.5 text-xs placeholder:text-muted-foreground/60 focus:border-border-strong focus:outline-none"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={clear}
+          aria-label="Clear search"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -449,6 +601,9 @@ function MonthView({
           const align = col >= 5 ? "right" : "left";
           const placement = row >= 4 ? "above" : "below";
           const hasHits = hits.length > 0;
+          // Out-of-month cells keep the dim bg-muted/40 cue and skip the
+          // heatmap tint — heatmap is for the visible month only.
+          const cellBg = inMonth ? heatmapTintClass(hits.length) : "bg-muted/40";
 
           return (
             <DayCell
@@ -461,6 +616,7 @@ function MonthView({
               open={open}
               align={align}
               placement={placement}
+              cellBg={cellBg}
               now={now}
               draftByEvent={draftByEvent}
               onOpen={() => setOpenKey(cellKey)}
@@ -484,6 +640,7 @@ function DayCell({
   open,
   align,
   placement,
+  cellBg,
   now,
   draftByEvent,
   onOpen,
@@ -497,6 +654,8 @@ function DayCell({
   open: boolean;
   align: "left" | "right";
   placement: "below" | "above";
+  /** Pre-bucketed background classes from heatmapTintClass / out-of-month. */
+  cellBg: string;
   now: Date;
   draftByEvent: Map<string, { id: string; updated_at: string }>;
   onOpen: () => void;
@@ -513,11 +672,7 @@ function DayCell({
   }`;
 
   return (
-    <div
-      className={`relative min-h-[90px] bg-card p-1.5 flex flex-col gap-1 ${
-        inMonth ? "" : "bg-muted/40"
-      }`}
-    >
+    <div className={`relative min-h-[90px] p-1.5 flex flex-col gap-1 ${cellBg}`}>
       <div className="flex items-center justify-between">
         {hasHits ? (
           <button
@@ -680,10 +835,12 @@ function AgendaView({
   milestones,
   now,
   draftByEvent,
+  filtersActive,
 }: {
   milestones: MilestoneHit[];
   now: Date;
   draftByEvent: Map<string, { id: string; updated_at: string }>;
+  filtersActive: boolean;
 }) {
   // Group upcoming milestones by yyyy-mm-dd, ascending. "Upcoming" is
   // calendar-day-relative to the stabilised `now`, so a milestone falling
@@ -697,11 +854,12 @@ function AgendaView({
     return (
       <div className="rounded-md border border-dashed border-border bg-card p-8 text-center">
         <p className="font-heading text-lg tracking-wide">
-          No upcoming milestones
+          {filtersActive ? "No events match these filters." : "No upcoming milestones"}
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add announcement, presale or general sale dates on an event to see
-          them here. Adjust the filter above if you&apos;ve narrowed kinds.
+          {filtersActive
+            ? "Try clearing the kind filter or search query."
+            : "Add announcement, presale or general sale dates on an event to see them here."}
         </p>
       </div>
     );
