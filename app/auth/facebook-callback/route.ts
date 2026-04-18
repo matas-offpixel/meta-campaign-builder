@@ -43,7 +43,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const oauthError =
     searchParams.get("error_description") ?? searchParams.get("error");
 
-  console.info("[fb-callback] hit —", request.url.slice(0, 120));
+  // ── Comprehensive entry diagnostics ─────────────────────────────────────
+  console.info("[fb-callback] ── HIT ────────────────────────────────────────");
+  console.info("[fb-callback] full URL:", request.url);
+  console.info("[fb-callback] origin:", origin);
+  console.info("[fb-callback] next:", next);
+  console.info(
+    "[fb-callback] code present:", !!code,
+    code ? `(length ${code.length}, starts ${code.slice(0, 6)}…)` : "",
+  );
+  console.info("[fb-callback] oauth_error param:", oauthError ?? "(none)");
+
+  // Log all cookie names so we can confirm the PKCE code-verifier cookie is present.
+  const allCookieNames = request.cookies.getAll().map((c) => c.name);
+  const pkceVerifierCookie = allCookieNames.find(
+    (n) => n.includes("code-verifier") || n.toLowerCase().includes("pkce"),
+  );
+  const supabaseAuthCookies = allCookieNames.filter((n) => n.startsWith("sb-"));
+  console.info("[fb-callback] all cookie names:", allCookieNames.join(", ") || "(none)");
+  console.info(
+    "[fb-callback] PKCE code-verifier cookie:",
+    pkceVerifierCookie ?? "NOT FOUND",
+    pkceVerifierCookie
+      ? "✓"
+      : "✗ — exchangeCodeForSession will fail if verifier is missing",
+  );
+  console.info("[fb-callback] Supabase auth cookies:", supabaseAuthCookies.join(", ") || "(none)");
 
   // ── Facebook / Supabase returned an OAuth-level error ────────────────────
   if (!code && oauthError) {
@@ -87,11 +112,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   );
 
   // ── Exchange the PKCE code for a session ──────────────────────────────────
-  console.info("[fb-callback] exchanging code…");
+  console.info("[fb-callback] calling exchangeCodeForSession…");
   const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
   if (exchangeError) {
-    console.error("[fb-callback] exchangeCodeForSession failed:", exchangeError.message);
+    // Log the full error object — "Unable to exchange external code" means GoTrue
+    // tried to exchange the stored Facebook authorization code with Facebook's
+    // token endpoint and Facebook rejected it.  Common causes:
+    //   1. redirect_uri mismatch — the Supabase project's Facebook OAuth config
+    //      uses a different callback URL than the one registered in Meta's app.
+    //   2. Code expired — Facebook auth codes expire quickly; timing issue.
+    //   3. Wrong API — signInWithOAuth was used for an already-authenticated
+    //      user, creating a PKCE session conflict.  Should use linkIdentity.
+    const errAny = exchangeError as unknown as Record<string, unknown>;
+    console.error("[fb-callback] exchangeCodeForSession FAILED:", {
+      message: exchangeError.message,
+      status: errAny.status ?? "?",
+      name: exchangeError.name,
+      code: errAny.code ?? "?",
+    });
+    console.error(
+      "[fb-callback] Diagnosis hint:" +
+        "\n  — If 'Unable to exchange external code': check Supabase dashboard → Auth → Providers → Facebook." +
+        "\n    The 'Callback URL' shown there must be added to Meta app → Facebook Login → Valid OAuth Redirect URIs." +
+        "\n    Our app callback URL should be in Supabase Auth → URL Configuration → Redirect URLs (not in Meta)." +
+        "\n  — PKCE verifier cookie present:", pkceVerifierCookie ?? "NOT FOUND",
+    );
     return errorRedirect(origin, "exchange_failed", exchangeError.message);
   }
 
