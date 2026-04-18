@@ -500,6 +500,12 @@ export interface SuggestionsDebugInfo {
   fallbackUsed: boolean;
   fallbackSeedNames: string[];
   rawSuggestionCount: number;
+  /** Stage R2 — 2-hop bridge expansion: indicates whether a second-hop pass
+   *  was issued, which 1st-hop multi-source bridges seeded it, and how many
+   *  net-new candidates it contributed to the pool. */
+  twoHopApplied?: boolean;
+  twoHopBridgeNames?: string[];
+  twoHopNewCandidateCount?: number;
   /** Landing 1: enrichment + structural filter telemetry */
   enrichedCandidateCount: number;
   droppedMissingPathCount: number;
@@ -3313,13 +3319,98 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
+  // ── Step 5a: 2-hop bridge expansion (related-interest depth) ─────────────
+  // After the first hop, the strongest non-seed candidates that surfaced from
+  // multiple seeds are likely on-ecosystem bridges. Use them as new seeds for
+  // a single additional hop so the related-interest panel is richer and
+  // closer to what Meta Ads Manager surfaces. Bounded and safe:
+  //   - only kicks in if the first-hop pool is below a target richness
+  //   - only the strongest multi-source bridges are used (max 3)
+  //   - bridges must not be near-clones of the original seeds
+  //   - new pool size is hard-capped to avoid runaway calls
+  const TWO_HOP_TARGET_POOL_SIZE = 60;
+  const TWO_HOP_BRIDGE_MAX = 3;
+  const TWO_HOP_NEW_CANDIDATE_CAP = 80;
+  let twoHopApplied = false;
+  let twoHopBridgeNames: string[] = [];
+  let twoHopNewCandidateCount = 0;
+
+  if (pool.size < TWO_HOP_TARGET_POOL_SIZE) {
+    const seedLowerNames = new Set(sortedSeeds.map((s) => s.name.toLowerCase()));
+    const isClone = (candidate: string): boolean => {
+      const cl = candidate.toLowerCase();
+      if (seedLowerNames.has(cl)) return true;
+      // Substring overlap with any seed (either direction) ≥ 70% of the
+      // shorter name length is treated as a near-clone bridge.
+      for (const seed of seedLowerNames) {
+        if (seed.length === 0 || cl.length === 0) continue;
+        const shorter = seed.length < cl.length ? seed : cl;
+        const longer = seed.length < cl.length ? cl : seed;
+        if (longer.includes(shorter) && shorter.length / longer.length >= 0.7) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const bridges = Array.from(pool.values())
+      .filter((entry) => entry.sourceSeeds.size >= 2 && !isClone(entry.item.name))
+      .sort((a, b) => {
+        const sa = (a.item.audience_size ?? 0) + a.sourceSeeds.size * 1e7;
+        const sb = (b.item.audience_size ?? 0) + b.sourceSeeds.size * 1e7;
+        return sb - sa;
+      })
+      .slice(0, TWO_HOP_BRIDGE_MAX);
+
+    if (bridges.length > 0) {
+      twoHopBridgeNames = bridges.map((b) => b.item.name);
+      console.info(
+        `[interest-suggestions] ── Stage R2: 2-hop bridge expansion (${bridges.length} bridges) ──` +
+        `\n  bridges: ${twoHopBridgeNames.join(" | ")}`,
+      );
+
+      const twoHopResults = await Promise.allSettled(
+        bridges.map((b) => callMeta([b.item.name], `bridge:${b.item.id}(${b.item.name})`)),
+      );
+
+      let added = 0;
+      for (let i = 0; i < bridges.length; i++) {
+        const settled = twoHopResults[i];
+        if (settled.status !== "fulfilled" || !settled.value.ok) continue;
+        for (const item of settled.value.data) {
+          if (!item.id) continue;
+          if (added >= TWO_HOP_NEW_CANDIDATE_CAP) break;
+          const existing = pool.get(item.id);
+          if (existing) {
+            // Bridge confirms an existing 1-hop result — boost its reach
+            // by registering the bridge as an additional source seed.
+            existing.sourceSeeds.add(`bridge:${bridges[i].item.id}`);
+          } else {
+            pool.set(item.id, {
+              item,
+              sourceSeeds: new Set([`bridge:${bridges[i].item.id}`]),
+            });
+            added++;
+          }
+        }
+      }
+      twoHopNewCandidateCount = added;
+      twoHopApplied = true;
+      console.info(
+        `[interest-suggestions] 2-hop expansion: +${added} new candidates (pool now ${pool.size})`,
+      );
+    }
+  }
+
   // ── Step 5b: enrichment — fetch authoritative taxonomy metadata ──────────
   // Landing 1: call adinterestvalid to get path[] for every raw candidate.
   // The path is the authoritative taxonomy root that tells us whether this
   // candidate is an Interest, a Behavior, or a Demographic. This replaces the
   // entire regex-based junk-filtering layer.
 
-  const candidateIds = raw.map((r) => r.id).filter(Boolean);
+  // Refresh raw view from the pool (2-hop expansion may have added items).
+  const rawAll = Array.from(pool.values()).map((entry) => entry.item);
+  const candidateIds = rawAll.map((r) => r.id).filter(Boolean);
   const { enriched } = await enrichCandidates(candidateIds, token, BASE);
 
   // ── Step 6: filter, classify, and score ──────────────────────────────────
@@ -3345,7 +3436,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const clusterFitDistribution: Record<string, number> = {};
   const seedQualityDistribution: Record<string, number> = {};
 
-  for (const item of raw) {
+  for (const item of rawAll) {
     // 6a. Exclude already-selected IDs
     if (excludeIds.has(item.id)) { excludedBySeed++; continue; }
 
@@ -4232,6 +4323,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     fallbackUsed,
     fallbackSeedNames,
     rawSuggestionCount: raw.length,
+    twoHopApplied,
+    twoHopBridgeNames,
+    twoHopNewCandidateCount,
     enrichedCandidateCount: enriched.size,
     droppedMissingPathCount: droppedMissingPath,
     droppedNonInterestCount: droppedNonInterest,
@@ -4329,6 +4423,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   console.info(
     `[interest-suggestions] ── REQUEST SUMMARY ──\n` +
     `  token: ${tokenSource}  seeds: ${sortedSeeds.length}  results: ${finalSuggestions.length}\n` +
+    `  2-hop: ${twoHopApplied ? `ON bridges=${twoHopBridgeNames.length} new=${twoHopNewCandidateCount}` : "OFF"}\n` +
     `  emptyReason: ${emptyReason ?? "none"}  fallback: ${fallbackUsed}`,
   );
 

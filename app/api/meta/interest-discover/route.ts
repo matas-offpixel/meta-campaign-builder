@@ -33,6 +33,13 @@ import {
   isGenericClusterCenterRow,
   resolvePersonaClusterBiases,
 } from "@/lib/audience-personas";
+import {
+  applyClusterAnchorBias,
+  applyCrossClusterDifferentiation,
+  applySemanticFamilyPenalty,
+  type DiversityRow,
+  tagResultMix,
+} from "@/lib/discovery-diversity";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -758,6 +765,45 @@ const SCENE_HINT_EXPANSION_MAP: Array<{
   { pattern: /\bibiza\b/i,               seeds: ["Ibiza", "beach club", "electronic dance music", "house music"] },
   { pattern: /\bberghain\b/i,            seeds: ["Berghain", "techno music", "underground music"] },
   { pattern: /\bfabric\b/i,              seeds: ["Fabric nightclub", "electronic music", "clubbing"] },
+  // ── Art fair / contemporary art ecosystem (lateral, not literal) ──────────
+  { pattern: /\bfrieze\b/i,              seeds: ["Frieze Art Fair", "art fair", "contemporary art", "art gallery", "art collector"] },
+  { pattern: /\bart\s*basel\b/i,         seeds: ["Art Basel", "art fair", "contemporary art", "art collector", "modern art"] },
+  { pattern: /\bvenice\s*biennale\b/i,   seeds: ["Venice Biennale", "art fair", "contemporary art", "art exhibition"] },
+  { pattern: /\bdocumenta\b/i,           seeds: ["Documenta", "contemporary art", "art exhibition"] },
+  { pattern: /\bart\s*fair\b/i,          seeds: ["art fair", "contemporary art", "art gallery", "art collector"] },
+  { pattern: /\b(gallery|galleries)\b/i, seeds: ["art gallery", "contemporary art", "art exhibition"] },
+  { pattern: /\b(museum|museums)\b/i,    seeds: ["art museum", "museum", "contemporary art", "art exhibition"] },
+  { pattern: /\b(exhibition|exhibitions)\b/i, seeds: ["art exhibition", "art gallery", "contemporary art"] },
+  { pattern: /\b(installation|public\s*art|street\s*art)\b/i, seeds: ["public art", "art exhibition", "contemporary art"] },
+  { pattern: /\b(design\s*week|design\s*festival|design\s*museum)\b/i, seeds: ["interior design", "design", "architecture"] },
+  // ── Streaming / music platforms (lateral) ────────────────────────────────
+  { pattern: /\bspotify\b/i,             seeds: ["Spotify", "music streaming service", "playlist", "music discovery"] },
+  { pattern: /\bapple\s*music\b/i,       seeds: ["Apple Music", "music streaming service", "playlist"] },
+  { pattern: /\b(soundcloud|sound\s*cloud)\b/i, seeds: ["SoundCloud", "music streaming service", "DJ", "underground music"] },
+  { pattern: /\bbandcamp\b/i,            seeds: ["Bandcamp", "independent music", "music discovery"] },
+  { pattern: /\b(tidal|deezer|youtube\s*music|mixcloud)\b/i, seeds: ["music streaming service", "playlist", "music discovery"] },
+  { pattern: /\b(streaming\s*culture|music\s*discovery|playlist|tastemaker)\b/i, seeds: ["music streaming service", "playlist", "music discovery"] },
+  // ── Music media / radio (lateral) ────────────────────────────────────────
+  { pattern: /\bnts\s*(radio)?\b/i,      seeds: ["NTS Radio", "internet radio", "underground music", "DJ"] },
+  { pattern: /\brinse\s*(fm)?\b/i,       seeds: ["Rinse FM", "internet radio", "underground music"] },
+  { pattern: /\bkcrw\b/i,                seeds: ["KCRW", "radio station", "music discovery"] },
+  { pattern: /\b(boiler\s*room)\b/i,     seeds: ["Boiler Room", "DJ", "electronic music", "underground music"] },
+  { pattern: /\b(resident\s*advisor|ra\.?co)\b/i, seeds: ["Resident Advisor", "electronic music", "DJ", "clubbing"] },
+  { pattern: /\bmixmag\b/i,              seeds: ["Mixmag", "electronic music", "DJ", "clubbing"] },
+  { pattern: /\b(dj\s*mag|djmag)\b/i,    seeds: ["DJ Mag", "DJ", "electronic music"] },
+  { pattern: /\b(pitchfork|fact\s*magazine|the\s*quietus|crack\s*magazine)\b/i, seeds: ["music journalism", "music streaming service", "independent music"] },
+  // ── Queer / subculture / underground community (lateral, NOT fitness) ─────
+  { pattern: /\bqueer\b/i,               seeds: ["LGBT culture", "Pride parade", "nightlife", "subculture", "alternative culture"] },
+  { pattern: /\blgbtq?\+?\b/i,           seeds: ["LGBT culture", "Pride parade", "nightlife", "alternative culture"] },
+  { pattern: /\bdrag\s*(show|queen|culture)?\b/i, seeds: ["Drag (clothing)", "LGBT culture", "nightlife"] },
+  { pattern: /\bsubculture(s)?\b/i,      seeds: ["Subculture", "alternative culture", "nightlife", "underground music"] },
+  { pattern: /\b(underground\s+community|alt(ernative)?\s+(scene|community|culture))\b/i, seeds: ["alternative culture", "subculture", "nightlife", "underground music"] },
+  { pattern: /\b(queer.?friendly\s+(venue|venues|space|spaces))\b/i, seeds: ["LGBT culture", "nightlife", "subculture"] },
+  { pattern: /\b(boutique\s+festival|boutique\s+hotel|boutique\s+lifestyle)\b/i, seeds: ["boutique hotel", "music festival", "travel"] },
+  // ── City scenes / lifestyle ──────────────────────────────────────────────
+  { pattern: /\b(city\s+break|weekend\s+break|mini\s+break)\b/i, seeds: ["travel", "boutique hotel", "city tour"] },
+  { pattern: /\b(natural\s+wine|specialty\s+coffee|cocktail\s+culture|craft\s+beer)\b/i, seeds: ["wine tasting", "cocktail", "coffee culture", "craft beer"] },
+  { pattern: /\b(fine\s+dining|tasting\s+menu|chef|restaurant\s+culture)\b/i, seeds: ["fine dining", "restaurant", "food and drink"] },
   // ── Generic catch-all expansions ────────────────────────────────────────
   { pattern: /\bfestival\b/i,            seeds: ["music festival", "festival", "live music"] },
   { pattern: /\bunderground\b/i,         seeds: ["underground music", "electronic dance music"] },
@@ -1003,6 +1049,17 @@ interface ClusteredInterest {
   searchTerm: string;
   relevanceScore?: number;
   matchReason?: string;
+  // ── Discovery-only diversity metadata (Stage D1+D2+D3, optional) ────────
+  /** Anchor concept that matched (e.g. "nightlife", "art_fair"). */
+  anchorMatched?: string;
+  /** True if this row was soft-penalised by the cluster's downrank patterns. */
+  downranked?: boolean;
+  /** Narrow semantic family the row belongs to (e.g. "house_genre"). */
+  semanticFamily?: string;
+  /** True if this row was demoted by the cross-cluster overlap pass. */
+  crossClusterDemoted?: boolean;
+  /** Short human label for why the row was reordered (anchor/family-dup/etc). */
+  diversityReason?: string;
 }
 
 export interface DiscoverCluster {
@@ -3379,6 +3436,15 @@ async function discoverForCluster(
     personaBucketDistributionAfter: Record<string, number>;
     personaDiversificationApplied: boolean;
   };
+  /** Discovery-only diversity diagnostics (Stage D1+D2). Undefined for Sports
+   *  clusters and for empty result sets — those skip the diversity passes. */
+  diversity?: {
+    anchorMatchedNames: string[];
+    downrankedNames: string[];
+    familyDemotedNames: string[];
+    familyCounts: Record<string, number>;
+    resultMix?: Record<"exact" | "adjacent" | "broader", number>;
+  };
 }> {
   const entityTerms = buildClusterTerms(tagWeights, clusterLabel, confidence);
 
@@ -3975,6 +4041,59 @@ async function discoverForCluster(
     );
   }
 
+  // ── Discovery diversity layer (Stage D1+D2) ───────────────────────────────
+  // D1 = cluster anchor bias    (boost on-cluster anchors; soft-penalise
+  //                              cluster-foreign families like fitness in
+  //                              Lifestyle, daytime-tv in Media, etc.)
+  // D2 = semantic-family penalty (no more than one or two same-narrow-family
+  //                              candidates crowding the top slice)
+  // Sports keeps its dedicated bucket pass; D1+D2 only run elsewhere so we
+  // don't conflict with the team_club / gym-first / family pipelines.
+  let diversityAnchorMatched: string[] = [];
+  let diversityDownranked: string[] = [];
+  let diversityFamilyDemoted: string[] = [];
+  let diversityFamilyCounts: Record<string, number> = {};
+  let diversityResultMix: Record<"exact" | "adjacent" | "broader", number> | undefined;
+  if (!isSports && sorted.length > 0) {
+    const anchorPass = applyClusterAnchorBias(
+      sorted as unknown as DiversityRow[],
+      clusterLabel,
+    );
+    diversityAnchorMatched = anchorPass.anchorMatchedNames;
+    diversityDownranked = anchorPass.downrankedNames;
+
+    // Re-sort after anchor bias so family pass walks the freshly biased order.
+    sorted = sorted.sort(
+      (a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0),
+    );
+
+    const familyPass = applySemanticFamilyPenalty(
+      sorted as unknown as DiversityRow[],
+    );
+    diversityFamilyDemoted = familyPass.demotedNames;
+    diversityFamilyCounts = familyPass.familyCounts;
+
+    sorted = sorted.sort(
+      (a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0),
+    );
+
+    if (
+      diversityAnchorMatched.length > 0 ||
+      diversityDownranked.length > 0 ||
+      diversityFamilyDemoted.length > 0
+    ) {
+      console.info(
+        `[discovery-diversity] cluster="${clusterLabel}" ` +
+        `anchor=${diversityAnchorMatched.length} ` +
+        `downrank=${diversityDownranked.length} ` +
+        `family-demoted=${diversityFamilyDemoted.length}` +
+        (Object.keys(diversityFamilyCounts).length > 0
+          ? `  families: ${Object.entries(diversityFamilyCounts).map(([k, v]) => `${k}=${v}`).join(" ")}`
+          : ""),
+      );
+    }
+  }
+
   // Sports-specific bucket diversification so competitions/fans/broadcasters
   // don't get crowded out by fitness or generic live-music entries in the
   // visible top slice. Only active for Sports & Live Events.
@@ -4022,6 +4141,16 @@ async function discoverForCluster(
     );
   }
 
+  // Tag final result mix (exact / adjacent / broader) for diagnostics. This
+  // does NOT change scores — it only annotates `matchReason` and produces the
+  // mix counts used in the request summary log.
+  if (!isSports && interests.length > 0) {
+    diversityResultMix = tagResultMix(
+      interests as unknown as DiversityRow[],
+      clusterLabel,
+    );
+  }
+
   console.info(
     `[interest-discover] cluster="${clusterLabel}" ── FINAL(${interests.length}) ──\n` +
     interests.map((i) =>
@@ -4054,6 +4183,13 @@ async function discoverForCluster(
     sportsBucketDistribution,
     sportsResolution,
     personaResolution,
+    diversity: {
+      anchorMatchedNames: diversityAnchorMatched,
+      downrankedNames: diversityDownranked,
+      familyDemotedNames: diversityFamilyDemoted,
+      familyCounts: diversityFamilyCounts,
+      resultMix: diversityResultMix,
+    },
   };
 }
 
@@ -4268,8 +4404,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     Record<string, number>
   > = {};
 
+  // Per-cluster diversity diagnostics — populated by discoverForCluster's
+  // discovery-diversity pass. Used for cross-cluster differentiation below
+  // and surfaced in the request-summary log.
+  const diversityByCluster: Record<
+    string,
+    {
+      anchorMatchedNames: string[];
+      downrankedNames: string[];
+      familyDemotedNames: string[];
+      familyCounts: Record<string, number>;
+      resultMix?: Record<"exact" | "adjacent" | "broader", number>;
+    }
+  > = {};
+
   for (const label of targetLabels) {
-    const { cluster, termsUsed, fallbackStage, hintBias, sportsResolution, personaResolution } = await discoverForCluster(
+    const { cluster, termsUsed, fallbackStage, hintBias, sportsResolution, personaResolution, diversity } = await discoverForCluster(
       label,
       tagWeights,
       confidence,
@@ -4285,6 +4435,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     clusterFallbackStages[label] = fallbackStage;
     if (cluster.interests.length > 0) clusters.push(cluster);
     if (hintBias) hintBiasByCluster[label] = hintBias;
+    if (diversity) diversityByCluster[label] = diversity;
     if (sportsResolution) {
       sportsResolutionForResponse = {
         hintEntitiesDetected: sportsResolution.entitiesDetected,
@@ -4397,6 +4548,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // ── Cross-cluster differentiation (Stage D3) ──────────────────────────────
+  // If the same Meta interest ID surfaces in two or more clusters, demote it
+  // in every cluster except the one with the strongest anchor / relevance.
+  // This stops Activities & Culture from looking like Lifestyle, etc.
+  let crossClusterDemotions: Record<string, string[]> = {};
+  if (clusters.length >= 2) {
+    const byCluster: Record<string, DiversityRow[]> = {};
+    for (const c of clusters) {
+      // Sports keeps its own pipeline — exclude it from cross-cluster pass.
+      if (c.label === "Sports & Live Events") continue;
+      byCluster[c.label] = c.interests as unknown as DiversityRow[];
+    }
+    if (Object.keys(byCluster).length >= 2) {
+      const result = applyCrossClusterDifferentiation(byCluster);
+      crossClusterDemotions = result.demotionsByCluster;
+
+      // Re-sort each affected cluster and re-cap so the demotions are
+      // reflected in the order shown to the user.
+      for (const c of clusters) {
+        if (c.label === "Sports & Live Events") continue;
+        c.interests.sort(
+          (a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0),
+        );
+      }
+
+      const totalDemoted = Object.values(crossClusterDemotions).reduce(
+        (n, arr) => n + arr.length,
+        0,
+      );
+      if (totalDemoted > 0) {
+        console.info(
+          `[discovery-diversity] cross-cluster demotions: ` +
+          Object.entries(crossClusterDemotions)
+            .filter(([, names]) => names.length > 0)
+            .map(([cl, names]) => `${cl}=${names.length}`)
+            .join(" "),
+        );
+      }
+    }
+  }
+
   const searchTermsUsed = [...new Set(Object.values(clusterSeeds).flat())];
   const detectedSceneTags = [...tagWeights.keys()].filter((t) => (tagWeights.get(t) ?? 0) > 0);
 
@@ -4449,11 +4641,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return `${l.split(" ")[0]}=${c?.interests.length ?? 0}${fbTag}`;
     })
     .join(" ");
+  // Diversity summary: per-cluster mix counts (exact/adjacent/broader) and
+  // total cross-cluster demotions. Helps tune anchors without reading FINAL
+  // logs per cluster.
+  const diversitySummary = Object.entries(diversityByCluster)
+    .map(([label, d]) => {
+      const mix = d.resultMix;
+      const mixStr = mix
+        ? `mix(${mix.exact}/${mix.adjacent}/${mix.broader})`
+        : "mix(-/-/-)";
+      const anchorStr = d.anchorMatchedNames.length > 0 ? `anchor=${d.anchorMatchedNames.length}` : "";
+      const downStr = d.downrankedNames.length > 0 ? `down=${d.downrankedNames.length}` : "";
+      const famStr = d.familyDemotedNames.length > 0 ? `fam=${d.familyDemotedNames.length}` : "";
+      const xStr = (crossClusterDemotions[label] ?? []).length > 0
+        ? `xcl=${crossClusterDemotions[label].length}`
+        : "";
+      return `${label.split(" ")[0]}:${mixStr}${[anchorStr, downStr, famStr, xStr].filter(Boolean).map((s) => " " + s).join("")}`;
+    })
+    .join(" | ");
+
   console.info(
     `[interest-discover] ── REQUEST SUMMARY ──\n` +
     `  token: ${tokenSource}  hints: ${rawHints.length > 0 ? JSON.stringify(rawHints) : "<none>"}\n` +
     `  expansion: ${discoveryExpansionSeeds.length > 0 ? `${discoveryExpansionSeeds.length} seeds (${discoveryExpansionSeeds.slice(0, 4).join(", ")}${discoveryExpansionSeeds.length > 4 ? "…" : ""})` : "none"}\n` +
     `  clusters: ${clusterSummary}\n` +
+    `  diversity: ${diversitySummary || "<none>"}\n` +
     `  fallback: curated=${curatedFallbackUsed} emergency=${emergencyFallbackUsed}  total=${discoveryMeta.resultCount} interests`,
   );
 
