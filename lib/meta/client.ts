@@ -295,6 +295,8 @@ export async function fetchCampaignsForAccount(params: {
   limit?: number;
   /** Pagination cursor returned by a previous call. */
   after?: string;
+  /** OAuth or system token. When supplied uses graphGetWithToken instead of the env-var graphGet. */
+  token?: string;
 }): Promise<FetchCampaignsResult> {
   const {
     adAccountId,
@@ -302,6 +304,7 @@ export async function fetchCampaignsForAccount(params: {
     nameContains,
     limit = 25,
     after,
+    token,
   } = params;
 
   const fields = [
@@ -334,10 +337,9 @@ export async function fetchCampaignsForAccount(params: {
 
   if (after) queryParams.after = after;
 
-  const res = await graphGet<GraphPagedResponse<RawMetaCampaign>>(
-    `/${adAccountId}/campaigns`,
-    queryParams,
-  );
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(`/${adAccountId}/campaigns`, queryParams, token)
+    : await graphGet<GraphPagedResponse<RawMetaCampaign>>(`/${adAccountId}/campaigns`, queryParams);
 
   // Sort newest first by updated_time then created_time so the picker's
   // "recency" promise holds even when Meta returns a non-deterministic order.
@@ -438,6 +440,8 @@ export async function fetchAdSetsForCampaign(params: {
   limit?: number;
   /** Pagination cursor returned by a previous call. */
   after?: string;
+  /** OAuth or system token. When supplied uses graphGetWithToken instead of the env-var graphGet. */
+  token?: string;
 }): Promise<FetchAdSetsResult> {
   const {
     campaignId,
@@ -445,6 +449,7 @@ export async function fetchAdSetsForCampaign(params: {
     nameContains,
     limit = 25,
     after,
+    token,
   } = params;
 
   const fields = [
@@ -483,10 +488,9 @@ export async function fetchAdSetsForCampaign(params: {
 
   if (after) queryParams.after = after;
 
-  const res = await graphGet<GraphPagedResponse<RawMetaAdSet>>(
-    `/${campaignId}/adsets`,
-    queryParams,
-  );
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<RawMetaAdSet>>(`/${campaignId}/adsets`, queryParams, token)
+    : await graphGet<GraphPagedResponse<RawMetaAdSet>>(`/${campaignId}/adsets`, queryParams);
 
   const sorted = [...(res.data ?? [])].sort((a, b) => {
     const aT = Date.parse(a.updated_time ?? a.created_time ?? "") || 0;

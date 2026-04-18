@@ -36,6 +36,7 @@ import {
   MetaApiError,
   type RawMetaCampaign,
 } from "@/lib/meta/client";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { mapMetaObjectiveToInternal } from "@/lib/meta/campaign";
 import type {
   MetaCampaignSummary,
@@ -126,9 +127,22 @@ export async function GET(req: NextRequest) {
     ? Math.min(Math.max(1, Math.trunc(rawLimit)), MAX_LIMIT)
     : DEFAULT_LIMIT;
 
+  // ── Resolve freshest available token ─────────────────────────────────────
+  let token: string;
+  let tokenSource: string;
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    tokenSource = resolved.source;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "No Meta token available";
+    console.error("[/api/meta/campaigns] token resolution failed:", msg);
+    return Response.json({ error: msg }, { status: 502 });
+  }
+
   console.log(
     `[/api/meta/campaigns] fetch start adAccountId=${adAccountId} filter=${filter}` +
-      ` search=${search ?? "-"} limit=${limit} after=${after ? "yes" : "no"}`,
+      ` search=${search ?? "-"} limit=${limit} after=${after ? "yes" : "no"} tokenSource=${tokenSource}`,
   );
 
   try {
@@ -138,6 +152,7 @@ export async function GET(req: NextRequest) {
       nameContains: search,
       limit,
       after,
+      token,
     });
 
     const data = res.data.map(toSummary);
@@ -148,10 +163,11 @@ export async function GET(req: NextRequest) {
         ` returned=${data.length} compatible=${compatibleCount} hasMore=${res.hasMore}`,
     );
 
-    const body: MetaCampaignsResponse = {
+    const body: MetaCampaignsResponse & { tokenSource: string } = {
       data,
       count: data.length,
       paging: { after: res.nextCursor, hasMore: res.hasMore },
+      tokenSource,
     };
     return Response.json(body);
   } catch (err) {
