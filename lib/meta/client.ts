@@ -672,6 +672,57 @@ export async function fetchInstagramAccounts(
   return Array.from(seen.values());
 }
 
+// ─── Ad account Instagram actors ─────────────────────────────────────────────
+
+/**
+ * Fetch the Instagram accounts that are valid `instagram_actor_id` values for
+ * a given ad account.
+ *
+ * `GET /{adAccountId}/instagram_accounts` is the **authoritative** source for
+ * this information — not `instagram_business_account` on a Page, and not
+ * `/{pageId}/instagram_accounts`.  Meta Ads validates `instagram_actor_id`
+ * against this list server-side and rejects with #100 when the account is not
+ * present.
+ *
+ * Returns an empty array (never throws) when the endpoint is unavailable,
+ * when the token lacks the required permission, or when no accounts are linked.
+ *
+ * @param adAccountId  The ad account id (e.g. "act_1234567890").
+ * @param token        OAuth or system token. Falls back to META_ACCESS_TOKEN.
+ */
+export async function fetchAdAccountIgActors(
+  adAccountId: string,
+  token?: string,
+): Promise<Array<{ id: string; username?: string; name?: string }>> {
+  const t = token ?? process.env.META_ACCESS_TOKEN ?? "";
+  if (!t) {
+    console.warn("[fetchAdAccountIgActors] no token available");
+    return [];
+  }
+  try {
+    const res = await graphGetWithToken<GraphPagedResponse<{ id: string; username?: string; name?: string }>>(
+      `/${adAccountId}/instagram_accounts`,
+      { fields: "id,username,name", limit: "50" },
+      t,
+    );
+    const accounts = res.data ?? [];
+    console.info(
+      `[fetchAdAccountIgActors] ${adAccountId}/instagram_accounts →` +
+        ` ${accounts.length} actor(s):` +
+        ` ${accounts.map((a) => `${a.id}${a.username ? ` (@${a.username})` : ""}`).join(", ") || "(none)"}`,
+    );
+    return accounts;
+  } catch (err) {
+    const msg = err instanceof MetaApiError
+      ? `${err.message}${err.code ? ` (code=${err.code})` : ""}`
+      : err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[fetchAdAccountIgActors] /${adAccountId}/instagram_accounts failed: ${msg}`,
+    );
+    return [];
+  }
+}
+
 // ─── Ad account diagnostics ──────────────────────────────────────────────────
 
 /**
