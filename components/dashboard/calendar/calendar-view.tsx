@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { MilestoneChip } from "@/components/dashboard/_shared/milestone-chip";
+import { DayPopover } from "@/components/dashboard/_shared/day-popover";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import {
   listEvents,
@@ -20,13 +21,17 @@ import {
 } from "@/lib/db/events";
 import {
   daysBetween,
+  fmtMonthParam,
   midnightOf,
+  parseCalendarView,
   parseDateOnly,
   parseMilestoneKinds,
+  parseMonth,
   parseTs,
   MILESTONE_KINDS,
   MILESTONE_LABEL,
   MILESTONE_COLOR,
+  type CalendarView as CalendarViewName,
   type MilestoneKind,
 } from "@/lib/dashboard/format";
 
@@ -82,24 +87,69 @@ function expandMilestones(events: EventWithClient[]): MilestoneHit[] {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-type View = "month" | "agenda";
-
 export function CalendarView() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<EventWithClient[]>([]);
   const [draftByEvent, setDraftByEvent] = useState<
     Map<string, { id: string; updated_at: string }>
   >(() => new Map());
-  const [month, setMonth] = useState<Date>(startOfMonth(new Date()));
-  const [view, setView] = useState<View>("month");
   // Stabilised "now" — captured once on mount to keep agenda-chip
-  // daysAway math deterministic across renders.
+  // daysAway math deterministic across renders, AND used as the
+  // fallback for `?m=` so the URL parser stays pure.
   const [now] = useState(() => new Date());
 
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+
   const activeKinds = useMemo(
     () => parseMilestoneKinds(searchParams.get("kinds") ?? undefined),
     [searchParams],
+  );
+  const month = useMemo(
+    () =>
+      parseMonth(searchParams.get("m") ?? undefined) ?? startOfMonth(now),
+    [searchParams, now],
+  );
+  const view = useMemo<CalendarViewName>(
+    () => parseCalendarView(searchParams.get("view") ?? undefined),
+    [searchParams],
+  );
+
+  // Mutators preserve every other query param (kinds, etc).
+  const writeParams = useCallback(
+    (mutate: (p: URLSearchParams) => void) => {
+      const params = new URLSearchParams(searchParams.toString());
+      mutate(params);
+      const qs = params.toString();
+      router.push(qs ? `${pathname}?${qs}` : pathname);
+    },
+    [router, pathname, searchParams],
+  );
+
+  const setMonth = useCallback(
+    (next: Date) => {
+      const sameAsNowMonth =
+        next.getFullYear() === now.getFullYear() &&
+        next.getMonth() === now.getMonth();
+      writeParams((p) => {
+        // Drop ?m= when we're back on the current month so the URL stays
+        // clean for the most common case.
+        if (sameAsNowMonth) p.delete("m");
+        else p.set("m", fmtMonthParam(next));
+      });
+    },
+    [writeParams, now],
+  );
+
+  const setView = useCallback(
+    (next: CalendarViewName) => {
+      writeParams((p) => {
+        if (next === "month") p.delete("view");
+        else p.set("view", next);
+      });
+    },
+    [writeParams],
   );
 
   useEffect(() => {
@@ -184,9 +234,11 @@ export function CalendarView() {
             <MonthView
               month={month}
               milestones={filteredMilestones}
-              onPrev={() => setMonth((m) => addMonths(m, -1))}
-              onNext={() => setMonth((m) => addMonths(m, 1))}
-              onToday={() => setMonth(startOfMonth(new Date()))}
+              now={now}
+              draftByEvent={draftByEvent}
+              onPrev={() => setMonth(addMonths(month, -1))}
+              onNext={() => setMonth(addMonths(month, 1))}
+              onToday={() => setMonth(startOfMonth(now))}
             />
           ) : (
             <AgendaView
@@ -295,12 +347,16 @@ function FilterChip({
 function MonthView({
   month,
   milestones,
+  now,
+  draftByEvent,
   onPrev,
   onNext,
   onToday,
 }: {
   month: Date;
   milestones: MilestoneHit[];
+  now: Date;
+  draftByEvent: Map<string, { id: string; updated_at: string }>;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
@@ -321,12 +377,16 @@ function MonthView({
     );
   }
 
-  const today = new Date();
-
   const monthLabel = month.toLocaleDateString("en-GB", {
     month: "long",
     year: "numeric",
   });
+
+  // One open-cell at a time. Identified by yyyy-mm-dd of the cell date.
+  // No reset effect needed: when `month` changes, cells remount under new
+  // ISO keys, so a stale openKey simply matches no cell and nothing
+  // renders. New clicks reassign correctly.
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   return (
     <div className="space-y-3">
@@ -370,9 +430,9 @@ function MonthView({
 
       {/* Date cells */}
       <div className="grid grid-cols-7 gap-px rounded-md border border-border bg-border overflow-hidden">
-        {cells.map((cellDate) => {
+        {cells.map((cellDate, idx) => {
           const inMonth = cellDate.getMonth() === month.getMonth();
-          const isToday = sameDay(cellDate, today);
+          const isToday = sameDay(cellDate, now);
           const hits = milestones.filter((m) => sameDay(m.date, cellDate));
           // Sort: event last (most "terminal"), others by time.
           hits.sort((a, b) => {
@@ -380,59 +440,220 @@ function MonthView({
             if (b.kind === "event" && a.kind !== "event") return -1;
             return a.date.getTime() - b.date.getTime();
           });
+          const cellKey = toYmd(cellDate);
+          const open = openKey === cellKey;
+          // Edge-aware placement using grid index. The 7×6 grid is fixed,
+          // so col == idx % 7 and row == Math.floor(idx / 7).
+          const col = idx % 7;
+          const row = Math.floor(idx / 7);
+          const align = col >= 5 ? "right" : "left";
+          const placement = row >= 4 ? "above" : "below";
+          const hasHits = hits.length > 0;
 
           return (
-            <div
+            <DayCell
               key={cellDate.toISOString()}
-              className={`min-h-[90px] bg-card p-1.5 flex flex-col gap-1 ${
-                inMonth ? "" : "bg-muted/40"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className={`text-xs ${
-                    isToday
-                      ? "rounded-full bg-foreground px-1.5 py-0.5 text-background font-semibold"
-                      : inMonth
-                        ? "text-foreground"
-                        : "text-muted-foreground/60"
-                  }`}
-                >
-                  {cellDate.getDate()}
-                </span>
-                {cellDate.getDay() === 1 && inMonth && (
-                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
-                    wk{getWeekNumber(cellDate)}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-col gap-0.5 min-h-0 overflow-hidden">
-                {hits.slice(0, 3).map((m, i) => (
-                  <Link
-                    key={`${m.event.id}-${m.kind}-${i}`}
-                    href={`/events/${m.event.id}`}
-                    className="group flex items-center gap-1.5 truncate text-[10px] text-foreground hover:text-foreground"
-                    title={`${m.event.name} · ${MILESTONE_LABEL[m.kind]}`}
-                  >
-                    <span
-                      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${MILESTONE_COLOR[m.kind]}`}
-                    />
-                    <span className="truncate group-hover:underline">
-                      {m.event.name}
-                    </span>
-                  </Link>
-                ))}
-                {hits.length > 3 && (
-                  <span className="text-[9px] text-muted-foreground">
-                    +{hits.length - 3} more
-                  </span>
-                )}
-              </div>
-            </div>
+              cellDate={cellDate}
+              inMonth={inMonth}
+              isToday={isToday}
+              hits={hits}
+              hasHits={hasHits}
+              open={open}
+              align={align}
+              placement={placement}
+              now={now}
+              draftByEvent={draftByEvent}
+              onOpen={() => setOpenKey(cellKey)}
+              onClose={() => setOpenKey(null)}
+            />
           );
         })}
       </div>
     </div>
+  );
+}
+
+// ─── Day cell ────────────────────────────────────────────────────────────────
+
+function DayCell({
+  cellDate,
+  inMonth,
+  isToday,
+  hits,
+  hasHits,
+  open,
+  align,
+  placement,
+  now,
+  draftByEvent,
+  onOpen,
+  onClose,
+}: {
+  cellDate: Date;
+  inMonth: boolean;
+  isToday: boolean;
+  hits: MilestoneHit[];
+  hasHits: boolean;
+  open: boolean;
+  align: "left" | "right";
+  placement: "below" | "above";
+  now: Date;
+  draftByEvent: Map<string, { id: string; updated_at: string }>;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  // The day-number / "+N more" trigger. When the cell has no hits the
+  // day number stays a passive span — there's nothing to expand.
+  const dayNumberCls = `text-xs ${
+    isToday
+      ? "rounded-full bg-foreground px-1.5 py-0.5 text-background font-semibold"
+      : inMonth
+        ? "text-foreground"
+        : "text-muted-foreground/60"
+  }`;
+
+  return (
+    <div
+      className={`relative min-h-[90px] bg-card p-1.5 flex flex-col gap-1 ${
+        inMonth ? "" : "bg-muted/40"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        {hasHits ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            className={`${dayNumberCls} hover:underline underline-offset-2`}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+          >
+            {cellDate.getDate()}
+          </button>
+        ) : (
+          <span className={dayNumberCls}>{cellDate.getDate()}</span>
+        )}
+        {cellDate.getDay() === 1 && inMonth && (
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
+            wk{getWeekNumber(cellDate)}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-0.5 min-h-0 overflow-hidden">
+        {hits.slice(0, 3).map((m, i) => (
+          <Link
+            key={`${m.event.id}-${m.kind}-${i}`}
+            href={`/events/${m.event.id}`}
+            className="group flex items-center gap-1.5 truncate text-[10px] text-foreground hover:text-foreground"
+            title={`${m.event.name} · ${MILESTONE_LABEL[m.kind]}`}
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${MILESTONE_COLOR[m.kind]}`}
+            />
+            <span className="truncate group-hover:underline">
+              {m.event.name}
+            </span>
+          </Link>
+        ))}
+        {hits.length > 3 && (
+          <button
+            type="button"
+            onClick={onOpen}
+            className="text-left text-[9px] text-muted-foreground hover:text-foreground hover:underline underline-offset-2"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+          >
+            +{hits.length - 3} more
+          </button>
+        )}
+      </div>
+
+      <DayPopover
+        open={open}
+        onClose={onClose}
+        align={align}
+        placement={placement}
+        ariaLabel={`Milestones on ${cellDate.toLocaleDateString("en-GB", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })}`}
+      >
+        <DayPopoverContent
+          cellDate={cellDate}
+          hits={hits}
+          now={now}
+          draftByEvent={draftByEvent}
+          onClose={onClose}
+        />
+      </DayPopover>
+    </div>
+  );
+}
+
+function DayPopoverContent({
+  cellDate,
+  hits,
+  now,
+  draftByEvent,
+  onClose,
+}: {
+  cellDate: Date;
+  hits: MilestoneHit[];
+  now: Date;
+  draftByEvent: Map<string, { id: string; updated_at: string }>;
+  onClose: () => void;
+}) {
+  const daysAway = daysBetween(midnightOf(now), midnightOf(cellDate));
+  return (
+    <>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-medium">
+          {cellDate.toLocaleDateString("en-GB", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })}
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[10px] text-muted-foreground hover:text-foreground"
+          aria-label="Close"
+        >
+          Close
+        </button>
+      </div>
+      <ul className="space-y-1.5">
+        {hits.map((m, i) => {
+          const latestDraft = draftByEvent.get(m.event.id) ?? null;
+          const openCampaignHref = latestDraft
+            ? `/campaign/${latestDraft.id}?eventId=${m.event.id}`
+            : `/events/${m.event.id}?tab=campaigns`;
+          return (
+            <li
+              key={`${m.event.id}-${m.kind}-${i}`}
+              className="flex items-center justify-between gap-2"
+            >
+              <Link
+                href={`/events/${m.event.id}`}
+                className="min-w-0 flex-1 truncate text-xs font-medium hover:underline underline-offset-2"
+              >
+                {m.event.name}
+              </Link>
+              <div className="flex shrink-0 items-center gap-2">
+                <MilestoneChip kind={m.kind} daysAway={daysAway} />
+                <Link
+                  href={openCampaignHref}
+                  className="whitespace-nowrap text-[10px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Open campaign
+                </Link>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

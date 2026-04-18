@@ -222,3 +222,44 @@ export function parseMilestoneKinds(
   const valid = requested.filter((s): s is MilestoneKind => validSet.has(s));
   return valid.length === 0 ? "all" : valid;
 }
+
+// ─── Calendar URL parsing ────────────────────────────────────────────────────
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/**
+ * Parse `?m=YYYY-MM` into a local-midnight Date pinned to day 1 of that
+ * month. Returns null on missing or malformed input — callers should
+ * fall back to the current month.
+ */
+export function parseMonth(value: string | string[] | undefined): Date | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  if (!v || !MONTH_RE.test(v)) return null;
+  const [year, month] = v.split("-").map(Number);
+  const d = new Date(year, month - 1, 1);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Format a Date as `YYYY-MM` for the `?m=` param. */
+export function fmtMonthParam(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
+
+export type CalendarView = "month" | "agenda";
+
+const CALENDAR_VIEWS: CalendarView[] = ["month", "agenda"];
+
+/**
+ * Parse `?view=` into a CalendarView, defaulting to "month" for missing
+ * or unknown values.
+ */
+export function parseCalendarView(
+  value: string | string[] | undefined,
+): CalendarView {
+  const v = Array.isArray(value) ? value[0] : value;
+  return CALENDAR_VIEWS.includes(v as CalendarView)
+    ? (v as CalendarView)
+    : "month";
+}
