@@ -30,7 +30,7 @@
  * in the same permission context as Ads Manager.
  */
 
-import { graphGetWithToken, MetaApiError } from "./client";
+import { graphGetWithToken, MetaApiError, fetchAdAccountIgActors } from "./client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -217,6 +217,133 @@ export async function resolvePageIgActor(
   }
 
   return null;
+}
+
+// ─── Ad-account-aware Instagram actor resolver ────────────────────────────────
+
+export type IgActorSource =
+  | "ad_account_match"   // content ID was found in /{adAccountId}/instagram_accounts
+  | "ad_account_first"   // ad account returned actors but none match the content ID
+  | "page_level"         // /{pageId}/instagram_accounts (page-token endpoint)
+  | "content_id_fallback"; // nothing better — using content ID as actor (may fail)
+
+export interface ResolvedIgActor {
+  /** The IG business account id used for loading posts via `/{igUserId}/media`. */
+  contentAccountId: string | undefined;
+  /**
+   * The ads-valid Instagram actor id for `instagram_actor_id` in creative
+   * payloads.  Resolved via `/{adAccountId}/instagram_accounts` when possible
+   * — that is the ONLY authoritative source Meta Ads accepts.
+   */
+  actorId: string | undefined;
+  actorSource: IgActorSource;
+  /**
+   * `true` when the content account and ads actor are the same ID.
+   * `false` means posts will be loaded from one account but the ad will be
+   * published under a different actor — valid in some agency setups but worth
+   * logging explicitly.
+   */
+  actorMatchesContent: boolean;
+}
+
+/**
+ * Resolve the ads-valid `instagram_actor_id` for a given ad account + page
+ * combination, keeping the content account id separate.
+ *
+ * Resolution order:
+ *   1. Call `GET /{adAccountId}/instagram_accounts` (authoritative for ads).
+ *      a. If the content account id is in the list → use it (match).
+ *      b. If no match but the list is non-empty → use the first actor.
+ *   2. Fall back to `GET /{pageId}/instagram_accounts` (page-level, less reliable).
+ *   3. Last resort: use `contentAccountId` as actor (may still fail at Meta).
+ *
+ * @param contentAccountId  IG account id from `instagram_business_account.id` on
+ *                          the Page — used for post loading, not necessarily valid
+ *                          as an ad actor.
+ * @param adAccountId       Meta ad account id (e.g. "act_123456789").
+ * @param userToken         User OAuth provider token.
+ * @param pageId            Optional Page id — used for page-level fallback only.
+ * @param pageToken         Optional Page access token — used for page-level fallback.
+ */
+export async function resolveIgActorForAdAccount(
+  contentAccountId: string | undefined,
+  adAccountId: string,
+  userToken: string | null,
+  pageId?: string,
+  pageToken?: string,
+): Promise<ResolvedIgActor> {
+  const token = userToken ?? process.env.META_ACCESS_TOKEN ?? undefined;
+
+  // ── Step 1: ad-account actors (authoritative) ──────────────────────────────
+  const adAccountActors = await fetchAdAccountIgActors(adAccountId, token);
+
+  if (adAccountActors.length > 0) {
+    // Prefer the actor that matches the content account id.
+    const matched = contentAccountId
+      ? adAccountActors.find((a) => a.id === contentAccountId)
+      : undefined;
+
+    if (matched) {
+      console.info(
+        `[resolveIgActorForAdAccount] ✓ content id matches ad-account actor` +
+          ` adAccount=${adAccountId} actorId=${matched.id}` +
+          (matched.username ? ` @${matched.username}` : ""),
+      );
+      return {
+        contentAccountId,
+        actorId: matched.id,
+        actorSource: "ad_account_match",
+        actorMatchesContent: true,
+      };
+    }
+
+    // No match — use first actor; log the discrepancy prominently.
+    const first = adAccountActors[0];
+    console.warn(
+      `[resolveIgActorForAdAccount] ⚠ content id ${contentAccountId ?? "(none)"} NOT found` +
+        ` in /${adAccountId}/instagram_accounts` +
+        ` — using first actor ${first.id}` +
+        (first.username ? ` @${first.username}` : "") +
+        `; creative payloads will use actor id ${first.id}` +
+        ` while posts are loaded from content account ${contentAccountId ?? "(none)"}`,
+    );
+    return {
+      contentAccountId,
+      actorId: first.id,
+      actorSource: "ad_account_first",
+      actorMatchesContent: false,
+    };
+  }
+
+  console.warn(
+    `[resolveIgActorForAdAccount] /${adAccountId}/instagram_accounts returned 0 actors` +
+      ` — falling back to page-level resolution`,
+  );
+
+  // ── Step 2: page-level fallback ─────────────────────────────────────────────
+  if (pageId && pageToken) {
+    const pageResult = await resolvePageIgActor(pageId, pageToken, contentAccountId);
+    if (pageResult) {
+      return {
+        contentAccountId,
+        actorId: pageResult.actorId,
+        actorSource: "page_level",
+        actorMatchesContent: pageResult.actorId === contentAccountId,
+      };
+    }
+  }
+
+  // ── Step 3: content id as last resort ──────────────────────────────────────
+  console.warn(
+    `[resolveIgActorForAdAccount] all resolution paths failed for adAccount=${adAccountId}` +
+      ` — using content id ${contentAccountId ?? "(none)"} as actor fallback (may fail at Meta)`,
+  );
+  return {
+    contentAccountId,
+    actorId: contentAccountId,
+    actorSource: "content_id_fallback",
+    actorMatchesContent: true,
+  };
 }
 
 // ─── Page identity resolver ────────────────────────────────────────────────────

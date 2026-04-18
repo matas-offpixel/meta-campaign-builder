@@ -1,18 +1,21 @@
 /**
- * GET /api/meta/page-identity?pageId=<id>
+ * GET /api/meta/page-identity?pageId=<id>&adAccountId=<act_xxx>
  *
  * Per-page resolver that the creative step uses to decide:
  *   1. Whether we have a Page access token (used by /api/meta/page-posts).
- *   2. Whether the Page has a linked Instagram account (and which Graph
- *      field surfaced it).
+ *   2. The Instagram CONTENT account id — used for loading IG posts/media.
+ *   3. The Instagram ACTOR id   — used for instagram_actor_id in ad creatives.
+ *      These are two distinct concepts:
  *
- * Why a separate endpoint?
- *   /api/meta/instagram-accounts walks /me/accounts with the system token,
- *   which often **cannot see Pages the end-user manages**, leading to false
- *   "No linked Instagram account found" messages. This endpoint runs the
- *   lookup with the user's OAuth provider_token first, with an explicit
- *   three-state result (linked / no_ig / unresolved) so the UI can avoid
- *   misreporting.
+ *        instagramContentAccountId  = instagram_business_account.id on the Page
+ *                                     (loads posts via /{igUserId}/media)
+ *
+ *        instagramActorId           = resolved via /{adAccountId}/instagram_accounts
+ *                                     (the ONLY authoritative source Meta Ads accepts)
+ *
+ *      When adAccountId is omitted, the route falls back to the page-level
+ *      endpoint (/{pageId}/instagram_accounts), which is LESS reliable — the
+ *      page-linked content account may differ from the ads-valid actor.
  *
  * Auth: Supabase session.
  *
@@ -22,9 +25,16 @@
  *     pageName?: string,
  *     hasPageToken: boolean,
  *     pageTokenSource: "page_endpoint" | "me_accounts" | "system_fallback" | "none",
- *     ig: { state: "linked", account: { id, username?, name?, source } }
- *       | { state: "no_ig" }
- *       | { state: "unresolved", reason: string }
+ *     ig: { state: "linked",
+ *            account: {
+ *              id: string,           // content account id (for loading posts)
+ *              igActorId: string,    // ads-valid actor id (for creative payloads)
+ *              actorSource: IgActorSource,
+ *              actorMatchesContent: boolean,
+ *              username?, name?, profilePictureUrl?, source
+ *            }}
+ *          | { state: "no_ig" }
+ *          | { state: "unresolved", reason: string }
  *   }
  */
 
@@ -34,6 +44,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getUserFacebookToken,
   resolvePageIdentity,
+  resolveIgActorForAdAccount,
   resolvePageIgActor,
 } from "@/lib/meta/page-token";
 
@@ -54,78 +65,133 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // adAccountId is optional for backward-compat but strongly recommended.
+  // Without it we can only do page-level actor resolution which may be wrong.
+  const adAccountId = req.nextUrl.searchParams.get("adAccountId")?.trim() || undefined;
+
   const userToken = await getUserFacebookToken(supabase, user.id);
 
   console.log(
     `[/api/meta/page-identity] resolve pageId=${pageId}` +
+      ` adAccountId=${adAccountId ?? "(none — page-level fallback)"}` +
       ` userToken=${userToken ? `present(len=${userToken.length})` : "missing"}`,
   );
 
   const identity = await resolvePageIdentity(pageId, userToken);
 
   console.log(
-    `[/api/meta/page-identity] result pageId=${pageId}` +
+    `[/api/meta/page-identity] page resolved pageId=${pageId}` +
       ` pageTokenSource=${identity.pageTokenSource}` +
       ` ig.state=${identity.ig.state}` +
-      (identity.ig.state === "linked" ? ` ig.id=${identity.ig.account.id}` : "") +
+      (identity.ig.state === "linked"
+        ? ` contentAccountId=${identity.ig.account.id}`
+        : "") +
       (identity.ig.state === "unresolved" ? ` ig.reason=${identity.ig.reason}` : ""),
   );
 
-  // ── Resolve ads-compatible Instagram actor id ─────────────────────────────
-  // `resolvePageIgActor` calls /{pageId}/instagram_accounts with the Page
-  // access token — the same endpoint Meta Ads Manager uses.  This is
-  // agency-safe: it works when the IG account is linked to the Page but is
-  // not a directly owned BM asset.
-  let igActorId: string | undefined;
-  if (identity.pageAccessToken && identity.ig.state === "linked") {
-    const resolved = await resolvePageIgActor(
-      identity.pageId,
-      identity.pageAccessToken,
-      identity.ig.account.id,
-    );
-    igActorId = resolved?.actorId;
+  if (identity.ig.state !== "linked") {
+    return Response.json({
+      pageId: identity.pageId,
+      pageName: identity.pageName,
+      hasPageToken: identity.pageAccessToken !== null,
+      pageTokenSource: identity.pageTokenSource,
+      ig:
+        identity.ig.state === "no_ig"
+          ? { state: "no_ig" as const }
+          : { state: "unresolved" as const, reason: identity.ig.reason },
+    });
+  }
 
-    if (igActorId && igActorId !== identity.ig.account.id) {
+  const contentAccountId = identity.ig.account.id;
+
+  // ── Resolve the ads-valid Instagram actor id ──────────────────────────────
+  // IMPORTANT: the content account id (from Page fields) is NOT necessarily
+  // the same as the ads-valid actor id.  Always resolve via the ad account.
+  let igActorId: string = contentAccountId;
+  let actorSource: string = "content_id_fallback";
+  let actorMatchesContent = true;
+
+  if (adAccountId) {
+    // Primary path: ad-account-aware resolution (authoritative).
+    const resolved = await resolveIgActorForAdAccount(
+      contentAccountId,
+      adAccountId,
+      userToken,
+      identity.pageId,
+      identity.pageAccessToken ?? undefined,
+    );
+    igActorId = resolved.actorId ?? contentAccountId;
+    actorSource = resolved.actorSource;
+    actorMatchesContent = resolved.actorMatchesContent;
+
+    if (!actorMatchesContent) {
       console.warn(
-        `[/api/meta/page-identity] IG content id (${identity.ig.account.id}) ≠` +
-          ` actor id (${igActorId}) — creative payloads must use the actor id` +
-          ` (source=${resolved?.source})`,
+        `[/api/meta/page-identity] ⚠ ACTOR MISMATCH` +
+          `\n  contentAccountId = ${contentAccountId}  (used for loading posts)` +
+          `\n  igActorId        = ${igActorId}          (will be used in creative payloads)` +
+          `\n  actorSource      = ${actorSource}` +
+          `\n  adAccountId      = ${adAccountId}` +
+          `\n  → Creative payloads will use ${igActorId}, not ${contentAccountId}`,
       );
-    } else if (igActorId) {
+    } else {
       console.info(
-        `[/api/meta/page-identity] IG actor id verified (${igActorId}) source=${resolved?.source}`,
+        `[/api/meta/page-identity] ✓ actor resolved` +
+          ` contentAccountId=${contentAccountId}` +
+          ` igActorId=${igActorId}` +
+          ` source=${actorSource}` +
+          ` adAccount=${adAccountId}`,
+      );
+    }
+  } else {
+    // Fallback path: page-level resolution (less reliable, no ad-account check).
+    console.warn(
+      `[/api/meta/page-identity] adAccountId not provided — using page-level actor resolution.` +
+        ` This may return the content account id, not the ads-valid actor.`,
+    );
+    if (identity.pageAccessToken) {
+      const resolved = await resolvePageIgActor(
+        identity.pageId,
+        identity.pageAccessToken,
+        contentAccountId,
+      );
+      if (resolved) {
+        igActorId = resolved.actorId;
+        actorSource = resolved.source;
+        actorMatchesContent = igActorId === contentAccountId;
+      }
+    }
+
+    if (igActorId === contentAccountId) {
+      console.warn(
+        `[/api/meta/page-identity] actor id = content id (${igActorId}).` +
+          ` Pass adAccountId for ad-account-validated resolution.`,
       );
     }
   }
 
-  // Strip the actual page access token from the public response. The token
-  // stays server-side; subsequent server-side endpoints (e.g. page-posts)
-  // re-resolve it through the same helper.
   return Response.json({
     pageId: identity.pageId,
     pageName: identity.pageName,
     hasPageToken: identity.pageAccessToken !== null,
     pageTokenSource: identity.pageTokenSource,
-    ig:
-      identity.ig.state === "linked"
-        ? {
-            state: "linked" as const,
-            account: {
-              id: identity.ig.account.id,
-              username: identity.ig.account.username,
-              name: identity.ig.account.name,
-              profilePictureUrl: identity.ig.account.profilePictureUrl,
-              source: identity.ig.account.source,
-              /**
-               * Ads-compatible actor id from /{page-id}/instagram_accounts.
-               * Use this for instagram_actor_id in creative payloads.
-               * Falls back to `id` when the endpoint is unavailable.
-               */
-              igActorId: igActorId ?? identity.ig.account.id,
-            },
-          }
-        : identity.ig.state === "no_ig"
-          ? { state: "no_ig" as const }
-          : { state: "unresolved" as const, reason: identity.ig.reason },
+    ig: {
+      state: "linked" as const,
+      account: {
+        /** Content account id — used for loading IG posts via /{igUserId}/media */
+        id: contentAccountId,
+        /**
+         * Ads-valid actor id — use this for instagram_actor_id in creative
+         * payloads. Resolved from /{adAccountId}/instagram_accounts when
+         * adAccountId was provided; may differ from `id`.
+         */
+        igActorId,
+        actorSource,
+        actorMatchesContent,
+        username: identity.ig.account.username,
+        name: identity.ig.account.name,
+        profilePictureUrl: identity.ig.account.profilePictureUrl,
+        source: identity.ig.account.source,
+      },
+    },
   });
 }

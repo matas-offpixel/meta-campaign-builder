@@ -33,6 +33,7 @@ import {
 import {
   resolvePageIdentity,
   resolvePageIgActor,
+  resolveIgActorForAdAccount,
 } from "@/lib/meta/page-token";
 import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
@@ -426,20 +427,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 0e. Pre-resolve Instagram actor IDs for IG existing-post creatives.
   //
-  // For agency workflows, the IG account is linked to the client's Page but is
-  // NOT a directly owned Business Manager asset.  Meta Ads Manager resolves the
-  // `instagram_actor_id` via `GET /{pageId}/instagram_accounts` (Page-level),
-  // not `GET /{adAccountId}/instagram_accounts` (BM-asset list).  Using the
-  // wrong source causes false (#100) rejections for perfectly valid ad setups.
+  // ROOT CAUSE (confirmed via logs):
+  //   /{pageId}/instagram_accounts returns the PAGE-LINKED content account id,
+  //   but Meta Ads requires the id from /{adAccountId}/instagram_accounts — these
+  //   can be DIFFERENT IDs (e.g. content=17841403774937858, actor=17841447022816929).
   //
-  // Strategy here:
-  //   1. Call `resolvePageIdentity` to obtain a Page access token + IG content id.
-  //   2. Call `resolvePageIgActor` (= /{pageId}/instagram_accounts) to get the
-  //      ads-compatible actor id — the same call Ads Manager makes.
-  //   3. Patch `instagramActorId` on each IG existing-post creative so Phase 3
-  //      uses the correct id without needing to guess.
-  //   4. No hard blocks here — if resolution fails we still attempt the launch
-  //      and let Phase 3 retry logic handle any (#100) from Meta.
+  // Strategy:
+  //   1. Call resolvePageIdentity to get the Page token + IG content account id.
+  //   2. Call resolveIgActorForAdAccount (uses /{adAccountId}/instagram_accounts
+  //      as PRIMARY, page-level as fallback) to get the ads-valid actor id.
+  //   3. Patch instagramActorId on each IG existing-post creative so Phase 3
+  //      uses the correct id. Log any mismatch between content and actor ids.
+  //   4. Block launch if any IG existing-post creative still has no actor id.
   //
   // `launchCreatives` shadows `draft.creatives` for all downstream phases.
   let launchCreatives: AdCreativeDraft[] = draft.creatives.map((c) => ({ ...c }));
@@ -458,46 +457,56 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ),
     ];
 
-    // pageId → ads-compatible actor id (from /{pageId}/instagram_accounts)
-    const pageActorMap = new Map<string, string>();
+    // pageId → { actorId, contentAccountId, source }
+    const pageActorMap = new Map<string, { actorId: string; contentAccountId: string | undefined; source: string }>();
 
     for (const pageId of uniquePageIds) {
       console.log(
-        `[launch-campaign] Preflight 0e — resolving IG actor for page ${pageId}` +
+        `[launch-campaign] Preflight 0e — resolving IG actor for page=${pageId}` +
+          ` adAccount=${adAccountId}` +
           ` userToken=${userFbToken ? "present" : "missing"}`,
       );
 
+      // Step A: resolve page identity to get content account id + page token.
       const pageIdentity = await resolvePageIdentity(pageId, userFbToken);
 
-      if (pageIdentity.pageAccessToken && pageIdentity.ig.state === "linked") {
-        const resolved = await resolvePageIgActor(
-          pageId,
-          pageIdentity.pageAccessToken,
-          pageIdentity.ig.account.id,
-        );
-        if (resolved) {
-          pageActorMap.set(pageId, resolved.actorId);
-          console.log(
-            `[launch-campaign] Preflight 0e ✓ page ${pageId}:` +
-              ` igActorId=${resolved.actorId} source=${resolved.source}`,
+      const contentAccountId =
+        pageIdentity.ig.state === "linked" ? pageIdentity.ig.account.id : undefined;
+
+      // Step B: resolve the ads-valid actor via ad-account-aware lookup.
+      const resolved = await resolveIgActorForAdAccount(
+        contentAccountId,
+        adAccountId,
+        userFbToken,
+        pageId,
+        pageIdentity.pageAccessToken ?? undefined,
+      );
+
+      if (resolved.actorId) {
+        pageActorMap.set(pageId, {
+          actorId: resolved.actorId,
+          contentAccountId: resolved.contentAccountId,
+          source: resolved.actorSource,
+        });
+
+        if (!resolved.actorMatchesContent) {
+          console.warn(
+            `[launch-campaign] Preflight 0e ⚠ ACTOR MISMATCH for page ${pageId}:` +
+              `\n  contentAccountId = ${resolved.contentAccountId} (used for post loading)` +
+              `\n  instagramActorId = ${resolved.actorId}           (will be sent in creative payload)` +
+              `\n  actorSource      = ${resolved.actorSource}` +
+              `\n  adAccountId      = ${adAccountId}`,
           );
         } else {
-          console.warn(
-            `[launch-campaign] Preflight 0e ⚠ page ${pageId}: resolvePageIgActor returned null` +
-              ` — Phase 3 retry will handle any (#100) error`,
+          console.log(
+            `[launch-campaign] Preflight 0e ✓ page ${pageId}:` +
+              ` actorId=${resolved.actorId} source=${resolved.actorSource}`,
           );
         }
-      } else if (pageIdentity.ig.state === "linked") {
-        // No page token — use content id as the best available actor id.
-        pageActorMap.set(pageId, pageIdentity.ig.account.id);
-        console.warn(
-          `[launch-campaign] Preflight 0e ⚠ page ${pageId}: no page token available;` +
-            ` using IG content id ${pageIdentity.ig.account.id} as actor id fallback`,
-        );
       } else {
         console.warn(
-          `[launch-campaign] Preflight 0e ⚠ page ${pageId}: IG link state=${pageIdentity.ig.state}` +
-            ` — proceeding with whatever id is on the creative; Phase 3 retry is the safety net`,
+          `[launch-campaign] Preflight 0e ⚠ page ${pageId}: all actor resolution paths failed` +
+            ` — Phase 3 retry will handle any (#100) error`,
         );
       }
     }
@@ -510,16 +519,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ) {
         return creative;
       }
-      const resolvedActorId = pageActorMap.get(creative.identity.pageId ?? "");
-      if (resolvedActorId) {
+      const entry = pageActorMap.get(creative.identity.pageId ?? "");
+      if (entry) {
+        const wasActorId = creative.identity.instagramActorId ?? "unset";
+        const wasAccountId = creative.identity.instagramAccountId ?? "unset";
         console.log(
           `[launch-campaign] Preflight 0e — patching "${creative.name}":` +
-            ` instagramActorId=${resolvedActorId}` +
-            ` (was: ${creative.identity.instagramActorId ?? "unset"})`,
+            `\n  instagramActorId  : ${wasActorId} → ${entry.actorId}` +
+            `\n  instagramAccountId: ${wasAccountId} (content, unchanged)` +
+            `\n  actorSource       : ${entry.source}` +
+            `\n  actorMatchesContent: ${entry.actorId === entry.contentAccountId}`,
         );
         return {
           ...creative,
-          identity: { ...creative.identity, instagramActorId: resolvedActorId },
+          identity: {
+            ...creative.identity,
+            instagramActorId: entry.actorId,
+            // Preserve content account id as instagramAccountId (for post loading).
+          },
         };
       }
       return creative;

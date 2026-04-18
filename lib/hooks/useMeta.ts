@@ -554,15 +554,31 @@ export function useFetchInstagramPosts(
 export type PageIgState = "linked" | "no_ig" | "unresolved";
 
 export interface PageIdentityIgAccount {
-  /** Content API account id — from `instagram_business_account.id` on the Page. */
+  /**
+   * Instagram CONTENT account id — from `instagram_business_account.id` on
+   * the Page.  Use this for loading posts via `/{igUserId}/media`.
+   * This is NOT guaranteed to be a valid ad actor id.
+   */
   id: string;
   /**
-   * Ads-compatible actor id — from `GET /{page-id}/instagram_accounts`.
-   * Use this for `instagram_actor_id` in creative payloads.
-   * The server always sets this to at least `id` (falls back when the endpoint
-   * returns nothing), so it is safe to use without a null check.
+   * Instagram ADS ACTOR id — resolved from `GET /{adAccountId}/instagram_accounts`
+   * when `adAccountId` was passed to the hook (recommended).  This is the ONLY
+   * value that should appear in `instagram_actor_id` creative payloads.
+   *
+   * When `adAccountId` was not provided, the server falls back to the page-level
+   * endpoint; this may still equal `id` and cause (#100) errors.
    */
   igActorId: string;
+  /**
+   * How the actor id was resolved.
+   *   "ad_account_match"    — content id was found in /{adAccountId}/instagram_accounts ✓
+   *   "ad_account_first"    — ad account has actors but none match the content id — diff IDs!
+   *   "page_level"          — /{pageId}/instagram_accounts fallback (no adAccountId given)
+   *   "content_id_fallback" — nothing better; using content id (may still fail)
+   */
+  actorSource?: string;
+  /** True when igActorId === id (same account for both post loading and ads). */
+  actorMatchesContent?: boolean;
   username?: string;
   name?: string;
   profilePictureUrl?: string;
@@ -596,11 +612,19 @@ export interface PageIdentityState {
  * Resolves the per-Page identity (Page access token presence + linked IG)
  * for the currently selected Facebook Page in the creative step.
  *
- * Called whenever `pageId` changes. The Page access token itself is never
- * sent to the browser — only `hasPageToken` + `pageTokenSource` for UI use.
+ * Called whenever `pageId` or `adAccountId` changes.
+ *
+ * @param pageId       Facebook Page id.
+ * @param adAccountId  Meta ad account id ("act_xxx"). **Strongly recommended.**
+ *                     When present the server resolves `igActorId` from
+ *                     `/{adAccountId}/instagram_accounts` — the only
+ *                     authoritative source for a valid ad actor.  When absent
+ *                     the server falls back to page-level resolution which may
+ *                     return the content account id instead of the ads actor.
  */
 export function useFetchPageIdentity(
   pageId: string | undefined,
+  adAccountId?: string,
 ): PageIdentityState {
   const [state, setState] = useState<PageIdentityState>({
     status: "idle",
@@ -616,21 +640,42 @@ export function useFetchPageIdentity(
 
     const controller = new AbortController();
     setState({ status: "loading", data: null, error: null });
-    console.log(`[useFetchPageIdentity] fetch start pageId=${pageId}`);
+    console.log(
+      `[useFetchPageIdentity] fetch start pageId=${pageId}` +
+        ` adAccountId=${adAccountId ?? "(none — actor may be wrong)"}`,
+    );
 
-    const url = `/api/meta/page-identity?pageId=${encodeURIComponent(pageId)}`;
+    const params = new URLSearchParams({ pageId });
+    if (adAccountId) params.set("adAccountId", adAccountId);
+    const url = `/api/meta/page-identity?${params.toString()}`;
+
     fetch(url, { signal: controller.signal, credentials: "same-origin" })
       .then(async (res) => {
         const json = (await res.json()) as PageIdentity & { error?: string };
         if (!res.ok || json.error) {
           throw new Error(json.error ?? `HTTP ${res.status}`);
         }
+        const igAccount = json.ig.state === "linked" ? json.ig.account : null;
         console.log(
           `[useFetchPageIdentity] fetch success pageId=${pageId}` +
             ` hasPageToken=${json.hasPageToken}` +
             ` pageTokenSource=${json.pageTokenSource}` +
-            ` ig.state=${json.ig.state}`,
+            ` ig.state=${json.ig.state}` +
+            (igAccount
+              ? ` contentAccountId=${igAccount.id}` +
+                ` igActorId=${igAccount.igActorId}` +
+                ` actorSource=${igAccount.actorSource ?? "unknown"}` +
+                ` actorMatchesContent=${igAccount.actorMatchesContent}`
+              : ""),
         );
+        if (igAccount && !igAccount.actorMatchesContent) {
+          console.warn(
+            `[useFetchPageIdentity] ⚠ ACTOR MISMATCH for pageId=${pageId}` +
+              ` — contentAccountId=${igAccount.id} ≠ igActorId=${igAccount.igActorId}` +
+              ` (source=${igAccount.actorSource})` +
+              ` — creative payloads will use ${igAccount.igActorId}`,
+          );
+        }
         setState({ status: "success", data: json, error: null });
       })
       .catch((err: unknown) => {
@@ -644,7 +689,7 @@ export function useFetchPageIdentity(
       });
 
     return () => controller.abort();
-  }, [pageId]);
+  }, [pageId, adAccountId]);
 
   return state;
 }

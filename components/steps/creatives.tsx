@@ -109,7 +109,13 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   // currently selected Page on the active ad. Source of truth for the IG
   // dropdown's "linked / no IG / unresolved" state — `igAccounts` (account-
   // wide) can have false negatives when the system token can't see the page.
-  const activePageIdentity = useFetchPageIdentity(active?.identity?.pageId);
+  //
+  // adAccountId is passed so the server can resolve igActorId from
+  // /{adAccountId}/instagram_accounts — the only authoritative ads actor source.
+  const activePageIdentity = useFetchPageIdentity(
+    active?.identity?.pageId,
+    adAccountId,
+  );
 
   const addAd = () => {
     const c = createDefaultCreative();
