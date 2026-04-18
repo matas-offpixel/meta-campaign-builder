@@ -19,26 +19,29 @@ import { createClient } from "@/lib/supabase/client";
  * nothing else in the codebase sets Facebook scopes.
  *
  * Why each one is here:
- *   - `pages_show_list`         — list Pages the user manages.
- *   - `pages_read_engagement`   — read Page metadata (and is required by
- *                                 Meta to mint a Page access token via
- *                                 `/{page_id}?fields=access_token`, which
- *                                 in turn unlocks IG media reads).
- *   - `ads_management`          — create campaigns/ad sets/ads/creatives.
- *   - `instagram_basic`         — read the linked IG account's profile +
- *                                 media (`/{ig-user-id}/media`). Without
- *                                 this scope the IG existing-post picker
- *                                 fails with `(#10) Application does not
- *                                 have permission for this action`.
- *   - `instagram_manage_insights` — recommended for IG ad reads; also
- *                                 stabilises some IG endpoints when the
- *                                 user has multiple linked accounts.
- *   - `business_management`     — required when the IG account / Page is
- *                                 owned by a Business Manager.
+ *   - `pages_show_list`       — list Pages the user manages.
+ *   - `pages_read_engagement` — read Page metadata; required to mint a
+ *                               Page access token via
+ *                               `/{page_id}?fields=access_token`, which
+ *                               in turn unlocks `/{ig-user-id}/media`.
+ *   - `ads_management`        — create campaigns/ad sets/ads/creatives.
+ *   - `ads_read`              — read ad account data (balances, delivery).
+ *   - `instagram_basic`       — read the linked IG account's profile +
+ *                               media (`/{ig-user-id}/media`). Without
+ *                               this scope the IG existing-post picker
+ *                               fails with `(#10) Application does not
+ *                               have permission for this action`.
+ *   - `business_management`   — required when the IG account / Page is
+ *                               owned by a Business Manager.
+ *
+ * Intentionally excluded:
+ *   - `instagram_manage_insights` — advanced analytics scope; Facebook
+ *     Login rejects it with "Invalid Scopes" unless the app has
+ *     explicitly been approved for it. Not needed for reading posts.
  */
 export const FB_SCOPES =
-  "pages_show_list pages_read_engagement ads_management " +
-  "instagram_basic instagram_manage_insights business_management";
+  "pages_show_list pages_read_engagement ads_management ads_read " +
+  "instagram_basic business_management";
 
 export type FacebookConnectOptions = {
   returnPath?: string;
