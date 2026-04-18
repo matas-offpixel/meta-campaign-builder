@@ -928,8 +928,179 @@ function interestNamesMatch(storedName: string, candidateName: string): boolean 
   return false;
 }
 
-// Module-level resolution cache — persists within a single serverless invocation
-// so the same interest name is not searched twice in one launch run.
+// ── Interest resolution types ────────────────────────────────────────────────
+
+export type InterestResolutionStatus =
+  | "verified_exact"
+  | "verified_fuzzy"
+  | "replaced_with_verified_fallback"
+  | "dropped_not_found"
+  | "dropped_deprecated"
+  | "dropped_no_sensible_replacement";
+
+export interface SanitisedInterest {
+  id: string;
+  name: string;
+  resolutionStatus: Extract<
+    InterestResolutionStatus,
+    "verified_exact" | "verified_fuzzy" | "replaced_with_verified_fallback"
+  >;
+  /** Original name when it differs (fuzzy match updated the canonical name) */
+  originalName?: string;
+  /** Original ID when it differs (fuzzy match found a new ID) */
+  originalId?: string;
+}
+
+export interface DroppedInterest {
+  id: string;
+  name: string;
+  reason: string;
+  resolutionStatus: Extract<
+    InterestResolutionStatus,
+    "dropped_not_found" | "dropped_deprecated" | "dropped_no_sensible_replacement"
+  >;
+}
+
+export interface SanitiseInterestsResult {
+  /** Backward-compat: all interests cleared for Meta targeting */
+  valid: { id: string; name: string }[];
+  /** Backward-compat: interests removed or replaced (kept for legacy callers) */
+  removed: { id: string; name: string; reason: string }[];
+  /** Rich per-interest outcome for diagnostics and the launch summary */
+  verified: SanitisedInterest[];
+  dropped: DroppedInterest[];
+  /** Cluster fallback interests that were injected because primary count was low */
+  clusterFallbacksAdded: SanitisedInterest[];
+  /** Short summary line, e.g. "verified=4 replaced=1 dropped=3 fallbacks=2" */
+  summaryLine: string;
+}
+
+// ── Volatile interest detection ───────────────────────────────────────────────
+//
+// These interests are inherently unstable: Meta may deprecate or rename them
+// without notice.  They MUST be verified via the API before use.  On network
+// error (where normal interests are kept), volatile interests are DROPPED
+// instead of being passed through blindly.
+//
+const KNOWN_VOLATILE_INTERESTS: Set<string> = new Set(
+  [
+    // Streaming / music platforms
+    "spotify",
+    "apple music",
+    "soundcloud",
+    "tidal",
+    "deezer",
+    "bandcamp",
+    "amazon music",
+    // Music media brands
+    "boiler room",
+    "nts radio",
+    "nts",
+    "resident advisor",
+    "xlr8r",
+    "fact magazine",
+    "pitchfork",
+    "mixmag",
+    "mixcloud",
+    "hypebeast",
+    "complex",
+    "dj mag",
+    // High-churn artist/brand interests that appear in discovery but are unstable
+    "carl cox",
+    "aphex twin",
+    "burial",
+    "bicep",
+    "four tet",
+    "floating points",
+  ].map((s) => s.toLowerCase()),
+);
+
+function isKnownVolatile(name: string): boolean {
+  return KNOWN_VOLATILE_INTERESTS.has(name.trim().toLowerCase());
+}
+
+// ── Cluster fallback seed pools ───────────────────────────────────────────────
+//
+// When primary interests fall below MIN_INTERESTS_PER_ADSET after sanitisation,
+// these stable seed names are searched against Meta and the first verified match
+// is added to the targeting spec.  Seed names are NOT sent to Meta directly —
+// they are resolved via searchMetaNormalized first.
+//
+// Rules:
+//  • Use only broad/genre-level interests that are highly unlikely to be deprecated.
+//  • Never use artist names, brand names, or platform names in this pool.
+//  • De-duplicate against already-verified interests by ID before adding.
+//
+const CLUSTER_FALLBACK_SEEDS: Record<string, string[]> = {
+  "Music & Nightlife": [
+    "Electronic dance music",
+    "Music festival",
+    "Nightclub",
+    "House music",
+    "Techno music",
+    "Electronic music",
+    "Dance music",
+    "DJ",
+    "Rave",
+  ],
+  "Fashion & Streetwear": [
+    "Fashion",
+    "Streetwear",
+    "Street fashion",
+    "Sneakers",
+    "Haute couture",
+    "Lifestyle",
+  ],
+  "Lifestyle & Nightlife": [
+    "Nightclub",
+    "Nightlife",
+    "Lifestyle",
+    "Music",
+    "Entertainment",
+    "Travel",
+  ],
+  "Activities & Culture": [
+    "Arts and culture",
+    "Cultural movements",
+    "Art",
+    "Contemporary art",
+    "Entertainment",
+    "Design",
+  ],
+  "Media & Entertainment": [
+    "Electronic music",
+    "Music",
+    "Podcast",
+    "Entertainment",
+    "Radio",
+    "Online music",
+  ],
+  "Sports & Live Events": [
+    "Sport",
+    "Football",
+    "Live events",
+    "Entertainment",
+    "Watching sports",
+  ],
+  // Default pool when no cluster is specified
+  "__default__": [
+    "Electronic dance music",
+    "Music",
+    "Nightclub",
+    "Entertainment",
+    "Lifestyle",
+    "Arts and culture",
+  ],
+};
+
+/** Minimum number of verified interests per ad set before cluster fallbacks kick in */
+const MIN_INTERESTS_PER_ADSET = 2;
+
+// ── Module-level resolution cache ────────────────────────────────────────────
+//
+// Persists within a single serverless invocation so the same interest name is
+// not searched twice in one launch run.  Keyed by normalized query string.
+//
 const _interestResolutionCache = new Map<
   string,
   { id: string; name: string } | null
@@ -937,39 +1108,62 @@ const _interestResolutionCache = new Map<
 
 /**
  * Pre-launch validation: check each interest ID against Meta's targeting
- * validation endpoint. Returns only interests that are still valid, plus
- * a list of removed ones for logging.
+ * validation endpoint.  Returns only interests that are verified as live Meta
+ * targeting interests, plus rich per-interest outcome data for diagnostics.
  *
- * Hardcoded overrides are applied first, then API-based validation runs on
- * the remainder. The returned `valid` list is what must be sent to Meta.
+ * Pipeline (strict — no raw unresolved strings leak through):
+ *  Stage 1  Hardcoded override table (synchronous) — removes known-deprecated
+ *           interests and rewrites them to stable replacements when possible.
+ *  Stage 2  Meta API verification (async, with fuzzy matching) — every interest
+ *           must be confirmed as a live targetable entity by Meta search.
+ *  Stage 3  Volatile-name gate — artist/brand/platform names that fail API
+ *           verification are DROPPED (not kept on network error).
+ *  Stage 4  Cluster fallback injection — if verified count < MIN_INTERESTS_PER_ADSET,
+ *           inject verified interests from the cluster's fallback seed pool.
  *
- * Key improvements over the naive version:
- *  • Search query is normalized (parentheticals stripped) so Meta returns
- *    better candidates. e.g. "Balenciaga (fashion brand)" → query "Balenciaga"
- *  • Matching is fuzzy: accepts candidates where normalized names overlap,
- *    not just exact string equality.
- *  • Module-level cache prevents re-searching the same name within one launch.
+ * @param interests  Raw interests from the draft (must have numeric Meta IDs)
+ * @param options.token        Access token; falls back to META_ACCESS_TOKEN
+ * @param options.clusterType  InterestGroup.clusterType label for fallback pool selection
+ * @param options.minCount     Minimum verified interests before fallbacks kick in (default 2)
  */
 export async function sanitiseInterests(
   interests: { id: string; name: string }[],
-): Promise<{
-  valid: { id: string; name: string }[];
-  removed: { id: string; name: string; reason: string }[];
-}> {
-  const token = process.env.META_ACCESS_TOKEN;
+  options?: {
+    token?: string;
+    clusterType?: string;
+    minCount?: number;
+  },
+): Promise<SanitiseInterestsResult> {
+  const token = options?.token ?? process.env.META_ACCESS_TOKEN;
+  const clusterType = options?.clusterType;
+  const minCount = options?.minCount ?? MIN_INTERESTS_PER_ADSET;
+
   if (!token || interests.length === 0) {
-    return { valid: interests, removed: [] };
+    // No token or no interests — pass through unchanged (safest fallback)
+    const passThrough: SanitisedInterest[] = interests.map((i) => ({
+      ...i,
+      resolutionStatus: "verified_exact" as const,
+    }));
+    return {
+      valid: interests,
+      removed: [],
+      verified: passThrough,
+      dropped: [],
+      clusterFallbacksAdded: [],
+      summaryLine: `verified=${interests.length} replaced=0 dropped=0 fallbacks=0`,
+    };
   }
 
   const apiVersion = process.env.META_API_VERSION ?? "v21.0";
+  const verified: SanitisedInterest[] = [];
+  const dropped: DroppedInterest[] = [];
+  // backward-compat arrays
   const valid: { id: string; name: string }[] = [];
   const removed: { id: string; name: string; reason: string }[] = [];
 
-  /**
-   * Search Meta with a NORMALIZED query; return all candidates (up to 50).
-   * Uses the module-level cache so the same name is only fetched once per run.
-   */
-  async function searchMetaNormalized(
+  // ── Search helper ─────────────────────────────────────────────────────────
+
+  async function searchMeta(
     originalName: string,
   ): Promise<Array<{ id: string; name: string }>> {
     const query = normalizeInterestName(originalName) || originalName.trim();
@@ -978,7 +1172,7 @@ export async function sanitiseInterests(
     if (_interestResolutionCache.has(cacheKey)) {
       const cached = _interestResolutionCache.get(cacheKey);
       if (cached == null) return [];
-      return [cached]; // single best match stored
+      return [cached];
     }
 
     try {
@@ -989,8 +1183,7 @@ export async function sanitiseInterests(
       url.searchParams.set("limit", "50");
 
       console.log(
-        `[sanitiseInterests] search — original="${originalName}"` +
-        ` normalized="${query}"`,
+        `[sanitiseInterests] search — original="${originalName}" normalized="${query}"`,
       );
 
       const res = await fetch(url.toString(), { cache: "no-store" });
@@ -1005,7 +1198,6 @@ export async function sanitiseInterests(
         (candidates.length > 8 ? ` +${candidates.length - 8} more` : ""),
       );
 
-      // Cache the best candidate (first result) for future lookups
       _interestResolutionCache.set(cacheKey, candidates[0] ?? null);
       return candidates;
     } catch (err) {
@@ -1014,20 +1206,22 @@ export async function sanitiseInterests(
     }
   }
 
-  // ── Step 1: Apply hardcoded overrides before hitting the API ─────────────
+  // ── Stage 1: Hardcoded override table ─────────────────────────────────────
 
-  const toValidate: { id: string; name: string }[] = [];
+  const toVerify: { id: string; name: string }[] = [];
 
   for (const interest of interests) {
     const override = hardcodedOverride(interest);
 
     if (override.action === "remove") {
       console.log(`[sanitiseInterests] HARDCODED remove "${interest.name}" (${interest.id})`);
-      removed.push({
+      dropped.push({
         id: interest.id,
         name: interest.name,
         reason: "Hardcoded removal — deprecated, no sensible replacement",
+        resolutionStatus: "dropped_deprecated",
       });
+      removed.push({ id: interest.id, name: interest.name, reason: "Hardcoded removal — deprecated, no sensible replacement" });
       continue;
     }
 
@@ -1035,91 +1229,189 @@ export async function sanitiseInterests(
       console.log(
         `[sanitiseInterests] HARDCODED replace "${interest.name}" → search for "${override.searchName}"`,
       );
-      const candidates = await searchMetaNormalized(override.searchName);
+      const candidates = await searchMeta(override.searchName);
       const found = candidates[0] ?? null;
       if (found) {
         console.log(
           `[sanitiseInterests] HARDCODED resolved "${override.searchName}" → "${found.name}" (${found.id})`,
         );
-        valid.push({ id: found.id, name: found.name });
-        removed.push({
-          id: interest.id,
-          name: interest.name,
-          reason: `Hardcoded replacement: ${found.name} (${found.id})`,
+        verified.push({
+          id: found.id,
+          name: found.name,
+          resolutionStatus: "verified_fuzzy",
+          originalName: interest.name,
+          originalId: interest.id,
         });
+        valid.push({ id: found.id, name: found.name });
+        removed.push({ id: interest.id, name: interest.name, reason: `Hardcoded replacement: ${found.name} (${found.id})` });
       } else {
         console.log(
-          `[sanitiseInterests] HARDCODED "${override.searchName}" not found — removing "${interest.name}"`,
+          `[sanitiseInterests] HARDCODED "${override.searchName}" not found — dropping "${interest.name}"`,
         );
-        removed.push({
+        dropped.push({
           id: interest.id,
           name: interest.name,
           reason: `Hardcoded removal — replacement "${override.searchName}" not found`,
+          resolutionStatus: "dropped_no_sensible_replacement",
         });
+        removed.push({ id: interest.id, name: interest.name, reason: `Hardcoded removal — replacement "${override.searchName}" not found` });
       }
       continue;
     }
 
-    toValidate.push(interest);
+    toVerify.push(interest);
   }
 
-  // ── Step 2: API-based validation with normalized query + fuzzy matching ───
+  // ── Stage 2 + 3: API verification + volatile-name gate ───────────────────
 
-  for (const interest of toValidate) {
+  const volatile = isKnownVolatile; // local alias for readability
+
+  for (const interest of toVerify) {
+    let candidates: Array<{ id: string; name: string }> = [];
+    let networkError = false;
+
     try {
-      const candidates = await searchMetaNormalized(interest.name);
+      candidates = await searchMeta(interest.name);
+    } catch {
+      networkError = true;
+    }
 
-      // 2a. Exact ID match — interest is still valid, keep as-is
-      if (candidates.some((c) => c.id === interest.id)) {
-        console.log(
-          `[sanitiseInterests] ✓ "${interest.name}" (${interest.id}) — ID confirmed`,
+    if (networkError) {
+      if (volatile(interest.name)) {
+        // Volatile interests must NOT survive a network failure
+        console.warn(
+          `[sanitiseInterests] ✗ VOLATILE "${interest.name}" — network error AND volatile name — dropping`,
         );
+        dropped.push({
+          id: interest.id,
+          name: interest.name,
+          reason: "Network error during verification; volatile interest dropped (not passed through)",
+          resolutionStatus: "dropped_not_found",
+        });
+        removed.push({ id: interest.id, name: interest.name, reason: "Network error — volatile interest dropped" });
+      } else {
+        // Non-volatile: keep on network error (safe fallback, Meta will reject if truly invalid)
+        console.warn(
+          `[sanitiseInterests] ⚠ "${interest.name}" — network error — keeping (non-volatile)`,
+        );
+        verified.push({ id: interest.id, name: interest.name, resolutionStatus: "verified_exact" });
         valid.push(interest);
-        continue;
       }
+      continue;
+    }
 
-      // 2b. Fuzzy name match — ID may have changed but entity is the same
-      const fuzzyMatch = candidates.find((c) =>
-        interestNamesMatch(interest.name, c.name),
-      );
-      if (fuzzyMatch) {
-        if (fuzzyMatch.id !== interest.id) {
-          console.log(
-            `[sanitiseInterests] ↔ "${interest.name}" (${interest.id})` +
-            ` → fuzzy match → "${fuzzyMatch.name}" (${fuzzyMatch.id})`,
-          );
-          valid.push({ id: fuzzyMatch.id, name: fuzzyMatch.name });
-          removed.push({
-            id: interest.id,
-            name: interest.name,
-            reason: `Replaced with ${fuzzyMatch.name} (${fuzzyMatch.id})`,
-          });
-        } else {
-          // Same ID found via fuzzy path (shouldn't normally happen but be safe)
-          valid.push(interest);
-        }
-        continue;
-      }
-
-      // 2c. No match — interest is genuinely not found in Meta's database
-      console.log(
-        `[sanitiseInterests] ✗ "${interest.name}" (${interest.id}) — not found` +
-        ` after normalizing query to "${normalizeInterestName(interest.name)}"` +
-        ` — removing`,
-      );
-      removed.push({
-        id: interest.id,
-        name: interest.name,
-        reason: "Not found in Meta interest search",
-      });
-    } catch (err) {
-      // Network error — keep the interest and let Meta reject it if invalid
-      console.warn(`[sanitiseInterests] Could not validate "${interest.name}":`, err);
+    // 2a. Exact ID match
+    if (candidates.some((c) => c.id === interest.id)) {
+      console.log(`[sanitiseInterests] ✓ "${interest.name}" (${interest.id}) — ID confirmed`);
+      verified.push({ id: interest.id, name: interest.name, resolutionStatus: "verified_exact" });
       valid.push(interest);
+      continue;
+    }
+
+    // 2b. Fuzzy name match
+    const fuzzyMatch = candidates.find((c) => interestNamesMatch(interest.name, c.name));
+    if (fuzzyMatch) {
+      if (fuzzyMatch.id !== interest.id) {
+        console.log(
+          `[sanitiseInterests] ↔ "${interest.name}" (${interest.id}) → fuzzy "${fuzzyMatch.name}" (${fuzzyMatch.id})`,
+        );
+        verified.push({
+          id: fuzzyMatch.id,
+          name: fuzzyMatch.name,
+          resolutionStatus: "verified_fuzzy",
+          originalName: interest.name,
+          originalId: interest.id,
+        });
+        valid.push({ id: fuzzyMatch.id, name: fuzzyMatch.name });
+        removed.push({ id: interest.id, name: interest.name, reason: `Replaced with ${fuzzyMatch.name} (${fuzzyMatch.id})` });
+      } else {
+        verified.push({ id: interest.id, name: interest.name, resolutionStatus: "verified_exact" });
+        valid.push(interest);
+      }
+      continue;
+    }
+
+    // 2c. Not found
+    const dropReason = volatile(interest.name)
+      ? "Volatile interest (artist/brand/platform) not found in Meta targeting"
+      : "Not found in Meta interest search";
+    console.log(
+      `[sanitiseInterests] ✗ "${interest.name}" (${interest.id}) — ${dropReason}`,
+    );
+    dropped.push({
+      id: interest.id,
+      name: interest.name,
+      reason: dropReason,
+      resolutionStatus: "dropped_not_found",
+    });
+    removed.push({ id: interest.id, name: interest.name, reason: dropReason });
+  }
+
+  // ── Stage 4: Cluster fallback injection ───────────────────────────────────
+  //
+  // If fewer than minCount interests verified, top up from the cluster's
+  // fallback seed pool.  Each seed is verified via Meta search before adding.
+  // De-duplicate against already-verified IDs.
+
+  const clusterFallbacksAdded: SanitisedInterest[] = [];
+
+  if (verified.length < minCount) {
+    const poolKey = clusterType && CLUSTER_FALLBACK_SEEDS[clusterType]
+      ? clusterType
+      : "__default__";
+    const seeds = CLUSTER_FALLBACK_SEEDS[poolKey] ?? [];
+    const seenIds = new Set(verified.map((v) => v.id));
+
+    console.log(
+      `[sanitiseInterests] below minCount=${minCount} (have ${verified.length})` +
+      ` — trying cluster fallback pool "${poolKey}" (${seeds.length} seeds)`,
+    );
+
+    for (const seed of seeds) {
+      if (verified.length + clusterFallbacksAdded.length >= minCount) break;
+      const candidates = await searchMeta(seed);
+      const found = candidates[0] ?? null;
+      if (!found || seenIds.has(found.id)) continue;
+
+      console.log(
+        `[sanitiseInterests] ✦ cluster fallback "${seed}" → "${found.name}" (${found.id})`,
+      );
+      seenIds.add(found.id);
+      clusterFallbacksAdded.push({
+        id: found.id,
+        name: found.name,
+        resolutionStatus: "replaced_with_verified_fallback",
+      });
+      valid.push({ id: found.id, name: found.name });
     }
   }
 
-  return { valid, removed };
+  // ── Summary ───────────────────────────────────────────────────────────────
+
+  const nVerifiedExact   = verified.filter((v) => v.resolutionStatus === "verified_exact").length;
+  const nVerifiedFuzzy   = verified.filter((v) => v.resolutionStatus === "verified_fuzzy").length;
+  const nDropped         = dropped.length;
+  const nFallbacks       = clusterFallbacksAdded.length;
+
+  const summaryLine =
+    `verified=${nVerifiedExact + nVerifiedFuzzy}` +
+    (nVerifiedFuzzy > 0 ? ` (${nVerifiedFuzzy} fuzzy)` : ``) +
+    ` dropped=${nDropped}` +
+    (nFallbacks > 0 ? ` fallbacks=${nFallbacks}` : ``);
+
+  console.log(`[sanitiseInterests] ── result: ${summaryLine} ──`);
+
+  // Add fallbacks to verified list for downstream callers
+  const allVerified = [...verified, ...clusterFallbacksAdded];
+
+  return {
+    valid: allVerified.map((v) => ({ id: v.id, name: v.name })),
+    removed,
+    verified: allVerified,
+    dropped,
+    clusterFallbacksAdded,
+    summaryLine,
+  };
 }
 
 /**

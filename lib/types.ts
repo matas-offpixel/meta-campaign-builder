@@ -184,6 +184,26 @@ export type InterestTargetabilityStatus =
   | "discovery_only"
   | "deprecated";
 
+/**
+ * Per-interest outcome from the launch-time sanitisation pipeline.
+ * Richer than InterestTargetabilityStatus — captures exactly what happened
+ * during the async Meta-verification pass at launch.
+ *
+ * - `verified_exact`                    — Meta returned this exact ID
+ * - `verified_fuzzy`                    — ID changed but entity matches by name
+ * - `replaced_with_verified_fallback`   — original dropped; cluster fallback used
+ * - `dropped_not_found`                 — Meta search returned no match
+ * - `dropped_deprecated`                — hardcoded removal (no sensible replacement)
+ * - `dropped_no_sensible_replacement`   — replacement search also found nothing
+ */
+export type InterestResolutionStatus =
+  | "verified_exact"
+  | "verified_fuzzy"
+  | "replaced_with_verified_fallback"
+  | "dropped_not_found"
+  | "dropped_deprecated"
+  | "dropped_no_sensible_replacement";
+
 export interface InterestSuggestion {
   id: string;
   name: string;
@@ -1017,7 +1037,17 @@ export interface LaunchSummary {
   /** Per-phase timing in milliseconds */
   phaseDurations?: Record<string, number>;
   /** Preflight warnings surfaced before any mutations */
-  preflightWarnings?: { stage: string; message: string }[];
+  preflightWarnings?: {
+    stage: string;
+    message: string;
+    /**
+     * Display severity.  "amber" = informational / recoverable (interests
+     * dropped, replaced, or falling back to cluster pool).  "red" = the ad
+     * set cannot launch as-is (zero verified interests after fallback).
+     * Defaults to "amber" when absent.
+     */
+    severity?: "amber" | "red";
+  }[];
   /** Engagement custom audiences created from page groups (Phase 1.5) */
   engagementAudiencesCreated?: { name: string; id: string; type: string; durationMs?: number }[];
   engagementAudiencesFailed?: {
@@ -1028,6 +1058,18 @@ export interface LaunchSummary {
     pageId?: string;
     /** True when the failure was due to a missing event-source permission */
     isPermissionFailure?: boolean;
+  }[];
+  /**
+   * IG engagement types that were skipped (not failed) because the selected
+   * Facebook Page has no linked Instagram account.  FB types (fb_likes /
+   * fb_engagement_365d) are unaffected and continue to be created normally.
+   */
+  engagementAudiencesSkipped?: {
+    name: string;
+    type: string;
+    /** Human-readable skip reason */
+    reason: string;
+    pageId?: string;
   }[];
   /** Lookalike audiences created from engagement audiences (Phase 1.75) */
   lookalikeAudiencesCreated?: { name: string; id: string; range: string; durationMs?: number }[];
@@ -1064,6 +1106,25 @@ export interface LaunchSummary {
   }>;
   /** Deprecated interests that were auto-replaced during ad set creation */
   interestReplacements?: { deprecated: string; replacement: string | null; adSetName: string }[];
+  /**
+   * Per-ad-set interest resolution diagnostics from the launch-time
+   * sanitisation pipeline.  One entry per interest_group ad set that went
+   * through sanitiseInterests during Phase 0b.
+   */
+  interestClusterDiagnostics?: Array<{
+    adSetName: string;
+    clusterType?: string;
+    originalCount: number;
+    verifiedCount: number;
+    droppedCount: number;
+    fallbacksAdded: number;
+    /** e.g. "verified=4 replaced=1 dropped=3 fallbacks=2" */
+    summaryLine: string;
+    /** Names of dropped interests for the amber warning detail */
+    droppedNames: string[];
+    /** Names of fallback interests injected */
+    fallbackNames: string[];
+  }>;
   /**
    * Selected interests excluded from launch because their `targetabilityStatus`
    * was not `valid` (e.g. unresolved/discovery_only/deprecated). Non-blocking —

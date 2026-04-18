@@ -288,9 +288,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const preflightStart = Date.now();
-  const preflightWarnings: { stage: string; message: string }[] = [];
+  const preflightWarnings: NonNullable<LaunchSummary["preflightWarnings"]> = [];
   const interestReplacements: NonNullable<LaunchSummary["interestReplacements"]> = [];
   const interestsSkippedNotTargetable: NonNullable<LaunchSummary["interestsSkippedNotTargetable"]>["items"] = [];
+  const interestClusterDiagnostics: NonNullable<LaunchSummary["interestClusterDiagnostics"]> = [];
+  const engagementAudiencesSkipped: NonNullable<LaunchSummary["engagementAudiencesSkipped"]> = [];
 
   // ── Launch-time interest sanitisation telemetry ───────────────────────────
   // Populated by the last-line-of-defence sanitiser that runs immediately
@@ -428,18 +430,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (raw.length === 0) continue;
 
-    console.log(`[launch-campaign] Preflight — sanitising ${raw.length} interests for "${adSet.name}"…`);
-    const { valid, removed } = await sanitiseInterests(raw);
+    console.log(
+      `[launch-campaign] Preflight — sanitising ${raw.length} interests for "${adSet.name}"` +
+      (group.clusterType ? ` (cluster: ${group.clusterType})` : "") + "…",
+    );
+    const sanitiseResult = await sanitiseInterests(raw, {
+      token: launchToken,
+      clusterType: group.clusterType,
+      minCount: 2,
+    });
+
+    const { valid, removed, dropped, clusterFallbacksAdded, summaryLine } = sanitiseResult;
+
+    // Record per-ad-set cluster diagnostics
+    interestClusterDiagnostics.push({
+      adSetName: adSet.name,
+      clusterType: group.clusterType,
+      originalCount: raw.length,
+      verifiedCount: valid.length,
+      droppedCount: dropped.length,
+      fallbacksAdded: clusterFallbacksAdded.length,
+      summaryLine,
+      droppedNames: dropped.map((d) => d.name),
+      fallbackNames: clusterFallbacksAdded.map((f) => f.name),
+    });
+
+    // Surface dropped interests as amber preflight warnings
+    if (dropped.length > 0) {
+      preflightWarnings.push({
+        stage: "interests",
+        message:
+          `"${adSet.name}": ${summaryLine}` +
+          (dropped.length > 0
+            ? ` — dropped: ${dropped.map((d) => d.name).join(", ")}`
+            : ""),
+        severity: "amber",
+      });
+    }
+
+    // Red warning: ad set will have zero verified interests after all stages
+    if (valid.length === 0) {
+      preflightWarnings.push({
+        stage: "interests",
+        message: `"${adSet.name}": all interests dropped — this ad set has no verified targeting interests and will be skipped.`,
+        severity: "red",
+      });
+    }
 
     // Always update group.interests to the sanitised list, even when only
     // IDs changed (e.g. hardcoded replacement swapped ID without removal count).
     // Non-targetable items are preserved on the chip so the user still sees
     // them in the wizard after launch.
-    if (removed.length > 0 || valid.some((v, i) => v.id !== raw[i]?.id)) {
+    if (removed.length > 0 || valid.some((v, i) => v.id !== raw[i]?.id) || clusterFallbacksAdded.length > 0) {
       console.log(
-        `[launch-campaign] Preflight — sanitised "${adSet.name}": ` +
-        `${removed.length} interest(s) removed/replaced:`,
-        removed.map((r) => `  ${r.name} (${r.id}): ${r.reason}`).join("\n"),
+        `[launch-campaign] Preflight — sanitised "${adSet.name}": ${summaryLine}`,
       );
       for (const r of removed) {
         interestReplacements.push({
@@ -448,10 +492,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             ? r.reason
             : null,
           adSetName: adSet.name,
-        });
-        preflightWarnings.push({
-          stage: "interests",
-          message: `"${r.name}" in "${adSet.name}": ${r.reason}`,
         });
       }
       // Overwrite group.interests with the sanitised list so buildAdSetPayload
@@ -1092,26 +1132,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
 
         if (isIgType && !igId) {
+          // No linked IG account → skip (not a hard failure). FB types continue normally.
           const clientHadPage = pageId in clientIgMap;
-          const noIgMsg = clientHadPage
-            ? `Instagram account found in client cache for page ${pageId} but ID was empty — ` +
-              `page may not have been enriched yet. Try reloading pages with enrichment.`
-            : `No Instagram account linked to page ${pageId}. ` +
-              `Neither instagram_business_account nor connected_instagram_account ` +
-              `returned an IG account ID during page enrichment. ` +
-              `Run the IG Diagnostic in the Audiences step to inspect the raw API response.`;
+          const skipReason = clientHadPage
+            ? "Skipped: Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
+            : "Skipped: no linked Instagram account found for this page.";
           console.warn(
-            `[launch-campaign] Phase 1.5 ✗ page ${pageId} (${pageNameMap.get(pageId) ?? "?"}) — ${et}:`,
-            noIgMsg,
+            `[launch-campaign] Phase 1.5 — ${et} skipped for page ${pageId}` +
+            ` (${pageNameMap.get(pageId) ?? "?"}): ${skipReason}`,
           );
-          engagementAudiencesFailed.push({
+          engagementAudiencesSkipped.push({
             name: `${pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`,
             type: et,
-            error: clientHadPage
-              ? "Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
-              : "No linked Instagram account found for this page. Run the IG Diagnostic in Audiences to investigate.",
+            reason: skipReason,
             pageId,
-            isPermissionFailure: false,
           });
           continue;
         }
@@ -1266,19 +1300,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const igId = isIgType ? pageToIg.get(pageId) : undefined;
 
         if (isIgType && !igId) {
+          // No linked IG account → skip (not a hard failure for SPLAL either).
           const clientHadPage = pageId in clientIgMap;
+          const skipReason = clientHadPage
+            ? "Skipped: Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
+            : "Skipped: no linked Instagram account found for this page.";
           console.warn(
-            `[launch-campaign] Phase 1.5b ✗ SPLAL page ${pageId} — ${et}: no IG ID` +
+            `[launch-campaign] Phase 1.5b SPLAL — ${et} skipped for page ${pageId}` +
             ` | clientHadPage=${clientHadPage}`,
           );
-          engagementAudiencesFailed.push({
+          engagementAudiencesSkipped.push({
             name: `${pageNameMap.get(pageId) || pageId} — ${ENGAGEMENT_LABELS[et] ?? et} (SPLAL)`,
             type: et,
-            error: clientHadPage
-              ? "Instagram account ID is empty in the pages cache — try reloading and re-enriching pages."
-              : "No linked Instagram account found for this page. Run the IG Diagnostic in Audiences to investigate.",
+            reason: skipReason,
             pageId,
-            isPermissionFailure: false,
           });
           continue;
         }
@@ -2481,6 +2516,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     preflightWarnings: preflightWarnings.length > 0 ? preflightWarnings : undefined,
     engagementAudiencesCreated: engagementAudiencesCreated.length > 0 ? engagementAudiencesCreated : undefined,
     engagementAudiencesFailed: engagementAudiencesFailed.length > 0 ? engagementAudiencesFailed : undefined,
+    engagementAudiencesSkipped: engagementAudiencesSkipped.length > 0 ? engagementAudiencesSkipped : undefined,
     lookalikeAudiencesCreated: lookalikeAudiencesCreated.length > 0 ? lookalikeAudiencesCreated : undefined,
     lookalikeAudiencesFailed: lookalikeAudiencesFailed.length > 0 ? lookalikeAudiencesFailed : undefined,
     lookalikesDeferred: lookalikesDeferred.length > 0 ? lookalikesDeferred : undefined,
@@ -2491,6 +2527,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .filter((g) => g.lookalikeAudienceIdsByRange && Object.keys(g.lookalikeAudienceIdsByRange).length > 0)
       .map((g) => ({ groupId: g.id, lookalikeAudienceIdsByRange: g.lookalikeAudienceIdsByRange! })),
     interestReplacements: interestReplacements.length > 0 ? interestReplacements : undefined,
+    interestClusterDiagnostics: interestClusterDiagnostics.length > 0 ? interestClusterDiagnostics : undefined,
     interestsSkippedNotTargetable: interestsSkippedNotTargetable.length > 0
       ? { count: interestsSkippedNotTargetable.length, items: interestsSkippedNotTargetable }
       : undefined,

@@ -71,15 +71,21 @@ function buildLaunchEvents(
   const uid = (prefix: string) => `${prefix}-${seq++}`;
   const events: LaunchEvent[] = [];
 
-  // Preflight warnings
+  // Preflight warnings — red ones first, then amber
   if (summary.preflightWarnings?.length) {
-    for (const w of summary.preflightWarnings) {
+    const sorted = [...summary.preflightWarnings].sort((a, b) => {
+      if (a.severity === "red" && b.severity !== "red") return -1;
+      if (b.severity === "red" && a.severity !== "red") return 1;
+      return 0;
+    });
+    for (const w of sorted) {
       events.push({
         id: uid("pf"),
         stage: "preflight",
         entity: w.stage,
-        status: "warning",
-        label: "Preflight",
+        // Red severity = failed, amber (default) = warning
+        status: w.severity === "red" ? "failed" : "warning",
+        label: w.severity === "red" ? "Launch blocked" : "Preflight",
         detail: w.message,
       });
     }
@@ -140,6 +146,19 @@ function buildLaunchEvents(
         status: "failed",
         label: `${a.type} audience failed`,
         detail: a.error,
+      });
+    }
+  }
+  // IG engagement types skipped (no linked IG account) — shown as skipped, not failed
+  if (summary.engagementAudiencesSkipped?.length) {
+    for (const a of summary.engagementAudiencesSkipped) {
+      events.push({
+        id: uid("ea-skip"),
+        stage: "audience",
+        entity: a.name,
+        status: "skipped",
+        label: `${a.type} skipped`,
+        detail: a.reason,
       });
     }
   }
@@ -397,6 +416,7 @@ function CountChip({ ok, failed, skipped, label }: { ok: number; failed: number;
 function SummaryCounts({ summary }: { summary: LaunchSummary }) {
   const eaOk = summary.engagementAudiencesCreated?.length ?? 0;
   const eaFail = summary.engagementAudiencesFailed?.length ?? 0;
+  const eaSkipped = summary.engagementAudiencesSkipped?.length ?? 0;
   const lalOk = summary.lookalikeAudiencesCreated?.length ?? 0;
   const lalFail = summary.lookalikeAudiencesFailed?.length ?? 0;
   const lalDeferred = summary.lookalikesDeferred?.length ?? 0;
@@ -407,7 +427,7 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
   return (
     <div className="flex flex-wrap gap-2">
       <CountChip ok={1} failed={0} label="Campaign" />
-      {(eaOk + eaFail > 0) && <CountChip ok={eaOk} failed={eaFail} label="Audiences" />}
+      {(eaOk + eaFail + eaSkipped > 0) && <CountChip ok={eaOk} failed={eaFail} skipped={eaSkipped} label="Audiences" />}
       {(lalOk + lalFail + lalDeferred > 0) && (
         <>
           <CountChip ok={lalOk} failed={lalFail - lalSkipped} skipped={lalSkipped} label="Lookalikes" />
@@ -435,6 +455,36 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
           <AlertTriangle className="h-3 w-3 text-warning" />
           <span className="font-medium text-warning">
             {summary.interestsSkippedNotTargetable!.count} interest{summary.interestsSkippedNotTargetable!.count !== 1 ? "s" : ""} skipped (not targetable)
+          </span>
+        </div>
+      )}
+      {/* Interest cluster diagnostics — show drop/fallback counts if any interests were dropped */}
+      {(summary.interestClusterDiagnostics ?? []).some((d) => d.droppedCount > 0 || d.fallbacksAdded > 0) && (
+        <div
+          className="flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-xs"
+          title={
+            summary.interestClusterDiagnostics!
+              .filter((d) => d.droppedCount > 0 || d.fallbacksAdded > 0)
+              .map((d) => `${d.adSetName}: ${d.summaryLine}`)
+              .join("\n")
+          }
+        >
+          <AlertTriangle className="h-3 w-3 text-warning" />
+          <span className="font-medium text-warning">
+            {summary.interestClusterDiagnostics!.reduce((acc, d) => acc + d.droppedCount, 0)} interest{summary.interestClusterDiagnostics!.reduce((acc, d) => acc + d.droppedCount, 0) !== 1 ? "s" : ""} dropped
+            {summary.interestClusterDiagnostics!.some((d) => d.fallbacksAdded > 0) &&
+              ` · ${summary.interestClusterDiagnostics!.reduce((acc, d) => acc + d.fallbacksAdded, 0)} fallback${summary.interestClusterDiagnostics!.reduce((acc, d) => acc + d.fallbacksAdded, 0) !== 1 ? "s" : ""} added`}
+          </span>
+        </div>
+      )}
+      {/* IG audiences skipped (no linked account) */}
+      {(summary.engagementAudiencesSkipped?.length ?? 0) > 0 && (
+        <div
+          className="flex items-center gap-1.5 rounded-md border border-muted/40 bg-muted/10 px-2 py-1 text-xs"
+          title={summary.engagementAudiencesSkipped!.map((s) => `${s.name}: ${s.reason}`).join("\n")}
+        >
+          <span className="font-medium text-muted-foreground">
+            {summary.engagementAudiencesSkipped!.length} IG audience{summary.engagementAudiencesSkipped!.length !== 1 ? "s" : ""} skipped (no linked IG account)
           </span>
         </div>
       )}
