@@ -1,5 +1,5 @@
 import type { CampaignDraft, WizardStep } from "./types";
-import { ATTACHED_AD_SET_ID, getVisibleSteps } from "./types";
+import { attachedAdSetKey, getVisibleSteps } from "./types";
 
 export interface ValidationResult {
   valid: boolean;
@@ -36,23 +36,28 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   const mode = draft.settings.wizardMode ?? "new";
 
   if (mode === "attach_adset") {
-    // Attaching to an existing ad set: campaign + ad set picker selections are
-    // the only Step-1 inputs. Optimisation goal, objective, audiences and
-    // budget are inherited from the live ad set.
+    // Attaching to one or more existing ad sets: campaign + ad set picker
+    // selections are the only Step-1 inputs. Optimisation goal, objective,
+    // audiences and budget are inherited from each live ad set.
     const existingCampaign = draft.settings.existingMetaCampaign;
-    const existingAdSet = draft.settings.existingMetaAdSet;
+    const selectedAdSets =
+      draft.settings.existingMetaAdSets ??
+      (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
     if (!existingCampaign?.id) {
-      errors.push("Pick the existing campaign that owns the ad set");
+      errors.push("Pick the existing campaign that owns the ad sets");
     }
-    if (!existingAdSet?.id) {
-      errors.push("Pick the existing ad set you want to add ads to");
+    if (selectedAdSets.length === 0) {
+      errors.push("Pick at least one existing ad set to add ads to");
     }
-    if (
-      existingCampaign?.id &&
-      existingAdSet?.id &&
-      existingAdSet.campaignId !== existingCampaign.id
-    ) {
-      errors.push("Selected ad set does not belong to the selected campaign");
+    if (existingCampaign?.id) {
+      const orphan = selectedAdSets.find(
+        (a) => a.campaignId && a.campaignId !== existingCampaign.id,
+      );
+      if (orphan) {
+        errors.push(
+          `Selected ad set "${orphan.name}" does not belong to the selected campaign`,
+        );
+      }
     }
     return { valid: errors.length === 0, errors };
   }
@@ -206,13 +211,29 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
 function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
 
-  // attach_adset: there is exactly one synthetic ad set and the suggestions
-  // array isn't populated, so use the assignment matrix as the source of
-  // truth instead of `enabledSets`.
+  // attach_adset: each selected ad set is keyed in the assignment matrix by
+  // `attachedAdSetKey(metaAdSetId)`. The wizard's adSetSuggestions array
+  // isn't populated in this mode, so use the matrix directly.
   if (draft.settings.wizardMode === "attach_adset") {
-    const assigned = draft.creativeAssignments?.[ATTACHED_AD_SET_ID] ?? [];
-    if (draft.creatives.length > 0 && assigned.length === 0) {
-      errors.push("Assign at least one ad to the existing ad set");
+    const selectedAdSets =
+      draft.settings.existingMetaAdSets ??
+      (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
+    if (selectedAdSets.length === 0) {
+      // Step 1 already flagged this — don't double-error here.
+      return { valid: errors.length === 0, errors };
+    }
+    if (draft.creatives.length > 0) {
+      const adSetsWithoutAds = selectedAdSets.filter((a) => {
+        const assigned = draft.creativeAssignments?.[attachedAdSetKey(a.id)] ?? [];
+        return assigned.length === 0;
+      });
+      if (adSetsWithoutAds.length === selectedAdSets.length) {
+        errors.push("Assign at least one ad to one of the selected ad sets");
+      } else if (adSetsWithoutAds.length > 0) {
+        errors.push(
+          `These ad sets have no ads assigned: ${adSetsWithoutAds.map((a) => `"${a.name}"`).join(", ")}`,
+        );
+      }
     }
     return { valid: errors.length === 0, errors };
   }

@@ -392,6 +392,20 @@ export interface RawMetaAdSet {
   effective_status?: string;
   created_time?: string;
   updated_time?: string;
+  /** Subset of `targeting` fields used for the picker's audience-summary line. */
+  targeting?: {
+    age_min?: number;
+    age_max?: number;
+    geo_locations?: {
+      countries?: string[];
+      cities?: { name?: string }[];
+      regions?: { name?: string }[];
+      custom_locations?: unknown[];
+    };
+    custom_audiences?: { id: string; name?: string }[];
+    excluded_custom_audiences?: { id: string; name?: string }[];
+    flexible_spec?: unknown[];
+  };
 }
 
 export interface FetchAdSetsResult {
@@ -411,8 +425,14 @@ export interface FetchAdSetsResult {
  */
 export async function fetchAdSetsForCampaign(params: {
   campaignId: string;
-  /** When `"relevant"`, request only ACTIVE + PAUSED ad sets. */
-  filter?: "relevant" | "all";
+  /**
+   * Status filter:
+   *   - "relevant" → ACTIVE + PAUSED (default)
+   *   - "active"   → ACTIVE only
+   *   - "paused"   → PAUSED only
+   *   - "all"      → no status filter (still capped & paged)
+   */
+  filter?: "relevant" | "active" | "paused" | "all";
   /** Optional case-insensitive substring match on ad set name. */
   nameContains?: string;
   /** Page size — capped at 50. */
@@ -438,6 +458,9 @@ export async function fetchAdSetsForCampaign(params: {
     "effective_status",
     "created_time",
     "updated_time",
+    // Limited targeting fields used for the picker's audience summary line.
+    // Keep this minimal — full `targeting` objects can be huge.
+    "targeting{age_min,age_max,geo_locations,custom_audiences,flexible_spec}",
   ].join(",");
 
   const queryParams: Record<string, string> = {
@@ -447,6 +470,10 @@ export async function fetchAdSetsForCampaign(params: {
 
   if (filter === "relevant") {
     queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+  } else if (filter === "active") {
+    queryParams.effective_status = JSON.stringify(["ACTIVE"]);
+  } else if (filter === "paused") {
+    queryParams.effective_status = JSON.stringify(["PAUSED"]);
   }
 
   if (nameContains?.trim()) {

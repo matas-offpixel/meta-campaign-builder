@@ -82,7 +82,15 @@ function buildLaunchEvents(
   // Campaign — wording differs for the three wizard modes.
   const wizardMode = draft.settings.wizardMode ?? "new";
   const attachedCampaignName = draft.settings.existingMetaCampaign?.name;
-  const attachedAdSetName = draft.settings.existingMetaAdSet?.name;
+  const attachedAdSets =
+    draft.settings.existingMetaAdSets ??
+    (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
+  const attachedAdSetSummary =
+    attachedAdSets.length === 1
+      ? `"${attachedAdSets[0].name}"`
+      : attachedAdSets.length > 1
+        ? `${attachedAdSets.length} ad sets`
+        : "";
   events.push({
     id: uid("campaign"),
     stage: "campaign",
@@ -93,8 +101,8 @@ function buildLaunchEvents(
     status: "success",
     label:
       wizardMode === "attach_adset"
-        ? `Adding ads to existing ad set${
-            attachedAdSetName ? ` "${attachedAdSetName}"` : ""
+        ? `Adding ads to existing ${attachedAdSets.length === 1 ? "ad set" : "ad sets"}${
+            attachedAdSetSummary ? ` ${attachedAdSetSummary}` : ""
           }${attachedCampaignName ? ` (campaign "${attachedCampaignName}")` : ""}`
         : wizardMode === "attach_campaign"
         ? `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
@@ -912,6 +920,12 @@ export function ReviewLaunch({
   const wizardMode = draft.settings.wizardMode ?? "new";
   const isAttachAdSet = wizardMode === "attach_adset";
 
+  // Multi-select existing ad sets (with legacy fallback). Used by the
+  // attach_adset summary card + the assignment summary section.
+  const attachedAdSetSnapshots =
+    draft.settings.existingMetaAdSets ??
+    (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
+
   const adAccountId =
     draft.settings.metaAdAccountId || draft.settings.adAccountId || undefined;
 
@@ -1096,19 +1110,22 @@ export function ReviewLaunch({
       {/* Campaign Summary */}
       <Card>
         <CardTitle>
-          {wizardMode === "attach_adset" ? "Adding ads to existing ad set" : "Campaign Summary"}
+          {wizardMode === "attach_adset"
+            ? `Adding ads to ${attachedAdSetSnapshots.length === 1 ? "existing ad set" : `${attachedAdSetSnapshots.length} existing ad sets`}`
+            : "Campaign Summary"}
         </CardTitle>
         {wizardMode === "attach_adset" &&
         draft.settings.existingMetaCampaign &&
-        draft.settings.existingMetaAdSet ? (
+        attachedAdSetSnapshots.length > 0 ? (
           <div className="mt-3 space-y-3">
             <p className="text-xs text-muted-foreground">
               This launch will only create new ads — no campaign or ad set will
-              be created. The selected ad set&rsquo;s{" "}
+              be created. These ads will inherit each selected ad set&rsquo;s
+              existing{" "}
               <span className="font-medium text-foreground">
                 audience, budget, schedule and optimisation
               </span>{" "}
-              are inherited unchanged.
+              settings.
             </p>
             <div className="divide-y divide-border">
               <SummaryRow
@@ -1120,29 +1137,52 @@ export function ReviewLaunch({
                 value={draft.settings.existingMetaCampaign.id}
               />
               <SummaryRow
-                label="Existing Ad Set"
-                value={draft.settings.existingMetaAdSet.name}
-              />
-              <SummaryRow
-                label="Ad Set ID"
-                value={draft.settings.existingMetaAdSet.id}
-              />
-              {draft.settings.existingMetaAdSet.optimizationGoal && (
-                <SummaryRow
-                  label="Inherited Optimisation"
-                  value={draft.settings.existingMetaAdSet.optimizationGoal.replace(/_/g, " ")}
-                />
-              )}
-              {draft.settings.existingMetaAdSet.billingEvent && (
-                <SummaryRow
-                  label="Inherited Billing"
-                  value={draft.settings.existingMetaAdSet.billingEvent.replace(/_/g, " ")}
-                />
-              )}
-              <SummaryRow
                 label="Ad Account"
                 value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
               />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Selected ad sets ({attachedAdSetSnapshots.length})
+              </p>
+              <ul className="space-y-2">
+                {attachedAdSetSnapshots.map((adSet) => (
+                  <li
+                    key={adSet.id}
+                    className="rounded-md border border-border bg-muted/30 p-3 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {adSet.name}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {adSet.effectiveStatus ?? adSet.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                      <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                        {adSet.id}
+                      </code>
+                      {adSet.optimizationGoal && (
+                        <span>
+                          Optimisation:{" "}
+                          {adSet.optimizationGoal.replace(/_/g, " ")}
+                        </span>
+                      )}
+                      {adSet.billingEvent && (
+                        <span>
+                          Billing: {adSet.billingEvent.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                    {adSet.targetingSummary && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {adSet.targetingSummary}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         ) : wizardMode === "attach_campaign" && draft.settings.existingMetaCampaign ? (
@@ -1551,11 +1591,60 @@ export function ReviewLaunch({
       {/* Assignment Summary */}
       <Card>
         <CardTitle>Assignment Summary</CardTitle>
-        <div className="mt-3 divide-y divide-border">
-          <SummaryRow label="Ad Sets" value={String(enabledSets.length)} />
-          <SummaryRow label="Ads" value={String(draft.creatives.length)} />
-          <SummaryRow label="Total Assigned" value={String(totalAds)} />
-        </div>
+        {isAttachAdSet && attachedAdSetSnapshots.length > 0 ? (
+          <div className="mt-3 space-y-3">
+            <div className="divide-y divide-border">
+              <SummaryRow
+                label="Selected ad sets"
+                value={String(attachedAdSetSnapshots.length)}
+              />
+              <SummaryRow label="Ads" value={String(draft.creatives.length)} />
+              <SummaryRow label="Total Assigned" value={String(totalAds)} />
+            </div>
+            <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Per ad set
+              </p>
+              <ul className="space-y-1.5 text-xs">
+                {attachedAdSetSnapshots.map((adSet) => {
+                  const key = `attached:${adSet.id}`;
+                  const assignedIds = draft.creativeAssignments[key] ?? [];
+                  const ads = draft.creatives.filter((c) =>
+                    assignedIds.includes(c.id),
+                  );
+                  return (
+                    <li
+                      key={adSet.id}
+                      className="flex items-start justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-foreground">
+                          {adSet.name}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {ads.length === 0
+                            ? "no ads assigned"
+                            : ads
+                                .map((c, i) => c.name?.trim() || `Ad #${i + 1}`)
+                                .join(", ")}
+                        </span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">
+                        {ads.length} ad{ads.length !== 1 ? "s" : ""}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 divide-y divide-border">
+            <SummaryRow label="Ad Sets" value={String(enabledSets.length)} />
+            <SummaryRow label="Ads" value={String(draft.creatives.length)} />
+            <SummaryRow label="Total Assigned" value={String(totalAds)} />
+          </div>
+        )}
       </Card>
 
       {/* ── Launch error modal ─────────────────────────────────────────────── */}

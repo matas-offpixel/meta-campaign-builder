@@ -81,8 +81,16 @@ export interface MetaCreativePayload {
   name: string;
   /** Used for new ads (link / image) */
   object_story_spec?: MetaObjectStorySpec;
-  /** Used for existing page/IG post boosts: "{pageId}_{postId}" */
+  /** Used for existing FB Page post boosts: "{pageId}_{postId}" */
   object_story_id?: string;
+  /**
+   * Used for existing **Instagram** post boosts. Pass the IG media id and
+   * pair with {@link instagram_actor_id} so Meta knows which IG account is
+   * publishing the ad.
+   */
+  source_instagram_media_id?: string;
+  /** Required when `source_instagram_media_id` is set. */
+  instagram_actor_id?: string;
 }
 
 export interface MetaAdPayload {
@@ -268,10 +276,38 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
 }
 
 function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePayload {
-  const pageId = creative.identity.pageId;
+  const source = creative.existingPost?.source ?? "facebook";
   const postId = creative.existingPost?.postId ?? "";
-  // Meta's object_story_id format: "{page_id}_{post_id}"
-  // If postId already contains the page prefix, use as-is
+
+  // ── Instagram existing post ─────────────────────────────────────────────
+  // Boosting an IG-only media item uses `source_instagram_media_id` together
+  // with `instagram_actor_id`. Falls back to `creative.identity.instagramAccountId`
+  // when the existing-post selection didn't capture one (older drafts).
+  if (source === "instagram") {
+    const igActor =
+      creative.existingPost?.instagramAccountId ||
+      creative.identity.instagramAccountId ||
+      "";
+    if (!igActor) {
+      console.warn(
+        `[buildExistingPostCreative] "${creative.name}": IG existing post selected ` +
+          `but no instagramAccountId is available — Meta will reject the ad.`,
+      );
+    }
+    return {
+      name: creative.name || "Existing IG Post Creative",
+      // `source_instagram_media_id` accepts the IG media id and clones it as
+      // an ad creative. Together with `instagram_actor_id` it tells Meta which
+      // IG account is doing the boosting.
+      source_instagram_media_id: postId,
+      ...(igActor ? { instagram_actor_id: igActor } : {}),
+    } as MetaCreativePayload;
+  }
+
+  // ── Facebook existing post ──────────────────────────────────────────────
+  const pageId = creative.identity.pageId;
+  // Meta's object_story_id format: "{page_id}_{post_id}".
+  // If postId already contains the page prefix, use as-is.
   const storyId = postId.includes("_") ? postId : `${pageId}_${postId}`;
 
   return {

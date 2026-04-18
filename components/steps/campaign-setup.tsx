@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type {
   CampaignSettings,
   CampaignObjective,
+  ExistingMetaAdSetSnapshot,
   MetaCampaignSummary,
   MetaAdSetSummary,
   OptimisationGoal,
@@ -15,7 +16,7 @@ import type {
 import { OPTIMISATION_GOALS_BY_OBJECTIVE } from "@/lib/mock-data";
 import {
   Target, ShoppingCart, MousePointerClick, Eye, MessageSquare,
-  Plus, Link2, Layers, AlertCircle, Info,
+  Plus, Link2, Layers, AlertCircle, Info, X,
 } from "lucide-react";
 import { CampaignPicker } from "./campaign-picker";
 import { AdSetPicker } from "./adset-picker";
@@ -101,18 +102,25 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       const {
         existingMetaCampaign: _dropC,
         existingMetaAdSet: _dropAS,
+        existingMetaAdSets: _dropASs,
         ...rest
       } = settings;
       void _dropC;
       void _dropAS;
+      void _dropASs;
       onChange({ ...rest, wizardMode: "new" });
       return;
     }
     if (next === "attach_campaign") {
       // Switching from attach_adset → attach_campaign: keep the campaign
-      // snapshot (it's still valid) but drop the ad set snapshot.
-      const { existingMetaAdSet: _dropAS, ...rest } = settings;
+      // snapshot (it's still valid) but drop the ad set snapshots.
+      const {
+        existingMetaAdSet: _dropAS,
+        existingMetaAdSets: _dropASs,
+        ...rest
+      } = settings;
       void _dropAS;
+      void _dropASs;
       onChange({ ...rest, wizardMode: "attach_campaign" });
       return;
     }
@@ -132,12 +140,15 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       : goals[0]?.value ?? settings.optimisationGoal;
 
     // Picking a different campaign while in attach_adset mode invalidates
-    // any previously-selected ad set. Drop it so the user has to re-pick.
+    // any previously-selected ad sets. Drop them so the user has to re-pick.
+    const previousSelections =
+      settings.existingMetaAdSets ??
+      (settings.existingMetaAdSet ? [settings.existingMetaAdSet] : []);
     const adSetSnapshotPatch: Partial<CampaignSettings> =
       mode === "attach_adset" &&
-      settings.existingMetaAdSet &&
-      settings.existingMetaAdSet.campaignId !== campaign.id
-        ? { existingMetaAdSet: undefined }
+      previousSelections.length > 0 &&
+      previousSelections.some((a) => a.campaignId !== campaign.id)
+        ? { existingMetaAdSet: undefined, existingMetaAdSets: [] }
         : {};
 
     onChange({
@@ -164,14 +175,31 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
     });
   };
 
-  const handlePickAdSet = (adSet: MetaAdSetSummary) => {
+  // Always operate on the multi-select array. Read sites that haven't been
+  // migrated yet still consult `existingMetaAdSet` (kept for back-compat),
+  // but we authoritatively write to the new array here.
+  const selectedAdSets = useMemo<ExistingMetaAdSetSnapshot[]>(
+    () =>
+      settings.existingMetaAdSets ??
+      (settings.existingMetaAdSet ? [settings.existingMetaAdSet] : []),
+    [settings.existingMetaAdSets, settings.existingMetaAdSet],
+  );
+
+  const handleToggleAdSet = (adSet: MetaAdSetSummary) => {
     if (!adSet.compatible) return;
     const parent = settings.existingMetaCampaign;
     if (!parent) return; // shouldn't happen — picker only renders when set
-    onChange({
-      ...settings,
-      wizardMode: "attach_adset",
-      existingMetaAdSet: {
+
+    const exists = selectedAdSets.some((a) => a.id === adSet.id);
+    let nextList: ExistingMetaAdSetSnapshot[];
+    if (exists) {
+      nextList = selectedAdSets.filter((a) => a.id !== adSet.id);
+      console.log(
+        `[CampaignSetup] de-selected ad set ${adSet.id} ("${adSet.name}")` +
+          ` — ${nextList.length} remaining`,
+      );
+    } else {
+      const snapshot: ExistingMetaAdSetSnapshot = {
         id: adSet.id,
         name: adSet.name,
         campaignId: adSet.campaignId || parent.id,
@@ -181,14 +209,42 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
         billingEvent: adSet.billingEvent,
         status: adSet.status,
         effectiveStatus: adSet.effectiveStatus,
+        targetingSummary: adSet.targetingSummary,
         capturedAt: new Date().toISOString(),
-      },
+      };
+      nextList = [...selectedAdSets, snapshot];
+      console.log(
+        `[CampaignSetup] selected ad set ${adSet.id} ("${adSet.name}")` +
+          ` — ${nextList.length} total`,
+      );
+    }
+
+    onChange({
+      ...settings,
+      wizardMode: "attach_adset",
+      existingMetaAdSets: nextList,
+      // Mirror first selection into the legacy field so any non-migrated
+      // read sites still render the headline ad set name. Cleared when the
+      // user de-selects everything.
+      existingMetaAdSet: nextList[0],
+    });
+  };
+
+  const handleRemoveAdSet = (adSetId: string) => {
+    const nextList = selectedAdSets.filter((a) => a.id !== adSetId);
+    onChange({
+      ...settings,
+      existingMetaAdSets: nextList,
+      existingMetaAdSet: nextList[0],
     });
   };
 
   const selectedExisting = settings.existingMetaCampaign;
-  const selectedAdSet = settings.existingMetaAdSet;
   const adAccountId = settings.metaAdAccountId ?? settings.adAccountId;
+  const selectedAdSetIds = useMemo(
+    () => selectedAdSets.map((a) => a.id),
+    [selectedAdSets],
+  );
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -356,63 +412,88 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
           )}
 
           {/* Ad set picker — only in attach_adset mode and only after the
-              parent campaign is selected. */}
+              parent campaign is selected. Multi-select. */}
           {isAttachAdSet && selectedExisting && (
             <Card>
-              <CardTitle>Step 2 — Pick the ad set to add ads to</CardTitle>
+              <CardTitle>Step 2 — Pick one or more ad sets</CardTitle>
               <CardDescription>
                 Live ad sets under{" "}
                 <span className="font-medium">{selectedExisting.name}</span>.
-                The new ads will be created under the selected ad set with
-                its current audience, budget and schedule untouched.
+                The same set of new ads will be added under every ad set you
+                pick. Each ad set keeps its existing audience, budget,
+                schedule and optimisation.
               </CardDescription>
               <div className="mt-3">
                 <AdSetPicker
                   campaignId={selectedExisting.id}
-                  selectedId={selectedAdSet?.id}
-                  onSelect={handlePickAdSet}
+                  selectedIds={selectedAdSetIds}
+                  onToggle={handleToggleAdSet}
                 />
               </div>
             </Card>
           )}
 
-          {/* Selected ad set snapshot */}
-          {isAttachAdSet && selectedAdSet && (
+          {/* Selected ad sets snapshot */}
+          {isAttachAdSet && selectedAdSets.length > 0 && (
             <Card>
-              <CardTitle>Selected ad set</CardTitle>
+              <CardTitle>
+                Selected ad sets ({selectedAdSets.length})
+              </CardTitle>
               <CardDescription>
-                New ads created in this wizard will be added to this ad set
-                at launch. Its audience, budget, schedule and optimisation
-                are inherited unchanged.
+                New ads created in this wizard will be added to each of these
+                ad sets at launch. Their audience, budget, schedule and
+                optimisation are inherited unchanged.
               </CardDescription>
-              <div className="mt-3 space-y-2 rounded-md border border-primary bg-primary-light/40 p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{selectedAdSet.name}</span>
-                  <Badge variant="primary">
-                    {selectedAdSet.effectiveStatus ?? selectedAdSet.status}
-                  </Badge>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  <code className="rounded bg-muted px-1.5 py-0.5">
-                    {selectedAdSet.id}
-                  </code>
-                  {selectedAdSet.optimizationGoal && (
-                    <span>Optimisation: {selectedAdSet.optimizationGoal}</span>
-                  )}
-                  {selectedAdSet.billingEvent && (
-                    <span>Billing: {selectedAdSet.billingEvent}</span>
-                  )}
-                </div>
-              </div>
+              <ul className="mt-3 space-y-2">
+                {selectedAdSets.map((adSet) => (
+                  <li
+                    key={adSet.id}
+                    className="flex items-start gap-3 rounded-md border border-primary bg-primary-light/40 p-3 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-medium">{adSet.name}</span>
+                        <Badge variant="primary">
+                          {adSet.effectiveStatus ?? adSet.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <code className="rounded bg-muted px-1.5 py-0.5">
+                          {adSet.id}
+                        </code>
+                        {adSet.optimizationGoal && (
+                          <span>Optimisation: {adSet.optimizationGoal}</span>
+                        )}
+                        {adSet.billingEvent && (
+                          <span>Billing: {adSet.billingEvent}</span>
+                        )}
+                        {adSet.targetingSummary && (
+                          <span>Audience: {adSet.targetingSummary}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAdSet(adSet.id)}
+                      className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
+                      title="Remove from selection"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </Card>
           )}
 
-          {isAttachAdSet && selectedExisting && !selectedAdSet && (
-            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Pick an ad set above to continue.
-            </div>
-          )}
+          {isAttachAdSet &&
+            selectedExisting &&
+            selectedAdSets.length === 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Pick at least one ad set above to continue.
+              </div>
+            )}
         </>
       ) : (
         <>

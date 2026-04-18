@@ -1,4 +1,5 @@
 import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, LocationTargetingGroup, LocationPreset } from "./types";
+import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types";
 
 const STORAGE_KEY = "campaign_draft";
 
@@ -252,6 +253,23 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     } else if (rawMode === "attach") {
       draft.settings.wizardMode = "attach_campaign";
     }
+
+    // Migrate single ad set → array.
+    // Older drafts only support one selected existing ad set under
+    // `existingMetaAdSet`. The wizard now supports multi-select via
+    // `existingMetaAdSets`. Wrap the singular into an array if missing,
+    // but keep the original field so any read sites we haven't migrated
+    // yet still work.
+    if (
+      draft.settings.existingMetaAdSet &&
+      !Array.isArray(draft.settings.existingMetaAdSets)
+    ) {
+      draft.settings.existingMetaAdSets = [draft.settings.existingMetaAdSet];
+      console.log(
+        "[migrateDraft] migrated existingMetaAdSet → existingMetaAdSets[1]:",
+        draft.settings.existingMetaAdSet.id,
+      );
+    }
   }
 
   if (Array.isArray(draft.creatives)) {
@@ -355,6 +373,28 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     },
   ) as CampaignDraft["adSetSuggestions"];
   draft.creativeAssignments = draft.creativeAssignments ?? {};
+
+  // Re-key any legacy `ATTACHED_AD_SET_ID` matrix entry onto the live Meta
+  // ad set id so old single-attach drafts keep their assignments after the
+  // multi-select rollout. The new convention is to use the live ad set id
+  // (wrapped via `attachedAdSetKey`) as the matrix key.
+  if (draft.creativeAssignments && draft.creativeAssignments[ATTACHED_AD_SET_ID]) {
+    const legacyAssign = draft.creativeAssignments[ATTACHED_AD_SET_ID];
+    const liveId =
+      draft.settings?.existingMetaAdSet?.id ??
+      draft.settings?.existingMetaAdSets?.[0]?.id;
+    if (liveId) {
+      const newKey = attachedAdSetKey(liveId);
+      if (!draft.creativeAssignments[newKey]) {
+        draft.creativeAssignments[newKey] = legacyAssign;
+      }
+      delete draft.creativeAssignments[ATTACHED_AD_SET_ID];
+      console.log(
+        "[migrateDraft] re-keyed legacy ATTACHED_AD_SET_ID assignment →",
+        newKey,
+      );
+    }
+  }
 
   // Migrate: move any launch-injected engagement audience IDs from
   // customAudienceIds → engagementAudienceIds so the UI doesn't show

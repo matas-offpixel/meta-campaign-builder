@@ -472,8 +472,46 @@ export interface CreativeIdentity {
 }
 
 export interface ExistingPostSelection {
+  /**
+   * Source platform of the chosen post. Defaults to `"facebook"` for backward
+   * compatibility with drafts created before Instagram support was added.
+   */
+  source?: "facebook" | "instagram";
+  /**
+   * For `"facebook"`: the Page-post id (Meta returns it as `pageId_postId` from
+   * `/{page_id}/published_posts` so it's already prefixed).
+   *
+   * For `"instagram"`: the IG media id from `/{ig-user-id}/media`. Use this
+   * together with {@link instagramAccountId} when boosting via the
+   * `source_instagram_media_id` creative pattern.
+   */
   postId: string;
   postPreview?: string;
+  /**
+   * IG business account id (`instagram_business_account.id`) used to query the
+   * media. Only set when `source === "instagram"`. Required at launch time so
+   * the creative builder can attach `instagram_actor_id`.
+   */
+  instagramAccountId?: string;
+}
+
+/**
+ * A single item returned by `/api/meta/instagram-posts` for the IG existing-
+ * post picker. Mirrors a thin slice of the IG Graph `/{ig-user-id}/media`
+ * response.
+ */
+export interface InstagramPost {
+  /** IG media id — pass back to Meta as `source_instagram_media_id`. */
+  id: string;
+  /** IG business account that owns the media (echoed for clarity). */
+  igUserId: string;
+  caption: string;
+  /** "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM" — kept lowercase for UI consistency. */
+  mediaType: "image" | "video" | "carousel";
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+  permalink?: string;
+  timestamp: string;
 }
 
 export interface CreativeEnhancementSettings {
@@ -772,27 +810,45 @@ export interface CampaignSettings {
    * {@link wizardMode} is `"attach_adset"`. Captured at selection time so
    * the review step can describe what is being inherited and so the launch
    * route can re-verify the ad set before pushing ads under it.
+   *
+   * @deprecated The wizard now supports selecting multiple existing ad sets
+   * — use {@link existingMetaAdSets} instead. This field is kept for backward
+   * compatibility with drafts created before the multi-select rollout and is
+   * migrated forward in `migrateDraft`.
    */
-  existingMetaAdSet?: {
-    id: string;
-    name: string;
-    /** Live Meta campaign ID this ad set belongs to. */
-    campaignId: string;
-    /** Optional display name of the parent campaign at selection time. */
-    campaignName?: string;
-    /** Raw Meta campaign objective, mirrored for review-time display. */
-    objective?: string;
-    /** Raw Meta optimization_goal value, e.g. "OFFSITE_CONVERSIONS". */
-    optimizationGoal?: string;
-    /** Raw Meta billing_event value, e.g. "IMPRESSIONS". */
-    billingEvent?: string;
-    /** Configured status, e.g. "ACTIVE". */
-    status: string;
-    /** Delivery state if returned by Meta. */
-    effectiveStatus?: string;
-    /** When the picker captured this snapshot. */
-    capturedAt: string;
-  };
+  existingMetaAdSet?: ExistingMetaAdSetSnapshot;
+
+  /**
+   * Snapshots of one or more live Meta ad sets selected via the multi-select
+   * ad set picker when {@link wizardMode} is `"attach_adset"`. The wizard
+   * adds the same set of new ads under every selected ad set at launch.
+   * All selected ad sets must belong to {@link existingMetaCampaign}.
+   */
+  existingMetaAdSets?: ExistingMetaAdSetSnapshot[];
+}
+
+/** Captured-at-selection snapshot of a live Meta ad set. */
+export interface ExistingMetaAdSetSnapshot {
+  id: string;
+  name: string;
+  /** Live Meta campaign ID this ad set belongs to. */
+  campaignId: string;
+  /** Optional display name of the parent campaign at selection time. */
+  campaignName?: string;
+  /** Raw Meta campaign objective, mirrored for review-time display. */
+  objective?: string;
+  /** Raw Meta optimization_goal value, e.g. "OFFSITE_CONVERSIONS". */
+  optimizationGoal?: string;
+  /** Raw Meta billing_event value, e.g. "IMPRESSIONS". */
+  billingEvent?: string;
+  /** Configured status, e.g. "ACTIVE". */
+  status: string;
+  /** Delivery state if returned by Meta. */
+  effectiveStatus?: string;
+  /** Optional human-readable targeting summary for review-time display. */
+  targetingSummary?: string;
+  /** When the picker captured this snapshot. */
+  capturedAt: string;
 }
 
 /** Discriminated wizard mode union. See {@link CampaignSettings.wizardMode}. */
@@ -862,6 +918,12 @@ export interface MetaAdSetSummary {
   compatible: boolean;
   /** When `compatible === false`, why. */
   incompatibleReason?: string;
+  /**
+   * Short human-readable description of the ad set's audience derived from
+   * its targeting fields (age range, geo, custom audience count). Best-effort
+   * — falls back to a generic label when targeting is unavailable.
+   */
+  targetingSummary?: string;
 }
 
 /** Cursor-paged response shape for `/api/meta/adsets`. */
@@ -1047,12 +1109,41 @@ export const WIZARD_STEPS = [
 ] as const;
 
 /**
- * Internal ad-set suggestion id used as the matrix key when the wizard is in
- * `attach_adset` mode. Lets the assign-creatives step + launch route reason
- * about the synthetic "attached" ad set without polluting
- * {@link CampaignDraft.adSetSuggestions} with stub data.
+ * Legacy single-ad-set sentinel used as the matrix key when the wizard was
+ * limited to one existing ad set. Multi-select drafts now key the assignment
+ * matrix on the live Meta ad set ID directly. Kept exported for backward
+ * compatibility with old drafts; `migrateDraft` rewrites entries under this
+ * key onto the migrated ad-set's real Meta id.
+ *
+ * @deprecated Use the live Meta ad set id directly as the matrix key in
+ * `attach_adset` mode.
  */
 export const ATTACHED_AD_SET_ID = "__attached_existing__";
+
+/**
+ * Synthetic AdSetSuggestion id prefix used when projecting selected live
+ * ad sets into a single render-time `AdSetSuggestion[]` for the existing
+ * assign matrix. The suffix is the live Meta ad set id, so:
+ *
+ *   `attached:23849562890000`
+ *
+ * Using a deterministic prefix keeps the assignment matrix key stable
+ * across renders and re-launches, while making it obvious which entries
+ * are synthetic projections vs. real wizard-built ad sets.
+ */
+export const ATTACHED_AD_SET_KEY_PREFIX = "attached:";
+
+/** Build the synthetic assignment matrix key for a live Meta ad set. */
+export function attachedAdSetKey(metaAdSetId: string): string {
+  return `${ATTACHED_AD_SET_KEY_PREFIX}${metaAdSetId}`;
+}
+
+/** Inverse of {@link attachedAdSetKey} — returns null for non-attached keys. */
+export function parseAttachedAdSetKey(key: string): string | null {
+  return key.startsWith(ATTACHED_AD_SET_KEY_PREFIX)
+    ? key.slice(ATTACHED_AD_SET_KEY_PREFIX.length)
+    : null;
+}
 
 /**
  * Returns the wizard step indices that should be visible (and validated) for

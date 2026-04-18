@@ -24,6 +24,7 @@ import {
   useFetchPages,
   useFetchInstagramAccounts,
   useFetchPagePosts,
+  useFetchInstagramPosts,
   useFetchPageIdentity,
 } from "@/lib/hooks/useMeta";
 import {
@@ -403,14 +404,31 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   };
 
   // ─── Existing post picker ───
-  // Only kick off the network request when the user is actually inside the
+  // Only kick off network requests when the user is actually inside the
   // existing-post mode AND a page is selected. Switching back to "Create New"
-  // disables the hook (status → idle, in-flight requests aborted).
-  const existingPostsEnabled =
-    (active?.sourceType ?? "new") === "existing_post" &&
+  // disables both hooks (status → idle, in-flight requests aborted).
+  const isExistingPostMode = (active?.sourceType ?? "new") === "existing_post";
+  // Default source = Instagram per spec. The user toggles via the source
+  // selector; selection is persisted on the creative once they pick a post.
+  const existingPostSource: "instagram" | "facebook" =
+    active?.existingPost?.source ?? "instagram";
+  const igUserId = active?.identity?.instagramAccountId || undefined;
+
+  const fbExistingEnabled =
+    isExistingPostMode &&
+    existingPostSource === "facebook" &&
     Boolean(active?.identity?.pageId);
+  const igExistingEnabled =
+    isExistingPostMode &&
+    existingPostSource === "instagram" &&
+    Boolean(igUserId);
+
   const pagePosts = useFetchPagePosts(active?.identity?.pageId, {
-    enabled: existingPostsEnabled,
+    enabled: fbExistingEnabled,
+  });
+  const igPosts = useFetchInstagramPosts(igUserId, {
+    enabled: igExistingEnabled,
+    pageId: active?.identity?.pageId,
   });
 
   const filteredPosts = useMemo(() => {
@@ -418,6 +436,12 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
     const q = postSearch.toLowerCase();
     return pagePosts.data.filter((p) => p.message.toLowerCase().includes(q));
   }, [pagePosts.data, postSearch]);
+
+  const filteredIgPosts = useMemo(() => {
+    if (!postSearch) return igPosts.data;
+    const q = postSearch.toLowerCase();
+    return igPosts.data.filter((p) => p.caption.toLowerCase().includes(q));
+  }, [igPosts.data, postSearch]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -856,13 +880,223 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
               {/* ═══ EXISTING POST MODE ═══ */}
               {(active.sourceType ?? "new") === "existing_post" && (
                 <Card>
-                  <CardTitle>Select Existing Post</CardTitle>
-                  <CardDescription>
-                    {active.identity?.pageId
-                      ? "Choose a published post from the selected page's feed."
-                      : "Select a Facebook Page above to see available posts."}
-                  </CardDescription>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle>Select Existing Post</CardTitle>
+                      <CardDescription>
+                        {existingPostSource === "instagram"
+                          ? igUserId
+                            ? "Choose a published post from the linked Instagram account."
+                            : "No linked Instagram account on the selected Page — switch to Facebook below or pick a Page with a connected IG account."
+                          : active.identity?.pageId
+                            ? "Choose a published post from the selected Facebook Page's feed."
+                            : "Select a Facebook Page above to see available posts."}
+                      </CardDescription>
+                    </div>
+                    {/* Source toggle — Instagram (default) | Facebook */}
+                    <div
+                      role="tablist"
+                      aria-label="Existing post source"
+                      className="inline-flex shrink-0 rounded-md border border-border bg-muted/30 p-0.5 text-xs"
+                    >
+                      {(["instagram", "facebook"] as const).map((src) => {
+                        const isActive = existingPostSource === src;
+                        const label = src === "instagram" ? "Instagram" : "Facebook";
+                        return (
+                          <button
+                            key={src}
+                            type="button"
+                            role="tab"
+                            aria-selected={isActive}
+                            onClick={() => {
+                              setPostSearch("");
+                              updateAd(active.id, {
+                                existingPost: {
+                                  source: src,
+                                  postId: "",
+                                  postPreview: undefined,
+                                  instagramAccountId:
+                                    src === "instagram" ? igUserId : undefined,
+                                },
+                              });
+                            }}
+                            className={`rounded px-2.5 py-1 font-medium transition-colors
+                              ${isActive
+                                ? "bg-foreground text-background"
+                                : "text-muted-foreground hover:text-foreground"}`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
+                  {/* ── Instagram branch ──────────────────────────────────── */}
+                  {existingPostSource === "instagram" && (
+                    <div className="mt-4 space-y-3">
+                      {igPosts.status === "idle" && (
+                        <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                          {igUserId
+                            ? "Loading Instagram posts…"
+                            : "No linked Instagram account — pick a Page with an IG business account, or switch to the Facebook tab."}
+                        </div>
+                      )}
+                      {igPosts.status === "loading" && (
+                        <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
+                          <Spinner /> Loading Instagram posts…
+                        </div>
+                      )}
+                      {igPosts.status === "error" && (
+                        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-4 text-sm">
+                          <div className="flex items-start gap-2 text-destructive">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <div className="flex-1">
+                              <p className="font-medium">
+                                Couldn&rsquo;t load Instagram posts.
+                              </p>
+                              {igPosts.error && (
+                                <p className="mt-0.5 text-xs opacity-80">{igPosts.error}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-3 flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => igPosts.refetch()}
+                            >
+                              <RefreshCw className="mr-1 h-3.5 w-3.5" /> Try again
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {igPosts.status === "empty" && (
+                        <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                          <p>No published Instagram posts found.</p>
+                          <p className="mt-1 text-xs">
+                            Publish a post on the IG account first, or switch to Facebook.
+                          </p>
+                        </div>
+                      )}
+                      {igPosts.status === "success" && (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <SearchInput
+                                value={postSearch}
+                                onChange={(e) => setPostSearch(e.target.value)}
+                                onClear={() => setPostSearch("")}
+                                placeholder="Search captions..."
+                              />
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => igPosts.refetch()}
+                              title="Reload IG posts"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+
+                          <div className="max-h-80 space-y-2 overflow-y-auto">
+                            {filteredIgPosts.length === 0 ? (
+                              <p className="py-4 text-center text-sm text-muted-foreground">
+                                No posts match &ldquo;{postSearch}&rdquo;.
+                              </p>
+                            ) : (
+                              filteredIgPosts.map((post) => {
+                                const isSelected =
+                                  active.existingPost?.source === "instagram" &&
+                                  active.existingPost?.postId === post.id;
+                                const previewSrc =
+                                  post.thumbnailUrl || post.mediaUrl;
+                                return (
+                                  <button
+                                    key={post.id}
+                                    type="button"
+                                    onClick={() =>
+                                      updateAd(active.id, {
+                                        existingPost: {
+                                          source: "instagram",
+                                          postId: post.id,
+                                          postPreview: post.caption,
+                                          instagramAccountId: post.igUserId,
+                                        },
+                                      })
+                                    }
+                                    className={`group w-full rounded-lg border p-3 text-left transition-colors
+                                      ${isSelected
+                                        ? "border-primary bg-primary-light"
+                                        : "border-border hover:bg-muted/50"}`}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                                        {previewSrc ? (
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          <img
+                                            src={previewSrc}
+                                            alt=""
+                                            className="h-full w-full object-cover"
+                                          />
+                                        ) : post.mediaType === "video" ? (
+                                          <Video className="h-4 w-4 text-muted-foreground" />
+                                        ) : (
+                                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="line-clamp-2 text-sm">{post.caption}</p>
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                          <span>
+                                            {new Date(post.timestamp).toLocaleDateString()}
+                                          </span>
+                                          <Badge variant="outline" className="text-[10px]">
+                                            {post.mediaType}
+                                          </Badge>
+                                          {post.permalink && (
+                                            <a
+                                              href={post.permalink}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="inline-flex items-center gap-0.5 hover:text-foreground"
+                                            >
+                                              View on Instagram <ExternalLink className="h-3 w-3" />
+                                            </a>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {isSelected && <Badge variant="primary">Selected</Badge>}
+                                    </div>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+                            <Input
+                              label="Destination URL (optional)"
+                              value={active.destinationUrl}
+                              onChange={(e) => updateAd(active.id, { destinationUrl: e.target.value })}
+                              placeholder="https://..."
+                            />
+                            <Select
+                              label="CTA (optional)"
+                              value={active.cta}
+                              onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
+                              options={CTA_OPTIONS}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Facebook branch ───────────────────────────────────── */}
+                  {existingPostSource === "facebook" && (
                   <div className="mt-4 space-y-3">
                     {/* idle — no page selected yet */}
                     {pagePosts.status === "idle" && (
@@ -1025,6 +1259,7 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                       </>
                     )}
                   </div>
+                  )}
                 </Card>
               )}
 

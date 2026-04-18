@@ -54,6 +54,49 @@ function deriveCompatibility(raw: RawMetaAdSet): {
   return { compatible: true };
 }
 
+function buildTargetingSummary(raw: RawMetaAdSet): string | undefined {
+  const t = raw.targeting;
+  if (!t) return undefined;
+  const parts: string[] = [];
+
+  if (typeof t.age_min === "number" || typeof t.age_max === "number") {
+    parts.push(`Age ${t.age_min ?? "?"}-${t.age_max ?? "?"}`);
+  }
+
+  const geo = t.geo_locations;
+  if (geo) {
+    const cityNames = (geo.cities ?? [])
+      .map((c) => c.name)
+      .filter((n): n is string => Boolean(n));
+    const regionNames = (geo.regions ?? [])
+      .map((r) => r.name)
+      .filter((n): n is string => Boolean(n));
+    if (cityNames.length > 0) {
+      const head = cityNames.slice(0, 2).join(", ");
+      const more = cityNames.length > 2 ? ` +${cityNames.length - 2}` : "";
+      parts.push(`${head}${more}`);
+    } else if (regionNames.length > 0) {
+      parts.push(regionNames.slice(0, 2).join(", "));
+    } else if (geo.countries?.length) {
+      parts.push(geo.countries.slice(0, 3).join(", "));
+    } else if (geo.custom_locations?.length) {
+      parts.push(`${geo.custom_locations.length} custom location${geo.custom_locations.length > 1 ? "s" : ""}`);
+    }
+  }
+
+  const caCount = t.custom_audiences?.length ?? 0;
+  if (caCount > 0) {
+    parts.push(`${caCount} custom audience${caCount > 1 ? "s" : ""}`);
+  }
+
+  const interestSpec = t.flexible_spec?.length ?? 0;
+  if (interestSpec > 0 && parts.length === 0) {
+    parts.push("Interest targeting");
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 function toSummary(raw: RawMetaAdSet): MetaAdSetSummary {
   const c = deriveCompatibility(raw);
   return {
@@ -68,6 +111,7 @@ function toSummary(raw: RawMetaAdSet): MetaAdSetSummary {
     updatedTime: raw.updated_time,
     compatible: c.compatible,
     incompatibleReason: c.reason,
+    targetingSummary: buildTargetingSummary(raw),
   };
 }
 
@@ -95,8 +139,14 @@ export async function GET(req: NextRequest) {
   }
 
   const filterParam = req.nextUrl.searchParams.get("filter") ?? "relevant";
-  const filter: "relevant" | "all" =
-    filterParam === "all" ? "all" : "relevant";
+  const filter: "relevant" | "active" | "paused" | "all" =
+    filterParam === "all"
+      ? "all"
+      : filterParam === "active"
+        ? "active"
+        : filterParam === "paused"
+          ? "paused"
+          : "relevant";
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
   const after = req.nextUrl.searchParams.get("after") ?? undefined;
   const rawLimit = Number(req.nextUrl.searchParams.get("limit") ?? DEFAULT_LIMIT);

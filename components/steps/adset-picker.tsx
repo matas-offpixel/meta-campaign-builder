@@ -3,25 +3,31 @@
 /**
  * AdSetPicker — used by Step 1 when the user chooses the "Add to existing
  * ad set" mode. Lists live Meta ad sets under the campaign chosen via the
- * CampaignPicker, with:
+ * CampaignPicker.
  *
- *   - default "Relevant" filter (active + paused, recent first, limited)
- *   - optional "Show all ad sets" toggle
+ * UI contract:
+ *   - card grid (multi-select)
  *   - debounced server-side name search (Meta `filtering` param)
+ *   - status filter: Active / Paused / All
+ *   - relevance filter: "Relevant" (active + paused, recent first, limited)
+ *     vs. "All" — implicit when the status pill is "All"
  *   - server-side cursor pagination via "Load more"
  *   - explicit idle / loading / success / empty / error render branches
  *
- * Selecting a compatible row calls `onSelect(adSet)` — the parent
- * (campaign-setup.tsx) is responsible for writing the snapshot onto the
- * draft.
+ * Toggling a compatible card calls `onToggle(adSet)`. The parent
+ * (campaign-setup.tsx) is responsible for writing/removing the snapshot on
+ * the draft and decides the final selected set.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Check,
   RefreshCw,
   Search as SearchIcon,
+  Users,
+  Target as TargetIcon,
+  Calendar,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -30,12 +36,15 @@ import { SearchInput } from "@/components/ui/search-input";
 import type { MetaAdSetSummary } from "@/lib/types";
 import { useFetchAdSets } from "@/lib/hooks/useMeta";
 
+type StatusFilter = "active" | "paused" | "all";
+
 interface AdSetPickerProps {
   /** Raw Meta campaign id, e.g. "23849562890000". */
   campaignId: string | undefined;
-  /** Currently-selected ad set id, if any. */
-  selectedId?: string;
-  onSelect: (adSet: MetaAdSetSummary) => void;
+  /** Currently-selected ad set ids. Multiple allowed. */
+  selectedIds: string[];
+  /** Toggle an ad set on/off. Parent updates the draft snapshot. */
+  onToggle: (adSet: MetaAdSetSummary) => void;
 }
 
 function Spinner({ className = "h-3.5 w-3.5" }: { className?: string }) {
@@ -63,10 +72,10 @@ function prettyMetaEnum(raw?: string): string {
 
 export function AdSetPicker({
   campaignId,
-  selectedId,
-  onSelect,
+  selectedIds,
+  onToggle,
 }: AdSetPickerProps) {
-  const [filter, setFilter] = useState<"relevant" | "all">("relevant");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -75,11 +84,21 @@ export function AdSetPicker({
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  // Map the picker's status filter onto the API's `filter` param. Searching
+  // implicitly broadens to "all" so a query for an archived ad set still
+  // returns results.
+  const apiFilter = useMemo<"relevant" | "active" | "paused" | "all">(() => {
+    if (debouncedSearch && statusFilter === "active") return "all";
+    return statusFilter;
+  }, [statusFilter, debouncedSearch]);
+
   const adSets = useFetchAdSets(campaignId, {
     enabled: Boolean(campaignId),
-    filter,
+    filter: apiFilter,
     search: debouncedSearch || undefined,
   });
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   if (!campaignId) {
     return (
@@ -101,17 +120,23 @@ export function AdSetPicker({
           />
         </div>
         <div className="flex rounded-md border border-border-strong p-0.5">
-          {(["relevant", "all"] as const).map((f) => (
+          {(
+            [
+              { id: "active", label: "Active" },
+              { id: "paused", label: "Paused" },
+              { id: "all", label: "All" },
+            ] as const
+          ).map((opt) => (
             <button
-              key={f}
+              key={opt.id}
               type="button"
-              onClick={() => setFilter(f)}
+              onClick={() => setStatusFilter(opt.id)}
               className={`rounded px-2.5 py-1 text-xs font-medium transition-colors
-                ${filter === f
+                ${statusFilter === opt.id
                   ? "bg-foreground text-background"
                   : "text-muted-foreground hover:text-foreground"}`}
             >
-              {f === "relevant" ? "Relevant" : "All"}
+              {opt.label}
             </button>
           ))}
         </div>
@@ -125,13 +150,13 @@ export function AdSetPicker({
         </Button>
       </div>
 
-      {filter === "relevant" && (
-        <p className="text-[11px] text-muted-foreground">
-          Showing active &amp; paused ad sets, most recent first. Switch to{" "}
-          <span className="font-medium">All</span> to include archived /
-          completed ad sets.
-        </p>
-      )}
+      <p className="text-[11px] text-muted-foreground">
+        {statusFilter === "active"
+          ? "Showing ACTIVE ad sets, most recent first. Switch to Paused or All if you don't see the one you want."
+          : statusFilter === "paused"
+            ? "Showing PAUSED ad sets, most recent first."
+            : "Showing all ad sets in this campaign — including archived/deleted."}
+      </p>
 
       {adSets.status === "loading" && (
         <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
@@ -176,14 +201,16 @@ export function AdSetPicker({
                 <span className="font-medium">All</span>.
               </p>
             </>
-          ) : filter === "relevant" ? (
+          ) : statusFilter === "active" ? (
             <>
-              <p>No active or paused ad sets found in this campaign.</p>
+              <p>No active ad sets in this campaign.</p>
               <p className="mt-1 text-xs">
-                Switch to <span className="font-medium">All</span> to include
-                archived ad sets.
+                Switch to <span className="font-medium">Paused</span> or{" "}
+                <span className="font-medium">All</span>.
               </p>
             </>
+          ) : statusFilter === "paused" ? (
+            <p>No paused ad sets in this campaign.</p>
           ) : (
             <p>No ad sets found in this campaign.</p>
           )}
@@ -192,68 +219,99 @@ export function AdSetPicker({
 
       {adSets.status === "success" && (
         <>
-          <ul className="max-h-96 space-y-1.5 overflow-y-auto rounded-lg border border-border bg-card p-1.5">
+          {selectedIds.length > 0 && (
+            <div className="flex items-center justify-between rounded-md bg-primary-light/30 px-3 py-2 text-xs">
+              <span className="text-foreground">
+                <span className="font-medium">{selectedIds.length}</span>{" "}
+                ad set{selectedIds.length !== 1 ? "s" : ""} selected
+              </span>
+              <span className="text-muted-foreground">
+                Ads will be added to all selected ad sets.
+              </span>
+            </div>
+          )}
+
+          <div className="grid max-h-[460px] gap-2 overflow-y-auto sm:grid-cols-2">
             {adSets.data.map((a) => {
-              const isSelected = a.id === selectedId;
+              const isSelected = selectedSet.has(a.id);
               const disabled = !a.compatible;
               return (
-                <li key={a.id}>
-                  <button
-                    type="button"
-                    onClick={() => !disabled && onSelect(a)}
-                    disabled={disabled}
-                    title={disabled ? a.incompatibleReason : undefined}
-                    className={`group w-full rounded-md border px-3 py-2.5 text-left transition-colors
-                      ${isSelected
-                        ? "border-primary bg-primary-light"
-                        : "border-border hover:bg-muted/50"}
-                      ${disabled ? "cursor-not-allowed opacity-50 hover:bg-transparent" : ""}`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {a.name || "(unnamed ad set)"}
-                          </span>
-                          <StatusPill status={a.effectiveStatus ?? a.status} />
-                        </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                          {a.optimizationGoal && (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => !disabled && onToggle(a)}
+                  disabled={disabled}
+                  title={disabled ? a.incompatibleReason : undefined}
+                  className={`group relative flex w-full flex-col rounded-lg border px-3 py-3 text-left transition-colors
+                    ${isSelected
+                      ? "border-primary bg-primary-light"
+                      : "border-border hover:bg-muted/50"}
+                    ${disabled ? "cursor-not-allowed opacity-50 hover:bg-transparent" : ""}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                        isSelected
+                          ? "border-primary bg-primary text-background"
+                          : "border-border-strong bg-background"
+                      }`}
+                      aria-hidden
+                    >
+                      {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {a.name || "(unnamed ad set)"}
+                        </span>
+                        <StatusPill status={a.effectiveStatus ?? a.status} />
+                      </div>
+
+                      <div className="mt-1.5 space-y-1 text-[11px] text-muted-foreground">
+                        {a.optimizationGoal && (
+                          <div className="flex items-start gap-1.5">
+                            <TargetIcon className="mt-0.5 h-3 w-3 shrink-0" />
                             <span className="capitalize">
-                              Optimisation: {prettyMetaEnum(a.optimizationGoal)}
+                              {prettyMetaEnum(a.optimizationGoal)}
+                              {a.billingEvent &&
+                                ` · ${prettyMetaEnum(a.billingEvent)}`}
                             </span>
-                          )}
-                          {a.billingEvent && (
-                            <span className="capitalize">
-                              Billing: {prettyMetaEnum(a.billingEvent)}
+                          </div>
+                        )}
+                        {a.targetingSummary && (
+                          <div className="flex items-start gap-1.5">
+                            <Users className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span className="line-clamp-2">
+                              {a.targetingSummary}
                             </span>
-                          )}
-                          <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {a.id}
-                          </code>
-                          {a.updatedTime && (
+                          </div>
+                        )}
+                        {a.updatedTime && (
+                          <div className="flex items-start gap-1.5">
+                            <Calendar className="mt-0.5 h-3 w-3 shrink-0" />
                             <span>
-                              Updated {new Date(a.updatedTime).toLocaleDateString()}
+                              Updated{" "}
+                              {new Date(a.updatedTime).toLocaleDateString()}
                             </span>
-                          )}
-                        </div>
-                        {disabled && a.incompatibleReason && (
-                          <p className="mt-1 text-[11px] text-warning">
-                            {a.incompatibleReason}
-                          </p>
+                          </div>
                         )}
                       </div>
-                      {isSelected && (
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-background">
-                          <Check className="h-3 w-3" />
-                        </span>
+
+                      <code className="mt-2 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {a.id}
+                      </code>
+
+                      {disabled && a.incompatibleReason && (
+                        <p className="mt-1 text-[11px] text-warning">
+                          {a.incompatibleReason}
+                        </p>
                       )}
                     </div>
-                  </button>
-                </li>
+                  </div>
+                </button>
               );
             })}
-          </ul>
+          </div>
 
           {adSets.error && (
             <p className="text-xs text-destructive">{adSets.error}</p>

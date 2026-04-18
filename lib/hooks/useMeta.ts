@@ -18,6 +18,7 @@ import type {
   MetaInstagramAccount,
   CustomAudience,
   PagePost,
+  InstagramPost,
   MetaCampaignSummary,
   MetaCampaignsResponse,
   MetaAdSetSummary,
@@ -382,6 +383,103 @@ export function useFetchPagePosts(
   return { ...inner, refetch };
 }
 
+// ─── useFetchInstagramPosts ─────────────────────────────────────────────────
+
+/**
+ * Same discriminated state machine as {@link PagePostsStatus}, applied to the
+ * IG existing-post picker. Sharing the type means `creatives.tsx` can render
+ * either source with one set of empty/loading/error branches.
+ */
+export type InstagramPostsState = {
+  status: PagePostsStatus;
+  data: InstagramPost[];
+  error: string | null;
+  refetch: () => void;
+};
+
+interface UseFetchInstagramPostsOptions {
+  enabled?: boolean;
+  /**
+   * The Facebook Page id that owns the IG account. Optional but recommended:
+   * the route uses it to mint a Page access token, which is the most reliable
+   * way to read `/{ig-user-id}/media`.
+   */
+  pageId?: string;
+  limit?: number;
+}
+
+/**
+ * Loads recent IG media for the given Instagram business account id.
+ * Disabled / aborted semantics mirror {@link useFetchPagePosts}.
+ */
+export function useFetchInstagramPosts(
+  igUserId: string | undefined,
+  options: UseFetchInstagramPostsOptions = {},
+): InstagramPostsState {
+  const { enabled = true, pageId, limit } = options;
+
+  const [inner, setInner] = useState<{
+    status: PagePostsStatus;
+    data: InstagramPost[];
+    error: string | null;
+  }>({ status: "idle", data: [], error: null });
+
+  const [refetchCounter, setRefetchCounter] = useState(0);
+  const refetch = useCallback(() => setRefetchCounter((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!enabled || !igUserId) {
+      setInner({ status: "idle", data: [], error: null });
+      return;
+    }
+
+    const controller = new AbortController();
+    setInner({ status: "loading", data: [], error: null });
+
+    const params = new URLSearchParams({ igUserId });
+    if (pageId) params.set("pageId", pageId);
+    if (limit) params.set("limit", String(limit));
+    const url = `/api/meta/instagram-posts?${params.toString()}`;
+
+    console.log(
+      `[useFetchInstagramPosts] fetch start igUserId=${igUserId}` +
+        ` pageId=${pageId ?? "(none)"}`,
+    );
+
+    fetch(url, { signal: controller.signal })
+      .then(async (res) => {
+        const json = (await res.json()) as {
+          data?: InstagramPost[];
+          error?: string;
+        };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        const data = Array.isArray(json.data) ? json.data : [];
+        console.log(
+          `[useFetchInstagramPosts] fetch success igUserId=${igUserId} count=${data.length}`,
+        );
+        setInner({
+          status: data.length === 0 ? "empty" : "success",
+          data,
+          error: null,
+        });
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const msg = err instanceof Error ? err.message : "Failed to load IG posts";
+        console.error(
+          `[useFetchInstagramPosts] fetch failure igUserId=${igUserId} reason=${msg}`,
+        );
+        setInner({ status: "error", data: [], error: msg });
+      });
+
+    return () => controller.abort();
+  }, [igUserId, enabled, pageId, limit, refetchCounter]);
+
+  return { ...inner, refetch };
+}
+
 // ─── useFetchPageIdentity ────────────────────────────────────────────────────
 
 /**
@@ -707,8 +805,14 @@ export interface AdSetsState {
 
 interface UseFetchAdSetsOptions {
   enabled?: boolean;
-  /** "relevant" (active+paused, recency-sorted) | "all". */
-  filter?: "relevant" | "all";
+  /**
+   * Status filter:
+   *   - "relevant" (active+paused, recency-sorted) — default
+   *   - "active"   — ACTIVE only
+   *   - "paused"   — PAUSED only
+   *   - "all"      — no status filter
+   */
+  filter?: "relevant" | "active" | "paused" | "all";
   /** Case-insensitive substring match on ad set name. */
   search?: string;
   /** Initial page size — server-capped at 50. */

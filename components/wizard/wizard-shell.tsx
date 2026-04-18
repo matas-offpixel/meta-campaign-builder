@@ -28,7 +28,7 @@ import type {
   CampaignTemplate,
   LaunchSummary,
 } from "@/lib/types";
-import { ATTACHED_AD_SET_ID, getVisibleSteps } from "@/lib/types";
+import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { validateStep } from "@/lib/validation";
 import { saveDraftToStorage, loadDraftFromStorage } from "@/lib/autosave";
@@ -547,29 +547,34 @@ export function WizardShell({ draftId }: WizardShellProps) {
           />
         )}
         {step === 6 && (() => {
-          // attach_adset mode: derive a single synthetic ad set entry from
-          // the picker snapshot so the assign matrix has a row to work with.
-          // We never persist this into draft.adSetSuggestions — it's purely
-          // a render-time projection.
-          const attachAdSet = draft.settings.existingMetaAdSet;
+          // attach_adset mode: derive one synthetic ad set entry per selected
+          // live ad set so the existing assign matrix has rows to work with.
+          // We never persist these into draft.adSetSuggestions — purely a
+          // render-time projection. The matrix is keyed by
+          // `attachedAdSetKey(metaAdSetId)` so per-ad-set assignments survive
+          // across re-renders and re-launches.
+          const selectedAdSets =
+            draft.settings.existingMetaAdSets ??
+            (draft.settings.existingMetaAdSet
+              ? [draft.settings.existingMetaAdSet]
+              : []);
           const isAttachAdSet =
-            draft.settings.wizardMode === "attach_adset" && !!attachAdSet;
+            draft.settings.wizardMode === "attach_adset" &&
+            selectedAdSets.length > 0;
           const adSetsForAssign: AdSetSuggestion[] = isAttachAdSet
-            ? [
-                {
-                  id: ATTACHED_AD_SET_ID,
-                  name: attachAdSet!.name,
-                  sourceType: "page_group",
-                  sourceId: attachAdSet!.id,
-                  sourceName: attachAdSet!.name,
-                  ageMin: 18,
-                  ageMax: 65,
-                  budgetPerDay: 0,
-                  advantagePlus: false,
-                  enabled: true,
-                  metaAdSetId: attachAdSet!.id,
-                },
-              ]
+            ? selectedAdSets.map((s) => ({
+                id: attachedAdSetKey(s.id),
+                name: s.name,
+                sourceType: "page_group",
+                sourceId: s.id,
+                sourceName: s.name,
+                ageMin: 18,
+                ageMax: 65,
+                budgetPerDay: 0,
+                advantagePlus: false,
+                enabled: true,
+                metaAdSetId: s.id,
+              }))
             : draft.adSetSuggestions;
           return (
             <AssignCreatives
@@ -577,6 +582,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
               creatives={draft.creatives}
               assignments={draft.creativeAssignments}
               onChange={updateCreativeAssignments}
+              attachAdSetMode={isAttachAdSet}
             />
           );
         })()}
