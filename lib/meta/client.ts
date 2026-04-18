@@ -549,10 +549,18 @@ export async function fetchPixels(adAccountId: string): Promise<MetaApiPixel[]> 
  * manages — including BM-owned pages. Returns one entry per page that
  * has a linked IG account, deduplicated by IG ID.
  * Requires: pages_show_list + instagram_basic permissions.
+ *
+ * @param userToken Optional user OAuth `provider_token`. When supplied it's
+ *                  used for the `/me/accounts` source instead of the system
+ *                  token, which is critical for Pages the system user doesn't
+ *                  manage (otherwise the IG link would be invisible and the
+ *                  UI would falsely report "no linked Instagram account").
+ *                  The BM `/owned_pages` source still uses the system token
+ *                  because that endpoint is keyed off `META_BUSINESS_ID`.
  */
-export async function fetchInstagramAccounts(): Promise<
-  Array<MetaInstagramAccount & { linkedPageId: string }>
-> {
+export async function fetchInstagramAccounts(
+  userToken?: string,
+): Promise<Array<MetaInstagramAccount & { linkedPageId: string }>> {
   type IgResult = MetaInstagramAccount & { linkedPageId: string };
   const seen = new Map<string, IgResult>();
 
@@ -591,15 +599,32 @@ export async function fetchInstagramAccounts(): Promise<
     "instagram_business_account{id,username,name,profile_picture_url}," +
     "connected_instagram_account{id,username,name,profile_picture_url}";
 
-  // Source 1: personal token pages
-  try {
-    const personal = await graphGet<GraphPagedResponse<MetaApiPage>>(
-      "/me/accounts",
-      { fields: IG_FIELDS, limit: "100" },
-    );
-    extractIg(personal.data);
-  } catch (err) {
-    console.warn("[fetchInstagramAccounts] /me/accounts failed:", err);
+  // Source 1: personal token pages — prefer the user's OAuth token when
+  // available so we see the same Pages the user sees in Ads Manager.
+  // The system token's `/me/accounts` returns the System User's accounts,
+  // which usually omits the Pages the end-user manages personally.
+  const meAccountsToken = userToken ?? process.env.META_ACCESS_TOKEN;
+  const meAccountsTokenSource = userToken ? "user" : "system";
+  if (meAccountsToken) {
+    try {
+      const personal = await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(
+        "/me/accounts",
+        { fields: IG_FIELDS, limit: "100" },
+        meAccountsToken,
+      );
+      console.info(
+        `[fetchInstagramAccounts] /me/accounts via ${meAccountsTokenSource} token` +
+          ` returned ${personal.data?.length ?? 0} pages`,
+      );
+      extractIg(personal.data);
+    } catch (err) {
+      console.warn(
+        `[fetchInstagramAccounts] /me/accounts via ${meAccountsTokenSource} token failed:`,
+        err,
+      );
+    }
+  } else {
+    console.warn("[fetchInstagramAccounts] no token available for /me/accounts");
   }
 
   // Source 2: BM-owned pages (requires business_management permission)

@@ -24,6 +24,7 @@ import {
   useFetchPages,
   useFetchInstagramAccounts,
   useFetchPagePosts,
+  useFetchPageIdentity,
 } from "@/lib/hooks/useMeta";
 import {
   createDefaultCreative,
@@ -95,6 +96,12 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
 
   const active = creatives.find((c) => c.id === activeId);
 
+  // Per-page identity (Page access token presence + IG resolution) for the
+  // currently selected Page on the active ad. Source of truth for the IG
+  // dropdown's "linked / no IG / unresolved" state — `igAccounts` (account-
+  // wide) can have false negatives when the system token can't see the page.
+  const activePageIdentity = useFetchPageIdentity(active?.identity?.pageId);
+
   const addAd = () => {
     const c = createDefaultCreative();
     c.name = `Ad ${creatives.length + 1}`;
@@ -136,12 +143,33 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   );
 
   const handlePageChange = (adId: string, pageId: string) => {
-    // Auto-link the Instagram account associated with this page
+    // Auto-link the Instagram account associated with this page, if we
+    // already know one from the account-wide IG accounts list. The
+    // per-page identity hook will refine this asynchronously and the
+    // sync effect below corrects the selection if a better IG is found.
     const linkedIg = igAccounts.data.find((ig) => ig.linkedPageId === pageId)?.id ?? "";
     updateAd(adId, {
       identity: { pageId, instagramAccountId: linkedIg },
     });
   };
+
+  // When the per-page identity resolves a linked IG that we didn't already
+  // pick (e.g. the account-wide list missed it because the system token
+  // couldn't see the Page), backfill it onto the active ad.
+  useEffect(() => {
+    if (!active) return;
+    const identity = activePageIdentity.data;
+    if (!identity || identity.ig.state !== "linked") return;
+    if (active.identity?.pageId !== identity.pageId) return;
+    const currentIg = active.identity?.instagramAccountId ?? "";
+    if (currentIg) return;
+    updateAd(active.id, {
+      identity: {
+        ...(active.identity ?? { pageId: identity.pageId, instagramAccountId: "" }),
+        instagramAccountId: identity.ig.account.id,
+      },
+    });
+  }, [active, activePageIdentity.data, updateAd]);
 
   // ─── Asset variations ───
   const addAssetVariation = (adId: string) => {
@@ -545,12 +573,47 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                       <FieldStatus loading={pages.loading} error={pages.error} />
                     </div>
                     <div>
-                      {/* Filter IG accounts to those linked to the selected page */}
+                      {/* IG dropdown — three sources merged in priority order:
+                            1. Per-page identity (authoritative; uses user OAuth
+                               token, can see pages the system token can't).
+                            2. Account-wide IG accounts cache (filtered to the
+                               selected page) — fills in while identity loads.
+                            3. Empty list when neither has data yet. */}
                       {(() => {
                         const selectedPageId = active.identity?.pageId;
-                        const filteredIG = selectedPageId
-                          ? igAccounts.data.filter((ig) => ig.linkedPageId === selectedPageId)
-                          : igAccounts.data;
+                        const identityState = activePageIdentity;
+                        const identityIg =
+                          identityState.data?.ig.state === "linked"
+                            ? identityState.data.ig.account
+                            : null;
+                        const cacheIg = selectedPageId
+                          ? igAccounts.data.filter(
+                              (ig) => ig.linkedPageId === selectedPageId,
+                            )
+                          : [];
+                        const mergedIG = identityIg
+                          ? [
+                              {
+                                id: identityIg.id,
+                                username: identityIg.username,
+                                name: identityIg.name,
+                              },
+                              ...cacheIg.filter((ig) => ig.id !== identityIg.id),
+                            ]
+                          : cacheIg;
+
+                        const identityLoading = identityState.status === "loading";
+                        const identityError =
+                          identityState.status === "error"
+                            ? identityState.error
+                            : null;
+                        const igDefinitivelyAbsent =
+                          identityState.data?.ig.state === "no_ig" &&
+                          mergedIG.length === 0;
+                        const igUnresolved =
+                          identityState.data?.ig.state === "unresolved" &&
+                          mergedIG.length === 0;
+
                         return (
                           <>
                             <Select
@@ -565,30 +628,60 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                                 })
                               }
                               placeholder={
-                                igAccounts.loading
+                                igAccounts.loading || identityLoading
                                   ? "Loading…"
                                   : !selectedPageId
                                     ? "Select a page first…"
                                     : "Select account…"
                               }
-                              disabled={igAccounts.loading || !selectedPageId}
+                              disabled={
+                                (igAccounts.loading && identityLoading) ||
+                                !selectedPageId
+                              }
                               options={[
                                 { value: "", label: "— None —" },
-                                ...filteredIG.map((ig) => ({
+                                ...mergedIG.map((ig) => ({
                                   value: ig.id,
-                                  label: ig.username ? `@${ig.username}` : (ig.name ?? ig.id),
+                                  label: ig.username
+                                    ? `@${ig.username}`
+                                    : (ig.name ?? ig.id),
                                 })),
                               ]}
                             />
-                            <FieldStatus loading={igAccounts.loading} error={igAccounts.error} />
-                            {selectedPageId && !igAccounts.loading && filteredIG.length === 0 && (
+                            <FieldStatus
+                              loading={igAccounts.loading || identityLoading}
+                              error={igAccounts.error ?? identityError}
+                            />
+                            {/* Definitive: page exists, no IG linked. */}
+                            {selectedPageId && igDefinitivelyAbsent && (
                               <p className="mt-1 text-[11px] text-warning">
                                 No linked Instagram account found for this page. Ads will use the Facebook Page identity only.
                               </p>
                             )}
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              Using Facebook Page identity only. Instagram actor verification is pending.
-                            </p>
+                            {/* Soft: lookup failed, do NOT claim the page has no IG. */}
+                            {selectedPageId && igUnresolved && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Couldn&rsquo;t verify Instagram linkage for this page
+                                {identityState.data?.ig.state === "unresolved" &&
+                                identityState.data.ig.reason
+                                  ? ` (${identityState.data.ig.reason})`
+                                  : ""}
+                                . Reconnect Facebook if this is unexpected.
+                              </p>
+                            )}
+                            {/* Resolved + linked — surface where it came from for debugging. */}
+                            {identityIg && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Linked via{" "}
+                                {identityState.data?.ig.state === "linked"
+                                  ? identityState.data.ig.account.source ===
+                                    "instagram_business_account"
+                                    ? "Instagram Business Account"
+                                    : "Connected Instagram Account"
+                                  : "—"}
+                                .
+                              </p>
+                            )}
                           </>
                         );
                       })()}

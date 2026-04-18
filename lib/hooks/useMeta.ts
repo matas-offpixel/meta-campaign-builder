@@ -382,6 +382,108 @@ export function useFetchPagePosts(
   return { ...inner, refetch };
 }
 
+// ─── useFetchPageIdentity ────────────────────────────────────────────────────
+
+/**
+ * Per-Page IG resolution result returned by `/api/meta/page-identity`.
+ *
+ * Three-state — see route handler for full semantics:
+ *   - linked       : IG account confirmed; populate the dropdown.
+ *   - no_ig        : Page exists and definitively has no linked IG.
+ *   - unresolved   : Lookup failed (token / permission / API error). The UI
+ *                    should NOT claim "no IG" in this case — show a softer
+ *                    "couldn't verify" hint instead.
+ */
+export type PageIgState = "linked" | "no_ig" | "unresolved";
+
+export interface PageIdentityIgAccount {
+  id: string;
+  username?: string;
+  name?: string;
+  profilePictureUrl?: string;
+  source: "instagram_business_account" | "connected_instagram_account";
+}
+
+export interface PageIdentity {
+  pageId: string;
+  pageName?: string;
+  hasPageToken: boolean;
+  pageTokenSource:
+    | "page_endpoint"
+    | "me_accounts"
+    | "system_fallback"
+    | "none";
+  ig:
+    | { state: "linked"; account: PageIdentityIgAccount }
+    | { state: "no_ig" }
+    | { state: "unresolved"; reason: string };
+}
+
+export type PageIdentityStatus = "idle" | "loading" | "success" | "error";
+
+export interface PageIdentityState {
+  status: PageIdentityStatus;
+  data: PageIdentity | null;
+  error: string | null;
+}
+
+/**
+ * Resolves the per-Page identity (Page access token presence + linked IG)
+ * for the currently selected Facebook Page in the creative step.
+ *
+ * Called whenever `pageId` changes. The Page access token itself is never
+ * sent to the browser — only `hasPageToken` + `pageTokenSource` for UI use.
+ */
+export function useFetchPageIdentity(
+  pageId: string | undefined,
+): PageIdentityState {
+  const [state, setState] = useState<PageIdentityState>({
+    status: "idle",
+    data: null,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!pageId) {
+      setState({ status: "idle", data: null, error: null });
+      return;
+    }
+
+    const controller = new AbortController();
+    setState({ status: "loading", data: null, error: null });
+    console.log(`[useFetchPageIdentity] fetch start pageId=${pageId}`);
+
+    const url = `/api/meta/page-identity?pageId=${encodeURIComponent(pageId)}`;
+    fetch(url, { signal: controller.signal, credentials: "same-origin" })
+      .then(async (res) => {
+        const json = (await res.json()) as PageIdentity & { error?: string };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        console.log(
+          `[useFetchPageIdentity] fetch success pageId=${pageId}` +
+            ` hasPageToken=${json.hasPageToken}` +
+            ` pageTokenSource=${json.pageTokenSource}` +
+            ` ig.state=${json.ig.state}`,
+        );
+        setState({ status: "success", data: json, error: null });
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const msg =
+          err instanceof Error ? err.message : "Failed to resolve page identity";
+        console.error(
+          `[useFetchPageIdentity] fetch failure pageId=${pageId} reason=${msg}`,
+        );
+        setState({ status: "error", data: null, error: msg });
+      });
+
+    return () => controller.abort();
+  }, [pageId]);
+
+  return state;
+}
+
 // ─── useFetchCampaigns ────────────────────────────────────────────────────────
 
 /**

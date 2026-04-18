@@ -4,11 +4,17 @@
  * Returns recent published posts for the given Facebook Page so the wizard
  * can present them in the "Use Existing Post" creative picker.
  *
- * Auth: Supabase session, then `META_ACCESS_TOKEN` for the upstream Graph
- * call (matches the rest of /api/meta/* and the launch flow's
- * `createMetaCreative`). For Pages owned/assigned in Business Manager this
- * system user token is sufficient. Per-Page tokens are not required for
- * this iteration.
+ * Token resolution (in order):
+ *   1. **Page access token**, resolved server-side via `resolvePageIdentity`
+ *      using the user's OAuth `provider_token`. `/{page_id}/published_posts`
+ *      requires a Page-scoped token — calling it with a user/system token
+ *      raises Meta error #210 ("A page access token is required to request
+ *      this resource").
+ *   2. The user's OAuth token, as a soft fallback for cases where the Page
+ *      endpoint refused to mint a Page token but the user can still read
+ *      the feed.
+ *   3. `META_ACCESS_TOKEN` (system) — last resort, mostly only useful for
+ *      BM-owned pages assigned to the system user.
  *
  * Upstream:
  *   GET /{page_id}/published_posts
@@ -27,7 +33,12 @@
 import { type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
-import { graphGet, MetaApiError } from "@/lib/meta/client";
+import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
+import {
+  getUserFacebookToken,
+  resolvePageIdentity,
+  type PageTokenSource,
+} from "@/lib/meta/page-token";
 import type { PagePost } from "@/lib/types";
 
 const DEFAULT_LIMIT = 25;
@@ -139,43 +150,121 @@ export async function GET(req: NextRequest) {
 
   console.log(`[/api/meta/page-posts] fetch start pageId=${pageId} limit=${limit}`);
 
-  try {
-    const res = await graphGet<RawPostsResponse>(`/${pageId}/published_posts`, {
-      fields: POST_FIELDS,
-      limit: String(limit),
+  // ── Token resolution ──────────────────────────────────────────────────────
+  const userToken = await getUserFacebookToken(supabase, user.id);
+  const identity = await resolvePageIdentity(pageId, userToken);
+  const systemToken = process.env.META_ACCESS_TOKEN ?? null;
+
+  type TokenAttempt = { token: string; source: string };
+  const attempts: TokenAttempt[] = [];
+  if (identity.pageAccessToken) {
+    attempts.push({
+      token: identity.pageAccessToken,
+      source: `page (${identity.pageTokenSource satisfies PageTokenSource})`,
     });
-    const raw = Array.isArray(res?.data) ? res.data : [];
-
-    const usable = raw
-      .filter((p) => p.is_published !== false)
-      .filter((p) => Boolean(p.message ?? p.story ?? p.full_picture ?? p.attachments?.data?.length))
-      .map((p) => toPagePost(p, pageId));
-
-    const eligibleCount = usable.filter((p) => p.eligibleForPromotion !== false).length;
-
-    console.log(
-      `[/api/meta/page-posts] fetch success pageId=${pageId} ` +
-      `fetched=${raw.length} usable=${usable.length} eligible=${eligibleCount}`,
-    );
-
-    return Response.json({
-      data: usable,
-      count: usable.length,
-      sources: {
-        fetched: raw.length,
-        usable: usable.length,
-        eligible: eligibleCount,
-      },
-    });
-  } catch (err) {
-    if (err instanceof MetaApiError) {
-      console.error(
-        `[/api/meta/page-posts] fetch failure pageId=${pageId} code=${err.code ?? "?"} type=${err.type ?? "?"} msg=${err.message}`,
-      );
-      return Response.json(err.toJSON(), { status: 502 });
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[/api/meta/page-posts] fetch failure pageId=${pageId} unexpected: ${msg}`);
-    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
+  if (userToken && userToken !== identity.pageAccessToken) {
+    attempts.push({ token: userToken, source: "user" });
+  }
+  if (systemToken && systemToken !== userToken) {
+    attempts.push({ token: systemToken, source: "system" });
+  }
+
+  console.log(
+    `[/api/meta/page-posts] tokens pageId=${pageId}` +
+      ` page=${identity.pageAccessToken ? "yes" : "no"}` +
+      ` user=${userToken ? "yes" : "no"}` +
+      ` system=${systemToken ? "yes" : "no"}` +
+      ` attempts=${attempts.length}` +
+      ` (${attempts.map((a) => a.source).join(",") || "none"})`,
+  );
+
+  if (attempts.length === 0) {
+    console.error(
+      `[/api/meta/page-posts] fetch abort pageId=${pageId} reason=no token available`,
+    );
+    return Response.json(
+      {
+        error:
+          "No access token available — connect Facebook (or set META_ACCESS_TOKEN) and try again.",
+        code: "NO_TOKEN",
+      },
+      { status: 401 },
+    );
+  }
+
+  let lastError: MetaApiError | Error | null = null;
+  let lastSource: string | null = null;
+
+  for (const { token, source } of attempts) {
+    try {
+      const res = await graphGetWithToken<RawPostsResponse>(
+        `/${pageId}/published_posts`,
+        { fields: POST_FIELDS, limit: String(limit) },
+        token,
+      );
+      const raw = Array.isArray(res?.data) ? res.data : [];
+
+      const usable = raw
+        .filter((p) => p.is_published !== false)
+        .filter((p) =>
+          Boolean(
+            p.message ?? p.story ?? p.full_picture ?? p.attachments?.data?.length,
+          ),
+        )
+        .map((p) => toPagePost(p, pageId));
+
+      const eligibleCount = usable.filter(
+        (p) => p.eligibleForPromotion !== false,
+      ).length;
+
+      console.log(
+        `[/api/meta/page-posts] fetch success pageId=${pageId}` +
+          ` tokenSource=${source}` +
+          ` fetched=${raw.length} usable=${usable.length} eligible=${eligibleCount}`,
+      );
+
+      return Response.json({
+        data: usable,
+        count: usable.length,
+        tokenSource: source,
+        sources: {
+          fetched: raw.length,
+          usable: usable.length,
+          eligible: eligibleCount,
+        },
+      });
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      lastSource = source;
+      const code = err instanceof MetaApiError ? err.code : undefined;
+      const isTokenScopeError =
+        err instanceof MetaApiError &&
+        (code === 210 || // page access token required
+          code === 190 || // invalid OAuth token
+          code === 200); // permissions error
+      console.warn(
+        `[/api/meta/page-posts] attempt failed pageId=${pageId}` +
+          ` tokenSource=${source} code=${code ?? "?"} msg=${lastError.message}` +
+          (isTokenScopeError && attempts.length > 1 ? " — trying next token" : ""),
+      );
+      if (!isTokenScopeError) break;
+    }
+  }
+
+  // ── All attempts failed ───────────────────────────────────────────────────
+  if (lastError instanceof MetaApiError) {
+    console.error(
+      `[/api/meta/page-posts] fetch failure pageId=${pageId}` +
+        ` lastTokenSource=${lastSource ?? "?"}` +
+        ` code=${lastError.code ?? "?"} type=${lastError.type ?? "?"} msg=${lastError.message}`,
+    );
+    return Response.json(lastError.toJSON(), { status: 502 });
+  }
+  const msg = lastError ? lastError.message : "Unknown error";
+  console.error(
+    `[/api/meta/page-posts] fetch failure pageId=${pageId}` +
+      ` lastTokenSource=${lastSource ?? "?"} unexpected: ${msg}`,
+  );
+  return Response.json({ error: "Internal server error" }, { status: 500 });
 }

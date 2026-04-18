@@ -1,0 +1,279 @@
+/**
+ * lib/meta/page-token.ts
+ *
+ * Server-only helpers for resolving Facebook **Page access tokens** and
+ * **linked Instagram accounts** for a single Page.
+ *
+ * Background:
+ *   - Several Graph endpoints (notably `/{page_id}/published_posts`) require a
+ *     Page-scoped access token rather than a user/system token. Calling them
+ *     with the wrong token surfaces:
+ *       (#210) A page access token is required to request this resource.
+ *   - The user's OAuth `provider_token` (stored in `user_facebook_tokens`)
+ *     can be exchanged for a Page token via `GET /{page_id}?fields=access_token`,
+ *     because Meta returns Page tokens scoped to whichever user owns/manages
+ *     that Page.
+ *   - The system token (`META_ACCESS_TOKEN`) often **cannot** see Pages the
+ *     end-user manages, which is also why "No linked Instagram account found"
+ *     can be a false negative — the system token simply can't see the IG link.
+ *
+ * Strategy used here:
+ *   1. Try `GET /{page_id}?fields=access_token,…` with the user OAuth token.
+ *   2. Fall back to scanning `GET /me/accounts?fields=id,name,access_token,…`
+ *      with the user OAuth token (covers personal pages where the direct
+ *      lookup may behave differently).
+ *   3. As a last resort, return the system token. The caller decides whether
+ *      to use it (it's NOT a Page token, but some endpoints accept it for
+ *      BM-owned pages).
+ *
+ * Token order is intentionally user-first because Page operations should run
+ * in the same permission context as Ads Manager.
+ */
+
+import { graphGetWithToken, MetaApiError } from "./client";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+export type PageTokenSource =
+  | "page_endpoint"
+  | "me_accounts"
+  | "system_fallback"
+  | "none";
+
+export type IgLinkSource =
+  | "instagram_business_account"
+  | "connected_instagram_account";
+
+export interface ResolvedIgAccount {
+  id: string;
+  username?: string;
+  name?: string;
+  profilePictureUrl?: string;
+  source: IgLinkSource;
+}
+
+export type IgResolution =
+  /** Page exists and we positively confirmed there is **no** linked IG. */
+  | { state: "no_ig"; account: null }
+  /** Page exists and we resolved a linked IG account. */
+  | { state: "linked"; account: ResolvedIgAccount }
+  /** Lookup failed (permissions, bad token, etc.) — UI should NOT claim "no IG". */
+  | { state: "unresolved"; account: null; reason: string };
+
+export interface ResolvedPageIdentity {
+  pageId: string;
+  pageName?: string;
+  /** Page access token, if we successfully resolved one. NEVER expose to browser. */
+  pageAccessToken: string | null;
+  /** Where the page token came from. */
+  pageTokenSource: PageTokenSource;
+  /** IG linkage outcome — three-state (linked / no_ig / unresolved). */
+  ig: IgResolution;
+}
+
+// ─── Supabase token loader ─────────────────────────────────────────────────────
+
+/**
+ * Read the user's Facebook OAuth `provider_token` from `user_facebook_tokens`.
+ * Returns null when the row is missing or the table call errors — callers
+ * must treat null as "fall back to system token".
+ */
+export async function getUserFacebookToken(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("user_facebook_tokens")
+      .select("provider_token")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) {
+      console.warn(
+        `[getUserFacebookToken] read failed user=${userId} msg=${error.message}`,
+      );
+      return null;
+    }
+    return data?.provider_token ?? null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[getUserFacebookToken] exception user=${userId} ${msg}`);
+    return null;
+  }
+}
+
+// ─── Internal Graph response shapes ────────────────────────────────────────────
+
+interface RawIgFields {
+  id?: string;
+  username?: string;
+  name?: string;
+  profile_picture_url?: string;
+}
+
+interface RawPageNode {
+  id: string;
+  name?: string;
+  access_token?: string;
+  instagram_business_account?: RawIgFields;
+  connected_instagram_account?: RawIgFields;
+}
+
+interface RawAccountsResponse {
+  data?: RawPageNode[];
+}
+
+const PAGE_FIELDS =
+  "id,name,access_token," +
+  "instagram_business_account{id,username,name,profile_picture_url}," +
+  "connected_instagram_account{id,username,name,profile_picture_url}";
+
+function pickIg(node: RawPageNode): IgResolution {
+  const business = node.instagram_business_account?.id
+    ? node.instagram_business_account
+    : null;
+  const connected = node.connected_instagram_account?.id
+    ? node.connected_instagram_account
+    : null;
+  const picked = business ?? connected;
+  if (!picked) return { state: "no_ig", account: null };
+  const source: IgLinkSource = business
+    ? "instagram_business_account"
+    : "connected_instagram_account";
+  return {
+    state: "linked",
+    account: {
+      id: picked.id!,
+      username: picked.username,
+      name: picked.name,
+      profilePictureUrl: picked.profile_picture_url,
+      source,
+    },
+  };
+}
+
+// ─── Page identity resolver ────────────────────────────────────────────────────
+
+/**
+ * Resolve a Page access token + linked Instagram account for a single Page.
+ *
+ * The function never throws — failures are surfaced via:
+ *   - `pageAccessToken: null` + `pageTokenSource: "system_fallback" | "none"`
+ *   - `ig.state: "unresolved"` with a `reason`
+ *
+ * @param pageId      The Facebook Page ID.
+ * @param userToken   The user's OAuth provider token (from `user_facebook_tokens`).
+ *                    Pass `null` if it isn't available; resolution will likely fail.
+ */
+export async function resolvePageIdentity(
+  pageId: string,
+  userToken: string | null,
+): Promise<ResolvedPageIdentity> {
+  const systemToken = process.env.META_ACCESS_TOKEN ?? null;
+  let lastError: string | undefined;
+
+  // ── Attempt 1: GET /{pageId} with user token (preferred) ────────────────────
+  if (userToken) {
+    try {
+      const node = await graphGetWithToken<RawPageNode>(
+        `/${pageId}`,
+        { fields: PAGE_FIELDS },
+        userToken,
+      );
+      if (node?.id) {
+        const ig = pickIg(node);
+        return {
+          pageId: node.id,
+          pageName: node.name,
+          pageAccessToken: node.access_token ?? null,
+          pageTokenSource: node.access_token ? "page_endpoint" : "none",
+          ig,
+        };
+      }
+    } catch (err) {
+      lastError =
+        err instanceof MetaApiError
+          ? `${err.message}${err.code ? ` (code=${err.code})` : ""}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      console.warn(
+        `[resolvePageIdentity] /${pageId} user-token lookup failed: ${lastError}`,
+      );
+    }
+  }
+
+  // ── Attempt 2: scan /me/accounts with user token ────────────────────────────
+  if (userToken) {
+    try {
+      const res = await graphGetWithToken<RawAccountsResponse>(
+        "/me/accounts",
+        { fields: PAGE_FIELDS, limit: "200" },
+        userToken,
+      );
+      const node = (res.data ?? []).find((p) => p.id === pageId);
+      if (node) {
+        const ig = pickIg(node);
+        return {
+          pageId: node.id,
+          pageName: node.name,
+          pageAccessToken: node.access_token ?? null,
+          pageTokenSource: node.access_token ? "me_accounts" : "none",
+          ig,
+        };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError = lastError ?? msg;
+      console.warn(
+        `[resolvePageIdentity] /me/accounts user-token scan failed: ${msg}`,
+      );
+    }
+  }
+
+  // ── Attempt 3: system-token lookup (BM-owned pages only) ────────────────────
+  // System token is NOT a Page token, but if it can read the page's IG fields
+  // we should still surface them rather than declaring the linkage unresolved.
+  if (systemToken) {
+    try {
+      const node = await graphGetWithToken<RawPageNode>(
+        `/${pageId}`,
+        { fields: PAGE_FIELDS },
+        systemToken,
+      );
+      if (node?.id) {
+        const ig = pickIg(node);
+        return {
+          pageId: node.id,
+          pageName: node.name,
+          pageAccessToken: null,
+          pageTokenSource: "system_fallback",
+          ig,
+        };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError = lastError ?? msg;
+      console.warn(
+        `[resolvePageIdentity] /${pageId} system-token lookup failed: ${msg}`,
+      );
+    }
+  }
+
+  // ── All attempts failed ─────────────────────────────────────────────────────
+  return {
+    pageId,
+    pageAccessToken: null,
+    pageTokenSource: "none",
+    ig: {
+      state: "unresolved",
+      account: null,
+      reason:
+        lastError ??
+        (userToken
+          ? "Page is not visible to your Facebook account"
+          : "No Facebook OAuth token available"),
+    },
+  };
+}
