@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import type { CampaignDraft, LaunchSummary } from "@/lib/types";
+import { setFbTokenExpiredGlobal } from "@/lib/hooks/useMeta";
 
 /** The launch API returns a LaunchSummary only — no draft mutations. */
 export type LaunchCampaignResult = LaunchSummary;
@@ -58,7 +59,16 @@ export function useLaunchCampaign(): UseLaunchCampaignReturn {
         | { error?: string; fields?: Record<string, string>; metaError?: unknown };
 
       if (!res.ok) {
-        const errBody = json as { error?: string; fields?: Record<string, string> };
+        const errBody = json as {
+          error?: string;
+          fields?: Record<string, string>;
+          tokenExpired?: boolean;
+        };
+        // If the launch route returned tokenExpired=true, trigger the global
+        // reconnect banner — the same path used by apiFetch for other Meta errors.
+        if (errBody.tokenExpired || res.status === 401) {
+          setFbTokenExpiredGlobal(true);
+        }
         const fieldErrors = errBody.fields ? Object.values(errBody.fields).join(". ") : null;
         throw new Error(fieldErrors ?? errBody.error ?? `HTTP ${res.status}`);
       }

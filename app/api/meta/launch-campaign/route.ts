@@ -169,31 +169,53 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Fetch user's Facebook OAuth token ─────────────────────────────────────
-  // The provider_token is the user's Facebook access token stored after OAuth.
-  // We also select updated_at / expires_at for diagnostics — these tell us
-  // exactly when the token was last refreshed and whether it is already expired
-  // at the time of launch (before any Meta API call is made).
+  // We select provider_token + updated_at.  expires_at is fetched separately
+  // with a graceful fallback for databases where migration 004 has not yet
+  // been applied (column does not exist → Postgres error code 42703).
   let userFbToken: string | null = null;
   let dbTokenUpdatedAt: string | null = null;
   let dbTokenExpiresAt: string | null = null;
   try {
-    const { data: fbTokenRow, error: fbTokenError } = await supabase
+    // Attempt full select including expires_at (migration 004 column)
+    const { data, error } = await supabase
       .from("user_facebook_tokens")
       .select("provider_token, updated_at, expires_at")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (fbTokenError) {
-      console.warn("[launch-campaign] Could not read user_facebook_tokens:", fbTokenError.message);
-    } else if (fbTokenRow) {
-      userFbToken     = (fbTokenRow as { provider_token?: string }).provider_token ?? null;
-      dbTokenUpdatedAt = (fbTokenRow as { updated_at?: string | null }).updated_at ?? null;
-      dbTokenExpiresAt = (fbTokenRow as { expires_at?: string | null }).expires_at ?? null;
+
+    if (error) {
+      const isMissingColumn =
+        error.message?.includes("expires_at") &&
+        (error.code === "42703" || error.message.includes("does not exist"));
+
+      if (isMissingColumn) {
+        // Migration 004 not yet applied — retry without the new column
+        console.warn("[launch-campaign] expires_at column missing — retrying without it (apply migration 004)");
+        const { data: d2, error: e2 } = await supabase
+          .from("user_facebook_tokens")
+          .select("provider_token, updated_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (e2) {
+          console.warn("[launch-campaign] Could not read user_facebook_tokens:", e2.message);
+        } else if (d2) {
+          userFbToken      = (d2 as { provider_token?: string }).provider_token ?? null;
+          dbTokenUpdatedAt = (d2 as { updated_at?: string | null }).updated_at ?? null;
+        }
+      } else {
+        console.warn("[launch-campaign] Could not read user_facebook_tokens:", error.message);
+      }
+    } else if (data) {
+      userFbToken      = (data as { provider_token?: string }).provider_token ?? null;
+      dbTokenUpdatedAt = (data as { updated_at?: string | null }).updated_at ?? null;
+      dbTokenExpiresAt = (data as { expires_at?: string | null }).expires_at ?? null;
     }
   } catch (err) {
     console.warn("[launch-campaign] Exception fetching user Facebook token:", err);
   }
 
-  // Detect pre-launch expiry from stored expiry (best-effort; validateMetaToken below is authoritative)
+  // Fast-path expiry check from stored metadata (no API call required).
+  // Only reliable once migration 004 has been applied and a reconnect has run.
   const dbTokenExpiredNow = dbTokenExpiresAt
     ? new Date(dbTokenExpiresAt).getTime() < Date.now()
     : false;
@@ -203,8 +225,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `\n  user_id:          ${user.id}` +
     `\n  provider_token:   ${userFbToken ? `PRESENT len=${userFbToken.length} prefix=${userFbToken.slice(0, 12)}…` : "MISSING"}` +
     `\n  updated_at:       ${dbTokenUpdatedAt ?? "unknown"}` +
-    `\n  expires_at:       ${dbTokenExpiresAt ?? "unknown (pre-migration row)"}` +
-    `\n  pre_launch_expiry:${dbTokenExpiredNow ? " ⚠️ EXPIRED" : " ok"}`,
+    `\n  expires_at:       ${dbTokenExpiresAt ?? "unknown (run migration 004 to start tracking this)"}` +
+    `\n  pre_launch_expiry:${dbTokenExpiredNow ? " ⚠️  EXPIRED" : " ok"}`,
   );
 
   // ── Single authoritative launch token ────────────────────────────────────
@@ -225,37 +247,89 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `[launch-campaign] launchToken: source=${launchTokenSource} len=${launchToken.length} prefix=${launchToken.slice(0, 12)}…`,
   );
 
-  // ── Live token validation via Meta /debug_token ───────────────────────────
-  // Non-blocking: we log the result but never gate launch on it.  This gives
-  // us authoritative proof of whether the token is valid/expired *right now*,
-  // the exact expiry timestamp, and the granted scopes — all in server logs.
-  if (launchToken) {
-    validateMetaToken(launchToken).then((v) => {
-      if (v.valid) {
-        const expDate = v.expiresAt ? new Date(v.expiresAt * 1000).toISOString() : "none";
-        const expiresInH = v.expiresAt
-          ? ((v.expiresAt * 1000 - Date.now()) / 3_600_000).toFixed(1)
-          : "unknown";
-        console.log(
-          `[launch-campaign] /debug_token → VALID ✓` +
-          `\n  tokenSource:    ${launchTokenSource}` +
-          `\n  meta_app_id:    ${v.appId ?? "unknown"}` +
-          `\n  meta_user_id:   ${v.userId ?? "unknown"}` +
-          `\n  expires_at:     ${expDate}` +
-          `\n  expires_in_h:   ${expiresInH}` +
-          `\n  scopes:         ${(v.scopes ?? []).join(", ") || "(none)"}`,
-        );
-      } else {
-        console.error(
-          `[launch-campaign] /debug_token → INVALID ✗ — this token will fail all Meta API calls!` +
-          `\n  tokenSource:    ${launchTokenSource}` +
-          `\n  error:          ${v.error ?? "unknown"}` +
-          `\n  ACTION:         User must reconnect Facebook in Account Setup.`,
-        );
-      }
-    }).catch((err: unknown) => {
-      console.warn("[launch-campaign] /debug_token call threw:", err);
-    });
+  if (!launchToken) {
+    return NextResponse.json(
+      {
+        error:
+          "No Facebook access token available. Connect your Facebook account in Account Setup before launching.",
+      },
+      { status: 401 },
+    );
+  }
+
+  // ── Fast-path expiry block (from stored metadata) ────────────────────────
+  // If expires_at is known and already in the past, fail immediately without
+  // spending a /debug_token round-trip.
+  if (dbTokenExpiredNow) {
+    console.error(
+      `[launch-campaign] ⛔ Stored token is EXPIRED (expires_at=${dbTokenExpiresAt}) — blocking launch.`,
+    );
+    return NextResponse.json(
+      {
+        error:
+          "Your Facebook connection has expired. Please reconnect Facebook in Account Setup before launching.",
+        tokenExpired: true,
+      },
+      { status: 401 },
+    );
+  }
+
+  // ── Live token validation via Meta /debug_token (BLOCKING) ───────────────
+  // Authoritative check: validates the token is active RIGHT NOW, logs expiry
+  // and scopes.  If invalid, launch is blocked with a clear reconnect message.
+  // Runs after the fast-path expiry check so we only hit Meta's API when the
+  // stored metadata is absent or not yet tracking expiry.
+  let liveTokenValidation: Awaited<ReturnType<typeof validateMetaToken>> | null = null;
+  try {
+    liveTokenValidation = await validateMetaToken(launchToken);
+  } catch (err) {
+    // validateMetaToken throws only on network failure — don't block launch
+    // for a transient network error; the Meta API call itself will surface the
+    // token error if it is actually expired.
+    console.warn("[launch-campaign] /debug_token call threw (network?) — proceeding:", err);
+  }
+
+  if (liveTokenValidation) {
+    if (!liveTokenValidation.valid) {
+      console.error(
+        `[launch-campaign] ⛔ /debug_token → INVALID — blocking launch` +
+        `\n  tokenSource:    ${launchTokenSource}` +
+        `\n  error:          ${liveTokenValidation.error ?? "unknown"}`,
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Your Facebook connection has expired. Please reconnect Facebook in Account Setup before launching.",
+          tokenExpired: true,
+          detail: liveTokenValidation.error,
+        },
+        { status: 401 },
+      );
+    }
+
+    const expDate = liveTokenValidation.expiresAt
+      ? new Date(liveTokenValidation.expiresAt * 1000).toISOString()
+      : "none";
+    const expiresInH = liveTokenValidation.expiresAt
+      ? ((liveTokenValidation.expiresAt * 1000 - Date.now()) / 3_600_000).toFixed(1)
+      : "unknown";
+    console.log(
+      `[launch-campaign] /debug_token → VALID ✓` +
+      `\n  tokenSource:    ${launchTokenSource}` +
+      `\n  meta_app_id:    ${liveTokenValidation.appId ?? "unknown"}` +
+      `\n  meta_user_id:   ${liveTokenValidation.userId ?? "unknown"}` +
+      `\n  expires_at:     ${expDate}` +
+      `\n  expires_in_h:   ${expiresInH}` +
+      `\n  scopes:         ${(liveTokenValidation.scopes ?? []).join(", ") || "(none)"}`,
+    );
+
+    // Warn if token expires within the next 12 hours (won't block launch, just alerts)
+    if (liveTokenValidation.expiresAt && liveTokenValidation.expiresAt * 1000 - Date.now() < 12 * 3_600_000) {
+      console.warn(
+        `[launch-campaign] ⚠️  Token expires in <12 hours (${expiresInH}h). ` +
+        "User should reconnect Facebook after this launch.",
+      );
+    }
   }
 
   const adAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId;
@@ -1043,8 +1117,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Batch-fetch page names in parallel
   const pageNameResults = await Promise.allSettled(
     Array.from(allPageIds).map(async (pid) => {
-      const { graphGet } = await import("@/lib/meta/client");
-      const pg = await graphGet<{ name?: string }>(`/${pid}`, { fields: "name" });
+      const { graphGetWithToken } = await import("@/lib/meta/client");
+      const pg = await graphGetWithToken<{ name?: string }>(`/${pid}`, { fields: "name" }, launchToken);
       return { pid, name: pg.name };
     }),
   );
