@@ -7,6 +7,10 @@ import {
   MetaApiError,
 } from "@/lib/meta/client";
 import {
+  resolvePageIdentity,
+  resolvePageIgActor,
+} from "@/lib/meta/page-token";
+import {
   buildCreativePayload,
   buildAdPayload,
   invertAssignments,
@@ -79,40 +83,61 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     (adSetSuggestions ?? []).map((s) => [s.id, s]),
   );
 
-  // ── Resolve Instagram actor IDs from the ad account ───────────────────────
-  // Same logic as Phase 0e in launch-campaign: verify instagramActorId against
-  // GET /{adAccountId}/instagram_accounts before building creative payloads.
+  // ── Resolve Instagram actor IDs from the Page (agency-safe) ─────────────
+  // Use GET /{pageId}/instagram_accounts (Page-level) not GET /{adAccountId}/instagram_accounts
+  // (BM-asset list). The Page-level endpoint works for agency workflows where the
+  // client grants Page access and the IG account is linked but not a direct BM asset.
   const igExistingPostCreatives = (creatives as AdCreativeDraft[]).filter(
     (c) => c.sourceType === "existing_post" && c.existingPost?.source === "instagram",
   );
 
+  // Fetch user FB token once — used for resolvePageIdentity + retry fallback.
+  let userFbToken: string | null = null;
+  try {
+    const { data: fbRow } = await supabase
+      .from("user_facebook_tokens")
+      .select("provider_token")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    userFbToken = fbRow?.provider_token ?? null;
+  } catch {
+    // non-fatal
+  }
+
   let patchedCreatives: AdCreativeDraft[] = (creatives as AdCreativeDraft[]).map((c) => ({ ...c }));
 
   if (igExistingPostCreatives.length > 0) {
-    console.log(
-      `[create-creatives-and-ads] Resolving IG actor IDs for ${igExistingPostCreatives.length}` +
-        ` existing-post creative(s) from ${metaAdAccountId}/instagram_accounts…`,
-    );
+    const uniquePageIds = [
+      ...new Set(
+        igExistingPostCreatives
+          .map((c) => c.identity.pageId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
 
-    // Fetch user's Facebook token for the actor lookup (same token used to
-    // call the Ads API).  Falls back to system token inside fetchAdAccountIgActors.
-    let userFbToken: string | null = null;
-    try {
-      const { data: fbRow } = await supabase
-        .from("user_facebook_tokens")
-        .select("provider_token")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      userFbToken = fbRow?.provider_token ?? null;
-    } catch {
-      // non-fatal
+    const pageActorMap = new Map<string, string>();
+
+    for (const pageId of uniquePageIds) {
+      const pageIdentity = await resolvePageIdentity(pageId, userFbToken);
+      if (pageIdentity.pageAccessToken && pageIdentity.ig.state === "linked") {
+        const resolved = await resolvePageIgActor(
+          pageId,
+          pageIdentity.pageAccessToken,
+          pageIdentity.ig.account.id,
+        );
+        if (resolved) {
+          pageActorMap.set(pageId, resolved.actorId);
+          console.log(
+            `[create-creatives-and-ads] page ${pageId}: igActorId=${resolved.actorId} source=${resolved.source}`,
+          );
+        }
+      } else if (pageIdentity.ig.state === "linked") {
+        pageActorMap.set(pageId, pageIdentity.ig.account.id);
+        console.warn(
+          `[create-creatives-and-ads] page ${pageId}: no page token; using content id ${pageIdentity.ig.account.id} as fallback`,
+        );
+      }
     }
-
-    const adAccountActors = await fetchAdAccountIgActors(
-      metaAdAccountId,
-      userFbToken ?? undefined,
-    );
-    const actorById = new Map(adAccountActors.map((a) => [a.id, a]));
 
     patchedCreatives = patchedCreatives.map((creative) => {
       if (
@@ -121,38 +146,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ) {
         return creative;
       }
-
-      const contentId =
-        creative.identity.instagramActorId ||
-        creative.identity.instagramAccountId ||
-        creative.existingPost?.instagramAccountId;
-
-      console.log(
-        `[create-creatives-and-ads] IG actor check for "${creative.name}":` +
-          ` pageId=${creative.identity.pageId}` +
-          ` instagramActorId=${creative.identity.instagramActorId ?? "(unset)"}` +
-          ` instagramAccountId=${creative.identity.instagramAccountId ?? "(unset)"}` +
-          ` contentId=${contentId ?? "(none)"}` +
-          ` adAccountActors=${adAccountActors.length}`,
-      );
-
-      if (contentId && actorById.has(contentId)) {
-        const actor = actorById.get(contentId)!;
-        console.log(
-          `[create-creatives-and-ads] IG actor verified for "${creative.name}":` +
-            ` id=${actor.id}${actor.username ? ` (@${actor.username})` : ""}`,
-        );
+      const resolvedActorId = pageActorMap.get(creative.identity.pageId ?? "");
+      if (resolvedActorId) {
         return {
           ...creative,
-          identity: { ...creative.identity, instagramActorId: actor.id },
+          identity: { ...creative.identity, instagramActorId: resolvedActorId },
         };
-      }
-
-      if (adAccountActors.length > 0) {
-        console.warn(
-          `[create-creatives-and-ads] IG actor NOT found for "${creative.name}":` +
-            ` contentId=${contentId ?? "(none)"} not in [${adAccountActors.map((a) => a.id).join(", ")}]`,
-        );
       }
       return creative;
     });
@@ -209,16 +208,63 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           ` strictMode=${strictMode}`,
       );
     } catch (err) {
-      const message =
-        err instanceof MetaApiError
-          ? err.message
-          : `Unexpected error: ${String(err)}`;
-      failed.push({
-        name: creative.name,
-        internalId: creative.id,
-        error: message,
-      });
-      continue;
+      // ── (#100) instagram_actor_id retry ───────────────────────────────────
+      const isMetaErr = err instanceof MetaApiError;
+      const isActorError =
+        isMetaErr &&
+        err.code === 100 &&
+        (err.message.toLowerCase().includes("instagram_actor_id") ||
+          err.message.toLowerCase().includes("instagram account id"));
+
+      if (isActorError) {
+        console.warn(
+          `[create-creatives-and-ads] (#100) actor error for "${creative.name}" — attempting recovery`,
+        );
+
+        // Parse valid ids from Meta error message, then fall back to ad-account list.
+        const haystack = `${err.message} ${err.userMsg ?? ""}`;
+        const match =
+          haystack.match(/Valid actor IDs?:\s*\[([^\]]+)\]/i) ??
+          haystack.match(/valid (?:Instagram )?account (?:id|IDs?):\s*\[([^\]]+)\]/i);
+        let recoveryIds: string[] = match
+          ? match[1].split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
+
+        if (recoveryIds.length === 0) {
+          const actors = await fetchAdAccountIgActors(metaAdAccountId, userFbToken ?? undefined);
+          recoveryIds = actors.map((a) => a.id);
+          console.log(
+            `[create-creatives-and-ads] recovery: ad account actors [${recoveryIds.join(", ")}]`,
+          );
+        }
+
+        if (recoveryIds.length > 0) {
+          try {
+            const retryCrv = {
+              ...creative,
+              identity: { ...creative.identity, instagramActorId: recoveryIds[0] },
+            };
+            const retryPayload = buildCreativePayload(retryCrv);
+            if (strictMode) sanitizeCreativeForStrictMode(retryPayload);
+            const retryRes = await createMetaCreative(metaAdAccountId, retryPayload);
+            metaCreativeId = retryRes.id;
+            console.log(
+              `[create-creatives-and-ads] retry ✓ "${creative.name}" actorId=${recoveryIds[0]} → ${metaCreativeId}`,
+            );
+          } catch (retryErr) {
+            const retryMsg = retryErr instanceof MetaApiError ? retryErr.message : String(retryErr);
+            failed.push({ name: creative.name, internalId: creative.id, error: retryMsg });
+            continue;
+          }
+        } else {
+          failed.push({ name: creative.name, internalId: creative.id, error: err.message });
+          continue;
+        }
+      } else {
+        const message = isMetaErr ? err.message : `Unexpected error: ${String(err)}`;
+        failed.push({ name: creative.name, internalId: creative.id, error: message });
+        continue;
+      }
     }
 
     // 3. Create one Meta ad per assigned ad set

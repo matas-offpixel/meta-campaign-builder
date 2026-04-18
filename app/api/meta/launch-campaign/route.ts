@@ -30,6 +30,10 @@ import {
   rankSeedsByPreference,
   MetaApiError,
 } from "@/lib/meta/client";
+import {
+  resolvePageIdentity,
+  resolvePageIgActor,
+} from "@/lib/meta/page-token";
 import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
   mapMetaObjectiveToInternal,
@@ -80,6 +84,38 @@ function formatMetaError(err: unknown): string {
     return parts.join(" · ");
   }
   return err instanceof Error ? err.message : String(err);
+}
+
+// ─── Instagram actor helpers ──────────────────────────────────────────────────
+
+/**
+ * Parse "Valid actor IDs: [12345, 67890]" from a Meta (#100) error message.
+ * Meta sometimes embeds valid actor IDs in the error text or user message to
+ * help callers retry with the correct id without an extra API round-trip.
+ */
+function parseValidActorIdsFromError(err: MetaApiError): string[] {
+  const haystack = `${err.message ?? ""} ${err.userMsg ?? ""}`;
+  // Meta formats this as "Valid actor IDs: [12345]" or "valid account id: [12345, 6789]"
+  const match =
+    haystack.match(/Valid actor IDs?:\s*\[([^\]]+)\]/i) ??
+    haystack.match(/valid (?:Instagram )?account (?:id|IDs?):\s*\[([^\]]+)\]/i);
+  if (!match) return [];
+  return match[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Whether a MetaApiError indicates that `instagram_actor_id` was invalid.
+ * Code 100 with the parameter name in the message is the canonical signal.
+ */
+function isIgActorError(err: MetaApiError): boolean {
+  return (
+    err.code === 100 &&
+    (err.message.toLowerCase().includes("instagram_actor_id") ||
+      err.message.toLowerCase().includes("instagram account id"))
+  );
 }
 
 // ─── Response type ───────────────────────────────────────────────────────────
@@ -382,20 +418,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  // 0e. Verify Instagram actor IDs for existing-post creatives.
+  // 0e. Pre-resolve Instagram actor IDs for IG existing-post creatives.
   //
-  // Meta Ads validates `instagram_actor_id` against the ad account's linked
-  // Instagram actors (`GET /{adAccountId}/instagram_accounts`).  Sending any
-  // other IG account id — even the one from `instagram_business_account` on
-  // the Page — results in (#100) "Param instagram_actor_id must be a valid
-  // Instagram account id".
+  // For agency workflows, the IG account is linked to the client's Page but is
+  // NOT a directly owned Business Manager asset.  Meta Ads Manager resolves the
+  // `instagram_actor_id` via `GET /{pageId}/instagram_accounts` (Page-level),
+  // not `GET /{adAccountId}/instagram_accounts` (BM-asset list).  Using the
+  // wrong source causes false (#100) rejections for perfectly valid ad setups.
   //
-  // Here we:
-  //   1. Detect creatives that need an IG actor id.
-  //   2. Fetch the authoritative list from `/{adAccountId}/instagram_accounts`.
-  //   3. Patch each matching creative with the verified actor id.
-  //   4. Block launch (before any Meta mutations) if a required actor cannot
-  //      be resolved.
+  // Strategy here:
+  //   1. Call `resolvePageIdentity` to obtain a Page access token + IG content id.
+  //   2. Call `resolvePageIgActor` (= /{pageId}/instagram_accounts) to get the
+  //      ads-compatible actor id — the same call Ads Manager makes.
+  //   3. Patch `instagramActorId` on each IG existing-post creative so Phase 3
+  //      uses the correct id without needing to guess.
+  //   4. No hard blocks here — if resolution fails we still attempt the launch
+  //      and let Phase 3 retry logic handle any (#100) from Meta.
   //
   // `launchCreatives` shadows `draft.creatives` for all downstream phases.
   let launchCreatives: AdCreativeDraft[] = draft.creatives.map((c) => ({ ...c }));
@@ -405,22 +443,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   if (igExistingPostCreatives.length > 0) {
-    console.log(
-      `[launch-campaign] Preflight 0e — ${igExistingPostCreatives.length} IG existing-post creative(s); ` +
-        `fetching valid actor IDs from ${adAccountId}/instagram_accounts…`,
-    );
+    // Collect unique page IDs so we only resolve each page once.
+    const uniquePageIds = [
+      ...new Set(
+        igExistingPostCreatives
+          .map((c) => c.identity.pageId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
 
-    // Try user token first (same permission context as Ads Manager), then system token.
-    const adAccountActors = await fetchAdAccountIgActors(
-      adAccountId,
-      userFbToken ?? undefined,
-    );
+    // pageId → ads-compatible actor id (from /{pageId}/instagram_accounts)
+    const pageActorMap = new Map<string, string>();
 
-    // Build a lookup map: IG account id → actor record
-    const actorById = new Map(adAccountActors.map((a) => [a.id, a]));
+    for (const pageId of uniquePageIds) {
+      console.log(
+        `[launch-campaign] Preflight 0e — resolving IG actor for page ${pageId}` +
+          ` userToken=${userFbToken ? "present" : "missing"}`,
+      );
 
-    const igPreflightErrors: string[] = [];
+      const pageIdentity = await resolvePageIdentity(pageId, userFbToken);
 
+      if (pageIdentity.pageAccessToken && pageIdentity.ig.state === "linked") {
+        const resolved = await resolvePageIgActor(
+          pageId,
+          pageIdentity.pageAccessToken,
+          pageIdentity.ig.account.id,
+        );
+        if (resolved) {
+          pageActorMap.set(pageId, resolved.actorId);
+          console.log(
+            `[launch-campaign] Preflight 0e ✓ page ${pageId}:` +
+              ` igActorId=${resolved.actorId} source=${resolved.source}`,
+          );
+        } else {
+          console.warn(
+            `[launch-campaign] Preflight 0e ⚠ page ${pageId}: resolvePageIgActor returned null` +
+              ` — Phase 3 retry will handle any (#100) error`,
+          );
+        }
+      } else if (pageIdentity.ig.state === "linked") {
+        // No page token — use content id as the best available actor id.
+        pageActorMap.set(pageId, pageIdentity.ig.account.id);
+        console.warn(
+          `[launch-campaign] Preflight 0e ⚠ page ${pageId}: no page token available;` +
+            ` using IG content id ${pageIdentity.ig.account.id} as actor id fallback`,
+        );
+      } else {
+        console.warn(
+          `[launch-campaign] Preflight 0e ⚠ page ${pageId}: IG link state=${pageIdentity.ig.state}` +
+            ` — proceeding with whatever id is on the creative; Phase 3 retry is the safety net`,
+        );
+      }
+    }
+
+    // Patch launchCreatives with the resolved actor ids.
     launchCreatives = launchCreatives.map((creative) => {
       if (
         creative.sourceType !== "existing_post" ||
@@ -428,92 +504,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ) {
         return creative;
       }
-
-      const contentId =
-        creative.identity.instagramActorId ||   // already-resolved actor (from page-identity)
-        creative.identity.instagramAccountId ||  // content API id (instagram_business_account)
-        creative.existingPost?.instagramAccountId; // post owner id from picker
-
-      console.log(
-        `[launch-campaign] Preflight 0e — creative "${creative.name}":` +
-          ` pageId=${creative.identity.pageId}` +
-          ` instagramActorId=${creative.identity.instagramActorId ?? "(unset)"}` +
-          ` instagramAccountId=${creative.identity.instagramAccountId ?? "(unset)"}` +
-          ` existingPost.instagramAccountId=${creative.existingPost?.instagramAccountId ?? "(unset)"}` +
-          ` → checking contentId=${contentId ?? "(none)"} against ${actorById.size} ad-account actors`,
-      );
-
-      if (contentId && actorById.has(contentId)) {
-        const actor = actorById.get(contentId)!;
+      const resolvedActorId = pageActorMap.get(creative.identity.pageId ?? "");
+      if (resolvedActorId) {
         console.log(
-          `[launch-campaign] Preflight 0e ✓ "${creative.name}": IG actor verified` +
-            ` id=${actor.id}${actor.username ? ` (@${actor.username})` : ""}` +
-            ` — patching instagramActorId`,
+          `[launch-campaign] Preflight 0e — patching "${creative.name}":` +
+            ` instagramActorId=${resolvedActorId}` +
+            ` (was: ${creative.identity.instagramActorId ?? "unset"})`,
         );
         return {
           ...creative,
-          identity: {
-            ...creative.identity,
-            instagramActorId: actor.id,
-          },
+          identity: { ...creative.identity, instagramActorId: resolvedActorId },
         };
       }
-
-      // Actor not found in the ad account. Collect error.
-      const igHandle =
-        creative.identity.instagramActorId ||
-        creative.identity.instagramAccountId ||
-        creative.existingPost?.instagramAccountId ||
-        "(unknown)";
-
-      if (adAccountActors.length === 0) {
-        // Endpoint returned nothing — possibly a permissions issue.  Downgrade
-        // to a warning so the launch can still proceed; the creative may still
-        // succeed if the id happens to be correct (or fail with a clear error).
-        console.warn(
-          `[launch-campaign] Preflight 0e ⚠ "${creative.name}": ` +
-            `/${adAccountId}/instagram_accounts returned no actors ` +
-            `(possible token scope issue) — proceeding with existing id ${igHandle}`,
-        );
-        preflightWarnings.push({
-          stage: "ig_actor",
-          message:
-            `Could not verify Instagram actor for "${creative.name}" — ` +
-            `/${adAccountId}/instagram_accounts returned no accounts. ` +
-            `If the ad fails with #100, ensure the Instagram account is linked ` +
-            `to the ad account in Business Manager.`,
-        });
-        return creative; // keep as-is; will fall back in creative builder
-      }
-
-      // Actors exist but the selected IG id is not among them — hard error.
-      const listedIds = adAccountActors.map((a) => a.id).join(", ");
-      const errMsg =
-        `Creative "${creative.name}": Instagram account ${igHandle} is not ` +
-        `authorised as an actor for ad account ${adAccountId}. ` +
-        `Valid actor IDs: [${listedIds}]. ` +
-        `Go to Business Manager → Instagram Accounts and ensure the account is ` +
-        `linked to this ad account.`;
-      console.error(`[launch-campaign] Preflight 0e ✗ ${errMsg}`);
-      igPreflightErrors.push(errMsg);
       return creative;
     });
-
-    if (igPreflightErrors.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Instagram actor preflight failed",
-          details: igPreflightErrors,
-          hint:
-            "The selected Instagram account must be added to the ad account in " +
-            "Business Manager before it can be used in ads. " +
-            "Go to Business Manager → Accounts → Instagram Accounts and link the account.",
-        },
-        { status: 400 },
-      );
-    }
   } else {
-    console.log("[launch-campaign] Preflight 0e — no IG existing-post creatives; skipping actor check");
+    console.log(
+      "[launch-campaign] Preflight 0e — no IG existing-post creatives; skipping actor resolution",
+    );
   }
 
   phaseDurations["preflight"] = elapsed(preflightStart);
@@ -1987,6 +1995,94 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const isMetaErr = err instanceof MetaApiError;
         const rawMessage = isMetaErr ? err.message : String(err);
         const userMsg = isMetaErr ? (err.userMsg ?? "") : "";
+
+        // ── (#100) instagram_actor_id retry ─────────────────────────────────
+        // When Meta rejects with (#100) and the message references instagram_actor_id,
+        // we have two chances to recover:
+        //   1. Parse "Valid actor IDs: [xxx]" from the error (Meta sometimes embeds this).
+        //   2. Fall back to GET /{adAccountId}/instagram_accounts to fetch valid ids.
+        // Either way: rebuild the payload with the suggested actor id and retry once.
+        //
+        // This handles agency workflows where the Page-linked IG account is not
+        // in the BM asset list but IS valid for ads (the initial Phase 0e
+        // resolution should already have set the right id, but Meta's error
+        // response is the authoritative fallback when that fails).
+        if (isMetaErr && isIgActorError(err)) {
+          console.warn(
+            `[launch-campaign] Phase 3 ⚠ "${creative.name}": (#100) instagram_actor_id rejected` +
+              ` — attempting recovery`,
+          );
+
+          let recoveryActorIds = parseValidActorIdsFromError(err);
+          console.log(
+            `[launch-campaign] Phase 3 — recovery: parsed actor ids from error:` +
+              ` [${recoveryActorIds.join(", ") || "none"}]`,
+          );
+
+          if (recoveryActorIds.length === 0) {
+            // Nothing in the error message — try the ad account endpoint as a fallback.
+            const adAccountActors = await fetchAdAccountIgActors(
+              adAccountId,
+              userFbToken ?? undefined,
+            );
+            recoveryActorIds = adAccountActors.map((a) => a.id);
+            console.log(
+              `[launch-campaign] Phase 3 — recovery: fetched ${recoveryActorIds.length} actor(s)` +
+                ` from ${adAccountId}/instagram_accounts: [${recoveryActorIds.join(", ")}]`,
+            );
+          }
+
+          if (recoveryActorIds.length > 0) {
+            const retryActorId = recoveryActorIds[0];
+            console.log(
+              `[launch-campaign] Phase 3 — retrying "${creative.name}" with actor id ${retryActorId}`,
+            );
+            try {
+              const retryCrv = {
+                ...creative,
+                identity: { ...creative.identity, instagramActorId: retryActorId },
+              };
+              const retryPayload = buildCreativePayload(retryCrv);
+              if (strictMode) sanitizeCreativeForStrictMode(retryPayload);
+              console.log(
+                `[launch-campaign] Phase 3 — retry OUTBOUND payload for "${creative.name}":`,
+                JSON.stringify(retryPayload, null, 2),
+              );
+              const retryRes = await createMetaCreative(adAccountId, retryPayload);
+              metaCreativeId = retryRes.id;
+              const dur = elapsed(cStart);
+              console.log(
+                `[launch-campaign] Phase 3 ✓ (retry) "${creative.name}" → ${metaCreativeId}` +
+                  ` actorId=${retryActorId} (${dur}ms)`,
+              );
+
+              const cIdx = updatedCreatives.findIndex((c) => c.id === creative.id);
+              if (cIdx !== -1) updatedCreatives[cIdx] = { ...updatedCreatives[cIdx], metaCreativeId };
+
+              creativesCreated.push({
+                name: creative.name,
+                metaCreativeId,
+                identityMode: "page_and_ig",
+                durationMs: dur,
+                ads: [],
+                adsFailed: [],
+              });
+              continue; // skip the failure path below
+            } catch (retryErr) {
+              const retryMsg = retryErr instanceof MetaApiError ? retryErr.message : String(retryErr);
+              console.error(
+                `[launch-campaign] Phase 3 ✗ (retry failed) "${creative.name}": ${retryMsg}`,
+              );
+              // Fall through to failure recording with the retry error message.
+              creativesFailed.push({ name: creative.name, error: retryMsg });
+              continue;
+            }
+          }
+          // No recovery ids available — record the original error.
+          console.error(`[launch-campaign] Phase 3 ✗ "${creative.name}": (#100) actor error, no recovery ids found`);
+          creativesFailed.push({ name: creative.name, error: rawMessage });
+          continue;
+        }
 
         const isAppModeError =
           rawMessage.toLowerCase().includes("development") ||

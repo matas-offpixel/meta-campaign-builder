@@ -153,6 +153,72 @@ function pickIg(node: RawPageNode): IgResolution {
   };
 }
 
+// ─── Ads-compatible Instagram actor resolver ──────────────────────────────────
+
+/**
+ * Resolve the ads-compatible Instagram actor id for a Page.
+ *
+ * `GET /{pageId}/instagram_accounts` (with a Page access token) is the
+ * endpoint Meta Ads uses to list Instagram accounts that are valid
+ * `instagram_actor_id` values for ad creatives using this Page.
+ *
+ * This works correctly in **agency workflows** where the IG account is linked
+ * to the client Page but is NOT a directly owned Business Manager asset.
+ * `GET /{adAccountId}/instagram_accounts` (BM-asset list) should NOT be used
+ * as a gating check — it excludes agency-linked IG accounts and causes false
+ * "(#100) must be a valid Instagram account id" rejections.
+ *
+ * Falls back to `igContentId` (the id from `instagram_business_account` or
+ * `connected_instagram_account` on the Page) when the endpoint is unavailable.
+ * Returns `null` only when both paths are absent.
+ *
+ * @param pageId       Facebook Page id.
+ * @param pageToken    Page access token obtained from `resolvePageIdentity`.
+ * @param igContentId  Optional fallback: content API account id from Page fields.
+ */
+export async function resolvePageIgActor(
+  pageId: string,
+  pageToken: string,
+  igContentId?: string,
+): Promise<{ actorId: string; source: "page_instagram_accounts" | "content_id_fallback" } | null> {
+  try {
+    const res = await graphGetWithToken<{ data?: Array<{ id: string; username?: string }> }>(
+      `/${pageId}/instagram_accounts`,
+      { fields: "id,username", limit: "5" },
+      pageToken,
+    );
+    const first = res?.data?.[0];
+    if (first?.id) {
+      console.info(
+        `[resolvePageIgActor] /${pageId}/instagram_accounts → actorId=${first.id}` +
+          (first.username ? ` @${first.username}` : ""),
+      );
+      return { actorId: first.id, source: "page_instagram_accounts" };
+    }
+    console.info(
+      `[resolvePageIgActor] /${pageId}/instagram_accounts returned 0 accounts` +
+        (igContentId ? `; falling back to content id ${igContentId}` : ""),
+    );
+  } catch (err) {
+    const msg = err instanceof MetaApiError
+      ? `${err.message}${err.code ? ` (code=${err.code})` : ""}`
+      : err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[resolvePageIgActor] /${pageId}/instagram_accounts failed: ${msg}` +
+        (igContentId ? `; falling back to content id ${igContentId}` : ""),
+    );
+  }
+
+  if (igContentId) {
+    console.info(
+      `[resolvePageIgActor] using content id ${igContentId} as actor id fallback for page ${pageId}`,
+    );
+    return { actorId: igContentId, source: "content_id_fallback" };
+  }
+
+  return null;
+}
+
 // ─── Page identity resolver ────────────────────────────────────────────────────
 
 /**
