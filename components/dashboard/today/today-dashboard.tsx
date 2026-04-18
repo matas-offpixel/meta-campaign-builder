@@ -15,14 +15,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient as createSupabase } from "@/lib/supabase/client";
-import { listEvents, type EventWithClient } from "@/lib/db/events";
+import {
+  listEvents,
+  listDraftsForUserByEvent,
+  type EventWithClient,
+} from "@/lib/db/events";
 import { listClients, type ClientRow } from "@/lib/db/clients";
 import {
   daysBetween,
   fmtDay,
   fmtRelative,
+  nextMilestone,
   parseDateOnly,
   today,
+  MILESTONE_COLOR,
+  type MilestoneKind,
 } from "@/lib/dashboard/format";
 
 // ─── Partition helpers ───────────────────────────────────────────────────────
@@ -56,6 +63,13 @@ export function TodayDashboard() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<EventWithClient[]>([]);
   const [clients, setClients] = useState<ClientRow[]>([]);
+  const [draftByEvent, setDraftByEvent] = useState<
+    Map<string, { id: string; updated_at: string }>
+  >(() => new Map());
+  // Stabilised "now" — captured once on mount via lazy initializer so
+  // milestone math is deterministic across renders and React 19's
+  // purity rule for render bodies stays satisfied.
+  const [now] = useState(() => new Date());
 
   useEffect(() => {
     async function load() {
@@ -67,12 +81,14 @@ export function TodayDashboard() {
         setLoading(false);
         return;
       }
-      const [ev, cl] = await Promise.all([
+      const [ev, cl, dr] = await Promise.all([
         listEvents(user.id),
         listClients(user.id),
+        listDraftsForUserByEvent(user.id),
       ]);
       setEvents(ev);
       setClients(cl);
+      setDraftByEvent(dr);
       setLoading(false);
     }
     load();
@@ -188,7 +204,13 @@ export function TodayDashboard() {
                 emptyHint="No shows today."
               >
                 {partitions.todayEvents.map((e) => (
-                  <EventRow key={e.id} event={e} showRelative />
+                  <EventRow
+                    key={e.id}
+                    event={e}
+                    showRelative
+                    now={now}
+                    latestDraft={draftByEvent.get(e.id) ?? null}
+                  />
                 ))}
               </Section>
 
@@ -199,7 +221,13 @@ export function TodayDashboard() {
                 emptyHint="Nothing scheduled in the next fortnight."
               >
                 {partitions.upcoming.map((e) => (
-                  <EventRow key={e.id} event={e} showRelative />
+                  <EventRow
+                    key={e.id}
+                    event={e}
+                    showRelative
+                    now={now}
+                    latestDraft={draftByEvent.get(e.id) ?? null}
+                  />
                 ))}
               </Section>
 
@@ -344,59 +372,130 @@ function EventRow({
   showRelative,
   tags,
   compact,
+  now,
+  latestDraft,
 }: {
   event: EventWithClient;
   showRelative?: boolean;
   tags?: MissingTag[];
   compact?: boolean;
+  /** Required when `showRelative` is true; ignored otherwise. */
+  now?: Date;
+  /** Latest linked draft for this event, if any. */
+  latestDraft?: { id: string; updated_at: string } | null;
 }) {
   const date = parseDateOnly(e.event_date);
+  const ms = showRelative && now ? nextMilestone(e, now) : null;
+
+  // The row-wide click target is the leftmost panel; sibling actions
+  // (chip is non-interactive, "Open campaign" is its own link) sit to the
+  // right so we don't nest <a> elements.
+  const openCampaignHref = latestDraft
+    ? `/campaign/${latestDraft.id}?eventId=${e.id}`
+    : `/events/${e.id}?tab=campaigns`;
+
   return (
-    <Link
-      href={`/events/${e.id}`}
-      className="group flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3 transition-colors hover:border-border-strong"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium text-foreground">
-            {e.name}
-          </p>
-          {!compact && (
-            <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {e.status.replace("_", " ")}
-            </span>
+    <div className="group flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3 transition-colors hover:border-border-strong">
+      <Link
+        href={`/events/${e.id}`}
+        className="flex min-w-0 flex-1 items-center justify-between gap-4"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium text-foreground">
+              {e.name}
+            </p>
+            {!compact && (
+              <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {e.status.replace("_", " ")}
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {e.client?.name && (
+              <span className="truncate">{e.client.name}</span>
+            )}
+            {e.venue_city && <span>{e.venue_city}</span>}
+            {e.capacity != null && (
+              <span>{e.capacity.toLocaleString()} cap</span>
+            )}
+          </div>
+          {tags && tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-300"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
           )}
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {e.client?.name && <span className="truncate">{e.client.name}</span>}
-          {e.venue_city && <span>{e.venue_city}</span>}
-          {e.capacity != null && <span>{e.capacity.toLocaleString()} cap</span>}
-        </div>
-        {tags && tags.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {tags.map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-300"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="shrink-0 text-right">
-        <p className="text-xs font-medium text-foreground">
-          {showRelative && date ? fmtRelative(date) : date ? fmtDay(date) : "—"}
-        </p>
-        {!compact && date && (
-          <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-            <CalendarClock className="h-2.5 w-2.5" />
-            {date.toLocaleDateString("en-GB", { weekday: "short" })}
+        <div className="shrink-0 text-right">
+          <p className="text-xs font-medium text-foreground">
+            {showRelative && date
+              ? fmtRelative(date)
+              : date
+                ? fmtDay(date)
+                : "—"}
           </p>
-        )}
-      </div>
-    </Link>
+          {!compact && date && (
+            <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <CalendarClock className="h-2.5 w-2.5" />
+              {date.toLocaleDateString("en-GB", { weekday: "short" })}
+            </p>
+          )}
+        </div>
+      </Link>
+      {showRelative && (
+        <div className="flex shrink-0 items-center gap-3 pl-1">
+          {ms && (
+            <MilestoneChip
+              kind={ms.kind}
+              label={ms.label}
+              daysAway={ms.daysAway}
+            />
+          )}
+          <Link
+            href={openCampaignHref}
+            className="inline-flex items-center whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Open campaign
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Milestone chip ──────────────────────────────────────────────────────────
+
+function MilestoneChip({
+  kind,
+  label,
+  daysAway,
+}: {
+  kind: MilestoneKind;
+  label: string;
+  daysAway: number;
+}) {
+  const timing =
+    daysAway === 0
+      ? "today"
+      : daysAway === 1
+        ? "tomorrow"
+        : `in ${daysAway}d`;
+  // bg-foreground needs inverted text in both modes; the saturated
+  // -500 colours read cleanly with white in either mode.
+  const textCls = kind === "event" ? "text-background" : "text-white";
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${MILESTONE_COLOR[kind]} ${textCls}`}
+    >
+      {label} {timing}
+    </span>
   );
 }
 

@@ -232,6 +232,43 @@ export async function linkDraftToEvent(
   }
 }
 
+/**
+ * Fetch the most-recently-updated linked draft per event for the current
+ * user. Used by dashboard surfaces (Today, Calendar) to render an
+ * "Open campaign" inline action without N+1 queries.
+ *
+ * Lives in events.ts (not drafts.ts) so the creator module stays
+ * untouched. Reads campaign_drafts directly via the user_id RLS path.
+ */
+export async function listDraftsForUserByEvent(
+  userId: string,
+): Promise<Map<string, { id: string; updated_at: string }>> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("campaign_drafts")
+    .select("id, event_id, updated_at")
+    .eq("user_id", userId)
+    .not("event_id", "is", null)
+    .order("updated_at", { ascending: false });
+
+  const map = new Map<string, { id: string; updated_at: string }>();
+  if (error) {
+    console.warn("Supabase listDraftsForUserByEvent error:", error.message);
+    return map;
+  }
+  // Newest-first ordering above means the first row per event_id wins,
+  // which is the latest updated draft for that event.
+  for (const row of data ?? []) {
+    const eventId = row.event_id as string | null;
+    if (!eventId || map.has(eventId)) continue;
+    map.set(eventId, {
+      id: row.id as string,
+      updated_at: row.updated_at as string,
+    });
+  }
+  return map;
+}
+
 /** List campaign drafts linked to a given event, newest first. */
 export async function listDraftsForEvent(
   eventId: string,

@@ -13,6 +13,8 @@
  * no Date.now() at module scope.
  */
 
+import type { EventWithClient } from "@/lib/db/events";
+
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseFlexible(iso: string | null | undefined): Date | null {
@@ -132,3 +134,63 @@ export const MILESTONE_COLOR: Record<MilestoneKind, string> = {
   "general-sale": "bg-violet-500",
   event: "bg-foreground",
 };
+
+// ─── Next milestone ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the soonest upcoming milestone for an event.
+ *
+ * Pure: `now` is required so the helper has no implicit time dependency.
+ * Callers in client components should source `now` via
+ * `useState(() => new Date())` to satisfy the React 19 purity rule.
+ *
+ * Skips milestones whose calendar day is strictly before `now`'s calendar
+ * day (so a milestone falling earlier today still counts as future).
+ * Returns `null` when every milestone is missing or in the past.
+ */
+export function nextMilestone(
+  event: EventWithClient,
+  now: Date,
+): {
+  kind: MilestoneKind;
+  label: string;
+  at: Date;
+  daysAway: number;
+} | null {
+  const sources: Array<{ kind: MilestoneKind; iso: string | null }> = [
+    { kind: "announcement", iso: event.announcement_at },
+    { kind: "presale", iso: event.presale_at },
+    { kind: "general-sale", iso: event.general_sale_at },
+    // Prefer the precise start time when present; fall back to the
+    // date-only event_date (parsed as local midnight by parseFlexible).
+    { kind: "event", iso: event.event_start_at ?? event.event_date },
+  ];
+
+  const todayMidnight = midnightOf(now);
+
+  const candidates = sources
+    .map((s) => ({ kind: s.kind, at: parseFlexible(s.iso) }))
+    .filter((c): c is { kind: MilestoneKind; at: Date } => c.at != null)
+    .map((c) => ({
+      kind: c.kind,
+      at: c.at,
+      daysAway: daysBetween(todayMidnight, midnightOf(c.at)),
+    }))
+    .filter((c) => c.daysAway >= 0)
+    .sort((a, b) => a.at.getTime() - b.at.getTime());
+
+  const next = candidates[0];
+  if (!next) return null;
+  return {
+    kind: next.kind,
+    label: MILESTONE_LABEL[next.kind],
+    at: next.at,
+    daysAway: next.daysAway,
+  };
+}
+
+function midnightOf(d: Date): Date {
+  const r = new Date(d);
+  r.setHours(0, 0, 0, 0);
+  return r;
+}
