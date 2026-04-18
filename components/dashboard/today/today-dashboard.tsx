@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { MilestoneChip } from "@/components/dashboard/_shared/milestone-chip";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import {
   listEvents,
@@ -28,8 +29,6 @@ import {
   nextMilestone,
   parseDateOnly,
   today,
-  MILESTONE_COLOR,
-  type MilestoneKind,
 } from "@/lib/dashboard/format";
 
 // ─── Partition helpers ───────────────────────────────────────────────────────
@@ -451,13 +450,7 @@ function EventRow({
       </Link>
       {showRelative && (
         <div className="flex shrink-0 items-center gap-3 pl-1">
-          {ms && (
-            <MilestoneChip
-              kind={ms.kind}
-              label={ms.label}
-              daysAway={ms.daysAway}
-            />
-          )}
+          {ms && <MilestoneChip kind={ms.kind} daysAway={ms.daysAway} />}
           <Link
             href={openCampaignHref}
             className="inline-flex items-center whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
@@ -467,35 +460,6 @@ function EventRow({
         </div>
       )}
     </div>
-  );
-}
-
-// ─── Milestone chip ──────────────────────────────────────────────────────────
-
-function MilestoneChip({
-  kind,
-  label,
-  daysAway,
-}: {
-  kind: MilestoneKind;
-  label: string;
-  daysAway: number;
-}) {
-  const timing =
-    daysAway === 0
-      ? "today"
-      : daysAway === 1
-        ? "tomorrow"
-        : `in ${daysAway}d`;
-  // bg-foreground needs inverted text in both modes; the saturated
-  // -500 colours read cleanly with white in either mode.
-  const textCls = kind === "event" ? "text-background" : "text-white";
-  return (
-    <span
-      className={`inline-flex items-center whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${MILESTONE_COLOR[kind]} ${textCls}`}
-    >
-      {label} {timing}
-    </span>
   );
 }
 

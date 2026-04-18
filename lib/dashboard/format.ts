@@ -189,8 +189,36 @@ export function nextMilestone(
   };
 }
 
-function midnightOf(d: Date): Date {
+/** Local-midnight copy of a Date. Pure — does not mutate the input. */
+export function midnightOf(d: Date): Date {
   const r = new Date(d);
   r.setHours(0, 0, 0, 0);
   return r;
+}
+
+// ─── Milestone-kind URL parsing ──────────────────────────────────────────────
+
+/**
+ * Parse a `?kinds=` searchParam value (string, string[] from Next, or
+ * undefined) into either the literal "all" sentinel or a validated
+ * subset of MILESTONE_KINDS.
+ *
+ * Returns "all" for: missing param, empty value, the literal "all", or
+ * any input that yields zero valid kinds after whitelisting. Unknown
+ * tokens are silently dropped — the URL stays a soft suggestion, never
+ * an error path.
+ */
+export function parseMilestoneKinds(
+  value: string | string[] | undefined,
+): MilestoneKind[] | "all" {
+  if (!value) return "all";
+  const v = Array.isArray(value) ? value[0] : value;
+  if (!v || v === "all") return "all";
+  const requested = v
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const validSet = new Set<string>(MILESTONE_KINDS);
+  const valid = requested.filter((s): s is MilestoneKind => validSet.has(s));
+  return valid.length === 0 ? "all" : valid;
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -10,10 +11,18 @@ import {
   List,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { MilestoneChip } from "@/components/dashboard/_shared/milestone-chip";
 import { createClient as createSupabase } from "@/lib/supabase/client";
-import { listEvents, type EventWithClient } from "@/lib/db/events";
 import {
+  listEvents,
+  listDraftsForUserByEvent,
+  type EventWithClient,
+} from "@/lib/db/events";
+import {
+  daysBetween,
+  midnightOf,
   parseDateOnly,
+  parseMilestoneKinds,
   parseTs,
   MILESTONE_KINDS,
   MILESTONE_LABEL,
@@ -78,8 +87,20 @@ type View = "month" | "agenda";
 export function CalendarView() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<EventWithClient[]>([]);
+  const [draftByEvent, setDraftByEvent] = useState<
+    Map<string, { id: string; updated_at: string }>
+  >(() => new Map());
   const [month, setMonth] = useState<Date>(startOfMonth(new Date()));
   const [view, setView] = useState<View>("month");
+  // Stabilised "now" — captured once on mount to keep agenda-chip
+  // daysAway math deterministic across renders.
+  const [now] = useState(() => new Date());
+
+  const searchParams = useSearchParams();
+  const activeKinds = useMemo(
+    () => parseMilestoneKinds(searchParams.get("kinds") ?? undefined),
+    [searchParams],
+  );
 
   useEffect(() => {
     async function load() {
@@ -94,17 +115,27 @@ export function CalendarView() {
       // Fetch a wide window (past 3 months → next 18 months).
       const from = addMonths(startOfMonth(new Date()), -3);
       const to = addMonths(startOfMonth(new Date()), 18);
-      const rows = await listEvents(user.id, {
-        fromDate: toYmd(from),
-        toDate: toYmd(to),
-      });
+      const [rows, drafts] = await Promise.all([
+        listEvents(user.id, {
+          fromDate: toYmd(from),
+          toDate: toYmd(to),
+        }),
+        listDraftsForUserByEvent(user.id),
+      ]);
       setEvents(rows);
+      setDraftByEvent(drafts);
       setLoading(false);
     }
     load();
   }, []);
 
   const milestones = useMemo(() => expandMilestones(events), [events]);
+
+  const filteredMilestones = useMemo(() => {
+    if (activeKinds === "all") return milestones;
+    const allowed = new Set(activeKinds);
+    return milestones.filter((m) => allowed.has(m.kind));
+  }, [milestones, activeKinds]);
 
   return (
     <>
@@ -143,6 +174,8 @@ export function CalendarView() {
 
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl space-y-4">
+          <FilterStrip active={activeKinds} />
+
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -150,19 +183,110 @@ export function CalendarView() {
           ) : view === "month" ? (
             <MonthView
               month={month}
-              milestones={milestones}
+              milestones={filteredMilestones}
               onPrev={() => setMonth((m) => addMonths(m, -1))}
               onNext={() => setMonth((m) => addMonths(m, 1))}
               onToday={() => setMonth(startOfMonth(new Date()))}
             />
           ) : (
-            <AgendaView milestones={milestones} />
+            <AgendaView
+              milestones={filteredMilestones}
+              now={now}
+              draftByEvent={draftByEvent}
+            />
           )}
 
           <Legend />
         </div>
       </main>
     </>
+  );
+}
+
+// ─── Filter strip ────────────────────────────────────────────────────────────
+
+function FilterStrip({ active }: { active: MilestoneKind[] | "all" }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const setKinds = (next: MilestoneKind[] | "all") => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "all") {
+      params.delete("kinds");
+    } else {
+      params.set("kinds", next.join(","));
+    }
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+  };
+
+  const isAll = active === "all";
+
+  const toggleKind = (k: MilestoneKind) => {
+    if (isAll) {
+      // Narrowing from "all" — start a fresh selection of just this kind.
+      setKinds([k]);
+      return;
+    }
+    if (active.includes(k)) {
+      const next = active.filter((x) => x !== k);
+      setKinds(next.length === 0 ? "all" : next);
+      return;
+    }
+    const next = [...active, k];
+    // Re-collapsed to the full set → normalise back to the clean URL.
+    setKinds(next.length === MILESTONE_KINDS.length ? "all" : next);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <FilterChip selected={isAll} onClick={() => setKinds("all")}>
+        All
+      </FilterChip>
+      {MILESTONE_KINDS.map((k) => {
+        const selected = !isAll && active.includes(k);
+        return (
+          <FilterChip
+            key={k}
+            selected={selected}
+            onClick={() => toggleKind(k)}
+            dotClass={MILESTONE_COLOR[k]}
+          >
+            {MILESTONE_LABEL[k]}
+          </FilterChip>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterChip({
+  selected,
+  onClick,
+  dotClass,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  dotClass?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+        selected
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-border-strong"
+      }`}
+    >
+      {dotClass && (
+        <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />
+      )}
+      {children}
+    </button>
   );
 }
 
@@ -331,12 +455,21 @@ function getWeekNumber(d: Date): number {
 
 // ─── Agenda view ─────────────────────────────────────────────────────────────
 
-function AgendaView({ milestones }: { milestones: MilestoneHit[] }) {
-  // Group upcoming milestones by yyyy-mm-dd, ascending.
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+function AgendaView({
+  milestones,
+  now,
+  draftByEvent,
+}: {
+  milestones: MilestoneHit[];
+  now: Date;
+  draftByEvent: Map<string, { id: string; updated_at: string }>;
+}) {
+  // Group upcoming milestones by yyyy-mm-dd, ascending. "Upcoming" is
+  // calendar-day-relative to the stabilised `now`, so a milestone falling
+  // earlier today is still listed.
+  const todayMidnight = midnightOf(now);
   const upcoming = milestones
-    .filter((m) => m.date.getTime() >= now.getTime())
+    .filter((m) => midnightOf(m.date).getTime() >= todayMidnight.getTime())
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   if (upcoming.length === 0) {
@@ -347,7 +480,7 @@ function AgendaView({ milestones }: { milestones: MilestoneHit[] }) {
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
           Add announcement, presale or general sale dates on an event to see
-          them here.
+          them here. Adjust the filter above if you&apos;ve narrowed kinds.
         </p>
       </div>
     );
@@ -365,6 +498,7 @@ function AgendaView({ milestones }: { milestones: MilestoneHit[] }) {
     <div className="space-y-6">
       {Array.from(groups.entries()).map(([key, hits]) => {
         const d = new Date(key + "T00:00:00");
+        const daysAway = daysBetween(todayMidnight, d);
         return (
           <div key={key} className="space-y-2">
             <h3 className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -375,36 +509,55 @@ function AgendaView({ milestones }: { milestones: MilestoneHit[] }) {
               })}
             </h3>
             <div className="space-y-1.5">
-              {hits.map((m, i) => (
-                <Link
-                  key={`${m.event.id}-${m.kind}-${i}`}
-                  href={`/events/${m.event.id}`}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-2.5 transition-colors hover:border-border-strong"
-                >
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${MILESTONE_COLOR[m.kind]}`}
-                    />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {m.event.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {MILESTONE_LABEL[m.kind]}
-                        {m.event.client?.name ? ` · ${m.event.client.name}` : ""}
-                      </p>
+              {hits.map((m, i) => {
+                const latestDraft = draftByEvent.get(m.event.id) ?? null;
+                const openCampaignHref = latestDraft
+                  ? `/campaign/${latestDraft.id}?eventId=${m.event.id}`
+                  : `/events/${m.event.id}?tab=campaigns`;
+                return (
+                  <div
+                    key={`${m.event.id}-${m.kind}-${i}`}
+                    className="group flex items-center justify-between gap-3 rounded-md border border-border bg-card px-4 py-2.5 transition-colors hover:border-border-strong"
+                  >
+                    <Link
+                      href={`/events/${m.event.id}`}
+                      className="flex min-w-0 flex-1 items-center gap-2.5"
+                    >
+                      <span
+                        className={`inline-block h-2 w-2 shrink-0 rounded-full ${MILESTONE_COLOR[m.kind]}`}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {m.event.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {MILESTONE_LABEL[m.kind]}
+                          {m.event.client?.name
+                            ? ` · ${m.event.client.name}`
+                            : ""}
+                        </p>
+                      </div>
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {m.kind !== "event" && (
+                        <span className="text-xs text-muted-foreground">
+                          {m.date.toLocaleTimeString("en-GB", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      )}
+                      <MilestoneChip kind={m.kind} daysAway={daysAway} />
+                      <Link
+                        href={openCampaignHref}
+                        className="inline-flex items-center whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      >
+                        Open campaign
+                      </Link>
                     </div>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {m.kind === "event"
-                      ? ""
-                      : m.date.toLocaleTimeString("en-GB", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                  </span>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
