@@ -47,13 +47,22 @@ type IGWithPage = MetaInstagramAccount & { linkedPageId: string };
 
 async function apiFetch<T>(url: string): Promise<T[]> {
   const res = await fetch(url);
-  const json = (await res.json()) as { data?: T[]; error?: string };
+  // code + type are present when the server returns a MetaApiError (toJSON())
+  const json = (await res.json()) as {
+    data?: T[];
+    error?: string;
+    /** Meta Graph API error code (e.g. 190 = token expired/invalid) */
+    code?: number;
+    /** Meta Graph API error type (e.g. "OAuthException") */
+    type?: string;
+  };
 
   if (!res.ok || json.error) {
     const errMsg = json.error ?? `HTTP ${res.status}`;
-    // Propagate token-expiry to the shared module-level flag so all components
-    // learn about the stale credential from the first failing API call.
-    if (isFacebookTokenExpiredError(errMsg)) {
+    // Detect token expiry by message text OR by the authoritative error code 190.
+    // Code 190 is Meta's canonical "Access token expired or invalid" code —
+    // checking it makes detection robust even if the message text varies.
+    if (isFacebookTokenExpiredError(errMsg) || json.code === 190) {
       setFbTokenExpiredGlobal(true);
     }
     throw new Error(errMsg);
@@ -92,13 +101,29 @@ const _expiredListeners = new Set<(v: boolean) => void>();
 export function setFbTokenExpiredGlobal(expired: boolean): void {
   _fbTokenExpired = expired;
   if (expired) {
-    // Purge in-memory data caches so stale data is not shown after reconnect
+    // ── In-memory data caches ────────────────────────────────────────────────
     _adAccountsCache = null;
     _pagesCache.clear();
-    // Remove the stale localStorage entry so useFacebookToken doesn't resurrect it
-    clearFacebookTokenStorage();
+
+    // ── localStorage caches ──────────────────────────────────────────────────
+    if (typeof window !== "undefined") {
+      // Facebook provider token (primary auth credential)
+      clearFacebookTokenStorage();
+      // Enriched user-pages list used by audience panels (useFetchUserPages).
+      // Key is defined later in this file — safe to inline here because
+      // setFbTokenExpiredGlobal is only called at runtime, after all module
+      // constants are initialised.
+      try {
+        localStorage.removeItem("meta_user_pages_v2");
+      } catch {
+        /* ignore */
+      }
+    }
+
     console.warn(
-      "[fb-token] Expired/invalid token detected — caches cleared, localStorage removed.",
+      "[fb-token] Expired/invalid token detected — all caches cleared.",
+      "Module: _adAccountsCache, _pagesCache.",
+      "localStorage: facebook_provider_token, meta_user_pages_v2.",
     );
   }
   _expiredListeners.forEach((l) => l(expired));
