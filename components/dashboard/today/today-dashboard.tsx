@@ -11,6 +11,7 @@ import {
   Loader2,
   ArrowRight,
   CalendarClock,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -32,6 +33,16 @@ import {
 } from "@/lib/dashboard/format";
 
 // ─── Partition helpers ───────────────────────────────────────────────────────
+
+/**
+ * Statuses that count as an "active" event for operational surfaces.
+ * sold_out / completed / cancelled are excluded — they don't need a
+ * fresh campaign even if a milestone is technically imminent.
+ */
+const ACTIVE_EVENT_STATUSES = new Set(["upcoming", "announced", "on_sale"]);
+
+const PENDING_HORIZON_DAYS = 21;
+const PENDING_ROW_LIMIT = 10;
 
 type MissingTag =
   | "no event date"
@@ -142,6 +153,27 @@ export function TodayDashboard() {
     };
   }, [events]);
 
+  // Pending action: events with an imminent milestone (within
+  // PENDING_HORIZON_DAYS) and no campaign draft started yet. Active
+  // statuses only — sold_out / completed / cancelled are excluded
+  // because no campaign is needed even if a milestone is near.
+  const pendingAction = useMemo(() => {
+    const matches: Array<{ event: EventWithClient; ms: NonNullable<ReturnType<typeof nextMilestone>> }> = [];
+    for (const e of events) {
+      if (!ACTIVE_EVENT_STATUSES.has(e.status)) continue;
+      if (draftByEvent.has(e.id)) continue;
+      const ms = nextMilestone(e, now);
+      if (!ms) continue;
+      if (ms.daysAway < 0 || ms.daysAway > PENDING_HORIZON_DAYS) continue;
+      matches.push({ event: e, ms });
+    }
+    matches.sort((a, b) => a.ms.daysAway - b.ms.daysAway);
+    return {
+      visible: matches.slice(0, PENDING_ROW_LIMIT),
+      overflow: Math.max(0, matches.length - PENDING_ROW_LIMIT),
+    };
+  }, [events, draftByEvent, now]);
+
   const recentClients = useMemo(
     () =>
       [...clients]
@@ -196,6 +228,42 @@ export function TodayDashboard() {
             </div>
           ) : (
             <>
+              {/* ───── Pending action ───── */}
+              {pendingAction.visible.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-baseline justify-between">
+                    <h2 className="font-heading text-base tracking-wide">
+                      <Zap className="mr-1.5 inline h-3.5 w-3.5 -mt-0.5" />
+                      Pending action
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {pendingAction.visible.length + pendingAction.overflow}
+                      </span>
+                    </h2>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Imminent milestone, no campaign draft yet.
+                  </p>
+                  <div className="space-y-2">
+                    {pendingAction.visible.map(({ event, ms }) => (
+                      <PendingActionRow
+                        key={event.id}
+                        event={event}
+                        milestone={ms}
+                      />
+                    ))}
+                  </div>
+                  {pendingAction.overflow > 0 && (
+                    <Link
+                      href="/events?pendingAction=1"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      +{pendingAction.overflow} more
+                      <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  )}
+                </section>
+              )}
+
               {/* ───── Today ───── */}
               <Section
                 title="Happening today"
@@ -459,6 +527,50 @@ function EventRow({
           </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Pending action row ──────────────────────────────────────────────────────
+
+function PendingActionRow({
+  event,
+  milestone,
+}: {
+  event: EventWithClient;
+  milestone: NonNullable<ReturnType<typeof nextMilestone>>;
+}) {
+  return (
+    <div className="group flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3 transition-colors hover:border-border-strong">
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/events/${event.id}`}
+          className="block truncate text-sm font-medium text-foreground hover:underline underline-offset-2"
+        >
+          {event.name}
+        </Link>
+        {event.client?.name && (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {event.client.name}
+          </p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <MilestoneChip kind={milestone.kind} daysAway={milestone.daysAway} />
+        <Link
+          href={`/events/${event.id}?tab=campaigns`}
+          className="inline-flex items-center gap-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-colors hover:bg-foreground/90"
+        >
+          Start campaign
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+        <Link
+          href={`/events/${event.id}`}
+          className="hidden whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline sm:inline-flex"
+        >
+          View event
+        </Link>
+      </div>
     </div>
   );
 }
