@@ -2089,18 +2089,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             : "fb_existing_post";
         })();
 
-        // For ig_existing_post the payload uses instagram_user_id (content account).
-        // For new ads / fb_existing_post the payload uses object_story_spec.instagram_actor_id.
+        // Branch-specific identity fields:
+        //   ig_existing_post  → instagram_user_id (content account id that owns the post)
+        //   fb_existing_post  → object_story_id only; no IG field needed
+        //   new_ad            → page_id only; instagram_actor_id intentionally omitted
         const isIgExistingPost = creativeBranch === "ig_existing_post";
-        const igUserIdFinal   = creativePayload.instagram_user_id ?? "(NOT SET)";
-        const igActorFinal    =
-          creativePayload.instagram_actor_id ??
-          creativePayload.object_story_spec?.instagram_actor_id ??
-          "(OMITTED — correct for ig_existing_post)";
+        const isFbExistingPost = creativeBranch === "fb_existing_post";
+        const igUserIdFinal = creativePayload.instagram_user_id ?? "(NOT SET)";
 
+        // launchReady: only ig_existing_post has a required IG-specific field.
+        // new_ad and fb_existing_post are ready as long as validation passed.
         const launchReady = isIgExistingPost
           ? igUserIdFinal !== "(NOT SET)"
-          : igActorFinal !== "(OMITTED — correct for ig_existing_post)";
+          : true;
 
         // Find placement payload that will be/was applied to the ad set for this creative.
         const placementSummary =
@@ -2108,21 +2109,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             ? JSON.stringify(resolveAdSetPlacementTargeting(creative.existingPost))
             : "automatic (not an existing-post creative)";
 
+        const igIdentityLine = (() => {
+          if (isIgExistingPost) {
+            return (
+              `\n  [instagram_user_id sent]  ${igUserIdFinal}` +
+              `\n  [instagram_actor_id]      OMITTED ✓ (not used for source_instagram_media_id)`
+            );
+          }
+          if (isFbExistingPost) {
+            return `\n  [instagram_actor_id]      OMITTED ✓ (fb_existing_post uses object_story_id)`;
+          }
+          // new_ad: page_id only, no IG actor needed
+          return `\n  [instagram_actor_id]      OMITTED ✓ (page-only identity for new_ad)`;
+        })();
+
         console.log(
           `\n[launch-campaign] Phase 3 ─── CREATIVE PRE-POST SUMMARY ───────────────────` +
           `\n  [Creative Branch]         ${creativeBranch}` +
           `\n  [Ad Name]                 ${creative.name}` +
           `\n  [Page ID]                 ${creative.identity?.pageId ?? "(none)"}` +
           `\n  [contentAccountId]        ${creative.identity?.instagramAccountId ?? "(unset)"}` +
-          (isIgExistingPost
-            ? `\n  [instagram_user_id sent]  ${igUserIdFinal}` +
-              `\n  [instagram_actor_id]      OMITTED ✓ (not used for source_instagram_media_id)`
-            : `\n  [instagram_actor_id]      ${igActorFinal}`) +
+          igIdentityLine +
           `\n  [post.instagramAcctId]    ${creative.existingPost?.instagramAccountId ?? "n/a"}` +
           `\n  [post/media id]           ${creative.existingPost?.postId ?? "n/a"}` +
           `\n  [Placement Payload]       ${placementSummary}` +
           `\n  [Creative Payload]        ${JSON.stringify(creativePayload)}` +
-          `\n  [Launch Ready]            ${launchReady ? "YES" : "NO — required id missing"}` +
+          `\n  [Launch Ready]            ${launchReady ? "YES ✓" : "NO — instagram_user_id missing for ig_existing_post"}` +
           `\n────────────────────────────────────────────────────────────────────────────`,
         );
       } catch (err) {

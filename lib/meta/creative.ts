@@ -14,47 +14,6 @@
 
 import type { AdCreativeDraft, CTAType, AdSetSuggestion } from "@/lib/types";
 
-/**
- * Pick the ads-compatible Instagram actor id for `instagram_actor_id` in
- * creative payloads, with source logging.
- *
- * Resolution order:
- *   1. `identity.instagramActorId`  — from `GET /{page-id}/instagram_accounts`
- *      (the ads-API-verified actor id).  Preferred.
- *   2. `identity.instagramAccountId` — from `instagram_business_account.id`
- *      on the Page (content API).  Falls back when the actor id is absent
- *      (e.g. older drafts or when the page token was unavailable at identity
- *      resolution time).
- *   3. `undefined`                  — no IG identity found.  `instagram_actor_id`
- *      is omitted from the payload; Meta may still run the ad Page-only.
- *
- * The source is returned alongside the id so callers can log it.
- */
-function resolveIgActorForPayload(
-  creativeName: string,
-  identity: { instagramAccountId?: string; instagramActorId?: string },
-  context: string,
-): { id: string; source: "actor_id" | "content_id" | "none" } {
-  if (identity.instagramActorId) {
-    console.log(
-      `[${context}] "${creativeName}": instagram_actor_id=${identity.instagramActorId}` +
-        ` source=actor_id (ads-verified from /{page}/instagram_accounts)`,
-    );
-    return { id: identity.instagramActorId, source: "actor_id" };
-  }
-  if (identity.instagramAccountId) {
-    console.warn(
-      `[${context}] "${creativeName}": instagramActorId not set;` +
-        ` falling back to content id ${identity.instagramAccountId}` +
-        ` (source=instagram_business_account). If Meta rejects with #100,` +
-        ` refresh the page selection so page-identity can resolve the actor id.`,
-    );
-    return { id: identity.instagramAccountId, source: "content_id" };
-  }
-  console.warn(`[${context}] "${creativeName}": no IG identity — omitting instagram_actor_id`);
-  return { id: "", source: "none" };
-}
-
 // ─── CTA mapping ──────────────────────────────────────────────────────────────
 
 export const CTA_MAP: Record<CTAType, string> = {
