@@ -542,48 +542,27 @@ export function validateCreativePayload(creative: AdCreativeDraft): {
 // ─── Creative Integrity Mode (strict sanitizer) ──────────────────────────────
 
 /**
- * Every Advantage+ / auto-enhancement Marketing-API feature key we know of.
- * Each one is forced to `OPT_OUT` when Creative Integrity Mode is on.
+ * The STRICT allowlist of `creative_features_spec` keys Meta currently
+ * accepts (as of the error: "must be one of {…}").  Any key outside this
+ * set causes a (#100) 400 error — even previously "safe" keys like
+ * `standard_enhancements`, `music`, `image_uncrop`, etc. are now rejected.
  *
- * Keys mirror what Meta documents under
- * `creative_features_spec` on the ad creative endpoint. Unknown keys are
- * silently ignored by Meta, but adding a non-existent key has historically
- * been safe — Meta validates the *value* shape, not the key whitelist. We
- * still keep the list reasonably tight so the outbound payload stays small.
+ * Only send keys from this list.  We opt out of every accepted key so
+ * Meta never silently re-enables enhancements for a strict-mode creative.
  *
- * If any of these names becomes invalid in a future Meta release the worst
- * case is a single creative POST returns a 400, which the launch route
- * surfaces and reports — drop the offending key from the list and re-deploy.
+ * Source: Meta API error response:
+ *   Param key 'music' in degrees_of_freedom_spec[creative_features_spec]
+ *   must be one of {IG_VIDEO_NATIVE_SUBTITLE, IMAGE_ANIMATION,
+ *   PRODUCT_METADATA_AUTOMATION, PROFILE_CARD, STANDARD_ENHANCEMENTS_CATALOG,
+ *   TEXT_OVERLAY_TRANSLATION}
  */
 const STRICT_MODE_FEATURE_OPT_OUTS: readonly string[] = [
-  // Umbrella switch — Meta treats this as "all default Advantage+ creative".
-  "standard_enhancements",
-  "advantage_plus_creative",
-  // Image transforms
-  "image_brightness_and_contrast",
-  "image_uncrop",
-  "image_touchups",
-  "image_background_gen",
-  "image_templates",
-  "image_enhancement",
-  // Video transforms
-  "video_auto_crop",
-  "video_filtering",
-  "video_highlights",
-  // Copy / text
-  "text_optimizations",
-  "text_generation",
-  "description_automation",
-  "adapt_to_placement",
-  // Add-ons
-  "music",
-  "site_extensions",
-  "product_extensions",
-  "media_type_automation",
-  "3d_animation",
-  "inline_comment",
-  // Catalog / dynamic
-  "catalog_items",
+  "STANDARD_ENHANCEMENTS_CATALOG",
+  "IMAGE_ANIMATION",
+  "TEXT_OVERLAY_TRANSLATION",
+  "PRODUCT_METADATA_AUTOMATION",
+  "PROFILE_CARD",
+  "IG_VIDEO_NATIVE_SUBTITLE",
 ];
 
 /**
@@ -685,17 +664,30 @@ export function sanitizeCreativeForStrictMode(
     }
   }
 
-  // Force every known feature to OPT_OUT. Merge with any pre-existing spec
-  // so an explicit caller opt-in (e.g. a future override) isn't silently
-  // overridden — but the strict list always wins for keys it owns.
-  const existing = payload.degrees_of_freedom_spec?.creative_features_spec ?? {};
+  // For source_instagram_media_id (ig_existing_post) the creative is already
+  // published — degrees_of_freedom_spec is irrelevant and Meta may reject
+  // unknown keys in that context.  Keep the payload minimal.
   const optedOutFeatures: string[] = [];
-  const merged: Record<string, CreativeFeatureOptOut> = { ...existing };
-  for (const feature of STRICT_MODE_FEATURE_OPT_OUTS) {
-    merged[feature] = { enroll_status: "OPT_OUT" };
-    optedOutFeatures.push(feature);
+  if (payload.source_instagram_media_id) {
+    // Remove any stale degrees_of_freedom_spec that may have been set by a
+    // previous pass or copied from a draft.
+    delete (payload as unknown as Record<string, unknown>).degrees_of_freedom_spec;
+    console.log(
+      `[sanitizeCreativeForStrictMode] source_instagram_media_id detected —` +
+        ` degrees_of_freedom_spec OMITTED (not applicable for existing-post boost).` +
+        ` Final payload keys: [${Object.keys(payload).join(", ")}]`,
+    );
+  } else {
+    // Force every accepted feature key to OPT_OUT (strict allowlist only —
+    // unknown keys cause (#100) rejections).
+    const existing = payload.degrees_of_freedom_spec?.creative_features_spec ?? {};
+    const merged: Record<string, CreativeFeatureOptOut> = { ...existing };
+    for (const feature of STRICT_MODE_FEATURE_OPT_OUTS) {
+      merged[feature] = { enroll_status: "OPT_OUT" };
+      optedOutFeatures.push(feature);
+    }
+    payload.degrees_of_freedom_spec = { creative_features_spec: merged };
   }
-  payload.degrees_of_freedom_spec = { creative_features_spec: merged };
 
   return {
     applied: true,
