@@ -518,6 +518,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       return creative;
     });
+
+    // ── Post-patch audit: log all three IDs per IG creative and gate launch ──
+    // After patching, every IG existing-post creative must have instagramActorId
+    // set on its identity — without it buildExistingPostCreative will throw.
+    // Block here (before any Meta mutations) if any creative is still missing it.
+    const igActorErrors: string[] = [];
+
+    for (const c of launchCreatives) {
+      if (
+        c.sourceType !== "existing_post" ||
+        c.existingPost?.source !== "instagram"
+      ) {
+        continue;
+      }
+
+      const actorId   = c.identity.instagramActorId ?? "(MISSING)";
+      const contentId = c.identity.instagramAccountId ?? "(unset)";
+      const postOwner = c.existingPost?.instagramAccountId ?? "(unset)";
+      const mediaId   = c.existingPost?.postId ?? "(unset)";
+
+      console.log(
+        `[launch-campaign] Preflight 0e audit — "${c.name}":` +
+          `\n  pageId                      = ${c.identity.pageId ?? "(unset)"}` +
+          `\n  identity.instagramActorId   = ${actorId}` +
+          `\n  identity.instagramAccountId = ${contentId}` +
+          `\n  existingPost.instagramAccountId = ${postOwner} [post-picker owner, NOT sent as actor]` +
+          `\n  existingPost.postId (media) = ${mediaId}`,
+      );
+
+      if (!c.identity.instagramActorId) {
+        const reason =
+          c.identity.pageId
+            ? `Page ${c.identity.pageId} did not resolve an Instagram actor id ` +
+              `(/${c.identity.pageId}/instagram_accounts returned nothing and no ` +
+              `content id fallback was available)`
+            : `Creative "${c.name}" has no pageId — cannot resolve Instagram actor`;
+        igActorErrors.push(`"${c.name}": ${reason}`);
+      }
+    }
+
+    if (igActorErrors.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Instagram actor preflight failed — cannot launch without a valid actor id",
+          details: igActorErrors,
+          hint:
+            "The selected Instagram account must be linked to the Facebook Page used in the ad. " +
+            "In the Creatives step, confirm that the Page has a connected Instagram Business or " +
+            "Creator account. In Business Manager, verify the Page → Instagram connection is " +
+            "visible under Accounts → Instagram Accounts.",
+        },
+        { status: 400 },
+      );
+    }
   } else {
     console.log(
       "[launch-campaign] Preflight 0e — no IG existing-post creatives; skipping actor resolution",

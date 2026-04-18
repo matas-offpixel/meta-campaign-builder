@@ -326,55 +326,71 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
   const postId = creative.existingPost?.postId ?? "";
 
   // ── Instagram existing post ─────────────────────────────────────────────
-  // Boosting an IG-only media item uses `source_instagram_media_id` together
-  // with `instagram_actor_id`. Meta Ads requires the actor id to be the
-  // ads-API-verified account from GET /{page-id}/instagram_accounts, NOT
-  // the content account id from instagram_business_account — these can differ
-  // and the mismatch causes (#100) "must be a valid Instagram account id".
+  // Boosting an IG-only media item requires `source_instagram_media_id` +
+  // `instagram_actor_id`.  The actor id MUST come from `identity` fields —
+  // NEVER from `existingPost.instagramAccountId`, which is the post-picker's
+  // content account id (set when the user selects a post).  That value can be
+  // stale (from an earlier page/account selection) and would silently send the
+  // wrong account as the actor, producing (#100) errors.
   //
-  // Resolution order (per requirement 3/4):
-  //   1. identity.instagramActorId  — ads-verified from /{page}/instagram_accounts
-  //   2. identity.instagramAccountId — content API fallback (older drafts)
-  //   3. existingPost.instagramAccountId — owner id from media picker (last resort)
+  // The three IDs in play:
+  //   identity.instagramActorId    — ads-verified; from GET /{pageId}/instagram_accounts
+  //                                  populated by Phase 0e in the launch route.
+  //                                  This is the ONLY safe source for the actor.
+  //   identity.instagramAccountId  — content API id; from instagram_business_account
+  //                                  on the Page.  Used ONLY as a last-resort fallback
+  //                                  when the actor id is absent (e.g. old drafts).
+  //   existingPost.instagramAccountId — post owner id stored by the post-picker.
+  //                                  Used ONLY to verify media ownership, never as
+  //                                  the actor for the creative payload.
   if (source === "instagram") {
     const igActor = resolveIgActorForPayload(
       creative.name,
       {
-        // Prefer the verified actor id; fall back through content id, then
-        // existing-post owner id (all three are the same account in most
-        // setups but can differ in BM configurations).
-        instagramActorId:
-          creative.identity.instagramActorId ||
-          creative.existingPost?.instagramAccountId ||
-          undefined,
-        instagramAccountId:
-          creative.identity.instagramAccountId ||
-          creative.existingPost?.instagramAccountId ||
-          undefined,
+        // Actor id: identity-level only.  existingPost.instagramAccountId is
+        // intentionally excluded here — it is not guaranteed to be the same
+        // account that is valid as an ad actor for the current page selection.
+        instagramActorId: creative.identity.instagramActorId || undefined,
+        instagramAccountId: creative.identity.instagramAccountId || undefined,
       },
       "buildExistingPostCreative/instagram",
     );
 
+    // Comprehensive pre-payload log (requirement 3).
     console.log(
       `[buildExistingPostCreative] "${creative.name}": IG existing post` +
-        ` pageId=${creative.identity.pageId}` +
-        ` instagramActorId=${creative.identity.instagramActorId ?? "(unset)"}` +
-        ` instagramAccountId=${creative.identity.instagramAccountId ?? "(unset)"}` +
-        ` existingPost.instagramAccountId=${creative.existingPost?.instagramAccountId ?? "(unset)"}` +
-        ` → sending instagram_actor_id=${igActor.id || "(omitted)"} source=${igActor.source}`,
+        `\n  pageId                      = ${creative.identity.pageId}` +
+        `\n  identity.instagramActorId   = ${creative.identity.instagramActorId ?? "(UNSET — Phase 0e may not have run)"}` +
+        `\n  identity.instagramAccountId = ${creative.identity.instagramAccountId ?? "(unset)"}` +
+        `\n  existingPost.instagramAccountId = ${creative.existingPost?.instagramAccountId ?? "(unset)"} [NOT used as actor]` +
+        `\n  existingPost.postId         = ${postId}` +
+        `\n  → instagram_actor_id        = ${igActor.id || "(OMITTED)"} source=${igActor.source}`,
     );
 
     if (igActor.source === "none") {
+      // This should have been caught by Phase 0e in the launch route.
+      // If we reach here it means the preflight did not block the launch —
+      // throw so the error surfaces clearly rather than silently creating a
+      // creative that Meta will reject.
+      throw new Error(
+        `No instagram_actor_id could be resolved for "${creative.name}". ` +
+          `Ensure the selected Facebook Page has a linked Instagram Business account ` +
+          `and that the page identity was resolved before launch.`,
+      );
+    }
+
+    if (igActor.source === "content_id") {
       console.warn(
-        `[buildExistingPostCreative] "${creative.name}": no instagram_actor_id resolved` +
-          ` — Meta will reject this IG existing-post ad.`,
+        `[buildExistingPostCreative] "${creative.name}": using content id as actor fallback` +
+          ` (instagramActorId was not set). If Meta rejects with (#100), the Page's IG account` +
+          ` may not be authorised as an actor for this ad account.`,
       );
     }
 
     return {
       name: creative.name || "Existing IG Post Creative",
       source_instagram_media_id: postId,
-      ...(igActor.source !== "none" ? { instagram_actor_id: igActor.id } : {}),
+      instagram_actor_id: igActor.id,
     } as MetaCreativePayload;
   }
 
