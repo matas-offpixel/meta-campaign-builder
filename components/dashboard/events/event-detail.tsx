@@ -3,18 +3,37 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Pencil, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Pencil,
+  Trash2,
+  Megaphone,
+  ExternalLink,
+  CheckCircle2,
+  Circle,
+  BarChart3,
+  Plus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { createClient as createSupabase } from "@/lib/supabase/client";
+import { createDefaultDraft } from "@/lib/campaign-defaults";
+import { saveDraftToDb } from "@/lib/db/drafts";
 import {
   getEventById,
   deleteEventRow,
+  linkDraftToEvent,
+  listDraftsForEvent,
+  type EventLinkedDraft,
   type EventWithClient,
 } from "@/lib/db/events";
 
 interface Props {
   eventId: string;
 }
+
+// ─── Formatters ──────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -44,18 +63,45 @@ function fmtDateTime(iso: string | null): string {
   }
 }
 
+function fmtShort(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export function EventDetail({ eventId }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [event, setEvent] = useState<EventWithClient | null>(null);
+  const [drafts, setDrafts] = useState<EventLinkedDraft[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      const row = await getEventById(eventId);
+      const supabase = createSupabase();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) setUserId(user.id);
+
+      const [row, linked] = await Promise.all([
+        getEventById(eventId),
+        listDraftsForEvent(eventId),
+      ]);
       setEvent(row);
+      setDrafts(linked);
       setLoading(false);
     }
     load();
@@ -74,6 +120,30 @@ export function EventDetail({ eventId }: Props) {
       setError(msg);
       setWorking(false);
       setConfirmDelete(false);
+    }
+  };
+
+  /**
+   * Event → Creator handoff.
+   * Creates a fresh draft via the existing creator helpers (untouched), then
+   * sets campaign_drafts.event_id via linkDraftToEvent so the row carries the
+   * event context. Route includes ?eventId=... as a second carrier so the
+   * wizard can pick it up in a future patch without changing it today.
+   */
+  const handleOpenCreator = async () => {
+    if (!event || !userId) return;
+    setCreatingDraft(true);
+    setError(null);
+    try {
+      const draft = createDefaultDraft();
+      await saveDraftToDb(draft, userId);
+      await linkDraftToEvent(draft.id, event.id);
+      router.push(`/campaign/${draft.id}?eventId=${event.id}`);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to open creator.";
+      setError(msg);
+      setCreatingDraft(false);
     }
   };
 
@@ -115,8 +185,17 @@ export function EventDetail({ eventId }: Props) {
         }
         actions={
           <>
+            {event.client && (
+              <Link href={`/clients/${event.client.id}`}>
+                <Button variant="outline" size="sm">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  View client
+                </Button>
+              </Link>
+            )}
             <Button
               variant="outline"
+              size="sm"
               onClick={() => router.push(`/events/${event.id}/edit`)}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -126,6 +205,7 @@ export function EventDetail({ eventId }: Props) {
               <>
                 <Button
                   variant="destructive"
+                  size="sm"
                   onClick={handleDelete}
                   disabled={working}
                 >
@@ -133,6 +213,7 @@ export function EventDetail({ eventId }: Props) {
                 </Button>
                 <Button
                   variant="ghost"
+                  size="sm"
                   onClick={() => setConfirmDelete(false)}
                   disabled={working}
                 >
@@ -142,6 +223,7 @@ export function EventDetail({ eventId }: Props) {
             ) : (
               <Button
                 variant="ghost"
+                size="sm"
                 onClick={() => setConfirmDelete(true)}
                 disabled={working}
               >
@@ -168,6 +250,44 @@ export function EventDetail({ eventId }: Props) {
             </div>
           )}
 
+          {/* ───── Campaign actions (operational hub) ───── */}
+          <section className="rounded-md border border-border bg-card p-5">
+            <div className="flex items-start justify-between gap-6">
+              <div className="min-w-0">
+                <h2 className="font-heading text-base tracking-wide">
+                  Campaign actions
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Start a new Meta campaign pre-linked to this event, or jump
+                  back into the library to find an existing draft.
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  onClick={handleOpenCreator}
+                  disabled={creatingDraft || !userId}
+                  size="sm"
+                >
+                  {creatingDraft ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Megaphone className="h-3.5 w-3.5" />
+                  )}
+                  Open campaign creator
+                </Button>
+                <Link href="/">
+                  <Button variant="outline" size="sm">
+                    All campaigns
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </section>
+
+          {/* ───── Milestone timeline ───── */}
+          <MilestoneTimeline event={event} />
+
+          {/* ───── Overview ───── */}
           <section className="rounded-md border border-border bg-card p-5">
             <h2 className="font-heading text-base tracking-wide mb-3">
               Overview
@@ -192,7 +312,9 @@ export function EventDetail({ eventId }: Props) {
               <DetailRow label="Event code" value={event.event_code ?? "—"} />
               <DetailRow
                 label="Capacity"
-                value={event.capacity != null ? event.capacity.toLocaleString() : "—"}
+                value={
+                  event.capacity != null ? event.capacity.toLocaleString() : "—"
+                }
               />
               <DetailRow
                 label="Genres"
@@ -209,10 +331,9 @@ export function EventDetail({ eventId }: Props) {
             </dl>
           </section>
 
+          {/* ───── Venue ───── */}
           <section className="rounded-md border border-border bg-card p-5">
-            <h2 className="font-heading text-base tracking-wide mb-3">
-              Venue
-            </h2>
+            <h2 className="font-heading text-base tracking-wide mb-3">Venue</h2>
             <dl className="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3 text-sm">
               <DetailRow label="Venue" value={event.venue_name ?? "—"} />
               <DetailRow label="City" value={event.venue_city ?? "—"} />
@@ -221,9 +342,10 @@ export function EventDetail({ eventId }: Props) {
             </dl>
           </section>
 
+          {/* ───── Dates & milestones (full list) ───── */}
           <section className="rounded-md border border-border bg-card p-5">
             <h2 className="font-heading text-base tracking-wide mb-3">
-              Dates & milestones
+              Dates &amp; milestones
             </h2>
             <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
               <DetailRow label="Event date" value={fmtDate(event.event_date)} />
@@ -246,10 +368,9 @@ export function EventDetail({ eventId }: Props) {
             </dl>
           </section>
 
+          {/* ───── Links ───── */}
           <section className="rounded-md border border-border bg-card p-5">
-            <h2 className="font-heading text-base tracking-wide mb-3">
-              Links
-            </h2>
+            <h2 className="font-heading text-base tracking-wide mb-3">Links</h2>
             <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <DetailRow
                 label="Ticket URL"
@@ -288,6 +409,79 @@ export function EventDetail({ eventId }: Props) {
             </dl>
           </section>
 
+          {/* ───── Linked campaigns ───── */}
+          <section className="rounded-md border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-heading text-base tracking-wide">
+                Linked campaigns
+                {drafts.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {drafts.length}
+                  </span>
+                )}
+              </h2>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleOpenCreator}
+                disabled={creatingDraft || !userId}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New
+              </Button>
+            </div>
+            {drafts.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No campaigns linked yet. Use &ldquo;Open campaign creator&rdquo;
+                above to start one.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {drafts.map((d) => (
+                  <Link
+                    key={d.id}
+                    href={`/campaign/${d.id}`}
+                    className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2 transition-colors hover:border-border-strong"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {d.name ?? "Untitled campaign"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {d.objective ?? "—"} ·{" "}
+                        {new Date(d.updated_at).toLocaleDateString("en-GB", {
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {d.status}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ───── Reporting & assets placeholder ───── */}
+          <section className="rounded-md border border-dashed border-border bg-card p-5">
+            <div className="flex items-start gap-3">
+              <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div className="min-w-0">
+                <h2 className="font-heading text-base tracking-wide">
+                  Reporting &amp; assets
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Live spend, ticket sales, creative performance and D2C
+                  signup data for this event will live here once BigQuery and
+                  Meta Insights are wired up.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* ───── Notes ───── */}
           {event.notes && (
             <section className="rounded-md border border-border bg-card p-5">
               <h2 className="font-heading text-base tracking-wide mb-3">
@@ -301,6 +495,81 @@ export function EventDetail({ eventId }: Props) {
     </>
   );
 }
+
+// ─── Milestone timeline ──────────────────────────────────────────────────────
+
+function MilestoneTimeline({ event }: { event: EventWithClient }) {
+  // `useState` lazy initializer is the React-sanctioned escape hatch for
+  // reading from Date on mount without breaking the purity rule.
+  const [now] = useState(() => Date.now());
+  const items: Array<{ label: string; iso: string | null; date: Date | null }> =
+    [
+      {
+        label: "Announcement",
+        iso: event.announcement_at,
+        date: event.announcement_at ? new Date(event.announcement_at) : null,
+      },
+      {
+        label: "Presale",
+        iso: event.presale_at,
+        date: event.presale_at ? new Date(event.presale_at) : null,
+      },
+      {
+        label: "General sale",
+        iso: event.general_sale_at,
+        date: event.general_sale_at ? new Date(event.general_sale_at) : null,
+      },
+      {
+        label: "Doors",
+        iso: event.event_start_at ?? event.event_date,
+        date: event.event_start_at
+          ? new Date(event.event_start_at)
+          : event.event_date
+            ? new Date(event.event_date + "T00:00:00")
+            : null,
+      },
+    ];
+
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-4">
+        Milestone timeline
+      </h2>
+      <ol className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {items.map((item) => {
+          const isDone = item.date != null && item.date.getTime() <= now;
+          const Icon = isDone ? CheckCircle2 : Circle;
+          return (
+            <li
+              key={item.label}
+              className="flex flex-col items-start gap-1.5 border-l-2 border-border pl-3"
+            >
+              <div className="flex items-center gap-1.5">
+                <Icon
+                  className={`h-3.5 w-3.5 ${
+                    isDone ? "text-foreground" : "text-muted-foreground/60"
+                  }`}
+                />
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {item.label}
+                </span>
+              </div>
+              <p
+                className={`text-sm ${
+                  item.date ? "text-foreground" : "text-muted-foreground/60"
+                }`}
+              >
+                {item.iso ? fmtShort(item.iso) : "Not set"}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+// ─── Detail row helper ───────────────────────────────────────────────────────
 
 function DetailRow({
   label,

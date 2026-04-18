@@ -194,3 +194,64 @@ export async function deleteEventRow(id: string): Promise<void> {
     throw error;
   }
 }
+
+// ─── Draft link helpers ─────────────────────────────────────────────────────
+//
+// These live in events.ts (not drafts.ts) so that the creator module remains
+// untouched. They read/write `campaign_drafts.event_id` directly — a column
+// added in migration 003.
+
+/** Shape of a campaign draft row as surfaced on the event hub. */
+export type EventLinkedDraft = {
+  id: string;
+  name: string | null;
+  objective: string | null;
+  status: "draft" | "published" | "archived";
+  updated_at: string;
+};
+
+/**
+ * Attach (or detach) an event to an existing campaign draft by setting
+ * campaign_drafts.event_id. Pass `null` to unlink.
+ *
+ * Called after a new draft is created from the event hub, so the creator
+ * route can pick it up via query param *or* by reading the column in future.
+ */
+export async function linkDraftToEvent(
+  draftId: string,
+  eventId: string | null,
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("campaign_drafts")
+    .update({ event_id: eventId })
+    .eq("id", draftId);
+  if (error) {
+    console.warn("Supabase linkDraftToEvent error:", error.message);
+    throw error;
+  }
+}
+
+/** List campaign drafts linked to a given event, newest first. */
+export async function listDraftsForEvent(
+  eventId: string,
+): Promise<EventLinkedDraft[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("campaign_drafts")
+    .select("id, name, objective, status, updated_at")
+    .eq("event_id", eventId)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    console.warn("Supabase listDraftsForEvent error:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: (row.name as string | null) ?? null,
+    objective: (row.objective as string | null) ?? null,
+    status: ((row.status as EventLinkedDraft["status"] | null) ?? "draft"),
+    updated_at: row.updated_at as string,
+  }));
+}

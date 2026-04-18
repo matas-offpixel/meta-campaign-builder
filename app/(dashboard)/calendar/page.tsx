@@ -1,18 +1,5 @@
-import { ComingSoon, PageHeader } from "@/components/dashboard/page-header";
+import { CalendarView } from "@/components/dashboard/calendar/calendar-view";
 
 export default function CalendarPage() {
-  return (
-    <>
-      <PageHeader
-        title="Calendar"
-        description="Scheduled activity across channels — Social, Email, SMS, WhatsApp, Meta, TikTok."
-      />
-      <main className="flex-1">
-        <ComingSoon
-          title="Calendar view coming soon"
-          description="Activity calendar filtered by content type will appear here once events + integrations are connected."
-        />
-      </main>
-    </>
-  );
+  return <CalendarView />;
 }
