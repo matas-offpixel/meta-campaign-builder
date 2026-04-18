@@ -819,6 +819,34 @@ const HARDCODED_DEPRECATED_INTERESTS: Array<{
   // ── Generic or low-signal interests that should never survive sanitisation ─
   { matchName: "music genre", replaceName: null },
   { matchName: "list of music genres", replaceName: null },
+  // ── Fashion / art editorial publications (niche, frequently deprecated) ────
+  { matchName: "i-d (magazine)", replaceName: null },
+  { matchName: "the face (magazine)", replaceName: "Fashion" },
+  { matchName: "the face magazine", replaceName: "Fashion" },
+  { matchName: "numero (magazine)", replaceName: null },
+  { matchName: "numero magazine", replaceName: null },
+  { matchName: "system (magazine)", replaceName: null },
+  { matchName: "system magazine", replaceName: null },
+  { matchName: "10 magazine", replaceName: "Fashion" },
+  { matchName: "another magazine", replaceName: "Fashion" },
+  { matchName: "purple (magazine)", replaceName: null },
+  { matchName: "purple magazine", replaceName: null },
+  { matchName: "love magazine", replaceName: "Fashion" },
+  { matchName: "love (magazine)", replaceName: "Fashion" },
+  // ── Electronic music / culture publications ────────────────────────────────
+  { matchName: "the wire (magazine)", replaceName: "Electronic music" },
+  { matchName: "wire (magazine)", replaceName: "Electronic music" },
+  { matchName: "ra (website)", replaceName: "Electronic music" },
+  { matchName: "ra (music)", replaceName: "Electronic music" },
+  { matchName: "xlr8r (magazine)", replaceName: "Electronic music" },
+  // ── Nightlife / gaming disambiguation ─────────────────────────────────────
+  { matchName: "nightlife (company)", replaceName: "Nightlife" },
+  { matchName: "the sims 3: late night", replaceName: null },
+  // ── Social platform & app interests ───────────────────────────────────────
+  // These surface in interest searches but aren't meaningful ad-targeting signals
+  { matchName: "instagram (service)", replaceName: null },
+  { matchName: "facebook (service)", replaceName: null },
+  { matchName: "tiktok (service)", replaceName: null },
 ];
 
 function hardcodedOverride(
@@ -838,6 +866,116 @@ function hardcodedOverride(
     }
   }
   return { action: "keep" };
+}
+
+// ── Stage 0: Pre-validation pattern filter ────────────────────────────────────
+//
+// These checks run BEFORE the hardcoded override table and before any Meta API
+// call.  Patterns here block known categories of low-quality interests that are
+// structurally unsuitable for ad targeting regardless of whether Meta's API
+// would return them.
+//
+// Blocked categories:
+//  • "List of ..." — Wikipedia category-page interests with no targeting value
+//  • Magazine title pattern — publication names are frequently deprecated;
+//    only the stable allowlist of well-known titles is permitted.
+//  • Wikipedia/Wikimedia entity annotations — not real Meta interests
+//  • Abstract taxonomy/genre labels — parent-level classifications, not signals
+//  • TV-series / game title parenthetical — low-value content interests
+//
+
+/**
+ * Stable publications whose Meta interest IDs have proven durable.
+ * Names here are checked against the normalized (lowercase, parenthetical-stripped)
+ * form of the interest name.
+ */
+const MAGAZINE_STABLE_ALLOWLIST = new Set([
+  "vogue",
+  "esquire",
+  "gq",
+  "dazed",
+  "i-d",
+  "wallpaper",
+  "monocle",
+  "wired",
+  "time",
+  "forbes",
+  "rolling stone",
+  "the face",
+  "highsnobiety",
+  "nylon",
+  "interview",
+  "paper",
+  "milk",
+]);
+
+interface PrefilterResult {
+  filtered: true;
+  reason: string;
+}
+
+function prefilterInterest(
+  name: string,
+): { filtered: false } | PrefilterResult {
+  const raw = name.trim().toLowerCase();
+  const norm = normalizeInterestName(name); // strips trailing parentheticals
+
+  // 1. "List of ..." — Wikipedia taxonomy pages
+  if (norm.startsWith("list of ") || raw.startsWith("list of ")) {
+    return { filtered: true, reason: "Wikipedia/taxonomy category page ('list of …') — no targeting value" };
+  }
+
+  // 2. Wikipedia / Wikimedia entity annotations
+  if (/\bwikipedia\b|\bwikimedia\b/i.test(raw)) {
+    return { filtered: true, reason: "Wikipedia entity annotation — not a real Meta targeting interest" };
+  }
+
+  // 3. Magazine titles — block unless in the stable allowlist
+  //    Catches "Foo Magazine", "Foo (magazine)", "Foo - Magazine"
+  if (/\bmagazine\b/i.test(raw)) {
+    // Strip every magazine-related word to get the publication base name
+    const baseName = norm
+      .replace(/\bmagazine\b.*$/, "")
+      .replace(/[-–—]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!MAGAZINE_STABLE_ALLOWLIST.has(baseName) && !MAGAZINE_STABLE_ALLOWLIST.has(norm)) {
+      return {
+        filtered: true,
+        reason:
+          "Magazine title — publication names are frequently deprecated in Meta interest targeting; " +
+          "prefer genre-level or category interests",
+      };
+    }
+  }
+
+  // 4. Abstract taxonomy / genre labels
+  const ABSTRACT_TAXONOMY_LABELS = new Set([
+    "music genre",
+    "musical genre",
+    "subgenre",
+    "genre",
+    "dance music genre",
+    "electronic dance music genre",
+    "art movement",
+    "style (visual arts)",
+    "cultural movement",
+  ]);
+  if (ABSTRACT_TAXONOMY_LABELS.has(norm) || ABSTRACT_TAXONOMY_LABELS.has(raw)) {
+    return { filtered: true, reason: "Abstract taxonomy label — no practical ad targeting value" };
+  }
+
+  // 5. TV-series / game / film title disambiguators
+  //    These surface in interest searches for genre keywords but have no
+  //    real audience targeting signal for event/brand marketing.
+  if (/\((?:tv series|television series|tv show|video game|film|movie|season \d)\)/i.test(raw)) {
+    return {
+      filtered: true,
+      reason: "TV/game/film title interest — low relevance for audience targeting",
+    };
+  }
+
+  return { filtered: false };
 }
 
 /**
@@ -1047,17 +1185,25 @@ const CLUSTER_FALLBACK_SEEDS: Record<string, string[]> = {
     "Fashion",
     "Streetwear",
     "Street fashion",
+    "Urban fashion",
     "Sneakers",
+    "Designer clothing",
+    "Luxury goods",
     "Haute couture",
+    "Shopping",
     "Lifestyle",
   ],
   "Lifestyle & Nightlife": [
-    "Nightclub",
     "Nightlife",
+    "Nightclub",
+    "Bars and nightclubs",
+    "Cocktail",
+    "Contemporary art",
+    "Art exhibition",
+    "Music festival",
+    "Electronic music",
     "Lifestyle",
-    "Music",
     "Entertainment",
-    "Travel",
   ],
   "Activities & Culture": [
     "Arts and culture",
@@ -1206,11 +1352,37 @@ export async function sanitiseInterests(
     }
   }
 
-  // ── Stage 1: Hardcoded override table ─────────────────────────────────────
+  // ── Stage 0+1: Pre-filter + hardcoded override table ─────────────────────
+  //
+  // Stage 0: Pattern-based pre-filter (magazine titles, "list of ...", wiki
+  //          entities, abstract labels).  Runs synchronously, no API calls.
+  //
+  // Stage 1: Hardcoded override table for specific known-deprecated interests
+  //          and their verified replacements.
 
   const toVerify: { id: string; name: string }[] = [];
 
   for (const interest of interests) {
+    // Stage 0 — pre-validation pattern filter
+    const preFilter = prefilterInterest(interest.name);
+    if (preFilter.filtered) {
+      console.log(
+        `[sanitiseInterests] PREFILTER stage0 "${interest.name}" (${interest.id}) — ${preFilter.reason}`,
+      );
+      dropped.push({
+        id: interest.id,
+        name: interest.name,
+        reason: `Pre-validation filter: ${preFilter.reason}`,
+        resolutionStatus: "dropped_deprecated",
+      });
+      removed.push({
+        id: interest.id,
+        name: interest.name,
+        reason: `Pre-validation filter: ${preFilter.reason}`,
+      });
+      continue;
+    }
+
     const override = hardcodedOverride(interest);
 
     if (override.action === "remove") {

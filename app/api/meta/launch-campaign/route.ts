@@ -2379,19 +2379,50 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           (isMetaErr && err.code === 200);
 
         const message = isAppModeError
-          ? `Creative rejected — your Meta app must be switched to Live/Public mode for this creative type. Original error: ${rawMessage}`
+          ? `Creative blocked — this ad type requires your Meta app to be in Live/Public mode. ` +
+            `Ads will not deliver until the app is switched to Live mode in Meta for Developers → App Settings → Status. ` +
+            `Original error: ${rawMessage}`
           : rawMessage;
 
         console.error("[launch-campaign] Phase 3 ✗  creative failed:", creative.name, ":", message);
         creativesFailed.push({
           name: creative.name,
           error: message,
-          skippedReason: isAppModeError ? "app must be in Live/Public mode" : undefined,
+          skippedReason: isAppModeError ? "app_mode_blocked" : undefined,
         });
       }
     }
 
     console.log("[launch-campaign] Phase 3 done — created:", creativesCreated.length, "failed:", creativesFailed.length);
+
+    // Inject a single red preflight warning if any creatives were blocked by
+    // app mode — deduplicated so we only add it once even if multiple creatives fail.
+    const appModeBlockedCount = creativesFailed.filter(
+      (c) => c.skippedReason === "app_mode_blocked",
+    ).length;
+    if (appModeBlockedCount > 0) {
+      const allBlocked =
+        creativesCreated.length === 0 && appModeBlockedCount === creativesFailed.length;
+      preflightWarnings.push({
+        stage: "creative",
+        message:
+          allBlocked
+            ? `Campaign structure created but NO creatives were launched — ` +
+              `${appModeBlockedCount} creative${appModeBlockedCount !== 1 ? "s" : ""} blocked because your Meta app is in Development mode. ` +
+              `Switch the app to Live/Public in Meta for Developers → App Settings → Status, ` +
+              `then relaunch creatives. Ads cannot deliver until this is resolved.`
+            : `${appModeBlockedCount} of ${creativesFailed.length + creativesCreated.length} creative${appModeBlockedCount !== 1 ? "s" : ""} blocked — ` +
+              `Meta rejected them because your app is not in Live/Public mode. ` +
+              `Switch to Live mode in Meta for Developers to allow these creative types.`,
+        severity: "red",
+      });
+      console.error(
+        `[launch-campaign] Phase 3 ⛔ app_mode_blocked: ${appModeBlockedCount} creative(s) rejected.`,
+        allBlocked
+          ? "ALL creatives blocked — campaign structure was created but no ads launched."
+          : "Partial block — some creatives succeeded.",
+      );
+    }
   })();
 
   // Wait for BOTH standard ad sets AND creatives to finish

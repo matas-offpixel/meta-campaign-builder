@@ -291,12 +291,19 @@ function buildLaunchEvents(
     }
   }
   for (const c of summary.creativesFailed) {
+    const isAppModeBlocked = c.skippedReason === "app_mode_blocked";
     events.push({
       id: uid("cr-fail"),
       stage: "creative",
       entity: c.name,
-      status: c.skippedReason ? "skipped" : "failed",
-      label: c.skippedReason ? `Creative skipped — ${c.skippedReason}` : "Creative failed",
+      // app_mode_blocked is a hard failure (the creative was actively rejected),
+      // not a skip — show it as failed so users understand it needs action.
+      status: isAppModeBlocked ? "failed" : c.skippedReason ? "skipped" : "failed",
+      label: isAppModeBlocked
+        ? "Creative blocked — Meta app not in Live/Public mode"
+        : c.skippedReason
+          ? `Creative skipped — ${c.skippedReason}`
+          : "Creative failed",
       detail: c.error,
     });
   }
@@ -422,7 +429,11 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
   const lalDeferred = summary.lookalikesDeferred?.length ?? 0;
   const lalSkipped = summary.lookalikeAudiencesFailed?.filter((f) => f.skippedReason).length ?? 0;
   const asSkipped = summary.adSetsFailed.filter((f) => f.skippedReason).length;
-  const crSkipped = summary.creativesFailed.filter((f) => f.skippedReason).length;
+  // app_mode_blocked is shown as a hard failure in the event log, so don't count
+  // it as "skipped" in the summary chip — keeps the counts consistent.
+  const crSkipped = summary.creativesFailed.filter(
+    (f) => f.skippedReason && f.skippedReason !== "app_mode_blocked",
+  ).length;
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -1052,6 +1063,13 @@ export function ReviewLaunch({
       launchSummary.creativesFailed.length > 0 ||
       launchSummary.adsFailed > 0);
 
+  // App-mode blocking — creatives rejected because Meta app is in Development mode
+  const appModeBlockedCreatives =
+    launchSummary?.creativesFailed.filter((c) => c.skippedReason === "app_mode_blocked") ?? [];
+  const allCreativesBlocked =
+    appModeBlockedCreatives.length > 0 &&
+    (launchSummary?.creativesCreated.length ?? 0) === 0;
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -1122,6 +1140,35 @@ export function ReviewLaunch({
                 <p className="text-xs text-muted-foreground">
                   Total launch time: {(launchSummary.totalDurationMs / 1000).toFixed(1)}s
                 </p>
+              )}
+
+              {/* App mode blocking banner */}
+              {appModeBlockedCreatives.length > 0 && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                  <div className="flex items-start gap-2">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <div>
+                      <p className="text-sm font-semibold text-destructive">
+                        {allCreativesBlocked
+                          ? "Campaign structure created — creatives not launched"
+                          : `${appModeBlockedCreatives.length} creative${appModeBlockedCreatives.length !== 1 ? "s" : ""} blocked by Meta app mode`}
+                      </p>
+                      <p className="mt-1 text-xs text-destructive/80">
+                        {allCreativesBlocked
+                          ? "Your campaign and ad sets were created in Meta, but no creatives were launched because "
+                          : "Some creatives could not launch because "}
+                        your Meta app is in <strong>Development mode</strong>. Ads will not deliver until you switch to{" "}
+                        <strong>Live/Public mode</strong> in{" "}
+                        <span className="font-mono">Meta for Developers → App Settings → Status</span>.
+                        {allCreativesBlocked && (
+                          <span className="mt-1 block">
+                            The campaign structure is live in Meta Ads Manager — you can relaunch creatives once the app is in Live mode.
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}
