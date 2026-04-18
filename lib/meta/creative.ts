@@ -635,16 +635,19 @@ export function sanitizeCreativeForStrictMode(
     }
   }
 
-  // For source_instagram_media_id (ig_existing_post) the creative is already
-  // published — degrees_of_freedom_spec is irrelevant and Meta may reject
-  // unknown keys in that context.  Keep the payload minimal.
+  // Both existing-post branches (ig_existing_post and fb_existing_post) are
+  // already-published content — degrees_of_freedom_spec is irrelevant and
+  // Meta may reject enhancement opt-outs in that context.  Keep payloads
+  // minimal: { name, source_instagram_media_id, instagram_user_id } for IG
+  // and { name, object_story_id } for FB.
   const optedOutFeatures: string[] = [];
-  if (payload.source_instagram_media_id) {
+  if (payload.source_instagram_media_id || payload.object_story_id) {
     // Remove any stale degrees_of_freedom_spec that may have been set by a
     // previous pass or copied from a draft.
     delete (payload as unknown as Record<string, unknown>).degrees_of_freedom_spec;
+    const branch = payload.source_instagram_media_id ? "ig_existing_post" : "fb_existing_post";
     console.log(
-      `[sanitizeCreativeForStrictMode] source_instagram_media_id detected —` +
+      `[sanitizeCreativeForStrictMode] ${branch} detected —` +
         ` degrees_of_freedom_spec OMITTED (not applicable for existing-post boost).` +
         ` Final payload keys: [${Object.keys(payload).join(", ")}]`,
     );
