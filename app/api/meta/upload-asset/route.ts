@@ -5,6 +5,7 @@ import {
   uploadVideoAsset,
   MetaApiError,
 } from "@/lib/meta/client";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { validateAssetFile, type UploadAssetResult } from "@/lib/meta/upload";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -17,6 +18,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!user) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
+
+  // ── Resolve token ─────────────────────────────────────────────────────────
+  let uploadToken: string | undefined;
+  let uploadTokenSource = "META_ACCESS_TOKEN (env)";
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    uploadToken = resolved.token;
+    uploadTokenSource = resolved.source;
+  } catch {
+    // Fall through — uploadImageAsset/uploadVideoAsset will use env-var fallback
+    uploadToken = undefined;
+  }
+  console.info(`[upload-asset] token source=${uploadTokenSource}`);
 
   const contentType = req.headers.get("content-type") ?? "";
 
@@ -93,7 +107,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Step 4: upload to Meta
     try {
-      const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, resolvedFileName);
+      const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, resolvedFileName, uploadToken);
       const result: UploadAssetResult = {
         assetType: "video",
         url: previewUrl ?? "",
@@ -164,11 +178,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     if (type === "image") {
-      const { hash, url } = await uploadImageAsset(adAccountId, file, file.name);
+      const { hash, url } = await uploadImageAsset(adAccountId, file, file.name, uploadToken);
       const result: UploadAssetResult = { assetType: "image", url, hash, previewUrl: url };
       return NextResponse.json(result, { status: 201 });
     } else {
-      const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, file.name);
+      const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, file.name, uploadToken);
       const result: UploadAssetResult = { assetType: "video", url: previewUrl ?? "", videoId, previewUrl };
       return NextResponse.json(result, { status: 201 });
     }

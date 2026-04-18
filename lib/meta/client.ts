@@ -122,23 +122,22 @@ export async function graphGetWithToken<T>(
   return json as T;
 }
 
-// ─── POST helper ─────────────────────────────────────────────────────────────
+// ─── POST helpers ────────────────────────────────────────────────────────────
 
 /**
- * POST request against the Graph API with a JSON body.
- * The access token is appended as a URL query param (safe for server-side use).
+ * POST request against the Graph API with an explicit token.
+ * Mirrors graphGetWithToken — use when you want to call as the user (OAuth
+ * token) rather than the static app token.
+ *
+ * All mutation helpers (createMetaCampaign, createMetaAdSet, …) accept an
+ * optional `token?` param; when provided they delegate here instead of going
+ * through graphPost's env-var path.
  */
-async function graphPost<T>(
+export async function graphPostWithToken<T>(
   path: string,
   body: Record<string, unknown>,
+  token: string,
 ): Promise<T> {
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
-    throw new MetaApiError(
-      "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
-    );
-  }
-
   const url = new URL(`${BASE}${path}`);
   url.searchParams.set("access_token", token);
 
@@ -158,16 +157,14 @@ async function graphPost<T>(
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
-    // Log both the request payload and the full Meta error for easy debugging.
-    // error_user_msg / error_user_title contain human-readable context from Meta.
     console.error(
-      "[graphPost] Meta API error on", path,
+      "[graphPostWithToken] Meta API error on", path,
       "\nRequest body:", JSON.stringify(body, null, 2),
       "\nMeta error response:", JSON.stringify(json, null, 2),
     );
     if (e.error_user_msg || e.error_user_title) {
       console.error(
-        "[graphPost] Meta user message:",
+        "[graphPostWithToken] Meta user message:",
         (e.error_user_msg ?? e.error_user_title) as string,
       );
     }
@@ -183,6 +180,26 @@ async function graphPost<T>(
   }
 
   return json as T;
+}
+
+/**
+ * POST request against the Graph API.
+ * When `token` is provided it is used directly; otherwise falls back to the
+ * META_ACCESS_TOKEN env-var.  Prefer passing an explicit token so the call
+ * runs in the user's permission context rather than the static app context.
+ */
+async function graphPost<T>(
+  path: string,
+  body: Record<string, unknown>,
+  token?: string,
+): Promise<T> {
+  const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+  if (!effectiveToken) {
+    throw new MetaApiError(
+      "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
+    );
+  }
+  return graphPostWithToken<T>(path, body, effectiveToken);
 }
 
 // ─── Public helpers ──────────────────────────────────────────────────────────
@@ -1092,11 +1109,16 @@ export interface LookalikeAudienceSpec {
 export async function createLookalikeAudience(
   adAccountId: string,
   spec: LookalikeAudienceSpec,
+  token?: string,
 ): Promise<{ id: string }> {
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
+  const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+  if (!effectiveToken) {
     throw new MetaApiError("META_ACCESS_TOKEN is not configured. Add it to .env.local.");
   }
+  // Use a local alias so the rest of the function body continues to work
+  // identically — the `url.searchParams.set("access_token", token)` call below
+  // was using the old `const token` declaration.
+  const resolvedToken = effectiveToken;
 
   const params: Record<string, string> = {
     name: spec.name,
@@ -1117,7 +1139,7 @@ export async function createLookalikeAudience(
   );
 
   const url = new URL(`${BASE}/${adAccountId}/customaudiences`);
-  url.searchParams.set("access_token", token);
+  url.searchParams.set("access_token", resolvedToken);
 
   const formBody = new URLSearchParams(params);
 
@@ -1209,10 +1231,12 @@ export function parseLookalikeRange(range: string): { startingRatio: number; end
 export async function createMetaAdSet(
   adAccountId: string,
   payload: MetaAdSetPayload,
+  token?: string,
 ): Promise<{ id: string }> {
   return graphPost<{ id: string }>(
     `/${adAccountId}/adsets`,
     payload as unknown as Record<string, unknown>,
+    token,
   );
 }
 
@@ -1226,6 +1250,7 @@ export async function createMetaAdSet(
 export async function createMetaAdSets(
   adAccountId: string,
   payloads: MetaAdSetPayload[],
+  token?: string,
 ): Promise<CreateAdSetsResult> {
   const created: CreateAdSetsResult["created"] = [];
   const failed: CreateAdSetsResult["failed"] = [];
@@ -1235,6 +1260,7 @@ export async function createMetaAdSets(
       const { id } = await graphPost<{ id: string }>(
         `/${adAccountId}/adsets`,
         payload as unknown as Record<string, unknown>,
+        token,
       );
       created.push({ name: payload.name, metaAdSetId: id });
     } catch (err) {
@@ -1258,10 +1284,12 @@ export async function createMetaAdSets(
 export async function createMetaCreative(
   adAccountId: string,
   payload: MetaCreativePayload,
+  token?: string,
 ): Promise<{ id: string }> {
   return graphPost<{ id: string }>(
     `/${adAccountId}/adcreatives`,
     payload as unknown as Record<string, unknown>,
+    token,
   );
 }
 
@@ -1274,10 +1302,12 @@ export async function createMetaCreative(
 export async function createMetaAd(
   adAccountId: string,
   payload: MetaAdPayload,
+  token?: string,
 ): Promise<{ id: string }> {
   return graphPost<{ id: string }>(
     `/${adAccountId}/ads`,
     payload as unknown as Record<string, unknown>,
+    token,
   );
 }
 
@@ -1305,8 +1335,9 @@ export async function uploadImageAsset(
   adAccountId: string,
   file: Blob,
   filename: string,
+  token?: string,
 ): Promise<Pick<UploadAssetResult, "url" | "hash">> {
-  const token = process.env.META_ACCESS_TOKEN;
+  const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
 
   // ── Debug logging ───────────────────────────────────────────────────────
   const fileTyped = file as { type?: string; name?: string };
@@ -1315,11 +1346,12 @@ export async function uploadImageAsset(
     mimeType: fileTyped.type ?? "(unknown)",
     sizeBytes: file.size,
     adAccountId,
-    token_present: !!token,
-    token_prefix: token ? token.slice(0, 12) : "(missing)",
+    tokenSource: token ? "explicit" : "META_ACCESS_TOKEN (env)",
+    token_present: !!effectiveToken,
+    token_prefix: effectiveToken ? effectiveToken.slice(0, 12) : "(missing)",
   });
 
-  if (!token) {
+  if (!effectiveToken) {
     throw new MetaApiError(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
@@ -1331,7 +1363,7 @@ export async function uploadImageAsset(
 
   const formData = new FormData();
   // access_token in the form body — matches curl -F "access_token=TOKEN"
-  formData.append("access_token", token);
+  formData.append("access_token", effectiveToken);
   // "filename" as the literal field name — matches curl -F "filename=@photo.jpg"
   // The real image name travels in Content-Disposition; field name is irrelevant.
   formData.append("filename", file, safeFilename);
@@ -1384,8 +1416,9 @@ export async function uploadVideoAsset(
   adAccountId: string,
   file: Blob,
   filename: string,
+  token?: string,
 ): Promise<Pick<UploadAssetResult, "videoId" | "previewUrl">> {
-  const token = process.env.META_ACCESS_TOKEN;
+  const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
 
   // ── Debug logging ───────────────────────────────────────────────────────
   const fileTyped = file as { type?: string; name?: string };
@@ -1395,11 +1428,12 @@ export async function uploadVideoAsset(
     sizeBytes: file.size,
     sizeMB: (file.size / 1024 / 1024).toFixed(2),
     adAccountId,
-    token_present: !!token,
-    token_prefix: token ? token.slice(0, 12) : "(missing)",
+    tokenSource: token ? "explicit" : "META_ACCESS_TOKEN (env)",
+    token_present: !!effectiveToken,
+    token_prefix: effectiveToken ? effectiveToken.slice(0, 12) : "(missing)",
   });
 
-  if (!token) {
+  if (!effectiveToken) {
     throw new MetaApiError(
       "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
     );
@@ -1413,7 +1447,7 @@ export async function uploadVideoAsset(
   //   - source      as the video file field (NOT "video_data")
   //   - title       optional display name
   const formData = new FormData();
-  formData.append("access_token", token);
+  formData.append("access_token", effectiveToken);
   formData.append("source", file, safeFilename);
   formData.append("title", safeFilename.replace(/\.[^.]+$/, ""));
 
@@ -1458,8 +1492,10 @@ export async function createMetaCampaign(params: {
   name: string;
   objective: CampaignObjective;
   status?: "ACTIVE" | "PAUSED";
+  /** OAuth or system token. When supplied uses graphPostWithToken instead of the env-var graphPost. */
+  token?: string;
 }): Promise<{ id: string }> {
-  const { adAccountId, name, objective, status = "PAUSED" } = params;
+  const { adAccountId, name, objective, status = "PAUSED", token } = params;
 
   // Minimal valid payload — only fields that belong at campaign level.
   // buying_type is required by Meta; omitting it triggers code 100 "Invalid parameter".
@@ -1480,5 +1516,5 @@ export async function createMetaCampaign(params: {
     JSON.stringify(payload, null, 2),
   );
 
-  return graphPost<{ id: string }>(`/${adAccountId}/campaigns`, payload);
+  return graphPost<{ id: string }>(`/${adAccountId}/campaigns`, payload, token);
 }

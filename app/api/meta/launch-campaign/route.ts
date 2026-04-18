@@ -194,6 +194,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       : "MISSING — engagement audiences will use META_ACCESS_TOKEN (system token)",
   );
 
+  // ── Single authoritative launch token ────────────────────────────────────
+  // Resolved ONCE here and threaded through every Meta write/read call below.
+  // Priority: user's personal OAuth token (DB) > META_ACCESS_TOKEN env-var.
+  // Using the user's token ensures calls run in the same permission context
+  // as Ads Manager and survive a token rotation without requiring a redeploy.
+  const launchToken: string = userFbToken ?? process.env.META_ACCESS_TOKEN ?? "";
+  const launchTokenSource: string = userFbToken ? "db" : "META_ACCESS_TOKEN (env)";
+
+  if (!userFbToken) {
+    console.warn(
+      "[launch-campaign] user DB token missing — falling back to META_ACCESS_TOKEN.",
+      process.env.META_ACCESS_TOKEN
+        ? `env token present (len=${process.env.META_ACCESS_TOKEN.length})`
+        : "META_ACCESS_TOKEN also missing — all Meta API calls will fail.",
+    );
+  }
+  console.log(
+    `[launch-campaign] launchToken: source=${launchTokenSource} len=${launchToken.length} prefix=${launchToken.slice(0, 12)}…`,
+  );
+
   const adAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId;
   console.log(
     "[launch-campaign] Ad account source — metaAdAccountId:",
@@ -820,8 +840,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         name: draft.settings.campaignName.trim(),
         objective: draft.settings.objective,
         status: "PAUSED" as const,
+        token: launchToken,
       };
-      console.log("[launch-campaign] Phase 1 payload:", JSON.stringify(campaignPayload, null, 2));
+      console.log(
+        "[launch-campaign] Phase 1 payload:", JSON.stringify({ ...campaignPayload, token: `[${launchTokenSource}]` }, null, 2),
+      );
 
       const campaignRes = await createMetaCampaign(campaignPayload);
       metaCampaignId = campaignRes.id;
@@ -1487,7 +1510,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         startingRatio,
         endingRatio,
         country: lookalikeCountry,
-      });
+      }, launchToken);
       lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
       // Mark source as having produced a lookalike
       for (const g of draft.audiences.pageGroups) {
@@ -1750,7 +1773,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               startingRatio,
               endingRatio,
               country: lookalikeCountry,
-            });
+            }, launchToken);
             caGroup.lookalikeAudienceIdsByRange[range] = [result.id];
             lookalikeAudiencesCreated.push({ name: lalName, id: result.id, range, durationMs: elapsed(lalStart) });
             succeeded = true;
@@ -1958,9 +1981,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           }
 
           try {
-            const adSetRes = await createMetaAdSet(adAccountId, adSetPayload);
+            const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
             const dur = elapsed(asStart);
-            console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
+            console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             return { adSet, metaAdSetId: adSetRes.id, durationMs: dur };
           } catch (err) {
             // Auto-retry ONCE for deprecated-interest failures. Covers Meta
@@ -2014,10 +2037,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   );
                   retryPayload = { ...retryPayload, targeting: { ...retryPayload.targeting, interests: cleaned } };
                 }
-                const retryRes = await createMetaAdSet(adAccountId, retryPayload);
+                const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
                 launchRetrySucceeded += 1;
                 const dur = elapsed(asStart);
-                console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
+                console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
                 return { adSet, metaAdSetId: retryRes.id, durationMs: dur };
               }
             }
@@ -2159,7 +2182,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       let metaCreativeId: string;
       try {
-        const creativeRes = await createMetaCreative(adAccountId, creativePayload);
+        const creativeRes = await createMetaCreative(adAccountId, creativePayload, launchToken);
         metaCreativeId = creativeRes.id;
         const dur = elapsed(cStart);
         console.log(
@@ -2281,9 +2304,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           throw new Error(`No valid targeting — ad set creation aborted. ${reason}`);
         }
 
-        const adSetRes = await createMetaAdSet(adAccountId, adSetPayload);
+        const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
         const dur = elapsed(asStart);
-        console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
+        console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
         adSetsCreated.push({
           name: adSet.name,
           metaAdSetId: adSetRes.id,
@@ -2373,9 +2396,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           );
 
           try {
-            const adRes = await createMetaAd(adAccountId, adPayload);
+            const adRes = await createMetaAd(adAccountId, adPayload, launchToken);
             const dur = elapsed(adStart);
-            console.log(`[launch-campaign] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id} (${dur}ms)`);
+            console.log(`[launch-campaign] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             creativeEntry.ads.push({ adSetName, metaAdId: adRes.id, durationMs: dur });
           } catch (err) {
             const message = formatMetaError(err);
