@@ -77,7 +77,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const next = searchParams.get("next") ?? "/";
 
   // ── CSRF state ────────────────────────────────────────────────────────────
-  const state = crypto.randomBytes(20).toString("hex");
+  // Prefix with "direct_" so /auth/facebook-callback can identify this as the
+  // app-owned direct OAuth flow purely from the echoed-back state param —
+  // no cookie dependency needed for mode detection.
+  const state = "direct_" + crypto.randomBytes(20).toString("hex");
 
   // ── Facebook dialog URL ───────────────────────────────────────────────────
   const fbUrl = new URL("https://www.facebook.com/dialog/oauth");
@@ -105,10 +108,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     secure: origin.startsWith("https"),
   };
 
-  // Three cookies the callback needs:
-  //   fb_oauth_state       — CSRF token to validate against ?state= param
-  //   fb_oauth_next        — where to send the user after success
-  //   fb_oauth_redirect_uri — the exact redirect_uri we must echo in the exchange
+  // Cookies: secondary CSRF layer + carry `next` and the exact redirect_uri.
+  // Primary mode detection is state-param-based (prefix "direct_"), so the
+  // flow still works if a browser drops these cookies.
+  //   fb_oauth_state        — full state string for CSRF comparison
+  //   fb_oauth_next         — post-success destination
+  //   fb_oauth_redirect_uri — exact redirect_uri used in authorization (must
+  //                           match token exchange call; registered in Meta)
   response.cookies.set("fb_oauth_state", state, cookieOpts);
   response.cookies.set("fb_oauth_next", next, cookieOpts);
   response.cookies.set("fb_oauth_redirect_uri", redirectUri, cookieOpts);

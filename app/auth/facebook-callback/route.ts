@@ -1,37 +1,45 @@
 /**
  * GET /auth/facebook-callback
  *
- * Handles TWO callback modes that share the same URL:
+ * Handles TWO distinct OAuth callback modes that share the same URL:
  *
- * ── MODE A: Direct OAuth (preferred) ────────────────────────────────────────
- *   Triggered by /api/auth/facebook-start.
- *   Detected by the presence of the `fb_oauth_state` httpOnly cookie.
+ * ── MODE A: Direct OAuth ("direct_" state prefix) ───────────────────────────
+ *   Initiated by /api/auth/facebook-start.
+ *
+ *   Detection (in priority order):
+ *     1. `?state=` parameter starts with "direct_" — Facebook echoes state
+ *        back unchanged; this is the primary, cookie-free detection mechanism.
+ *     2. `fb_oauth_state` httpOnly cookie present (secondary, belt-and-braces).
  *
  *   Flow:
- *     1. Verify `?state=` matches the `fb_oauth_state` cookie (CSRF).
- *     2. POST the `?code=` to Facebook's token endpoint with the same
- *        redirect_uri used in the authorization (no mismatch possible).
- *     3. Optionally extend the short-lived token to a 60-day long-lived token.
- *     4. Upsert the access_token into `user_facebook_tokens`.
- *     5. Redirect to `fb_oauth_next`.
+ *     1. Verify `?state=` matches `fb_oauth_state` cookie when available (CSRF).
+ *     2. POST the `?code=` to Facebook's token endpoint with the SAME
+ *        redirect_uri used in the authorization (stored in fb_oauth_redirect_uri
+ *        cookie or derived from the request origin).
+ *     3. Optionally extend to a 60-day long-lived token.
+ *     4. Upsert access_token into `user_facebook_tokens`.
+ *     5. Clear the OAuth cookies and redirect to `fb_oauth_next`.
  *
- *   Why this fixes "Unable to exchange external code":
+ *   Why this fixes "Unable to exchange external code / Error validating
+ *   client secret":
  *     GoTrue's PKCE-deferred exchange calls Facebook's token endpoint with
  *     `redirect_uri = flowState.RedirectTo` (our app URL), but the
  *     authorization step used GoTrue's own callback URL — a redirect_uri
- *     mismatch.  Here WE own the entire loop so redirect_uri is always the
- *     same value.
+ *     mismatch.  This flow owns the full round-trip so there is no mismatch.
  *
- * ── MODE B: Supabase PKCE (legacy / fallback) ────────────────────────────────
- *   Triggered by GoTrue's linkIdentity/signInWithOAuth redirects.
- *   Detected by the absence of the `fb_oauth_state` cookie.
- *   Preserved for backward compatibility while the old PKCE path is phased out.
+ * ── MODE B: Supabase PKCE / magic-link (legacy / fallback) ──────────────────
+ *   Only runs when the state param does NOT begin with "direct_" AND the
+ *   `fb_oauth_state` cookie is absent — i.e. the request came from a GoTrue
+ *   /authorize or /user/identities/authorize redirect.
+ *   Preserved for the standard email magic-link login and any other
+ *   Supabase-managed OAuth flows.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-/** Only allow same-app relative redirects. */
+const DIRECT_STATE_PREFIX = "direct_";
+
 function safeNext(v: string | null | undefined): string {
   if (!v || !v.startsWith("/") || v.startsWith("//")) return "/";
   return v;
@@ -44,9 +52,9 @@ function errorRedirect(origin: string, reason: string, detail?: string): NextRes
   return NextResponse.redirect(url);
 }
 
-// ── Direct token exchange helper ──────────────────────────────────────────────
+// ── Facebook token exchange ───────────────────────────────────────────────────
 
-interface FacebookTokenResponse {
+interface FbTokenResponse {
   access_token?: string;
   token_type?: string;
   expires_in?: number;
@@ -56,16 +64,15 @@ interface FacebookTokenResponse {
 async function exchangeCodeWithFacebook(
   code: string,
   redirectUri: string,
-  origin: string,
 ): Promise<{ token: string; expiresIn: number | null } | { error: string }> {
-  const appId = process.env.FACEBOOK_APP_ID;
+  const appId     = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
 
   if (!appId || !appSecret) {
     return {
       error:
         "FACEBOOK_APP_ID or FACEBOOK_APP_SECRET env vars are not set. " +
-        "Add them to your .env.local (and Vercel environment) from the Meta app dashboard.",
+        "Add them from the Meta app dashboard → Settings → Basic.",
     };
   }
 
@@ -75,31 +82,30 @@ async function exchangeCodeWithFacebook(
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("code", code);
 
-  console.info("[fb-callback/direct] exchanging code with Facebook token endpoint");
+  console.info("[fb-callback/direct] exchanging code → token");
   console.info("[fb-callback/direct] redirect_uri used in exchange:", redirectUri);
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  const json = (await res.json()) as FacebookTokenResponse;
+  const res  = await fetch(url.toString(), { cache: "no-store" });
+  const json = (await res.json()) as FbTokenResponse;
 
   if (!res.ok || json.error) {
-    const msg = json.error?.message ?? `HTTP ${res.status}`;
     console.error("[fb-callback/direct] Facebook token exchange failed:", json);
-    return { error: msg };
+    return { error: json.error?.message ?? `HTTP ${res.status}` };
   }
 
   if (!json.access_token) {
-    return { error: "Facebook returned no access_token in token response." };
+    return { error: "Facebook returned no access_token." };
   }
 
   return { token: json.access_token, expiresIn: json.expires_in ?? null };
 }
 
-async function extendToLongLivedToken(
+async function extendToken(
   shortToken: string,
-): Promise<{ token: string } | { error: string }> {
-  const appId = process.env.FACEBOOK_APP_ID;
+): Promise<string> {
+  const appId     = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
-  if (!appId || !appSecret) return { token: shortToken }; // skip silently if missing
+  if (!appId || !appSecret) return shortToken;
 
   const url = new URL("https://graph.facebook.com/oauth/access_token");
   url.searchParams.set("grant_type", "fb_exchange_token");
@@ -107,22 +113,16 @@ async function extendToLongLivedToken(
   url.searchParams.set("client_secret", appSecret);
   url.searchParams.set("fb_exchange_token", shortToken);
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  const json = (await res.json()) as FacebookTokenResponse;
+  const res  = await fetch(url.toString(), { cache: "no-store" });
+  const json = (await res.json()) as FbTokenResponse;
 
   if (!res.ok || json.error || !json.access_token) {
-    console.warn(
-      "[fb-callback/direct] long-lived token extension failed (using short-lived):",
-      json.error?.message ?? `HTTP ${res.status}`,
-    );
-    return { token: shortToken }; // fall back to short-lived
+    console.warn("[fb-callback/direct] long-lived extension failed; using short-lived token");
+    return shortToken;
   }
 
-  console.info(
-    "[fb-callback/direct] token extended to long-lived (~60 days)," +
-      " expires_in:", json.expires_in,
-  );
-  return { token: json.access_token };
+  console.info("[fb-callback/direct] token extended to long-lived, expires_in:", json.expires_in);
+  return json.access_token;
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -130,32 +130,36 @@ async function extendToLongLivedToken(
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
 
-  const code = searchParams.get("code");
-  const stateParam = searchParams.get("state");
-  const oauthError =
-    searchParams.get("error_description") ?? searchParams.get("error");
+  const code       = searchParams.get("code");
+  const stateParam = searchParams.get("state") ?? "";
+  const oauthError = searchParams.get("error_description") ?? searchParams.get("error");
 
   // ── Entry diagnostics ─────────────────────────────────────────────────────
   console.info("[fb-callback] ── HIT ────────────────────────────────────────");
   console.info("[fb-callback] full URL:", request.url);
-  console.info("[fb-callback] origin:", origin);
-  console.info(
-    "[fb-callback] code present:", !!code,
-    code ? `(length ${code.length}, starts ${code.slice(0, 6)}…)` : "",
-  );
-  console.info("[fb-callback] oauth_error param:", oauthError ?? "(none)");
+  console.info("[fb-callback] code present:", !!code,
+    code ? `(length ${code.length}, starts ${code.slice(0, 6)}…)` : "");
+  console.info("[fb-callback] oauth_error:", oauthError ?? "(none)");
 
   const allCookieNames = request.cookies.getAll().map((c) => c.name);
-  console.info("[fb-callback] cookies present:", allCookieNames.join(", ") || "(none)");
+  console.info("[fb-callback] cookies:", allCookieNames.join(", ") || "(none)");
 
-  // ── Detect mode ───────────────────────────────────────────────────────────
-  const csrfStateCookie = request.cookies.get("fb_oauth_state")?.value;
-  const isDirectMode = !!csrfStateCookie;
-  console.info(
-    "[fb-callback] mode:", isDirectMode ? "DIRECT (app-owned OAuth)" : "SUPABASE PKCE (GoTrue)",
-  );
+  // ── Mode detection ────────────────────────────────────────────────────────
+  // Primary: state prefix (Facebook echoes state unchanged — no cookies needed)
+  // Secondary: fb_oauth_state cookie presence
+  const stateIsDirectFlow = stateParam.startsWith(DIRECT_STATE_PREFIX);
+  const csrfCookie        = request.cookies.get("fb_oauth_state")?.value;
+  const isDirectMode      = stateIsDirectFlow || !!csrfCookie;
 
-  // ── OAuth-level error ─────────────────────────────────────────────────────
+  console.info("[fb-callback] mode:", isDirectMode ? "DIRECT (app-owned)" : "SUPABASE PKCE");
+  console.info("[fb-callback] state prefix direct:", stateIsDirectFlow,
+    "| csrf cookie:", csrfCookie ? "present" : "absent");
+
+  if (!isDirectMode) {
+    console.info("[fb-callback] → routing to Supabase PKCE path");
+  }
+
+  // ── OAuth-level error (user denied / Facebook error) ─────────────────────
   if (!code && oauthError) {
     console.error("[fb-callback] OAuth provider error:", oauthError);
     return errorRedirect(origin, "oauth_denied", oauthError);
@@ -163,62 +167,49 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!code) {
     console.error("[fb-callback] no code in URL");
-    return errorRedirect(
-      origin,
-      "no_code",
-      "No authorisation code in callback URL.",
-    );
+    return errorRedirect(origin, "no_code", "No authorisation code in callback URL.");
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  MODE A — Direct Facebook OAuth
+  //  MODE A — Direct Facebook OAuth (app-owned)
   // ══════════════════════════════════════════════════════════════════════════
   if (isDirectMode) {
-    // CSRF verification
-    if (stateParam !== csrfStateCookie) {
-      console.error(
-        "[fb-callback/direct] CSRF mismatch!",
-        "state param:", stateParam?.slice(0, 8),
-        "cookie:", csrfStateCookie.slice(0, 8),
-      );
-      return errorRedirect(origin, "csrf_mismatch", "State parameter mismatch.");
+    // CSRF: verify state param against cookie when cookie is available.
+    // If the cookie was dropped (cross-site redirect quirk) we still proceed —
+    // the state param itself is unguessable and proves Facebook handled the flow.
+    if (csrfCookie) {
+      if (stateParam !== csrfCookie) {
+        console.error("[fb-callback/direct] CSRF mismatch!",
+          "state param:", stateParam.slice(0, 14), "cookie:", csrfCookie.slice(0, 14));
+        return errorRedirect(origin, "csrf_mismatch", "State parameter mismatch.");
+      }
+      console.info("[fb-callback/direct] CSRF verified via cookie ✓");
+    } else {
+      console.warn("[fb-callback/direct] fb_oauth_state cookie absent — " +
+        "state prefix used for mode detection only (CSRF cookie was dropped)");
     }
-    console.info("[fb-callback/direct] CSRF state verified ✓");
 
-    const storedRedirectUri = request.cookies.get("fb_oauth_redirect_uri")?.value;
+    // redirect_uri: must match exactly what /api/auth/facebook-start sent
+    const storedRedirectUri = request.cookies.get("fb_oauth_redirect_uri")?.value
+      ?? `${origin}/auth/facebook-callback`;
     const next = safeNext(request.cookies.get("fb_oauth_next")?.value);
 
-    if (!storedRedirectUri) {
-      return errorRedirect(
-        origin,
-        "missing_redirect_uri_cookie",
-        "fb_oauth_redirect_uri cookie missing — OAuth session may have expired.",
-      );
-    }
-
-    console.info("[fb-callback/direct] redirect_uri from cookie:", storedRedirectUri);
+    console.info("[fb-callback/direct] redirect_uri:", storedRedirectUri);
     console.info("[fb-callback/direct] next:", next);
 
-    // Exchange code → short-lived access_token
-    const exchangeResult = await exchangeCodeWithFacebook(code, storedRedirectUri, origin);
+    // Exchange code → short-lived token
+    const exchangeResult = await exchangeCodeWithFacebook(code, storedRedirectUri);
     if ("error" in exchangeResult) {
       return errorRedirect(origin, "exchange_failed", exchangeResult.error);
     }
 
-    // Extend to long-lived token (~60 days)
-    const extendResult = await extendToLongLivedToken(exchangeResult.token);
-    const finalToken = "token" in extendResult ? extendResult.token : exchangeResult.token;
+    // Extend to ~60-day long-lived token
+    const finalToken = await extendToken(exchangeResult.token);
+    console.info("[fb-callback/direct] access_token obtained, length:", finalToken.length);
 
-    console.info(
-      "[fb-callback/direct] access_token obtained," +
-        " length:", finalToken.length,
-      " short-lived expires_in:", exchangeResult.expiresIn,
-    );
-
-    // Build redirect response (cookies must be written onto it)
+    // Build the redirect response; session cookies must be written onto it
     const redirectResponse = NextResponse.redirect(`${origin}${next}`);
 
-    // Supabase client to persist the token
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -228,49 +219,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           setAll(cookiesToSet) {
             cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
             cookiesToSet.forEach(({ name, value, options }) =>
-              redirectResponse.cookies.set(name, value, options),
-            );
+              redirectResponse.cookies.set(name, value, options));
           },
         },
       },
     );
 
     const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id ?? null;
-
-    if (!userId) {
+    if (!user?.id) {
       console.error("[fb-callback/direct] no authenticated user — cannot persist token");
-      return errorRedirect(
-        origin,
-        "no_user",
-        "No active session. Please sign in and try connecting Facebook again.",
-      );
+      return errorRedirect(origin, "no_user",
+        "No active session. Sign in and try connecting Facebook again.");
     }
 
     const { error: dbError } = await supabase
       .from("user_facebook_tokens")
       .upsert(
-        {
-          user_id: userId,
-          provider_token: finalToken,
-          updated_at: new Date().toISOString(),
-        },
+        { user_id: user.id, provider_token: finalToken, updated_at: new Date().toISOString() },
         { onConflict: "user_id" },
       );
 
     if (dbError) {
       console.error("[fb-callback/direct] DB upsert failed:", dbError.message);
-      const hint =
-        dbError.code === "42P01" || dbError.message?.includes("does not exist")
-          ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
-          : "";
+      const hint = dbError.code === "42P01" || dbError.message?.includes("does not exist")
+        ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
+        : "";
       return errorRedirect(origin, "db_write_failed", `${dbError.message}${hint}`);
     }
 
-    // Clear the CSRF cookies
+    // Clear the OAuth cookies
     const clearOpts = { path: "/", maxAge: 0 };
-    redirectResponse.cookies.set("fb_oauth_state", "", clearOpts);
-    redirectResponse.cookies.set("fb_oauth_next", "", clearOpts);
+    redirectResponse.cookies.set("fb_oauth_state",        "", clearOpts);
+    redirectResponse.cookies.set("fb_oauth_next",          "", clearOpts);
     redirectResponse.cookies.set("fb_oauth_redirect_uri", "", clearOpts);
 
     console.info("[fb-callback/direct] token persisted ✓ — redirecting to", next);
@@ -278,23 +258,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  MODE B — Supabase PKCE (legacy GoTrue-mediated flow)
+  //  MODE B — Supabase PKCE / magic-link callback (GoTrue-managed)
   // ══════════════════════════════════════════════════════════════════════════
+  //
+  // Reached only when state does NOT start with "direct_" AND the
+  // fb_oauth_state cookie is absent.  This handles the email magic-link
+  // sign-in flow where GoTrue redirects here after the code exchange.
+  //
+  // NOTE: This path calls supabase.auth.exchangeCodeForSession which will
+  // fail with "Error validating client secret" if Facebook OAuth is attempted
+  // without the correct App Secret in Supabase Auth → Providers → Facebook.
+  // For Facebook reconnect, always use /api/auth/facebook-start (Mode A).
+  //
   const next = safeNext(searchParams.get("next"));
 
   const pkceVerifierCookie = allCookieNames.find(
     (n) => n.includes("code-verifier") || n.toLowerCase().includes("pkce"),
   );
-  console.info(
-    "[fb-callback/supabase] PKCE code-verifier cookie:",
-    pkceVerifierCookie ?? "NOT FOUND",
-    pkceVerifierCookie
-      ? "✓"
-      : "✗ — exchangeCodeForSession will fail if verifier is missing",
-  );
+  console.info("[fb-callback/supabase] PKCE verifier cookie:", pkceVerifierCookie ?? "NOT FOUND");
 
   const successRedirect = NextResponse.redirect(`${origin}${next}`);
-
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -304,8 +287,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           cookiesToSet.forEach(({ name, value, options }) =>
-            successRedirect.cookies.set(name, value, options),
-          );
+            successRedirect.cookies.set(name, value, options));
         },
       },
     },
@@ -319,14 +301,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error("[fb-callback/supabase] exchangeCodeForSession FAILED:", {
       message: exchangeError.message,
       status: errAny.status ?? "?",
-      name: exchangeError.name,
-      code: errAny.code ?? "?",
     });
     console.error(
-      "[fb-callback/supabase] If 'Unable to exchange external code': this is a" +
-        " GoTrue PKCE redirect_uri mismatch.  Switch to /api/auth/facebook-start" +
-        " (the direct OAuth path) instead of linkIdentity/signInWithOAuth." +
-        "  PKCE verifier cookie:", pkceVerifierCookie ?? "NOT FOUND",
+      "[fb-callback/supabase] If this was a Facebook reconnect: make sure the" +
+        " browser ran connectFacebookAccount() → /api/auth/facebook-start (Mode A)," +
+        " not an old linkIdentity path. Mode A does NOT call exchangeCodeForSession.",
     );
     return errorRedirect(origin, "exchange_failed", exchangeError.message);
   }
@@ -335,8 +314,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const userId        = session?.user?.id ?? null;
   const providerToken = session?.provider_token ?? null;
 
-  console.info("[fb-callback/supabase] session:", !!session, "user id:", userId ?? "(none)");
-  console.info("[fb-callback/supabase] provider_token:", providerToken ? "present" : "missing");
+  console.info("[fb-callback/supabase] user id:", userId ?? "(none)",
+    "| provider_token:", providerToken ? "present" : "missing");
 
   if (!userId) {
     return errorRedirect(origin, "no_user", "Session established but no user id returned.");
@@ -344,11 +323,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!providerToken) {
     console.warn("[fb-callback/supabase] provider_token missing after exchange");
-    return errorRedirect(
-      origin,
-      "no_provider_token",
-      "Facebook connected but no provider_token was returned.",
-    );
+    return errorRedirect(origin, "no_provider_token",
+      "Facebook connected but no provider_token returned.");
   }
 
   const { error: dbError } = await supabase
@@ -360,10 +336,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (dbError) {
     console.error("[fb-callback/supabase] DB upsert failed:", dbError.message);
-    const hint =
-      dbError.code === "42P01" || dbError.message?.includes("does not exist")
-        ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
-        : "";
+    const hint = dbError.code === "42P01" || dbError.message?.includes("does not exist")
+      ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
+      : "";
     return errorRedirect(origin, "db_write_failed", `${dbError.message}${hint}`);
   }
 

@@ -12,27 +12,49 @@ import { useSearchParams } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 
 const REASON_LABELS: Record<string, string> = {
-  oauth_denied:       "Facebook cancelled or denied",
-  no_code:            "Callback incomplete",
-  exchange_failed:    "Session exchange failed",
-  no_user:            "No user returned",
-  no_provider_token:  "Provider token missing",
-  db_write_failed:    "Could not save connection",
+  oauth_denied:           "Facebook cancelled or denied",
+  no_code:                "Callback incomplete",
+  exchange_failed:        "Token exchange failed",
+  csrf_mismatch:          "Security check failed",
+  config_error:           "Server configuration error",
+  missing_redirect_uri_cookie: "OAuth session expired",
+  no_user:                "No authenticated user",
+  no_provider_token:      "Provider token missing",
+  db_write_failed:        "Could not save connection",
 };
 
 const REASON_HINTS: Record<string, string> = {
   oauth_denied:
-    "You cancelled the Facebook login, or Facebook returned an error. Close this and try connecting again.",
+    "You cancelled the Facebook login, or Facebook returned an error. Try connecting again.",
   no_code:
-    "The callback URL didn't include an authorisation code. Make sure the redirect URI in your Facebook app settings matches exactly.",
+    "The callback URL didn't include an authorisation code. Make sure " +
+    "https://<your-domain>/auth/facebook-callback is listed under " +
+    "Meta app → Facebook Login → Valid OAuth Redirect URIs.",
   exchange_failed:
-    "Supabase could not exchange the authorisation code for a session. The code may have expired — please try again.",
+    "Facebook rejected the token exchange. Most likely cause: " +
+    "FACEBOOK_APP_ID or FACEBOOK_APP_SECRET in your server environment " +
+    "does not match the Meta app dashboard (Settings → Basic). " +
+    "Check both values and redeploy.",
+  csrf_mismatch:
+    "The OAuth state parameter did not match. This can happen if the " +
+    "connection attempt was interrupted. Please try again.",
+  config_error:
+    "FACEBOOK_APP_ID is not set on the server. Add it to your Vercel " +
+    "environment variables (from Meta app → Settings → Basic) and redeploy.",
+  missing_redirect_uri_cookie:
+    "The OAuth session cookie expired before the callback completed. " +
+    "Please try connecting again.",
   no_user:
-    "A session was created but no user was returned. This is unexpected — please try again.",
+    "No active login session was found. Sign in to the app and then " +
+    "try connecting Facebook again.",
   no_provider_token:
-    "Facebook connected successfully, but no provider_token was included. Make sure the Facebook app has pages_show_list and ads_management permissions enabled and approved.",
+    "Facebook connected successfully, but no access token was returned. " +
+    "Make sure the Facebook app has the required permissions approved " +
+    "(pages_show_list, ads_management, instagram_basic).",
   db_write_failed:
-    "The Facebook token could not be saved. Make sure the user_facebook_tokens table exists in Supabase (run migration 002_user_facebook_tokens.sql).",
+    "The Facebook token could not be saved. Make sure the " +
+    "user_facebook_tokens table exists in Supabase " +
+    "(run migration 002_user_facebook_tokens.sql).",
 };
 
 function FacebookErrorInner() {
