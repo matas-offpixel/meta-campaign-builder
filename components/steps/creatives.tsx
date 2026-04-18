@@ -12,6 +12,7 @@ import {
   ClipboardCopy, Check, FileText, ShieldOff,
   ChevronDown, ChevronUp,
   AlertCircle, Maximize2, X, RefreshCw, ExternalLink,
+  Lock, UserX,
 } from "lucide-react";
 import type {
   AdCreativeDraft, CTAType, AssetMode, AssetRatio,
@@ -33,6 +34,7 @@ import {
   createDefaultAsset,
   createDefaultCaption,
 } from "@/lib/campaign-defaults";
+import { connectFacebookAccount } from "@/lib/facebook-connect";
 
 interface CreativesProps {
   creatives: AdCreativeDraft[];
@@ -968,6 +970,70 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                             >
                               <RefreshCw className="mr-1 h-3.5 w-3.5" /> Try again
                             </Button>
+                          </div>
+                        </div>
+                      )}
+                      {igPosts.status === "permission_denied" && (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                          <div className="flex items-start gap-2">
+                            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+                            <div className="flex-1">
+                              <p className="font-medium">
+                                Instagram account linked, but this app session
+                                doesn&rsquo;t have permission to read its posts.
+                              </p>
+                              <p className="mt-1 text-xs opacity-90">
+                                Reconnect Facebook/Instagram and grant access to
+                                Instagram content to use this account&rsquo;s posts.
+                              </p>
+                              {igPosts.missingScopes && igPosts.missingScopes.length > 0 && (
+                                <p className="mt-1 font-mono text-[11px] opacity-70">
+                                  Missing: {igPosts.missingScopes.join(", ")}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => igPosts.refetch()}
+                            >
+                              <RefreshCw className="mr-1 h-3.5 w-3.5" /> Retry
+                            </Button>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => {
+                                // Triggers the same OAuth flow used in account
+                                // setup; lands the user back on this campaign.
+                                const returnPath =
+                                  typeof window !== "undefined"
+                                    ? window.location.pathname
+                                    : "/";
+                                void connectFacebookAccount({ returnPath });
+                              }}
+                            >
+                              Reconnect Facebook
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {igPosts.status === "account_personal" && (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                          <div className="flex items-start gap-2">
+                            <UserX className="mt-0.5 h-4 w-4 shrink-0" />
+                            <div className="flex-1">
+                              <p className="font-medium">
+                                The linked Instagram account is a Personal account.
+                              </p>
+                              <p className="mt-1 text-xs opacity-90">
+                                The Instagram Graph API only returns posts for
+                                Business or Creator accounts. Convert the account
+                                in the Instagram app, then reconnect Facebook —
+                                or switch to the Facebook tab to use a Page post.
+                              </p>
+                            </div>
                           </div>
                         </div>
                       )}

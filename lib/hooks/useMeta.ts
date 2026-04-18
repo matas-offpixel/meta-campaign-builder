@@ -386,14 +386,31 @@ export function useFetchPagePosts(
 // ─── useFetchInstagramPosts ─────────────────────────────────────────────────
 
 /**
- * Same discriminated state machine as {@link PagePostsStatus}, applied to the
- * IG existing-post picker. Sharing the type means `creatives.tsx` can render
- * either source with one set of empty/loading/error branches.
+ * Discriminated UI state for the IG existing-post picker. Adds two states on
+ * top of {@link PagePostsStatus}:
+ *
+ *   - `permission_denied` — the route returned 403 with
+ *     `code: "PERMISSION_DENIED"`. The user must reconnect Facebook to grant
+ *     `instagram_basic` (and friends).
+ *   - `account_personal`  — the linked IG account is a Personal account, so
+ *     the IG Graph API can't return media. The user must convert it to
+ *     Business/Creator in the Instagram app.
  */
+export type InstagramPostsStatus =
+  | PagePostsStatus
+  | "permission_denied"
+  | "account_personal";
+
 export type InstagramPostsState = {
-  status: PagePostsStatus;
+  status: InstagramPostsStatus;
   data: InstagramPost[];
   error: string | null;
+  /** Populated when `status === "permission_denied"`. */
+  missingScopes?: string[];
+  /** Populated when `status === "permission_denied"` (debug aid). */
+  grantedScopes?: string[];
+  /** Populated when the route was able to read account-type info. */
+  igAccountType?: "BUSINESS" | "CREATOR" | "PERSONAL" | null;
   refetch: () => void;
 };
 
@@ -419,9 +436,12 @@ export function useFetchInstagramPosts(
   const { enabled = true, pageId, limit } = options;
 
   const [inner, setInner] = useState<{
-    status: PagePostsStatus;
+    status: InstagramPostsStatus;
     data: InstagramPost[];
     error: string | null;
+    missingScopes?: string[];
+    grantedScopes?: string[];
+    igAccountType?: "BUSINESS" | "CREATOR" | "PERSONAL" | null;
   }>({ status: "idle", data: [], error: null });
 
   const [refetchCounter, setRefetchCounter] = useState(0);
@@ -451,7 +471,45 @@ export function useFetchInstagramPosts(
         const json = (await res.json()) as {
           data?: InstagramPost[];
           error?: string;
+          code?: string;
+          missingScopes?: string[];
+          grantedScopes?: string[];
+          igAccountType?: "BUSINESS" | "CREATOR" | "PERSONAL" | null;
         };
+
+        // Distinct UI state for "the session can't read IG posts" so the
+        // picker can show a reconnect CTA instead of a generic error.
+        if (res.status === 403 && json.code === "PERMISSION_DENIED") {
+          console.warn(
+            `[useFetchInstagramPosts] permission denied igUserId=${igUserId}` +
+              ` missingScopes=[${(json.missingScopes ?? []).join(",")}]`,
+          );
+          setInner({
+            status: "permission_denied",
+            data: [],
+            error: json.error ?? "Permission denied",
+            missingScopes: json.missingScopes,
+            grantedScopes: json.grantedScopes,
+            igAccountType: json.igAccountType ?? null,
+          });
+          return;
+        }
+
+        // Distinct UI state for Personal IG accounts (IG Graph won't serve
+        // /media for them).
+        if (res.status === 422 && json.code === "IG_ACCOUNT_PERSONAL") {
+          console.warn(
+            `[useFetchInstagramPosts] personal IG account igUserId=${igUserId}`,
+          );
+          setInner({
+            status: "account_personal",
+            data: [],
+            error: json.error ?? "Personal IG account",
+            igAccountType: json.igAccountType ?? "PERSONAL",
+          });
+          return;
+        }
+
         if (!res.ok || json.error) {
           throw new Error(json.error ?? `HTTP ${res.status}`);
         }
@@ -463,6 +521,7 @@ export function useFetchInstagramPosts(
           status: data.length === 0 ? "empty" : "success",
           data,
           error: null,
+          igAccountType: json.igAccountType ?? null,
         });
       })
       .catch((err: unknown) => {

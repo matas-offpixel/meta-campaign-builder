@@ -15,10 +15,30 @@
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * The exact scopes we want Facebook to grant.
- * Single source of truth — nothing else in the codebase sets Facebook scopes.
+ * The exact scopes we want Facebook to grant. Single source of truth —
+ * nothing else in the codebase sets Facebook scopes.
+ *
+ * Why each one is here:
+ *   - `pages_show_list`         — list Pages the user manages.
+ *   - `pages_read_engagement`   — read Page metadata (and is required by
+ *                                 Meta to mint a Page access token via
+ *                                 `/{page_id}?fields=access_token`, which
+ *                                 in turn unlocks IG media reads).
+ *   - `ads_management`          — create campaigns/ad sets/ads/creatives.
+ *   - `instagram_basic`         — read the linked IG account's profile +
+ *                                 media (`/{ig-user-id}/media`). Without
+ *                                 this scope the IG existing-post picker
+ *                                 fails with `(#10) Application does not
+ *                                 have permission for this action`.
+ *   - `instagram_manage_insights` — recommended for IG ad reads; also
+ *                                 stabilises some IG endpoints when the
+ *                                 user has multiple linked accounts.
+ *   - `business_management`     — required when the IG account / Page is
+ *                                 owned by a Business Manager.
  */
-export const FB_SCOPES = "pages_show_list ads_management";
+export const FB_SCOPES =
+  "pages_show_list pages_read_engagement ads_management " +
+  "instagram_basic instagram_manage_insights business_management";
 
 export type FacebookConnectOptions = {
   returnPath?: string;
