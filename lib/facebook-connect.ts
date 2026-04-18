@@ -118,94 +118,110 @@ export async function connectFacebookAccount(
     );
   }
 
-  // ── Audit: parse the actual Facebook dialog URL ───────────────────────────
+  // ── Audit + scope surgery ─────────────────────────────────────────────────
   //
   // Unlike signInWithOAuth (which returns a GoTrue /authorize URL), linkIdentity
-  // returns the Facebook dialog URL directly.  We can read redirect_uri from it
-  // and confirm it points at Supabase GoTrue, not at our app.
+  // returns the actual Facebook dialog URL. We CAN read and rewrite the `scope`
+  // param here without touching `redirect_uri`, which GoTrue already set to the
+  // correct Supabase GoTrue callback.
+  //
+  // WHY we need to rewrite scope:
+  //   GoTrue's Facebook provider hardcodes `email` (and sometimes `public_profile`)
+  //   as default scopes and appends them regardless of what we pass via the
+  //   `scopes` option.  For Facebook apps that use "Facebook Login for Business"
+  //   (or Marketing API-only apps), `email` is not a valid scope and Facebook
+  //   rejects the authorization with "Invalid Scopes: email".  We strip any
+  //   GoTrue-injected defaults and replace the scope with exactly FB_SCOPES.
+  //   The PKCE `redirect_uri` and `state` params are left untouched — GoTrue
+  //   owns those and the code exchange still flows through Supabase GoTrue.
   //
   const authUrl = new URL(data.url);
 
+  // Log the raw URL before any modification
+  const rawScope       = authUrl.searchParams.get("scope");
   const fbRedirectUri  = authUrl.searchParams.get("redirect_uri");
-  const fbScope        = authUrl.searchParams.get("scope");
   const fbState        = authUrl.searchParams.get("state");
   const fbCodeChallenge = authUrl.searchParams.get("code_challenge");
   const fbResponseType = authUrl.searchParams.get("response_type");
 
-  console.info("[connectFacebookAccount] — Facebook dialog URL analysis —");
+  console.info("[connectFacebookAccount] — Facebook dialog URL (pre-rewrite) —");
   console.info("  url host:", authUrl.host);
   console.info("  url (first 500 chars):", data.url.slice(0, 500));
-  console.info("  redirect_uri:", fbRedirectUri ?? "(not in URL — unusual)");
-  console.info("  scope:", fbScope ?? "(not in URL)");
+  console.info("  redirect_uri:", fbRedirectUri ?? "(not in URL)");
+  console.info("  scope (GoTrue raw):", rawScope ?? "(not in URL)");
   console.info("  response_type:", fbResponseType ?? "(not in URL)");
   console.info("  state present:", !!fbState);
   console.info("  code_challenge present:", !!fbCodeChallenge);
 
   // ── redirect_uri consistency check ────────────────────────────────────────
   if (fbRedirectUri) {
-    const isSupabase = fbRedirectUri.includes("supabase.co");
-    const isAppOrigin = fbRedirectUri.startsWith(origin);
-    if (isSupabase) {
+    if (fbRedirectUri.includes("supabase.co")) {
       console.info(
-        "[connectFacebookAccount] ✓ redirect_uri points to Supabase GoTrue" +
-          " — Facebook will send code to GoTrue (correct for server-side PKCE).",
+        "[connectFacebookAccount] ✓ redirect_uri → Supabase GoTrue (correct).",
       );
-    } else if (isAppOrigin) {
+    } else if (fbRedirectUri.startsWith(origin)) {
       console.error(
-        "[connectFacebookAccount] ✗ redirect_uri points to APP origin" +
-          " — Facebook will send the auth code directly to our app," +
-          " bypassing GoTrue. exchangeCodeForSession will fail because" +
-          " our app does not have a Supabase PKCE code, only a raw Facebook code." +
-          " Fix: ensure the Supabase project's Facebook OAuth config uses" +
-          " https://<project>.supabase.co/auth/v1/callback as the redirect URI.",
+        "[connectFacebookAccount] ✗ redirect_uri → app origin. Facebook will" +
+          " send the auth code directly to our app, bypassing GoTrue." +
+          " Fix: set the Supabase project's Facebook Callback URL to" +
+          " https://<project>.supabase.co/auth/v1/callback.",
       );
     } else {
-      console.warn(
-        "[connectFacebookAccount] ⚠ redirect_uri is unexpected:",
-        fbRedirectUri,
-      );
+      console.warn("[connectFacebookAccount] ⚠ redirect_uri unexpected:", fbRedirectUri);
     }
-  } else {
+  }
+
+  // ── Scope rewrite ─────────────────────────────────────────────────────────
+  //
+  // SCOPES_NOT_ALLOWED lists scopes that GoTrue injects but that our Facebook
+  // app does not support (or that we do not want to request).
+  //   - `email`         — GoTrue default; invalid for Marketing API / Business Login apps
+  //   - `public_profile` — GoTrue default; not required for ads/pages access
+  //
+  const SCOPES_NOT_ALLOWED = new Set(["email", "public_profile"]);
+  const desiredScopes = FB_SCOPES.split(" "); // authoritative list
+
+  const rawScopeTokens = (rawScope ?? "").split(/[\s,+]+/).filter(Boolean);
+  const goTrueInjected = rawScopeTokens.filter((s) => !desiredScopes.includes(s));
+  const finalScopes    = desiredScopes.filter((s) => !SCOPES_NOT_ALLOWED.has(s));
+  const finalScopeStr  = finalScopes.join(","); // Facebook accepts comma-separated
+
+  if (goTrueInjected.length > 0) {
     console.warn(
-      "[connectFacebookAccount] ⚠ redirect_uri not found in Facebook URL." +
-        " Full URL:", data.url,
+      "[connectFacebookAccount] GoTrue injected extra scopes (stripping):",
+      goTrueInjected.join(", "),
     );
   }
 
-  // ── Scope coverage check ──────────────────────────────────────────────────
-  if (fbScope) {
-    const grantedTokens = fbScope.split(/[\s,+]+/).filter(Boolean);
-    const requestedTokens = FB_SCOPES.split(" ");
-    const missing = requestedTokens.filter((s) => !grantedTokens.includes(s));
-    if (missing.length > 0) {
-      console.warn(
-        "[connectFacebookAccount] ⚠ GoTrue did not include all requested scopes in the Facebook URL." +
-          " Missing:", missing.join(", "),
-        "(GoTrue may have a per-project scope override in the Supabase dashboard.)",
-      );
-    } else {
-      console.info(
-        "[connectFacebookAccount] ✓ All requested scopes present in Facebook URL.",
-      );
-    }
+  // Replace scope with exactly our desired list (no extras)
+  authUrl.searchParams.set("scope", finalScopeStr);
 
-    options.onScopeDebug?.({
-      goTrueScope: fbScope,
-      goTrueTokens: grantedTokens,
-      finalTokens: requestedTokens,
-      finalScope: FB_SCOPES,
-      finalUrl: data.url,
-    });
+  const finalUrl = authUrl.toString();
+
+  console.info("[connectFacebookAccount] — scope rewrite result —");
+  console.info("  GoTrue raw scope:", rawScope ?? "(empty)");
+  console.info("  GoTrue injected (stripped):", goTrueInjected.join(", ") || "(none)");
+  console.info("  Final scope sent to Facebook:", finalScopeStr);
+  console.info("  Final URL (first 500 chars):", finalUrl.slice(0, 500));
+
+  const missingDesired = desiredScopes.filter((s) => !finalScopes.includes(s));
+  if (missingDesired.length > 0) {
+    console.warn(
+      "[connectFacebookAccount] ⚠ Some desired scopes not in final scope" +
+        " (check SCOPES_NOT_ALLOWED):", missingDesired.join(", "),
+    );
   } else {
-    options.onScopeDebug?.({
-      goTrueScope: "",
-      goTrueTokens: [],
-      finalTokens: FB_SCOPES.split(" "),
-      finalScope: FB_SCOPES,
-      finalUrl: data.url,
-    });
+    console.info("[connectFacebookAccount] ✓ Final scope matches FB_SCOPES exactly.");
   }
 
+  options.onScopeDebug?.({
+    goTrueScope: rawScope ?? "",
+    goTrueTokens: rawScopeTokens,
+    finalTokens: finalScopes,
+    finalScope: finalScopeStr,
+    finalUrl,
+  });
+
   console.info("[connectFacebookAccount] ── REDIRECT ────────────────────────");
-  window.location.assign(data.url);
+  window.location.assign(finalUrl);
 }
