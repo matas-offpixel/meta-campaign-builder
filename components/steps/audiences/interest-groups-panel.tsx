@@ -16,6 +16,7 @@ import type { InterestGroup, InterestSuggestion, AudienceSettings, MetaApiPage }
 import type {
   DiscoverCluster,
   DiscoverResponse,
+  DiscoveryMeta,
   AudienceFingerprint,
   AgeRecommendation,
   CustomAudienceSignal,
@@ -708,6 +709,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
   const [discoverSceneTags, setDiscoverSceneTags] = useState<Record<string, string[]>>({});
   const [discoveringFromPages, setDiscoveringFromPages] = useState<string | null>(null);
   const [discoverFromPagesError, setDiscoverFromPagesError] = useState<Record<string, string | null>>({});
+  const [discoveryMetaByGroup, setDiscoveryMetaByGroup] = useState<Record<string, DiscoveryMeta>>({});
   // Per-cluster: which interests are checked — keyed by groupId+clusterLabel+interestId
   const [clusterSelections, setClusterSelections] = useState<Record<string, Record<string, boolean>>>({});
   // Scene hints per group — free-text field that maps to scene tags for better discovery
@@ -1144,13 +1146,29 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       });
 
       const json = (await res.json()) as DiscoverResponse & { error?: string };
-      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+
+      // Distinguish error types for clearer UX
+      if (!res.ok || json.error) {
+        const msg = json.error ?? "";
+        let userMessage: string;
+        if (res.status === 401 || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("connect")) {
+          userMessage = "Facebook token expired. Reconnect Facebook in Account Setup, then try again.";
+        } else if (res.status >= 500) {
+          userMessage = "Meta API temporarily unavailable. Try again in a moment.";
+        } else {
+          userMessage = msg || `Discovery failed (HTTP ${res.status})`;
+        }
+        throw new Error(userMessage);
+      }
 
       setDiscoverClusters((prev) => ({ ...prev, [groupId]: json.clusters }));
       setDiscoverSearchTerms((prev) => ({ ...prev, [groupId]: json.searchTermsUsed }));
       setDiscoverSceneTags((prev) => ({ ...prev, [groupId]: json.detectedSceneTags ?? [] }));
       if (json.audienceFingerprint) {
         setFingerprintByGroup((prev) => ({ ...prev, [groupId]: json.audienceFingerprint }));
+      }
+      if (json.discoveryMeta) {
+        setDiscoveryMetaByGroup((prev) => ({ ...prev, [groupId]: json.discoveryMeta }));
       }
 
       // Init selections to false for all
@@ -1163,7 +1181,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       if (json.clusters.length === 0) {
         setDiscoverFromPagesError((prev) => ({
           ...prev,
-          [groupId]: "No matching interests found. Try loading more pages or adding a campaign name.",
+          [groupId]: "No verified interests found. Try adding scene hints or a campaign name.",
         }));
       }
     } catch (err) {
@@ -1854,6 +1872,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                           </Button>
                         )}
                       </div>
+                      {discoveryMetaByGroup[group.id]?.emergencyFallbackUsed && (
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <Info className="h-3 w-3 shrink-0" />
+                          Showing broader fallback interests — add more pages or scene hints for targeted suggestions.
+                        </p>
+                      )}
 
                       {discoverClusters[group.id]!.map((cluster) => {
                         // Single-cluster mode: suppress cluster header label (already shown above)

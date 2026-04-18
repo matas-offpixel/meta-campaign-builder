@@ -1133,6 +1133,23 @@ export interface HintIntelligenceDebug {
   };
 }
 
+/** Metadata about how a discovery request was resolved. */
+export interface DiscoveryMeta {
+  /** Which token source was used for Meta interest searches. */
+  tokenSource: "db" | "env";
+  /** Whether scene-hint expansion seeds were generated and passed to clusters. */
+  hintsExpanded: boolean;
+  /** Number of expansion seed terms generated from scene hints. */
+  expansionSeedCount: number;
+  /** At least one cluster reached the curated-seeds fallback stage. */
+  curatedFallbackUsed: boolean;
+  /** At least one cluster reached the emergency fallback stage.
+   *  When true, the UI should show "Showing broader fallback interests". */
+  emergencyFallbackUsed: boolean;
+  /** Total interest IDs collected across all clusters. */
+  resultCount: number;
+}
+
 export interface DiscoverResponse {
   clusters: DiscoverCluster[];
   clusterSeeds: Record<string, string[]>;
@@ -1142,6 +1159,8 @@ export interface DiscoverResponse {
   totalFound: number;
   /** Populated only when the caller supplied free-text hints (see classifyHintIntents). */
   hintIntelligence: HintIntelligenceDebug | null;
+  /** Request-level diagnostics for the UI. */
+  discoveryMeta: DiscoveryMeta;
 }
 
 // ── Weighted scene tag builder ────────────────────────────────────────────────
@@ -3308,6 +3327,8 @@ async function discoverForCluster(
 ): Promise<{
   cluster: DiscoverCluster;
   termsUsed: string[];
+  /** Furthest fallback stage reached for this cluster. */
+  fallbackStage: "none" | "curated" | "emergency";
   hintBias?: {
     applied: boolean;
     positive: string[];
@@ -3644,7 +3665,12 @@ async function discoverForCluster(
     aboveFloor = scored;
   }
 
-  // Phase 3a: curated seeds fallback (existing logic)
+  // Phase 3: progressive fallback chain.
+  // fallbackStage tracks the furthest stage reached and is returned to the
+  // caller so the POST handler can surface it in DiscoveryMeta.
+  let fallbackStage: "none" | "curated" | "emergency" = "none";
+
+  // Phase 3a: curated seeds fallback
   if (aboveFloor.length < 2) {
     const seeds = (CURATED_SEEDS[clusterLabel] ?? []).filter(
       (s) => !localSeen.has(s) && !allTerms.some((t) => t.toLowerCase() === s.toLowerCase()),
@@ -3668,6 +3694,7 @@ async function discoverForCluster(
         };
       });
       aboveFloor = fallbackScored;
+      if (fallbackScored.length >= 2) fallbackStage = "curated";
     }
   }
 
@@ -3706,6 +3733,7 @@ async function discoverForCluster(
           `[interest-discover] cluster="${clusterLabel}" emergency fallback found ${emergScored.length} results`,
         );
         aboveFloor = emergScored;
+        fallbackStage = "emergency";
       } else {
         console.warn(
           `[interest-discover] cluster="${clusterLabel}" EMPTY — emergency fallback also returned nothing. ` +
@@ -4021,6 +4049,7 @@ async function discoverForCluster(
       interests,
     },
     termsUsed: allTerms,
+    fallbackStage,
     hintBias: hintBiasMeta,
     sportsBucketDistribution,
     sportsResolution,
@@ -4042,9 +4071,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // static token expired — all Meta searches returned [] and the UI showed
   // "No matching interests found" with no visible error.
   let token: string;
+  let tokenSource: "db" | "env" = "env";
   try {
     const resolved = await resolveServerMetaToken(supabase, user.id);
     token = resolved.token;
+    tokenSource = resolved.source;
     console.info(
       `[interest-discover] token resolved: source=${resolved.source} ` +
       `len=${token.length} prefix=${token.slice(0, 12)}…`,
@@ -4202,6 +4233,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const globalSeen = new Set<string>();
   const clusterSeeds: Record<string, string[]> = {};
+  const clusterFallbackStages: Record<string, "none" | "curated" | "emergency"> = {};
   const clusters: DiscoverCluster[] = [];
   const hintBiasByCluster: Record<string, {
     applied: boolean;
@@ -4237,7 +4269,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   > = {};
 
   for (const label of targetLabels) {
-    const { cluster, termsUsed, hintBias, sportsResolution, personaResolution } = await discoverForCluster(
+    const { cluster, termsUsed, fallbackStage, hintBias, sportsResolution, personaResolution } = await discoverForCluster(
       label,
       tagWeights,
       confidence,
@@ -4250,6 +4282,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       label === "Sports & Live Events" ? sportsFamily : null,
     );
     clusterSeeds[label] = termsUsed;
+    clusterFallbackStages[label] = fallbackStage;
     if (cluster.interests.length > 0) clusters.push(cluster);
     if (hintBias) hintBiasByCluster[label] = hintBias;
     if (sportsResolution) {
@@ -4391,6 +4424,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     : null;
 
+  // ── Build DiscoveryMeta ──────────────────────────────────────────────────────
+  const curatedFallbackUsed = Object.values(clusterFallbackStages).some(
+    (s) => s === "curated" || s === "emergency",
+  );
+  const emergencyFallbackUsed = Object.values(clusterFallbackStages).some(
+    (s) => s === "emergency",
+  );
+  const discoveryMeta: DiscoveryMeta = {
+    tokenSource,
+    hintsExpanded: discoveryExpansionSeeds.length > 0,
+    expansionSeedCount: discoveryExpansionSeeds.length,
+    curatedFallbackUsed,
+    emergencyFallbackUsed,
+    resultCount: clusters.reduce((n, c) => n + c.interests.length, 0),
+  };
+
+  // ── Single summary log line ──────────────────────────────────────────────────
+  const clusterSummary = targetLabels
+    .map((l) => {
+      const c = clusters.find((x) => x.label === l);
+      const fb = clusterFallbackStages[l] ?? "none";
+      const fbTag = fb !== "none" ? `[${fb}]` : "";
+      return `${l.split(" ")[0]}=${c?.interests.length ?? 0}${fbTag}`;
+    })
+    .join(" ");
+  console.info(
+    `[interest-discover] ── REQUEST SUMMARY ──\n` +
+    `  token: ${tokenSource}  hints: ${rawHints.length > 0 ? JSON.stringify(rawHints) : "<none>"}\n` +
+    `  expansion: ${discoveryExpansionSeeds.length > 0 ? `${discoveryExpansionSeeds.length} seeds (${discoveryExpansionSeeds.slice(0, 4).join(", ")}${discoveryExpansionSeeds.length > 4 ? "…" : ""})` : "none"}\n` +
+    `  clusters: ${clusterSummary}\n` +
+    `  fallback: curated=${curatedFallbackUsed} emergency=${emergencyFallbackUsed}  total=${discoveryMeta.resultCount} interests`,
+  );
+
   return NextResponse.json({
     clusters,
     clusterSeeds,
@@ -4399,5 +4465,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     audienceFingerprint,
     totalFound: globalSeen.size,
     hintIntelligence,
+    discoveryMeta,
   } satisfies DiscoverResponse);
 }
