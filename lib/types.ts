@@ -468,7 +468,21 @@ export interface CaptionVariant {
 
 export interface CreativeIdentity {
   pageId: string;
+  /**
+   * Instagram content account id — from `instagram_business_account.id` on the
+   * Facebook Page.  Used for loading IG posts via `/{igUserId}/media`.
+   */
   instagramAccountId: string;
+  /**
+   * Ads-compatible Instagram actor id — from `GET /{page-id}/instagram_accounts`
+   * with a Page access token.  This is the ID that Meta Ads requires for
+   * `instagram_actor_id` in creative payloads.  May differ from
+   * `instagramAccountId` in some Business Manager configurations.
+   *
+   * Populated asynchronously by `useFetchPageIdentity` once the page identity
+   * resolves.  Falls back to `instagramAccountId` when absent.
+   */
+  instagramActorId?: string;
 }
 
 export interface ExistingPostSelection {

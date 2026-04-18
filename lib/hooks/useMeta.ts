@@ -554,7 +554,15 @@ export function useFetchInstagramPosts(
 export type PageIgState = "linked" | "no_ig" | "unresolved";
 
 export interface PageIdentityIgAccount {
+  /** Content API account id — from `instagram_business_account.id` on the Page. */
   id: string;
+  /**
+   * Ads-compatible actor id — from `GET /{page-id}/instagram_accounts`.
+   * Use this for `instagram_actor_id` in creative payloads.
+   * The server always sets this to at least `id` (falls back when the endpoint
+   * returns nothing), so it is safe to use without a null check.
+   */
+  igActorId: string;
   username?: string;
   name?: string;
   profilePictureUrl?: string;

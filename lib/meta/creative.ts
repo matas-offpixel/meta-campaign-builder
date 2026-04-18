@@ -15,21 +15,44 @@
 import type { AdCreativeDraft, CTAType, AdSetSuggestion } from "@/lib/types";
 
 /**
- * Whether to include instagram_actor_id in creative payloads.
+ * Pick the ads-compatible Instagram actor id for `instagram_actor_id` in
+ * creative payloads, with source logging.
  *
- * Set to `false` to force page-identity-only mode. Meta rejects IG actor IDs
- * that are not explicitly verified as valid actors for the selected page + ad
- * account combination (error #100). Until we add a verification step that
- * calls GET /{page_id}?fields=instagram_business_account and confirms the
- * returned ID matches, it's safest to omit the field entirely.
+ * Resolution order:
+ *   1. `identity.instagramActorId`  — from `GET /{page-id}/instagram_accounts`
+ *      (the ads-API-verified actor id).  Preferred.
+ *   2. `identity.instagramAccountId` — from `instagram_business_account.id`
+ *      on the Page (content API).  Falls back when the actor id is absent
+ *      (e.g. older drafts or when the page token was unavailable at identity
+ *      resolution time).
+ *   3. `undefined`                  — no IG identity found.  `instagram_actor_id`
+ *      is omitted from the payload; Meta may still run the ad Page-only.
  *
- * When set to `true`, falls back to numeric format validation.
+ * The source is returned alongside the id so callers can log it.
  */
-const ALLOW_IG_ACTOR = false;
-
-function isValidIgActorId(id: string | undefined | null): id is string {
-  if (!ALLOW_IG_ACTOR) return false;
-  return !!id && /^\d{10,}$/.test(id);
+function resolveIgActorForPayload(
+  creativeName: string,
+  identity: { instagramAccountId?: string; instagramActorId?: string },
+  context: string,
+): { id: string; source: "actor_id" | "content_id" | "none" } {
+  if (identity.instagramActorId) {
+    console.log(
+      `[${context}] "${creativeName}": instagram_actor_id=${identity.instagramActorId}` +
+        ` source=actor_id (ads-verified from /{page}/instagram_accounts)`,
+    );
+    return { id: identity.instagramActorId, source: "actor_id" };
+  }
+  if (identity.instagramAccountId) {
+    console.warn(
+      `[${context}] "${creativeName}": instagramActorId not set;` +
+        ` falling back to content id ${identity.instagramAccountId}` +
+        ` (source=instagram_business_account). If Meta rejects with #100,` +
+        ` refresh the page selection so page-identity can resolve the actor id.`,
+    );
+    return { id: identity.instagramAccountId, source: "content_id" };
+  }
+  console.warn(`[${context}] "${creativeName}": no IG identity — omitting instagram_actor_id`);
+  return { id: "", source: "none" };
 }
 
 // ─── CTA mapping ──────────────────────────────────────────────────────────────
@@ -247,12 +270,9 @@ function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
     page_id: creative.identity.pageId,
     link_data: linkData,
   };
-  const igId = creative.identity.instagramAccountId;
-  if (isValidIgActorId(igId)) {
-    spec.instagram_actor_id = igId;
-    console.log(`[buildLinkCreative] "${creative.name}": using IG actor ${igId}`);
-  } else if (igId) {
-    console.warn(`[buildLinkCreative] "${creative.name}": dropping invalid instagram_actor_id "${igId}"`);
+  const igActor = resolveIgActorForPayload(creative.name, creative.identity, "buildLinkCreative");
+  if (igActor.source !== "none") {
+    spec.instagram_actor_id = igActor.id;
   }
 
   return {
@@ -290,12 +310,9 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
     page_id: creative.identity.pageId,
     video_data: videoData,
   };
-  const igId = creative.identity.instagramAccountId;
-  if (isValidIgActorId(igId)) {
-    spec.instagram_actor_id = igId;
-    console.log(`[buildVideoCreative] "${creative.name}": using IG actor ${igId}`);
-  } else if (igId) {
-    console.warn(`[buildVideoCreative] "${creative.name}": dropping invalid instagram_actor_id "${igId}"`);
+  const igActor = resolveIgActorForPayload(creative.name, creative.identity, "buildVideoCreative");
+  if (igActor.source !== "none") {
+    spec.instagram_actor_id = igActor.id;
   }
 
   return {
@@ -310,26 +327,54 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
 
   // ── Instagram existing post ─────────────────────────────────────────────
   // Boosting an IG-only media item uses `source_instagram_media_id` together
-  // with `instagram_actor_id`. Falls back to `creative.identity.instagramAccountId`
-  // when the existing-post selection didn't capture one (older drafts).
+  // with `instagram_actor_id`. Meta Ads requires the actor id to be the
+  // ads-API-verified account from GET /{page-id}/instagram_accounts, NOT
+  // the content account id from instagram_business_account — these can differ
+  // and the mismatch causes (#100) "must be a valid Instagram account id".
+  //
+  // Resolution order (per requirement 3/4):
+  //   1. identity.instagramActorId  — ads-verified from /{page}/instagram_accounts
+  //   2. identity.instagramAccountId — content API fallback (older drafts)
+  //   3. existingPost.instagramAccountId — owner id from media picker (last resort)
   if (source === "instagram") {
-    const igActor =
-      creative.existingPost?.instagramAccountId ||
-      creative.identity.instagramAccountId ||
-      "";
-    if (!igActor) {
+    const igActor = resolveIgActorForPayload(
+      creative.name,
+      {
+        // Prefer the verified actor id; fall back through content id, then
+        // existing-post owner id (all three are the same account in most
+        // setups but can differ in BM configurations).
+        instagramActorId:
+          creative.identity.instagramActorId ||
+          creative.existingPost?.instagramAccountId ||
+          undefined,
+        instagramAccountId:
+          creative.identity.instagramAccountId ||
+          creative.existingPost?.instagramAccountId ||
+          undefined,
+      },
+      "buildExistingPostCreative/instagram",
+    );
+
+    console.log(
+      `[buildExistingPostCreative] "${creative.name}": IG existing post` +
+        ` pageId=${creative.identity.pageId}` +
+        ` instagramActorId=${creative.identity.instagramActorId ?? "(unset)"}` +
+        ` instagramAccountId=${creative.identity.instagramAccountId ?? "(unset)"}` +
+        ` existingPost.instagramAccountId=${creative.existingPost?.instagramAccountId ?? "(unset)"}` +
+        ` → sending instagram_actor_id=${igActor.id || "(omitted)"} source=${igActor.source}`,
+    );
+
+    if (igActor.source === "none") {
       console.warn(
-        `[buildExistingPostCreative] "${creative.name}": IG existing post selected ` +
-          `but no instagramAccountId is available — Meta will reject the ad.`,
+        `[buildExistingPostCreative] "${creative.name}": no instagram_actor_id resolved` +
+          ` — Meta will reject this IG existing-post ad.`,
       );
     }
+
     return {
       name: creative.name || "Existing IG Post Creative",
-      // `source_instagram_media_id` accepts the IG media id and clones it as
-      // an ad creative. Together with `instagram_actor_id` it tells Meta which
-      // IG account is doing the boosting.
       source_instagram_media_id: postId,
-      ...(igActor ? { instagram_actor_id: igActor } : {}),
+      ...(igActor.source !== "none" ? { instagram_actor_id: igActor.id } : {}),
     } as MetaCreativePayload;
   }
 

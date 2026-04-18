@@ -156,20 +156,32 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
     });
   };
 
-  // When the per-page identity resolves a linked IG that we didn't already
-  // pick (e.g. the account-wide list missed it because the system token
-  // couldn't see the Page), backfill it onto the active ad.
+  // When the per-page identity resolves:
+  //   1. Backfill instagramAccountId if still empty (content API account).
+  //   2. Always update instagramActorId (ads-compatible actor) from the
+  //      /{page-id}/instagram_accounts endpoint result — this is the value
+  //      that must be sent as instagram_actor_id in creative payloads.
   useEffect(() => {
     if (!active) return;
     const identity = activePageIdentity.data;
     if (!identity || identity.ig.state !== "linked") return;
     if (active.identity?.pageId !== identity.pageId) return;
-    const currentIg = active.identity?.instagramAccountId ?? "";
-    if (currentIg) return;
+
+    const currentContentId = active.identity?.instagramAccountId ?? "";
+    const currentActorId   = active.identity?.instagramActorId;
+    const resolvedActorId  = identity.ig.account.igActorId;
+
+    // Skip if nothing would change
+    if (currentContentId && currentActorId === resolvedActorId) return;
+
     updateAd(active.id, {
       identity: {
         ...(active.identity ?? { pageId: identity.pageId, instagramAccountId: "" }),
-        instagramAccountId: identity.ig.account.id,
+        // Only overwrite content id if it wasn't already set (igAccounts may
+        // have populated it before page-identity resolved).
+        instagramAccountId: currentContentId || identity.ig.account.id,
+        // Always update the actor id — this is the ads-verified ID.
+        instagramActorId: resolvedActorId,
       },
     });
   }, [active, activePageIdentity.data, updateAd]);
