@@ -30,10 +30,9 @@ export default function LoginPage() {
     setStatus("sending");
     setErrorMsg("");
 
-    const emailRedirectTo =
-      process.env.NODE_ENV === "development"
-        ? "http://localhost:3000/auth/callback"
-        : "https://app.offpixel.co.uk/auth/callback";
+    // Derive the callback URL from the actual origin so magic links work on
+    // both production (app.offpixel.co.uk) and Vercel preview deployments.
+    const emailRedirectTo = `${window.location.origin}/auth/callback`;
 
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({

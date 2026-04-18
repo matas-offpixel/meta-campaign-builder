@@ -24,6 +24,13 @@ interface Props {
   initial?: EventRow;
   /** Pre-select this client on create. */
   defaultClientId?: string;
+  /**
+   * Pre-fill `event_date` on create. Must already be a canonical
+   * `YYYY-MM-DD` string (validate at the route boundary via
+   * `parseDateParam`). Ignored in edit mode so an existing row's
+   * stored date is never overwritten.
+   */
+  initialDate?: string;
 }
 
 const STATUS_OPTIONS = EVENT_STATUSES.map((s) => ({
@@ -50,7 +57,12 @@ function isoToLocalInput(iso: string | null | undefined): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-export function EventForm({ mode, initial, defaultClientId }: Props) {
+export function EventForm({
+  mode,
+  initial,
+  defaultClientId,
+  initialDate,
+}: Props) {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -72,7 +84,13 @@ export function EventForm({ mode, initial, defaultClientId }: Props) {
   const [venueCity, setVenueCity] = useState(initial?.venue_city ?? "");
   const [venueCountry, setVenueCountry] = useState(initial?.venue_country ?? "");
   const [eventTimezone, setEventTimezone] = useState(initial?.event_timezone ?? "");
-  const [eventDate, setEventDate] = useState(initial?.event_date ?? "");
+  // initialDate is create-only — never overwrite an existing edit-mode
+  // row's stored event_date, even if it's empty.
+  const [eventDate, setEventDate] = useState(
+    mode === "create"
+      ? (initialDate ?? "")
+      : (initial?.event_date ?? ""),
+  );
   const [eventStartAt, setEventStartAt] = useState(
     isoToLocalInput(initial?.event_start_at),
   );

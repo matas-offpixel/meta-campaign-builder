@@ -247,6 +247,38 @@ export function fmtMonthParam(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 }
 
+const DATE_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/**
+ * Parse a `?date=YYYY-MM-DD` URL param into a canonical date-only string.
+ *
+ * Two-pass validation:
+ *   1. Regex rejects anything that isn't shaped YYYY-MM-DD with month 01–12
+ *      and day 01–31 (catches "2026-13-05", "2026-02-32", etc).
+ *   2. Round-trip through `new Date(year, month-1, day)` and re-derive the
+ *      day to reject otherwise-shaped-correctly impossible dates like
+ *      2026-02-31 (which JS would silently roll forward to 2026-03-03).
+ *
+ * Returns the original string when valid (canonical form), or null.
+ */
+export function parseDateParam(
+  value: string | string[] | undefined,
+): string | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  if (!v || !DATE_PARAM_RE.test(v)) return null;
+  const [y, m, d] = v.split("-").map(Number);
+  const probe = new Date(y, m - 1, d);
+  if (
+    probe.getFullYear() !== y ||
+    probe.getMonth() !== m - 1 ||
+    probe.getDate() !== d
+  ) {
+    return null;
+  }
+  return v;
+}
+
 export type CalendarView = "month" | "agenda";
 
 const CALENDAR_VIEWS: CalendarView[] = ["month", "agenda"];

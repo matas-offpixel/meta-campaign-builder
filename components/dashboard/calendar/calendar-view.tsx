@@ -671,6 +671,35 @@ function DayCell({
         : "text-muted-foreground/60"
   }`;
 
+  const dateParam = toYmd(cellDate);
+  const longDate = cellDate.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  // Empty in-month cells are direct dispatch surfaces — wrap the whole
+  // cell in a Link to /events/new?date=YYYY-MM-DD. Cells with milestones
+  // keep the popover trigger; out-of-month overflow cells stay passive.
+  if (inMonth && !hasHits) {
+    return (
+      <Link
+        href={`/events/new?date=${dateParam}`}
+        aria-label={`Add event on ${longDate}`}
+        className={`relative flex min-h-[90px] cursor-pointer flex-col gap-1 p-1.5 ${cellBg} hover:ring-1 hover:ring-inset hover:ring-border-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-foreground/40`}
+      >
+        <div className="flex items-center justify-between">
+          <span className={dayNumberCls}>{cellDate.getDate()}</span>
+          {cellDate.getDay() === 1 && (
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60">
+              wk{getWeekNumber(cellDate)}
+            </span>
+          )}
+        </div>
+      </Link>
+    );
+  }
+
   return (
     <div className={`relative min-h-[90px] p-1.5 flex flex-col gap-1 ${cellBg}`}>
       <div className="flex items-center justify-between">
@@ -727,11 +756,7 @@ function DayCell({
         onClose={onClose}
         align={align}
         placement={placement}
-        ariaLabel={`Milestones on ${cellDate.toLocaleDateString("en-GB", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-        })}`}
+        ariaLabel={`Milestones on ${longDate}`}
       >
         <DayPopoverContent
           cellDate={cellDate}
@@ -759,6 +784,7 @@ function DayPopoverContent({
   onClose: () => void;
 }) {
   const daysAway = daysBetween(midnightOf(now), midnightOf(cellDate));
+  const dateParam = toYmd(cellDate);
   return (
     <>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -808,6 +834,14 @@ function DayPopoverContent({
           );
         })}
       </ul>
+      <div className="mt-3 border-t border-border pt-2">
+        <Link
+          href={`/events/new?date=${dateParam}`}
+          className="block w-full text-left text-[11px] font-medium text-muted-foreground hover:text-foreground"
+        >
+          + Add event on this day
+        </Link>
+      </div>
     </>
   );
 }
