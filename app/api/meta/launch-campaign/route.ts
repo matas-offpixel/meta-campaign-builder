@@ -24,6 +24,7 @@ import {
   createEngagementAudience,
   fetchAdAccountTosStatus,
   fetchCampaignById,
+  fetchAdSetById,
   checkAudienceReadiness,
   rankSeedsByPreference,
   MetaApiError,
@@ -55,7 +56,9 @@ import type {
   AdSetLaunchResult,
   AdCreativeDraft,
   EngagementType,
+  WizardMode,
 } from "@/lib/types";
+import { ATTACHED_AD_SET_ID } from "@/lib/types";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -192,23 +195,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // 0a. Validate campaign / attach target.
   //
-  // In `wizardMode === "attach"` we don't validate a NEW campaign payload —
-  // instead we re-fetch the live Meta campaign and verify it's (a) reachable
-  // with this token, (b) compatible with our wizard (objective maps), and
-  // (c) not archived/deleted. The objective on the draft was mirrored from
-  // the picker selection; we re-cross-check it here against what Meta says
-  // *now* in case the campaign was edited between picker and launch.
-  const wizardMode: "new" | "attach" = draft.settings.wizardMode ?? "new";
+  // Three wizard modes — branching here decides *what* needs validating up
+  // front (we re-validate the live Meta resource later in Phase 1 / 1b):
+  //   - "new"             → run the standard NEW campaign payload validator.
+  //   - "attach_campaign" → only ensure the picker recorded a campaign id.
+  //   - "attach_adset"    → ensure both picker selections (campaign + ad set)
+  //                         are present and that they're consistent.
+  const wizardMode: WizardMode = draft.settings.wizardMode ?? "new";
   const attachTargetId = draft.settings.existingMetaCampaign?.id;
+  const attachAdSetId = draft.settings.existingMetaAdSet?.id;
   console.log(
     `[launch-campaign] wizardMode=${wizardMode}` +
-      (wizardMode === "attach" ? ` attachTargetId=${attachTargetId ?? "?"}` : ""),
+      (wizardMode === "attach_campaign"
+        ? ` attachTargetId=${attachTargetId ?? "?"}`
+        : "") +
+      (wizardMode === "attach_adset"
+        ? ` attachTargetId=${attachTargetId ?? "?"} attachAdSetId=${attachAdSetId ?? "?"}`
+        : ""),
   );
 
-  if (wizardMode === "attach") {
+  if (wizardMode === "attach_campaign") {
     if (!attachTargetId) {
       return NextResponse.json(
         { error: "Attach mode requires an existing campaign id" },
+        { status: 400 },
+      );
+    }
+  } else if (wizardMode === "attach_adset") {
+    if (!attachTargetId) {
+      return NextResponse.json(
+        { error: "Attach-to-ad-set mode requires the parent campaign id" },
+        { status: 400 },
+      );
+    }
+    if (!attachAdSetId) {
+      return NextResponse.json(
+        { error: "Attach-to-ad-set mode requires an existing ad set id" },
+        { status: 400 },
+      );
+    }
+    const snap = draft.settings.existingMetaAdSet;
+    if (snap && snap.campaignId !== attachTargetId) {
+      return NextResponse.json(
+        {
+          error:
+            "Selected ad set does not belong to the selected campaign — re-open Step 1 and re-pick.",
+        },
         { status: 400 },
       );
     }
@@ -336,18 +368,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 1 — Resolve `metaCampaignId`
-  //   - "new"    → POST a fresh campaign (fatal on failure)
-  //   - "attach" → re-fetch the picker's selection, validate compatibility,
-  //                and reuse its id; never POST a campaign.
+  //   - "new"             → POST a fresh campaign (fatal on failure)
+  //   - "attach_campaign" → re-fetch the picker's selection, validate
+  //                         compatibility, and reuse its id.
+  //   - "attach_adset"    → re-fetch BOTH the picker's campaign AND ad set,
+  //                         verify the ad set still belongs to that campaign
+  //                         and is usable, and reuse the campaign id. The
+  //                         ad set id will be reused as `metaAdSetId` later
+  //                         (see Phase 2 attach_adset branch).
   // ═══════════════════════════════════════════════════════════════════════════
 
   const phase1Start = Date.now();
   let metaCampaignId: string;
+  // Captured in attach_adset so Phase 2 can seed adSetMetaIds without
+  // re-fetching, and so logging can include the verified live name.
+  let attachedLiveAdSet: {
+    id: string;
+    name: string;
+    campaign_id?: string;
+    optimization_goal?: string;
+    billing_event?: string;
+    status?: string;
+    effective_status?: string;
+  } | null = null;
 
-  if (wizardMode === "attach") {
+  if (wizardMode === "attach_campaign" || wizardMode === "attach_adset") {
     try {
       console.log(
-        `[launch-campaign] Phase 1 (attach) — re-fetching live campaign ${attachTargetId}`,
+        `[launch-campaign] Phase 1 (${wizardMode}) — re-fetching live campaign ${attachTargetId}`,
       );
       const live = await fetchCampaignById(attachTargetId!);
       if (!live) {
@@ -389,10 +437,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       // Cross-check against the snapshot mirrored onto draft.settings.objective
-      // by the picker. If the live campaign's objective changed underneath us
-      // we abort — the user needs to re-pick (their optimisation goal might
-      // not be valid for the new objective).
-      if (internal !== draft.settings.objective) {
+      // by the picker (only for attach_campaign — attach_adset doesn't mirror
+      // the campaign objective into settings.objective because the launch path
+      // never builds an ad-set payload from it).
+      if (
+        wizardMode === "attach_campaign" &&
+        internal !== draft.settings.objective
+      ) {
         return NextResponse.json(
           {
             error: `Selected campaign's objective changed since you picked it (was "${draft.settings.objective}", now "${internal}"). Re-open Step 1 and re-select.`,
@@ -402,19 +453,68 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       metaCampaignId = live.id;
-      preflightWarnings.push({
-        stage: "campaign",
-        message: `Adding ad set + ads to existing campaign "${live.name}" (${live.id}).`,
-      });
+
+      // ── attach_adset: verify the picker's ad set ──────────────────────────
+      if (wizardMode === "attach_adset") {
+        console.log(
+          `[launch-campaign] Phase 1 (attach_adset) — re-fetching live ad set ${attachAdSetId}`,
+        );
+        const liveAdSet = await fetchAdSetById(attachAdSetId!);
+        if (!liveAdSet) {
+          return NextResponse.json(
+            {
+              error:
+                "Selected existing ad set not found in Meta. It may have been deleted, archived, or moved.",
+              metaError: { error: "adset_not_found", adSetId: attachAdSetId },
+            },
+            { status: 404 },
+          );
+        }
+        if (liveAdSet.campaign_id && liveAdSet.campaign_id !== metaCampaignId) {
+          return NextResponse.json(
+            {
+              error: `Selected ad set "${liveAdSet.name}" no longer belongs to the selected campaign — re-open Step 1 and re-pick.`,
+            },
+            { status: 409 },
+          );
+        }
+        if (
+          liveAdSet.effective_status &&
+          blocked.has(liveAdSet.effective_status)
+        ) {
+          return NextResponse.json(
+            {
+              error: `Selected ad set is ${liveAdSet.effective_status.toLowerCase()} — can't add new ads to it.`,
+            },
+            { status: 400 },
+          );
+        }
+        attachedLiveAdSet = liveAdSet;
+        preflightWarnings.push({
+          stage: "adset",
+          message: `Adding new ads to existing ad set "${liveAdSet.name}" (${liveAdSet.id}) under "${live.name}".`,
+        });
+        console.log(
+          `[launch-campaign] Phase 1 (attach_adset) ✓  adSetId: ${liveAdSet.id}` +
+            ` name="${liveAdSet.name}" status=${liveAdSet.status ?? "?"}` +
+            ` effective_status=${liveAdSet.effective_status ?? "?"}`,
+        );
+      } else {
+        preflightWarnings.push({
+          stage: "campaign",
+          message: `Adding ad set + ads to existing campaign "${live.name}" (${live.id}).`,
+        });
+      }
+
       phaseDurations["campaign"] = elapsed(phase1Start);
       console.log(
-        `[launch-campaign] Phase 1 (attach) ✓  campaignId: ${metaCampaignId}` +
+        `[launch-campaign] Phase 1 (${wizardMode}) ✓  campaignId: ${metaCampaignId}` +
           ` name="${live.name}" objective=${live.objective} (${phaseDurations["campaign"]}ms)`,
       );
     } catch (err) {
       const message = err instanceof MetaApiError ? err.message : String(err);
       console.error(
-        "[launch-campaign] Phase 1 (attach) ✗  could not re-fetch live campaign:",
+        `[launch-campaign] Phase 1 (${wizardMode}) ✗  could not re-fetch live campaign/ad set:`,
         message,
         err instanceof MetaApiError ? err.toJSON() : "",
       );
@@ -1396,6 +1496,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Per-suggestion launch outcomes — keyed by AdSetSuggestion.id
   const adSetLaunchResults: Record<string, AdSetLaunchResult> = {};
 
+  // ── attach_adset short-circuit ──────────────────────────────────────────
+  // In attach_adset mode there's nothing to create here: the user picked a
+  // live ad set in Step 1 and we already verified it in Phase 1. Seed
+  // adSetMetaIds with the synthetic id so Phase 4 can route ads to the
+  // existing live ad set, and record a synthetic launch result so the UI
+  // can surface the reuse.
+  if (wizardMode === "attach_adset") {
+    const liveAdSetId = attachedLiveAdSet?.id ?? attachAdSetId!;
+    adSetMetaIds.set(ATTACHED_AD_SET_ID, liveAdSetId);
+    adSetLaunchResults[ATTACHED_AD_SET_ID] = {
+      launchStatus: "created",
+      metaAdSetId: liveAdSetId,
+    };
+    console.log(
+      `[launch-campaign] Phase 2 (attach_adset) — skipping ad set creation;` +
+        ` reusing live ad set ${liveAdSetId}` +
+        (attachedLiveAdSet?.name ? ` ("${attachedLiveAdSet.name}")` : "") +
+        ` for synthetic key ${ATTACHED_AD_SET_ID}`,
+    );
+  }
+
   // Split ad sets: standard ones can proceed now, lookalike ones must wait
   const LOOKALIKE_TYPES = new Set(["lookalike_group", "selected_pages_lookalike", "custom_group_lookalike"]);
   const standardSets = enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
@@ -1761,8 +1882,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const adSetNameById = new Map<string, string>(
     draft.adSetSuggestions.map((s) => [s.id, s.name]),
   );
+  // attach_adset mode: include the synthetic key so Phase 4 logs the live
+  // ad set's name instead of the internal sentinel id.
+  if (wizardMode === "attach_adset") {
+    const liveName =
+      attachedLiveAdSet?.name ??
+      draft.settings.existingMetaAdSet?.name ??
+      "Existing ad set";
+    adSetNameById.set(ATTACHED_AD_SET_ID, liveName);
+  }
 
-  console.log("[launch-campaign] Phase 4 — linking ads");
+  console.log(
+    `[launch-campaign] Phase 4 — linking ads` +
+      (wizardMode === "attach_adset"
+        ? ` (attach_adset: routing all ads to ${adSetMetaIds.get(ATTACHED_AD_SET_ID) ?? "?"})`
+        : ""),
+  );
 
   // Create all ads in parallel batches
   const adCreationTasks: Promise<void>[] = [];

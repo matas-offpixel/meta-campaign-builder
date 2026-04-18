@@ -241,10 +241,16 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
 
     console.log("[migrateDraft] adAccountId:", a, "| metaAdAccountId:", b, "→ canonical:", canonical || "(empty)");
 
-    // Backfill wizardMode for drafts created before the "Add to existing
-    // campaign" flow existed. They are all "new" by definition.
-    if (!draft.settings.wizardMode) {
+    // Backfill / normalize wizardMode.
+    //   - Drafts created before any attach flow existed have no value → "new".
+    //   - The first iteration of the attach flow used `"attach"` as the
+    //     literal; that is now `"attach_campaign"`. Migrate any persisted
+    //     value forward so old drafts continue to launch correctly.
+    const rawMode = draft.settings.wizardMode as unknown as string | undefined;
+    if (!rawMode) {
       draft.settings.wizardMode = "new";
+    } else if (rawMode === "attach") {
+      draft.settings.wizardMode = "attach_campaign";
     }
   }
 

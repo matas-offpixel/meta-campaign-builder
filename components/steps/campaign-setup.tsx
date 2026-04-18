@@ -8,14 +8,17 @@ import type {
   CampaignSettings,
   CampaignObjective,
   MetaCampaignSummary,
+  MetaAdSetSummary,
   OptimisationGoal,
+  WizardMode,
 } from "@/lib/types";
 import { OPTIMISATION_GOALS_BY_OBJECTIVE } from "@/lib/mock-data";
 import {
   Target, ShoppingCart, MousePointerClick, Eye, MessageSquare,
-  Plus, Link2, AlertCircle,
+  Plus, Link2, Layers, AlertCircle, Info,
 } from "lucide-react";
 import { CampaignPicker } from "./campaign-picker";
+import { AdSetPicker } from "./adset-picker";
 
 interface CampaignSetupProps {
   settings: CampaignSettings;
@@ -52,8 +55,10 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
 
-  const mode: "new" | "attach" = settings.wizardMode ?? "new";
-  const isAttach = mode === "attach";
+  const mode: WizardMode = settings.wizardMode ?? "new";
+  const isAttachCampaign = mode === "attach_campaign";
+  const isAttachAdSet = mode === "attach_adset";
+  const isAttach = isAttachCampaign || isAttachAdSet;
 
   const availableGoals = OPTIMISATION_GOALS_BY_OBJECTIVE[settings.objective] || [];
 
@@ -88,17 +93,31 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
 
   // ── Mode toggle ───────────────────────────────────────────────────────────
 
-  const setMode = (next: "new" | "attach") => {
+  const setMode = (next: WizardMode) => {
     if (next === mode) return;
     if (next === "new") {
-      // Drop the attach snapshot but keep whatever name/objective the user
+      // Drop both attach snapshots but keep whatever name/objective the user
       // had configured before — they may want to edit it.
-      const { existingMetaCampaign: _drop, ...rest } = settings;
-      void _drop;
+      const {
+        existingMetaCampaign: _dropC,
+        existingMetaAdSet: _dropAS,
+        ...rest
+      } = settings;
+      void _dropC;
+      void _dropAS;
       onChange({ ...rest, wizardMode: "new" });
-    } else {
-      onChange({ ...settings, wizardMode: "attach" });
+      return;
     }
+    if (next === "attach_campaign") {
+      // Switching from attach_adset → attach_campaign: keep the campaign
+      // snapshot (it's still valid) but drop the ad set snapshot.
+      const { existingMetaAdSet: _dropAS, ...rest } = settings;
+      void _dropAS;
+      onChange({ ...rest, wizardMode: "attach_campaign" });
+      return;
+    }
+    // next === "attach_adset"
+    onChange({ ...settings, wizardMode: "attach_adset" });
   };
 
   // ── Picker selection ──────────────────────────────────────────────────────
@@ -112,9 +131,19 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       ? settings.optimisationGoal
       : goals[0]?.value ?? settings.optimisationGoal;
 
+    // Picking a different campaign while in attach_adset mode invalidates
+    // any previously-selected ad set. Drop it so the user has to re-pick.
+    const adSetSnapshotPatch: Partial<CampaignSettings> =
+      mode === "attach_adset" &&
+      settings.existingMetaAdSet &&
+      settings.existingMetaAdSet.campaignId !== campaign.id
+        ? { existingMetaAdSet: undefined }
+        : {};
+
     onChange({
       ...settings,
-      wizardMode: "attach",
+      // Preserve the active mode — picker is reused by both attach modes.
+      wizardMode: mode === "new" ? "attach_campaign" : mode,
       // Mirror the live campaign's objective into settings so all downstream
       // logic (buildAdSetPayload, validation, review summary) keeps working
       // unchanged — that pipeline reads `settings.objective`, not the picker.
@@ -131,10 +160,34 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
         effectiveStatus: campaign.effectiveStatus,
         capturedAt: new Date().toISOString(),
       },
+      ...adSetSnapshotPatch,
+    });
+  };
+
+  const handlePickAdSet = (adSet: MetaAdSetSummary) => {
+    if (!adSet.compatible) return;
+    const parent = settings.existingMetaCampaign;
+    if (!parent) return; // shouldn't happen — picker only renders when set
+    onChange({
+      ...settings,
+      wizardMode: "attach_adset",
+      existingMetaAdSet: {
+        id: adSet.id,
+        name: adSet.name,
+        campaignId: adSet.campaignId || parent.id,
+        campaignName: parent.name,
+        objective: parent.objective,
+        optimizationGoal: adSet.optimizationGoal,
+        billingEvent: adSet.billingEvent,
+        status: adSet.status,
+        effectiveStatus: adSet.effectiveStatus,
+        capturedAt: new Date().toISOString(),
+      },
     });
   };
 
   const selectedExisting = settings.existingMetaCampaign;
+  const selectedAdSet = settings.existingMetaAdSet;
   const adAccountId = settings.metaAdAccountId ?? settings.adAccountId;
 
   return (
@@ -142,7 +195,9 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       <div>
         <h2 className="font-heading text-2xl tracking-wide">Campaign Config</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {isAttach
+          {isAttachAdSet
+            ? "Pick the existing campaign and ad set you want to add new ads to."
+            : isAttachCampaign
             ? "Pick the existing campaign you want to add a new ad set under."
             : "Choose your campaign objective, name, and optimisation goal."}
         </p>
@@ -150,12 +205,12 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
 
       {/* Mode toggle */}
       <Card>
-        <CardTitle>Where should this ad set live?</CardTitle>
+        <CardTitle>What do you want to do?</CardTitle>
         <CardDescription>
-          Create a fresh campaign at launch, or add a new ad set under one
-          that already exists in this ad account.
+          Create a fresh campaign at launch, add a new ad set to a live
+          campaign, or add new ads under an existing live ad set.
         </CardDescription>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
           {([
             {
               value: "new" as const,
@@ -164,10 +219,16 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
               icon: Plus,
             },
             {
-              value: "attach" as const,
+              value: "attach_campaign" as const,
               label: "Add to existing campaign",
-              desc: "Pick a live campaign in this ad account and add a new ad set + ads under it.",
+              desc: "Pick a live campaign and add a new ad set + ads under it.",
               icon: Link2,
+            },
+            {
+              value: "attach_adset" as const,
+              label: "Add to existing ad set",
+              desc: "Pick a live ad set and add new ads only — audience, budget and optimisation are inherited.",
+              icon: Layers,
             },
           ]).map(({ value, label, desc, icon: Icon }) => {
             const selected = mode === value;
@@ -194,9 +255,25 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
 
       {isAttach ? (
         <>
+          {isAttachAdSet && (
+            <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary-light/30 px-3 py-2 text-xs">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+              <span>
+                <span className="font-medium text-foreground">Ads-only mode.</span>{" "}
+                The wizard will skip Optimisation, Audiences and Budget — those
+                stay as they are on the live ad set. You only configure
+                creatives, then assign them to the existing ad set.
+              </span>
+            </div>
+          )}
+
           {/* Campaign picker */}
           <Card>
-            <CardTitle>Pick an existing campaign</CardTitle>
+            <CardTitle>
+              {isAttachAdSet
+                ? "Step 1 — Pick the parent campaign"
+                : "Pick an existing campaign"}
+            </CardTitle>
             <CardDescription>
               Live campaigns under{" "}
               <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
@@ -214,12 +291,14 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
             </div>
           </Card>
 
-          {/* Selected snapshot */}
+          {/* Selected campaign snapshot */}
           {selectedExisting && (
             <Card>
               <CardTitle>Selected campaign</CardTitle>
               <CardDescription>
-                The new ad set will be created under this campaign at launch.
+                {isAttachAdSet
+                  ? "The ad set you pick below must live under this campaign."
+                  : "The new ad set will be created under this campaign at launch."}
               </CardDescription>
               <div className="mt-3 space-y-2 rounded-md border border-primary bg-primary-light/40 p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
@@ -239,35 +318,99 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
                 </div>
               </div>
 
-              {/* Optimisation goal still applies to the new ad set */}
-              <div className="mt-4">
-                <CardDescription className="mb-2">
-                  Optimisation goal for the new ad set
-                </CardDescription>
-                <div className="flex flex-wrap gap-2">
-                  {availableGoals.map((goal) => (
-                    <button
-                      key={goal.value}
-                      type="button"
-                      onClick={() => update({ optimisationGoal: goal.value as OptimisationGoal })}
-                      className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
-                        ${settings.optimisationGoal === goal.value
-                          ? "border-foreground bg-foreground text-background"
-                          : "border-border-strong hover:bg-card"}`}
-                    >
-                      {goal.label}
-                    </button>
-                  ))}
+              {/* Optimisation goal still applies to the new ad set in
+                  attach_campaign mode. attach_adset inherits it from the
+                  live ad set so we hide the picker entirely. */}
+              {isAttachCampaign && (
+                <div className="mt-4">
+                  <CardDescription className="mb-2">
+                    Optimisation goal for the new ad set
+                  </CardDescription>
+                  <div className="flex flex-wrap gap-2">
+                    {availableGoals.map((goal) => (
+                      <button
+                        key={goal.value}
+                        type="button"
+                        onClick={() => update({ optimisationGoal: goal.value as OptimisationGoal })}
+                        className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
+                          ${settings.optimisationGoal === goal.value
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border-strong hover:bg-card"}`}
+                      >
+                        {goal.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </Card>
           )}
 
           {!selectedExisting && (
             <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Pick a campaign above to continue. The rest of the wizard will
-              build a single ad set + ads under it.
+              {isAttachAdSet
+                ? "Pick a campaign above to load its ad sets."
+                : "Pick a campaign above to continue. The rest of the wizard will build a single ad set + ads under it."}
+            </div>
+          )}
+
+          {/* Ad set picker — only in attach_adset mode and only after the
+              parent campaign is selected. */}
+          {isAttachAdSet && selectedExisting && (
+            <Card>
+              <CardTitle>Step 2 — Pick the ad set to add ads to</CardTitle>
+              <CardDescription>
+                Live ad sets under{" "}
+                <span className="font-medium">{selectedExisting.name}</span>.
+                The new ads will be created under the selected ad set with
+                its current audience, budget and schedule untouched.
+              </CardDescription>
+              <div className="mt-3">
+                <AdSetPicker
+                  campaignId={selectedExisting.id}
+                  selectedId={selectedAdSet?.id}
+                  onSelect={handlePickAdSet}
+                />
+              </div>
+            </Card>
+          )}
+
+          {/* Selected ad set snapshot */}
+          {isAttachAdSet && selectedAdSet && (
+            <Card>
+              <CardTitle>Selected ad set</CardTitle>
+              <CardDescription>
+                New ads created in this wizard will be added to this ad set
+                at launch. Its audience, budget, schedule and optimisation
+                are inherited unchanged.
+              </CardDescription>
+              <div className="mt-3 space-y-2 rounded-md border border-primary bg-primary-light/40 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{selectedAdSet.name}</span>
+                  <Badge variant="primary">
+                    {selectedAdSet.effectiveStatus ?? selectedAdSet.status}
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  <code className="rounded bg-muted px-1.5 py-0.5">
+                    {selectedAdSet.id}
+                  </code>
+                  {selectedAdSet.optimizationGoal && (
+                    <span>Optimisation: {selectedAdSet.optimizationGoal}</span>
+                  )}
+                  {selectedAdSet.billingEvent && (
+                    <span>Billing: {selectedAdSet.billingEvent}</span>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {isAttachAdSet && selectedExisting && !selectedAdSet && (
+            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Pick an ad set above to continue.
             </div>
           )}
         </>

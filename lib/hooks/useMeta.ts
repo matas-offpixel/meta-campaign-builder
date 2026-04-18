@@ -20,6 +20,8 @@ import type {
   PagePost,
   MetaCampaignSummary,
   MetaCampaignsResponse,
+  MetaAdSetSummary,
+  MetaAdSetsResponse,
 } from "@/lib/types";
 import {
   FB_TOKEN_STORAGE_KEY,
@@ -562,6 +564,193 @@ export function useFetchCampaigns(
       })
       .finally(() => setLoadingMore(false));
   }, [adAccountId, enabled, loadingMore, buildUrl]);
+
+  return {
+    status: inner.status,
+    data: inner.data,
+    error: inner.error,
+    hasMore: inner.hasMore,
+    refetch,
+    loadMore,
+    loadingMore,
+  };
+}
+
+// ─── useFetchAdSets ───────────────────────────────────────────────────────────
+
+/**
+ * Discriminated UI state for the "Add to existing ad set" picker. Mirrors
+ * {@link CampaignsStatus}.
+ */
+export type AdSetsStatus =
+  | "idle"
+  | "loading"
+  | "success"
+  | "empty"
+  | "error";
+
+export interface AdSetsState {
+  status: AdSetsStatus;
+  data: MetaAdSetSummary[];
+  error: string | null;
+  /** True when at least one more page is available from the API. */
+  hasMore: boolean;
+  /** Re-run the fetch from page 1 with the current filter / search. */
+  refetch: () => void;
+  /** Append the next page of results, if any. No-op when `!hasMore`. */
+  loadMore: () => void;
+  /** True while a `loadMore` request is in flight. */
+  loadingMore: boolean;
+}
+
+interface UseFetchAdSetsOptions {
+  enabled?: boolean;
+  /** "relevant" (active+paused, recency-sorted) | "all". */
+  filter?: "relevant" | "all";
+  /** Case-insensitive substring match on ad set name. */
+  search?: string;
+  /** Initial page size — server-capped at 50. */
+  limit?: number;
+}
+
+/**
+ * Live-fetches Meta ad sets under the given campaign for the picker.
+ * Cancels in-flight requests when the inputs change so the UI never
+ * displays stale results. Pass an empty/undefined `campaignId` to keep the
+ * hook idle (it never fires until a campaign is selected).
+ */
+export function useFetchAdSets(
+  campaignId: string | undefined,
+  options: UseFetchAdSetsOptions = {},
+): AdSetsState {
+  const { enabled = true, filter = "relevant", search, limit = 25 } = options;
+
+  const [inner, setInner] = useState<{
+    status: AdSetsStatus;
+    data: MetaAdSetSummary[];
+    error: string | null;
+    hasMore: boolean;
+    nextCursor?: string;
+  }>({ status: "idle", data: [], error: null, hasMore: false });
+
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refetchCounter, setRefetchCounter] = useState(0);
+  const refetch = useCallback(() => setRefetchCounter((n) => n + 1), []);
+
+  const cursorRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    cursorRef.current = inner.nextCursor;
+  }, [inner.nextCursor]);
+
+  const buildUrl = useCallback(
+    (after?: string): string => {
+      const params = new URLSearchParams({
+        campaignId: campaignId ?? "",
+        filter,
+        limit: String(limit),
+      });
+      if (search?.trim()) params.set("search", search.trim());
+      if (after) params.set("after", after);
+      return `/api/meta/adsets?${params.toString()}`;
+    },
+    [campaignId, filter, limit, search],
+  );
+
+  useEffect(() => {
+    if (!enabled || !campaignId) {
+      setInner({ status: "idle", data: [], error: null, hasMore: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    setInner({ status: "loading", data: [], error: null, hasMore: false });
+
+    console.log(
+      `[useFetchAdSets] fetch start campaignId=${campaignId} filter=${filter}` +
+        ` search=${search ?? "-"}`,
+    );
+
+    fetch(buildUrl(), { signal: controller.signal })
+      .then(async (res) => {
+        const json = (await res.json()) as Partial<MetaAdSetsResponse> & {
+          error?: string;
+        };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        const data = Array.isArray(json.data) ? json.data : [];
+        const hasMore = Boolean(json.paging?.hasMore);
+        console.log(
+          `[useFetchAdSets] fetch success campaignId=${campaignId}` +
+            ` count=${data.length} hasMore=${hasMore}`,
+        );
+        setInner({
+          status: data.length === 0 ? "empty" : "success",
+          data,
+          error: null,
+          hasMore,
+          nextCursor: json.paging?.after,
+        });
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const msg =
+          err instanceof Error ? err.message : "Failed to load ad sets";
+        console.error(
+          `[useFetchAdSets] fetch failure campaignId=${campaignId} reason=${msg}`,
+        );
+        setInner({
+          status: "error",
+          data: [],
+          error: msg,
+          hasMore: false,
+        });
+      });
+
+    return () => controller.abort();
+  }, [campaignId, enabled, filter, search, limit, refetchCounter, buildUrl]);
+
+  const loadMore = useCallback(() => {
+    const after = cursorRef.current;
+    if (!enabled || !campaignId || !after || loadingMore) return;
+
+    setLoadingMore(true);
+    console.log(
+      `[useFetchAdSets] loadMore start campaignId=${campaignId} after=yes`,
+    );
+
+    fetch(buildUrl(after))
+      .then(async (res) => {
+        const json = (await res.json()) as Partial<MetaAdSetsResponse> & {
+          error?: string;
+        };
+        if (!res.ok || json.error) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        const more = Array.isArray(json.data) ? json.data : [];
+        const hasMore = Boolean(json.paging?.hasMore);
+        console.log(
+          `[useFetchAdSets] loadMore success campaignId=${campaignId}` +
+            ` added=${more.length} hasMore=${hasMore}`,
+        );
+        setInner((prev) => ({
+          ...prev,
+          status: "success",
+          data: [...prev.data, ...more],
+          hasMore,
+          nextCursor: json.paging?.after,
+        }));
+      })
+      .catch((err: unknown) => {
+        const msg =
+          err instanceof Error ? err.message : "Failed to load more ad sets";
+        console.error(
+          `[useFetchAdSets] loadMore failure campaignId=${campaignId} reason=${msg}`,
+        );
+        setInner((prev) => ({ ...prev, error: msg }));
+      })
+      .finally(() => setLoadingMore(false));
+  }, [campaignId, enabled, loadingMore, buildUrl]);
 
   return {
     status: inner.status,

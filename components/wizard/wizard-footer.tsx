@@ -12,8 +12,15 @@ export type SaveStatus = "idle" | "saving" | "saved";
 
 interface WizardFooterProps {
   currentStep: WizardStep;
+  /**
+   * Visible step indices for the current wizard mode. Used to derive
+   * "first" / "last" semantics when the wizard skips intermediate steps
+   * (e.g. attach_adset hides Optimisation / Audiences / Budget so step 7
+   * is still last but step 4 may be reached directly from step 1).
+   * Falls back to the full 0–7 sequence when omitted.
+   */
+  visibleSteps?: WizardStep[];
   canContinue: boolean;
-  /** Validation error strings for the current step — shown when Continue is blocked */
   validationErrors?: string[];
   saveStatus: SaveStatus;
   /** True while the Meta campaign creation API call is in flight */
@@ -28,6 +35,7 @@ interface WizardFooterProps {
 
 export function WizardFooter({
   currentStep,
+  visibleSteps,
   canContinue,
   validationErrors = [],
   saveStatus,
@@ -39,9 +47,15 @@ export function WizardFooter({
   onSaveTemplate,
   onLoadTemplate,
 }: WizardFooterProps) {
-  const isFirstStep = currentStep === 0;
-  const isLastStep = currentStep === 7;
-  const showLoadTemplate = currentStep <= 1;
+  const indices: WizardStep[] =
+    visibleSteps && visibleSteps.length > 0
+      ? visibleSteps
+      : ([0, 1, 2, 3, 4, 5, 6, 7] as WizardStep[]);
+  const position = indices.indexOf(currentStep);
+  const isFirstStep = position <= 0;
+  const isLastStep = position === indices.length - 1;
+  // "Load Template" is offered while still in the first two visible steps.
+  const showLoadTemplate = position !== -1 && position <= 1;
 
   // Expand/collapse the error list — starts expanded so errors are visible immediately
   const [errorsExpanded, setErrorsExpanded] = useState(true);

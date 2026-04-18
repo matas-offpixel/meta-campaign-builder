@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check } from "lucide-react";
 import type { AdSetSuggestion, AdCreativeDraft, CreativeAssignmentMatrix } from "@/lib/types";
+import { ATTACHED_AD_SET_ID } from "@/lib/types";
 
 interface AssignCreativesProps {
   adSets: AdSetSuggestion[];
@@ -93,7 +94,9 @@ export function AssignCreatives({ adSets, creatives, assignments, onChange }: As
         <div>
           <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Choose which creatives run in each ad set.
+            {enabledSets.length === 1 && enabledSets[0].id === ATTACHED_AD_SET_ID
+              ? "Tick the creatives you want to add as new ads to the existing ad set."
+              : "Choose which creatives run in each ad set."}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -137,7 +140,11 @@ export function AssignCreatives({ adSets, creatives, assignments, onChange }: As
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{adSet.name}</span>
-                    <Badge variant="outline" className="text-[10px]">{adSet.sourceType.replace("_", " ")}</Badge>
+                    {adSet.id === ATTACHED_AD_SET_ID ? (
+                      <Badge variant="primary" className="text-[10px]">existing ad set</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">{adSet.sourceType.replace("_", " ")}</Badge>
+                    )}
                   </div>
                 </td>
                 {creatives.map((c) => {

@@ -79,17 +79,26 @@ function buildLaunchEvents(
     }
   }
 
-  // Campaign — wording differs for "attach" vs fresh campaign creation.
-  const isAttach = draft.settings.wizardMode === "attach";
-  const attachedName = draft.settings.existingMetaCampaign?.name;
+  // Campaign — wording differs for the three wizard modes.
+  const wizardMode = draft.settings.wizardMode ?? "new";
+  const attachedCampaignName = draft.settings.existingMetaCampaign?.name;
+  const attachedAdSetName = draft.settings.existingMetaAdSet?.name;
   events.push({
     id: uid("campaign"),
     stage: "campaign",
-    entity: isAttach ? "Existing campaign" : "Campaign",
+    entity:
+      wizardMode === "attach_adset" || wizardMode === "attach_campaign"
+        ? "Existing campaign"
+        : "Campaign",
     status: "success",
-    label: isAttach
-      ? `Attached to existing campaign${attachedName ? ` "${attachedName}"` : ""}`
-      : `Campaign created`,
+    label:
+      wizardMode === "attach_adset"
+        ? `Adding ads to existing ad set${
+            attachedAdSetName ? ` "${attachedAdSetName}"` : ""
+          }${attachedCampaignName ? ` (campaign "${attachedCampaignName}")` : ""}`
+        : wizardMode === "attach_campaign"
+        ? `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
+        : `Campaign created`,
     metaId: summary.metaCampaignId,
     durationMs: summary.phaseDurations?.campaign,
   });
@@ -900,6 +909,8 @@ export function ReviewLaunch({
   const allValidation = validateStep(7, draft);
   const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
   const bs = draft.budgetSchedule;
+  const wizardMode = draft.settings.wizardMode ?? "new";
+  const isAttachAdSet = wizardMode === "attach_adset";
 
   const adAccountId =
     draft.settings.metaAdAccountId || draft.settings.adAccountId || undefined;
@@ -1084,8 +1095,57 @@ export function ReviewLaunch({
 
       {/* Campaign Summary */}
       <Card>
-        <CardTitle>Campaign Summary</CardTitle>
-        {draft.settings.wizardMode === "attach" && draft.settings.existingMetaCampaign ? (
+        <CardTitle>
+          {wizardMode === "attach_adset" ? "Adding ads to existing ad set" : "Campaign Summary"}
+        </CardTitle>
+        {wizardMode === "attach_adset" &&
+        draft.settings.existingMetaCampaign &&
+        draft.settings.existingMetaAdSet ? (
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              This launch will only create new ads — no campaign or ad set will
+              be created. The selected ad set&rsquo;s{" "}
+              <span className="font-medium text-foreground">
+                audience, budget, schedule and optimisation
+              </span>{" "}
+              are inherited unchanged.
+            </p>
+            <div className="divide-y divide-border">
+              <SummaryRow
+                label="Existing Campaign"
+                value={draft.settings.existingMetaCampaign.name}
+              />
+              <SummaryRow
+                label="Campaign ID"
+                value={draft.settings.existingMetaCampaign.id}
+              />
+              <SummaryRow
+                label="Existing Ad Set"
+                value={draft.settings.existingMetaAdSet.name}
+              />
+              <SummaryRow
+                label="Ad Set ID"
+                value={draft.settings.existingMetaAdSet.id}
+              />
+              {draft.settings.existingMetaAdSet.optimizationGoal && (
+                <SummaryRow
+                  label="Inherited Optimisation"
+                  value={draft.settings.existingMetaAdSet.optimizationGoal.replace(/_/g, " ")}
+                />
+              )}
+              {draft.settings.existingMetaAdSet.billingEvent && (
+                <SummaryRow
+                  label="Inherited Billing"
+                  value={draft.settings.existingMetaAdSet.billingEvent.replace(/_/g, " ")}
+                />
+              )}
+              <SummaryRow
+                label="Ad Account"
+                value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
+              />
+            </div>
+          </div>
+        ) : wizardMode === "attach_campaign" && draft.settings.existingMetaCampaign ? (
           <div className="mt-3 space-y-2">
             <p className="text-xs text-muted-foreground">
               This launch will create <span className="font-medium text-foreground">1 new ad set</span> and its ads under an
@@ -1141,7 +1201,8 @@ export function ReviewLaunch({
         )}
       </Card>
 
-      {/* Optimisation Strategy Summary */}
+      {/* Optimisation Strategy Summary — hidden in attach_adset mode (inherited) */}
+      {!isAttachAdSet && (
       <Card>
         <div className="flex items-center gap-2">
           <Zap className="h-4 w-4 text-primary" />
@@ -1288,8 +1349,10 @@ export function ReviewLaunch({
             );
           })()}
       </Card>
+      )}
 
-      {/* Audience Summary */}
+      {/* Audience Summary — hidden in attach_adset mode (inherited) */}
+      {!isAttachAdSet && (
       <Card>
         <CardTitle>Audience Summary</CardTitle>
         <div className="mt-3 space-y-3">
@@ -1365,6 +1428,7 @@ export function ReviewLaunch({
           </div>
         </div>
       </Card>
+      )}
 
       {/* Creatives Summary */}
       <Card>
@@ -1440,7 +1504,8 @@ export function ReviewLaunch({
         </div>
       </Card>
 
-      {/* Budget Breakdown */}
+      {/* Budget Breakdown — hidden in attach_adset mode (inherited) */}
+      {!isAttachAdSet && (
       <Card>
         <CardTitle>Budget & Schedule</CardTitle>
         <div className="mt-3 divide-y divide-border">
@@ -1481,6 +1546,7 @@ export function ReviewLaunch({
           </div>
         )}
       </Card>
+      )}
 
       {/* Assignment Summary */}
       <Card>

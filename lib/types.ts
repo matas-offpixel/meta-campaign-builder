@@ -734,17 +734,25 @@ export interface CampaignSettings {
 
   // ── Wizard mode (additive) ────────────────────────────────────────────────
   /**
-   * `"new"` (default): wizard creates a brand-new campaign at launch.
-   * `"attach"`: launch skips campaign creation and adds a new ad set + ads
-   * under {@link existingMetaCampaign}. Selected via the Step 1 toggle.
+   * Selected Step-1 mode. Defaults to `"new"` for any draft that pre-dates
+   * the attach flows.
+   *
+   * - `"new"` — wizard creates a brand-new campaign + ad sets + ads at launch.
+   * - `"attach_campaign"` — launch skips campaign creation and adds a new ad
+   *   set + ads under {@link existingMetaCampaign}.
+   * - `"attach_adset"` — launch skips both campaign and ad set creation and
+   *   adds new ads under {@link existingMetaAdSet} (which lives under
+   *   {@link existingMetaCampaign}). Optimisation, audiences and budget
+   *   steps are inherited from the live ad set and skipped in the wizard.
    */
-  wizardMode?: "new" | "attach";
+  wizardMode?: WizardMode;
 
   /**
    * Snapshot of the live Meta campaign chosen via the picker when
-   * {@link wizardMode} is `"attach"`. Captured at selection time so the
-   * review step can show the chosen campaign without re-fetching, and so
-   * the launch route can re-validate against the live campaign.
+   * {@link wizardMode} is `"attach_campaign"` or `"attach_adset"`. Captured at
+   * selection time so the review step can show the chosen campaign without
+   * re-fetching, and so the launch route can re-validate against the live
+   * campaign.
    */
   existingMetaCampaign?: {
     id: string;
@@ -758,7 +766,37 @@ export interface CampaignSettings {
     /** When the picker captured this snapshot. */
     capturedAt: string;
   };
+
+  /**
+   * Snapshot of the live Meta ad set chosen via the ad set picker when
+   * {@link wizardMode} is `"attach_adset"`. Captured at selection time so
+   * the review step can describe what is being inherited and so the launch
+   * route can re-verify the ad set before pushing ads under it.
+   */
+  existingMetaAdSet?: {
+    id: string;
+    name: string;
+    /** Live Meta campaign ID this ad set belongs to. */
+    campaignId: string;
+    /** Optional display name of the parent campaign at selection time. */
+    campaignName?: string;
+    /** Raw Meta campaign objective, mirrored for review-time display. */
+    objective?: string;
+    /** Raw Meta optimization_goal value, e.g. "OFFSITE_CONVERSIONS". */
+    optimizationGoal?: string;
+    /** Raw Meta billing_event value, e.g. "IMPRESSIONS". */
+    billingEvent?: string;
+    /** Configured status, e.g. "ACTIVE". */
+    status: string;
+    /** Delivery state if returned by Meta. */
+    effectiveStatus?: string;
+    /** When the picker captured this snapshot. */
+    capturedAt: string;
+  };
 }
+
+/** Discriminated wizard mode union. See {@link CampaignSettings.wizardMode}. */
+export type WizardMode = "new" | "attach_campaign" | "attach_adset";
 
 // ─── Live Meta campaign list (used by the "Add to existing" picker) ─────────
 
@@ -791,6 +829,44 @@ export interface MetaCampaignSummary {
 /** Cursor-paged response shape for `/api/meta/campaigns`. */
 export interface MetaCampaignsResponse {
   data: MetaCampaignSummary[];
+  count: number;
+  paging: {
+    /** Cursor to pass back as `after=` for the next page, if any. */
+    after?: string;
+    hasMore: boolean;
+  };
+}
+
+// ─── Live Meta ad set list (used by the "Add to existing ad set" picker) ────
+
+/**
+ * One row returned by `GET /api/meta/adsets?campaignId=...`. Shaped for the
+ * ad-set picker UI. `compatible` is `false` when the ad set is archived /
+ * deleted or otherwise unsuitable for adding new ads.
+ */
+export interface MetaAdSetSummary {
+  id: string;
+  name: string;
+  campaignId: string;
+  /** Raw Meta optimization_goal, e.g. "OFFSITE_CONVERSIONS". */
+  optimizationGoal?: string;
+  /** Raw Meta billing_event, e.g. "IMPRESSIONS". */
+  billingEvent?: string;
+  /** Configured status, e.g. "ACTIVE". */
+  status: string;
+  /** Delivery state (more granular than `status`). */
+  effectiveStatus?: string;
+  createdTime?: string;
+  updatedTime?: string;
+  /** True when this wizard can attach new ads under this ad set. */
+  compatible: boolean;
+  /** When `compatible === false`, why. */
+  incompatibleReason?: string;
+}
+
+/** Cursor-paged response shape for `/api/meta/adsets`. */
+export interface MetaAdSetsResponse {
+  data: MetaAdSetSummary[];
   count: number;
   paging: {
     /** Cursor to pass back as `after=` for the next page, if any. */
@@ -969,6 +1045,24 @@ export const WIZARD_STEPS = [
   { label: "Assign", description: "Assign creatives" },
   { label: "Review", description: "Review & launch" },
 ] as const;
+
+/**
+ * Internal ad-set suggestion id used as the matrix key when the wizard is in
+ * `attach_adset` mode. Lets the assign-creatives step + launch route reason
+ * about the synthetic "attached" ad set without polluting
+ * {@link CampaignDraft.adSetSuggestions} with stub data.
+ */
+export const ATTACHED_AD_SET_ID = "__attached_existing__";
+
+/**
+ * Returns the wizard step indices that should be visible (and validated) for
+ * a given mode. `attach_adset` skips Optimisation, Audiences and Budget
+ * because those are inherited from the live ad set.
+ */
+export function getVisibleSteps(mode: WizardMode | undefined): WizardStep[] {
+  if (mode === "attach_adset") return [0, 1, 4, 6, 7];
+  return [0, 1, 2, 3, 4, 5, 6, 7];
+}
 
 export type AudienceTab = "pages" | "custom" | "saved" | "interests";
 

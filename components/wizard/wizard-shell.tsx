@@ -28,6 +28,7 @@ import type {
   CampaignTemplate,
   LaunchSummary,
 } from "@/lib/types";
+import { ATTACHED_AD_SET_ID, getVisibleSteps } from "@/lib/types";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { validateStep } from "@/lib/validation";
 import { saveDraftToStorage, loadDraftFromStorage } from "@/lib/autosave";
@@ -269,6 +270,16 @@ export function WizardShell({ draftId }: WizardShellProps) {
   // ─── Navigation ─────────────────────────────────────────────────────────────
   const currentValidation = useMemo(() => validateStep(step, draft), [step, draft]);
 
+  // Visible step list for the current wizard mode. attach_adset hides
+  // Optimisation, Audiences and Budget — those are inherited from the
+  // existing live ad set. Anything the user lands on via direct URL
+  // / template load that isn't visible is treated as if they clicked the
+  // closest preceding visible step.
+  const visibleSteps = useMemo(
+    () => getVisibleSteps(draft.settings.wizardMode),
+    [draft.settings.wizardMode],
+  );
+
   const changeStep = useCallback(
     (newStep: WizardStep) => {
       autosave(draft);
@@ -277,18 +288,37 @@ export function WizardShell({ draftId }: WizardShellProps) {
     [autosave, draft],
   );
 
-  const handleContinue = () => {
-    if (step < 7) {
-      setCompletedSteps((prev) => new Set([...prev, step]));
-      changeStep((step + 1) as WizardStep);
+  // Defensive: if the wizard mode changes while the user is on a now-hidden
+  // step, snap them back to the closest visible step.
+  useEffect(() => {
+    if (!visibleSteps.includes(step)) {
+      const fallback =
+        [...visibleSteps].reverse().find((s) => s <= step) ?? visibleSteps[0] ?? 0;
+      console.log(
+        `[WizardShell] step ${step} hidden in mode "${draft.settings.wizardMode ?? "new"}" — snapping to ${fallback}`,
+      );
+      setStep(fallback as WizardStep);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSteps]);
+
+  const handleContinue = () => {
+    const idx = visibleSteps.indexOf(step);
+    if (idx === -1 || idx >= visibleSteps.length - 1) return;
+    setCompletedSteps((prev) => new Set([...prev, step]));
+    changeStep(visibleSteps[idx + 1]!);
   };
 
   const handleBack = () => {
-    if (step > 0) changeStep((step - 1) as WizardStep);
+    const idx = visibleSteps.indexOf(step);
+    if (idx <= 0) return;
+    changeStep(visibleSteps[idx - 1]!);
   };
 
-  const handleStepClick = (targetStep: WizardStep) => changeStep(targetStep);
+  const handleStepClick = (targetStep: WizardStep) => {
+    if (!visibleSteps.includes(targetStep)) return;
+    changeStep(targetStep);
+  };
 
   const handleSaveDraft = () => autosave(draft);
 
@@ -447,6 +477,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
       <WizardStepper
         currentStep={step}
         completedSteps={completedSteps}
+        visibleSteps={visibleSteps}
         onStepClick={handleStepClick}
       />
 
@@ -515,14 +546,40 @@ export function WizardShell({ draftId }: WizardShellProps) {
             onSuggestionsChange={updateAdSetSuggestions}
           />
         )}
-        {step === 6 && (
-          <AssignCreatives
-            adSets={draft.adSetSuggestions}
-            creatives={draft.creatives}
-            assignments={draft.creativeAssignments}
-            onChange={updateCreativeAssignments}
-          />
-        )}
+        {step === 6 && (() => {
+          // attach_adset mode: derive a single synthetic ad set entry from
+          // the picker snapshot so the assign matrix has a row to work with.
+          // We never persist this into draft.adSetSuggestions — it's purely
+          // a render-time projection.
+          const attachAdSet = draft.settings.existingMetaAdSet;
+          const isAttachAdSet =
+            draft.settings.wizardMode === "attach_adset" && !!attachAdSet;
+          const adSetsForAssign: AdSetSuggestion[] = isAttachAdSet
+            ? [
+                {
+                  id: ATTACHED_AD_SET_ID,
+                  name: attachAdSet!.name,
+                  sourceType: "page_group",
+                  sourceId: attachAdSet!.id,
+                  sourceName: attachAdSet!.name,
+                  ageMin: 18,
+                  ageMax: 65,
+                  budgetPerDay: 0,
+                  advantagePlus: false,
+                  enabled: true,
+                  metaAdSetId: attachAdSet!.id,
+                },
+              ]
+            : draft.adSetSuggestions;
+          return (
+            <AssignCreatives
+              adSets={adSetsForAssign}
+              creatives={draft.creatives}
+              assignments={draft.creativeAssignments}
+              onChange={updateCreativeAssignments}
+            />
+          );
+        })()}
         {step === 7 && (
           <ReviewLaunch
             draft={draft}
@@ -537,6 +594,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
 
       <WizardFooter
         currentStep={step}
+        visibleSteps={visibleSteps}
         canContinue={currentValidation.valid}
         validationErrors={currentValidation.errors}
         saveStatus={saveStatus}

@@ -376,6 +376,126 @@ export async function fetchCampaignById(
   }
 }
 
+// ─── Ad-set listing (live, scoped to a single campaign) ────────────────────
+
+/**
+ * Raw row returned by `GET /{campaign_id}/adsets`. Internal — the
+ * `/api/meta/adsets` route maps these to {@link MetaAdSetSummary}.
+ */
+export interface RawMetaAdSet {
+  id: string;
+  name: string;
+  campaign_id?: string;
+  optimization_goal?: string;
+  billing_event?: string;
+  status?: string;
+  effective_status?: string;
+  created_time?: string;
+  updated_time?: string;
+}
+
+export interface FetchAdSetsResult {
+  data: RawMetaAdSet[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
+/**
+ * Cursor-paginated list of ad sets under a single campaign. Used by the
+ * "Add to existing ad set" picker.
+ *
+ * Mirrors {@link fetchCampaignsForAccount}: server-side `effective_status`
+ * filter for the relevant view, optional name CONTAIN filter, recency sort.
+ *
+ * Requires: ads_read or ads_management permission.
+ */
+export async function fetchAdSetsForCampaign(params: {
+  campaignId: string;
+  /** When `"relevant"`, request only ACTIVE + PAUSED ad sets. */
+  filter?: "relevant" | "all";
+  /** Optional case-insensitive substring match on ad set name. */
+  nameContains?: string;
+  /** Page size — capped at 50. */
+  limit?: number;
+  /** Pagination cursor returned by a previous call. */
+  after?: string;
+}): Promise<FetchAdSetsResult> {
+  const {
+    campaignId,
+    filter = "relevant",
+    nameContains,
+    limit = 25,
+    after,
+  } = params;
+
+  const fields = [
+    "id",
+    "name",
+    "campaign_id",
+    "optimization_goal",
+    "billing_event",
+    "status",
+    "effective_status",
+    "created_time",
+    "updated_time",
+  ].join(",");
+
+  const queryParams: Record<string, string> = {
+    fields,
+    limit: String(Math.min(Math.max(1, limit), 50)),
+  };
+
+  if (filter === "relevant") {
+    queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+  }
+
+  if (nameContains?.trim()) {
+    queryParams.filtering = JSON.stringify([
+      { field: "name", operator: "CONTAIN", value: nameContains.trim() },
+    ]);
+  }
+
+  if (after) queryParams.after = after;
+
+  const res = await graphGet<GraphPagedResponse<RawMetaAdSet>>(
+    `/${campaignId}/adsets`,
+    queryParams,
+  );
+
+  const sorted = [...(res.data ?? [])].sort((a, b) => {
+    const aT = Date.parse(a.updated_time ?? a.created_time ?? "") || 0;
+    const bT = Date.parse(b.updated_time ?? b.created_time ?? "") || 0;
+    return bT - aT;
+  });
+
+  return {
+    data: sorted,
+    nextCursor: res.paging?.cursors?.after,
+    hasMore: !!res.paging?.next,
+  };
+}
+
+/**
+ * Re-fetch a single live Meta ad set. Used by the launch route to verify
+ * "Add to existing ad set" mode just before creating ads. Returns `null`
+ * when the ad set no longer exists or the token can't see it.
+ *
+ * Requires: ads_read permission.
+ */
+export async function fetchAdSetById(
+  adSetId: string,
+): Promise<RawMetaAdSet | null> {
+  try {
+    const res = await graphGet<RawMetaAdSet>(`/${adSetId}`, {
+      fields:
+        "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,created_time,updated_time",
+    });
+    return res ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Cursor-paginated personal pages from /me/accounts.
  * Designed for the "Load more" flow — call repeatedly with the cursor returned

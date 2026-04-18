@@ -1,4 +1,5 @@
 import type { CampaignDraft, WizardStep } from "./types";
+import { ATTACHED_AD_SET_ID, getVisibleSteps } from "./types";
 
 export interface ValidationResult {
   valid: boolean;
@@ -34,9 +35,32 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
   const mode = draft.settings.wizardMode ?? "new";
 
-  if (mode === "attach") {
-    // In attach mode the campaign name + objective come from the live Meta
-    // campaign — only the picker selection + an optimisation goal are needed.
+  if (mode === "attach_adset") {
+    // Attaching to an existing ad set: campaign + ad set picker selections are
+    // the only Step-1 inputs. Optimisation goal, objective, audiences and
+    // budget are inherited from the live ad set.
+    const existingCampaign = draft.settings.existingMetaCampaign;
+    const existingAdSet = draft.settings.existingMetaAdSet;
+    if (!existingCampaign?.id) {
+      errors.push("Pick the existing campaign that owns the ad set");
+    }
+    if (!existingAdSet?.id) {
+      errors.push("Pick the existing ad set you want to add ads to");
+    }
+    if (
+      existingCampaign?.id &&
+      existingAdSet?.id &&
+      existingAdSet.campaignId !== existingCampaign.id
+    ) {
+      errors.push("Selected ad set does not belong to the selected campaign");
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
+  if (mode === "attach_campaign") {
+    // Attaching a new ad set under an existing campaign: name + objective come
+    // from the live Meta campaign — only the picker selection + an
+    // optimisation goal are needed.
     const existing = draft.settings.existingMetaCampaign;
     if (!existing?.id) {
       errors.push("Pick the existing campaign you want to add an ad set to");
@@ -58,6 +82,10 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
 }
 
 function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
+  // Inherited from the live ad set in attach_adset mode.
+  if (draft.settings.wizardMode === "attach_adset") {
+    return { valid: true, errors: [] };
+  }
   const errors: string[] = [];
   const strat = draft.optimisationStrategy;
   if (!strat) return { valid: true, errors: [] };
@@ -68,6 +96,10 @@ function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
 }
 
 function validateAudiences(draft: CampaignDraft): ValidationResult {
+  // Inherited from the live ad set in attach_adset mode.
+  if (draft.settings.wizardMode === "attach_adset") {
+    return { valid: true, errors: [] };
+  }
   const errors: string[] = [];
   const { audiences } = draft;
   const hasPageGroups = audiences.pageGroups.some((g) => g.pageIds.length > 0);
@@ -154,6 +186,10 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
 }
 
 function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
+  // Inherited from the live ad set in attach_adset mode.
+  if (draft.settings.wizardMode === "attach_adset") {
+    return { valid: true, errors: [] };
+  }
   const errors: string[] = [];
   const bs = draft.budgetSchedule;
   if (!bs.budgetAmount || bs.budgetAmount <= 0) {
@@ -169,6 +205,18 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
 
 function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
+
+  // attach_adset: there is exactly one synthetic ad set and the suggestions
+  // array isn't populated, so use the assignment matrix as the source of
+  // truth instead of `enabledSets`.
+  if (draft.settings.wizardMode === "attach_adset") {
+    const assigned = draft.creativeAssignments?.[ATTACHED_AD_SET_ID] ?? [];
+    if (draft.creatives.length > 0 && assigned.length === 0) {
+      errors.push("Assign at least one ad to the existing ad set");
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
   const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
   if (enabledSets.length === 0) {
     errors.push("Enable at least one ad set");
@@ -183,9 +231,14 @@ function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
 }
 
 function validateReview(draft: CampaignDraft): ValidationResult {
+  // Aggregate only the steps that are visible for the current wizard mode.
+  // Step 7 (Review) itself is excluded to avoid recursion.
+  const visible = getVisibleSteps(draft.settings.wizardMode).filter(
+    (s) => s !== 7,
+  );
   const allErrors: string[] = [];
-  for (let step = 0; step <= 6; step++) {
-    const result = validateStep(step as WizardStep, draft);
+  for (const step of visible) {
+    const result = validateStep(step, draft);
     allErrors.push(...result.errors);
   }
   return { valid: allErrors.length === 0, errors: allErrors };

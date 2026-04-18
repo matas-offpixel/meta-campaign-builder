@@ -9,10 +9,21 @@ import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
 interface WizardStepperProps {
   currentStep: WizardStep;
   completedSteps: Set<number>;
+  /**
+   * Step indices that should be rendered in the stepper. When omitted,
+   * defaults to all steps (preserves the legacy 8-step layout for any
+   * caller that hasn't been updated yet).
+   */
+  visibleSteps?: WizardStep[];
   onStepClick: (step: WizardStep) => void;
 }
 
-export function WizardStepper({ currentStep, completedSteps, onStepClick }: WizardStepperProps) {
+export function WizardStepper({
+  currentStep,
+  completedSteps,
+  visibleSteps,
+  onStepClick,
+}: WizardStepperProps) {
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -22,21 +33,33 @@ export function WizardStepper({ currentStep, completedSteps, onStepClick }: Wiza
     router.push("/login");
   };
 
+  const indices: WizardStep[] =
+    visibleSteps && visibleSteps.length > 0
+      ? visibleSteps
+      : (WIZARD_STEPS.map((_, i) => i) as WizardStep[]);
+
   return (
     <nav className="w-full border-b border-border bg-card px-4 py-3">
       <div className="mx-auto flex max-w-5xl items-center justify-between">
         <ol className="flex items-center">
-          {WIZARD_STEPS.map((step, index) => {
+          {indices.map((index, position) => {
+            const step = WIZARD_STEPS[index];
             const isCompleted = completedSteps.has(index);
             const isCurrent = currentStep === index;
-            const isClickable = isCompleted || index <= currentStep;
+            // Clickable when the step is completed OR is at-or-before the
+            // current visible position (so users can revisit prior visible
+            // steps but can't jump ahead past validation).
+            const currentPosition = indices.indexOf(currentStep);
+            const isClickable =
+              isCompleted ||
+              (currentPosition !== -1 && position <= currentPosition);
 
             return (
               <li key={step.label} className="flex items-center gap-2">
                 <button
                   type="button"
                   disabled={!isClickable}
-                  onClick={() => isClickable && onStepClick(index as WizardStep)}
+                  onClick={() => isClickable && onStepClick(index)}
                   className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors
                     ${isClickable ? "cursor-pointer" : "cursor-default"}
                     ${isCurrent ? "bg-primary/15" : "hover:bg-muted"}
@@ -48,7 +71,7 @@ export function WizardStepper({ currentStep, completedSteps, onStepClick }: Wiza
                       ${isCurrent && !isCompleted ? "bg-primary text-primary-foreground" : ""}
                       ${!isCurrent && !isCompleted ? "bg-muted text-muted-foreground" : ""}`}
                   >
-                    {isCompleted ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
+                    {isCompleted ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : position + 1}
                   </span>
                   <span
                     className={`hidden font-medium md:inline
@@ -58,7 +81,7 @@ export function WizardStepper({ currentStep, completedSteps, onStepClick }: Wiza
                   </span>
                 </button>
 
-                {index < WIZARD_STEPS.length - 1 && (
+                {position < indices.length - 1 && (
                   <div className={`hidden h-px w-4 md:block lg:w-8 ${isCompleted ? "bg-foreground/30" : "bg-border"}`} />
                 )}
               </li>
