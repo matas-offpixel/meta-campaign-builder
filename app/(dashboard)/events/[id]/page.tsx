@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
+import { parseEventTab } from "@/components/dashboard/events/event-detail-tabs";
 import { createClient } from "@/lib/supabase/server";
 import {
   getEventByIdServer,
@@ -8,10 +9,12 @@ import {
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function EventDetailPage({ params }: Props) {
-  const { id } = await params;
+export default async function EventDetailPage({ params, searchParams }: Props) {
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
+  const activeTab = parseEventTab(sp.tab);
 
   const supabase = await createClient();
   const {
@@ -27,5 +30,12 @@ export default async function EventDetailPage({ params }: Props) {
 
   if (!event) notFound();
 
-  return <EventDetail event={event} drafts={drafts} userId={user.id} />;
+  return (
+    <EventDetail
+      event={event}
+      drafts={drafts}
+      userId={user.id}
+      activeTab={activeTab}
+    />
+  );
 }

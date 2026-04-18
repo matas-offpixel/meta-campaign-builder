@@ -1,14 +1,14 @@
 /**
- * Single status pill for clients and events.
+ * Single status pill for clients, events, and campaign drafts.
  *
- * Two domains share the same visual token (small rounded badge) but have
- * different palette rules, so we keep one component with a `kind`
- * discriminator rather than two parallel components.
+ * Each domain shares the same visual token (small rounded badge) but has
+ * its own palette rules, so we keep one component with a `kind`
+ * discriminator rather than three parallel components.
  *
  * Pure render — safe to use from server components.
  */
 
-type Kind = "client" | "event";
+type Kind = "client" | "event" | "draft";
 
 const CLIENT_TONE: Record<string, string> = {
   archived: "bg-muted text-muted-foreground",
@@ -23,12 +23,22 @@ const EVENT_TONE: Record<string, string> = {
   on_sale: "bg-primary-light text-foreground",
 };
 
+// Draft palette: draft = neutral muted (work in progress), published =
+// success (matches event sold_out), archived = same muted as client.archived
+// for consistency. Labels carry the meaningful distinction between draft
+// and archived; tone differentiates draft → published as the only
+// "state changed for the better" signal.
+const DRAFT_TONE: Record<string, string> = {
+  draft: "bg-muted text-muted-foreground",
+  published: "bg-success/20 text-foreground",
+  archived: "bg-muted text-muted-foreground",
+};
+
 const NEUTRAL = "bg-muted text-muted-foreground";
 
 function toneFor(kind: Kind, status: string): string {
-  if (kind === "client") {
-    return CLIENT_TONE[status] ?? CLIENT_TONE.active;
-  }
+  if (kind === "client") return CLIENT_TONE[status] ?? CLIENT_TONE.active;
+  if (kind === "draft") return DRAFT_TONE[status] ?? NEUTRAL;
   return EVENT_TONE[status] ?? NEUTRAL;
 }
 

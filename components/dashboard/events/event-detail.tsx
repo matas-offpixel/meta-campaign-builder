@@ -16,7 +16,13 @@ import {
   Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TabPanel } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { StatusPill } from "@/components/dashboard/_shared/status-pill";
+import {
+  EventDetailTabs,
+  type EventTab,
+} from "@/components/dashboard/events/event-detail-tabs";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
@@ -32,14 +38,17 @@ interface Props {
   drafts: EventLinkedDraft[];
   /** Authenticated user id, server-resolved. Needed for the new-draft handoff. */
   userId: string;
+  /** Active tab, resolved from `?tab=` by the parent server component. */
+  activeTab: EventTab;
 }
 
 /**
  * Client-side event hub. The parent server component prefetches the event,
- * its linked drafts, and the current user. This component owns mutations
- * (delete, draft handoff) and the local state needed for them.
+ * its linked drafts, and the current user, and resolves the active tab from
+ * the URL. This component owns mutations (delete, draft handoff) and the
+ * local state needed for them; tab state lives in the URL.
  */
-export function EventDetail({ event, drafts, userId }: Props) {
+export function EventDetail({ event, drafts, userId, activeTab }: Props) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
@@ -160,249 +169,322 @@ export function EventDetail({ event, drafts, userId }: Props) {
             </div>
           )}
 
-          {/* ───── Campaign actions (operational hub) ───── */}
-          <section className="rounded-md border border-border bg-card p-5">
-            <div className="flex items-start justify-between gap-6">
-              <div className="min-w-0">
-                <h2 className="font-heading text-base tracking-wide">
-                  Campaign actions
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Start a new Meta campaign pre-linked to this event, or jump
-                  back into the library to find an existing draft.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  onClick={handleOpenCreator}
-                  disabled={creatingDraft}
-                  size="sm"
-                >
-                  {creatingDraft ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Megaphone className="h-3.5 w-3.5" />
-                  )}
-                  Open campaign creator
-                </Button>
-                <Link href="/">
-                  <Button variant="outline" size="sm">
-                    All campaigns
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </section>
-
-          {/* ───── Milestone timeline ───── */}
-          <MilestoneTimeline event={event} />
+          <EventDetailTabs active={activeTab} campaignsCount={drafts.length} />
 
           {/* ───── Overview ───── */}
-          <section className="rounded-md border border-border bg-card p-5">
-            <h2 className="font-heading text-base tracking-wide mb-3">
-              Overview
-            </h2>
-            <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
-              <DetailRow
-                label="Client"
-                value={
-                  event.client ? (
-                    <Link
-                      href={`/clients/${event.client.id}`}
-                      className="underline-offset-2 hover:underline"
-                    >
-                      {event.client.name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )
-                }
-              />
-              <DetailRow label="Slug" value={event.slug} />
-              <DetailRow label="Event code" value={event.event_code ?? "—"} />
-              <DetailRow
-                label="Capacity"
-                value={
-                  event.capacity != null ? event.capacity.toLocaleString() : "—"
-                }
-              />
-              <DetailRow
-                label="Genres"
-                value={event.genres.length > 0 ? event.genres.join(", ") : "—"}
-              />
-              <DetailRow
-                label="Marketing budget"
-                value={
-                  event.budget_marketing != null
-                    ? `£${event.budget_marketing.toLocaleString()}`
-                    : "—"
-                }
-              />
-            </dl>
-          </section>
-
-          {/* ───── Venue ───── */}
-          <section className="rounded-md border border-border bg-card p-5">
-            <h2 className="font-heading text-base tracking-wide mb-3">Venue</h2>
-            <dl className="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3 text-sm">
-              <DetailRow label="Venue" value={event.venue_name ?? "—"} />
-              <DetailRow label="City" value={event.venue_city ?? "—"} />
-              <DetailRow label="Country" value={event.venue_country ?? "—"} />
-              <DetailRow label="Timezone" value={event.event_timezone ?? "—"} />
-            </dl>
-          </section>
-
-          {/* ───── Dates & milestones (full list) ───── */}
-          <section className="rounded-md border border-border bg-card p-5">
-            <h2 className="font-heading text-base tracking-wide mb-3">
-              Dates &amp; milestones
-            </h2>
-            <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
-              <DetailRow label="Event date" value={fmtDate(event.event_date)} />
-              <DetailRow
-                label="Doors / start"
-                value={fmtDateTime(event.event_start_at)}
-              />
-              <DetailRow
-                label="Announcement"
-                value={fmtDateTime(event.announcement_at)}
-              />
-              <DetailRow
-                label="Presale"
-                value={fmtDateTime(event.presale_at)}
-              />
-              <DetailRow
-                label="General sale"
-                value={fmtDateTime(event.general_sale_at)}
-              />
-            </dl>
-          </section>
-
-          {/* ───── Links ───── */}
-          <section className="rounded-md border border-border bg-card p-5">
-            <h2 className="font-heading text-base tracking-wide mb-3">Links</h2>
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <DetailRow
-                label="Ticket URL"
-                value={
-                  event.ticket_url ? (
-                    <a
-                      href={event.ticket_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline-offset-2 hover:underline break-all"
-                    >
-                      {event.ticket_url}
-                    </a>
-                  ) : (
-                    "—"
-                  )
-                }
-              />
-              <DetailRow
-                label="Signup URL"
-                value={
-                  event.signup_url ? (
-                    <a
-                      href={event.signup_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline-offset-2 hover:underline break-all"
-                    >
-                      {event.signup_url}
-                    </a>
-                  ) : (
-                    "—"
-                  )
-                }
-              />
-            </dl>
-          </section>
-
-          {/* ───── Linked campaigns ───── */}
-          <section className="rounded-md border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-heading text-base tracking-wide">
-                Linked campaigns
-                {drafts.length > 0 && (
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {drafts.length}
-                  </span>
-                )}
-              </h2>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handleOpenCreator}
-                disabled={creatingDraft}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New
-              </Button>
+          <TabPanel active={activeTab === "overview"}>
+            <div className="space-y-6">
+              <MilestoneTimeline event={event} />
+              <OverviewSection event={event} />
+              <VenueSection event={event} />
+              <DatesSection event={event} />
+              <LinksSection event={event} />
+              {event.notes && <NotesSection notes={event.notes} />}
             </div>
-            {drafts.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No campaigns linked yet. Use &ldquo;Open campaign creator&rdquo;
-                above to start one.
+          </TabPanel>
+
+          {/* ───── Plan (stub) ───── */}
+          <TabPanel active={activeTab === "plan"}>
+            <section className="rounded-md border border-dashed border-border bg-card p-10 text-center">
+              <p className="font-heading text-lg tracking-wide">
+                Event plan coming soon
               </p>
-            ) : (
-              <div className="space-y-2">
-                {drafts.map((d) => (
-                  <Link
-                    key={d.id}
-                    href={`/campaign/${d.id}`}
-                    className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2 transition-colors hover:border-border-strong"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {d.name ?? "Untitled campaign"}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {d.objective ?? "—"} ·{" "}
-                        {new Date(d.updated_at).toLocaleDateString("en-GB", {
-                          day: "numeric",
-                          month: "short",
-                        })}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {d.status}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ───── Reporting & assets placeholder ───── */}
-          <section className="rounded-md border border-dashed border-border bg-card p-5">
-            <div className="flex items-start gap-3">
-              <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <div className="min-w-0">
-                <h2 className="font-heading text-base tracking-wide">
-                  Reporting &amp; assets
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Live spend, ticket sales, creative performance and D2C
-                  signup data for this event will live here once BigQuery and
-                  Meta Insights are wired up.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* ───── Notes ───── */}
-          {event.notes && (
-            <section className="rounded-md border border-border bg-card p-5">
-              <h2 className="font-heading text-base tracking-wide mb-3">
-                Notes
-              </h2>
-              <p className="text-sm whitespace-pre-wrap">{event.notes}</p>
+              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground leading-relaxed">
+                The full marketing plan — milestones, audiences, creative
+                cadence, D2C schedule — will live here. Editable once the
+                shape settles.
+              </p>
             </section>
-          )}
+          </TabPanel>
+
+          {/* ───── Campaigns ───── */}
+          <TabPanel active={activeTab === "campaigns"}>
+            <div className="space-y-6">
+              <section className="rounded-md border border-border bg-card p-5">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="min-w-0">
+                    <h2 className="font-heading text-base tracking-wide">
+                      Campaign actions
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Start a new Meta campaign pre-linked to this event, or
+                      jump back into the library to find an existing draft.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      onClick={handleOpenCreator}
+                      disabled={creatingDraft}
+                      size="sm"
+                    >
+                      {creatingDraft ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Megaphone className="h-3.5 w-3.5" />
+                      )}
+                      Open campaign creator
+                    </Button>
+                    <Link href="/">
+                      <Button variant="outline" size="sm">
+                        All campaigns
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-md border border-border bg-card p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-heading text-base tracking-wide">
+                    Linked campaigns
+                    {drafts.length > 0 && (
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {drafts.length}
+                      </span>
+                    )}
+                  </h2>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleOpenCreator}
+                    disabled={creatingDraft}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    New
+                  </Button>
+                </div>
+                {drafts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No campaigns linked yet. Use &ldquo;Open campaign
+                    creator&rdquo; above to start one.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {drafts.map((d) => (
+                      <Link
+                        key={d.id}
+                        href={`/campaign/${d.id}`}
+                        className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2 transition-colors hover:border-border-strong"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {d.name ?? "Untitled campaign"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {d.objective ?? "—"} ·{" "}
+                            {new Date(d.updated_at).toLocaleDateString(
+                              "en-GB",
+                              { day: "numeric", month: "short" },
+                            )}
+                          </p>
+                        </div>
+                        <StatusPill status={d.status} kind="draft" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </TabPanel>
+
+          {/* ───── Reporting (stub) ───── */}
+          <TabPanel active={activeTab === "reporting"}>
+            <div className="space-y-6">
+              <section className="rounded-md border border-dashed border-border bg-card p-5">
+                <div className="flex items-start gap-3">
+                  <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <h2 className="font-heading text-base tracking-wide">
+                      Reporting coming soon
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Live spend, ticket sales, creative performance and D2C
+                      signup data for this event will live here once
+                      BigQuery and Meta Insights are wired up.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-md border border-border bg-card p-5">
+                <h2 className="font-heading text-base tracking-wide mb-3">
+                  Linked campaigns
+                  {drafts.length > 0 && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {drafts.length}
+                    </span>
+                  )}
+                </h2>
+                {drafts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No linked campaigns to report on yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {drafts.map((d) => (
+                      <li
+                        key={d.id}
+                        className="flex items-center justify-between gap-4 rounded-md px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {d.name ?? "Untitled campaign"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {d.objective ?? "—"}
+                          </p>
+                        </div>
+                        <StatusPill status={d.status} kind="draft" />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
+          </TabPanel>
         </div>
       </main>
     </>
+  );
+}
+
+// ─── Section components ──────────────────────────────────────────────────────
+
+function OverviewSection({ event }: { event: EventWithClient }) {
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-3">Overview</h2>
+      <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+        <DetailRow
+          label="Client"
+          value={
+            event.client ? (
+              <Link
+                href={`/clients/${event.client.id}`}
+                className="underline-offset-2 hover:underline"
+              >
+                {event.client.name}
+              </Link>
+            ) : (
+              "—"
+            )
+          }
+        />
+        <DetailRow label="Slug" value={event.slug} />
+        <DetailRow label="Event code" value={event.event_code ?? "—"} />
+        <DetailRow
+          label="Capacity"
+          value={
+            event.capacity != null ? event.capacity.toLocaleString() : "—"
+          }
+        />
+        <DetailRow
+          label="Genres"
+          value={event.genres.length > 0 ? event.genres.join(", ") : "—"}
+        />
+        <DetailRow
+          label="Marketing budget"
+          value={
+            event.budget_marketing != null
+              ? `£${event.budget_marketing.toLocaleString()}`
+              : "—"
+          }
+        />
+      </dl>
+    </section>
+  );
+}
+
+function VenueSection({ event }: { event: EventWithClient }) {
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-3">Venue</h2>
+      <dl className="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+        <DetailRow label="Venue" value={event.venue_name ?? "—"} />
+        <DetailRow label="City" value={event.venue_city ?? "—"} />
+        <DetailRow label="Country" value={event.venue_country ?? "—"} />
+        <DetailRow label="Timezone" value={event.event_timezone ?? "—"} />
+      </dl>
+    </section>
+  );
+}
+
+function DatesSection({ event }: { event: EventWithClient }) {
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-3">
+        Dates &amp; milestones
+      </h2>
+      <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+        <DetailRow label="Event date" value={fmtDate(event.event_date)} />
+        <DetailRow
+          label="Doors / start"
+          value={fmtDateTime(event.event_start_at)}
+        />
+        <DetailRow
+          label="Announcement"
+          value={fmtDateTime(event.announcement_at)}
+        />
+        <DetailRow label="Presale" value={fmtDateTime(event.presale_at)} />
+        <DetailRow
+          label="General sale"
+          value={fmtDateTime(event.general_sale_at)}
+        />
+      </dl>
+    </section>
+  );
+}
+
+function LinksSection({ event }: { event: EventWithClient }) {
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-3">Links</h2>
+      <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <DetailRow
+          label="Ticket URL"
+          value={
+            event.ticket_url ? (
+              <a
+                href={event.ticket_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline-offset-2 hover:underline break-all"
+              >
+                {event.ticket_url}
+              </a>
+            ) : (
+              "—"
+            )
+          }
+        />
+        <DetailRow
+          label="Signup URL"
+          value={
+            event.signup_url ? (
+              <a
+                href={event.signup_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline-offset-2 hover:underline break-all"
+              >
+                {event.signup_url}
+              </a>
+            ) : (
+              "—"
+            )
+          }
+        />
+      </dl>
+    </section>
+  );
+}
+
+function NotesSection({ notes }: { notes: string }) {
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-3">Notes</h2>
+      <p className="text-sm whitespace-pre-wrap">{notes}</p>
+    </section>
   );
 }
 
