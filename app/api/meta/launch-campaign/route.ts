@@ -55,6 +55,12 @@ import {
   validateCreativePayload,
   sanitizeCreativeForStrictMode,
 } from "@/lib/meta/creative";
+import {
+  resolveAdSetPlacementTargeting,
+  validatePlacementSelection,
+  summarisePlacements,
+  resolveExistingPostPlacements,
+} from "@/lib/meta/placements";
 import type {
   CampaignDraft,
   LaunchSummary,
@@ -1774,6 +1780,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const adSetCreationPromise = (async () => {
     console.log("[launch-campaign] Phase 2 — creating", standardSets.length, "standard ad sets");
 
+    // Build adSetId → first existing-post creative so placement overrides can
+    // be applied to the ad set targeting before creating it.
+    // (draft.creativeAssignments is creative-id → ad-set-id[]; invert it here)
+    const adSetToCreativeMap = new Map<string, AdCreativeDraft>();
+    for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
+      const creative = launchCreatives.find((c) => c.id === creativeId);
+      if (!creative || creative.sourceType !== "existing_post") continue;
+      for (const asId of adSetIds ?? []) {
+        if (!adSetToCreativeMap.has(asId)) {
+          adSetToCreativeMap.set(asId, creative);
+        }
+      }
+    }
+
     // Create standard ad sets concurrently in batches of 5
     const BATCH_SIZE = 5;
     for (let i = 0; i < standardSets.length; i += BATCH_SIZE) {
@@ -1790,6 +1810,45 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.objective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           );
+
+          // ── Manual placement override for existing-post ad sets ─────────────
+          // If an existing-post creative is assigned to this ad set, apply the
+          // placement toggles from that creative (falling back to smart defaults).
+          // This sets publisher_platforms + positions and switches Meta from
+          // automatic placements to manual placements.
+          const assignedCreative = adSetToCreativeMap.get(adSet.id);
+          if (assignedCreative?.existingPost) {
+            const placementTargeting = resolveAdSetPlacementTargeting(assignedCreative.existingPost);
+            if (placementTargeting) {
+              adSetPayload.targeting.publisher_platforms = placementTargeting.publisher_platforms;
+              if (placementTargeting.instagram_positions) {
+                adSetPayload.targeting.instagram_positions = placementTargeting.instagram_positions;
+              }
+              if (placementTargeting.facebook_positions) {
+                adSetPayload.targeting.facebook_positions = placementTargeting.facebook_positions;
+              }
+              const placements = resolveExistingPostPlacements(assignedCreative.existingPost);
+              const placementValidation = validatePlacementSelection(
+                placements,
+                assignedCreative.existingPost.source,
+              );
+              if (!placementValidation.valid) {
+                throw new Error(
+                  `Placement validation failed for ad set "${adSet.name}": ` +
+                  placementValidation.errors.join("; "),
+                );
+              }
+              console.log(
+                `[launch-campaign] Phase 2 — placements for "${adSet.name}":` +
+                ` ${summarisePlacements(placements)}` +
+                ` → ${JSON.stringify(placementTargeting)}`,
+              );
+            } else {
+              console.warn(
+                `[launch-campaign] Phase 2 ⚠ no valid placements for "${adSet.name}" (assigned creative: "${assignedCreative.name}") — falling back to Meta automatic placements`,
+              );
+            }
+          }
 
           // ── Final pre-create sanitisation ──────────────────────────────────
           // Runs the hardcoded override table one last time against the exact
@@ -1997,28 +2056,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           );
         }
 
-        // Log exact outbound creative payload
+        // ── Structured pre-POST summary (Part 1 audit log) ────────────────
+        const creativeBranch: string = (() => {
+          if (creative.sourceType !== "existing_post") return "new_ad";
+          return creative.existingPost?.source === "instagram"
+            ? "ig_existing_post"
+            : "fb_existing_post";
+        })();
+
+        const igActorFinal =
+          creativePayload.instagram_actor_id ??
+          creativePayload.object_story_spec?.instagram_actor_id ??
+          "(NOT SET)";
+
+        // Find placement payload that will be/was applied to the ad set for this creative.
+        // For existing-post creatives, compute from the creative's own existingPost.
+        const placementSummary =
+          creative.sourceType === "existing_post" && creative.existingPost
+            ? JSON.stringify(resolveAdSetPlacementTargeting(creative.existingPost))
+            : "automatic (not an existing-post creative)";
+
         console.log(
-          `[launch-campaign] Phase 3 — OUTBOUND creative payload for "${creative.name}":`,
-          JSON.stringify(creativePayload, null, 2),
+          `\n[launch-campaign] Phase 3 ─── CREATIVE PRE-POST SUMMARY ───────────────────` +
+          `\n  [Creative Branch]       ${creativeBranch}` +
+          `\n  [Ad Name]               ${creative.name}` +
+          `\n  [Page ID]               ${creative.identity?.pageId ?? "(none)"}` +
+          `\n  [instagram_actor_id]    ${igActorFinal}` +
+          `\n  [identity.actorId]      ${creative.identity?.instagramActorId ?? "(UNSET — Phase 0e may not have run)"}` +
+          `\n  [identity.accountId]    ${creative.identity?.instagramAccountId ?? "(unset)"}` +
+          `\n  [post.instagramAcctId]  ${creative.existingPost?.instagramAccountId ?? "n/a"}` +
+          `\n  [post.postId]           ${creative.existingPost?.postId ?? "n/a"}` +
+          `\n  [Placement Payload]     ${placementSummary}` +
+          `\n  [Creative Payload]      ${JSON.stringify(creativePayload)}` +
+          `\n  [Launch Ready]          ${igActorFinal !== "(NOT SET)" ? "YES" : "NO — actor id missing"}` +
+          `\n────────────────────────────────────────────────────────────────────────────`,
         );
       } catch (err) {
         const message = formatMetaError(err);
         creativesFailed.push({ name: creative.name, error: message });
         continue;
       }
-
-      // Log full identity context before POSTing the creative.
-      console.log(
-        `[launch-campaign] Phase 3 — identity for "${creative.name}":` +
-          ` adAccountId=${adAccountId}` +
-          ` pageId=${creative.identity?.pageId ?? "(none)"}` +
-          ` instagramAccountId=${creative.identity?.instagramAccountId ?? "(unset)"}` +
-          ` instagramActorId=${creative.identity?.instagramActorId ?? "(unset)"}` +
-          ` sourceType=${creative.sourceType}` +
-          ` existingPost.source=${creative.existingPost?.source ?? "n/a"}` +
-          ` existingPost.instagramAccountId=${creative.existingPost?.instagramAccountId ?? "n/a"}`,
-      );
 
       let metaCreativeId: string;
       try {

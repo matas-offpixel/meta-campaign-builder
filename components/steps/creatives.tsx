@@ -17,7 +17,13 @@ import {
 import type {
   AdCreativeDraft, CTAType, AssetMode, AssetRatio,
   AdSourceType, AssetVariation, Asset, CaptionVariant,
+  ExistingPostPlacements,
 } from "@/lib/types";
+import {
+  defaultPlacementsFor,
+  resolveExistingPostPlacements,
+  validatePlacementSelection,
+} from "@/lib/meta/placements";
 import { useUploadAsset } from "@/lib/hooks/useUploadAsset";
 import { getAspectRatioSlots } from "@/lib/meta/upload";
 import { CTA_OPTIONS } from "@/lib/mock-data";
@@ -1338,6 +1344,99 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                     )}
                   </div>
                   )}
+
+                  {/* ── Placement controls ────────────────────────────────── */}
+                  {active.existingPost?.postId && (() => {
+                    const src = active.existingPost?.source ?? "instagram";
+                    const current = resolveExistingPostPlacements(active.existingPost);
+                    const validation = validatePlacementSelection(current, src);
+
+                    const toggle = (key: keyof ExistingPostPlacements, val: boolean) => {
+                      updateAd(active.id, {
+                        existingPost: {
+                          ...(active.existingPost ?? { postId: "", source: src }),
+                          placements: { ...current, [key]: val },
+                        },
+                      });
+                    };
+
+                    type PlacementRow = {
+                      key: keyof ExistingPostPlacements;
+                      label: string;
+                    };
+                    const igRows: PlacementRow[] = [
+                      { key: "igFeed",    label: "Feed"    },
+                      { key: "igStories", label: "Stories" },
+                      { key: "igReels",   label: "Reels"   },
+                    ];
+                    const fbRows: PlacementRow[] = [
+                      { key: "fbFeed",  label: "Feed"  },
+                      { key: "fbReels", label: "Reels" },
+                    ];
+
+                    return (
+                      <div className="mt-4 border-t border-border pt-4 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Placements
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Instagram */}
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-foreground">Instagram</p>
+                            {igRows.map(({ key, label }) => (
+                              <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={current[key]}
+                                  onChange={(e) => toggle(key, e.target.checked)}
+                                  className="h-3.5 w-3.5 rounded accent-primary"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+
+                          {/* Facebook */}
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-foreground">Facebook</p>
+                            {fbRows.map(({ key, label }) => (
+                              <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={current[key]}
+                                  onChange={(e) => toggle(key, e.target.checked)}
+                                  className="h-3.5 w-3.5 rounded accent-primary"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Validation errors */}
+                        {validation.errors.map((err) => (
+                          <div
+                            key={err}
+                            className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                          >
+                            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            {err}
+                          </div>
+                        ))}
+
+                        {/* Soft warnings (stories/reels crop warning) — only show
+                            the crop warning; suppress the "cross-posting" noise */}
+                        {validation.warnings
+                          .filter((w) => w.includes("crop"))
+                          .map((w) => (
+                            <p key={w} className="text-[11px] text-amber-700/90">
+                              ⚠ {w}
+                            </p>
+                          ))}
+                      </div>
+                    );
+                  })()}
                 </Card>
               )}
 

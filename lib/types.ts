@@ -485,6 +485,24 @@ export interface CreativeIdentity {
   instagramActorId?: string;
 }
 
+/**
+ * Manual placement toggles for an existing-post ad.
+ *
+ * Defaults (set by `defaultPlacementsFor` in `lib/meta/placements.ts`):
+ *   Instagram post → IG Feed + IG Stories + IG Reels ON;  FB Feed / FB Reels OFF
+ *   Facebook  post → FB Feed + FB Reels ON;  IG placements OFF
+ *
+ * When absent the launch route falls back to Meta's automatic placements for
+ * backward-compat with drafts created before placement controls were added.
+ */
+export interface ExistingPostPlacements {
+  igFeed: boolean;
+  igStories: boolean;
+  igReels: boolean;
+  fbFeed: boolean;
+  fbReels: boolean;
+}
+
 export interface ExistingPostSelection {
   /**
    * Source platform of the chosen post. Defaults to `"facebook"` for backward
@@ -507,6 +525,13 @@ export interface ExistingPostSelection {
    * the creative builder can attach `instagram_actor_id`.
    */
   instagramAccountId?: string;
+  /**
+   * Manual placement selection. When present overrides Meta's automatic
+   * placements for the ad set created for this creative. Populated by the
+   * placement toggles in the Creatives step; defaults to platform-appropriate
+   * presets via `defaultPlacementsFor`.
+   */
+  placements?: ExistingPostPlacements;
 }
 
 /**

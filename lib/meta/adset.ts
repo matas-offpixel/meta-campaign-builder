@@ -126,6 +126,18 @@ export interface MetaTargeting {
       age_max?: number;
     };
   };
+  /**
+   * Manual placement control. When present, Meta uses ONLY the listed
+   * platforms / positions.  Omit entirely for automatic placements.
+   *
+   * Values come from `buildPlacementTargeting()` in lib/meta/placements.ts.
+   *   publisher_platforms  → ["instagram"] | ["facebook"] | both
+   *   instagram_positions  → ["stream","story","reels"]
+   *   facebook_positions   → ["feed","reels"]
+   */
+  publisher_platforms?: string[];
+  instagram_positions?: string[];
+  facebook_positions?: string[];
 }
 
 export interface MetaPromotedObject {
