@@ -27,6 +27,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import type {
   InterestValidateRequestItem,
   InterestValidateResponse,
@@ -171,11 +172,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
+  let token: string;
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    console.info(`[interest-validate] token: source=${resolved.source} prefix=${token.slice(0, 12)}…`);
+  } catch (err) {
+    console.error("[interest-validate] no Meta access token:", err);
     return NextResponse.json(
-      { error: "META_ACCESS_TOKEN is not configured on the server" },
-      { status: 500 },
+      { error: "No Facebook access token available. Connect your Facebook account in Account Setup." },
+      { status: 401 },
     );
   }
 

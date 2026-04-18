@@ -18,6 +18,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -2920,11 +2921,29 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
+  // DB-first token resolution — same auth model as interest-discover.
+  // Using process.env.META_ACCESS_TOKEN directly caused "token expired" errors
+  // when the static env token expired while the user had a fresh DB token.
+  let token: string;
+  let tokenSource: "db" | "env" = "env";
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    tokenSource = resolved.source;
+    console.info(
+      `[interest-suggestions] token resolved: source=${tokenSource} ` +
+      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+    );
+  } catch (err) {
+    console.error("[interest-suggestions] no Meta access token available:", err);
     return NextResponse.json(
-      { error: "META_ACCESS_TOKEN is not configured on the server" },
-      { status: 500 },
+      {
+        error:
+          "No Facebook access token available. " +
+          "Connect your Facebook account in Account Setup and try again.",
+        emptyReason: "token_expired",
+      },
+      { status: 401 },
     );
   }
 
@@ -4306,6 +4325,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     rescueSeedPriorityOrder,
     thinPoolRecallBoostActive,
   };
+
+  console.info(
+    `[interest-suggestions] ── REQUEST SUMMARY ──\n` +
+    `  token: ${tokenSource}  seeds: ${sortedSeeds.length}  results: ${finalSuggestions.length}\n` +
+    `  emptyReason: ${emptyReason ?? "none"}  fallback: ${fallbackUsed}`,
+  );
 
   return NextResponse.json({
     suggestions: finalSuggestions,
