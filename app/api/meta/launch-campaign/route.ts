@@ -542,11 +542,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return creative;
     });
 
-    // ── Post-patch audit: log all three IDs per IG creative and gate launch ──
-    // After patching, every IG existing-post creative must have instagramActorId
-    // set on its identity — without it buildExistingPostCreative will throw.
-    // Block here (before any Meta mutations) if any creative is still missing it.
-    const igActorErrors: string[] = [];
+    // ── Post-patch audit: validate instagram_user_id availability ────────────
+    //
+    // IG existing-post creatives use:
+    //   { source_instagram_media_id: <mediaId>, instagram_user_id: <contentAccountId> }
+    //   NOT instagram_actor_id (that was wrong — caused (#100) rejections).
+    //
+    // The required `instagram_user_id` comes from `identity.instagramAccountId`
+    // (the page-linked IG content account).  Block launch if it is missing — the
+    // creative builder will throw anyway, but blocking here gives a clearer error
+    // before any Phase 1/2/3 Meta API calls are made.
+    const igUserIdErrors: string[] = [];
 
     for (const c of launchCreatives) {
       if (
@@ -556,41 +562,43 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      const actorId   = c.identity.instagramActorId ?? "(MISSING)";
       const contentId = c.identity.instagramAccountId ?? "(unset)";
       const postOwner = c.existingPost?.instagramAccountId ?? "(unset)";
       const mediaId   = c.existingPost?.postId ?? "(unset)";
+      // instagram_user_id = content account (primary) or post-picker account (fallback)
+      const igUserId  = c.identity.instagramAccountId || c.existingPost?.instagramAccountId;
 
       console.log(
-        `[launch-campaign] Preflight 0e audit — "${c.name}":` +
-          `\n  pageId                      = ${c.identity.pageId ?? "(unset)"}` +
-          `\n  identity.instagramActorId   = ${actorId}` +
-          `\n  identity.instagramAccountId = ${contentId}` +
-          `\n  existingPost.instagramAccountId = ${postOwner} [post-picker owner, NOT sent as actor]` +
-          `\n  existingPost.postId (media) = ${mediaId}`,
+        `[launch-campaign] Preflight 0e audit — "${c.name}" (ig_existing_post):` +
+          `\n  pageId                     = ${c.identity.pageId ?? "(unset)"}` +
+          `\n  identity.instagramAccountId = ${contentId}  ← instagram_user_id source` +
+          `\n  existingPost.instagramAccountId = ${postOwner}  ← fallback` +
+          `\n  instagram_user_id to send  = ${igUserId ?? "(MISSING — will block)"}` +
+          `\n  instagram_actor_id         = OMITTED (not used for this creative type)` +
+          `\n  source_instagram_media_id  = ${mediaId}`,
       );
 
-      if (!c.identity.instagramActorId) {
-        const reason =
-          c.identity.pageId
-            ? `Page ${c.identity.pageId} did not resolve an Instagram actor id ` +
-              `(/${c.identity.pageId}/instagram_accounts returned nothing and no ` +
-              `content id fallback was available)`
-            : `Creative "${c.name}" has no pageId — cannot resolve Instagram actor`;
-        igActorErrors.push(`"${c.name}": ${reason}`);
+      if (!igUserId) {
+        igUserIdErrors.push(
+          `"${c.name}": no instagram_user_id — ` +
+            (c.identity.pageId
+              ? `Page ${c.identity.pageId} has no linked Instagram account. ` +
+                `Re-select the Page in the Creatives step to re-resolve the IG link.`
+              : `Creative has no pageId set.`),
+        );
       }
     }
 
-    if (igActorErrors.length > 0) {
+    if (igUserIdErrors.length > 0) {
       return NextResponse.json(
         {
-          error: "Instagram actor preflight failed — cannot launch without a valid actor id",
-          details: igActorErrors,
+          error:
+            "Instagram existing-post preflight failed — no instagram_user_id available",
+          details: igUserIdErrors,
           hint:
-            "The selected Instagram account must be linked to the Facebook Page used in the ad. " +
-            "In the Creatives step, confirm that the Page has a connected Instagram Business or " +
-            "Creator account. In Business Manager, verify the Page → Instagram connection is " +
-            "visible under Accounts → Instagram Accounts.",
+            "The selected Facebook Page must have a linked Instagram Business or Creator account. " +
+            "In the Creatives step, re-select the Page and confirm the Instagram account is shown " +
+            "as linked. Check that the Page is connected to an Instagram account in Facebook settings.",
         },
         { status: 400 },
       );
@@ -2081,13 +2089,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             : "fb_existing_post";
         })();
 
-        const igActorFinal =
+        // For ig_existing_post the payload uses instagram_user_id (content account).
+        // For new ads / fb_existing_post the payload uses object_story_spec.instagram_actor_id.
+        const isIgExistingPost = creativeBranch === "ig_existing_post";
+        const igUserIdFinal   = creativePayload.instagram_user_id ?? "(NOT SET)";
+        const igActorFinal    =
           creativePayload.instagram_actor_id ??
           creativePayload.object_story_spec?.instagram_actor_id ??
-          "(NOT SET)";
+          "(OMITTED — correct for ig_existing_post)";
+
+        const launchReady = isIgExistingPost
+          ? igUserIdFinal !== "(NOT SET)"
+          : igActorFinal !== "(OMITTED — correct for ig_existing_post)";
 
         // Find placement payload that will be/was applied to the ad set for this creative.
-        // For existing-post creatives, compute from the creative's own existingPost.
         const placementSummary =
           creative.sourceType === "existing_post" && creative.existingPost
             ? JSON.stringify(resolveAdSetPlacementTargeting(creative.existingPost))
@@ -2095,17 +2110,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         console.log(
           `\n[launch-campaign] Phase 3 ─── CREATIVE PRE-POST SUMMARY ───────────────────` +
-          `\n  [Creative Branch]       ${creativeBranch}` +
-          `\n  [Ad Name]               ${creative.name}` +
-          `\n  [Page ID]               ${creative.identity?.pageId ?? "(none)"}` +
-          `\n  [instagram_actor_id]    ${igActorFinal}` +
-          `\n  [identity.actorId]      ${creative.identity?.instagramActorId ?? "(UNSET — Phase 0e may not have run)"}` +
-          `\n  [identity.accountId]    ${creative.identity?.instagramAccountId ?? "(unset)"}` +
-          `\n  [post.instagramAcctId]  ${creative.existingPost?.instagramAccountId ?? "n/a"}` +
-          `\n  [post.postId]           ${creative.existingPost?.postId ?? "n/a"}` +
-          `\n  [Placement Payload]     ${placementSummary}` +
-          `\n  [Creative Payload]      ${JSON.stringify(creativePayload)}` +
-          `\n  [Launch Ready]          ${igActorFinal !== "(NOT SET)" ? "YES" : "NO — actor id missing"}` +
+          `\n  [Creative Branch]         ${creativeBranch}` +
+          `\n  [Ad Name]                 ${creative.name}` +
+          `\n  [Page ID]                 ${creative.identity?.pageId ?? "(none)"}` +
+          `\n  [contentAccountId]        ${creative.identity?.instagramAccountId ?? "(unset)"}` +
+          (isIgExistingPost
+            ? `\n  [instagram_user_id sent]  ${igUserIdFinal}` +
+              `\n  [instagram_actor_id]      OMITTED ✓ (not used for source_instagram_media_id)`
+            : `\n  [instagram_actor_id]      ${igActorFinal}`) +
+          `\n  [post.instagramAcctId]    ${creative.existingPost?.instagramAccountId ?? "n/a"}` +
+          `\n  [post/media id]           ${creative.existingPost?.postId ?? "n/a"}` +
+          `\n  [Placement Payload]       ${placementSummary}` +
+          `\n  [Creative Payload]        ${JSON.stringify(creativePayload)}` +
+          `\n  [Launch Ready]            ${launchReady ? "YES" : "NO — required id missing"}` +
           `\n────────────────────────────────────────────────────────────────────────────`,
         );
       } catch (err) {
