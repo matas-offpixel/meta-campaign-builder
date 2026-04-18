@@ -6,6 +6,7 @@ import {
   buildAdPayload,
   invertAssignments,
   validateCreativePayload,
+  sanitizeCreativeForStrictMode,
   type CreateCreativesAndAdsRequest,
   type CreateCreativesAndAdsResult,
   type CreativeCreationResult,
@@ -33,6 +34,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const { metaAdAccountId, creatives, assignments, adSetSuggestions } = body;
+  // Creative Integrity Mode defaults to ON when the caller omits the flag.
+  const strictMode: boolean = body.creativeIntegrityMode !== false;
+  console.log(
+    `[create-creatives-and-ads] creativeIntegrityMode=${strictMode ? "ON" : "OFF"}`,
+  );
 
   if (!metaAdAccountId) {
     return NextResponse.json(
@@ -77,6 +83,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let payload;
     try {
       payload = buildCreativePayload(creative);
+      if (strictMode) {
+        const report = sanitizeCreativeForStrictMode(payload);
+        console.log(
+          `[create-creatives-and-ads] strict mode applied for "${creative.name}":` +
+            ` strippedTopLevel=${report.strippedTopLevel.join(",") || "(none)"}` +
+            ` strippedLinkData=${report.strippedLinkData.join(",") || "(none)"}` +
+            ` optedOutFeatures=${report.optedOutFeatures.length}`,
+        );
+      } else {
+        console.warn(
+          `[create-creatives-and-ads] strict mode DISABLED for "${creative.name}"`,
+        );
+      }
     } catch (err) {
       failed.push({
         name: creative.name,
@@ -91,6 +110,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       const res = await createMetaCreative(metaAdAccountId, payload);
       metaCreativeId = res.id;
+      console.log(
+        `[create-creatives-and-ads] creative created: name="${creative.name}"` +
+          ` internalId=${creative.id} metaCreativeId=${metaCreativeId}` +
+          ` strictMode=${strictMode}`,
+      );
     } catch (err) {
       const message =
         err instanceof MetaApiError
@@ -130,6 +154,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try {
         const adRes = await createMetaAd(metaAdAccountId, adPayload);
         adsCreated.push({ adSetName: adSet.name, metaAdId: adRes.id });
+        console.log(
+          `[create-creatives-and-ads] ad created: adSetName="${adSet.name}"` +
+            ` metaAdId=${adRes.id} metaCreativeId=${metaCreativeId}` +
+            ` strictMode=${strictMode}`,
+        );
       } catch (err) {
         const message =
           err instanceof MetaApiError

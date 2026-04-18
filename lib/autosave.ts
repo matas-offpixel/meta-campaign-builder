@@ -270,6 +270,13 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
         draft.settings.existingMetaAdSet.id,
       );
     }
+
+    // Default Creative Integrity Mode → ON for any draft that pre-dates the
+    // flag. We only fill `undefined` so an explicit `false` survives the
+    // migration (future per-campaign override).
+    if (typeof draft.settings.creativeIntegrityMode !== "boolean") {
+      draft.settings.creativeIntegrityMode = true;
+    }
   }
 
   if (Array.isArray(draft.creatives)) {

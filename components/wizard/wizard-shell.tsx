@@ -594,6 +594,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
             onDismissLaunchError={dismissLaunchError}
             launchSummary={launchSummary}
             onGoToLibrary={() => router.push("/")}
+            onUpdateSettings={updateSettings}
           />
         )}
       </main>

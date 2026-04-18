@@ -77,6 +77,23 @@ interface MetaObjectStorySpec {
   video_data?: MetaVideoData;
 }
 
+/**
+ * Per-feature opt-out shape Meta uses inside `degrees_of_freedom_spec`.
+ *
+ * Each Advantage+ creative enhancement (image brightness/contrast, music,
+ * text variations, "standard enhancements", etc.) is its own switch. Setting
+ * `enroll_status: "OPT_OUT"` tells Meta we never want that feature applied
+ * to the creative — it's the Marketing-API equivalent of unticking the
+ * matching toggle in Ads Manager's Advantage+ creative panel.
+ *
+ * Reference: https://developers.facebook.com/docs/marketing-api/advantage-plus-creative
+ */
+export type CreativeFeatureOptOut = { enroll_status: "OPT_OUT" };
+
+export interface DegreesOfFreedomSpec {
+  creative_features_spec?: Record<string, CreativeFeatureOptOut>;
+}
+
 export interface MetaCreativePayload {
   name: string;
   /** Used for new ads (link / image) */
@@ -91,6 +108,12 @@ export interface MetaCreativePayload {
   source_instagram_media_id?: string;
   /** Required when `source_instagram_media_id` is set. */
   instagram_actor_id?: string;
+  /**
+   * Strict-mode opt-outs for Advantage+ creative enhancements. Populated by
+   * {@link sanitizeCreativeForStrictMode}; never set directly by the
+   * per-source builders. See its docstring for the full feature list.
+   */
+  degrees_of_freedom_spec?: DegreesOfFreedomSpec;
 }
 
 export interface MetaAdPayload {
@@ -114,6 +137,12 @@ export interface CreateCreativesAndAdsRequest {
   assignments: Record<string, string[]>;
   /** Ad set suggestions with metaAdSetId populated (from Phase 4) */
   adSetSuggestions: AdSetSuggestion[];
+  /**
+   * Creative Integrity Mode — strips Advantage+ enhancements + auto-added
+   * assets before each `/adcreatives` POST. Defaults to `true` server-side
+   * if omitted, matching the wizard's default behaviour.
+   */
+  creativeIntegrityMode?: boolean;
 }
 
 export interface CreativeCreationResult {
@@ -441,4 +470,170 @@ export function validateCreativePayload(creative: AdCreativeDraft): {
   }
 
   return { isValid: errors.length === 0, errors };
+}
+
+// ─── Creative Integrity Mode (strict sanitizer) ──────────────────────────────
+
+/**
+ * Every Advantage+ / auto-enhancement Marketing-API feature key we know of.
+ * Each one is forced to `OPT_OUT` when Creative Integrity Mode is on.
+ *
+ * Keys mirror what Meta documents under
+ * `creative_features_spec` on the ad creative endpoint. Unknown keys are
+ * silently ignored by Meta, but adding a non-existent key has historically
+ * been safe — Meta validates the *value* shape, not the key whitelist. We
+ * still keep the list reasonably tight so the outbound payload stays small.
+ *
+ * If any of these names becomes invalid in a future Meta release the worst
+ * case is a single creative POST returns a 400, which the launch route
+ * surfaces and reports — drop the offending key from the list and re-deploy.
+ */
+const STRICT_MODE_FEATURE_OPT_OUTS: readonly string[] = [
+  // Umbrella switch — Meta treats this as "all default Advantage+ creative".
+  "standard_enhancements",
+  "advantage_plus_creative",
+  // Image transforms
+  "image_brightness_and_contrast",
+  "image_uncrop",
+  "image_touchups",
+  "image_background_gen",
+  "image_templates",
+  "image_enhancement",
+  // Video transforms
+  "video_auto_crop",
+  "video_filtering",
+  "video_highlights",
+  // Copy / text
+  "text_optimizations",
+  "text_generation",
+  "description_automation",
+  "adapt_to_placement",
+  // Add-ons
+  "music",
+  "site_extensions",
+  "product_extensions",
+  "media_type_automation",
+  "3d_animation",
+  "inline_comment",
+  // Catalog / dynamic
+  "catalog_items",
+];
+
+/**
+ * Fields anywhere inside `link_data` that represent auto-added assets
+ * (sitelinks, callouts, app links, dynamic-ad children, etc.). Stripped
+ * entirely so an upstream tweak can't sneak them in.
+ */
+const STRICT_MODE_LINK_DATA_STRIPS: readonly string[] = [
+  "child_attachments",
+  "app_link_spec",
+  "preferred_image_tags",
+  "format_option",
+  "attachment_style",
+  "collection_thumbnails",
+  "dynamic_ad_voice",
+  "event_id",
+  "show_multiple_images",
+  "additional_image_index",
+  "branded_content_shared_to_sponsor_status",
+];
+
+/** Top-level keys on the creative payload that imply auto-content. */
+const STRICT_MODE_TOP_LEVEL_STRIPS: readonly string[] = [
+  "asset_feed_spec",
+  "dynamic_ad_voice",
+  "product_set_id",
+  "applink_treatment",
+  "template_url_spec",
+  "recommender_settings",
+  "use_page_actor_override",
+  "branded_content_sponsor_page_id",
+];
+
+/**
+ * Result of running {@link sanitizeCreativeForStrictMode}. Surfaced in the
+ * launch route so the per-creative log can report exactly what we stripped
+ * and which opt-outs we attached.
+ */
+export interface StrictModeSanitizationReport {
+  /** Always `true` — included so callers can structure-log unconditionally. */
+  applied: true;
+  /** Top-level keys removed from the creative payload. */
+  strippedTopLevel: string[];
+  /**
+   * `link_data` sub-keys removed. Only populated when the creative has a
+   * `link_data` block (image / link creatives).
+   */
+  strippedLinkData: string[];
+  /** `creative_features_spec` keys we forced to OPT_OUT. */
+  optedOutFeatures: string[];
+}
+
+/**
+ * Mutates `payload` in place to enforce **Creative Integrity Mode**: ads
+ * publish exactly as configured, with every known Advantage+ enhancement
+ * and every auto-added asset disabled.
+ *
+ * Concretely this:
+ *   1. Removes top-level fields that introduce auto content
+ *      (`asset_feed_spec`, `product_set_id`, `template_url_spec`, …).
+ *   2. Strips known sitelink / dynamic-children / app-link fields from
+ *      `object_story_spec.link_data`.
+ *   3. Adds `degrees_of_freedom_spec.creative_features_spec` with every
+ *      enhancement forced to `enroll_status: "OPT_OUT"`.
+ *
+ * Inputs that the user explicitly chose are **never touched**: page id,
+ * Instagram actor id, uploaded media (image_hash / image_url / video_id),
+ * caption text, headline, description, destination URL, CTA, and the
+ * existing-post id.
+ *
+ * Idempotent — calling twice is safe; the second call is a no-op for keys
+ * that were already removed and re-asserts the same opt-out spec.
+ */
+export function sanitizeCreativeForStrictMode(
+  payload: MetaCreativePayload,
+): StrictModeSanitizationReport {
+  const strippedTopLevel: string[] = [];
+  const strippedLinkData: string[] = [];
+
+  // Cast to a permissive record so we can probe & delete unknown auto-fields
+  // that callers may add later without having to widen MetaCreativePayload.
+  const bag = payload as unknown as Record<string, unknown>;
+  for (const key of STRICT_MODE_TOP_LEVEL_STRIPS) {
+    if (key in bag) {
+      delete bag[key];
+      strippedTopLevel.push(key);
+    }
+  }
+
+  const linkData = payload.object_story_spec?.link_data as
+    | (Record<string, unknown> & { call_to_action?: unknown })
+    | undefined;
+  if (linkData) {
+    for (const key of STRICT_MODE_LINK_DATA_STRIPS) {
+      if (key in linkData) {
+        delete linkData[key];
+        strippedLinkData.push(key);
+      }
+    }
+  }
+
+  // Force every known feature to OPT_OUT. Merge with any pre-existing spec
+  // so an explicit caller opt-in (e.g. a future override) isn't silently
+  // overridden — but the strict list always wins for keys it owns.
+  const existing = payload.degrees_of_freedom_spec?.creative_features_spec ?? {};
+  const optedOutFeatures: string[] = [];
+  const merged: Record<string, CreativeFeatureOptOut> = { ...existing };
+  for (const feature of STRICT_MODE_FEATURE_OPT_OUTS) {
+    merged[feature] = { enroll_status: "OPT_OUT" };
+    optedOutFeatures.push(feature);
+  }
+  payload.degrees_of_freedom_spec = { creative_features_spec: merged };
+
+  return {
+    applied: true,
+    strippedTopLevel,
+    strippedLinkData,
+    optedOutFeatures,
+  };
 }

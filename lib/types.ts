@@ -786,6 +786,19 @@ export interface CampaignSettings {
   wizardMode?: WizardMode;
 
   /**
+   * **Creative Integrity Mode** — when `true` (default), every ad creative
+   * POST is run through {@link sanitizeCreativeForStrictMode} so Meta
+   * publishes the ad exactly as configured: no Advantage+ enhancements, no
+   * music overlays, no auto sitelinks/callouts, no dynamic creative, no
+   * catalog attachments. Stored on the draft so a per-campaign override
+   * (future setting) can disable it without changing the global default.
+   *
+   * Defaults to `true` for any draft created before the flag existed via
+   * `migrateDraft`.
+   */
+  creativeIntegrityMode?: boolean;
+
+  /**
    * Snapshot of the live Meta campaign chosen via the picker when
    * {@link wizardMode} is `"attach_campaign"` or `"attach_adset"`. Captured at
    * selection time so the review step can show the chosen campaign without

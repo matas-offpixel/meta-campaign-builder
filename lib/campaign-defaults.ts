@@ -32,6 +32,11 @@ export function createDefaultDraft(): CampaignDraft {
       metaPageId: undefined,
       metaPixelId: undefined,
       metaIGAccountId: undefined,
+      // Creative Integrity Mode is ON by default — every ad publishes exactly
+      // as configured, with no Advantage+ enhancements, no auto sitelinks, and
+      // no music overlays. Users can toggle it off per draft from the Review
+      // step. See `sanitizeCreativeForStrictMode` in lib/meta/creative.ts.
+      creativeIntegrityMode: true,
     },
     audiences: {
       pageGroups: [],

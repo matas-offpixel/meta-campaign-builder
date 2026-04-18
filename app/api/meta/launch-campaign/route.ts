@@ -48,6 +48,7 @@ import {
   buildAdPayload,
   invertAssignments,
   validateCreativePayload,
+  sanitizeCreativeForStrictMode,
 } from "@/lib/meta/creative";
 import type {
   CampaignDraft,
@@ -202,6 +203,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //   - "attach_adset"    → ensure both picker selections (campaign + ad set)
   //                         are present and that they're consistent.
   const wizardMode: WizardMode = draft.settings.wizardMode ?? "new";
+  // Creative Integrity Mode — defaults to ON for any draft that pre-dates
+  // the flag (also enforced in `migrateDraft`). Read once and reused inside
+  // the Phase 3 creative loop and in the launch summary.
+  const strictMode: boolean =
+    draft.settings.creativeIntegrityMode !== false;
+  console.log(
+    `[launch-campaign] creativeIntegrityMode=${strictMode ? "ON" : "OFF"}`,
+  );
   const attachTargetId = draft.settings.existingMetaCampaign?.id;
   // Multi-select: prefer `existingMetaAdSets` (array). Fall back to the
   // legacy singular field for drafts that pre-date the multi-select rollout
@@ -1768,6 +1777,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       let creativePayload;
       try {
         creativePayload = buildCreativePayload(creative);
+
+        // ── Creative Integrity Mode (strict sanitizer) ─────────────────────
+        // Default ON; settable per-draft via `creativeIntegrityMode`. The
+        // sanitizer mutates the payload in place to opt out of every
+        // Advantage+ enhancement and to strip any auto-added asset fields
+        // before we POST to Meta. We log strict-mode = false explicitly so
+        // launches that disable the safeguard are auditable.
+        if (strictMode) {
+          const report = sanitizeCreativeForStrictMode(creativePayload);
+          console.log(
+            `[launch-campaign] Phase 3 — strict mode applied for "${creative.name}":` +
+              ` strippedTopLevel=${report.strippedTopLevel.join(",") || "(none)"}` +
+              ` strippedLinkData=${report.strippedLinkData.join(",") || "(none)"}` +
+              ` optedOutFeatures=${report.optedOutFeatures.length}`,
+          );
+        } else {
+          console.warn(
+            `[launch-campaign] Phase 3 — strict mode DISABLED for "${creative.name}"` +
+              ` — Meta may apply Advantage+ enhancements automatically.`,
+          );
+        }
+
         // Log exact outbound creative payload
         console.log(
           `[launch-campaign] Phase 3 — OUTBOUND creative payload for "${creative.name}":`,
@@ -1784,7 +1815,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const creativeRes = await createMetaCreative(adAccountId, creativePayload);
         metaCreativeId = creativeRes.id;
         const dur = elapsed(cStart);
-        console.log(`[launch-campaign] Phase 3 ✓  creative: ${creative.name} → ${metaCreativeId} (${dur}ms)`);
+        console.log(
+          `[launch-campaign] Phase 3 ✓  creative: ${creative.name} → ${metaCreativeId}` +
+            ` (${dur}ms) strictMode=${strictMode}`,
+        );
 
         const cIdx = updatedCreatives.findIndex((c) => c.id === creative.id);
         if (cIdx !== -1) updatedCreatives[cIdx] = { ...updatedCreatives[cIdx], metaCreativeId };

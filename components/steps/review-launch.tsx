@@ -22,8 +22,9 @@ import {
   Info,
   Clock,
   RefreshCw,
+  ShieldCheck,
 } from "lucide-react";
-import type { CampaignDraft, LaunchSummary } from "@/lib/types";
+import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 
@@ -37,6 +38,11 @@ interface ReviewLaunchProps {
   /** Populated after a successful launch — triggers the success state */
   launchSummary?: LaunchSummary | null;
   onGoToLibrary?: () => void;
+  /**
+   * Optional escape hatch for review-only fields (currently the Creative
+   * Integrity Mode toggle). If absent the toggle renders read-only.
+   */
+  onUpdateSettings?: (settings: CampaignSettings) => void;
 }
 
 // ── Launch event types ────────────────────────────────────────────────────────
@@ -913,6 +919,7 @@ export function ReviewLaunch({
   onDismissLaunchError,
   launchSummary,
   onGoToLibrary,
+  onUpdateSettings,
 }: ReviewLaunchProps) {
   const allValidation = validateStep(7, draft);
   const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
@@ -925,6 +932,15 @@ export function ReviewLaunch({
   const attachedAdSetSnapshots =
     draft.settings.existingMetaAdSets ??
     (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
+
+  // Creative Integrity Mode — defaults to ON for any draft missing the flag.
+  // The toggle below mirrors the wizard default so launches always disclose
+  // the current behaviour even on legacy drafts.
+  const creativeIntegrityMode = draft.settings.creativeIntegrityMode !== false;
+  const setCreativeIntegrityMode = (value: boolean) => {
+    if (!onUpdateSettings) return;
+    onUpdateSettings({ ...draft.settings, creativeIntegrityMode: value });
+  };
 
   const adAccountId =
     draft.settings.metaAdAccountId || draft.settings.adAccountId || undefined;
@@ -1106,6 +1122,58 @@ export function ReviewLaunch({
 
       {/* Pre-launch health — only before first launch */}
       {!launchSummary && !isLaunching && <PreLaunchHealthCard draft={draft} />}
+
+      {/* Creative Integrity Mode — global publish-as-uploaded safeguard */}
+      <Card>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <ShieldCheck
+              className={`mt-0.5 h-5 w-5 shrink-0 ${
+                creativeIntegrityMode ? "text-success" : "text-muted-foreground"
+              }`}
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base">Creative Integrity Mode</CardTitle>
+                <Badge
+                  variant={creativeIntegrityMode ? "primary" : "outline"}
+                  className="text-[10px]"
+                >
+                  {creativeIntegrityMode ? "ON" : "OFF"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Publish ads exactly as uploaded. Disables AI enhancements and
+                automatic creative changes — no Advantage+, no music, no auto
+                sitelinks, no dynamic creative, no catalog attachments.
+              </p>
+              {!creativeIntegrityMode && (
+                <p className="mt-1.5 text-[11px] text-amber-700">
+                  Meta may automatically apply Advantage+ enhancements to your
+                  creatives.
+                </p>
+              )}
+            </div>
+          </div>
+          {/* Inline toggle — disabled when no settings updater is wired in. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={creativeIntegrityMode}
+            aria-label="Toggle Creative Integrity Mode"
+            disabled={!onUpdateSettings || isLaunching || Boolean(launchSummary)}
+            onClick={() => setCreativeIntegrityMode(!creativeIntegrityMode)}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors
+              disabled:cursor-not-allowed disabled:opacity-60
+              ${creativeIntegrityMode ? "bg-foreground" : "bg-border"}`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform
+                ${creativeIntegrityMode ? "translate-x-5" : "translate-x-0.5"}`}
+            />
+          </button>
+        </div>
+      </Card>
 
       {/* Campaign Summary */}
       <Card>
