@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useMemo, useEffect, useId } from "react"
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
@@ -100,7 +101,9 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   useEffect(() => { creativesRef.current = creatives; }, [creatives]);
 
   // ── Real Meta identity data ────────────────────────────────────────────────
-  const pages = useFetchPages();
+  // Pass adAccountId so the BM-aware /pages?adAccountId= endpoint is used,
+  // and so the module-level cache key matches across wizard-step remounts.
+  const pages = useFetchPages(adAccountId);
   const igAccounts = useFetchInstagramAccounts();
 
   const active = creatives.find((c) => c.id === activeId);
@@ -607,20 +610,23 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                   {/* Identity: Page + IG */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Select
+                      <Combobox
                         label="Facebook Page"
                         value={active.identity?.pageId ?? ""}
-                        onChange={(e) => handlePageChange(active.id, e.target.value)}
-                        placeholder={
-                          pages.loading ? "Loading pages…" : "Select page…"
-                        }
-                        disabled={pages.loading}
-                        options={[
-                          { value: "", label: "— Select page —" },
-                          ...pages.data.map((p) => ({ value: p.id, label: p.name })),
-                        ]}
+                        onChange={(pageId) => handlePageChange(active.id, pageId)}
+                        placeholder="Select page…"
+                        loading={pages.loading && pages.data.length === 0}
+                        emptyText="No pages found"
+                        options={pages.data.map((p) => ({
+                          value: p.id,
+                          label: p.name,
+                          sublabel: p.category ?? undefined,
+                        }))}
                       />
-                      <FieldStatus loading={pages.loading} error={pages.error} />
+                      <FieldStatus
+                        loading={pages.loading && pages.data.length === 0}
+                        error={pages.error}
+                      />
                     </div>
                     <div>
                       {/* IG dropdown — three sources merged in priority order:

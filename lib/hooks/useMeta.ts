@@ -54,12 +54,28 @@ async function apiFetch<T>(url: string): Promise<T[]> {
   return json.data ?? [];
 }
 
+// ─── Module-level caches ─────────────────────────────────────────────────────
+//
+// These survive component unmount/remount (e.g. wizard step navigation). On
+// remount the hook returns cached data immediately with loading=false, giving
+// the UI a stable value while a background revalidation completes.
+// This fixes the "page selection appears to reset" bug: the Creatives step
+// unmounts when the user navigates to another wizard step, then remounts on
+// return. Without a cache, pages reload with loading=true, the Select options
+// are briefly empty, and HTML native selects show the placeholder instead of
+// the persisted draft value — making it look like the selection was cleared.
+
+let _adAccountsCache: MetaAdAccount[] | null = null;
+// key: adAccountId ?? "__me__"
+const _pagesCache = new Map<string, MetaApiPage[]>();
+
 // ─── useFetchAdAccounts ───────────────────────────────────────────────────────
 
 export function useFetchAdAccounts(): MetaFetchState<MetaAdAccount> {
+  const cached = _adAccountsCache;
   const [state, setState] = useState<MetaFetchState<MetaAdAccount>>({
-    data: [],
-    loading: true,
+    data: cached ?? [],
+    loading: cached === null,
     error: null,
   });
 
@@ -68,13 +84,16 @@ export function useFetchAdAccounts(): MetaFetchState<MetaAdAccount> {
 
     apiFetch<MetaAdAccount>("/api/meta/ad-accounts")
       .then((data) => {
-        if (!cancelled) setState({ data, loading: false, error: null });
+        if (!cancelled) {
+          _adAccountsCache = data;
+          setState({ data, loading: false, error: null });
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           const msg =
             err instanceof Error ? err.message : "Failed to load ad accounts";
-          setState({ data: [], loading: false, error: msg });
+          setState({ data: _adAccountsCache ?? [], loading: false, error: msg });
         }
       });
 
@@ -92,19 +111,29 @@ export function useFetchAdAccounts(): MetaFetchState<MetaAdAccount> {
  * Fetches Business Manager pages when `adAccountId` is provided (passes it to
  * the route which resolves the business and calls /{businessId}/owned_pages).
  * Without `adAccountId` falls back to /me/accounts.
+ *
+ * Results are cached in a module-level Map keyed by adAccountId so remounts
+ * (e.g. navigating between wizard steps) return the previous data immediately
+ * rather than flickering back to the loading/empty state.
  */
 export function useFetchPages(
   adAccountId?: string,
 ): MetaFetchState<MetaApiPage> {
+  const cacheKey = adAccountId ?? "__me__";
+  const cached = _pagesCache.get(cacheKey) ?? null;
+
   const [state, setState] = useState<MetaFetchState<MetaApiPage>>({
-    data: [],
-    loading: true,
+    data: cached ?? [],
+    loading: cached === null,
     error: null,
   });
 
   useEffect(() => {
     let cancelled = false;
-    setState({ data: [], loading: true, error: null });
+    // Only show loading spinner if we have no cached data yet
+    if (!_pagesCache.has(cacheKey)) {
+      setState((s) => ({ ...s, loading: true }));
+    }
 
     const url = adAccountId
       ? `/api/meta/pages?adAccountId=${encodeURIComponent(adAccountId)}`
@@ -112,19 +141,24 @@ export function useFetchPages(
 
     apiFetch<MetaApiPage>(url)
       .then((data) => {
-        if (!cancelled) setState({ data, loading: false, error: null });
+        if (!cancelled) {
+          _pagesCache.set(cacheKey, data);
+          setState({ data, loading: false, error: null });
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           const msg =
             err instanceof Error ? err.message : "Failed to load pages";
-          setState({ data: [], loading: false, error: msg });
+          // Keep cached data on error so UI doesn't blank out
+          setState({ data: _pagesCache.get(cacheKey) ?? [], loading: false, error: msg });
         }
       });
 
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adAccountId]);
 
   return state;

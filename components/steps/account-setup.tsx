@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, AlertTriangle, RefreshCw, Loader2, Link2, CheckCircle2 } from "lucide-react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
@@ -320,24 +321,29 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
         )}
 
         <div className="mt-3">
-          <Select
+          <Combobox
             value={settings.metaAdAccountId ?? ""}
-            onChange={(e) => handleAccountChange(e.target.value)}
+            onChange={handleAccountChange}
             placeholder={
               accounts.loading ? "Loading accounts…" : "Select ad account…"
             }
-            disabled={accounts.loading || accounts.data.length === 0}
+            loading={accounts.loading && accounts.data.length === 0}
+            disabled={accounts.data.length === 0 && !accounts.loading}
+            emptyText="No ad accounts found"
             options={accounts.data.map((a) => ({
               value: a.id,
-              label: `${a.name} · ${a.currency} · ${accountStatusLabel(a.account_status)}`,
+              label: a.name,
+              sublabel: `${a.id} · ${a.currency} · ${accountStatusLabel(a.account_status)}`,
+              // De-emphasise non-Active statuses
+              dimmed: a.account_status !== 1,
             }))}
           />
           <FieldStatus
-            loading={accounts.loading}
+            loading={accounts.loading && accounts.data.length === 0}
             error={accounts.error}
             count={accounts.data.length}
           />
-          {/* Debug info — visible in development, low-key in prod */}
+          {/* Selected account id — low-key monospace reference */}
           {settings.metaAdAccountId && (
             <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
               {settings.metaAdAccountId}
