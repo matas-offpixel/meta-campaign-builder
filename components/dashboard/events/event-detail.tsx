@@ -25,6 +25,7 @@ import {
   type EventTab,
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
+import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
@@ -312,6 +313,24 @@ export function EventDetail({
               <VenueSection event={event} />
               <DatesSection event={event} />
               <LinksSection event={event} />
+              <GoogleDriveCard
+                eventId={event.id}
+                eventName={event.name}
+                clientName={event.client?.name ?? null}
+                folderId={
+                  // Migration 015 columns — typed as unknown until the
+                  // generated types catch up. Cast at this single read
+                  // boundary so consumers downstream stay strict.
+                  (event as unknown as {
+                    google_drive_folder_id?: string | null;
+                  }).google_drive_folder_id ?? null
+                }
+                folderUrl={
+                  (event as unknown as {
+                    google_drive_folder_url?: string | null;
+                  }).google_drive_folder_url ?? null
+                }
+              />
               {event.notes && <NotesSection notes={event.notes} />}
             </div>
           </TabPanel>
