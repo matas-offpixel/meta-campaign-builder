@@ -7,12 +7,14 @@ import type {
   CreativesPayload,
   CreativesResult,
   CustomDateRange,
+  DailySpendRow,
   DatePreset,
   EventInsightsPayload,
   InsightsError,
   InsightsResult,
   MetaCampaignRow,
   MetaTotals,
+  SpendByDayResult,
 } from "@/lib/insights/types";
 
 /**
@@ -897,6 +899,112 @@ function startOfTodayUtc(): Date {
   return new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
+}
+
+// ─── Public entrypoint: per-day spend (V.3, plan internal) ─────────────────
+
+export interface FetchEventSpendByDayArgs {
+  /** Bracket-naked event code, e.g. "UTB0042". The matcher wraps it. */
+  eventCode: string;
+  /** "act_…" prefixed ad account id (the form Meta expects in URLs). */
+  adAccountId: string;
+  /** OAuth token of the event owner. */
+  token: string;
+  /** YYYY-MM-DD inclusive lower bound. */
+  since: string;
+  /** YYYY-MM-DD inclusive upper bound. */
+  until: string;
+}
+
+/**
+ * Per-day spend totals for every campaign whose name contains
+ * `[eventCode]`, between `since` and `until` inclusive.
+ *
+ * Uses Meta's `time_increment=1` to get one row per day, plus
+ * `level=campaign` so the matched campaigns are aggregated server-side
+ * (we still re-sum locally because Meta returns one row PER (campaign,
+ * day) and the plan tracker only cares about the (day) total). Mirrors
+ * the bracket-wrap matching convention that `listCampaignsForEvent`
+ * uses everywhere else — campaigns built directly in Ads Manager
+ * (no campaign_drafts row) still get caught by the substring match.
+ *
+ * Distinct from `fetchEventInsights` (one row per campaign, lifetime
+ * or preset window) and `fetchEventCreatives` (per-ad). Internal-only:
+ * the plan tab consumes this for actual-vs-planned; the public share
+ * report does not.
+ */
+export async function fetchEventSpendByDay(
+  args: FetchEventSpendByDayArgs,
+): Promise<SpendByDayResult> {
+  const { eventCode, adAccountId, token, since, until } = args;
+  if (!eventCode.trim()) {
+    return errorResult("no_event_code", "Event has no event_code set.");
+  }
+  if (!adAccountId.trim()) {
+    return errorResult(
+      "no_ad_account",
+      "Client has no Meta ad account linked.",
+    );
+  }
+
+  // Reuse the same custom-range validator the report path uses, so
+  // the plan endpoint rejects the same out-of-bounds windows
+  // (since > until / future until / pre-retention since) with the
+  // typed `invalid_custom_range` reason. Validation happens before
+  // any Meta call to avoid spending a Graph hit on a bad request.
+  const validation = resolveCustomRange("custom", { since, until });
+  if (!validation.ok) return validation;
+
+  const account = ensureActPrefix(adAccountId);
+  const filtering = JSON.stringify([
+    { field: "campaign.name", operator: "CONTAIN", value: `[${eventCode}]` },
+  ]);
+  const timeRange = JSON.stringify({ since, until });
+
+  try {
+    // Aggregate per-day spend across pages. Meta returns one row per
+    // (campaign, day) at level=campaign + time_increment=1; we sum
+    // by day so the caller gets a single number per calendar date.
+    const totals = new Map<string, number>();
+
+    let after: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = {
+        fields: "spend,date_start",
+        level: "campaign",
+        time_increment: "1",
+        time_range: timeRange,
+        filtering,
+        action_attribution_windows: ATTRIBUTION_WINDOWS,
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<
+        GraphPaged<{ spend?: string; date_start?: string }>
+      >(`/${account}/insights`, params, token);
+
+      for (const row of res.data ?? []) {
+        const day = row.date_start;
+        if (!day) continue;
+        const spend = parseNum(row.spend);
+        totals.set(day, (totals.get(day) ?? 0) + spend);
+      }
+
+      after = res.paging?.cursors?.after;
+      if (!res.paging?.next || !after) break;
+    }
+
+    // Sort ascending so the consumer can zip against the plan's days
+    // array in order without an extra Map lookup per day.
+    const days: DailySpendRow[] = [...totals.entries()]
+      .map(([day, spend]) => ({ day, spend }))
+      .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+
+    return { ok: true, days };
+  } catch (err) {
+    return handleMetaError(err);
+  }
 }
 
 function handleMetaError(err: unknown): { ok: false; error: InsightsError } {

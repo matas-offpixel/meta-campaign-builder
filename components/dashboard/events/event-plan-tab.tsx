@@ -1,9 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
 import { EventPlanCreateCta } from "@/components/dashboard/events/event-plan-create-cta";
+import { PlanActualsTable } from "@/components/dashboard/events/plan-actuals-table";
 import { PlanHeader } from "@/components/dashboard/events/plan-header";
 import {
   PlanDailyGrid,
@@ -79,8 +87,97 @@ export function EventPlanTab({
   const [days, setDays] = useState<AdPlanDay[]>(initialDays);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [actuals, setActuals] = useState<ActualsState>({ kind: "loading" });
   const gridRef = useRef<PlanGridHandle>(null);
   const router = useRouter();
+
+  // Local-tz YYYY-MM-DD frozen at mount. Same idiom PlanStatCards uses
+  // — we don't need a live ticker for date crossover; component
+  // re-renders on day-data changes anyway, and the value is shared
+  // with PlanActualsTable so both components agree on "today" within
+  // a single render pass.
+  const todayIso = useMemo(
+    () => new Date().toLocaleDateString("en-CA"),
+    [],
+  );
+
+  // Lazy per-day Meta spend. Window = plan.start_date → min(end_date,
+  // todayIso) — Meta's API rejects future `until` dates, and there's
+  // no point asking about days that haven't happened. The fetch keys
+  // on (eventId, plan.start_date, capped end) so a header re-sync that
+  // shifts the plan window also re-fetches actuals.
+  const actualSince = plan?.start_date ?? null;
+  const actualUntil =
+    plan != null ? minIso(plan.end_date, todayIso) : null;
+  // Plan starts in the future → no actuals possible yet; surface an
+  // empty "ok" payload so the table renders planned/zero/delta without
+  // a Loading badge that never resolves.
+  const futurePlan =
+    actualSince != null &&
+    actualUntil != null &&
+    actualSince > actualUntil;
+
+  // Reset the actuals state in render whenever the fetch key changes
+  // (React 19 "adjust state when props change" idiom). Using useEffect
+  // for this would trigger react-hooks/set-state-in-effect because the
+  // setState fires synchronously on every key change. The async fetch
+  // itself stays in useEffect below.
+  const fetchKey = `${event.id}:${actualSince ?? ""}:${actualUntil ?? ""}:${
+    futurePlan ? "future" : "live"
+  }`;
+  const [trackedKey, setTrackedKey] = useState<string>(fetchKey);
+  if (trackedKey !== fetchKey) {
+    setTrackedKey(fetchKey);
+    setActuals(
+      futurePlan
+        ? { kind: "ok", actualByDay: new Map() }
+        : { kind: "loading" },
+    );
+  }
+
+  useEffect(() => {
+    if (!plan || !actualSince || !actualUntil || futurePlan) return;
+    let cancelled = false;
+    const url = `/api/insights/event/${encodeURIComponent(event.id)}/spend-by-day?since=${actualSince}&until=${actualUntil}`;
+    fetch(url, { method: "GET", cache: "no-store" })
+      .then(async (res) => {
+        const json = (await res.json()) as
+          | { ok: true; days: { day: string; spend: number }[] }
+          | { ok: false; error: { reason: string; message: string } }
+          | { error: string };
+        if (cancelled) return;
+        if ("ok" in json && json.ok) {
+          const map = new Map<string, number>();
+          for (const row of json.days) map.set(row.day, row.spend);
+          setActuals({ kind: "ok", actualByDay: map });
+          return;
+        }
+        if ("ok" in json && !json.ok) {
+          setActuals({
+            kind: "error",
+            reason: json.error.reason,
+            message: json.error.message,
+          });
+          return;
+        }
+        setActuals({
+          kind: "error",
+          reason: "meta_api_error",
+          message: ("error" in json && json.error) || "Unknown error",
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setActuals({
+          kind: "error",
+          reason: "meta_api_error",
+          message: err instanceof Error ? err.message : "Network error",
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [event.id, plan, actualSince, actualUntil, futurePlan]);
 
   useEffect(() => {
     setPlan((prev) => {
@@ -310,6 +407,13 @@ export function EventPlanTab({
         saveDaysBulk={saveDaysBulk}
       />
 
+      <PlanActualsTable
+        plan={plan}
+        days={days}
+        todayIso={todayIso}
+        status={actuals}
+      />
+
       <section className="rounded-md border border-dashed border-border bg-card p-5">
         <div className="flex items-start gap-3">
           <Users className="mt-0.5 h-4 w-4 text-muted-foreground" />
@@ -327,6 +431,23 @@ export function EventPlanTab({
       </section>
     </div>
   );
+}
+
+/**
+ * Discriminated state for the lazy spend-by-day fetch. Mirrors the
+ * shape PlanActualsTable consumes; "loading" is the initial state +
+ * the in-flight state on every re-fetch, "ok" carries the per-day
+ * map, "error" carries the typed reason so the table can render the
+ * graceful-fail badge.
+ */
+type ActualsState =
+  | { kind: "loading" }
+  | { kind: "error"; reason: string; message: string }
+  | { kind: "ok"; actualByDay: Map<string, number> };
+
+/** YYYY-MM-DD lexicographic min — both inputs are date-only ISO strings. */
+function minIso(a: string, b: string): string {
+  return a < b ? a : b;
 }
 
 /**

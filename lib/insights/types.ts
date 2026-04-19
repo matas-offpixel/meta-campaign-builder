@@ -317,3 +317,24 @@ export interface CreativesPayload {
 export type CreativesResult =
   | { ok: true; data: CreativesPayload }
   | { ok: false; error: InsightsError };
+
+// ─── Spend by day (plan-internal, V.3) ─────────────────────────────────────
+
+/**
+ * One per-day spend datum for the plan's actual-vs-planned column.
+ *
+ * Returned by `/api/insights/event/[eventId]/spend-by-day`. The shape
+ * is deliberately minimal: the plan UI only needs `spend` per day —
+ * impressions / reach / conversions belong to the report layer, not
+ * the budget tracker.
+ */
+export interface DailySpendRow {
+  /** YYYY-MM-DD in the ad account's reporting timezone. */
+  day: string;
+  /** Spend in GBP for that calendar day. 0 when Meta returned no row. */
+  spend: number;
+}
+
+export type SpendByDayResult =
+  | { ok: true; days: DailySpendRow[] }
+  | { ok: false; error: InsightsError };
