@@ -1,5 +1,5 @@
 // Generated from Supabase (project zbtldbfjbhfvpksmdvnt) via
-// `mcp generate_typescript_types` on 2026-04-19 (post-migration 010).
+// `mcp generate_typescript_types` on 2026-04-19 (post-migration 011).
 //
 // Regenerate with `supabase gen types typescript --project-id zbtldbfjbhfvpksmdvnt`
 // or via the Supabase MCP. Keep in sync with supabase/schema.sql.
