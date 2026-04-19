@@ -28,6 +28,7 @@ import type {
   AdPlanDayBulkPatch,
   AdPlanDayPatch,
 } from "@/lib/db/ad-plans";
+import type { EventKeyMoment } from "@/lib/db/event-key-moments";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Column model
@@ -449,6 +450,14 @@ function isInFillPreview(s: State, row: number, col: number): boolean {
 export interface PlanDailyGridProps {
   plan: AdPlan;
   days: AdPlanDay[];
+  /**
+   * Server-prefetched key moments for the parent event. Indexed by
+   * `moment_date` (YYYY-MM-DD) below; rows whose `day` matches a moment
+   * date get the moment label(s) appended inline in the Day column.
+   * Multiple moments on the same date are joined with " · ".
+   * Pure overlay — never mutated, never written from this component.
+   */
+  keyMoments?: EventKeyMoment[];
   /** Replace one day's row in the parent's local mirror (after a successful save). */
   onDaySaved: (day: AdPlanDay) => void;
   /** Surface a save error to the parent's banner. */
@@ -476,7 +485,15 @@ export interface PlanGridHandle {
 
 export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
   function PlanDailyGrid(
-    { plan, days, onDaySaved, onError, saveDay, saveDaysBulk }: PlanDailyGridProps,
+    {
+      plan,
+      days,
+      keyMoments = [],
+      onDaySaved,
+      onError,
+      saveDay,
+      saveDaysBulk,
+    }: PlanDailyGridProps,
     ref,
   ) {
   // Local optimistic mirror. Cells render from this in preference to the
@@ -536,6 +553,21 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
     if (plan.ticket_target == null || rowCount === 0) return null;
     return Math.floor(plan.ticket_target / rowCount);
   }, [plan.ticket_target, rowCount]);
+
+  // Moments index: YYYY-MM-DD → labels in moment_date order. Built
+  // once per `keyMoments` change and intentionally kept OUT of the
+  // COLUMNS const so the Day column's readRaw stays "{date}" — moment
+  // labels are render-only overlay and must not pollute TSV copy or
+  // selection sums. Multiple moments on the same date join with " · ".
+  const momentsByDate = useMemo<Map<string, string[]>>(() => {
+    const map = new Map<string, string[]>();
+    for (const m of keyMoments) {
+      const list = map.get(m.moment_date);
+      if (list) list.push(m.label);
+      else map.set(m.moment_date, [m.label]);
+    }
+    return map;
+  }, [keyMoments]);
 
   const reduce = useMemo(() => reducer(rowCount), [rowCount]);
   const [state, dispatch] = useReducer(reduce, INITIAL_STATE);
@@ -1030,6 +1062,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
                     dispatch={dispatch}
                     registerCell={registerCell(rowIdx, colIdx)}
                     ticketTargetGhost={ticketTargetGhost}
+                    momentLabels={momentsByDate.get(day.day) ?? null}
                     editInputRef={
                       state.editing &&
                       state.editing.row === rowIdx &&
@@ -1084,6 +1117,13 @@ interface PlanCellProps {
    * Rendered as a faded ghost in cells where day.ticket_target is null.
    */
   ticketTargetGhost: number | null;
+  /**
+   * Key-moment labels for this row's date (e.g. "3 months to go" or a
+   * manual lineup-drop tag). Null when the row's date doesn't match
+   * any moment. Only rendered inside the Day column — see PlanCell's
+   * `column.key === "day"` branch.
+   */
+  momentLabels: string[] | null;
   editInputRef: React.RefObject<HTMLInputElement | null> | null;
   onCommitEdit: () => void;
   showFillHandle: boolean;
@@ -1099,6 +1139,7 @@ function PlanCell({
   dispatch,
   registerCell,
   ticketTargetGhost,
+  momentLabels,
   editInputRef,
   onCommitEdit,
   showFillHandle,
@@ -1201,6 +1242,10 @@ function PlanCell({
       ) : column.role === "editable" && column.key === "day" ? (
         // Muted text on Sat/Sun rows. Matas doesn't work weekends;
         // visual dimming helps him plan ad-tweak days around Mon–Fri.
+        // Key-moment labels are appended inline (small + muted) when
+        // this row's date matches one or more moments. Multiple labels
+        // join with " · " to mirror the date/weekday separator already
+        // used by fmtDayWithWeekday.
         <span
           className={
             isWeekend(new Date(day.day + "T00:00:00"))
@@ -1209,6 +1254,11 @@ function PlanCell({
           }
         >
           {displayValue}
+          {momentLabels && momentLabels.length > 0 && (
+            <span className="ml-1 text-[10px] text-muted-foreground">
+              · {momentLabels.join(" · ")}
+            </span>
+          )}
         </span>
       ) : (
         <span className={displayValue ? "" : "text-muted-foreground/40"}>

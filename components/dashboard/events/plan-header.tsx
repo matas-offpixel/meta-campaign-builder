@@ -63,9 +63,11 @@ export function PlanHeader({
    * Phase-aware pacing: distributes the plan's total_budget across days
    * with intra-day Traffic / Conversion ratios that follow the event's
    * milestones (presale / on-sale / final 10 / event day) and bumps the
-   * Conversion share on UK paydays. Skips any day with manual edits in
-   * Traffic or Conversion. Same parent-owned bulk-write plumbing as
-   * onApplyEvenSpread.
+   * Conversion share on UK paydays. Overwrites every objective key on
+   * every day (Traffic, Conversion, Reach, Post engagement, TikTok,
+   * Google) — values not produced by the engine are cleared so the
+   * pacing values aren't double-counted alongside ingested channel
+   * spend. Same parent-owned bulk-write plumbing as onApplyEvenSpread.
    */
   onApplySmartSpread: () => Promise<void>;
   /**
@@ -245,9 +247,8 @@ export function PlanHeader({
             </span>
             /day to Conversion on all{" "}
             <span className="font-medium text-foreground">{daysCount}</span>{" "}
-            day{daysCount === 1 ? "" : "s"} and clear Traffic.
-            Reach, Post engagement, TikTok, and Google are not touched.
-            Continue?
+            day{daysCount === 1 ? "" : "s"} and clear every other objective
+            (Traffic, Reach, Post engagement, TikTok, Google). Continue?
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Button
@@ -277,11 +278,12 @@ export function PlanHeader({
       {smartPhase !== "idle" && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
           <span className="min-w-0 flex-1 text-muted-foreground">
-            Smart spread will replace Traffic and Conversion on all{" "}
+            Smart spread will overwrite ALL objective budgets on{" "}
             <span className="font-medium text-foreground">{daysCount}</span>{" "}
-            day{daysCount === 1 ? "" : "s"} using phase-aware pacing.
-            Reach, Post engagement, TikTok, and Google are not touched.
-            Continue?
+            day{daysCount === 1 ? "" : "s"}. Existing values across all
+            channels (Traffic, Conversion, Reach, Post engagement, TikTok,
+            Google) will be replaced with phase-aware Traffic + Conversion
+            pacing. Continue?
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Button

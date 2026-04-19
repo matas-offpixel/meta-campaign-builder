@@ -10,6 +10,7 @@ import {
   getPlanByEventIdServer,
   listDaysForPlanServer,
 } from "@/lib/db/ad-plans-server";
+import { listMomentsForEventServer } from "@/lib/db/event-key-moments-server";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -33,12 +34,21 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   //
   // Plan fetches are wrapped defensively: a schema mismatch or a missing
   // migration should degrade to the "no plan yet" CTA, not a hard 500.
-  const [event, drafts, planResult] = await Promise.all([
+  // Moments are fetched alongside event/drafts/plan so the plan grid
+  // overlays moment labels on first paint. Fetch is wrapped defensively
+  // for the same reason as the plan fetches: until migration 008 ships
+  // to every environment, a missing table should degrade to "no
+  // moments" rather than a hard 500.
+  const [event, drafts, planResult, keyMoments] = await Promise.all([
     getEventByIdServer(id),
     listDraftsForEventServer(id),
     getPlanByEventIdServer(id).catch((err) => {
       console.error("[EventDetailPage] getPlanByEventIdServer failed:", err);
       return null;
+    }),
+    listMomentsForEventServer(id).catch((err) => {
+      console.error("[EventDetailPage] listMomentsForEventServer failed:", err);
+      return [];
     }),
   ]);
 
@@ -61,6 +71,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       activeTab={activeTab}
       plan={plan}
       planDays={planDays}
+      keyMoments={keyMoments}
     />
   );
 }

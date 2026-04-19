@@ -35,6 +35,7 @@ import {
   type EventWithClient,
 } from "@/lib/db/events";
 import type { AdPlan, AdPlanDay } from "@/lib/db/ad-plans";
+import type { EventKeyMoment } from "@/lib/db/event-key-moments";
 import {
   fmtDate,
   fmtDateTime,
@@ -53,6 +54,13 @@ interface Props {
   plan: AdPlan | null;
   /** Day rows for the plan; empty when plan is null. */
   planDays: AdPlanDay[];
+  /**
+   * Key moments overlay for the plan grid (countdown phases, lineup
+   * drops, press hits). Server-prefetched so the grid paints with
+   * labels on first nav. Empty when migration 008 hasn't been applied
+   * yet — the grid degrades to a vanilla weekday display in that case.
+   */
+  keyMoments: EventKeyMoment[];
 }
 
 /**
@@ -68,6 +76,7 @@ export function EventDetail({
   activeTab,
   plan,
   planDays,
+  keyMoments,
 }: Props) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -261,7 +270,12 @@ export function EventDetail({
 
           {/* ───── Plan ───── */}
           <TabPanel active={activeTab === "plan"}>
-            <EventPlanTab event={event} plan={plan} initialDays={planDays} />
+            <EventPlanTab
+              event={event}
+              plan={plan}
+              initialDays={planDays}
+              initialKeyMoments={keyMoments}
+            />
           </TabPanel>
 
           {/* ───── Campaigns ───── */}

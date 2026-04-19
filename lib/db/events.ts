@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
+import { regenerateAutoMoments } from "@/lib/db/event-key-moments";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -141,7 +142,27 @@ export async function createEventRow(
     console.warn("Supabase createEvent error:", error.message);
     throw error;
   }
-  return (data as EventRow) ?? null;
+  const row = (data as EventRow) ?? null;
+  // Seed the time-based phase moments. RLS scopes both writes to
+  // auth.uid() so this only succeeds for the user that just inserted
+  // the event — no cross-user leak risk. A failed regenerate is logged
+  // but doesn't fail the create: the moments overlay is additive and
+  // the user can retry by editing event_date.
+  if (row?.event_date) {
+    try {
+      await regenerateAutoMoments({
+        eventId: row.id,
+        userId: row.user_id,
+        eventDate: row.event_date,
+      });
+    } catch (err) {
+      console.warn(
+        "createEventRow: regenerateAutoMoments failed, continuing.",
+        err,
+      );
+    }
+  }
+  return row;
 }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -151,6 +172,21 @@ export async function updateEventRow(
   patch: EventUpdate,
 ): Promise<EventRow | null> {
   const supabase = createClient();
+  // Snapshot the current event_date before the write so we can detect
+  // an actual mutation. We only regenerate auto moments when the date
+  // really changed — otherwise an unrelated patch (e.g. notes) would
+  // pointlessly thrash the table on every save.
+  const eventDateInPatch = "event_date" in patch;
+  let prevEventDate: string | null = null;
+  if (eventDateInPatch) {
+    const { data: prev } = await supabase
+      .from("events")
+      .select("event_date")
+      .eq("id", id)
+      .maybeSingle();
+    prevEventDate = (prev?.event_date as string | null) ?? null;
+  }
+
   const { data, error } = await supabase
     .from("events")
     .update(patch)
@@ -162,7 +198,27 @@ export async function updateEventRow(
     console.warn("Supabase updateEvent error:", error.message);
     throw error;
   }
-  return (data as EventRow) ?? null;
+  const row = (data as EventRow) ?? null;
+
+  // Regenerate auto moments only if the date actually changed. Manual
+  // moments are preserved by regenerateAutoMoments — it scopes its
+  // delete to source='auto'. A failed regenerate is logged but doesn't
+  // fail the update for the same reason as in createEventRow.
+  if (row && eventDateInPatch && row.event_date !== prevEventDate) {
+    try {
+      await regenerateAutoMoments({
+        eventId: row.id,
+        userId: row.user_id,
+        eventDate: row.event_date,
+      });
+    } catch (err) {
+      console.warn(
+        "updateEventRow: regenerateAutoMoments failed, continuing.",
+        err,
+      );
+    }
+  }
+  return row;
 }
 
 /**

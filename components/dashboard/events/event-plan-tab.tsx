@@ -23,7 +23,12 @@ import {
   type AdPlanPatch,
 } from "@/lib/db/ad-plans";
 import type { EventRow } from "@/lib/db/events";
+import type { EventKeyMoment } from "@/lib/db/event-key-moments";
 import { computeSmartSpread } from "@/lib/dashboard/pacing";
+import {
+  OBJECTIVE_KEYS,
+  type ObjectiveBudgets,
+} from "@/lib/dashboard/objectives";
 
 const INFO_AUTO_DISMISS_MS = 4000;
 
@@ -44,10 +49,18 @@ export function EventPlanTab({
   event,
   plan: initialPlan,
   initialDays,
+  initialKeyMoments = [],
 }: {
   event: EventRow;
   plan: AdPlan | null;
   initialDays: AdPlanDay[];
+  /**
+   * Server-prefetched moments for this event (countdown phases + manual
+   * lineup/press rows). Read-only here — passed straight through to the
+   * grid for inline overlay in the Day column. Empty when the moments
+   * table doesn't exist yet (pre-migration-008 environments).
+   */
+  initialKeyMoments?: EventKeyMoment[];
 }) {
   // Local plan state. Reseeded from prop on updated_at advance — same
   // newer-wins discipline the grid uses for its days mirror, so an
@@ -170,23 +183,23 @@ export function EventPlanTab({
       totalBudget: plan.total_budget,
     });
 
-    // Build patches that overwrite Traffic + Conversion on every day,
-    // preserving the other objective keys (Reach, Post engagement,
-    // TikTok, Google) — the sparse-map contract requires we round-trip
-    // the existing keys we don't own. Zero values for traffic /
-    // conversion are dropped so the persisted shape stays sparse —
-    // mirrors writeObjectiveBudget's deletion semantics. Without this
-    // a presale day would persist `traffic: 0` rather than the
-    // canonical absent-key form.
+    // Smart spread is overwrite-and-rebalance across ALL channels: the
+    // pacing engine only models Traffic + Conversion, but plans ingested
+    // from external sources (e.g. the Junction 2 Bridge sheets) carry
+    // values in Reach / Post engagement / TikTok / Google too. Leaving
+    // those intact would silently double-count budget against the
+    // pacing-engine values we're writing. Strip every objective key
+    // first, then layer the new (traffic, conversion) split on top.
+    // Zero values are dropped to keep the persisted map sparse —
+    // mirrors writeObjectiveBudget's deletion semantics.
     const patches: AdPlanDayBulkPatch[] = [];
     for (const d of days) {
       const share = perDay.get(d.day);
       if (!share) continue;
-      const merged = { ...(d.objective_budgets ?? {}) };
+      const merged: ObjectiveBudgets = { ...(d.objective_budgets ?? {}) };
+      for (const k of OBJECTIVE_KEYS) delete merged[k];
       if (share.traffic > 0) merged.traffic = share.traffic;
-      else delete merged.traffic;
       if (share.conversion > 0) merged.conversion = share.conversion;
-      else delete merged.conversion;
       patches.push({ id: d.id, objective_budgets: merged });
     }
 
@@ -199,7 +212,7 @@ export function EventPlanTab({
       setInfo(
         `Smart spread applied to ${appliedCount} day${
           appliedCount === 1 ? "" : "s"
-        }. Traffic and Conversion updated.`,
+        }. All objective budgets replaced with Traffic + Conversion.`,
       );
     } catch (err) {
       setError(
@@ -242,7 +255,9 @@ export function EventPlanTab({
       setInfo(
         `Applied £${perDay.toLocaleString("en-GB", {
           maximumFractionDigits: 2,
-        })}/day × ${days.length} day${days.length === 1 ? "" : "s"} to Conversion. Traffic cleared.`,
+        })}/day × ${days.length} day${
+          days.length === 1 ? "" : "s"
+        } to Conversion. All other objectives cleared.`,
       );
     } catch (err) {
       setError(
@@ -288,6 +303,7 @@ export function EventPlanTab({
         ref={gridRef}
         plan={plan}
         days={days}
+        keyMoments={initialKeyMoments}
         onDaySaved={handleDaySaved}
         onError={setError}
         saveDay={saveDay}
@@ -315,13 +331,13 @@ export function EventPlanTab({
 
 /**
  * Build patches that distribute `total` evenly across `days`:
- *   - Writes Conversion = perDay (last day absorbs rounding drift)
- *   - CLEARS Traffic on every day (deletes the key so the sparse-map
- *     contract is maintained — same zero-deletion rule writeObjectiveBudget
- *     uses). Clearing Traffic prevents double-counting budget when the
- *     user switches from Smart spread (which writes both Traffic and
- *     Conversion) to Even spread (Conversion only).
- *   - All other keys (Reach, Post engagement, TikTok, Google) are untouched.
+ *   - Writes Conversion = perDay (last day absorbs rounding drift).
+ *   - CLEARS every other objective key (Traffic, Reach, Post eng.,
+ *     TikTok, Google). Without this, ingested plans that carry channel
+ *     spend in any of those buckets would silently double-count budget
+ *     against the Conversion value we're writing. We loop over the
+ *     canonical OBJECTIVE_KEYS list so a future channel addition stays
+ *     covered automatically.
  *
  * Pennies lost to rounding accumulate on the LAST day so the column
  * sum equals `total` exactly:
@@ -338,10 +354,8 @@ function buildEvenSpreadPatches(
   const lastDay = Math.round((total - perDay * (N - 1)) * 100) / 100;
 
   return days.map((d, i) => {
-    const merged = { ...(d.objective_budgets ?? {}) };
-    // Clear Traffic so Even spread's Conversion-only budget isn't
-    // double-counted alongside stale Traffic from a prior Smart spread.
-    delete merged.traffic;
+    const merged: ObjectiveBudgets = { ...(d.objective_budgets ?? {}) };
+    for (const k of OBJECTIVE_KEYS) delete merged[k];
     merged.conversion = i === N - 1 ? lastDay : perDay;
     return { id: d.id, objective_budgets: merged };
   });
