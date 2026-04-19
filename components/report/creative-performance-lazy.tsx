@@ -320,12 +320,20 @@ function CreativeCard({ row }: { row: CreativeRow }) {
 
         <div className="grid grid-cols-2 gap-2 self-start text-xs">
           <PerfStat label="Spend" value={fmtCurrency(row.spend)} />
-          <PerfStat label="LPV" value={fmtInt(row.landingPageViews)} />
+          <PerfStat
+            label="LPV"
+            value={fmtInt(row.landingPageViews)}
+            sub={formatCostPerSub(row.spend, row.landingPageViews, "LPV")}
+          />
           <PerfStat label="Regs" value={fmtInt(row.registrations)} />
           <PerfStat label="Purch" value={fmtInt(row.purchases)} />
           <PerfStat label="Reach" value={fmtInt(row.reach)} />
           <PerfStat label="Impr" value={fmtInt(row.impressions)} />
-          <PerfStat label="CPLPV" value={row.cplpv > 0 ? fmtCurrency(row.cplpv) : "—"} />
+          <PerfStat
+            label="Clicks"
+            value={fmtInt(row.clicks)}
+            sub={formatCostPerSub(row.spend, row.clicks, "click")}
+          />
           <PerfStat label="CPR" value={row.cpr > 0 ? fmtCurrency(row.cpr) : "—"} />
         </div>
       </div>
@@ -373,15 +381,61 @@ function PreviewSlot({
   );
 }
 
-function PerfStat({ label, value }: { label: string; value: string }) {
+function PerfStat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  /**
+   * Optional muted line under the headline value. Mirrors the
+   * `Metric.sub` pattern on the event-level cards — used here for
+   * derived cost-per-LPV / cost-per-click figures so the per-creative
+   * cards carry the same divide-by-zero guarded sub-line as the
+   * aggregate row above. Null/undefined renders nothing.
+   */
+  sub?: string | null;
+}) {
   return (
     <div className="rounded-md border border-border bg-background px-2 py-1.5">
       <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p className="font-mono text-xs text-foreground">{value}</p>
+      {sub ? (
+        <p className="mt-0.5 text-[9px] text-muted-foreground">{sub}</p>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Per-creative cost-per sub-line. Mirrors the helper of the same name
+ * in `event-report-view.tsx` — duplicated rather than hoisted because
+ * the report-view file is "use client" too and importing it here would
+ * pull the entire view bundle into the lazy chunk.
+ *
+ * Returns null when the denominator is missing or zero so the call
+ * site can render an em-dash (or simply omit the sub-line).
+ */
+function formatCostPerSub(
+  numerator: number | null | undefined,
+  denominator: number | null | undefined,
+  unit: string,
+): string | null {
+  if (numerator == null || denominator == null) return null;
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) return null;
+  if (denominator <= 0) return null;
+  const value = numerator / denominator;
+  if (!Number.isFinite(value)) return null;
+  const formatted = value.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${formatted} per ${unit}`;
 }
 
 function SkeletonGrid() {

@@ -268,8 +268,21 @@ export function EventReportView({
             <Metric
               label="Landing page views"
               value={fmtInt(insights.totals.landingPageViews)}
+              sub={formatCostPerSub(
+                insights.totalSpend,
+                insights.totals.landingPageViews,
+                "LPV",
+              )}
             />
-            <Metric label="Clicks" value={fmtInt(insights.totals.clicks)} />
+            <Metric
+              label="Clicks"
+              value={fmtInt(insights.totals.clicks)}
+              sub={formatCostPerSub(
+                insights.totalSpend,
+                insights.totals.clicks,
+                "click",
+              )}
+            />
             <Metric
               label="Registrations"
               value={fmtInt(insights.totals.registrations)}
@@ -666,15 +679,58 @@ function StatCard({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  /**
+   * Optional muted line below the value. Used for derived figures
+   * (e.g. cost-per) that always belong with the headline number — same
+   * pattern as `StatCard.sub`. Null/undefined renders nothing.
+   */
+  sub?: string | null;
+}) {
   return (
     <div className="rounded-md border border-border bg-card p-3">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p className="mt-1 font-mono text-sm text-foreground">{value}</p>
+      {sub ? (
+        <p className="mt-0.5 text-[10px] text-muted-foreground">{sub}</p>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Format `spend / count` as a "£X.XX per <unit>" sub-line for a Metric
+ * card (LPV, Clicks). Returns null when the denominator is missing or
+ * zero so the caller can render an em-dash / nothing instead of
+ * "£NaN per click". Currency-formatted via en-GB locale to keep two
+ * decimals — `fmtCurrency` rounds to whole pounds for sums, which
+ * collapses cost-per values that are typically <£1.
+ */
+function formatCostPerSub(
+  numerator: number | null | undefined,
+  denominator: number | null | undefined,
+  unit: string,
+): string | null {
+  if (numerator == null || denominator == null) return null;
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) return null;
+  if (denominator <= 0) return null;
+  const value = numerator / denominator;
+  if (!Number.isFinite(value)) return null;
+  const formatted = value.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${formatted} per ${unit}`;
 }
 
 function StatusChip({ status }: { status: string }) {

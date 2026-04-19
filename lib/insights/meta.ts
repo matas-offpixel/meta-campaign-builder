@@ -612,6 +612,7 @@ function mapCreativeRow(
   const spend = parseNum(insights?.spend);
   const impressions = parseNum(insights?.impressions);
   const reach = parseNum(insights?.reach);
+  const clicks = parseNum(insights?.clicks);
   const lpv = sumActions(insights?.actions, ["landing_page_view"]);
   const regs = sumActions(insights?.actions, [
     "offsite_conversion.fb_pixel_lead",
@@ -637,6 +638,7 @@ function mapCreativeRow(
     spend,
     impressions,
     reach,
+    clicks,
     landingPageViews: lpv,
     registrations: regs,
     purchases,
@@ -683,6 +685,7 @@ function groupCreativesByName(rows: CreativeRow[]): CreativeRow[] {
     existing.spend += row.spend;
     existing.impressions += row.impressions;
     existing.reach += row.reach;
+    existing.clicks += row.clicks;
     existing.landingPageViews += row.landingPageViews;
     existing.registrations += row.registrations;
     existing.purchases += row.purchases;

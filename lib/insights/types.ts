@@ -292,6 +292,13 @@ export interface CreativeRow {
   spend: number;
   impressions: number;
   reach: number;
+  /**
+   * "Clicks (all)" — the raw `clicks` field from Meta /insights, NOT
+   * `inline_link_clicks`. Mirrors the aggregate `MetaTotals.clicks`
+   * field so per-creative cost-per-click sub-lines stay numerically
+   * consistent with the event-level Clicks card.
+   */
+  clicks: number;
   landingPageViews: number;
   registrations: number;
   purchases: number;
