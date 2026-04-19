@@ -1260,8 +1260,24 @@ export function useFetchCustomAudiences(
 
     fetch(`/api/meta/custom-audiences?adAccountId=${encodeURIComponent(adAccountId)}`)
       .then(async (res) => {
-        const json = (await res.json()) as { data?: CustomAudience[]; error?: string };
-        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        const json = (await res.json()) as {
+          data?: CustomAudience[];
+          error?: string;
+          code?: number;
+        };
+        if (!res.ok || json.error) {
+          // Mirror the apiFetch helper: a Meta token-expiry error must flip
+          // the global flag so the reconnect banner appears and other Meta
+          // caches (ad accounts / pages / pixels) get flushed.
+          if (
+            res.status === 401 ||
+            json.code === 190 ||
+            (json.error && isFacebookTokenExpiredError(json.error))
+          ) {
+            setFbTokenExpiredGlobal(true);
+          }
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
         setData(json.data ?? []);
         setLoaded(true);
       })
@@ -1329,8 +1345,21 @@ export function useFetchSavedAudiences(
 
     fetch(`/api/meta/saved-audiences?adAccountId=${encodeURIComponent(adAccountId)}`)
       .then(async (res) => {
-        const json = (await res.json()) as { data?: SavedAudienceItem[]; error?: string };
-        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        const json = (await res.json()) as {
+          data?: SavedAudienceItem[];
+          error?: string;
+          code?: number;
+        };
+        if (!res.ok || json.error) {
+          if (
+            res.status === 401 ||
+            json.code === 190 ||
+            (json.error && isFacebookTokenExpiredError(json.error))
+          ) {
+            setFbTokenExpiredGlobal(true);
+          }
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
         setData(json.data ?? []);
         setLoaded(true);
       })

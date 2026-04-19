@@ -5,12 +5,19 @@
  * These are pre-configured targeting bundles users save in Ads Manager —
  * distinct from Custom Audiences (pixel/upload-based lists).
  *
+ * Token policy
+ *   Uses resolveServerMetaToken (DB-first, env fallback) so reconnected user
+ *   tokens are preferred over the static env token. On Meta OAuth failures
+ *   the response is 401 with `code: 190` so the client can surface a
+ *   reconnect prompt instead of a generic 502.
+ *
  * Meta endpoint: GET /{adAccountId}/saved_audiences
  * Requires: ads_read permission.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -20,6 +27,19 @@ export interface SavedAudienceItem {
   name: string;
   approximateCount?: number;
   description?: string;
+}
+
+/** Detect Meta OAuth/session-expiry errors so we can return 401 (matches the
+ *  detection used in custom-audiences and interest-suggestions). */
+function isTokenError(errMsg: string, errCode: unknown, errType: unknown): boolean {
+  if (typeof errCode === "number" && (errCode === 190 || errCode === 102)) return true;
+  if (typeof errType === "string" && errType === "OAuthException") return true;
+  const m = errMsg.toLowerCase();
+  return (
+    m.includes("session has expired") ||
+    m.includes("session expired") ||
+    (m.includes("access token") && (m.includes("expired") || m.includes("invalid")))
+  );
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -48,11 +68,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
+  // ── DB-first token resolution ──────────────────────────────────────────────
+  let token: string;
+  let tokenSource: "db" | "env" = "env";
+  try {
+    const resolved = await resolveServerMetaToken(supabase, user.id);
+    token = resolved.token;
+    tokenSource = resolved.source;
+    console.info(
+      `[/api/meta/saved-audiences] token resolved: source=${tokenSource} ` +
+      `len=${token.length} prefix=${token.slice(0, 12)}…`,
+    );
+  } catch (err) {
+    console.error("[/api/meta/saved-audiences] no Meta access token available:", err);
     return NextResponse.json(
-      { error: "META_ACCESS_TOKEN is not configured on the server" },
-      { status: 500 },
+      {
+        error:
+          "Facebook session expired or not connected. " +
+          "Reconnect Facebook in Account Setup, then try again.",
+        code: 190,
+        data: [],
+      },
+      { status: 401 },
     );
   }
 
@@ -61,25 +98,62 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   url.searchParams.set("fields", "id,name,approximate_count,description");
   url.searchParams.set("limit", "200");
 
+  const urlSafe = url
+    .toString()
+    .replace(/access_token=[^&]+/, "access_token=…REDACTED");
+
+  console.log(
+    `[/api/meta/saved-audiences] Fetching for ${adAccountId} ` +
+    `(tokenSource=${tokenSource}) → ${urlSafe}`,
+  );
+
   let res: Response;
   try {
     res = await fetch(url.toString(), { cache: "no-store" });
   } catch (err) {
     console.error("[/api/meta/saved-audiences] Network error:", err);
-    return NextResponse.json({ error: "Network error contacting Meta API" }, { status: 502 });
+    return NextResponse.json(
+      { error: "Network error contacting Meta API. Try again in a moment.", data: [] },
+      { status: 502 },
+    );
   }
 
   const json = (await res.json()) as Record<string, unknown>;
 
   if (!res.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
-    console.error("[/api/meta/saved-audiences] Meta error:", JSON.stringify(json));
+    const errMsg = (e.message as string) ?? `HTTP ${res.status}`;
+    const errCode = e.code;
+    const errType = e.type;
+
+    if (isTokenError(errMsg, errCode, errType)) {
+      console.error(
+        `[/api/meta/saved-audiences] ⛔ TOKEN ERROR (tokenSource=${tokenSource}) ` +
+        `code=${errCode} type=${errType} msg="${errMsg}"`,
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Facebook session expired. Reconnect Facebook in Account Setup, " +
+            "then reload saved audiences.",
+          code: 190,
+          data: [],
+        },
+        { status: 401 },
+      );
+    }
+
+    console.error(
+      `[/api/meta/saved-audiences] Meta error (tokenSource=${tokenSource}) ` +
+      `code=${errCode} type=${errType}: ${errMsg}`,
+    );
     return NextResponse.json(
       {
-        error: (e.message as string) ?? `HTTP ${res.status}`,
-        code: e.code,
+        error: errMsg,
+        code: errCode,
         error_subcode: e.error_subcode,
         error_user_msg: e.error_user_msg ?? e.error_user_title,
+        data: [],
       },
       { status: 502 },
     );
@@ -100,6 +174,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     approximateCount: a.approximate_count,
     description: a.description,
   }));
+
+  console.log(
+    `[/api/meta/saved-audiences] Returning ${data.length} audiences ` +
+    `(tokenSource=${tokenSource})`,
+  );
 
   return NextResponse.json({ data, count: data.length });
 }
