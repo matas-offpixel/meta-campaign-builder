@@ -47,6 +47,12 @@ export interface AdPlanDay {
   allocation_pct: number | null;
   objective_budgets: ObjectiveBudgets;
   tickets_sold_cumulative: number | null;
+  /**
+   * Per-day ticket target. Null means "use the plan-level even-spread
+   * default" — the grid renders a faded ghost in that case. Explicit
+   * zero is meaningful (no target that day).
+   */
+  ticket_target: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -81,6 +87,7 @@ export type AdPlanDayPatch = Partial<
     | "allocation_pct"
     | "objective_budgets"
     | "tickets_sold_cumulative"
+    | "ticket_target"
     | "notes"
   >
 >;
@@ -427,4 +434,128 @@ export async function deletePlan(planId: string): Promise<void> {
   if (error) {
     throw new Error(error.message);
   }
+}
+
+// ─── Resync ──────────────────────────────────────────────────────────────────
+
+export class ResyncPlanError extends Error {
+  constructor(
+    message: string,
+    public code:
+      | "no_event_date"
+      | "event_not_found"
+      | "plan_not_found"
+      | "update_failed",
+  ) {
+    super(message);
+    this.name = "ResyncPlanError";
+  }
+}
+
+/**
+ * Re-pull plan-level values from the source event:
+ *  - total_budget ← event.budget_marketing (only when set)
+ *  - ticket_target ← event.capacity (only when set)
+ *  - phase_marker on every day is cleared, then re-seeded from
+ *    buildPhaseSeeds(event) — the same logic createPlanForEvent uses.
+ *
+ * Per-day edits are preserved: objective_budgets, tickets_sold_cumulative,
+ * ticket_target (per-day), and notes are never touched.
+ *
+ * Reuses buildPhaseSeeds so creation + resync share one source of truth
+ * for the milestone calendar — moving an event's announcement_at then
+ * resyncing produces the same markers a fresh plan would seed today.
+ */
+export async function resyncPlanFromEvent(
+  planId: string,
+  eventId: string,
+): Promise<void> {
+  const supabase = createClient();
+
+  // Pull the event row directly rather than going through getEventById
+  // (which joins clients we don't need here). Keeps the resync path
+  // independent of unrelated lib/db/events surface area.
+  const { data: eventRow, error: eventErr } = await supabase
+    .from("events")
+    .select(
+      "id, event_date, announcement_at, presale_at, general_sale_at, budget_marketing, capacity",
+    )
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (eventErr) {
+    throw new ResyncPlanError(eventErr.message, "event_not_found");
+  }
+  if (!eventRow) {
+    throw new ResyncPlanError("Event not found.", "event_not_found");
+  }
+  if (!eventRow.event_date) {
+    throw new ResyncPlanError(
+      "Event needs a date before its plan can be resynced.",
+      "no_event_date",
+    );
+  }
+
+  const event = eventRow as Pick<
+    EventRow,
+    | "id"
+    | "event_date"
+    | "announcement_at"
+    | "presale_at"
+    | "general_sale_at"
+    | "budget_marketing"
+    | "capacity"
+  >;
+
+  // Plan-level patch: only overwrite fields the event actually carries.
+  // Skipping nulls preserves manually-typed plan values when the event
+  // leaves the field blank — matches the spec's "(if set)" guard.
+  const planPatch: AdPlanPatch = {};
+  if (event.budget_marketing != null) {
+    planPatch.total_budget = event.budget_marketing;
+  }
+  if (event.capacity != null) {
+    planPatch.ticket_target = event.capacity;
+  }
+
+  if (Object.keys(planPatch).length > 0) {
+    const { error: planErr } = await supabase
+      .from("ad_plans")
+      .update(planPatch)
+      .eq("id", planId);
+    if (planErr) {
+      throw new ResyncPlanError(planErr.message, "update_failed");
+    }
+  }
+
+  // Phase-marker recompute: clean slate then re-seed. Per the slice
+  // spec, this is destructive on phase_marker (user consented via the
+  // confirm dialog upstream). Other day-level fields are untouched.
+  const { data: dayRows, error: daysErr } = await supabase
+    .from("ad_plan_days")
+    .select("id, day")
+    .eq("plan_id", planId);
+
+  if (daysErr) {
+    throw new ResyncPlanError(daysErr.message, "update_failed");
+  }
+
+  const seeds = new Map(
+    buildPhaseSeeds(event as EventRow).map((s) => [s.day, s.marker]),
+  );
+
+  // Fan out updates in parallel — same pattern as bulkUpdatePlanDays.
+  await Promise.all(
+    (dayRows ?? []).map(async (row) => {
+      const { id, day } = row as { id: string; day: string };
+      const next = seeds.get(day) ?? null;
+      const { error } = await supabase
+        .from("ad_plan_days")
+        .update({ phase_marker: next })
+        .eq("id", id);
+      if (error) {
+        throw new ResyncPlanError(error.message, "update_failed");
+      }
+    }),
+  );
 }

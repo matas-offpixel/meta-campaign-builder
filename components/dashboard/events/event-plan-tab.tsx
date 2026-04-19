@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
 import { EventPlanCreateCta } from "@/components/dashboard/events/event-plan-create-cta";
 import { PlanHeader } from "@/components/dashboard/events/plan-header";
@@ -12,6 +13,7 @@ import { PlanInlineBanner } from "@/components/dashboard/events/plan-inline-bann
 import { PlanStatCards } from "@/components/dashboard/events/plan-stat-cards";
 import {
   bulkUpdatePlanDays,
+  resyncPlanFromEvent,
   updatePlan,
   updatePlanDay,
   type AdPlan,
@@ -64,6 +66,7 @@ export function EventPlanTab({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const gridRef = useRef<PlanGridHandle>(null);
+  const router = useRouter();
 
   useEffect(() => {
     setPlan((prev) => {
@@ -119,6 +122,32 @@ export function EventPlanTab({
     async (patches: AdPlanDayBulkPatch[]) => bulkUpdatePlanDays(patches),
     [],
   );
+
+  const handleResync = useCallback(async () => {
+    if (!plan) return;
+    setError(null);
+    // Quiesce the grid first so a pending per-cell debounce doesn't
+    // race the resync's phase_marker rewrite — same hazard the even-
+    // spread path defends against.
+    try {
+      await gridRef.current?.flushPendingSaves();
+    } catch {
+      // flushPendingSaves surfaces its own per-cell errors via onError.
+    }
+    try {
+      await resyncPlanFromEvent(plan.id, event.id);
+      setInfo("Plan resynced from event");
+      // router.refresh re-runs the parent server component which
+      // re-fetches plan + days; the local mirrors then accept the
+      // newer updated_at via their existing reseed paths.
+      router.refresh();
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to resync plan from event.";
+      setError(msg);
+      throw err;
+    }
+  }, [plan, event.id, router]);
 
   const handleApplyEvenSpread = useCallback(async () => {
     if (!plan?.total_budget || plan.total_budget <= 0 || days.length === 0) {
@@ -186,6 +215,7 @@ export function EventPlanTab({
         daysCount={days.length}
         eventBudget={event.budget_marketing}
         onApplyEvenSpread={handleApplyEvenSpread}
+        onResync={handleResync}
         onPatch={handlePlanPatch}
       />
 

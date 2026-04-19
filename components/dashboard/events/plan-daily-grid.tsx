@@ -221,6 +221,27 @@ const COLUMNS: PlanColumn[] = [
   },
   {
     role: "editable",
+    key: "ticket_target",
+    label: "Ticket target",
+    kind: "integer",
+    // Explicit per-day value only. Null is rendered as the plan-level
+    // even-spread ghost in PlanCell — the ghost MUST stay out of
+    // readRaw so a copy/paste round-trip can clear cells back to null
+    // (TSV "" → applyString("") → ticket_target: null) without first
+    // baking the spread default into the row.
+    readRaw: (day) =>
+      day.ticket_target == null ? "" : String(day.ticket_target),
+    readDisplay: (day) =>
+      day.ticket_target == null ? "" : day.ticket_target.toLocaleString(),
+    applyString: (_day, raw) => {
+      if (raw.trim() === "") return { ticket_target: null };
+      const n = parseInteger(raw);
+      if (n == null) return null;
+      return { ticket_target: n };
+    },
+  },
+  {
+    role: "editable",
     key: "tickets_sold",
     label: "Tickets sold",
     kind: "integer",
@@ -448,7 +469,7 @@ export interface PlanGridHandle {
 
 export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
   function PlanDailyGrid(
-    { days, onDaySaved, onError, saveDay, saveDaysBulk }: PlanDailyGridProps,
+    { plan, days, onDaySaved, onError, saveDay, saveDaysBulk }: PlanDailyGridProps,
     ref,
   ) {
   // Local optimistic mirror. Cells render from this in preference to the
@@ -498,6 +519,16 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
     [days, localMap],
   );
   const rowCount = rows.length;
+
+  // Plan-level even-spread default for the ticket_target column.
+  // Computed once per (plan.ticket_target, rowCount) and rendered as a
+  // faded ghost inside cells where day.ticket_target is null. Kept off
+  // the column model so readRaw stays "" for null cells (TSV round-trip
+  // mustn't bake the ghost into the value).
+  const ticketTargetGhost = useMemo<number | null>(() => {
+    if (plan.ticket_target == null || rowCount === 0) return null;
+    return Math.floor(plan.ticket_target / rowCount);
+  }, [plan.ticket_target, rowCount]);
 
   const reduce = useMemo(() => reducer(rowCount), [rowCount]);
   const [state, dispatch] = useReducer(reduce, INITIAL_STATE);
@@ -991,6 +1022,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
                     state={state}
                     dispatch={dispatch}
                     registerCell={registerCell(rowIdx, colIdx)}
+                    ticketTargetGhost={ticketTargetGhost}
                     editInputRef={
                       state.editing &&
                       state.editing.row === rowIdx &&
@@ -1038,6 +1070,13 @@ interface PlanCellProps {
   state: State;
   dispatch: React.Dispatch<Action>;
   registerCell: (el: HTMLElement | null) => void;
+  /**
+   * Plan-level even-spread default for the ticket_target column.
+   * Null when the plan has no ticket_target set or there are no days
+   * to spread across; otherwise floor(plan.ticket_target / days.length).
+   * Rendered as a faded ghost in cells where day.ticket_target is null.
+   */
+  ticketTargetGhost: number | null;
   editInputRef: React.RefObject<HTMLInputElement | null> | null;
   onCommitEdit: () => void;
   showFillHandle: boolean;
@@ -1052,6 +1091,7 @@ function PlanCell({
   state,
   dispatch,
   registerCell,
+  ticketTargetGhost,
   editInputRef,
   onCommitEdit,
   showFillHandle,
@@ -1140,6 +1180,17 @@ function PlanCell({
         ) : (
           <span className="text-muted-foreground/40">—</span>
         )
+      ) : column.role === "editable" &&
+        column.key === "ticket_target" &&
+        !displayValue &&
+        ticketTargetGhost != null ? (
+        // Faded plan-level even-spread default when the row has no
+        // explicit per-day target. Stays out of selection sums (because
+        // readRaw is "" and parseNumber("") is null) so the footer pill
+        // counts only explicit values.
+        <span className="text-muted-foreground/40">
+          {ticketTargetGhost.toLocaleString()}
+        </span>
       ) : (
         <span className={displayValue ? "" : "text-muted-foreground/40"}>
           {displayValue || "—"}

@@ -10,9 +10,9 @@ import {
 import {
   ArrowDownToLine,
   ExternalLink,
-  FileDown,
   FilePlus2,
   Loader2,
+  RefreshCw,
   Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ export function PlanHeader({
   daysCount,
   eventBudget,
   onApplyEvenSpread,
+  onResync,
   onPatch,
 }: {
   plan: AdPlan;
@@ -55,10 +56,21 @@ export function PlanHeader({
   eventBudget: number | null;
   /** Resolves once the bulk save (and any quiesce wait) has settled. */
   onApplyEvenSpread: () => Promise<void>;
+  /**
+   * Resync plan-level values + per-day phase markers from the source
+   * event. Destructive on plan.total_budget, plan.ticket_target, and
+   * every day's phase_marker — gated by a confirm dialog. Per-day
+   * objective_budgets / tickets_sold / ticket_target / notes are
+   * preserved.
+   */
+  onResync: () => Promise<void>;
   /** Called by the inline-edit fields. Parent persists via updatePlan. */
   onPatch: (patch: AdPlanPatch) => Promise<void>;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirming" | "working">("idle");
+  const [resyncPhase, setResyncPhase] = useState<
+    "idle" | "confirming" | "working"
+  >("idle");
   const [pulling, setPulling] = useState(false);
 
   const hasBudget = plan.total_budget != null && plan.total_budget > 0;
@@ -93,6 +105,17 @@ export function PlanHeader({
     } catch {
       // Parent surfaces the error banner; just return to idle.
       setPhase("idle");
+    }
+  };
+
+  const handleResync = async () => {
+    setResyncPhase("working");
+    try {
+      await onResync();
+      setResyncPhase("idle");
+    } catch {
+      // Parent surfaces the error banner; just return to idle.
+      setResyncPhase("idle");
     }
   };
 
@@ -144,11 +167,16 @@ export function PlanHeader({
             type="button"
             size="sm"
             variant="outline"
-            disabled
-            title="Coming soon"
+            onClick={() => setResyncPhase("confirming")}
+            disabled={resyncPhase !== "idle"}
+            title="Pull budget, ticket target, and phase markers from the event"
           >
-            <FileDown className="h-3.5 w-3.5" />
-            Open template
+            {resyncPhase === "working" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Re-sync from event
           </Button>
           <Button
             type="button"
@@ -190,6 +218,38 @@ export function PlanHeader({
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               )}
               Apply
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {resyncPhase !== "idle" && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            This will overwrite plan-level values (total budget, ticket
+            target, phase markers) from the event. Per-day edits are
+            preserved. Continue?
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setResyncPhase("idle")}
+              disabled={resyncPhase === "working"}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleResync}
+              disabled={resyncPhase === "working"}
+            >
+              {resyncPhase === "working" && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              )}
+              Re-sync
             </Button>
           </div>
         </div>
