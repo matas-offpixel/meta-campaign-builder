@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local reference documents (client spreadsheets, pricing calculators, etc.)
+# these are business-sensitive binary files — keep out of git history
+References/
