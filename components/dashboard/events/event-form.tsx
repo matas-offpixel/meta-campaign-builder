@@ -262,13 +262,21 @@ export function EventForm({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Input
-            id="event-code"
-            label="Event code"
-            value={eventCode}
-            onChange={(e) => setEventCode(e.target.value)}
-            placeholder="internal reference"
-          />
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="event-code"
+              label="Event code"
+              value={eventCode}
+              onChange={(e) => setEventCode(e.target.value)}
+              placeholder="UTB0042-New"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Matches the bracketed tag in your Meta campaign / ad names (e.g.
+              [UTB0042-New]). Store without brackets — search wraps them
+              automatically.
+            </p>
+          </div>
           <Input
             id="event-capacity"
             label="Capacity"

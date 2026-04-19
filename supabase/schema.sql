@@ -116,22 +116,29 @@ create trigger user_facebook_tokens_updated_at
 -- ─────────────────────────────────────────────────────────────────────────────
 
 create table if not exists clients (
-  id                     uuid        primary key default gen_random_uuid(),
-  user_id                uuid        not null references auth.users (id) on delete cascade,
-  name                   text        not null,
-  slug                   text        not null,
-  primary_type           text        not null,
-  types                  text[]      not null default '{}',
-  status                 text        not null default 'active',
-  contact_name           text,
-  contact_email          text,
-  contact_whatsapp       text,
-  default_ad_account_id  text,
-  default_pixel_id       text,
-  default_page_ids       text[]      not null default '{}',
-  notes                  text,
-  created_at             timestamptz not null default now(),
-  updated_at             timestamptz not null default now(),
+  id                       uuid        primary key default gen_random_uuid(),
+  user_id                  uuid        not null references auth.users (id) on delete cascade,
+  name                     text        not null,
+  slug                     text        not null,
+  primary_type             text        not null,
+  types                    text[]      not null default '{}',
+  status                   text        not null default 'active',
+  -- Meta Business assets (migration 009)
+  meta_business_id         text,
+  meta_ad_account_id       text,
+  meta_pixel_id            text,
+  default_page_ids         text[]      not null default '{}',
+  -- Other channel ad accounts (migration 010)
+  tiktok_ad_account_id     text,
+  google_ads_customer_id   text,
+  -- Public socials + asset folder (migration 010)
+  instagram_handle         text,
+  tiktok_handle            text,
+  facebook_page_handle     text,
+  google_drive_folder_url  text,
+  notes                    text,
+  created_at               timestamptz not null default now(),
+  updated_at               timestamptz not null default now(),
 
   constraint clients_slug_unique_per_user unique (user_id, slug),
   constraint clients_primary_type_check check (

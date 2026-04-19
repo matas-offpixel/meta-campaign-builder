@@ -12,6 +12,7 @@ import {
   type ClientRow,
 } from "@/lib/db/clients";
 import { type EventWithClient } from "@/lib/db/events";
+import { VerifyMetaConnection } from "./verify-meta-connection";
 
 interface Props {
   client: ClientRow;
@@ -152,22 +153,35 @@ export function ClientDetail({ client: initial, events }: Props) {
                 label="All types"
                 value={client.types.length > 0 ? client.types.join(", ") : "—"}
               />
-              <DetailRow label="Contact name" value={client.contact_name ?? "—"} />
               <DetailRow
-                label="Contact email"
-                value={client.contact_email ?? "—"}
+                label="Instagram"
+                value={
+                  client.instagram_handle
+                    ? `@${client.instagram_handle}`
+                    : "—"
+                }
               />
               <DetailRow
-                label="Contact WhatsApp"
-                value={client.contact_whatsapp ?? "—"}
+                label="TikTok"
+                value={
+                  client.tiktok_handle ? `@${client.tiktok_handle}` : "—"
+                }
               />
               <DetailRow
-                label="Default ad account"
-                value={client.default_ad_account_id ?? "—"}
+                label="Facebook page"
+                value={client.facebook_page_handle ?? "—"}
               />
               <DetailRow
-                label="Default pixel"
-                value={client.default_pixel_id ?? "—"}
+                label="TikTok ad account"
+                value={client.tiktok_ad_account_id ?? "—"}
+              />
+              <DetailRow
+                label="Google Ads customer"
+                value={client.google_ads_customer_id ?? "—"}
+              />
+              <DetailRow
+                label="Drive folder"
+                value={client.google_drive_folder_url ?? "—"}
               />
             </dl>
             {client.notes && (
@@ -178,6 +192,36 @@ export function ClientDetail({ client: initial, events }: Props) {
                 <p className="text-sm whitespace-pre-wrap">{client.notes}</p>
               </div>
             )}
+          </section>
+
+          <section className="rounded-md border border-border bg-card p-5 space-y-4">
+            <h2 className="font-heading text-base tracking-wide">
+              Meta Business assets
+            </h2>
+            <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+              <DetailRow
+                label="Business ID"
+                value={client.meta_business_id ?? "—"}
+              />
+              <DetailRow
+                label="Ad Account ID"
+                value={client.meta_ad_account_id ?? "—"}
+              />
+              <DetailRow
+                label="Pixel ID"
+                value={client.meta_pixel_id ?? "—"}
+              />
+            </dl>
+            <div className="pt-4 border-t border-border">
+              <VerifyMetaConnection
+                clientId={client.id}
+                hasAnyMetaId={Boolean(
+                  client.meta_business_id ??
+                    client.meta_ad_account_id ??
+                    client.meta_pixel_id,
+                )}
+              />
+            </div>
           </section>
 
           <section className="rounded-md border border-border bg-card p-5">

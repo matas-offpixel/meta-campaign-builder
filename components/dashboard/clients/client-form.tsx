@@ -35,6 +35,15 @@ const STATUS_OPTIONS = CLIENT_STATUSES.map((s) => ({
   label: s.charAt(0).toUpperCase() + s.slice(1),
 }));
 
+/**
+ * Trim whitespace and strip a single leading "@" from social handles. Empty
+ * after normalisation → null so we don't store empty-string placeholders.
+ */
+function stripHandlePrefix(raw: string): string | null {
+  const trimmed = raw.trim().replace(/^@+/, "");
+  return trimmed || null;
+}
+
 export function ClientForm({ mode, initial }: Props) {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
@@ -53,10 +62,28 @@ export function ClientForm({ mode, initial }: Props) {
   const [status, setStatus] = useState<ClientStatus>(
     (initial?.status as ClientStatus | undefined) ?? "active",
   );
-  const [contactName, setContactName] = useState(initial?.contact_name ?? "");
-  const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? "");
-  const [contactWhatsapp, setContactWhatsapp] = useState(
-    initial?.contact_whatsapp ?? "",
+  const [metaBusinessId, setMetaBusinessId] = useState(
+    initial?.meta_business_id ?? "",
+  );
+  const [metaAdAccountId, setMetaAdAccountId] = useState(
+    initial?.meta_ad_account_id ?? "",
+  );
+  const [metaPixelId, setMetaPixelId] = useState(initial?.meta_pixel_id ?? "");
+  const [tiktokAdAccountId, setTiktokAdAccountId] = useState(
+    initial?.tiktok_ad_account_id ?? "",
+  );
+  const [googleAdsCustomerId, setGoogleAdsCustomerId] = useState(
+    initial?.google_ads_customer_id ?? "",
+  );
+  const [instagramHandle, setInstagramHandle] = useState(
+    initial?.instagram_handle ?? "",
+  );
+  const [tiktokHandle, setTiktokHandle] = useState(initial?.tiktok_handle ?? "");
+  const [facebookPageHandle, setFacebookPageHandle] = useState(
+    initial?.facebook_page_handle ?? "",
+  );
+  const [googleDriveFolderUrl, setGoogleDriveFolderUrl] = useState(
+    initial?.google_drive_folder_url ?? "",
   );
   const [notes, setNotes] = useState(initial?.notes ?? "");
 
@@ -96,6 +123,23 @@ export function ClientForm({ mode, initial }: Props) {
     // Ensure primary_type is part of types[]
     const finalTypes = Array.from(new Set([primaryType, ...types]));
 
+    // Normalise channel + social inputs at the boundary so we never persist
+    // empty strings (which would later masquerade as real values) and so the
+    // stored shape matches the documented convention from migration 010.
+    const channelPayload = {
+      meta_business_id: metaBusinessId.trim() || null,
+      meta_ad_account_id: metaAdAccountId.trim() || null,
+      meta_pixel_id: metaPixelId.trim() || null,
+      tiktok_ad_account_id: tiktokAdAccountId.trim() || null,
+      // Google Ads customer id: digits only, hyphens stripped.
+      google_ads_customer_id:
+        googleAdsCustomerId.replace(/\D+/g, "") || null,
+      instagram_handle: stripHandlePrefix(instagramHandle),
+      tiktok_handle: stripHandlePrefix(tiktokHandle),
+      facebook_page_handle: stripHandlePrefix(facebookPageHandle),
+      google_drive_folder_url: googleDriveFolderUrl.trim() || null,
+    };
+
     try {
       if (mode === "create" && userId) {
         const created = await createClientRow({
@@ -105,9 +149,7 @@ export function ClientForm({ mode, initial }: Props) {
           primary_type: primaryType,
           types: finalTypes,
           status,
-          contact_name: contactName || null,
-          contact_email: contactEmail || null,
-          contact_whatsapp: contactWhatsapp || null,
+          ...channelPayload,
           notes: notes || null,
         });
         if (created) router.push(`/clients/${created.id}`);
@@ -118,9 +160,7 @@ export function ClientForm({ mode, initial }: Props) {
           primary_type: primaryType,
           types: finalTypes,
           status,
-          contact_name: contactName || null,
-          contact_email: contactEmail || null,
-          contact_whatsapp: contactWhatsapp || null,
+          ...channelPayload,
           notes: notes || null,
         });
         router.push(`/clients/${initial.id}`);
@@ -209,28 +249,174 @@ export function ClientForm({ mode, initial }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Input
-          id="client-contact-name"
-          label="Contact name"
-          value={contactName}
-          onChange={(e) => setContactName(e.target.value)}
-        />
-        <Input
-          id="client-contact-email"
-          label="Contact email"
-          type="email"
-          value={contactEmail}
-          onChange={(e) => setContactEmail(e.target.value)}
-        />
-        <Input
-          id="client-contact-whatsapp"
-          label="Contact WhatsApp"
-          value={contactWhatsapp}
-          onChange={(e) => setContactWhatsapp(e.target.value)}
-          placeholder="+44…"
-        />
-      </div>
+      <section className="rounded-md border border-border bg-muted/40 p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">
+            Meta Business assets
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Default Business Portfolio, ad account and Pixel for this client.
+            Used by the campaign builder and insights aggregator. Use the
+            &ldquo;Verify Meta connection&rdquo; button on the client page to
+            confirm the IDs and your token can read them.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-meta-business-id"
+              label="Meta Business ID"
+              value={metaBusinessId}
+              onChange={(e) => setMetaBusinessId(e.target.value)}
+              placeholder="741799859254067"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Business Portfolio ID from Meta Business Manager. Numeric.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-meta-ad-account-id"
+              label="Meta Ad Account ID"
+              value={metaAdAccountId}
+              onChange={(e) => setMetaAdAccountId(e.target.value)}
+              placeholder="901661116878308"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Without the &ldquo;act_&rdquo; prefix. Numeric.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-meta-pixel-id"
+              label="Meta Pixel ID"
+              value={metaPixelId}
+              onChange={(e) => setMetaPixelId(e.target.value)}
+              placeholder="488792328522690"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Numeric Pixel ID from Events Manager.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-border bg-muted/40 p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">
+            Other ad accounts
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            TikTok and Google Ads identifiers used by the multi-channel
+            insights aggregator. Leave blank if the client doesn&rsquo;t run on
+            that channel.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-tiktok-ad-account-id"
+              label="TikTok Ad Account ID"
+              value={tiktokAdAccountId}
+              onChange={(e) => setTiktokAdAccountId(e.target.value)}
+              placeholder="7298765432109876543"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Numeric advertiser id from TikTok Ads Manager.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-google-ads-customer-id"
+              label="Google Ads Customer ID (no hyphens)"
+              value={googleAdsCustomerId}
+              onChange={(e) => setGoogleAdsCustomerId(e.target.value)}
+              placeholder="1234567890"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Hyphens are stripped automatically — &ldquo;123-456-7890&rdquo;
+              is stored as &ldquo;1234567890&rdquo;.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-border bg-muted/40 p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">
+            Socials &amp; assets
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Public-facing handles used for content references and the asset
+            folder where briefs / creative live.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-instagram-handle"
+              label="Instagram Handle (without @)"
+              value={instagramHandle}
+              onChange={(e) => setInstagramHandle(e.target.value)}
+              placeholder="junction2london"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Leading &ldquo;@&rdquo; is stripped on save.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-tiktok-handle"
+              label="TikTok Handle (without @)"
+              value={tiktokHandle}
+              onChange={(e) => setTiktokHandle(e.target.value)}
+              placeholder="junction2"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Leading &ldquo;@&rdquo; is stripped on save.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="client-facebook-page-handle"
+              label="Facebook Page Handle"
+              value={facebookPageHandle}
+              onChange={(e) => setFacebookPageHandle(e.target.value)}
+              placeholder="junction2london"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Vanity URL slug or page handle (not the numeric Page ID).
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Input
+            id="client-google-drive-folder-url"
+            label="Google Drive Folder URL"
+            type="url"
+            value={googleDriveFolderUrl}
+            onChange={(e) => setGoogleDriveFolderUrl(e.target.value)}
+            placeholder="https://drive.google.com/drive/folders/…"
+            autoComplete="off"
+          />
+          <p className="text-xs text-muted-foreground">
+            Full https:// URL to the client&rsquo;s working folder.
+          </p>
+        </div>
+      </section>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="client-notes" className="text-sm font-medium">

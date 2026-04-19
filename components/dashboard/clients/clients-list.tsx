@@ -101,7 +101,6 @@ export function ClientsList({
                           c.types.join(", ") !== c.primary_type && (
                             <span>{c.types.join(" · ")}</span>
                           )}
-                        {c.contact_name && <span>{c.contact_name}</span>}
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground shrink-0">

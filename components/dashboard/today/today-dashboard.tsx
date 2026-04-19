@@ -590,7 +590,7 @@ function ClientLinkRow({ client }: { client: ClientRow }) {
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {client.primary_type}
-          {client.contact_name ? ` · ${client.contact_name}` : ""}
+          {client.instagram_handle ? ` · @${client.instagram_handle}` : ""}
         </p>
       </div>
       <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
