@@ -207,6 +207,31 @@ export async function listQuotesWithRefsServer(
 }
 
 /**
+ * Per-client view: every invoice for the client, with denormalised event
+ * names resolved alongside. Used by the client detail page's Invoicing tab.
+ */
+export async function listInvoicesForClientWithRefsServer(
+  userId: string,
+  clientId: string,
+): Promise<InvoiceWithRefs[]> {
+  const invoices = await listInvoicesServer(userId, { client_id: clientId });
+  if (invoices.length === 0) return [];
+
+  const eventIds = new Set<string>();
+  for (const inv of invoices) {
+    if (inv.event_id) eventIds.add(inv.event_id);
+  }
+
+  const { events } = await fetchNameMaps(new Set(), eventIds);
+  return invoices.map((inv) => ({
+    ...inv,
+    // Client name is the page itself — the caller already knows it.
+    client_name: null,
+    event_name: inv.event_id ? (events.get(inv.event_id) ?? null) : null,
+  }));
+}
+
+/**
  * Find the quote that spawned an event, if any. Used by the event detail
  * page to render the "From quote QUO-XXXX" badge + linked invoice panel.
  */

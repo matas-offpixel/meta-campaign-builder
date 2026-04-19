@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Pencil, Archive, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
   setClientStatus,
@@ -14,10 +15,24 @@ import {
 import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
+import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
+import type {
+  InvoiceWithRefs,
+  QuoteRow,
+} from "@/lib/types/invoicing";
+import type { SettlementTiming } from "@/lib/pricing/calculator";
+
+type ClientTab = "overview" | "invoicing";
 
 interface Props {
   client: ClientRow;
   events: EventWithClient[];
+  clientInvoices: InvoiceWithRefs[];
+  clientQuotes: QuoteRow[];
+  defaults: {
+    upfront_pct: number;
+    settlement_timing: SettlementTiming;
+  };
 }
 
 /**
@@ -26,12 +41,21 @@ interface Props {
  * (archive / unarchive / delete) and the local state needed to reflect
  * status changes without a full page refetch.
  */
-export function ClientDetail({ client: initial, events }: Props) {
+export function ClientDetail({
+  client: initial,
+  events,
+  clientInvoices,
+  clientQuotes,
+  defaults,
+}: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ClientTab>("overview");
+
+  const invoiceCount = clientInvoices.length;
 
   const handleArchive = async () => {
     setWorking(true);
@@ -142,6 +166,17 @@ export function ClientDetail({ client: initial, events }: Props) {
             </div>
           )}
 
+          <Tabs
+            tabs={[
+              { id: "overview", label: "Overview" },
+              { id: "invoicing", label: "Invoicing", count: invoiceCount },
+            ]}
+            activeTab={activeTab}
+            onTabChange={(id) => setActiveTab(id as ClientTab)}
+          />
+
+          <TabPanel active={activeTab === "overview"}>
+          <div className="space-y-6">
           <section className="rounded-md border border-border bg-card p-5">
             <h2 className="font-heading text-base tracking-wide mb-3">
               Details
@@ -272,6 +307,24 @@ export function ClientDetail({ client: initial, events }: Props) {
               </ul>
             )}
           </section>
+          </div>
+          </TabPanel>
+
+          <TabPanel active={activeTab === "invoicing"}>
+            <ClientInvoiceTab
+              clientId={client.id}
+              clientName={client.name}
+              events={events.map((e) => ({
+                id: e.id,
+                name: e.name,
+                event_date: e.event_date,
+                status: e.status,
+              }))}
+              invoices={clientInvoices}
+              quotes={clientQuotes}
+              defaults={defaults}
+            />
+          </TabPanel>
         </div>
       </main>
     </>

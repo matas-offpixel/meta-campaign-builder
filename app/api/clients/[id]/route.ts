@@ -31,6 +31,11 @@ const ALLOWED_FIELDS = [
   "instagram_handle",
   "website_url",
   "notes",
+  // Default invoicing payment terms (added in migration 019). The columns
+  // exist post-019 — pre-migration the UPDATE will silently drop them so
+  // this is safe to land before the schema is applied.
+  "default_upfront_pct",
+  "default_settlement_timing",
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
