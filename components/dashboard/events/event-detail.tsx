@@ -319,19 +319,8 @@ export function EventDetail({
                 eventId={event.id}
                 eventName={event.name}
                 clientName={event.client?.name ?? null}
-                folderId={
-                  // Migration 015 columns — typed as unknown until the
-                  // generated types catch up. Cast at this single read
-                  // boundary so consumers downstream stay strict.
-                  (event as unknown as {
-                    google_drive_folder_id?: string | null;
-                  }).google_drive_folder_id ?? null
-                }
-                folderUrl={
-                  (event as unknown as {
-                    google_drive_folder_url?: string | null;
-                  }).google_drive_folder_url ?? null
-                }
+                folderId={event.google_drive_folder_id ?? null}
+                folderUrl={event.google_drive_folder_url ?? null}
               />
               <PlatformConfigCard
                 metaAdAccount={{
@@ -342,47 +331,27 @@ export function EventDetail({
                   inherited: Boolean(event.client?.meta_ad_account_id),
                 }}
                 tiktokAccount={{
-                  // Migration 016 added events.tiktok_account_id;
-                  // migration 018 added clients.tiktok_account_id.
-                  // Both are typed loosely until the generated types
-                  // catch up — fall back from event override to
-                  // client default. We surface the raw UUID for now
-                  // (account-name resolution lands once a /api/tiktok/
-                  // accounts/[id] lookup exists).
+                  // Fall back from event override to client default.
+                  // Account-name resolution lands once a
+                  // /api/tiktok/accounts/[id] lookup exists.
                   value:
-                    (event as unknown as { tiktok_account_id?: string | null })
-                      .tiktok_account_id ??
+                    event.tiktok_account_id ??
                     event.client?.tiktok_account_id ??
                     null,
                   inherited:
-                    !(event as unknown as { tiktok_account_id?: string | null })
-                      .tiktok_account_id &&
+                    !event.tiktok_account_id &&
                     Boolean(event.client?.tiktok_account_id),
                 }}
                 googleAdsAccount={{
-                  // Same fallback pattern; both columns land in
-                  // migration 018 so they read as undefined today.
                   value:
-                    (
-                      event as unknown as {
-                        google_ads_account_id?: string | null;
-                      }
-                    ).google_ads_account_id ??
+                    event.google_ads_account_id ??
                     event.client?.google_ads_account_id ??
                     null,
                   inherited:
-                    !(
-                      event as unknown as {
-                        google_ads_account_id?: string | null;
-                      }
-                    ).google_ads_account_id &&
+                    !event.google_ads_account_id &&
                     Boolean(event.client?.google_ads_account_id),
                 }}
-                driveFolderUrl={
-                  (event as unknown as {
-                    google_drive_folder_url?: string | null;
-                  }).google_drive_folder_url ?? null
-                }
+                driveFolderUrl={event.google_drive_folder_url ?? null}
               />
               {event.notes && <NotesSection notes={event.notes} />}
             </div>
@@ -514,14 +483,7 @@ export function EventDetail({
               */}
               <EventReportingTabs
                 eventId={event.id}
-                initialTikTokAccountId={
-                  // Migration 016 column — typed as unknown until the
-                  // generated types catch up. Cast at this single read
-                  // boundary so consumers downstream stay strict.
-                  (event as unknown as {
-                    tiktok_account_id?: string | null;
-                  }).tiktok_account_id ?? null
-                }
+                initialTikTokAccountId={event.tiktok_account_id ?? null}
                 // Slice 4 doesn't yet prefetch the plan id server-side
                 // (no lib/db helper landed in this scaffold) — pass null
                 // so the Google Ads tab renders the "create plan" CTA.

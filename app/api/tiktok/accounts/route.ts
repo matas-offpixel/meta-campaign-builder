@@ -26,9 +26,6 @@ export async function GET() {
     );
   }
 
-  // The tiktok_accounts table is created by migration 016 — until that
-  // migration has been applied this query will surface a relation-does-
-  // not-exist error and we degrade to an empty list rather than 500.
   type AccountRow = Pick<
     TikTokAccount,
     | "id"
@@ -40,11 +37,7 @@ export async function GET() {
   >;
 
   const { data, error } = await supabase
-    .from(
-      // Bypass the typed schema accessor so this compiles cleanly even
-      // before the regenerated database.types.ts knows about the table.
-      "tiktok_accounts" as never,
-    )
+    .from("tiktok_accounts")
     .select(
       "id, user_id, account_name, tiktok_advertiser_id, created_at, updated_at",
     )
@@ -59,6 +52,6 @@ export async function GET() {
     );
   }
 
-  const accounts = (data ?? []) as unknown as AccountRow[];
+  const accounts = (data ?? []) as AccountRow[];
   return NextResponse.json({ ok: true, accounts }, { status: 200 });
 }

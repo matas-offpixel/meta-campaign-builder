@@ -29,7 +29,7 @@ export async function GET(
   }
 
   const { data, error } = await supabase
-    .from("google_ad_plans" as never)
+    .from("google_ad_plans")
     .select("*")
     .eq("id", planId)
     .maybeSingle();
@@ -104,8 +104,8 @@ export async function PATCH(
   }
 
   const { data, error } = await supabase
-    .from("google_ad_plans" as never)
-    .update(patch as never)
+    .from("google_ad_plans")
+    .update(patch)
     .eq("id", planId)
     .select("*")
     .maybeSingle();
@@ -142,7 +142,7 @@ export async function DELETE(
   }
 
   const { error } = await supabase
-    .from("google_ad_plans" as never)
+    .from("google_ad_plans")
     .delete()
     .eq("id", planId);
 

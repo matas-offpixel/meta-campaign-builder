@@ -226,14 +226,8 @@ export function ClientDetail({ client: initial, events }: Props) {
           </section>
 
           <PlatformAccountsCard
-            initialTikTokAccountId={
-              (client as unknown as { tiktok_account_id?: string | null })
-                .tiktok_account_id ?? null
-            }
-            initialGoogleAdsAccountId={
-              (client as unknown as { google_ads_account_id?: string | null })
-                .google_ads_account_id ?? null
-            }
+            initialTikTokAccountId={client.tiktok_account_id ?? null}
+            initialGoogleAdsAccountId={client.google_ads_account_id ?? null}
             metaBusinessId={client.meta_business_id ?? null}
             metaAdAccountId={client.meta_ad_account_id ?? null}
             metaPixelId={client.meta_pixel_id ?? null}

@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   const eventId = req.nextUrl.searchParams.get("eventId");
   let query = supabase
-    .from("google_ad_plans" as never)
+    .from("google_ad_plans")
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
@@ -119,8 +119,8 @@ export async function POST(req: NextRequest) {
   };
 
   const { data, error } = await supabase
-    .from("google_ad_plans" as never)
-    .insert(payload as never)
+    .from("google_ad_plans")
+    .insert(payload)
     .select("*")
     .single();
 
