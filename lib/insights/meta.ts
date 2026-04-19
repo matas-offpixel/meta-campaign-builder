@@ -280,7 +280,12 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
     (acc, r) => {
       acc.spend += r.spend;
       acc.impressions += r.impressions;
-      acc.reach += r.reach;
+      // Per-campaign `reach` is Meta's deduped reach for that single
+      // campaign — correct at the row level. Summing across campaigns
+      // inflates the total because users overlap. We label the result
+      // `reachSum` (not `reach`) so callers can't mistake it for true
+      // unique reach across the event.
+      acc.reachSum += r.reach;
       acc.clicks += r.clicks;
       acc.lpv += r.landingPageViews;
       acc.regs += r.registrations;
@@ -291,7 +296,7 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
     {
       spend: 0,
       impressions: 0,
-      reach: 0,
+      reachSum: 0,
       clicks: 0,
       lpv: 0,
       regs: 0,
@@ -303,19 +308,18 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
   return {
     spend: sum.spend,
     impressions: sum.impressions,
-    reach: sum.reach,
+    reachSum: sum.reachSum,
     clicks: sum.clicks,
     landingPageViews: sum.lpv,
     registrations: sum.regs,
     purchases: sum.purchases,
     purchaseValue: sum.purchaseValue,
-    // Reach is approximated as a sum across campaigns. Meta does not
-    // expose a true unique-reach across an arbitrary set of campaigns
-    // without a Reach & Frequency report. The label in the UI calls this
-    // out as "Reach (sum)" so the agency knows it's not deduped.
     roas: sum.spend > 0 ? sum.purchaseValue / sum.spend : 0,
     cpm: sum.impressions > 0 ? sum.spend / (sum.impressions / 1000) : 0,
-    frequency: sum.reach > 0 ? sum.impressions / sum.reach : 0,
+    // Frequency derived from reachSum is therefore UNDER-stated when
+    // there's overlap between campaigns. JSDoc on `MetaTotals.frequency`
+    // calls this out — UI surfaces it as a coarse signal only.
+    frequency: sum.reachSum > 0 ? sum.impressions / sum.reachSum : 0,
     cpr: sum.regs > 0 ? sum.spend / sum.regs : 0,
     cplpv: sum.lpv > 0 ? sum.spend / sum.lpv : 0,
     cpp: sum.purchases > 0 ? sum.spend / sum.purchases : 0,

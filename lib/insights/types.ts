@@ -17,7 +17,20 @@
 export interface MetaTotals {
   spend: number;
   impressions: number;
-  reach: number;
+  /**
+   * Sum of per-campaign reach across every matched campaign.
+   *
+   * NOT deduplicated unique reach across the event — Meta does not
+   * expose a true unique-reach across an arbitrary set of campaigns
+   * without a Reach & Frequency report. A user reached by N campaigns
+   * is counted N times here.
+   *
+   * UI MUST surface this caveat (label suffix `(sum)` + an aside) so a
+   * client doesn't read it as the unique people reached. Future slices
+   * that wire R&F should introduce a separate `reachUnique` field
+   * rather than mutating this one — keeps the contract honest.
+   */
+  reachSum: number;
   /** "Clicks (all)" — link clicks across destinations. */
   clicks: number;
   /** Landing page views — derived from `actions[action_type=landing_page_view]`. */
@@ -32,7 +45,14 @@ export interface MetaTotals {
   roas: number;
   /** Cost per mille — spend / (impressions / 1000). 0 when impressions == 0. */
   cpm: number;
-  /** Frequency — impressions / reach. 0 when reach == 0. */
+  /**
+   * Frequency — impressions / reachSum. 0 when reachSum == 0.
+   *
+   * Inherits the same caveat as `reachSum`: because the denominator is
+   * over-counted, this value is UNDER-stated relative to true unique
+   * frequency. Treat as a coarse signal only; defer to per-campaign
+   * frequency for accuracy.
+   */
   frequency: number;
   /** Cost per registration — spend / registrations. 0 when registrations == 0. */
   cpr: number;

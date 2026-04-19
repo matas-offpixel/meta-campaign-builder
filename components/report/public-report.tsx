@@ -112,7 +112,15 @@ export function PublicReport({ event, insights, shareToken }: Props) {
               label="Impressions"
               value={fmtInt(insights.totals.impressions)}
             />
-            <Metric label="Reach" value={fmtInt(insights.totals.reach)} />
+            {/*
+              "Reach (sum)" — explicitly labelled so a client can't read
+              this as deduped unique reach across the event. The aside
+              below the grid spells out the caveat.
+            */}
+            <Metric
+              label="Reach (sum)"
+              value={fmtInt(insights.totals.reachSum)}
+            />
             <Metric
               label="Landing page views"
               value={fmtInt(insights.totals.landingPageViews)}
@@ -138,6 +146,14 @@ export function PublicReport({ event, insights, shareToken }: Props) {
             />
             <Metric label="CPR" value={fmtCurrency(insights.totals.cpr)} />
           </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Reach (sum)</span> is
+            summed across campaigns — not deduplicated unique reach across the
+            event. A user reached by more than one campaign is counted once
+            per campaign. Frequency is derived from the same sum and is
+            therefore a conservative under-estimate. Per-campaign rows below
+            show each campaign&rsquo;s deduplicated reach.
+          </p>
         </Section>
 
         {/* Per-campaign breakdown table */}
