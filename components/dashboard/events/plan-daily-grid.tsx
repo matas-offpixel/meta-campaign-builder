@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useReducer,
   useRef,
@@ -331,13 +333,26 @@ export interface PlanDailyGridProps {
   saveDaysBulk: (patches: AdPlanDayBulkPatch[]) => Promise<AdPlanDay[]>;
 }
 
-export function PlanDailyGrid({
-  days,
-  onDaySaved,
-  onError,
-  saveDay,
-  saveDaysBulk,
-}: PlanDailyGridProps) {
+/**
+ * Imperative handle exposed via `ref`. Lets parents quiesce the grid's
+ * local debounce + queue state before firing their own bulk writes
+ * (e.g. the "Even spread" suggestion in the plan header). Without this
+ * a per-cell debounce that's pending when the parent's bulk fires can
+ * win the race and overwrite the parent's values 300ms later.
+ */
+export interface PlanGridHandle {
+  /**
+   * Resolves once every pending per-cell save has either flushed or been
+   * queued + drained behind any in-flight bulk. Safe to call repeatedly.
+   */
+  flushPendingSaves: () => Promise<void>;
+}
+
+export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
+  function PlanDailyGrid(
+    { days, onDaySaved, onError, saveDay, saveDaysBulk }: PlanDailyGridProps,
+    ref,
+  ) {
   // Local optimistic mirror. Cells render from this in preference to the
   // upstream `days` prop. On successful save we also call onDaySaved so
   // the parent's mirror catches up — keeps the two in sync after a
@@ -350,14 +365,30 @@ export function PlanDailyGrid({
     new Map<string, AdPlanDay>(),
   );
 
-  // Re-seed the local mirror whenever the parent re-passes days. We
-  // overlay any pending optimistic edits the parent doesn't know about
-  // yet by preferring local over incoming for ids already in the map.
+  // Re-seed the local mirror whenever the parent re-passes days.
+  //
+  // Newer-updated_at wins. The local mirror holds optimistic edits the
+  // parent may not have seen yet, but the parent can also push fresher
+  // values from outside the grid (e.g. an "Even spread" bulk write or
+  // a router.refresh() after a server-side change). Whichever side has
+  // the strictly greater updated_at takes precedence; ties keep the
+  // local value so an in-flight optimistic edit isn't clobbered by the
+  // unchanged prop snapshot.
   useEffect(() => {
     setLocalMap((prev) => {
       const next = new Map<string, AdPlanDay>();
       for (const d of days) {
-        next.set(d.id, prev.get(d.id) ?? d);
+        const local = prev.get(d.id);
+        if (!local) {
+          next.set(d.id, d);
+          continue;
+        }
+        const incomingTs = Date.parse(d.updated_at);
+        const localTs = Date.parse(local.updated_at);
+        next.set(
+          d.id,
+          Number.isFinite(incomingTs) && incomingTs > localTs ? d : local,
+        );
       }
       return next;
     });
@@ -502,6 +533,42 @@ export function PlanDailyGrid({
       }, 300);
       pendingTimeoutsRef.current.set(dayId, t);
     },
+    [persistPendingForId],
+  );
+
+  // Imperative handle ------------------------------------------------------
+  // Exposed so parents (e.g. the "Even spread" suggestion) can quiesce the
+  // grid before firing their own bulk write. Without this, a per-cell
+  // debounce that's pending when the parent's bulk fires can win the race
+  // and overwrite the parent's values 300ms later — trivially reproducible
+  // by tabbing out of a cell and immediately clicking Apply.
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushPendingSaves: async () => {
+        // Snapshot pending ids first so we don't iterate-while-mutating.
+        const pendingIds = Array.from(pendingTimeoutsRef.current.keys());
+        for (const id of pendingIds) {
+          const t = pendingTimeoutsRef.current.get(id);
+          if (t) {
+            clearTimeout(t);
+            pendingTimeoutsRef.current.delete(id);
+          }
+        }
+        // Convert each pending debounce into an immediate save. If a bulk
+        // is currently in flight, persistPendingForId queues the per-cell
+        // save into queuedAfterBulkRef and returns immediately — so we
+        // also wait below for any in-flight bulk to drain.
+        await Promise.all(pendingIds.map((id) => persistPendingForId(id)));
+        // Wait for any in-flight bulk + its drained queue. runBulk's
+        // finally{} flips bulkInFlightRef back to false only after the
+        // queue has fully sequentially drained, so this loop exit point
+        // is the all-quiet signal.
+        while (bulkInFlightRef.current) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      },
+    }),
     [persistPendingForId],
   );
 
@@ -855,7 +922,8 @@ export function PlanDailyGrid({
       />
     </section>
   );
-}
+  },
+);
 
 // ─── Cell ────────────────────────────────────────────────────────────────────
 
