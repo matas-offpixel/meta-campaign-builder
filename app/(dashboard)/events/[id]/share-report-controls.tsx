@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 
 interface ShareRow {
   token: string;
-  event_id: string;
+  // Nullable since migration 014 — scope='client' shares carry a
+  // client_id instead. Always non-null in this component's data path
+  // (rows here are looked up by event_id) but typed honestly to
+  // match the regenerated Database row type.
+  event_id: string | null;
   enabled: boolean;
   expires_at: string | null;
   view_count: number;

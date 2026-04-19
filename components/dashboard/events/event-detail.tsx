@@ -71,7 +71,11 @@ interface Props {
    */
   initialShare: {
     token: string;
-    event_id: string;
+    // Nullable since migration 014 — scope='client' shares carry a
+    // client_id instead. event_id is still always set for shares
+    // returned by getShareForEvent (which filters by event_id), but
+    // the row type from the regenerated database.types.ts allows null.
+    event_id: string | null;
     enabled: boolean;
     expires_at: string | null;
     view_count: number;
