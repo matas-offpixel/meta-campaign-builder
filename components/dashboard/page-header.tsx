@@ -9,7 +9,13 @@ export function PageHeader({
   description,
   actions,
 }: {
-  title: string;
+  /**
+   * Page title. Accepts a string (the common case) or arbitrary
+   * ReactNode for headers that need to compose adornments (favourite
+   * toggle, status pills) inline with the heading text — see
+   * `components/dashboard/events/event-detail.tsx`.
+   */
+  title: ReactNode;
   description?: string;
   actions?: ReactNode;
 }) {

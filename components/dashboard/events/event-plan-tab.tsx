@@ -184,6 +184,7 @@ export function EventPlanTab({
       <PlanHeader
         plan={plan}
         daysCount={days.length}
+        eventBudget={event.budget_marketing}
         onApplyEvenSpread={handleApplyEvenSpread}
         onPatch={handlePlanPatch}
       />

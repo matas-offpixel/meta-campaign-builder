@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import {
+  ArrowDownToLine,
   ExternalLink,
   FileDown,
   FilePlus2,
@@ -16,7 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/dashboard/_shared/status-pill";
-import { fmtDate } from "@/lib/dashboard/format";
+import { fmtCurrency, fmtDate } from "@/lib/dashboard/format";
 import type { AdPlan, AdPlanPatch } from "@/lib/db/ad-plans";
 
 const DEBOUNCE_MS = 500;
@@ -40,27 +41,49 @@ const INTEGER_INPUT_RE = /^\d*$/;
 export function PlanHeader({
   plan,
   daysCount,
+  eventBudget,
   onApplyEvenSpread,
   onPatch,
 }: {
   plan: AdPlan;
   daysCount: number;
+  /**
+   * The parent event's marketing budget. Used by the "Pull budget from
+   * event" affordance shown when the plan has no budget but the event
+   * does — covers plans created before auto-populate was introduced.
+   */
+  eventBudget: number | null;
   /** Resolves once the bulk save (and any quiesce wait) has settled. */
   onApplyEvenSpread: () => Promise<void>;
   /** Called by the inline-edit fields. Parent persists via updatePlan. */
   onPatch: (patch: AdPlanPatch) => Promise<void>;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirming" | "working">("idle");
+  const [pulling, setPulling] = useState(false);
 
   const hasBudget = plan.total_budget != null && plan.total_budget > 0;
   const hasDays = daysCount > 0;
   const canSuggest = hasBudget && hasDays;
+  // Surface the pull affordance only when the plan actually lacks a
+  // budget AND the event has one to copy. Both prerequisites required.
+  const canPullBudget =
+    plan.total_budget == null && eventBudget != null && eventBudget > 0;
 
   const suggestTitle = !hasBudget
     ? "Set a total budget first"
     : !hasDays
       ? "No days to populate"
       : undefined;
+
+  const handlePullBudget = async () => {
+    if (!canPullBudget || pulling) return;
+    setPulling(true);
+    try {
+      await onPatch({ total_budget: eventBudget });
+    } finally {
+      setPulling(false);
+    }
+  };
 
   const handleApply = async () => {
     setPhase("working");
@@ -89,6 +112,23 @@ export function PlanHeader({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {canPullBudget && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handlePullBudget}
+              disabled={pulling}
+              title="Copy the event's marketing budget into this plan"
+            >
+              {pulling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ArrowDownToLine className="h-3.5 w-3.5" />
+              )}
+              Pull budget from event ({fmtCurrency(eventBudget!)})
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"

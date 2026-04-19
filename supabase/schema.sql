@@ -203,6 +203,7 @@ create table if not exists events (
   status             text        not null default 'upcoming',
   budget_marketing   numeric(12, 2),
   notes              text,
+  favourite          boolean     not null default false,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now(),
 
@@ -214,6 +215,12 @@ create table if not exists events (
 
 create index if not exists events_user_client_idx
   on events (user_id, client_id);
+
+-- Partial — only indexes rows where favourite = true. Cheap "favourites
+-- only" lookups for dashboard surfaces.
+create index if not exists events_favourite_idx
+  on events (user_id)
+  where favourite;
 
 create index if not exists events_user_event_date_idx
   on events (user_id, event_date);

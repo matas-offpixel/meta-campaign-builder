@@ -165,6 +165,25 @@ export async function updateEventRow(
   return (data as EventRow) ?? null;
 }
 
+/**
+ * Flip the favourite flag on an event. Caller is responsible for the
+ * optimistic UI toggle + router.refresh() — this helper just persists.
+ */
+export async function toggleFavourite(
+  eventId: string,
+  next: boolean,
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("events")
+    .update({ favourite: next })
+    .eq("id", eventId);
+  if (error) {
+    console.warn("Supabase toggleFavourite error:", error.message);
+    throw error;
+  }
+}
+
 export async function setEventStatus(
   id: string,
   status: EventStatus,

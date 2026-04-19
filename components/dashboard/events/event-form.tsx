@@ -187,9 +187,22 @@ export function EventForm({
           ...payload,
           user_id: userId,
         });
-        if (created) router.push(`/events/${created.id}`);
+        if (created) {
+          // Invalidate the destination's RSC payload before navigating.
+          // Without router.refresh() the soft-nav serves the cached
+          // (empty) payload from before the row existed; with it, the
+          // detail page reflects the freshly-inserted event.
+          router.refresh();
+          router.push(`/events/${created.id}`);
+        }
       } else if (mode === "edit" && initial) {
         await updateEventRow(initial.id, payload);
+        // BUG FIX: router.push to /events/[id] re-uses the cached RSC
+        // payload from the user's prior visit, so date/time edits
+        // appeared not to persist (DB write succeeded; UI showed stale
+        // values). router.refresh() invalidates the cache entry so the
+        // subsequent push re-fetches the server component.
+        router.refresh();
         router.push(`/events/${initial.id}`);
       }
     } catch (err) {
@@ -386,13 +399,14 @@ export function EventForm({
         />
         <div className="flex flex-col gap-1.5">
           <label htmlFor="event-notes" className="text-sm font-medium">
-            Notes
+            Description
           </label>
           <textarea
             id="event-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={4}
+            placeholder="Short description of the event, lineup, vibe — used as context for ad copy and AI features."
             className="w-full rounded-md border border-border-strong bg-background px-3 py-2 text-sm
               focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
           />

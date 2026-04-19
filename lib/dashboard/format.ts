@@ -108,6 +108,35 @@ export function daysBetween(a: Date, b: Date): number {
 }
 
 /**
+ * Days-until-event label for the event-detail header pill.
+ *
+ * Distinct from fmtRelative because:
+ *   - Lowercase forms ("today", "tomorrow", "in 23 days") match a pill
+ *     register, not the title-cased one /today/ uses.
+ *   - Past dates extend indefinitely as "N days ago", whereas
+ *     fmtRelative only handles "Yesterday" then falls back to fmtDay.
+ *   - Returns null (rather than "—") when no date is supplied so the
+ *     caller can hide the pill entirely.
+ *
+ * `now` is required so callers can sample it via useState lazy
+ * initializer at mount and keep React 19 effect-purity happy.
+ */
+export function fmtDaysUntilEvent(
+  iso: string | null | undefined,
+  now: Date,
+): { label: string; isPast: boolean } | null {
+  const eventDate = parseFlexible(iso);
+  if (!eventDate) return null;
+
+  const diff = daysBetween(midnightOf(now), midnightOf(eventDate));
+  if (diff === 0) return { label: "today", isPast: false };
+  if (diff === 1) return { label: "tomorrow", isPast: false };
+  if (diff > 1) return { label: `in ${diff} days`, isPast: false };
+  if (diff === -1) return { label: "1 day ago", isPast: true };
+  return { label: `${Math.abs(diff)} days ago`, isPast: true };
+}
+
+/**
  * Friendly relative label vs today: "Today" / "Tomorrow" /
  * "In N days" (within a week) / "Yesterday" / falls back to fmtDay.
  */

@@ -14,6 +14,7 @@ import {
   Circle,
   BarChart3,
   Plus,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TabPanel } from "@/components/ui/tabs";
@@ -29,11 +30,17 @@ import { saveDraftToDb } from "@/lib/db/drafts";
 import {
   deleteEventRow,
   linkDraftToEvent,
+  toggleFavourite,
   type EventLinkedDraft,
   type EventWithClient,
 } from "@/lib/db/events";
 import type { AdPlan, AdPlanDay } from "@/lib/db/ad-plans";
-import { fmtDate, fmtDateTime, fmtShort } from "@/lib/dashboard/format";
+import {
+  fmtDate,
+  fmtDateTime,
+  fmtDaysUntilEvent,
+  fmtShort,
+} from "@/lib/dashboard/format";
 
 interface Props {
   event: EventWithClient;
@@ -67,6 +74,32 @@ export function EventDetail({
   const [working, setWorking] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optimistic mirror of event.favourite. Toggled instantly on click;
+  // reverts on persist error so the UI never lies for long.
+  const [favourite, setFavouriteLocal] = useState(event.favourite);
+  const [favWorking, setFavWorking] = useState(false);
+  // Sample now once at mount via lazy initializer to keep the days-until
+  // pill stable across re-renders + satisfy React 19 effect purity.
+  const [now] = useState(() => new Date());
+  const daysUntil = fmtDaysUntilEvent(event.event_date, now);
+
+  const handleToggleFavourite = async () => {
+    if (favWorking) return;
+    const next = !favourite;
+    setFavouriteLocal(next);
+    setFavWorking(true);
+    try {
+      await toggleFavourite(event.id, next);
+      router.refresh();
+    } catch (err) {
+      setFavouriteLocal(!next);
+      const msg =
+        err instanceof Error ? err.message : "Failed to update favourite.";
+      setError(msg);
+    } finally {
+      setFavWorking(false);
+    }
+  };
 
   const handleDelete = async () => {
     setWorking(true);
@@ -109,7 +142,37 @@ export function EventDetail({
   return (
     <>
       <PageHeader
-        title={event.name}
+        title={
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleFavourite}
+              disabled={favWorking}
+              aria-label={favourite ? "Unfavourite event" : "Favourite event"}
+              aria-pressed={favourite}
+              title={favourite ? "Unfavourite" : "Favourite"}
+              className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <Star
+                className={`h-4 w-4 ${
+                  favourite ? "fill-amber-400 text-amber-400" : ""
+                }`}
+              />
+            </button>
+            <span className="truncate">{event.name}</span>
+            {daysUntil && (
+              <span
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal tracking-normal ${
+                  daysUntil.isPast
+                    ? "border-border text-muted-foreground"
+                    : "border-border-strong text-foreground"
+                }`}
+              >
+                {daysUntil.label}
+              </span>
+            )}
+          </span>
+        }
         description={
           event.client?.name
             ? `${event.client.name} · ${event.status.replace("_", " ")}`
@@ -486,7 +549,7 @@ function LinksSection({ event }: { event: EventWithClient }) {
 function NotesSection({ notes }: { notes: string }) {
   return (
     <section className="rounded-md border border-border bg-card p-5">
-      <h2 className="font-heading text-base tracking-wide mb-3">Notes</h2>
+      <h2 className="font-heading text-base tracking-wide mb-3">Description</h2>
       <p className="text-sm whitespace-pre-wrap">{notes}</p>
     </section>
   );
@@ -498,33 +561,54 @@ function MilestoneTimeline({ event }: { event: EventWithClient }) {
   // useState lazy initializer is the React-sanctioned escape hatch for
   // reading from Date on mount without breaking the purity rule.
   const [now] = useState(() => Date.now());
-  const items: Array<{ label: string; iso: string | null; date: Date | null }> =
-    [
-      {
-        label: "Announcement",
-        iso: event.announcement_at,
-        date: event.announcement_at ? new Date(event.announcement_at) : null,
-      },
-      {
-        label: "Presale",
-        iso: event.presale_at,
-        date: event.presale_at ? new Date(event.presale_at) : null,
-      },
-      {
-        label: "General sale",
-        iso: event.general_sale_at,
-        date: event.general_sale_at ? new Date(event.general_sale_at) : null,
-      },
-      {
-        label: "Doors",
-        iso: event.event_start_at ?? event.event_date,
-        date: event.event_start_at
-          ? new Date(event.event_start_at)
-          : event.event_date
-            ? new Date(event.event_date + "T00:00:00")
-            : null,
-      },
-    ];
+
+  // Common shape: announcement is the only "go live" date and there's
+  // no separate presale/GA window. Show General sale at announcement_at
+  // so the timeline reads end-to-end instead of leaving "Not set" gaps.
+  // UI inference only — persisted general_sale_at stays null.
+  const inferGeneralSaleFromAnnouncement =
+    event.presale_at == null &&
+    event.general_sale_at == null &&
+    event.announcement_at != null;
+
+  const items: Array<{
+    label: string;
+    iso: string | null;
+    date: Date | null;
+    sublabel?: string;
+  }> = [
+    {
+      label: "Announcement",
+      iso: event.announcement_at,
+      date: event.announcement_at ? new Date(event.announcement_at) : null,
+    },
+    {
+      label: "Presale",
+      iso: event.presale_at,
+      date: event.presale_at ? new Date(event.presale_at) : null,
+    },
+    inferGeneralSaleFromAnnouncement
+      ? {
+          label: "General sale",
+          iso: event.announcement_at,
+          date: new Date(event.announcement_at as string),
+          sublabel: "(on announcement)",
+        }
+      : {
+          label: "General sale",
+          iso: event.general_sale_at,
+          date: event.general_sale_at ? new Date(event.general_sale_at) : null,
+        },
+    {
+      label: "Doors",
+      iso: event.event_start_at ?? event.event_date,
+      date: event.event_start_at
+        ? new Date(event.event_start_at)
+        : event.event_date
+          ? new Date(event.event_date + "T00:00:00")
+          : null,
+    },
+  ];
 
   return (
     <section className="rounded-md border border-border bg-card p-5">
@@ -557,6 +641,11 @@ function MilestoneTimeline({ event }: { event: EventWithClient }) {
               >
                 {item.iso ? fmtShort(item.iso) : "Not set"}
               </p>
+              {item.sublabel && (
+                <p className="text-[10px] text-muted-foreground/80">
+                  {item.sublabel}
+                </p>
+              )}
             </li>
           );
         })}

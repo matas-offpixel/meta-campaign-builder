@@ -161,6 +161,7 @@ export type Database = {
           event_date: string | null;
           event_start_at: string | null;
           event_timezone: string | null;
+          favourite: boolean;
           general_sale_at: string | null;
           genres: string[];
           id: string;
@@ -187,6 +188,7 @@ export type Database = {
           event_date?: string | null;
           event_start_at?: string | null;
           event_timezone?: string | null;
+          favourite?: boolean;
           general_sale_at?: string | null;
           genres?: string[];
           id?: string;
@@ -213,6 +215,7 @@ export type Database = {
           event_date?: string | null;
           event_start_at?: string | null;
           event_timezone?: string | null;
+          favourite?: boolean;
           general_sale_at?: string | null;
           genres?: string[];
           id?: string;
