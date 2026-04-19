@@ -1,5 +1,5 @@
 // Generated from Supabase (project zbtldbfjbhfvpksmdvnt) via
-// `mcp generate_typescript_types` on 2026-04-19 (post-migration 013).
+// `mcp generate_typescript_types` on 2026-04-19 (post-migration 014).
 //
 // Regenerate with `supabase gen types typescript --project-id zbtldbfjbhfvpksmdvnt`
 // or via the Supabase MCP. Keep in sync with supabase/schema.sql.
@@ -323,6 +323,66 @@ export type Database = {
         }
         Relationships: []
       }
+      client_report_weekly_snapshots: {
+        Row: {
+          captured_at: string
+          captured_by: string | null
+          client_id: string
+          created_at: string
+          event_id: string
+          id: string
+          revenue: number | null
+          tickets_sold: number | null
+          tickets_sold_previous: number | null
+          updated_at: string
+          user_id: string
+          week_start: string
+        }
+        Insert: {
+          captured_at?: string
+          captured_by?: string | null
+          client_id: string
+          created_at?: string
+          event_id: string
+          id?: string
+          revenue?: number | null
+          tickets_sold?: number | null
+          tickets_sold_previous?: number | null
+          updated_at?: string
+          user_id: string
+          week_start: string
+        }
+        Update: {
+          captured_at?: string
+          captured_by?: string | null
+          client_id?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          revenue?: number | null
+          tickets_sold?: number | null
+          tickets_sold_previous?: number | null
+          updated_at?: string
+          user_id?: string
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_report_weekly_snapshots_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_report_weekly_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           created_at: string
@@ -536,36 +596,52 @@ export type Database = {
       }
       report_shares: {
         Row: {
+          can_edit: boolean
+          client_id: string | null
           created_at: string
           enabled: boolean
-          event_id: string
+          event_id: string | null
           expires_at: string | null
           last_viewed_at: string | null
+          scope: string
           token: string
           user_id: string
           view_count: number
         }
         Insert: {
+          can_edit?: boolean
+          client_id?: string | null
           created_at?: string
           enabled?: boolean
-          event_id: string
+          event_id?: string | null
           expires_at?: string | null
           last_viewed_at?: string | null
+          scope?: string
           token: string
           user_id: string
           view_count?: number
         }
         Update: {
+          can_edit?: boolean
+          client_id?: string | null
           created_at?: string
           enabled?: boolean
-          event_id?: string
+          event_id?: string | null
           expires_at?: string | null
           last_viewed_at?: string | null
+          scope?: string
           token?: string
           user_id?: string
           view_count?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "report_shares_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "report_shares_event_id_fkey"
             columns: ["event_id"]
