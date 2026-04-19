@@ -23,6 +23,7 @@ import {
   type AdPlanPatch,
 } from "@/lib/db/ad-plans";
 import type { EventRow } from "@/lib/db/events";
+import { computeSmartSpread } from "@/lib/dashboard/pacing";
 
 const INFO_AUTO_DISMISS_MS = 4000;
 
@@ -149,6 +150,84 @@ export function EventPlanTab({
     }
   }, [plan, event.id, router]);
 
+  const handleApplySmartSpread = useCallback(async () => {
+    if (!plan?.total_budget || plan.total_budget <= 0 || days.length === 0) {
+      // Header guards against this; defend in depth and bail silently.
+      return;
+    }
+    setError(null);
+    // Same quiesce as even spread — a stale per-cell debounce on Traffic
+    // or Conversion would otherwise stomp the ratios we're about to write.
+    try {
+      await gridRef.current?.flushPendingSaves();
+    } catch {
+      // flushPendingSaves funnels per-cell errors via onError; nothing here.
+    }
+
+    const { perDay, eligibleCount, skippedCount } = computeSmartSpread({
+      days,
+      event,
+      totalBudget: plan.total_budget,
+    });
+
+    if (eligibleCount === 0) {
+      // Every day already has manual edits — nothing to do, but tell
+      // the user explicitly so they don't think the click was lost.
+      setInfo(
+        `Smart spread skipped — all ${days.length} day${
+          days.length === 1 ? "" : "s"
+        } have manual Traffic or Conversion edits.`,
+      );
+      return;
+    }
+
+    // Build patches that merge the new traffic/conversion split into
+    // each eligible day's existing objective_budgets, preserving the
+    // other keys (Reach, Post engagement, TikTok, Google) untouched.
+    // Zero values are dropped so the persisted shape stays sparse —
+    // mirrors writeObjectiveBudget's deletion semantics. Without this
+    // a presale day would persist `traffic: 0` rather than the canonical
+    // absent-key form, breaking the "any non-zero is intentional"
+    // eligibility rule on the next smart-spread run.
+    const patches: AdPlanDayBulkPatch[] = [];
+    for (const d of days) {
+      const share = perDay.get(d.day);
+      if (!share) continue;
+      const merged = { ...(d.objective_budgets ?? {}) };
+      if (share.traffic > 0) merged.traffic = share.traffic;
+      else delete merged.traffic;
+      if (share.conversion > 0) merged.conversion = share.conversion;
+      else delete merged.conversion;
+      patches.push({ id: d.id, objective_budgets: merged });
+    }
+
+    try {
+      const saved = await bulkUpdatePlanDays(patches);
+      setDays((prev) => {
+        const byId = new Map(saved.map((r) => [r.id, r]));
+        return prev.map((d) => byId.get(d.id) ?? d);
+      });
+      setInfo(
+        `Smart spread applied to ${eligibleCount} day${
+          eligibleCount === 1 ? "" : "s"
+        }.${
+          skippedCount > 0
+            ? ` ${skippedCount} day${
+                skippedCount === 1 ? "" : "s"
+              } skipped — manual edits preserved.`
+            : ""
+        }`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to apply smart spread.",
+      );
+      // Re-throw so the header's "working" state resets via its catch
+      // — keeps the confirmation row from getting stuck.
+      throw err;
+    }
+  }, [plan, days, event]);
+
   const handleApplyEvenSpread = useCallback(async () => {
     if (!plan?.total_budget || plan.total_budget <= 0 || days.length === 0) {
       // The header guards against this but defend in depth — bail silently.
@@ -215,6 +294,7 @@ export function EventPlanTab({
         daysCount={days.length}
         eventBudget={event.budget_marketing}
         onApplyEvenSpread={handleApplyEvenSpread}
+        onApplySmartSpread={handleApplySmartSpread}
         onResync={handleResync}
         onPatch={handlePlanPatch}
       />

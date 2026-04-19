@@ -13,6 +13,7 @@ import {
   FilePlus2,
   Loader2,
   RefreshCw,
+  Sparkles,
   Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,10 +30,11 @@ const INTEGER_INPUT_RE = /^\d*$/;
  * Header strip for a marketing plan.
  *
  * Owns:
- *  - local UI state for the "Even spread" suggestion (idle → confirming
- *    → working) but delegates the actual bulk write to the parent via
- *    onApplyEvenSpread, since the parent owns the days mirror + the grid
- *    ref needed to flush pending per-cell saves first.
+ *  - local UI state for the "Even spread" + "Smart spread" suggestions
+ *    (idle → confirming → working) but delegates the actual bulk write
+ *    to the parent (onApplyEvenSpread / onApplySmartSpread), since the
+ *    parent owns the days mirror + the grid ref needed to flush pending
+ *    per-cell saves first.
  *  - debounced inline edit of total_budget, ticket_target, landing_page_url.
  *    Local string state is the canonical UI value; we only reseed from
  *    the prop when no pending timer is in flight for that field, so a
@@ -43,6 +45,7 @@ export function PlanHeader({
   daysCount,
   eventBudget,
   onApplyEvenSpread,
+  onApplySmartSpread,
   onResync,
   onPatch,
 }: {
@@ -57,6 +60,15 @@ export function PlanHeader({
   /** Resolves once the bulk save (and any quiesce wait) has settled. */
   onApplyEvenSpread: () => Promise<void>;
   /**
+   * Phase-aware pacing: distributes the plan's total_budget across days
+   * with intra-day Traffic / Conversion ratios that follow the event's
+   * milestones (presale / on-sale / final 10 / event day) and bumps the
+   * Conversion share on UK paydays. Skips any day with manual edits in
+   * Traffic or Conversion. Same parent-owned bulk-write plumbing as
+   * onApplyEvenSpread.
+   */
+  onApplySmartSpread: () => Promise<void>;
+  /**
    * Resync plan-level values + per-day phase markers from the source
    * event. Destructive on plan.total_budget, plan.ticket_target, and
    * every day's phase_marker — gated by a confirm dialog. Per-day
@@ -68,6 +80,9 @@ export function PlanHeader({
   onPatch: (patch: AdPlanPatch) => Promise<void>;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirming" | "working">("idle");
+  const [smartPhase, setSmartPhase] = useState<
+    "idle" | "confirming" | "working"
+  >("idle");
   const [resyncPhase, setResyncPhase] = useState<
     "idle" | "confirming" | "working"
   >("idle");
@@ -105,6 +120,17 @@ export function PlanHeader({
     } catch {
       // Parent surfaces the error banner; just return to idle.
       setPhase("idle");
+    }
+  };
+
+  const handleApplySmart = async () => {
+    setSmartPhase("working");
+    try {
+      await onApplySmartSpread();
+      setSmartPhase("idle");
+    } catch {
+      // Parent surfaces the error banner; just return to idle.
+      setSmartPhase("idle");
     }
   };
 
@@ -167,6 +193,17 @@ export function PlanHeader({
             type="button"
             size="sm"
             variant="outline"
+            onClick={() => setSmartPhase("confirming")}
+            disabled={!canSuggest || smartPhase !== "idle"}
+            title={suggestTitle}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Smart spread
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
             onClick={() => setResyncPhase("confirming")}
             disabled={resyncPhase !== "idle"}
             title="Pull budget, ticket target, and phase markers from the event"
@@ -215,6 +252,39 @@ export function PlanHeader({
               disabled={phase === "working"}
             >
               {phase === "working" && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              )}
+              Apply
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {smartPhase !== "idle" && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            Phase-aware pacing: presale → 100% Conversion, on-sale → 75%
+            Traffic (50/50 on UK paydays), final 10 + event day → 75%
+            Conversion. Days with manual Traffic or Conversion edits are
+            preserved. Continue?
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setSmartPhase("idle")}
+              disabled={smartPhase === "working"}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleApplySmart}
+              disabled={smartPhase === "working"}
+            >
+              {smartPhase === "working" && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               )}
               Apply

@@ -2,9 +2,13 @@
  * Marketing-plan objective columns.
  *
  * The order here is the canonical column order of the daily-grid view
- * (Traffic, Conversion, Reach, Post engagement, TikTok, Google, Snap).
+ * (Traffic, Conversion, Reach, Post engagement, TikTok, Google).
  * Persisted as keys inside ad_plan_days.objective_budgets jsonb; readers
  * default missing keys to 0.
+ *
+ * Snap was dropped in slice B — we're Meta / TikTok / Google only. The
+ * DB constraint still permits "snap" as a key (migration 005) so legacy
+ * data wouldn't break, but the app no longer reads, writes, or sums it.
  *
  * Pure constants — keep this file dependency-free so it can be imported
  * from server, browser, and pure helpers alike.
@@ -17,7 +21,6 @@ export const OBJECTIVE_KEYS = [
   "post_engagement",
   "tiktok",
   "google",
-  "snap",
 ] as const;
 
 export type ObjectiveKey = (typeof OBJECTIVE_KEYS)[number];
@@ -32,7 +35,6 @@ export const OBJECTIVE_LABEL: Record<ObjectiveKey, string> = {
   post_engagement: "Post eng.",
   tiktok: "TikTok",
   google: "Google",
-  snap: "Snap",
 };
 
 /** Read a budget cell, defaulting absent keys to 0. */

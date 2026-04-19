@@ -202,7 +202,6 @@ const COLUMNS: PlanColumn[] = [
   makeMoneyColumn(OBJECTIVE_LABEL.post_engagement, "post_engagement"),
   makeMoneyColumn("TikTok", "tiktok"),
   makeMoneyColumn("Google", "google"),
-  makeMoneyColumn("Snap", "snap"),
   {
     role: "computed",
     key: "daily_spend",
