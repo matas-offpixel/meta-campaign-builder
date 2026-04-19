@@ -1,5 +1,5 @@
 // Generated from Supabase (project zbtldbfjbhfvpksmdvnt) via
-// `mcp generate_typescript_types` on 2026-04-19.
+// `mcp generate_typescript_types` on 2026-04-19 (post-migration 010).
 //
 // Regenerate with `supabase gen types typescript --project-id zbtldbfjbhfvpksmdvnt`
 // or via the Supabase MCP. Keep in sync with supabase/schema.sql.
@@ -322,12 +322,13 @@ export type Database = {
       }
       clients: {
         Row: {
-          contact_email: string | null
-          contact_name: string | null
-          contact_whatsapp: string | null
           created_at: string
           default_page_ids: string[]
+          facebook_page_handle: string | null
+          google_ads_customer_id: string | null
+          google_drive_folder_url: string | null
           id: string
+          instagram_handle: string | null
           meta_ad_account_id: string | null
           meta_business_id: string | null
           meta_pixel_id: string | null
@@ -336,17 +337,20 @@ export type Database = {
           primary_type: string
           slug: string
           status: string
+          tiktok_ad_account_id: string | null
+          tiktok_handle: string | null
           types: string[]
           updated_at: string
           user_id: string
         }
         Insert: {
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_whatsapp?: string | null
           created_at?: string
           default_page_ids?: string[]
+          facebook_page_handle?: string | null
+          google_ads_customer_id?: string | null
+          google_drive_folder_url?: string | null
           id?: string
+          instagram_handle?: string | null
           meta_ad_account_id?: string | null
           meta_business_id?: string | null
           meta_pixel_id?: string | null
@@ -355,17 +359,20 @@ export type Database = {
           primary_type: string
           slug: string
           status?: string
+          tiktok_ad_account_id?: string | null
+          tiktok_handle?: string | null
           types?: string[]
           updated_at?: string
           user_id: string
         }
         Update: {
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_whatsapp?: string | null
           created_at?: string
           default_page_ids?: string[]
+          facebook_page_handle?: string | null
+          google_ads_customer_id?: string | null
+          google_drive_folder_url?: string | null
           id?: string
+          instagram_handle?: string | null
           meta_ad_account_id?: string | null
           meta_business_id?: string | null
           meta_pixel_id?: string | null
@@ -374,6 +381,8 @@ export type Database = {
           primary_type?: string
           slug?: string
           status?: string
+          tiktok_ad_account_id?: string | null
+          tiktok_handle?: string | null
           types?: string[]
           updated_at?: string
           user_id?: string
