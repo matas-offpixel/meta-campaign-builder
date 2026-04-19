@@ -51,11 +51,20 @@ Note: London Shepherds' Min Budget is `5150.625` in source; `events.budget_marke
 
 #### Held back — flagged, NOT seeded
 
-- **Margate (Drill Shed, intended `WC26-Margate`):** Max Budget and Min Budget both £0, no capacity in MASTER row 7. Confirm with Matas before inserting.
-- **London Ministry (Ministry of Sound, intended `WC26-LONDON-MINISTRY`):** cap 1146, Min Budget £5873.25, but no event_code in MASTER row 33. Confirm code convention before inserting.
+- **Margate (Drill Shed, intended `WC26-Margate`):** Max Budget and Min Budget both £0, no capacity in MASTER row 7. Confirm with Matas before inserting. Present as a commented-out row in the script — uncomment + re-run once resolved.
 
-Both are present as commented-out rows in the script — uncomment + re-run once resolved.
+Ministry of Sound was originally on the held-back list but has been dropped entirely: it's externally promoted, not an Off Pixel campaign.
 
-#### TODO — Glasgow legacy ad-spend reconciliation
+#### TODO — Shared-spend reconciliation (single follow-up slice)
 
-Historical ad spend for both Glasgow venues ran under shared campaign names `[WC26-GLASGOW] TRAFFIC ADS / PRESALE / CONVERSION ADS / TEST / LPV` before the venues were split into `[WC26-GLASGOW-SWG3]` and `[WC26-GLASGOW-O2]`. The insights aggregator wraps `event_code` in brackets at query time (per migration 009 convention), so neither venue's report will pick up the pre-split shared spend. Needs a manual legacy-cost overlay per event — out of scope for this seed; both Glasgow event rows carry a flag in their `notes` field. Follow-up slice.
+Two architecturally identical problems, both flagged inline in the affected events' `notes` fields and to be solved together:
+
+1. **Glasgow legacy spend.** Historical ad spend for both Glasgow venues ran under shared campaign names `[WC26-GLASGOW] TRAFFIC ADS / PRESALE / CONVERSION ADS / TEST / LPV` before the venues were split into `[WC26-GLASGOW-SWG3]` and `[WC26-GLASGOW-O2]`. The insights aggregator wraps `event_code` in brackets at query time (per migration 009 convention), so neither venue's report picks up the pre-split shared spend.
+2. **London shared spend.** Ongoing shared spend for the 4 London venues (Kentish / Shepherds / Shoreditch / Tottenham) runs under a single `[WC26-LONDON]` campaign set. The bracket-wrap convention is significant — `[WC26-LONDON]` is a literal substring that does NOT collide with `[WC26-LONDON-KENTISH]` etc because of the closing bracket — so this shared spend lands in nobody's venue-specific report.
+
+Both need a manual cost-allocation overlay per event. Out of scope for this seed.
+
+#### Amendment — 2026-04-19 (post-seed)
+
+- Dropped Ministry of Sound from the script (externally promoted).
+- Added a London shared-spend note to the 4 London events. Patched live in DB via service role (the 4 London `events.notes` fields had the new sentence appended; the patch is idempotent — re-running it is a no-op). The script now applies the same note automatically on any future re-run.

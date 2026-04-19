@@ -16,9 +16,10 @@
 //      Google IDs are left null — Matas wires those via the Clients UI.
 //   2. For the 15 events, query existing rows by slug first. Skip any
 //      that already exist (no overwrite). Insert the rest in one batch.
-//   3. Two venues are deliberately held back (commented-out below):
-//      Margate (zero budget + missing capacity) and London Ministry
-//      (no event_code in source sheet). Reported in the ship summary.
+//   3. One venue is deliberately held back (commented-out below):
+//      Margate (zero budget + missing capacity). Reported in the ship
+//      summary. Ministry of Sound is NOT included — it is externally
+//      promoted, not an Off Pixel campaign.
 //
 // Run with:
 //   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
@@ -69,6 +70,25 @@ const BASE_NOTES =
 const GLASGOW_LEGACY_NOTE =
   ' NOTE: historical ad spend ran under shared campaign names `[WC26-GLASGOW] TRAFFIC ADS / PRESALE / CONVERSION ADS / TEST / LPV` before the venues were split into `[WC26-GLASGOW-SWG3]` and `[WC26-GLASGOW-O2]`. The insights aggregator wraps event_code in brackets at query time, so this event will only capture post-split spend. Pre-split shared spend needs a manual legacy-cost overlay — follow-up slice.'
 
+// Same architectural problem as Glasgow: the 4 London venues all carry
+// venue-specific event_codes (`WC26-LONDON-KENTISH` / `-SHEPHERDS` /
+// `-SHOREDITCH` / `-TOTTENHAM`) but historical + ongoing shared spend
+// runs under `[WC26-LONDON]`. The bracket wrap is significant — the
+// insights aggregator searches for the literal `[<event_code>]`, so
+// `[WC26-LONDON]` does NOT collide with `[WC26-LONDON-KENTISH]` etc
+// (the closing bracket prevents the prefix match). Result: shared
+// spend lands in nobody's report until a manual allocation overlay
+// is added.
+const LONDON_SHARED_NOTE =
+  ' NOTE: historical ad spend for London runs under a shared campaign set coded `[WC26-LONDON]` which is not captured by any venue-specific event_code. That shared spend is to be distributed across this venue + the other 3 London venues (Kentish / Shepherds / Shoreditch / Tottenham). Allocation method TBC — follow-up slice, same bucket as the Glasgow legacy-spend reconciliation.'
+
+const LONDON_EVENT_CODES = new Set([
+  'WC26-LONDON-KENTISH',
+  'WC26-LONDON-SHEPHERDS',
+  'WC26-LONDON-SHOREDITCH',
+  'WC26-LONDON-TOTTENHAM',
+])
+
 const SHARED_DEFAULTS = {
   user_id: USER_ID,
   event_timezone: 'Europe/London',
@@ -114,20 +134,9 @@ const VENUES = [
   //   budget_marketing: 0,
   // },
   //
-  // London Ministry: Ministry of Sound. Source sheet has cap 1146 and
-  // Min Budget £5873.25 but no event_code in MASTER row 33. Suggested
-  // code WC26-LONDON-MINISTRY follows the LONDON-<VENUE> convention
-  // already used for Kentish / Shepherds / Shoreditch / Tottenham.
-  // {
-  //   name: '4theFans WC26: London Ministry',
-  //   slug: '4thefans-wc26-london-ministry',
-  //   event_code: 'WC26-LONDON-MINISTRY',
-  //   venue_name: 'Ministry of Sound',
-  //   venue_city: 'London',
-  //   venue_country: 'England',
-  //   capacity: 1146,
-  //   budget_marketing: 5873.25,
-  // },
+  // Ministry of Sound is intentionally excluded from this seed — the
+  // venue is externally promoted, not an Off Pixel campaign. Do not
+  // add it back without confirmation that ownership has changed.
 ]
 
 const HELD_BACK = [
@@ -137,12 +146,6 @@ const HELD_BACK = [
     reason:
       'Source sheet has Max Budget = £0, Min Budget = £0, and no capacity in MASTER row 7. Confirm with Matas whether this venue is actually running before inserting.',
   },
-  {
-    intended_code: 'WC26-LONDON-MINISTRY (suggested)',
-    venue: 'Ministry of Sound, London',
-    reason:
-      'Source sheet has cap 1146 and Min Budget £5873.25 but no event_code in MASTER row 33. Confirm code convention before inserting.',
-  },
 ]
 
 // ─── Build event rows ─────────────────────────────────────────────────────
@@ -150,11 +153,15 @@ function buildEventRow(venue, clientId) {
   const isGlasgow =
     venue.event_code === 'WC26-GLASGOW-SWG3' ||
     venue.event_code === 'WC26-GLASGOW-O2'
+  const isLondon = LONDON_EVENT_CODES.has(venue.event_code)
+  let notes = BASE_NOTES
+  if (isGlasgow) notes += GLASGOW_LEGACY_NOTE
+  if (isLondon) notes += LONDON_SHARED_NOTE
   return {
     ...SHARED_DEFAULTS,
     ...venue,
     client_id: clientId,
-    notes: isGlasgow ? `${BASE_NOTES}${GLASGOW_LEGACY_NOTE}` : BASE_NOTES,
+    notes,
   }
 }
 
