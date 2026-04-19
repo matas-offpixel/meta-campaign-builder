@@ -1,5 +1,5 @@
 // Generated from Supabase (project zbtldbfjbhfvpksmdvnt) via
-// `mcp generate_typescript_types` on 2026-04-19 (post-migration 012).
+// `mcp generate_typescript_types` on 2026-04-19 (post-migration 013).
 //
 // Regenerate with `supabase gen types typescript --project-id zbtldbfjbhfvpksmdvnt`
 // or via the Supabase MCP. Keep in sync with supabase/schema.sql.
@@ -178,6 +178,7 @@ export type Database = {
           event_id: string
           id: string
           landing_page_url: string | null
+          legacy_spend: number | null
           name: string
           notes: string | null
           start_date: string
@@ -193,6 +194,7 @@ export type Database = {
           event_id: string
           id?: string
           landing_page_url?: string | null
+          legacy_spend?: number | null
           name: string
           notes?: string | null
           start_date: string
@@ -208,6 +210,7 @@ export type Database = {
           event_id?: string
           id?: string
           landing_page_url?: string | null
+          legacy_spend?: number | null
           name?: string
           notes?: string | null
           start_date?: string
