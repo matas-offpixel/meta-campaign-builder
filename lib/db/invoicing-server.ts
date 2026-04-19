@@ -12,7 +12,9 @@ import type {
   ClientForQuoteForm,
   CreateQuoteRequest,
   InvoiceRow,
+  InvoiceWithRefs,
   QuoteRow,
+  QuoteWithRefs,
 } from "@/lib/types/invoicing";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,6 +114,96 @@ export async function listQuotesServer(
     return [];
   }
   return ((data as unknown as QuoteRow[] | null) ?? []) as QuoteRow[];
+}
+
+/**
+ * Build name lookup tables for a list of client / event ids.
+ *
+ * Used by the dashboard list helpers to denormalise refs in one round-trip
+ * instead of N+1 lookups. Returns Maps so callers can do trivial joins.
+ */
+async function fetchNameMaps(
+  clientIds: Set<string>,
+  eventIds: Set<string>,
+): Promise<{
+  clients: Map<string, string>;
+  events: Map<string, string>;
+}> {
+  const supabase = await createClient();
+  const clients = new Map<string, string>();
+  const events = new Map<string, string>();
+
+  if (clientIds.size > 0) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id, name")
+      .in("id", Array.from(clientIds));
+    if (!error && data) {
+      for (const row of data as Array<{ id: string; name: string | null }>) {
+        if (row.id && row.name) clients.set(row.id, row.name);
+      }
+    }
+  }
+
+  if (eventIds.size > 0) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, name")
+      .in("id", Array.from(eventIds));
+    if (!error && data) {
+      for (const row of data as Array<{ id: string; name: string | null }>) {
+        if (row.id && row.name) events.set(row.id, row.name);
+      }
+    }
+  }
+
+  return { clients, events };
+}
+
+/**
+ * Dashboard helper: every invoice for the user with client + event names
+ * resolved alongside. Sorted newest-first so the master table always
+ * surfaces the most recent activity at the top.
+ */
+export async function listInvoicesWithRefsServer(
+  userId: string,
+): Promise<InvoiceWithRefs[]> {
+  const invoices = await listInvoicesServer(userId);
+  if (invoices.length === 0) return [];
+
+  const clientIds = new Set<string>();
+  const eventIds = new Set<string>();
+  for (const inv of invoices) {
+    if (inv.client_id) clientIds.add(inv.client_id);
+    if (inv.event_id) eventIds.add(inv.event_id);
+  }
+
+  const { clients, events } = await fetchNameMaps(clientIds, eventIds);
+  return invoices.map((inv) => ({
+    ...inv,
+    client_name: clients.get(inv.client_id) ?? null,
+    event_name: inv.event_id ? (events.get(inv.event_id) ?? null) : null,
+  }));
+}
+
+/**
+ * Dashboard helper: every quote for the user with client name resolved.
+ * Same fan-out pattern as listInvoicesWithRefsServer.
+ */
+export async function listQuotesWithRefsServer(
+  userId: string,
+): Promise<QuoteWithRefs[]> {
+  const quotes = await listQuotesServer(userId);
+  if (quotes.length === 0) return [];
+
+  const clientIds = new Set<string>();
+  for (const q of quotes) if (q.client_id) clientIds.add(q.client_id);
+
+  const { clients } = await fetchNameMaps(clientIds, new Set());
+  return quotes.map((q) => ({
+    ...q,
+    client_name: clients.get(q.client_id) ?? null,
+  }));
 }
 
 /**

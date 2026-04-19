@@ -120,3 +120,14 @@ export interface ClientForQuoteForm {
   default_upfront_pct: number;
   default_settlement_timing: SettlementTiming;
 }
+
+/** Invoice + denormalised client/event names for dashboard tables. */
+export interface InvoiceWithRefs extends InvoiceRow {
+  client_name: string | null;
+  event_name: string | null;
+}
+
+/** Quote + denormalised client/event names for the Quotes tab. */
+export interface QuoteWithRefs extends QuoteRow {
+  client_name: string | null;
+}

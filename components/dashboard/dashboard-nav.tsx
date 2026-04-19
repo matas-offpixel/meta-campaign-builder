@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   CalendarDays,
   LayoutDashboard,
@@ -9,6 +10,7 @@ import {
   Ticket,
   Megaphone,
   BarChart3,
+  Receipt,
   Settings as SettingsIcon,
   LogOut,
   Music2,
@@ -16,6 +18,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
+import type { InvoiceRow } from "@/lib/types/invoicing";
 
 type NavItem = {
   href: string;
@@ -23,6 +26,8 @@ type NavItem = {
   icon: React.ElementType;
   /** If provided, the item is highlighted when the path matches any of these. */
   match?: (pathname: string) => boolean;
+  /** Live count badge fetched client-side. */
+  badgeKey?: "overdue_invoices";
 };
 
 type NavSection = {
@@ -60,6 +65,13 @@ const NAV_SECTIONS: NavSection[] = [
         match: (p) => p === "/" || p.startsWith("/campaign/"),
       },
       { href: "/reporting", label: "Reporting", icon: BarChart3 },
+      {
+        href: "/invoicing",
+        label: "Invoicing",
+        icon: Receipt,
+        match: (p) => p === "/invoicing" || p.startsWith("/invoicing/"),
+        badgeKey: "overdue_invoices",
+      },
     ],
   },
   {
@@ -84,9 +96,50 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+/**
+ * Compute overdue invoice count = sent + due_date < today + paid_date null.
+ * Done client-side off the same /api/invoicing/invoices endpoint the
+ * dashboard already uses, so no extra surface area.
+ */
+function isOverdue(inv: InvoiceRow): boolean {
+  if (inv.status !== "sent") return false;
+  if (!inv.due_date) return false;
+  const due = new Date(inv.due_date);
+  if (Number.isNaN(due.getTime())) return false;
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  return due < today;
+}
+
 export function DashboardNav() {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
+  const [overdueCount, setOverdueCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCounts() {
+      try {
+        const res = await fetch("/api/invoicing/invoices?status=sent", {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as
+          | { ok: true; invoices: InvoiceRow[] }
+          | { ok: false };
+        if (!("ok" in json) || !json.ok) return;
+        if (cancelled) return;
+        setOverdueCount(json.invoices.filter(isOverdue).length);
+      } catch {
+        // Network blip — leave the badge silent rather than flicker an
+        // error state into the sidebar.
+      }
+    }
+    void loadCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -120,6 +173,10 @@ export function DashboardNav() {
                   ? item.match(pathname)
                   : pathname === item.href;
                 const Icon = item.icon;
+                const badgeCount =
+                  item.badgeKey === "overdue_invoices"
+                    ? overdueCount
+                    : null;
                 return (
                   <li key={item.href}>
                     <Link
@@ -132,7 +189,12 @@ export function DashboardNav() {
                         }`}
                     >
                       <Icon className="h-4 w-4" />
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {badgeCount != null && badgeCount > 0 && (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold text-white">
+                          {badgeCount}
+                        </span>
+                      )}
                     </Link>
                   </li>
                 );
