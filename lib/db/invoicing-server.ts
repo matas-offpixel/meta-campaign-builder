@@ -114,6 +114,45 @@ export async function listQuotesServer(
   return ((data as unknown as QuoteRow[] | null) ?? []) as QuoteRow[];
 }
 
+/**
+ * Find the quote that spawned an event, if any. Used by the event detail
+ * page to render the "From quote QUO-XXXX" badge + linked invoice panel.
+ */
+export async function getQuoteForEventServer(
+  eventId: string,
+): Promise<QuoteRow | null> {
+  const supabase = await createClient();
+  // TODO(post-019): typed `from("quotes")`.
+  const { data, error } = await supabase
+    .from("quotes" as never)
+    .select("*")
+    .eq("event_id", eventId)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[invoicing-server getQuoteForEvent]", error.message);
+    return null;
+  }
+  return (data as unknown as QuoteRow | null) ?? null;
+}
+
+export async function listInvoicesForEventServer(
+  eventId: string,
+): Promise<InvoiceRow[]> {
+  const supabase = await createClient();
+  // TODO(post-019): typed `from("invoices")`.
+  const { data, error } = await supabase
+    .from("invoices" as never)
+    .select("*")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.warn("[invoicing-server listInvoicesForEvent]", error.message);
+    return [];
+  }
+  return ((data as unknown as InvoiceRow[]) ?? []) as InvoiceRow[];
+}
+
 export async function listInvoicesForQuoteServer(
   quoteId: string,
 ): Promise<InvoiceRow[]> {

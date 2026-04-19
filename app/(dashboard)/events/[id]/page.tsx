@@ -13,6 +13,10 @@ import {
 } from "@/lib/db/ad-plans-server";
 import { listMomentsForEventServer } from "@/lib/db/event-key-moments-server";
 import { getShareForEvent } from "@/lib/db/report-shares";
+import {
+  getQuoteForEventServer,
+  listInvoicesForEventServer,
+} from "@/lib/db/invoicing-server";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -49,30 +53,49 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   // the Reporting tab needs it to render the "From campaign plan ·
   // {date}" sub-line on the Tickets sold card and to flip the panel to
   // read-only when a plan exists.
-  const [event, drafts, planResult, keyMoments, share, planTickets] =
-    await Promise.all([
-      getEventByIdServer(id),
-      listDraftsForEventServer(id),
-      getPlanByEventIdServer(id).catch((err) => {
-        console.error("[EventDetailPage] getPlanByEventIdServer failed:", err);
-        return null;
-      }),
-      listMomentsForEventServer(id).catch((err) => {
-        console.error("[EventDetailPage] listMomentsForEventServer failed:", err);
-        return [];
-      }),
-      getShareForEvent(id).catch((err) => {
-        console.error("[EventDetailPage] getShareForEvent failed:", err);
-        return null;
-      }),
-      getLatestTicketsSoldForEvent(id).catch((err) => {
-        console.error(
-          "[EventDetailPage] getLatestTicketsSoldForEvent failed:",
-          err,
-        );
-        return null;
-      }),
-    ]);
+  const [
+    event,
+    drafts,
+    planResult,
+    keyMoments,
+    share,
+    planTickets,
+    linkedQuote,
+    linkedInvoices,
+  ] = await Promise.all([
+    getEventByIdServer(id),
+    listDraftsForEventServer(id),
+    getPlanByEventIdServer(id).catch((err) => {
+      console.error("[EventDetailPage] getPlanByEventIdServer failed:", err);
+      return null;
+    }),
+    listMomentsForEventServer(id).catch((err) => {
+      console.error("[EventDetailPage] listMomentsForEventServer failed:", err);
+      return [];
+    }),
+    getShareForEvent(id).catch((err) => {
+      console.error("[EventDetailPage] getShareForEvent failed:", err);
+      return null;
+    }),
+    getLatestTicketsSoldForEvent(id).catch((err) => {
+      console.error(
+        "[EventDetailPage] getLatestTicketsSoldForEvent failed:",
+        err,
+      );
+      return null;
+    }),
+    // Invoicing prefetch — non-fatal. Migration 019 may not be applied yet
+    // in some environments, so a missing table degrades to "no quote / no
+    // invoices" rather than 500-ing the whole event page.
+    getQuoteForEventServer(id).catch((err) => {
+      console.error("[EventDetailPage] getQuoteForEventServer failed:", err);
+      return null;
+    }),
+    listInvoicesForEventServer(id).catch((err) => {
+      console.error("[EventDetailPage] listInvoicesForEventServer failed:", err);
+      return [];
+    }),
+  ]);
 
   if (!event) notFound();
 
@@ -97,6 +120,8 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       initialShare={share}
       initialTicketsSold={event.tickets_sold ?? null}
       planTickets={planTickets}
+      linkedQuote={linkedQuote}
+      linkedInvoices={linkedInvoices}
     />
   );
 }
