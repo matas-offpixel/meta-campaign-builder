@@ -1,0 +1,21 @@
+
+────────── TIKTOK ACCOUNTS SEED REPORT ──────────
+{
+  "dry_run": false,
+  "user_id": "b3ee4e5c-44e6-4684-acf6-efefbecd5858",
+  "summary": {
+    "accounts": 2
+  },
+  "accounts": [
+    {
+      "account_name": "Louder",
+      "id": "deb3b6e3-f684-44d9-a587-749e8a3a3d6e",
+      "action": "inserted"
+    },
+    {
+      "account_name": "Amaad",
+      "id": "f3b5e830-1c47-469c-b39a-b1e3561de21c",
+      "action": "inserted"
+    }
+  ]
+}
