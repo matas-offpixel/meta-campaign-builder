@@ -14,10 +14,17 @@ import {
 import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
+import { ClientShareLinkCard } from "./client-share-link-card";
 
 interface Props {
   client: ClientRow;
   events: EventWithClient[];
+  /**
+   * Pre-fetched client-scoped share row (token + enabled flag) so the
+   * "Share ticket input link" card lands with correct state on first
+   * paint, no client round-trip.
+   */
+  initialShare: { token: string; enabled: boolean } | null;
 }
 
 /**
@@ -26,7 +33,11 @@ interface Props {
  * (archive / unarchive / delete) and the local state needed to reflect
  * status changes without a full page refetch.
  */
-export function ClientDetail({ client: initial, events }: Props) {
+export function ClientDetail({
+  client: initial,
+  events,
+  initialShare,
+}: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -232,6 +243,11 @@ export function ClientDetail({ client: initial, events }: Props) {
             metaBusinessId={client.meta_business_id ?? null}
             metaAdAccountId={client.meta_ad_account_id ?? null}
             metaPixelId={client.meta_pixel_id ?? null}
+          />
+
+          <ClientShareLinkCard
+            clientId={client.id}
+            initialShare={initialShare}
           />
 
           <section className="rounded-md border border-border bg-card p-5">
