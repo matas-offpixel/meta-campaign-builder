@@ -1,27 +1,57 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Mail, CheckCircle2 } from "lucide-react";
+import { Loader2, Mail, CheckCircle2, KeyRound } from "lucide-react";
 
-type Status = "idle" | "sending" | "sent" | "error";
+type Mode = "magic" | "password";
+type Status = "idle" | "sending" | "sent" | "signing-in" | "error";
 
 /**
- * Invite-only magic link login. Facebook is connected inside the app after
- * sign-in (Account Setup → Connect Facebook), not here.
+ * Invite-only login page.
+ *
+ * Two methods supported:
+ *   1. Magic link  (signInWithOtp)        — default, primary admin flow
+ *   2. Password    (signInWithPassword)   — for accounts provisioned in
+ *                                            Supabase that need a synchronous
+ *                                            session (e.g. reviewer access)
+ *
+ * Both methods share the same email allowlist gate so the surface stays
+ * invite-only. Facebook OAuth is connected separately inside the app
+ * (Account Setup → Connect Facebook), not from this page.
  */
+
+const ALLOWED_EMAILS: ReadonlySet<string> = new Set([
+  "matas@offpixel.co.uk",
+  "hello@offpixel.co.uk",
+]);
+
+function isAllowed(email: string): boolean {
+  return ALLOWED_EMAILS.has(email.trim().toLowerCase());
+}
+
 export default function LoginPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>("magic");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const switchMode = (next: Mode) => {
+    if (next === mode) return;
+    setMode(next);
+    setStatus("idle");
+    setErrorMsg("");
+    setPassword("");
+  };
+
+  const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
 
-    const allowedEmails = ["matas@offpixel.co.uk"];
-
-    if (!allowedEmails.includes(email.trim().toLowerCase())) {
+    if (!isAllowed(email)) {
       setStatus("error");
       setErrorMsg("Access restricted. Contact your admin to request access.");
       return;
@@ -30,17 +60,14 @@ export default function LoginPage() {
     setStatus("sending");
     setErrorMsg("");
 
-    const emailRedirectTo =
-      process.env.NODE_ENV === "development"
-        ? "http://localhost:3000/auth/callback"
-        : "https://app.offpixel.co.uk/auth/callback";
+    // Derive the callback URL from the actual origin so magic links work on
+    // both production (app.offpixel.co.uk) and Vercel preview deployments.
+    const emailRedirectTo = `${window.location.origin}/auth/callback`;
 
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: {
-        emailRedirectTo,
-      },
+      options: { emailRedirectTo },
     });
 
     if (error) {
@@ -49,6 +76,43 @@ export default function LoginPage() {
     } else {
       setStatus("sent");
     }
+  };
+
+  const handlePasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+
+    if (!isAllowed(email)) {
+      setStatus("error");
+      setErrorMsg("Access restricted. Contact your admin to request access.");
+      return;
+    }
+
+    setStatus("signing-in");
+    setErrorMsg("");
+
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (error) {
+      setStatus("error");
+      // Don't leak whether the email exists or not — surface a single
+      // generic message for any auth-side failure.
+      setErrorMsg(
+        error.message.toLowerCase().includes("invalid")
+          ? "Invalid email or password."
+          : error.message,
+      );
+      return;
+    }
+
+    // Session cookies are set by @supabase/ssr; refresh the route tree so the
+    // proxy/middleware sees the new session and the home route renders.
+    router.replace("/");
+    router.refresh();
   };
 
   return (
@@ -74,55 +138,161 @@ export default function LoginPage() {
               </p>
               <button
                 type="button"
-                onClick={() => { setStatus("idle"); setEmail(""); }}
+                onClick={() => {
+                  setStatus("idle");
+                  setEmail("");
+                }}
                 className="mt-4 text-xs text-muted-foreground hover:text-foreground underline"
               >
                 Try a different email
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="email" className="text-sm font-medium text-foreground">
-                  Email address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@offpixel.co.uk"
-                  required
-                  autoFocus
-                  autoComplete="email"
-                  className="h-10 w-full rounded-md border border-border-strong bg-background px-3 text-sm text-foreground
-                    placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
-                />
+            <>
+              {/* Mode toggle */}
+              <div
+                className="mb-5 flex items-center gap-1 rounded-md border border-border bg-muted/40 p-1 text-xs font-medium"
+                role="tablist"
+                aria-label="Sign-in method"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === "magic"}
+                  onClick={() => switchMode("magic")}
+                  className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded transition-colors ${
+                    mode === "magic"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  Magic link
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === "password"}
+                  onClick={() => switchMode("password")}
+                  className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded transition-colors ${
+                    mode === "password"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Password
+                </button>
               </div>
 
-              {status === "error" && (
-                <p className="text-xs text-destructive">{errorMsg || "Something went wrong. Please try again."}</p>
-              )}
+              {mode === "magic" ? (
+                <form onSubmit={handleMagicLink} className="space-y-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="email" className="text-sm font-medium text-foreground">
+                      Email address
+                    </label>
+                    <input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@offpixel.co.uk"
+                      required
+                      autoFocus
+                      autoComplete="email"
+                      className="h-10 w-full rounded-md border border-border-strong bg-background px-3 text-sm text-foreground
+                        placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
 
-              <button
-                type="submit"
-                disabled={status === "sending" || !email.trim()}
-                className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-foreground text-background text-sm font-medium
-                  transition-colors hover:bg-foreground/90 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                {status === "sending" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Sending link...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="h-4 w-4" />
-                    Send Magic Link
-                  </>
-                )}
-              </button>
-            </form>
+                  {status === "error" && (
+                    <p className="text-xs text-destructive">
+                      {errorMsg || "Something went wrong. Please try again."}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={status === "sending" || !email.trim()}
+                    className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-foreground text-background text-sm font-medium
+                      transition-colors hover:bg-foreground/90 disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    {status === "sending" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Sending link...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="h-4 w-4" />
+                        Send Magic Link
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handlePasswordSignIn} className="space-y-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="email-pw" className="text-sm font-medium text-foreground">
+                      Email address
+                    </label>
+                    <input
+                      id="email-pw"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@offpixel.co.uk"
+                      required
+                      autoFocus
+                      autoComplete="email"
+                      className="h-10 w-full rounded-md border border-border-strong bg-background px-3 text-sm text-foreground
+                        placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="password" className="text-sm font-medium text-foreground">
+                      Password
+                    </label>
+                    <input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      className="h-10 w-full rounded-md border border-border-strong bg-background px-3 text-sm text-foreground
+                        placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+
+                  {status === "error" && (
+                    <p className="text-xs text-destructive">
+                      {errorMsg || "Something went wrong. Please try again."}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={status === "signing-in" || !email.trim() || !password}
+                    className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-foreground text-background text-sm font-medium
+                      transition-colors hover:bg-foreground/90 disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    {status === "signing-in" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Signing in...
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound className="h-4 w-4" />
+                        Sign In
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </>
           )}
         </div>
 
