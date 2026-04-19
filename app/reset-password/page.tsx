@@ -15,30 +15,28 @@ type Status =
 /**
  * Password recovery completion page.
  *
- * Recovery emails (sent via supabase.auth.resetPasswordForEmail or by an
- * admin from the Supabase dashboard) must redirect the user here so they
- * can set a new password.
+ * Expected arrival path (token-hash / SSR flow):
+ *   Recovery email → /auth/callback?token_hash=…&type=recovery&next=/reset-password
+ *   → server calls verifyOtp({ token_hash, type: "recovery" })
+ *   → session written into cookies
+ *   → redirect here with live session in cookies
+ *   → getSession() resolves immediately → status "ready" → form shown
  *
- * Two arrival flows are supported:
+ * The email template must be:
+ *   <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password">
  *
- * 1. PKCE (preferred — used by resetPasswordForEmail with cookie storage):
- *    Email link → /auth/callback?code=…&next=/reset-password →
- *    server exchanges code into session cookies → redirect here. We see
- *    a session immediately on getSession().
+ * Note: {{ .TokenHash }} is a hashed OTP token. It must be verified with
+ * verifyOtp() — NOT exchangeCodeForSession() (which expects a PKCE auth
+ * code from OAuth/magic-link flows, a completely different token type).
  *
- * 2. Implicit (fallback — Supabase dashboard's "Send password recovery"
- *    sometimes uses this when the email template's redirect_to points
- *    straight at the site rather than at /auth/callback):
- *    Email link → /reset-password#access_token=…&refresh_token=…&type=recovery
- *    The browser SDK auto-consumes the fragment (detectSessionInUrl
- *    defaults to true) and fires onAuthStateChange with event =
- *    "PASSWORD_RECOVERY". We listen for it and unblock the form.
+ * Fallback: the page also listens for the PASSWORD_RECOVERY event from
+ * onAuthStateChange in case the user arrives via the implicit hash-fragment
+ * flow (e.g. if the Supabase dashboard's "Send password recovery" uses the
+ * default {{ .ConfirmationURL }} template before the template is updated).
+ * In that case the SDK consumes #access_token=…&type=recovery from the URL.
  *
- * If neither path produces a session within ~2s we surface a "link
- * expired" message and link back to /login so the user can request a new
- * one. We never call signOut on failure — the user may have a stale
- * regular session unrelated to recovery and we don't want to log them
- * out of their day.
+ * If neither path produces a session within ~2s we surface a "link expired"
+ * message and link back to /login. We never call signOut on failure.
  */
 export default function ResetPasswordPage() {
   const [status, setStatus] = useState<Status>("checking");

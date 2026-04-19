@@ -134,14 +134,18 @@ function LoginForm() {
   };
 
   /**
-   * Forgot password? — sends a Supabase recovery email. The link in the
-   * email goes through /auth/callback (so the PKCE code can be exchanged
-   * server-side into session cookies) and lands on /reset-password where
-   * the user picks a new password.
+   * Forgot password? — sends a Supabase recovery email whose link uses
+   * {{ .TokenHash }} (a hashed OTP) routed through /auth/callback, where
+   * verifyOtp() exchanges it into session cookies, then redirects to
+   * /reset-password.
    *
-   * Supabase still requires the email to belong to a provisioned user;
-   * unknown addresses get a "Email not confirmed"/"User not found"
-   * response which we surface verbatim.
+   * The redirectTo value here only populates {{ .RedirectTo }} in the email
+   * template. Our custom template hardcodes the destination via {{ .SiteURL }}
+   * and {{ .TokenHash }}, so redirectTo does not affect where the user lands
+   * — it's kept for template flexibility and as a documented intent signal.
+   *
+   * Supabase requires the email to belong to a provisioned user; unknown
+   * addresses return an error which we surface verbatim.
    */
   const handleForgotPassword = async () => {
     if (!email.trim()) {
