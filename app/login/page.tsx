@@ -7,25 +7,21 @@ import { CheckCircle2, KeyRound, Loader2, Mail } from "lucide-react";
 type Status = "idle" | "sending" | "signing-in" | "sent" | "error";
 
 /**
- * Invite-only sign-in page. Two flows on a single form:
+ * Sign-in page. Two flows on a single form:
  *   - Password (signInWithPassword)        — fires when the user types a
  *                                            password and presses "Sign in"
  *   - Magic link (signInWithOtp)           — fires when the user presses
  *                                            "Email me a magic link"
  *
- * The email allowlist is a client-side gate so we don't hand a stranger
- * Supabase's existence-confirmation behaviour for free. It's belt-and-
- * braces only — Supabase enforces real auth on the server. Add new
- * invitees here as we onboard them.
+ * Access control lives on the Supabase side: only provisioned users can
+ * authenticate. The magic-link path passes shouldCreateUser: false so an
+ * unknown email can't self-register by typing it into the form — without
+ * that flag signInWithOtp would silently create a new Supabase user for
+ * any address entered, which would defeat invite-only access.
  *
  * Facebook OAuth is handled separately (Account Setup → Connect
  * Facebook); not part of this page.
  */
-const ALLOWED_EMAILS = new Set<string>([
-  "matas@offpixel.co.uk",
-  "hello@offpixel.co.uk",
-]);
-
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,18 +29,6 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const isBusy = status === "sending" || status === "signing-in";
-
-  /** Allowlist gate. Returns true if blocked. */
-  const isBlocked = (raw: string): boolean => {
-    if (!ALLOWED_EMAILS.has(raw.trim().toLowerCase())) {
-      setStatus("error");
-      setErrorMsg(
-        "Access restricted. Contact your admin to request access.",
-      );
-      return true;
-    }
-    return false;
-  };
 
   /**
    * Password sign-in. Form-level submit handler so Enter inside either
@@ -55,7 +39,6 @@ export default function LoginPage() {
   const handlePasswordSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) return;
-    if (isBlocked(email)) return;
 
     setStatus("signing-in");
     setErrorMsg("");
@@ -89,7 +72,6 @@ export default function LoginPage() {
   /** Magic-link button — independent flow, no password required. */
   const handleMagicLink = async () => {
     if (!email.trim()) return;
-    if (isBlocked(email)) return;
 
     setStatus("sending");
     setErrorMsg("");
@@ -101,7 +83,14 @@ export default function LoginPage() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo },
+      options: {
+        emailRedirectTo,
+        // Critical: do NOT auto-provision new users via magic link.
+        // Otherwise anyone who knows the URL could create themselves
+        // an account by typing any email here. Existing users get a
+        // link; unknown emails return an error from Supabase.
+        shouldCreateUser: false,
+      },
     });
 
     if (error) {
