@@ -9,6 +9,7 @@ import {
   type CreativeRow,
   type CreativeSortKey,
   type CreativesResult,
+  type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
 
@@ -27,6 +28,14 @@ interface Props {
    * heavy creative pull — the visitor still has to opt in.
    */
   datePreset: DatePreset;
+  /**
+   * Active custom range when `datePreset === "custom"`. Threaded into
+   * the fetch URL as `since` + `until` query params so the creatives
+   * route fetches against the same window as the totals. A change to
+   * either bound also resets state to "idle" — same opt-in protection
+   * as a preset flick.
+   */
+  customRange?: CustomDateRange;
 }
 
 const SORT_LABELS: Record<CreativeSortKey, string> = {
@@ -65,7 +74,11 @@ const FILTER_MODES: readonly FilterMode[] = ["top5", "top10", "active"];
  * modes is instant. Sorting (by LPV / Spend / etc) DOES re-fetch
  * because the route returns rows pre-sorted server-side.
  */
-export function CreativePerformanceLazy({ source, datePreset }: Props) {
+export function CreativePerformanceLazy({
+  source,
+  datePreset,
+  customRange,
+}: Props) {
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "loading" }
@@ -75,29 +88,33 @@ export function CreativePerformanceLazy({ source, datePreset }: Props) {
 
   const [filterMode, setFilterMode] = useState<FilterMode>("top5");
 
-  // Reset to idle whenever the timeframe changes. Without this, a flick
-  // of the timeframe selector would silently keep showing creatives for
-  // the OLD window (the parent re-fetched totals but this loaded state
-  // is still bound to the previous datePreset). Forcing a re-opt-in
-  // also avoids surprise Meta calls every time a client clicks
-  // through the seven preset buttons.
+  // Reset to idle whenever the report window changes — datePreset OR
+  // either bound of customRange. Without this, a flick of the
+  // timeframe selector would silently keep showing creatives for the
+  // OLD window (the parent re-fetched totals but this loaded state is
+  // still bound to the previous window). Forcing a re-opt-in also
+  // avoids surprise Meta calls every time a client clicks through the
+  // preset buttons or tweaks a custom date input.
   //
   // Implemented via the React 19 "adjust state in render" pattern (see
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
   // rather than `useEffect(() => setState…)` — same observable effect,
   // no extra render commit, and clears the new
   // `react-hooks/set-state-in-effect` lint.
-  const [trackedPreset, setTrackedPreset] = useState<DatePreset>(datePreset);
-  if (trackedPreset !== datePreset) {
-    setTrackedPreset(datePreset);
+  const trackedNext = `${datePreset}:${customRange?.since ?? ""}:${customRange?.until ?? ""}`;
+  const [trackedKey, setTrackedKey] = useState<string>(trackedNext);
+  if (trackedKey !== trackedNext) {
+    setTrackedKey(trackedNext);
     setState({ kind: "idle" });
   }
 
   const buildUrl = (sortBy: CreativeSortKey): string => {
-    const qs = new URLSearchParams({
-      sortBy,
-      datePreset,
-    }).toString();
+    const params = new URLSearchParams({ sortBy, datePreset });
+    if (datePreset === "custom" && customRange) {
+      params.set("since", customRange.since);
+      params.set("until", customRange.until);
+    }
+    const qs = params.toString();
     return source.kind === "share"
       ? `/api/share/report/${encodeURIComponent(source.token)}/creatives?${qs}`
       : `/api/insights/event/${encodeURIComponent(source.eventId)}/creatives?${qs}`;

@@ -7,6 +7,7 @@ import {
   CREATIVE_SORT_KEYS,
   DATE_PRESETS,
   type CreativeSortKey,
+  type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
 
@@ -35,10 +36,21 @@ function parseSort(value: string | null): CreativeSortKey {
 }
 
 function parseDatePreset(value: string | null): DatePreset {
+  if (value === "custom") return "custom";
   if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
     return value as DatePreset;
   }
   return "maximum";
+}
+
+function parseCustomRange(
+  preset: DatePreset,
+  since: string | null,
+  until: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!since || !until) return undefined;
+  return { since, until };
 }
 
 export async function GET(
@@ -123,9 +135,13 @@ export async function GET(
     );
   }
 
-  const sortBy = parseSort(req.nextUrl.searchParams.get("sortBy"));
-  const datePreset = parseDatePreset(
-    req.nextUrl.searchParams.get("datePreset"),
+  const sp = req.nextUrl.searchParams;
+  const sortBy = parseSort(sp.get("sortBy"));
+  const datePreset = parseDatePreset(sp.get("datePreset"));
+  const customRange = parseCustomRange(
+    datePreset,
+    sp.get("since"),
+    sp.get("until"),
   );
   const result = await fetchEventCreatives({
     eventCode,
@@ -133,6 +149,7 @@ export async function GET(
     token,
     sortBy,
     datePreset,
+    customRange,
   });
   return NextResponse.json(result, { status: 200 });
 }

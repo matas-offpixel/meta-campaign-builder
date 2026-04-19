@@ -7,6 +7,7 @@ import {
   listDraftsForEventServer,
 } from "@/lib/db/events-server";
 import {
+  getLatestTicketsSoldForEvent,
   getPlanByEventIdServer,
   listDaysForPlanServer,
 } from "@/lib/db/ad-plans-server";
@@ -44,22 +45,34 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   // tab paints the current toggle state on first load — no client
   // round-trip. Failure is non-fatal: a missing share row is the
   // expected state for events that have never been shared.
-  const [event, drafts, planResult, keyMoments, share] = await Promise.all([
-    getEventByIdServer(id),
-    listDraftsForEventServer(id),
-    getPlanByEventIdServer(id).catch((err) => {
-      console.error("[EventDetailPage] getPlanByEventIdServer failed:", err);
-      return null;
-    }),
-    listMomentsForEventServer(id).catch((err) => {
-      console.error("[EventDetailPage] listMomentsForEventServer failed:", err);
-      return [];
-    }),
-    getShareForEvent(id).catch((err) => {
-      console.error("[EventDetailPage] getShareForEvent failed:", err);
-      return null;
-    }),
-  ]);
+  // Plan-side cumulative tickets-sold lookup runs in the same fan-out:
+  // the Reporting tab needs it to render the "From campaign plan ·
+  // {date}" sub-line on the Tickets sold card and to flip the panel to
+  // read-only when a plan exists.
+  const [event, drafts, planResult, keyMoments, share, planTickets] =
+    await Promise.all([
+      getEventByIdServer(id),
+      listDraftsForEventServer(id),
+      getPlanByEventIdServer(id).catch((err) => {
+        console.error("[EventDetailPage] getPlanByEventIdServer failed:", err);
+        return null;
+      }),
+      listMomentsForEventServer(id).catch((err) => {
+        console.error("[EventDetailPage] listMomentsForEventServer failed:", err);
+        return [];
+      }),
+      getShareForEvent(id).catch((err) => {
+        console.error("[EventDetailPage] getShareForEvent failed:", err);
+        return null;
+      }),
+      getLatestTicketsSoldForEvent(id).catch((err) => {
+        console.error(
+          "[EventDetailPage] getLatestTicketsSoldForEvent failed:",
+          err,
+        );
+        return null;
+      }),
+    ]);
 
   if (!event) notFound();
 
@@ -83,6 +96,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       keyMoments={keyMoments}
       initialShare={share}
       initialTicketsSold={event.tickets_sold ?? null}
+      planTickets={planTickets}
     />
   );
 }

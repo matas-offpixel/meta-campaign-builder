@@ -6,6 +6,7 @@ import type {
   CreativeSortKey,
   CreativesPayload,
   CreativesResult,
+  CustomDateRange,
   DatePreset,
   EventInsightsPayload,
   InsightsError,
@@ -54,6 +55,22 @@ const ADS_PER_CAMPAIGN_LIMIT = 25;
  */
 const DEFAULT_DATE_PRESET: DatePreset = "maximum";
 
+/**
+ * Attribution windows applied to every /insights call.
+ *
+ * Matches Meta Ads Manager's UI default ("7-day click + 1-day view")
+ * exactly. Without this parameter the API can fall back to its
+ * documentation default which differs from what an agency sees in
+ * Ads Manager — leading to small but real discrepancies on
+ * conversion-side numbers (purchases / regs / value).
+ *
+ * Locked to a constant rather than per-event configurable: every
+ * client comparing the report to Ads Manager has the same expectation.
+ *
+ * https://developers.facebook.com/docs/marketing-api/insights/parameters
+ */
+const ATTRIBUTION_WINDOWS = JSON.stringify(["7d_click", "1d_view"]);
+
 // ─── Public entrypoint: aggregate insights ─────────────────────────────────
 
 export interface FetchEventInsightsArgs {
@@ -70,6 +87,13 @@ export interface FetchEventInsightsArgs {
    * always trusted.
    */
   datePreset?: DatePreset;
+  /**
+   * Required when `datePreset === "custom"`; ignored otherwise. Both
+   * dates are validated by `validateCustomRange` before any Graph
+   * call — invalid ranges return an `invalid_custom_range` error
+   * result rather than silently falling back to a preset.
+   */
+  customRange?: CustomDateRange;
 }
 
 export async function fetchEventInsights(
@@ -87,6 +111,10 @@ export async function fetchEventInsights(
     );
   }
 
+  const rangeValidation = resolveCustomRange(datePreset, args.customRange);
+  if (!rangeValidation.ok) return rangeValidation;
+  const customRange = rangeValidation.range;
+
   try {
     const matchedCampaigns = await listCampaignsForEvent({
       adAccountId: ensureActPrefix(adAccountId),
@@ -103,10 +131,12 @@ export async function fetchEventInsights(
 
     const campaignRows = await Promise.all(
       matchedCampaigns.map((c) =>
-        fetchCampaignInsights({ campaignId: c.id, token, datePreset }).then(
-          (insights) =>
-            mapCampaignRow(c, insights),
-        ),
+        fetchCampaignInsights({
+          campaignId: c.id,
+          token,
+          datePreset,
+          customRange,
+        }).then((insights) => mapCampaignRow(c, insights)),
       ),
     );
 
@@ -118,6 +148,7 @@ export async function fetchEventInsights(
     const payload: EventInsightsPayload = {
       fetchedAt: new Date().toISOString(),
       datePreset,
+      ...(customRange ? { customRange } : {}),
       totals,
       totalSpend: totals.spend,
       channelBreakdown: {
@@ -203,7 +234,6 @@ interface RawInsights {
   impressions?: string;
   reach?: string;
   clicks?: string;
-  inline_link_clicks?: string;
   frequency?: string;
   cpm?: string;
   actions?: ActionRow[];
@@ -215,25 +245,50 @@ const INSIGHTS_FIELDS = [
   "impressions",
   "reach",
   "clicks",
-  "inline_link_clicks",
   "frequency",
   "cpm",
   "actions",
   "action_values",
 ].join(",");
 
+/**
+ * Build the time-window param object passed to a Meta /insights call.
+ * Always exactly one of `date_preset` / `time_range` is set, plus the
+ * shared attribution windows. Centralised so campaign + ad endpoints
+ * stay in sync.
+ */
+function buildTimeParams(
+  datePreset: DatePreset,
+  customRange: CustomDateRange | undefined,
+): Record<string, string> {
+  if (datePreset === "custom" && customRange) {
+    return {
+      time_range: JSON.stringify({
+        since: customRange.since,
+        until: customRange.until,
+      }),
+      action_attribution_windows: ATTRIBUTION_WINDOWS,
+    };
+  }
+  return {
+    date_preset: datePreset,
+    action_attribution_windows: ATTRIBUTION_WINDOWS,
+  };
+}
+
 async function fetchCampaignInsights(args: {
   campaignId: string;
   token: string;
   datePreset: DatePreset;
+  customRange?: CustomDateRange;
 }): Promise<RawInsights | null> {
-  const { campaignId, token, datePreset } = args;
+  const { campaignId, token, datePreset, customRange } = args;
   const res = await graphGetWithToken<GraphPaged<RawInsights>>(
     `/${campaignId}/insights`,
     {
       fields: INSIGHTS_FIELDS,
-      date_preset: datePreset,
       level: "campaign",
+      ...buildTimeParams(datePreset, customRange),
     },
     token,
   );
@@ -242,6 +297,28 @@ async function fetchCampaignInsights(args: {
 
 // ─── Mapping ───────────────────────────────────────────────────────────────
 
+/**
+ * Map a Meta /insights row → our `MetaCampaignRow`.
+ *
+ * Action-type sets are deliberately narrowed to pixel-only events to
+ * match Meta Ads Manager's default columns:
+ *   - "Purchases" / "Purchases conversion value" both use
+ *     `offsite_conversion.fb_pixel_purchase` ONLY. Meta's `purchase` and
+ *     `omni_purchase` action types are roll-ups that ALREADY include
+ *     the pixel rows (omni_* spans pixel + on-Meta + cross-surface),
+ *     so summing all three reported 2–3× the real number on
+ *     conversion campaigns. Pixel-only mirrors the Ads Manager UI.
+ *   - "Leads" / Registrations: same story — `lead` is a roll-up that
+ *     contains `offsite_conversion.fb_pixel_lead` plus Meta lead-form
+ *     leads; summing both was double-counting.
+ *   - "Clicks (all)" in Ads Manager is the raw `clicks` field, NOT
+ *     `inline_link_clicks` (which is "Link clicks", a strict subset).
+ *     Reading the inline_link_clicks fallback was undercounting clicks.
+ *
+ * If a future objective needs to surface non-pixel conversions
+ * (e.g. Meta-hosted lead forms), add a new metric column rather than
+ * adding the action type back here.
+ */
 function mapCampaignRow(
   campaign: RawCampaign,
   insights: RawInsights | null,
@@ -249,23 +326,16 @@ function mapCampaignRow(
   const spend = parseNum(insights?.spend);
   const impressions = parseNum(insights?.impressions);
   const reach = parseNum(insights?.reach);
-  const clicks = parseNum(insights?.inline_link_clicks ?? insights?.clicks);
+  const clicks = parseNum(insights?.clicks);
   const lpv = sumActions(insights?.actions, ["landing_page_view"]);
   const regs = sumActions(insights?.actions, [
-    "lead",
     "offsite_conversion.fb_pixel_lead",
-    "complete_registration",
-    "offsite_conversion.fb_pixel_complete_registration",
   ]);
   const purchases = sumActions(insights?.actions, [
-    "purchase",
     "offsite_conversion.fb_pixel_purchase",
-    "omni_purchase",
   ]);
   const purchaseValue = sumActions(insights?.action_values, [
-    "purchase",
     "offsite_conversion.fb_pixel_purchase",
-    "omni_purchase",
   ]);
 
   return {
@@ -350,6 +420,12 @@ export interface FetchEventCreativesArgs {
    * date arg) so this only narrows the numeric metrics.
    */
   datePreset?: DatePreset;
+  /**
+   * Required when `datePreset === "custom"`. Validated up front; an
+   * invalid range returns a `CreativesResult` error rather than
+   * silently widening the query.
+   */
+  customRange?: CustomDateRange;
 }
 
 export async function fetchEventCreatives(
@@ -366,6 +442,10 @@ export async function fetchEventCreatives(
       "Client has no Meta ad account linked.",
     );
   }
+
+  const rangeValidation = resolveCustomRange(datePreset, args.customRange);
+  if (!rangeValidation.ok) return rangeValidation;
+  const customRange = rangeValidation.range;
 
   try {
     const campaigns = await listCampaignsForEvent({
@@ -390,7 +470,7 @@ export async function fetchEventCreatives(
       for (const ad of ads) {
         try {
           const [insights, previews] = await Promise.all([
-            fetchAdInsights({ adId: ad.id, token, datePreset }),
+            fetchAdInsights({ adId: ad.id, token, datePreset, customRange }),
             fetchCreativePreviews({ creativeId: ad.creative?.id, token }),
           ]);
           adRows.push(mapCreativeRow(ad, campaign, insights, previews));
@@ -460,14 +540,15 @@ async function fetchAdInsights(args: {
   adId: string;
   token: string;
   datePreset: DatePreset;
+  customRange?: CustomDateRange;
 }): Promise<RawInsights | null> {
-  const { adId, token, datePreset } = args;
+  const { adId, token, datePreset, customRange } = args;
   const res = await graphGetWithToken<GraphPaged<RawInsights>>(
     `/${adId}/insights`,
     {
       fields: INSIGHTS_FIELDS,
-      date_preset: datePreset,
       level: "ad",
+      ...buildTimeParams(datePreset, customRange),
     },
     token,
   );
@@ -520,6 +601,8 @@ async function fetchCreativePreviews(args: {
   return out;
 }
 
+// Per-creative narrowing mirrors `mapCampaignRow` — see the dedupe
+// rationale in the JSDoc above that function.
 function mapCreativeRow(
   ad: RawAd,
   campaign: RawCampaign,
@@ -531,20 +614,13 @@ function mapCreativeRow(
   const reach = parseNum(insights?.reach);
   const lpv = sumActions(insights?.actions, ["landing_page_view"]);
   const regs = sumActions(insights?.actions, [
-    "lead",
     "offsite_conversion.fb_pixel_lead",
-    "complete_registration",
-    "offsite_conversion.fb_pixel_complete_registration",
   ]);
   const purchases = sumActions(insights?.actions, [
-    "purchase",
     "offsite_conversion.fb_pixel_purchase",
-    "omni_purchase",
   ]);
   const purchaseValue = sumActions(insights?.action_values, [
-    "purchase",
     "offsite_conversion.fb_pixel_purchase",
-    "omni_purchase",
   ]);
   return {
     adId: ad.id,
@@ -708,6 +784,116 @@ function errorResult(
   message: string,
 ): { ok: false; error: InsightsError } {
   return { ok: false, error: { reason, message } };
+}
+
+// ─── Custom range validation ───────────────────────────────────────────────
+
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Meta enforces a 37-month retention window on insights. */
+const META_RETENTION_DAYS = 37 * 31;
+
+type CustomRangeResolution =
+  | { ok: true; range: CustomDateRange | undefined }
+  | { ok: false; error: InsightsError };
+
+/**
+ * Resolve the customRange for a fetch entrypoint.
+ *
+ * - Non-"custom" preset: returns `{ ok: true, range: undefined }` even if
+ *   a customRange was supplied (it's ignored — preset wins).
+ * - "custom" preset: validates both bounds; returns the range or a
+ *   typed `invalid_custom_range` error.
+ */
+function resolveCustomRange(
+  datePreset: DatePreset,
+  range: CustomDateRange | undefined,
+): CustomRangeResolution {
+  if (datePreset !== "custom") return { ok: true, range: undefined };
+  if (!range) {
+    return {
+      ok: false,
+      error: {
+        reason: "invalid_custom_range",
+        message:
+          "Custom timeframe selected but no date range was provided.",
+      },
+    };
+  }
+
+  const since = parseIsoDate(range.since);
+  const until = parseIsoDate(range.until);
+  if (!since || !until) {
+    return {
+      ok: false,
+      error: {
+        reason: "invalid_custom_range",
+        message: "Both 'since' and 'until' must be YYYY-MM-DD dates.",
+      },
+    };
+  }
+  if (since > until) {
+    return {
+      ok: false,
+      error: {
+        reason: "invalid_custom_range",
+        message: "'since' must be on or before 'until'.",
+      },
+    };
+  }
+
+  // Compare against today UTC at 00:00 so the "future end date" check
+  // doesn't reject a same-day range due to clock drift between regions.
+  const todayUtc = startOfTodayUtc();
+  if (until.getTime() > todayUtc.getTime()) {
+    return {
+      ok: false,
+      error: {
+        reason: "invalid_custom_range",
+        message: "'until' cannot be in the future.",
+      },
+    };
+  }
+
+  const minSince = new Date(todayUtc);
+  minSince.setUTCDate(minSince.getUTCDate() - META_RETENTION_DAYS);
+  if (since.getTime() < minSince.getTime()) {
+    return {
+      ok: false,
+      error: {
+        reason: "invalid_custom_range",
+        message: "'since' is older than Meta's 37-month retention window.",
+      },
+    };
+  }
+
+  return { ok: true, range };
+}
+
+function parseIsoDate(raw: string): Date | null {
+  if (typeof raw !== "string") return null;
+  const m = ISO_DATE_RE.exec(raw);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  // UTC midnight — both bounds compare against `startOfTodayUtc` below.
+  const dt = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (Number.isNaN(dt.getTime())) return null;
+  // Round-trip guard against e.g. "2026-02-31" → Mar 3.
+  if (
+    dt.getUTCFullYear() !== Number(y) ||
+    dt.getUTCMonth() !== Number(mo) - 1 ||
+    dt.getUTCDate() !== Number(d)
+  ) {
+    return null;
+  }
+  return dt;
+}
+
+function startOfTodayUtc(): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
 }
 
 function handleMetaError(err: unknown): { ok: false; error: InsightsError } {

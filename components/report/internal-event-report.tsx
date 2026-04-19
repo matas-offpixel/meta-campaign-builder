@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import type {
+  CustomDateRange,
   EventInsightsPayload,
   InsightsResult,
   DatePreset,
@@ -42,27 +43,44 @@ type FetchState =
  */
 export function InternalEventReport({ eventId, event }: Props) {
   const [datePreset, setDatePreset] = useState<DatePreset>("maximum");
+  const [customRange, setCustomRange] = useState<CustomDateRange | undefined>(
+    undefined,
+  );
   const [state, setState] = useState<FetchState>({ kind: "loading" });
 
-  // Reset to "loading" synchronously when eventId or datePreset
-  // changes, then let the effect kick off the fetch. Using the
-  // React 19 "adjust state in render" pattern instead of an effect
-  // setState call clears `react-hooks/set-state-in-effect` and
+  // Reset to "loading" synchronously when any of (eventId, datePreset,
+  // customRange) changes, then let the effect kick off the fetch.
+  // Using the React 19 "adjust state in render" pattern instead of an
+  // effect setState call clears `react-hooks/set-state-in-effect` and
   // avoids the user briefly seeing stale numbers from the previous
-  // preset between the prop change and the loading flash.
-  const [trackedKey, setTrackedKey] = useState<string>(
-    `${eventId}:${datePreset}`,
-  );
-  const nextKey = `${eventId}:${datePreset}`;
-  if (trackedKey !== nextKey) {
-    setTrackedKey(nextKey);
+  // window between the prop change and the loading flash.
+  const trackedNext = `${eventId}:${datePreset}:${customRange?.since ?? ""}:${customRange?.until ?? ""}`;
+  const [trackedKey, setTrackedKey] = useState<string>(trackedNext);
+  if (trackedKey !== trackedNext) {
+    setTrackedKey(trackedNext);
     setState({ kind: "loading" });
   }
 
+  const handleTimeframeChange = (
+    preset: DatePreset,
+    nextRange?: CustomDateRange,
+  ) => {
+    setDatePreset(preset);
+    if (preset === "custom") {
+      setCustomRange(nextRange);
+    } else {
+      setCustomRange(undefined);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
-    const qs = new URLSearchParams({ datePreset }).toString();
-    fetch(`/api/insights/event/${encodeURIComponent(eventId)}?${qs}`, {
+    const qs = new URLSearchParams({ datePreset });
+    if (datePreset === "custom" && customRange) {
+      qs.set("since", customRange.since);
+      qs.set("until", customRange.until);
+    }
+    fetch(`/api/insights/event/${encodeURIComponent(eventId)}?${qs.toString()}`, {
       // Route-segment revalidate already handles per-bucket caching;
       // `no-store` here forces a fresh fetch so a timeframe flick
       // bypasses any stale browser cache and surfaces the latest numbers.
@@ -100,7 +118,7 @@ export function InternalEventReport({ eventId, event }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [eventId, datePreset]);
+  }, [eventId, datePreset, customRange?.since, customRange?.until]);
 
   if (state.kind === "loading") {
     return (
@@ -132,6 +150,7 @@ export function InternalEventReport({ eventId, event }: Props) {
             | "no_ad_account"
             | "meta_api_error"
             | "no_campaigns_matched"
+            | "invalid_custom_range"
         }
       />
     );
@@ -142,8 +161,9 @@ export function InternalEventReport({ eventId, event }: Props) {
       event={event}
       insights={state.data}
       datePreset={datePreset}
+      customRange={customRange}
       creativesSource={{ kind: "internal", eventId }}
-      onTimeframeChange={setDatePreset}
+      onTimeframeChange={handleTimeframeChange}
       variant="embedded"
     />
   );

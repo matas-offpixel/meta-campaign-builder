@@ -7,9 +7,11 @@ import {
   getOwnerFacebookToken,
   resolveShareByToken,
 } from "@/lib/db/report-shares";
+import { getLatestTicketsSoldForEventAdmin } from "@/lib/db/ad-plans-server";
 import { fetchEventInsights } from "@/lib/insights/meta";
 import {
   DATE_PRESETS,
+  type CustomDateRange,
   type DatePreset,
   type InsightsResult,
 } from "@/lib/insights/types";
@@ -18,10 +20,35 @@ import { ReportUnavailable } from "@/components/report/report-unavailable";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === "custom") return "custom";
   if (raw && (DATE_PRESETS as readonly string[]).includes(raw)) {
     return raw as DatePreset;
   }
   return "maximum";
+}
+
+function pickQueryParam(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+/**
+ * Build the customRange when the URL carries `?tf=custom&from=…&to=…`.
+ * Shape-only — `fetchEventInsights` validates the dates and returns a
+ * typed `invalid_custom_range` error if they're off. Missing from/to
+ * with `tf=custom` reaches Meta as a missing range and surfaces the
+ * same error reason in the UI.
+ */
+function parseCustomRange(
+  preset: DatePreset,
+  from: string | null,
+  to: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!from || !to) return undefined;
+  return { since: from, until: to };
 }
 
 /**
@@ -82,12 +109,19 @@ interface ResolvedEvent {
   eventCode: string | null;
   paidMediaBudget: number | null;
   ticketsSold: number | null;
+  ticketsSoldSource: "plan" | "manual" | null;
+  ticketsSoldAsOf: string | null;
   adAccountId: string | null;
 }
 
 export default async function PublicReportPage({ params, searchParams }: Props) {
   const [{ token }, sp] = await Promise.all([params, searchParams]);
   const datePreset = parseDatePreset(sp.tf);
+  const customRange = parseCustomRange(
+    datePreset,
+    pickQueryParam(sp.from),
+    pickQueryParam(sp.to),
+  );
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);
@@ -99,9 +133,10 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
 
   const { event_id, user_id } = resolved.share;
 
-  // Fan-out: event lookup + owner token in parallel. Both are required
-  // before we can call Meta.
-  const [eventRow, providerToken] = await Promise.all([
+  // Fan-out: event lookup + owner token + plan-side tickets cumulative
+  // in parallel. Plan-tickets reuses the same admin client so no extra
+  // Supabase connection is opened.
+  const [eventRow, providerToken, planTickets] = await Promise.all([
     admin
       .from("events")
       .select(
@@ -110,6 +145,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       .eq("id", event_id)
       .maybeSingle(),
     getOwnerFacebookToken(user_id, admin),
+    getLatestTicketsSoldForEventAdmin(admin, event_id),
   ]);
 
   if (eventRow.error || !eventRow.data) {
@@ -128,6 +164,29 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     ? (clientRel[0]?.meta_ad_account_id ?? null)
     : (clientRel?.meta_ad_account_id ?? null);
 
+  // Plan-side cumulative wins when present — see the JSDoc on
+  // `getLatestTicketsSoldForEvent` for the rationale (dated history,
+  // mirrors the Plan tab the client already sees). Manual override on
+  // `events.tickets_sold` is the fallback for D2C shows with no plan.
+  const manualTicketsSold =
+    (eventRow.data.tickets_sold as number | null) ?? null;
+  let resolvedTicketsSold: number | null;
+  let ticketsSoldSource: "plan" | "manual" | null;
+  let ticketsSoldAsOf: string | null;
+  if (planTickets) {
+    resolvedTicketsSold = planTickets.value;
+    ticketsSoldSource = "plan";
+    ticketsSoldAsOf = planTickets.asOfDay;
+  } else if (manualTicketsSold != null) {
+    resolvedTicketsSold = manualTicketsSold;
+    ticketsSoldSource = "manual";
+    ticketsSoldAsOf = null;
+  } else {
+    resolvedTicketsSold = null;
+    ticketsSoldSource = null;
+    ticketsSoldAsOf = null;
+  }
+
   const event: ResolvedEvent = {
     name: eventRow.data.name as string,
     venueName: (eventRow.data.venue_name as string | null) ?? null,
@@ -138,7 +197,9 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     eventCode: (eventRow.data.event_code as string | null) ?? null,
     paidMediaBudget:
       (eventRow.data.budget_marketing as number | null) ?? null,
-    ticketsSold: (eventRow.data.tickets_sold as number | null) ?? null,
+    ticketsSold: resolvedTicketsSold,
+    ticketsSoldSource,
+    ticketsSoldAsOf,
     adAccountId,
   };
 
@@ -180,6 +241,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       adAccountId: event.adAccountId,
       token: providerToken,
       datePreset,
+      customRange,
     });
   }
 
@@ -209,10 +271,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         eventStartAt: event.eventStartAt,
         paidMediaBudget: event.paidMediaBudget,
         ticketsSold: event.ticketsSold,
+        ticketsSoldSource: event.ticketsSoldSource,
+        ticketsSoldAsOf: event.ticketsSoldAsOf,
       }}
       insights={insights.data}
       shareToken={token}
       datePreset={datePreset}
+      customRange={customRange}
     />
   );
 }

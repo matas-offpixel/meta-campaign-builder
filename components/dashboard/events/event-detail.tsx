@@ -83,6 +83,13 @@ interface Props {
    * tab's TicketsSoldPanel. Null = column unset (not yet recorded).
    */
   initialTicketsSold: number | null;
+  /**
+   * Latest non-null `ad_plan_days.tickets_sold_cumulative` for any of
+   * this event's plans, fetched server-side. When present this becomes
+   * the authoritative tickets-sold figure (preferred over the manual
+   * override) and the panel renders read-only.
+   */
+  planTickets: { value: number; asOfDay: string } | null;
 }
 
 /**
@@ -101,7 +108,20 @@ export function EventDetail({
   keyMoments,
   initialShare,
   initialTicketsSold,
+  planTickets,
 }: Props) {
+  // Plan-side cumulative wins over the manual override on the report —
+  // resolved here so the Tickets sold StatCard, the read-only panel
+  // mode, and the InternalEventReport's `event.ticketsSold` all see the
+  // same number on first paint. See lib/db/ad-plans-server.ts JSDoc.
+  const resolvedTicketsSold =
+    planTickets?.value ?? initialTicketsSold ?? null;
+  const resolvedTicketsSource: "plan" | "manual" | null = planTickets
+    ? "plan"
+    : initialTicketsSold != null
+      ? "manual"
+      : null;
+  const resolvedTicketsAsOf = planTickets?.asOfDay ?? null;
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
@@ -398,6 +418,7 @@ export function EventDetail({
               <TicketsSoldPanel
                 eventId={event.id}
                 initialTicketsSold={initialTicketsSold}
+                planTickets={planTickets}
               />
 
               <ShareReportControls
@@ -437,7 +458,9 @@ export function EventDetail({
                     eventDate: event.event_date,
                     eventStartAt: event.event_start_at,
                     paidMediaBudget: event.budget_marketing,
-                    ticketsSold: initialTicketsSold,
+                    ticketsSold: resolvedTicketsSold,
+                    ticketsSoldSource: resolvedTicketsSource,
+                    ticketsSoldAsOf: resolvedTicketsAsOf,
                   }}
                 />
               </section>

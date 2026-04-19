@@ -5,6 +5,7 @@ import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { fetchEventInsights } from "@/lib/insights/meta";
 import {
   DATE_PRESETS,
+  type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
 
@@ -23,10 +24,27 @@ import {
 export const revalidate = 300;
 
 function parseDatePreset(value: string | null): DatePreset {
+  if (value === "custom") return "custom";
   if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
     return value as DatePreset;
   }
   return "maximum";
+}
+
+/**
+ * Build the customRange when the request asked for `?datePreset=custom`.
+ * Shape-only narrowing — `fetchEventInsights` does the semantic
+ * validation (since <= until, retention, etc) and returns a typed
+ * `invalid_custom_range` error if anything is off.
+ */
+function parseCustomRange(
+  preset: DatePreset,
+  since: string | null,
+  until: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!since || !until) return undefined;
+  return { since, until };
 }
 
 export async function GET(
@@ -34,8 +52,12 @@ export async function GET(
   { params }: { params: Promise<{ eventId: string }> },
 ) {
   const { eventId } = await params;
-  const datePreset = parseDatePreset(
-    req.nextUrl.searchParams.get("datePreset"),
+  const sp = req.nextUrl.searchParams;
+  const datePreset = parseDatePreset(sp.get("datePreset"));
+  const customRange = parseCustomRange(
+    datePreset,
+    sp.get("since"),
+    sp.get("until"),
   );
 
   const supabase = await createClient();
@@ -117,6 +139,7 @@ export async function GET(
     adAccountId,
     token,
     datePreset,
+    customRange,
   });
   return NextResponse.json(result, { status: 200 });
 }

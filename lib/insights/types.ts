@@ -112,8 +112,22 @@ export type DatePreset =
   | "last_3d"
   | "yesterday"
   | "today"
-  | "this_month";
+  | "this_month"
+  /**
+   * Sentinel — when active, callers MUST also send a `customRange`.
+   * Routes branch to Meta's `time_range={since,until}` instead of
+   * `date_preset`. Excluded from `DATE_PRESETS` (which feeds the
+   * segmented preset row) because its UI lives in a dedicated date-
+   * picker row beneath the presets.
+   */
+  | "custom";
 
+/**
+ * Render order for the segmented preset row. Deliberately omits
+ * "custom" — the custom range has its own picker row below the presets.
+ * If you add a new pure-preset value to `DatePreset`, add it here too;
+ * if you add another sentinel like "custom", do NOT.
+ */
 export const DATE_PRESETS: readonly DatePreset[] = [
   "maximum",
   "last_30d",
@@ -134,7 +148,24 @@ export const DATE_PRESET_LABELS: Record<DatePreset, string> = {
   yesterday: "Yesterday",
   today: "Today",
   this_month: "This month",
+  custom: "Custom range",
 };
+
+/**
+ * Custom date window. Both bounds are calendar dates in `YYYY-MM-DD`
+ * (no time component, no timezone — Meta interprets the window in the
+ * ad account's reporting timezone). `until` is inclusive.
+ *
+ * Validated by `validateCustomRange` before any Meta call:
+ *   - Both must parse as ISO yyyy-mm-dd.
+ *   - since <= until.
+ *   - until <= today (UTC).
+ *   - since >= today - 37 months (Meta retention cap).
+ */
+export interface CustomDateRange {
+  since: string;
+  until: string;
+}
 
 /** Top-level insights payload returned by the share + insights routes. */
 export interface EventInsightsPayload {
@@ -142,6 +173,12 @@ export interface EventInsightsPayload {
   fetchedAt: string;
   /** Date preset that was queried (e.g. "maximum"). */
   datePreset: DatePreset;
+  /**
+   * Echoed when `datePreset === "custom"` so the UI can render the
+   * highlighted "{from} → {to}" label without re-parsing the URL.
+   * Undefined for preset queries.
+   */
+  customRange?: CustomDateRange;
   /** Aggregated Meta totals across every campaign matched by event_code. */
   totals: MetaTotals;
   /** Total spend across all wired channels. v1: equals totals.spend. */
@@ -161,7 +198,13 @@ export type InsightsErrorReason =
   | "owner_token_expired"
   | "no_ad_account"
   | "meta_api_error"
-  | "no_campaigns_matched";
+  | "no_campaigns_matched"
+  /**
+   * `datePreset === "custom"` was requested but the accompanying
+   * `customRange` failed validation (bad format, since > until,
+   * future end date, or older than Meta's 37-month retention).
+   */
+  | "invalid_custom_range";
 
 export interface InsightsError {
   reason: InsightsErrorReason;

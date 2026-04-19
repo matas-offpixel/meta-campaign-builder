@@ -2,7 +2,11 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import type { DatePreset, EventInsightsPayload } from "@/lib/insights/types";
+import type {
+  CustomDateRange,
+  DatePreset,
+  EventInsightsPayload,
+} from "@/lib/insights/types";
 
 import {
   EventReportView,
@@ -25,6 +29,11 @@ interface Props {
    * when the user clicks a different preset.
    */
   datePreset: DatePreset;
+  /**
+   * Active custom range when `datePreset === "custom"`. Resolved by
+   * the RSC from `?from` + `?to`. Ignored for any preset value.
+   */
+  customRange?: CustomDateRange;
 }
 
 /**
@@ -47,20 +56,45 @@ export function PublicReport({
   insights,
   shareToken,
   datePreset,
+  customRange,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const handleTimeframeChange = (preset: DatePreset) => {
-    if (preset === datePreset) return;
+  const handleTimeframeChange = (
+    preset: DatePreset,
+    nextRange?: CustomDateRange,
+  ) => {
+    // No-op when nothing changed — prevents `tf=custom` Apply from
+    // pushing a duplicate URL when the user re-clicks Apply with the
+    // same dates.
+    if (
+      preset === datePreset &&
+      preset !== "custom" &&
+      !rangeChanged(customRange, nextRange)
+    ) {
+      return;
+    }
+
     const sp = new URLSearchParams(searchParams?.toString() ?? "");
-    if (preset === "maximum") {
-      // "maximum" is the default — drop the param so the canonical URL
-      // doesn't grow `?tf=maximum` for the home preset.
-      sp.delete("tf");
+    if (preset === "custom") {
+      if (!nextRange) return; // Defensive — picker guards Apply.
+      sp.set("tf", "custom");
+      sp.set("from", nextRange.since);
+      sp.set("to", nextRange.until);
     } else {
-      sp.set("tf", preset);
+      // Drop from/to whenever a preset is picked so the canonical URL
+      // for, say, last_7d doesn't carry stale custom params.
+      sp.delete("from");
+      sp.delete("to");
+      if (preset === "maximum") {
+        // "maximum" is the default — drop the param so the canonical
+        // URL doesn't grow `?tf=maximum` for the home preset.
+        sp.delete("tf");
+      } else {
+        sp.set("tf", preset);
+      }
     }
     const qs = sp.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
@@ -71,8 +105,18 @@ export function PublicReport({
       event={event}
       insights={insights}
       datePreset={datePreset}
+      customRange={customRange}
       creativesSource={{ kind: "share", token: shareToken }}
       onTimeframeChange={handleTimeframeChange}
     />
   );
+}
+
+function rangeChanged(
+  prev: CustomDateRange | undefined,
+  next: CustomDateRange | undefined,
+): boolean {
+  if (!prev && !next) return false;
+  if (!prev || !next) return true;
+  return prev.since !== next.since || prev.until !== next.until;
 }

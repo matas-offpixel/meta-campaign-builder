@@ -4,14 +4,25 @@ import { useEffect, useState } from "react";
 import { Check, Loader2, Ticket } from "lucide-react";
 
 import { updateEventRow } from "@/lib/db/events";
+import { fmtDate } from "@/lib/dashboard/format";
 
 interface Props {
   eventId: string;
   /**
-   * Server-rendered current value. Null = "not yet recorded" (the
-   * column default; renders as an empty input).
+   * Server-rendered current value of the manual `events.tickets_sold`
+   * override. Null = column unset. When `planTickets` is present this
+   * value is treated as a stashed-but-unused override.
    */
   initialTicketsSold: number | null;
+  /**
+   * Latest non-null `ad_plan_days.tickets_sold_cumulative` for any of
+   * this event's plans. When present, the panel renders in read-only
+   * mode showing the plan number, with an "Override manually" toggle
+   * to reveal the input — matches the spec where the plan is the
+   * authoritative source of truth and the manual column is only a
+   * fallback for events with no plan.
+   */
+  planTickets: { value: number; asOfDay: string } | null;
 }
 
 type SaveState =
@@ -32,12 +43,23 @@ type SaveState =
  * with writes per keystroke. An empty input persists as `null` —
  * "not yet recorded" — which the public report renders as an em-dash.
  */
-export function TicketsSoldPanel({ eventId, initialTicketsSold }: Props) {
+export function TicketsSoldPanel({
+  eventId,
+  initialTicketsSold,
+  planTickets,
+}: Props) {
   const [value, setValue] = useState<string>(
     initialTicketsSold != null ? String(initialTicketsSold) : "",
   );
   const [committed, setCommitted] = useState<string>(value);
   const [state, setState] = useState<SaveState>({ kind: "idle" });
+  // When a plan exists the input is hidden behind an explicit reveal —
+  // the plan-day cumulative is the source of truth, and the manual
+  // column is only useful as an emergency override (e.g. plan offline,
+  // last-minute correction). Default-collapsed so the user is steered
+  // towards the Plan tab for routine updates.
+  const [overrideOpen, setOverrideOpen] = useState<boolean>(false);
+  const planActive = planTickets != null;
 
   // Auto-clear the "Saved" badge after a couple seconds so the row
   // settles back to its resting state.
@@ -86,16 +108,84 @@ export function TicketsSoldPanel({ eventId, initialTicketsSold }: Props) {
         <Ticket className="mt-0.5 h-4 w-4 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <h2 className="font-heading text-base tracking-wide">Tickets sold</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Manually-entered actual tickets sold to date — pulled from the
-            ticketing platform, not Meta. Surfaces on the event report as
-            Tickets Sold + Cost per Ticket. Leave blank to render as
-            &ldquo;not yet recorded&rdquo;.
-          </p>
+          {planActive ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Pulled from the campaign plan — last entry on{" "}
+              <span className="font-medium text-foreground">
+                {fmtDate(planTickets.asOfDay)}
+              </span>
+              . Update day-by-day on the Plan tab; the report reads the
+              latest non-empty cumulative automatically.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Manually-entered actual tickets sold to date — pulled from the
+              ticketing platform, not Meta. Surfaces on the event report as
+              Tickets Sold + Cost per Ticket. Leave blank to render as
+              &ldquo;not yet recorded&rdquo;.
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+      {planActive ? (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-medium tabular-nums text-foreground">
+              {planTickets.value.toLocaleString("en-GB")}
+            </span>
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              tickets · plan-day {fmtDate(planTickets.asOfDay)}
+            </span>
+          </div>
+          {overrideOpen ? (
+            <ManualOverrideInput
+              value={value}
+              setValue={setValue}
+              persist={persist}
+              state={state}
+              hint="Override is stored on `events.tickets_sold` but ignored while the plan has a non-empty cumulative — the plan number always wins on the report."
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setOverrideOpen(true)}
+              className="text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Use manual override instead
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4">
+          <ManualOverrideInput
+            value={value}
+            setValue={setValue}
+            persist={persist}
+            state={state}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ManualOverrideInput({
+  value,
+  setValue,
+  persist,
+  state,
+  hint,
+}: {
+  value: string;
+  setValue: (v: string) => void;
+  persist: () => Promise<void>;
+  state: SaveState;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="uppercase tracking-wider text-[10px]">
             Tickets to date
@@ -113,7 +203,6 @@ export function TicketsSoldPanel({ eventId, initialTicketsSold }: Props) {
             className="w-32 rounded-md border border-border-strong bg-background px-2 py-1 text-sm text-foreground disabled:opacity-50"
           />
         </label>
-
         <div className="flex h-6 items-center gap-1.5 text-[11px] text-muted-foreground">
           {state.kind === "saving" ? (
             <>
@@ -130,6 +219,11 @@ export function TicketsSoldPanel({ eventId, initialTicketsSold }: Props) {
           ) : null}
         </div>
       </div>
-    </section>
+      {hint ? (
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {hint}
+        </p>
+      ) : null}
+    </div>
   );
 }

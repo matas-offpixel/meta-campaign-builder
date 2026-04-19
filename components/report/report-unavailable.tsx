@@ -84,5 +84,10 @@ function reasonLabel(reason: InsightsErrorReason): string {
       return "no campaigns yet";
     case "meta_api_error":
       return "upstream error";
+    case "invalid_custom_range":
+      // Bad client input rather than a true outage. Surface as
+      // "invalid date range" so the visitor knows to widen / fix
+      // the From / To inputs rather than retrying.
+      return "invalid date range";
   }
 }
