@@ -379,6 +379,56 @@ export function parseClientStatus(
     : null;
 }
 
+// ─── Event-detail tab URL parsing ────────────────────────────────────────────
+//
+// Kept here (not in event-detail-tabs.tsx) so the server page
+// can call parseEventTab without importing from a "use client" module.
+
+export type EventTab = "overview" | "plan" | "campaigns" | "reporting";
+
+const VALID_EVENT_TABS: EventTab[] = [
+  "overview",
+  "plan",
+  "campaigns",
+  "reporting",
+];
+
+/** Parse `?tab=` into a validated EventTab, defaulting to "overview". */
+export function parseEventTab(
+  value: string | string[] | undefined,
+): EventTab {
+  const v = Array.isArray(value) ? value[0] : value;
+  return VALID_EVENT_TABS.includes(v as EventTab)
+    ? (v as EventTab)
+    : "overview";
+}
+
+// ─── Doors / start-time helpers ──────────────────────────────────────────────
+//
+// event_start_at is stored as a full ISO timestamp but the form collects
+// only the wall-clock time (HH:MM) and combines it with event_date on
+// submit. Tz-aware handling is deferred tech debt.
+
+/**
+ * Combine a YYYY-MM-DD date and an HH:MM time into an ISO-like string
+ * (`YYYY-MM-DDTHH:MM:00`) suitable for a timestamptz column.
+ * Returns empty string when either argument is missing.
+ */
+export function combineDateAndTime(date: string, time: string): string {
+  if (!date || !time) return "";
+  return `${date}T${time}:00`;
+}
+
+/**
+ * Extract the HH:MM portion from a stored ISO timestamp or datetime-local
+ * string. Returns "" when the input is null/empty or doesn't match.
+ */
+export function extractTimeFromIso(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const m = iso.match(/T(\d{2}:\d{2})/);
+  return m ? m[1] : "";
+}
+
 // ─── Pending-action criteria (shared with /today panel) ──────────────────────
 //
 // "Pending action" = active event with an imminent milestone (within

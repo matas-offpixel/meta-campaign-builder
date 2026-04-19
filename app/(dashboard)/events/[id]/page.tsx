@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
-import { parseEventTab } from "@/components/dashboard/events/event-detail-tabs";
+import { parseEventTab } from "@/lib/dashboard/format";
 import { createClient } from "@/lib/supabase/server";
 import {
   getEventByIdServer,
@@ -30,15 +30,28 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   // Plan + days are fetched in parallel with event + drafts so the Plan
   // tab paints from prefetched data even on first nav. Days are fetched
   // sequentially after the plan because they depend on plan.id.
-  const [event, drafts, plan] = await Promise.all([
+  //
+  // Plan fetches are wrapped defensively: a schema mismatch or a missing
+  // migration should degrade to the "no plan yet" CTA, not a hard 500.
+  const [event, drafts, planResult] = await Promise.all([
     getEventByIdServer(id),
     listDraftsForEventServer(id),
-    getPlanByEventIdServer(id),
+    getPlanByEventIdServer(id).catch((err) => {
+      console.error("[EventDetailPage] getPlanByEventIdServer failed:", err);
+      return null;
+    }),
   ]);
 
   if (!event) notFound();
 
-  const planDays = plan ? await listDaysForPlanServer(plan.id) : [];
+  const plan = planResult ?? null;
+
+  const planDays = plan
+    ? await listDaysForPlanServer(plan.id).catch((err) => {
+        console.error("[EventDetailPage] listDaysForPlanServer failed:", err);
+        return [];
+      })
+    : [];
 
   return (
     <EventDetail

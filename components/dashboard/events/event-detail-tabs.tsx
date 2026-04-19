@@ -2,19 +2,12 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
+import {
+  parseEventTab,
+  type EventTab,
+} from "@/lib/dashboard/format";
 
-/**
- * Event-detail tab IDs are URL-driven via `?tab=`. Default tab ("overview")
- * is represented by no query param so the canonical URL stays clean.
- */
-export type EventTab = "overview" | "plan" | "campaigns" | "reporting";
-
-const VALID_TABS: EventTab[] = ["overview", "plan", "campaigns", "reporting"];
-
-export function parseEventTab(value: string | string[] | undefined): EventTab {
-  const v = Array.isArray(value) ? value[0] : value;
-  return VALID_TABS.includes(v as EventTab) ? (v as EventTab) : "overview";
-}
+export type { EventTab };
 
 interface Props {
   active: EventTab;

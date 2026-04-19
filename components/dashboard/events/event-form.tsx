@@ -16,6 +16,10 @@ import {
   updateEventRow,
   slugifyEvent,
 } from "@/lib/db/events";
+import {
+  combineDateAndTime,
+  extractTimeFromIso,
+} from "@/lib/dashboard/format";
 
 type Mode = "create" | "edit";
 
@@ -91,8 +95,9 @@ export function EventForm({
       ? (initialDate ?? "")
       : (initial?.event_date ?? ""),
   );
-  const [eventStartAt, setEventStartAt] = useState(
-    isoToLocalInput(initial?.event_start_at),
+  // Doors / start — stores HH:MM only. Combined with eventDate on submit.
+  const [eventStartTime, setEventStartTime] = useState(
+    extractTimeFromIso(initial?.event_start_at),
   );
   const [announcementAt, setAnnouncementAt] = useState(
     isoToLocalInput(initial?.announcement_at),
@@ -161,7 +166,9 @@ export function EventForm({
       venue_country: venueCountry || null,
       event_timezone: eventTimezone || null,
       event_date: eventDate || null,
-      event_start_at: localInputToIso(eventStartAt),
+      event_start_at: eventStartTime
+        ? combineDateAndTime(eventDate, eventStartTime) || null
+        : null,
       announcement_at: localInputToIso(announcementAt),
       presale_at: localInputToIso(presaleAt),
       general_sale_at: localInputToIso(generalSaleAt),
@@ -319,9 +326,11 @@ export function EventForm({
           <Input
             id="event-start-at"
             label="Doors / start"
-            type="datetime-local"
-            value={eventStartAt}
-            onChange={(e) => setEventStartAt(e.target.value)}
+            type="time"
+            value={eventStartTime}
+            onChange={(e) => setEventStartTime(e.target.value)}
+            disabled={!eventDate}
+            title={!eventDate ? "Set event date first" : undefined}
           />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
