@@ -3,14 +3,21 @@
 import { useState, type ReactNode } from "react";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { TikTokReportTab } from "@/components/dashboard/events/tiktok-report-tab";
+import { GoogleAdsReportTab } from "@/components/dashboard/events/google-ads-report-tab";
 
-type ReportChannel = "meta" | "tiktok";
+type ReportChannel = "meta" | "tiktok" | "google-ads";
 
 interface Props {
   eventId: string;
   /** Live Meta report rendered by the parent server-resolved tree. */
   metaPanel: ReactNode;
   initialTikTokAccountId: string | null;
+  /**
+   * google_ad_plans.id when an existing plan is linked to this event,
+   * otherwise null. Drives the Google Ads tab between "create plan"
+   * CTA and the placeholder stat grid.
+   */
+  initialGoogleAdsPlanId: string | null;
 }
 
 /**
@@ -27,6 +34,7 @@ export function EventReportingTabs({
   eventId,
   metaPanel,
   initialTikTokAccountId,
+  initialGoogleAdsPlanId,
 }: Props) {
   const [active, setActive] = useState<ReportChannel>("meta");
 
@@ -36,6 +44,7 @@ export function EventReportingTabs({
         tabs={[
           { id: "meta", label: "Meta" },
           { id: "tiktok", label: "TikTok" },
+          { id: "google-ads", label: "Google Ads" },
         ]}
         activeTab={active}
         onTabChange={(id) => setActive(id as ReportChannel)}
@@ -47,6 +56,13 @@ export function EventReportingTabs({
         <TikTokReportTab
           eventId={eventId}
           initialTikTokAccountId={initialTikTokAccountId}
+        />
+      </TabPanel>
+
+      <TabPanel active={active === "google-ads"}>
+        <GoogleAdsReportTab
+          eventId={eventId}
+          initialPlanId={initialGoogleAdsPlanId}
         />
       </TabPanel>
     </div>

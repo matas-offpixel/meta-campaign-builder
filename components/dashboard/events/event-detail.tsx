@@ -470,6 +470,12 @@ export function EventDetail({
                     tiktok_account_id?: string | null;
                   }).tiktok_account_id ?? null
                 }
+                // Slice 4 doesn't yet prefetch the plan id server-side
+                // (no lib/db helper landed in this scaffold) — pass null
+                // so the Google Ads tab renders the "create plan" CTA.
+                // Once Slice 5 wires the prefetch, swap to the resolved
+                // google_ad_plans row id here.
+                initialGoogleAdsPlanId={null}
                 metaPanel={
                   <section className="rounded-md border border-border bg-card p-5">
                     <div className="mb-4 flex items-start gap-3">
