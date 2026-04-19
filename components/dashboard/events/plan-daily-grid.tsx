@@ -9,8 +9,9 @@ import {
   useReducer,
   useRef,
 } from "react";
-import { fmtDay } from "@/lib/dashboard/format";
+import { fmtCurrency, fmtDay } from "@/lib/dashboard/format";
 import {
+  OBJECTIVE_KEYS,
   OBJECTIVE_LABEL,
   readObjectiveBudget,
   writeObjectiveBudget,
@@ -26,23 +27,61 @@ import type {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Column model
-// Each column knows how to read its raw value (for copy + arithmetic) and
-// how to apply an incoming string to a patch object. Centralising this
-// keeps the reducer + paste + fill logic agnostic of column identity.
+//
+// Two orthogonal axes:
+//   - role: "editable" | "computed". Editable columns participate in the
+//     edit / paste / fill / clear paths. Computed columns are derived from
+//     the days array (and their own index in it), are read-only, and are
+//     visually distinguishable. Both roles participate in selection + copy.
+//   - kind (editable only): the input/display sub-type used to pick an
+//     input regex, format the cell, and decide whether the footer's
+//     numeric stats include it. "readonly" preserves the Day column —
+//     non-editable but not derived.
+//
+// Centralising this keeps the reducer + paste + fill logic agnostic of
+// column identity: every callsite that used to ask `col.kind === "readonly"`
+// now asks `canEdit(col)` instead, and only ever calls applyString /
+// inputRegexFor on a narrowed EditableColumn.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ColumnKind = "readonly" | "text" | "percent" | "money" | "integer";
+type EditableKind = "readonly" | "text" | "percent" | "money" | "integer";
 
-interface ColumnDef {
+interface EditableColumn {
+  role: "editable";
   key: string;
   label: string;
-  kind: ColumnKind;
-  /** Read the raw value as a TSV-safe string. Numeric → e.g. "150" or "1.5"; text → as-is. */
+  kind: EditableKind;
+  /** TSV-safe string. Numeric → e.g. "150" or "1.5"; text → as-is. */
   readRaw: (day: AdPlanDay) => string;
   /** Display string for the cell (£ prefix, %, etc). */
   readDisplay: (day: AdPlanDay) => string;
-  /** Build a patch object for this column from a string input. Returns null for invalid input. */
+  /** Build a patch from a string input. Returns null for invalid input. */
   applyString: (day: AdPlanDay, raw: string) => AdPlanDayPatch | null;
+}
+
+interface ComputedColumn {
+  role: "computed";
+  key: string;
+  label: string;
+  /** Numeric value used for arithmetic + the TSV serialisation below. */
+  compute: (day: AdPlanDay, index: number, allDays: AdPlanDay[]) => number;
+  /** TSV-safe string — numeric, no currency prefix. */
+  readRaw: (day: AdPlanDay, index: number, allDays: AdPlanDay[]) => string;
+  /** Display string — currency-formatted via fmtCurrency. */
+  readDisplay: (day: AdPlanDay, index: number, allDays: AdPlanDay[]) => string;
+}
+
+type PlanColumn = EditableColumn | ComputedColumn;
+
+/**
+ * True if the column accepts user input (excludes both computed columns
+ * and the editable+readonly Day column). Single source of truth for
+ * every "skip this column when editing / pasting / clearing" branch.
+ */
+function canEdit(col: PlanColumn): col is EditableColumn & {
+  kind: Exclude<EditableKind, "readonly">;
+} {
+  return col.role === "editable" && col.kind !== "readonly";
 }
 
 const NUMERIC_PARTIAL_RE = /^\d*\.?\d{0,2}$/;
@@ -63,8 +102,9 @@ function parseInteger(raw: string): number | null {
   return Math.trunc(n);
 }
 
-function makeMoneyColumn(label: string, key: ObjectiveKey): ColumnDef {
+function makeMoneyColumn(label: string, key: ObjectiveKey): EditableColumn {
   return {
+    role: "editable",
     key: `obj:${key}`,
     label,
     kind: "money",
@@ -99,8 +139,29 @@ function makeMoneyColumn(label: string, key: ObjectiveKey): ColumnDef {
   };
 }
 
-const COLUMNS: ColumnDef[] = [
+/** Sum every objective bucket on a single day. */
+function sumObjectiveBudgets(day: AdPlanDay): number {
+  let total = 0;
+  for (const k of OBJECTIVE_KEYS) {
+    total += readObjectiveBudget(day.objective_budgets, k);
+  }
+  return total;
+}
+
+/** Cumulative spend from day index 0 through `index` inclusive. */
+function cumulativeSpend(allDays: AdPlanDay[], index: number): number {
+  let total = 0;
+  for (let i = 0; i <= index; i += 1) {
+    const r = allDays[i];
+    if (!r) continue;
+    total += sumObjectiveBudgets(r);
+  }
+  return total;
+}
+
+const COLUMNS: PlanColumn[] = [
   {
+    role: "editable",
     key: "day",
     label: "Day",
     kind: "readonly",
@@ -109,6 +170,7 @@ const COLUMNS: ColumnDef[] = [
     applyString: () => null,
   },
   {
+    role: "editable",
     key: "phase_marker",
     label: "Phase",
     kind: "text",
@@ -119,6 +181,7 @@ const COLUMNS: ColumnDef[] = [
     }),
   },
   {
+    role: "editable",
     key: "allocation_pct",
     label: "Alloc %",
     kind: "percent",
@@ -141,6 +204,23 @@ const COLUMNS: ColumnDef[] = [
   makeMoneyColumn("Google", "google"),
   makeMoneyColumn("Snap", "snap"),
   {
+    role: "computed",
+    key: "daily_spend",
+    label: "Daily spend",
+    compute: (day) => sumObjectiveBudgets(day),
+    readRaw: (day) => String(sumObjectiveBudgets(day)),
+    readDisplay: (day) => fmtCurrency(sumObjectiveBudgets(day)),
+  },
+  {
+    role: "computed",
+    key: "total_spend",
+    label: "Total spend",
+    compute: (_day, idx, all) => cumulativeSpend(all, idx),
+    readRaw: (_day, idx, all) => String(cumulativeSpend(all, idx)),
+    readDisplay: (_day, idx, all) => fmtCurrency(cumulativeSpend(all, idx)),
+  },
+  {
+    role: "editable",
     key: "tickets_sold",
     label: "Tickets sold",
     kind: "integer",
@@ -160,6 +240,7 @@ const COLUMNS: ColumnDef[] = [
     },
   },
   {
+    role: "editable",
     key: "notes",
     label: "Notes",
     kind: "text",
@@ -169,18 +250,35 @@ const COLUMNS: ColumnDef[] = [
   },
 ];
 
-const NUMERIC_KINDS: ReadonlySet<ColumnKind> = new Set([
+const NUMERIC_KINDS: ReadonlySet<EditableKind> = new Set([
   "money",
   "percent",
   "integer",
 ]);
 
-function isNumericColumn(col: ColumnDef): boolean {
-  return NUMERIC_KINDS.has(col.kind);
+/**
+ * True if the column contributes to the footer's sum/avg/count strip.
+ * Computed columns are derived from money columns already in the
+ * selection — including them would double-count.
+ */
+function isNumericColumn(col: PlanColumn): boolean {
+  return col.role === "editable" && NUMERIC_KINDS.has(col.kind);
 }
 
-function inputRegexFor(kind: ColumnKind): RegExp {
+function inputRegexFor(kind: EditableKind): RegExp {
   return kind === "integer" ? INTEGER_PARTIAL_RE : NUMERIC_PARTIAL_RE;
+}
+
+/** Adapter: TSV serialisation needs (day, idx, all) for computed columns
+ *  and (day) for editable. Centralised so callers stay simple. */
+function readRawAt(
+  col: PlanColumn,
+  rows: AdPlanDay[],
+  idx: number,
+): string {
+  const day = rows[idx];
+  if (!day) return "";
+  return col.role === "computed" ? col.readRaw(day, idx, rows) : col.readRaw(day);
 }
 
 // ─── Selection state / reducer ───────────────────────────────────────────────
@@ -213,7 +311,7 @@ type Action =
   | { type: "CANCEL_EDIT" }
   | { type: "COMMIT_EDIT" };
 
-const FIRST_EDITABLE_COL = COLUMNS.findIndex((c) => c.kind !== "readonly");
+const FIRST_EDITABLE_COL = COLUMNS.findIndex(canEdit);
 
 const INITIAL_STATE: State = {
   anchor: { row: 0, col: FIRST_EDITABLE_COL },
@@ -663,7 +761,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
           let merged: AdPlanDayPatch = {};
           for (let c = sel.minCol; c <= sel.maxCol; c += 1) {
             const col = COLUMNS[c];
-            if (col.kind === "readonly") continue;
+            if (!canEdit(col)) continue;
             const raw = col.readRaw(sourceRow);
             const next = col.applyString(targetRow, raw);
             if (!next) continue;
@@ -692,7 +790,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
     const { row, col } = state.editing;
     const targetRow = rows[row];
     const column = COLUMNS[col];
-    if (!targetRow || !column || column.kind === "readonly") {
+    if (!targetRow || !column || !canEdit(column)) {
       dispatch({ type: "CANCEL_EDIT" });
       return;
     }
@@ -764,7 +862,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
           e.preventDefault();
           const col = COLUMNS[state.focus.col];
           const row = rows[state.focus.row];
-          if (!col || !row || col.kind === "readonly") return;
+          if (!col || !row || !canEdit(col)) return;
           dispatch({ type: "BEGIN_EDIT", seed: col.readRaw(row) });
           return;
         }
@@ -779,7 +877,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
             let merged: AdPlanDayPatch = {};
             for (let c = sel.minCol; c <= sel.maxCol; c += 1) {
               const col = COLUMNS[c];
-              if (col.kind === "readonly") continue;
+              if (!canEdit(col)) continue;
               const next = col.applyString(dayRow, "");
               if (!next) continue;
               merged = mergePatch(merged, next);
@@ -797,7 +895,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
           // the input with that character.
           if (e.key.length === 1 && !meta && !e.altKey) {
             const col = COLUMNS[state.focus.col];
-            if (!col || col.kind === "readonly") return;
+            if (!col || !canEdit(col)) return;
             // Filter the seed against the column's input regex when numeric
             // so a stray "p" doesn't open an empty edit on a money cell.
             if (col.kind !== "text" && !inputRegexFor(col.kind).test(e.key)) {
@@ -833,7 +931,7 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
       if (!row) continue;
       for (let c = sel.minCol; c <= sel.maxCol; c += 1) {
         const col = COLUMNS[c];
-        if (!isNumericColumn(col)) continue;
+        if (!isNumericColumn(col) || col.role !== "editable") continue;
         numericCells += 1;
         const raw = col.readRaw(row);
         if (raw === "") continue;
@@ -886,8 +984,9 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
                   <PlanCell
                     key={col.key}
                     day={day}
-                    column={col}
                     rowIdx={rowIdx}
+                    rows={rows}
+                    column={col}
                     colIdx={colIdx}
                     state={state}
                     dispatch={dispatch}
@@ -904,7 +1003,10 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
                       state.mode.kind !== "filling" &&
                       rowIdx === Math.max(state.anchor.row, state.focus.row) &&
                       colIdx === Math.max(state.anchor.col, state.focus.col) &&
-                      isInSelection(state, rowIdx, colIdx)
+                      isInSelection(state, rowIdx, colIdx) &&
+                      // Don't offer the fill handle on a computed column
+                      // — there's nothing to fill from.
+                      col.role === "editable"
                     }
                   />
                 ))}
@@ -929,8 +1031,9 @@ export const PlanDailyGrid = forwardRef<PlanGridHandle, PlanDailyGridProps>(
 
 interface PlanCellProps {
   day: AdPlanDay;
-  column: ColumnDef;
   rowIdx: number;
+  rows: AdPlanDay[];
+  column: PlanColumn;
   colIdx: number;
   state: State;
   dispatch: React.Dispatch<Action>;
@@ -942,8 +1045,9 @@ interface PlanCellProps {
 
 function PlanCell({
   day,
-  column,
   rowIdx,
+  rows,
+  column,
   colIdx,
   state,
   dispatch,
@@ -958,11 +1062,16 @@ function PlanCell({
   const fillPreview = isInFillPreview(state, rowIdx, colIdx);
   const editing = !!editInputRef;
 
-  const isReadonly = column.kind === "readonly";
+  const editable = canEdit(column);
+  const isComputed = column.role === "computed";
 
+  // Computed and editable+readonly (Day) both render as non-input cells
+  // with the same muted background. Computed adds italic + a slightly
+  // tinted text colour to mark it as derived rather than inert.
   const baseCls = [
     "relative border-b border-r border-border px-2 py-1.5 align-middle",
-    isReadonly ? "bg-muted/30 cursor-default" : "cursor-cell",
+    !editable ? "bg-muted/30 cursor-default" : "cursor-cell",
+    isComputed ? "italic text-foreground/80" : "",
     selected && !anchor ? "bg-primary-light/60" : "",
     anchor ? "ring-2 ring-inset ring-foreground" : "",
     focused && !anchor ? "ring-1 ring-inset ring-foreground/60" : "",
@@ -970,6 +1079,12 @@ function PlanCell({
   ]
     .filter(Boolean)
     .join(" ");
+
+  // Compute the display string once. Computed columns need (day, idx, all);
+  // editable columns only see (day).
+  const displayValue = isComputed
+    ? column.readDisplay(day, rowIdx, rows)
+    : column.readDisplay(day);
 
   return (
     <td
@@ -993,11 +1108,11 @@ function PlanCell({
         }
       }}
       onDoubleClick={() => {
-        if (isReadonly) return;
+        if (!editable) return;
         dispatch({ type: "BEGIN_EDIT", seed: column.readRaw(day) });
       }}
     >
-      {editing ? (
+      {editing && editable ? (
         <CellInput
           column={column}
           value={state.editValue}
@@ -1015,23 +1130,19 @@ function PlanCell({
             });
           }}
         />
-      ) : column.kind === "text" && column.key === "phase_marker" ? (
-        column.readDisplay(day) ? (
+      ) : column.role === "editable" &&
+        column.kind === "text" &&
+        column.key === "phase_marker" ? (
+        displayValue ? (
           <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {column.readDisplay(day)}
+            {displayValue}
           </span>
         ) : (
           <span className="text-muted-foreground/40">—</span>
         )
       ) : (
-        <span
-          className={
-            column.readDisplay(day)
-              ? ""
-              : "text-muted-foreground/40"
-          }
-        >
-          {column.readDisplay(day) || "—"}
+        <span className={displayValue ? "" : "text-muted-foreground/40"}>
+          {displayValue || "—"}
         </span>
       )}
 
@@ -1054,7 +1165,7 @@ function PlanCell({
 // ─── Input ──────────────────────────────────────────────────────────────────
 
 interface CellInputProps {
-  column: ColumnDef;
+  column: EditableColumn;
   value: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
   onChange: (v: string) => void;
@@ -1182,7 +1293,9 @@ function serialiseSelectionTsv(
     const cells: string[] = [];
     for (let c = sel.minCol; c <= sel.maxCol; c += 1) {
       const col = COLUMNS[c];
-      cells.push(col.readRaw(row));
+      // Both editable and computed contribute their raw value to TSV
+      // — computed values round-trip into Sheets as plain numbers.
+      cells.push(readRawAt(col, rows, r));
     }
     lines.push(cells.join("\t"));
   }
@@ -1217,7 +1330,10 @@ function buildPastePatches(
       const targetColIdx = anchor.col + dc;
       if (targetColIdx >= COLUMNS.length) break;
       const col = COLUMNS[targetColIdx];
-      if (col.kind === "readonly") continue;
+      // Skip computed + editable+readonly columns in paste targets so a
+      // copy-paste round-trip doesn't try to write back the derived
+      // Daily / Total spend totals.
+      if (!canEdit(col)) continue;
       const next = col.applyString(targetRow, cells[dc]);
       if (!next) continue;
       merged = mergePatch(merged, next);

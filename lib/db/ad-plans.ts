@@ -88,6 +88,18 @@ export type AdPlanDayPatch = Partial<
 /** Bulk-update item — must include id so the upsert routes by primary key. */
 export type AdPlanDayBulkPatch = AdPlanDayPatch & { id: string };
 
+/**
+ * Patch shape for updatePlan. Whitelisted to the header-editable fields +
+ * status/name so callers can't accidentally mutate dates / IDs from the
+ * inline-edit path.
+ */
+export type AdPlanPatch = Partial<
+  Pick<
+    AdPlan,
+    "total_budget" | "ticket_target" | "landing_page_url" | "name" | "status"
+  >
+>;
+
 // ─── Date helpers (local, lightweight) ───────────────────────────────────────
 //
 // Plan dates are date-only strings and must be compared at calendar-day
@@ -285,6 +297,10 @@ export async function createPlanForEvent(event: EventRow): Promise<{
       status: "draft",
       start_date: effectiveStart,
       end_date: endDate,
+      // Inherit the event's marketing budget so the plan opens with a
+      // working total instead of "—". Null when the event leaves it blank;
+      // the user can set/override it directly on the plan header.
+      total_budget: event.budget_marketing ?? null,
     })
     .select("*")
     .single();
@@ -330,6 +346,28 @@ export async function createPlanForEvent(event: EventRow): Promise<{
     plan,
     days: (dayRows ?? []) as AdPlanDay[],
   };
+}
+
+/**
+ * Update a single plan row. Caller resolves with the persisted record so
+ * the optimistic local mirror can sync to the canonical updated_at.
+ */
+export async function updatePlan(
+  id: string,
+  patch: AdPlanPatch,
+): Promise<AdPlan> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("ad_plans")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? "Failed to update plan.");
+  }
+  return data as AdPlan;
 }
 
 export async function updatePlanDay(

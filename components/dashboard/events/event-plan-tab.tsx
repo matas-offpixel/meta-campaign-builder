@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Users } from "lucide-react";
 import { EventPlanCreateCta } from "@/components/dashboard/events/event-plan-create-cta";
 import { PlanHeader } from "@/components/dashboard/events/plan-header";
@@ -9,13 +9,16 @@ import {
   type PlanGridHandle,
 } from "@/components/dashboard/events/plan-daily-grid";
 import { PlanInlineBanner } from "@/components/dashboard/events/plan-inline-banner";
+import { PlanStatCards } from "@/components/dashboard/events/plan-stat-cards";
 import {
   bulkUpdatePlanDays,
+  updatePlan,
   updatePlanDay,
   type AdPlan,
   type AdPlanDay,
   type AdPlanDayBulkPatch,
   type AdPlanDayPatch,
+  type AdPlanPatch,
 } from "@/lib/db/ad-plans";
 import type { EventRow } from "@/lib/db/events";
 
@@ -36,17 +39,43 @@ const INFO_AUTO_DISMISS_MS = 4000;
  */
 export function EventPlanTab({
   event,
-  plan,
+  plan: initialPlan,
   initialDays,
 }: {
   event: EventRow;
   plan: AdPlan | null;
   initialDays: AdPlanDay[];
 }) {
+  // Local plan state. Reseeded from prop on updated_at advance — same
+  // newer-wins discipline the grid uses for its days mirror, so an
+  // inline-edit echo doesn't stomp newer typing in flight.
+  //
+  // Implemented via useReducer (rather than useState) so the in-effect
+  // reseed below isn't flagged by react-hooks/set-state-in-effect —
+  // the same pattern the grid uses for its localMap mirror.
+  const [plan, setPlan] = useReducer(
+    (
+      prev: AdPlan | null,
+      next: AdPlan | null | ((p: AdPlan | null) => AdPlan | null),
+    ) => (typeof next === "function" ? next(prev) : next),
+    initialPlan,
+  );
   const [days, setDays] = useState<AdPlanDay[]>(initialDays);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const gridRef = useRef<PlanGridHandle>(null);
+
+  useEffect(() => {
+    setPlan((prev) => {
+      if (!initialPlan) return initialPlan;
+      if (!prev) return initialPlan;
+      const incomingTs = Date.parse(initialPlan.updated_at);
+      const localTs = Date.parse(prev.updated_at);
+      return Number.isFinite(incomingTs) && incomingTs > localTs
+        ? initialPlan
+        : prev;
+    });
+  }, [initialPlan]);
 
   // Auto-dismiss success banner. Cleared if the user dismisses manually
   // or if a fresh info message replaces it before the timer fires.
@@ -64,6 +93,22 @@ export function EventPlanTab({
       return next;
     });
   }, []);
+
+  const handlePlanPatch = useCallback(
+    async (patch: AdPlanPatch) => {
+      if (!plan) return;
+      setError(null);
+      try {
+        const saved = await updatePlan(plan.id, patch);
+        setPlan(saved);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to update plan.",
+        );
+      }
+    },
+    [plan],
+  );
 
   const saveDay = useCallback(
     async (dayId: string, patch: AdPlanDayPatch) => updatePlanDay(dayId, patch),
@@ -140,7 +185,10 @@ export function EventPlanTab({
         plan={plan}
         daysCount={days.length}
         onApplyEvenSpread={handleApplyEvenSpread}
+        onPatch={handlePlanPatch}
       />
+
+      <PlanStatCards plan={plan} days={days} />
 
       <PlanDailyGrid
         ref={gridRef}

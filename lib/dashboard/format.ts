@@ -70,6 +70,20 @@ export function fmtDateTime(iso: string | null | undefined): string {
   });
 }
 
+/**
+ * Format a number as £-prefixed GBP with always-two decimals.
+ * Used by the marketing-plan computed columns and stat cards so the
+ * grid/header/cards stay consistent against the same currency contract.
+ */
+export function fmtCurrency(n: number): string {
+  return n.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 /** Long date from an in-memory Date instance. */
 export function fmtDay(d: Date): string {
   return d.toLocaleDateString("en-GB", {
