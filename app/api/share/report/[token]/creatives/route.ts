@@ -8,7 +8,9 @@ import {
 import { fetchEventCreatives } from "@/lib/insights/meta";
 import {
   CREATIVE_SORT_KEYS,
+  DATE_PRESETS,
   type CreativeSortKey,
+  type DatePreset,
 } from "@/lib/insights/types";
 
 /**
@@ -18,19 +20,31 @@ import {
  * required), looks up the event + owner Facebook token, then hits the
  * Meta Graph for ad creative previews + per-ad insights.
  *
- * Cached for 5 minutes per token via the segment-level `revalidate`
- * export. Lazy invocation is also gated behind a button in the UI so a
- * cold view of the report doesn't trigger this expensive call at all.
+ * Cached for 5 minutes per (token, sortBy, datePreset) via the segment-
+ * level `revalidate` export. `force-dynamic` was previously set on this
+ * route, which silently nullified the cache — Slice U.1 drops it so the
+ * 5-minute window actually takes effect, and so a flick of the
+ * timeframe selector buys a per-preset cache bucket instead of always
+ * round-tripping to Meta.
+ *
+ * Lazy invocation is still gated behind a button in the UI so a cold
+ * view of the report doesn't trigger this call at all.
  */
 
 export const revalidate = 300;
-export const dynamic = "force-dynamic";
 
 function parseSort(value: string | null): CreativeSortKey {
   if (value && (CREATIVE_SORT_KEYS as readonly string[]).includes(value)) {
     return value as CreativeSortKey;
   }
   return "lpv";
+}
+
+function parseDatePreset(value: string | null): DatePreset {
+  if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
+    return value as DatePreset;
+  }
+  return "maximum";
 }
 
 export async function GET(
@@ -115,11 +129,15 @@ export async function GET(
   }
 
   const sortBy = parseSort(req.nextUrl.searchParams.get("sortBy"));
+  const datePreset = parseDatePreset(
+    req.nextUrl.searchParams.get("datePreset"),
+  );
   const result = await fetchEventCreatives({
     eventCode,
     adAccountId,
     token: providerToken,
     sortBy,
+    datePreset,
   });
 
   // Always 200 — failure modes carry { ok: false, error } so the lazy

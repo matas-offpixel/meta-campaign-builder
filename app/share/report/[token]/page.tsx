@@ -8,9 +8,21 @@ import {
   resolveShareByToken,
 } from "@/lib/db/report-shares";
 import { fetchEventInsights } from "@/lib/insights/meta";
-import type { InsightsResult } from "@/lib/insights/types";
+import {
+  DATE_PRESETS,
+  type DatePreset,
+  type InsightsResult,
+} from "@/lib/insights/types";
 import { PublicReport } from "@/components/report/public-report";
 import { ReportUnavailable } from "@/components/report/report-unavailable";
+
+function parseDatePreset(value: string | string[] | undefined): DatePreset {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw && (DATE_PRESETS as readonly string[]).includes(raw)) {
+    return raw as DatePreset;
+  }
+  return "maximum";
+}
 
 /**
  * Public client-facing event report.
@@ -28,10 +40,17 @@ import { ReportUnavailable } from "@/components/report/report-unavailable";
 
 interface Props {
   params: Promise<{ token: string }>;
+  /**
+   * `?tf=<DatePreset>` drives the timeframe selector. Reading it here in
+   * the RSC means each preset gets its own 5-minute cache bucket — a
+   * timeframe flick triggers one fresh Meta call, then the next four
+   * minutes of visitors hit the same cached payload. Unknown / missing
+   * values fall back to "maximum" via `parseDatePreset`.
+   */
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 export const revalidate = 300;
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { token } = await params;
@@ -49,6 +68,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
+// `EventReportView` (rendered inside `<PublicReport>`) is a client
+// component, so the timeframe selector handler lives there. The RSC's
+// only job for the timeframe is to read `?tf=` and pass the narrowed
+// preset down so insights are fetched against the correct window.
 interface ResolvedEvent {
   name: string;
   venueName: string | null;
@@ -58,11 +81,13 @@ interface ResolvedEvent {
   eventStartAt: string | null;
   eventCode: string | null;
   paidMediaBudget: number | null;
+  ticketsSold: number | null;
   adAccountId: string | null;
 }
 
-export default async function PublicReportPage({ params }: Props) {
-  const { token } = await params;
+export default async function PublicReportPage({ params, searchParams }: Props) {
+  const [{ token }, sp] = await Promise.all([params, searchParams]);
+  const datePreset = parseDatePreset(sp.tf);
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);
@@ -80,7 +105,7 @@ export default async function PublicReportPage({ params }: Props) {
     admin
       .from("events")
       .select(
-        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, client:clients ( meta_ad_account_id )",
+        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, tickets_sold, client:clients ( meta_ad_account_id )",
       )
       .eq("id", event_id)
       .maybeSingle(),
@@ -113,6 +138,7 @@ export default async function PublicReportPage({ params }: Props) {
     eventCode: (eventRow.data.event_code as string | null) ?? null,
     paidMediaBudget:
       (eventRow.data.budget_marketing as number | null) ?? null,
+    ticketsSold: (eventRow.data.tickets_sold as number | null) ?? null,
     adAccountId,
   };
 
@@ -153,6 +179,7 @@ export default async function PublicReportPage({ params }: Props) {
       eventCode: event.eventCode,
       adAccountId: event.adAccountId,
       token: providerToken,
+      datePreset,
     });
   }
 
@@ -181,9 +208,11 @@ export default async function PublicReportPage({ params }: Props) {
         eventDate: event.eventDate,
         eventStartAt: event.eventStartAt,
         paidMediaBudget: event.paidMediaBudget,
+        ticketsSold: event.ticketsSold,
       }}
       insights={insights.data}
       shareToken={token}
+      datePreset={datePreset}
     />
   );
 }

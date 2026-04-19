@@ -26,6 +26,8 @@ import {
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
+import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
+import { InternalEventReport } from "@/components/report/internal-event-report";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
@@ -76,6 +78,11 @@ interface Props {
     last_viewed_at: string | null;
     created_at: string;
   } | null;
+  /**
+   * Server-rendered current `events.tickets_sold` for the Reporting
+   * tab's TicketsSoldPanel. Null = column unset (not yet recorded).
+   */
+  initialTicketsSold: number | null;
 }
 
 /**
@@ -93,6 +100,7 @@ export function EventDetail({
   planDays,
   keyMoments,
   initialShare,
+  initialTicketsSold,
 }: Props) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -387,25 +395,51 @@ export function EventDetail({
           {/* ───── Reporting ───── */}
           <TabPanel active={activeTab === "reporting"}>
             <div className="space-y-6">
+              <TicketsSoldPanel
+                eventId={event.id}
+                initialTicketsSold={initialTicketsSold}
+              />
+
               <ShareReportControls
                 eventId={event.id}
                 initialShare={initialShare}
               />
 
-              <section className="rounded-md border border-dashed border-border bg-card p-5">
-                <div className="flex items-start gap-3">
+              {/*
+                Internal mirror of the public report. Same layout
+                (`EventReportView`) the share URL renders, fetched via
+                the auth route `/api/insights/event/[id]`. Wrapped in
+                its own card so it nests cleanly inside the Reporting
+                tab's space-y-6 column without the report's max-w-6xl
+                fighting the dashboard's chrome.
+              */}
+              <section className="rounded-md border border-border bg-card p-5">
+                <div className="mb-4 flex items-start gap-3">
                   <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                   <div className="min-w-0">
                     <h2 className="font-heading text-base tracking-wide">
-                      Internal reporting view coming soon
+                      Live report
                     </h2>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      The internal dashboard mirror of the public report ships
-                      next slice. For now, use the public share link above to
-                      preview live numbers in incognito.
+                      Same view your client sees on the public share URL,
+                      pulled fresh from Meta and cached for 5 minutes per
+                      timeframe.
                     </p>
                   </div>
                 </div>
+                <InternalEventReport
+                  eventId={event.id}
+                  event={{
+                    name: event.name,
+                    venueName: event.venue_name,
+                    venueCity: event.venue_city,
+                    venueCountry: event.venue_country,
+                    eventDate: event.event_date,
+                    eventStartAt: event.event_start_at,
+                    paidMediaBudget: event.budget_marketing,
+                    ticketsSold: initialTicketsSold,
+                  }}
+                />
               </section>
 
               <section className="rounded-md border border-border bg-card p-5">

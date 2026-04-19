@@ -2,25 +2,37 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { fetchEventInsights } from "@/lib/insights/meta";
+import { fetchEventCreatives } from "@/lib/insights/meta";
 import {
+  CREATIVE_SORT_KEYS,
   DATE_PRESETS,
+  type CreativeSortKey,
   type DatePreset,
 } from "@/lib/insights/types";
 
 /**
- * Authenticated insights for an event the current user owns.
+ * Authenticated GET — lazy creative previews for an event the current
+ * user owns. Mirror of the public share-side creatives route, but
+ * gated by an authed Supabase session + RLS-scoped event ownership
+ * check (no token resolution needed — the session IS the credential).
  *
  * Lives under `app/api/insights/*` (not `app/api/meta/*`) so the existing
- * Meta route prefix stays frozen during Meta app review. Same data shape
- * the public share route renders — drives the internal Reporting mirror
- * (Slice U.1) directly via `<InternalEventReport>`.
+ * Meta route prefix stays frozen during Meta app review.
  *
- * Cached for 5 minutes per (eventId, datePreset). `force-dynamic` was
- * dropped in U.1 so the 5-minute window actually takes effect.
+ * Cached for 5 minutes per (eventId, sortBy, datePreset). `force-dynamic`
+ * is intentionally NOT set so the 5-minute window actually takes effect
+ * — a flick of the timeframe selector buys a per-preset cache bucket
+ * instead of always round-tripping to Meta.
  */
 
 export const revalidate = 300;
+
+function parseSort(value: string | null): CreativeSortKey {
+  if (value && (CREATIVE_SORT_KEYS as readonly string[]).includes(value)) {
+    return value as CreativeSortKey;
+  }
+  return "lpv";
+}
 
 function parseDatePreset(value: string | null): DatePreset {
   if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
@@ -34,9 +46,6 @@ export async function GET(
   { params }: { params: Promise<{ eventId: string }> },
 ) {
   const { eventId } = await params;
-  const datePreset = parseDatePreset(
-    req.nextUrl.searchParams.get("datePreset"),
-  );
 
   const supabase = await createClient();
   const {
@@ -47,7 +56,9 @@ export async function GET(
   }
 
   // Owner check via RLS-scoped read — also fetches the event_code +
-  // client.meta_ad_account_id needed downstream.
+  // client.meta_ad_account_id needed downstream. RLS would already
+  // filter by user_id, but the explicit `.eq("user_id", user.id)` keeps
+  // the intent obvious to a future reader auditing the route.
   const { data: event, error: evErr } = await supabase
     .from("events")
     .select("id, event_code, client:clients ( meta_ad_account_id )")
@@ -112,10 +123,15 @@ export async function GET(
     );
   }
 
-  const result = await fetchEventInsights({
+  const sortBy = parseSort(req.nextUrl.searchParams.get("sortBy"));
+  const datePreset = parseDatePreset(
+    req.nextUrl.searchParams.get("datePreset"),
+  );
+  const result = await fetchEventCreatives({
     eventCode,
     adAccountId,
     token,
+    sortBy,
     datePreset,
   });
   return NextResponse.json(result, { status: 200 });

@@ -6,6 +6,7 @@ import type {
   CreativeSortKey,
   CreativesPayload,
   CreativesResult,
+  DatePreset,
   EventInsightsPayload,
   InsightsError,
   InsightsResult,
@@ -45,12 +46,13 @@ const CAMPAIGN_FETCH_LIMIT = 100;
 const ADS_PER_CAMPAIGN_LIMIT = 25;
 
 /**
- * Insights time window. Meta's `date_preset=maximum` returns lifetime
- * numbers for the campaign — exactly what an event report wants
+ * Insights time window default. Meta's `date_preset=maximum` returns
+ * lifetime numbers for the campaign — exactly what an event report wants
  * (campaigns are typically launched per-event, so "lifetime" == "for this
- * event"). Override at call site if a narrower window is ever needed.
+ * event"). Each fetch entrypoint accepts an optional `datePreset` for the
+ * timeframe selector on the report.
  */
-const DEFAULT_DATE_PRESET = "maximum" as const;
+const DEFAULT_DATE_PRESET: DatePreset = "maximum";
 
 // ─── Public entrypoint: aggregate insights ─────────────────────────────────
 
@@ -61,12 +63,20 @@ export interface FetchEventInsightsArgs {
   adAccountId: string;
   /** OAuth token of the event owner. */
   token: string;
+  /**
+   * Meta `date_preset` to query against. Defaults to "maximum"
+   * (lifetime). Routes narrow the inbound `?datePreset=` query param
+   * against `DATE_PRESETS` before passing it here, so this value is
+   * always trusted.
+   */
+  datePreset?: DatePreset;
 }
 
 export async function fetchEventInsights(
   args: FetchEventInsightsArgs,
 ): Promise<InsightsResult> {
   const { eventCode, adAccountId, token } = args;
+  const datePreset = args.datePreset ?? DEFAULT_DATE_PRESET;
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -93,7 +103,7 @@ export async function fetchEventInsights(
 
     const campaignRows = await Promise.all(
       matchedCampaigns.map((c) =>
-        fetchCampaignInsights({ campaignId: c.id, token }).then(
+        fetchCampaignInsights({ campaignId: c.id, token, datePreset }).then(
           (insights) =>
             mapCampaignRow(c, insights),
         ),
@@ -107,7 +117,7 @@ export async function fetchEventInsights(
     const totals = aggregateTotals(filteredRows);
     const payload: EventInsightsPayload = {
       fetchedAt: new Date().toISOString(),
-      datePreset: DEFAULT_DATE_PRESET,
+      datePreset,
       totals,
       totalSpend: totals.spend,
       channelBreakdown: {
@@ -215,13 +225,14 @@ const INSIGHTS_FIELDS = [
 async function fetchCampaignInsights(args: {
   campaignId: string;
   token: string;
+  datePreset: DatePreset;
 }): Promise<RawInsights | null> {
-  const { campaignId, token } = args;
+  const { campaignId, token, datePreset } = args;
   const res = await graphGetWithToken<GraphPaged<RawInsights>>(
     `/${campaignId}/insights`,
     {
       fields: INSIGHTS_FIELDS,
-      date_preset: DEFAULT_DATE_PRESET,
+      date_preset: datePreset,
       level: "campaign",
     },
     token,
@@ -333,12 +344,19 @@ export interface FetchEventCreativesArgs {
   adAccountId: string;
   token: string;
   sortBy: CreativeSortKey;
+  /**
+   * Date preset for per-ad insights. Creative previews themselves are
+   * not time-windowed (Meta's `/{creative}/previews` endpoint takes no
+   * date arg) so this only narrows the numeric metrics.
+   */
+  datePreset?: DatePreset;
 }
 
 export async function fetchEventCreatives(
   args: FetchEventCreativesArgs,
 ): Promise<CreativesResult> {
   const { eventCode, adAccountId, token, sortBy } = args;
+  const datePreset = args.datePreset ?? DEFAULT_DATE_PRESET;
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -372,7 +390,7 @@ export async function fetchEventCreatives(
       for (const ad of ads) {
         try {
           const [insights, previews] = await Promise.all([
-            fetchAdInsights({ adId: ad.id, token }),
+            fetchAdInsights({ adId: ad.id, token, datePreset }),
             fetchCreativePreviews({ creativeId: ad.creative?.id, token }),
           ]);
           adRows.push(mapCreativeRow(ad, campaign, insights, previews));
@@ -387,7 +405,10 @@ export async function fetchEventCreatives(
       }
     }
 
-    const sorted = sortCreatives(adRows, sortBy);
+    // Collapse same-named ads into a single card BEFORE sorting so the
+    // "Top 5" filter on the UI side counts groups, not raw ads.
+    const grouped = groupCreativesByName(adRows);
+    const sorted = sortCreatives(grouped, sortBy);
     const payload: CreativesPayload = {
       fetchedAt: new Date().toISOString(),
       sortBy,
@@ -438,13 +459,14 @@ async function listAdsForCampaign(args: {
 async function fetchAdInsights(args: {
   adId: string;
   token: string;
+  datePreset: DatePreset;
 }): Promise<RawInsights | null> {
-  const { adId, token } = args;
+  const { adId, token, datePreset } = args;
   const res = await graphGetWithToken<GraphPaged<RawInsights>>(
     `/${adId}/insights`,
     {
       fields: INSIGHTS_FIELDS,
-      date_preset: DEFAULT_DATE_PRESET,
+      date_preset: datePreset,
       level: "ad",
     },
     token,
@@ -528,6 +550,13 @@ function mapCreativeRow(
     adId: ad.id,
     adName: ad.name,
     campaignName: campaign.name,
+    // `effective_status` is the shipped one (e.g. ACTIVE / PAUSED /
+    // CAMPAIGN_PAUSED). Fall back to plain `status` then UNKNOWN so the
+    // "All active" filter on the UI side has something to compare.
+    effectiveStatus: ad.effective_status ?? ad.status ?? "UNKNOWN",
+    mergedCount: 1,
+    adIds: [ad.id],
+    campaignNames: [campaign.name],
     previews,
     spend,
     impressions,
@@ -540,6 +569,86 @@ function mapCreativeRow(
     cpr: regs > 0 ? spend / regs : 0,
     cpp: purchases > 0 ? spend / purchases : 0,
   };
+}
+
+/**
+ * Collapse rows that share an `adName` into a single card.
+ *
+ * Same-named creatives are extremely common — agency convention is to
+ * reuse a single creative across every ad set in a campaign (and often
+ * across multiple campaigns: awareness vs conversion variants of the
+ * same event). Pre-grouping each row mapped 1:1 to a Meta ad, which
+ * meant the report could render ten cards for what is, visually, one
+ * creative. The group merges by ad name, sums numerics, and picks
+ * the first non-null preview per placement.
+ *
+ * Cost-per metrics are recomputed from the SUMS — averaging the per-row
+ * cost-per values would double-weight a low-spend dupe (e.g. one £5 ad
+ * with £0.50 CPLPV and one £500 ad with £2 CPLPV would average to
+ * £1.25, but the true blended is much closer to £2). Recomputing from
+ * the totals always reflects spend-weighted cost.
+ */
+function groupCreativesByName(rows: CreativeRow[]): CreativeRow[] {
+  const groups = new Map<string, CreativeRow>();
+  for (const row of rows) {
+    const existing = groups.get(row.adName);
+    if (!existing) {
+      // First occurrence — clone defensively so subsequent merges don't
+      // mutate the caller's source row through shared references.
+      groups.set(row.adName, {
+        ...row,
+        adIds: [...row.adIds],
+        campaignNames: [...row.campaignNames],
+        previews: { ...row.previews },
+      });
+      continue;
+    }
+
+    existing.spend += row.spend;
+    existing.impressions += row.impressions;
+    existing.reach += row.reach;
+    existing.landingPageViews += row.landingPageViews;
+    existing.registrations += row.registrations;
+    existing.purchases += row.purchases;
+    existing.purchaseValue += row.purchaseValue;
+    existing.mergedCount += row.mergedCount;
+    existing.adIds.push(...row.adIds);
+
+    for (const name of row.campaignNames) {
+      if (!existing.campaignNames.includes(name)) {
+        existing.campaignNames.push(name);
+      }
+    }
+
+    // First non-null preview per placement wins (encounter order). Same-
+    // named creatives are visually identical by convention — picking
+    // any one is fine, and "first non-null" gracefully handles
+    // placement gaps (e.g. a Reels-only variant slotted in beside a
+    // Feed-only one).
+    for (const key of [
+      "facebookFeed",
+      "instagramFeed",
+      "instagramStory",
+      "instagramReels",
+    ] as const) {
+      if (existing.previews[key] == null) {
+        existing.previews[key] = row.previews[key];
+      }
+    }
+
+    // ACTIVE wins. Otherwise keep the first encountered status.
+    if (row.effectiveStatus === "ACTIVE") {
+      existing.effectiveStatus = "ACTIVE";
+    }
+  }
+
+  // Recompute cost-per from the summed totals (see JSDoc above).
+  return [...groups.values()].map((row) => ({
+    ...row,
+    cplpv: row.landingPageViews > 0 ? row.spend / row.landingPageViews : 0,
+    cpr: row.registrations > 0 ? row.spend / row.registrations : 0,
+    cpp: row.purchases > 0 ? row.spend / row.purchases : 0,
+  }));
 }
 
 function sortCreatives(rows: CreativeRow[], by: CreativeSortKey): CreativeRow[] {

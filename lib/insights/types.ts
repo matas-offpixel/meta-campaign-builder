@@ -87,12 +87,61 @@ export interface ChannelBreakdown {
   google: number | null;
 }
 
+// ─── Timeframe ──────────────────────────────────────────────────────────────
+
+/**
+ * Meta `date_preset` values surfaced as the timeframe selector on the
+ * report. Order matters — `DATE_PRESETS` is the canonical render order
+ * for the segmented control.
+ *
+ * "maximum" maps to Meta's own `date_preset=maximum` (lifetime). Every
+ * event campaign is launched per-event so "lifetime" is effectively
+ * "for this event" — that's the safe default and the one wired before
+ * this slice.
+ *
+ * The other seven values pass straight through to Meta as documented at
+ * https://developers.facebook.com/docs/marketing-api/insights/parameters/v21.0
+ * — no app-side translation. If Meta deprecates one we narrow this
+ * union and the route handler `parseDatePreset` falls back to "maximum".
+ */
+export type DatePreset =
+  | "maximum"
+  | "last_30d"
+  | "last_14d"
+  | "last_7d"
+  | "last_3d"
+  | "yesterday"
+  | "today"
+  | "this_month";
+
+export const DATE_PRESETS: readonly DatePreset[] = [
+  "maximum",
+  "last_30d",
+  "last_14d",
+  "last_7d",
+  "last_3d",
+  "yesterday",
+  "today",
+  "this_month",
+] as const;
+
+export const DATE_PRESET_LABELS: Record<DatePreset, string> = {
+  maximum: "All time",
+  last_30d: "Past 30 days",
+  last_14d: "Past 14 days",
+  last_7d: "Past 7 days",
+  last_3d: "Past 3 days",
+  yesterday: "Yesterday",
+  today: "Today",
+  this_month: "This month",
+};
+
 /** Top-level insights payload returned by the share + insights routes. */
 export interface EventInsightsPayload {
   /** ISO timestamp the data was fetched. Drives the "Last updated" label. */
   fetchedAt: string;
   /** Date preset that was queried (e.g. "maximum"). */
-  datePreset: "maximum" | "last_30d" | "last_7d";
+  datePreset: DatePreset;
   /** Aggregated Meta totals across every campaign matched by event_code. */
   totals: MetaTotals;
   /** Total spend across all wired channels. v1: equals totals.spend. */
@@ -144,12 +193,53 @@ export const CREATIVE_SORT_KEYS: readonly CreativeSortKey[] = [
   "cpp",
 ] as const;
 
-/** One ad → its preview iframe + per-ad numbers. */
+/**
+ * One creative card on the report.
+ *
+ * After `groupCreativesByName` runs, a single `CreativeRow` may represent
+ * N underlying Meta ads that share an `ad.name` across ad sets /
+ * campaigns. Identical-name duplicates are summed so a client doesn't see
+ * the same creative card three times. Pre-grouping each row mapped 1:1
+ * to a Meta ad — the merge collapses the spam.
+ *
+ * Numeric metrics (spend / impressions / reach / lpv / regs / purchases /
+ * purchaseValue) are SUMS across the merged ads. Cost-per metrics are
+ * recomputed from the summed totals (NOT averaged from the per-ad
+ * source rows — averaging would double-weight a low-spend dupe).
+ */
 export interface CreativeRow {
+  /**
+   * Stable card key. Equals `adIds[0]` — the first ad encountered in the
+   * group. Safe as a React `key` because grouping is deterministic and
+   * the underlying ad ids don't reshuffle between fetches.
+   */
   adId: string;
+  /** Shared ad name — the grouping key itself. */
   adName: string;
+  /**
+   * First campaign in which this ad name appears (encounter order). UI
+   * should prefer `campaignNames[0]` and surface a "+N more" affordance
+   * when `campaignNames.length > 1`.
+   */
   campaignName: string;
-  /** Iframe HTML strings keyed by Meta ad-format string. */
+  /**
+   * Meta `effective_status` of the row. After merging this is "ACTIVE"
+   * if ANY underlying ad is ACTIVE, else the first encountered status.
+   * Drives the "All active" segmented filter on the creative panel.
+   */
+  effectiveStatus: string;
+  /** Number of underlying Meta ads that were merged into this row. >= 1. */
+  mergedCount: number;
+  /** Underlying Meta ad ids in encounter order. `length === mergedCount`. */
+  adIds: string[];
+  /** Unique campaign names this ad name appears in, encounter order. */
+  campaignNames: string[];
+  /**
+   * Iframe HTML strings keyed by Meta ad-format string. After merging
+   * each placement is the FIRST non-null preview encountered across the
+   * merged ads — same-named creatives are visually identical by
+   * convention so picking any one is fine.
+   */
   previews: {
     facebookFeed: string | null;
     instagramFeed: string | null;

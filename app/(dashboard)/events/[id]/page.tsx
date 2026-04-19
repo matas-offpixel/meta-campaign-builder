@@ -82,6 +82,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       planDays={planDays}
       keyMoments={keyMoments}
       initialShare={share}
+      initialTicketsSold={event.tickets_sold ?? null}
     />
   );
 }
