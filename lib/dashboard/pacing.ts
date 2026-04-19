@@ -35,9 +35,13 @@
  *   - final10       →  75% Conversion,  25% Traffic
  *   - event day     →  75% Conversion,  25% Traffic
  *
- * Per-day budget (inter-day) is uniform: total / N_eligible. Manually
- * edited days (any non-zero value already in objective_budgets.traffic
- * or .conversion) are excluded from N and never patched.
+ * Per-day budget (inter-day) is uniform: total / days.length. Smart
+ * spread is overwrite-and-rebalance — every day in the plan range gets
+ * its Traffic and Conversion keys replaced. The other objective keys
+ * (Reach, Post engagement, TikTok, Google) are left untouched. This is
+ * a deliberate split from Even spread, which preserves existing values:
+ *   - Even spread  = additive fill into Conversion only
+ *   - Smart spread = overwrite-and-rebalance Traffic + Conversion
  *
  * UK payday = last working day (Mon–Fri) of the calendar month. Bank
  * holidays are not modelled — overkill for v1.
@@ -68,10 +72,9 @@ export interface SmartSpreadShare {
 }
 
 export interface SmartSpreadResult {
-  /** day (YYYY-MM-DD) → traffic + conversion split. Excludes skipped days. */
+  /** day (YYYY-MM-DD) → traffic + conversion split. One entry per input day. */
   perDay: Map<string, SmartSpreadShare>;
-  eligibleCount: number;
-  skippedCount: number;
+  appliedCount: number;
 }
 
 // ─── Date helpers (local-tz, mirror lib/db/ad-plans.ts) ─────────────────────
@@ -181,40 +184,28 @@ function shareForPhase(phase: SmartSpreadPhase, payday: boolean): SmartSpreadSha
   }
 }
 
-// ─── Eligibility ─────────────────────────────────────────────────────────────
-
-/**
- * A day is "manually edited" (and therefore preserved, not touched by
- * smart spread) iff it has any non-zero value in traffic OR conversion.
- *
- * objective_budgets is sparse: writeObjectiveBudget deletes keys whose
- * value would be 0, so any persisted number is intentional. Reading
- * absent keys as 0 gives us the right exclusion semantics for free.
- */
-function isManuallyEdited(day: SmartSpreadDay): boolean {
-  const t = day.objective_budgets?.traffic ?? 0;
-  const c = day.objective_budgets?.conversion ?? 0;
-  return t > 0 || c > 0;
-}
-
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Compute a phase-aware spread of `totalBudget` across the eligible
- * subset of `days` for `event`. Eligible = no manual traffic/conversion
- * edits already on that day.
+ * Compute a phase-aware spread of `totalBudget` across every day in the
+ * plan range for `event`.
  *
- * Returns the per-day (traffic, conversion) split for every eligible
- * day plus the eligible/skipped counts so the caller can render the
- * post-apply banner ("X days applied, Y skipped — manual edits
- * preserved.").
+ * Smart spread is overwrite-and-rebalance: every day gets a (traffic,
+ * conversion) split per the phase ratios. Existing manual edits in
+ * Traffic / Conversion are NOT preserved — that was the v1 behaviour
+ * and it broke the common "Even spread first, then Smart spread to
+ * rebalance" workflow (every day looked manually edited and the
+ * algorithm no-op'd). The caller is responsible for preserving the
+ * other objective keys (Reach, Post eng., TikTok, Google) when it
+ * builds the persisted patch — this function only returns the Traffic
+ * and Conversion values.
  *
- * Penny rounding: per-day budget is rounded to 2dp; the last eligible
- * day absorbs any rounding drift so Σ traffic + Σ conversion across
- * all eligible days equals totalBudget exactly. Within each day, the
- * conversion bucket absorbs intra-day rounding so traffic + conversion
- * for that day equals its allotted dayBudget — keeps the Daily spend
- * column tidy.
+ * Penny rounding: per-day budget is rounded to 2dp; the last day
+ * absorbs any rounding drift so Σ traffic + Σ conversion across all
+ * days equals totalBudget exactly. Within each day, the conversion
+ * bucket absorbs intra-day rounding so traffic + conversion for that
+ * day equals its allotted dayBudget — keeps the Daily spend column
+ * tidy.
  */
 export function computeSmartSpread(args: {
   days: SmartSpreadDay[];
@@ -224,8 +215,7 @@ export function computeSmartSpread(args: {
   const { days, event, totalBudget } = args;
   const empty: SmartSpreadResult = {
     perDay: new Map(),
-    eligibleCount: 0,
-    skippedCount: days.length,
+    appliedCount: 0,
   };
 
   if (days.length === 0 || totalBudget <= 0) return empty;
@@ -236,19 +226,12 @@ export function computeSmartSpread(args: {
     return empty;
   }
 
-  const eligible = days.filter((d) => !isManuallyEdited(d));
-  const N = eligible.length;
-  const skippedCount = days.length - N;
-
-  if (N === 0) {
-    return { perDay: new Map(), eligibleCount: 0, skippedCount };
-  }
-
+  const N = days.length;
   const perDay = Math.round((totalBudget / N) * 100) / 100;
   const lastDay = Math.round((totalBudget - perDay * (N - 1)) * 100) / 100;
 
   const out = new Map<string, SmartSpreadShare>();
-  eligible.forEach((d, i) => {
+  days.forEach((d, i) => {
     const dayBudget = i === N - 1 ? lastDay : perDay;
     const phase = classifyPhase(d.day, ctx);
     const ratios = shareForPhase(phase, phase === "onsale" && isUkPayday(d.day));
@@ -260,5 +243,5 @@ export function computeSmartSpread(args: {
     out.set(d.day, { traffic, conversion });
   });
 
-  return { perDay: out, eligibleCount: N, skippedCount };
+  return { perDay: out, appliedCount: N };
 }

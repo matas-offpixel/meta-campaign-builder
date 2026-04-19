@@ -93,6 +93,30 @@ export function fmtDay(d: Date): string {
   });
 }
 
+/**
+ * Long date with short weekday — "19 Apr 2026 · Sat".
+ *
+ * Built in two locale calls (rather than one with both `weekday` and
+ * `day` set) because Intl in en-GB renders weekday-first ("Sat 19 Apr
+ * 2026") when both are requested; we want the date to lead so the
+ * column sorts visually like a date column.
+ */
+export function fmtDayWithWeekday(d: Date): string {
+  const date = d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "short" });
+  return `${date} · ${weekday}`;
+}
+
+/** True if `d` falls on Saturday or Sunday. Local-tz Date only. */
+export function isWeekend(d: Date): boolean {
+  const wd = d.getDay();
+  return wd === 0 || wd === 6;
+}
+
 /** Local-midnight Date for the current calendar day. */
 export function today(): Date {
   const d = new Date();

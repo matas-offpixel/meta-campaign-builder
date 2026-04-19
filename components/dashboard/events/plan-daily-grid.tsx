@@ -9,7 +9,11 @@ import {
   useReducer,
   useRef,
 } from "react";
-import { fmtCurrency, fmtDay } from "@/lib/dashboard/format";
+import {
+  fmtCurrency,
+  fmtDayWithWeekday,
+  isWeekend,
+} from "@/lib/dashboard/format";
 import {
   OBJECTIVE_KEYS,
   OBJECTIVE_LABEL,
@@ -166,7 +170,11 @@ const COLUMNS: PlanColumn[] = [
     label: "Day",
     kind: "readonly",
     readRaw: (day) => day.day,
-    readDisplay: (day) => fmtDay(new Date(day.day + "T00:00:00")),
+    // Render with a trailing short weekday — "19 Apr 2026 · Sat".
+    // Weekend rows additionally get muted text in PlanCell: Matas
+    // doesn't work weekends and visual dimming helps him plan
+    // ad-tweak days around Mon–Fri.
+    readDisplay: (day) => fmtDayWithWeekday(new Date(day.day + "T00:00:00")),
     applyString: () => null,
   },
   {
@@ -1189,6 +1197,18 @@ function PlanCell({
         // counts only explicit values.
         <span className="text-muted-foreground/40">
           {ticketTargetGhost.toLocaleString()}
+        </span>
+      ) : column.role === "editable" && column.key === "day" ? (
+        // Muted text on Sat/Sun rows. Matas doesn't work weekends;
+        // visual dimming helps him plan ad-tweak days around Mon–Fri.
+        <span
+          className={
+            isWeekend(new Date(day.day + "T00:00:00"))
+              ? "text-muted-foreground"
+              : ""
+          }
+        >
+          {displayValue}
         </span>
       ) : (
         <span className={displayValue ? "" : "text-muted-foreground/40"}>

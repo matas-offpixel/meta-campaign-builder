@@ -263,10 +263,11 @@ export function PlanHeader({
       {smartPhase !== "idle" && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
           <span className="min-w-0 flex-1 text-muted-foreground">
-            Phase-aware pacing: presale → 100% Conversion, on-sale → 75%
-            Traffic (50/50 on UK paydays), final 10 + event day → 75%
-            Conversion. Days with manual Traffic or Conversion edits are
-            preserved. Continue?
+            Smart spread will replace Traffic and Conversion on all{" "}
+            <span className="font-medium text-foreground">{daysCount}</span>{" "}
+            day{daysCount === 1 ? "" : "s"} using phase-aware pacing.
+            Reach, Post engagement, TikTok, and Google are not touched.
+            Continue?
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Button

@@ -164,31 +164,20 @@ export function EventPlanTab({
       // flushPendingSaves funnels per-cell errors via onError; nothing here.
     }
 
-    const { perDay, eligibleCount, skippedCount } = computeSmartSpread({
+    const { perDay, appliedCount } = computeSmartSpread({
       days,
       event,
       totalBudget: plan.total_budget,
     });
 
-    if (eligibleCount === 0) {
-      // Every day already has manual edits — nothing to do, but tell
-      // the user explicitly so they don't think the click was lost.
-      setInfo(
-        `Smart spread skipped — all ${days.length} day${
-          days.length === 1 ? "" : "s"
-        } have manual Traffic or Conversion edits.`,
-      );
-      return;
-    }
-
-    // Build patches that merge the new traffic/conversion split into
-    // each eligible day's existing objective_budgets, preserving the
-    // other keys (Reach, Post engagement, TikTok, Google) untouched.
-    // Zero values are dropped so the persisted shape stays sparse —
+    // Build patches that overwrite Traffic + Conversion on every day,
+    // preserving the other objective keys (Reach, Post engagement,
+    // TikTok, Google) — the sparse-map contract requires we round-trip
+    // the existing keys we don't own. Zero values for traffic /
+    // conversion are dropped so the persisted shape stays sparse —
     // mirrors writeObjectiveBudget's deletion semantics. Without this
-    // a presale day would persist `traffic: 0` rather than the canonical
-    // absent-key form, breaking the "any non-zero is intentional"
-    // eligibility rule on the next smart-spread run.
+    // a presale day would persist `traffic: 0` rather than the
+    // canonical absent-key form.
     const patches: AdPlanDayBulkPatch[] = [];
     for (const d of days) {
       const share = perDay.get(d.day);
@@ -208,15 +197,9 @@ export function EventPlanTab({
         return prev.map((d) => byId.get(d.id) ?? d);
       });
       setInfo(
-        `Smart spread applied to ${eligibleCount} day${
-          eligibleCount === 1 ? "" : "s"
-        }.${
-          skippedCount > 0
-            ? ` ${skippedCount} day${
-                skippedCount === 1 ? "" : "s"
-              } skipped — manual edits preserved.`
-            : ""
-        }`,
+        `Smart spread applied to ${appliedCount} day${
+          appliedCount === 1 ? "" : "s"
+        }. Traffic and Conversion updated.`,
       );
     } catch (err) {
       setError(
