@@ -33,7 +33,15 @@ export function PlanStatCards({
   );
 
   const dayCount = days.length;
-  const planAllocated = useMemo(() => sumDailySpends(days), [days]);
+  // "Plan allocated" = sum of every objective budget across every day +
+  // any pre-plan spend (`legacy_spend`) declared on the plan header.
+  // Legacy spend is money that has ALREADY been paid out toward the
+  // event's marketing budget (e.g. a series teaser before the per-event
+  // plan was authored), so it MUST count against budget remaining the
+  // same way a daily allocation does. Null legacy_spend reads as 0.
+  const dailyAllocated = useMemo(() => sumDailySpends(days), [days]);
+  const legacySpend = plan.legacy_spend ?? 0;
+  const planAllocated = dailyAllocated + legacySpend;
 
   const todayRow = useMemo(
     () => days.find((d) => d.day === todayIso) ?? null,
@@ -62,7 +70,14 @@ export function PlanStatCards({
       />
       <StatCard
         label="Plan allocated"
-        value={dayCount > 0 ? fmtCurrency(planAllocated) : "—"}
+        value={
+          dayCount > 0 || legacySpend > 0 ? fmtCurrency(planAllocated) : "—"
+        }
+        subLabel={
+          legacySpend > 0
+            ? `incl. pre-plan spend ${fmtCurrency(legacySpend)}`
+            : undefined
+        }
       />
       <StatCard
         label="Today's daily spend"

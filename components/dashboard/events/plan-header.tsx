@@ -342,13 +342,21 @@ export function PlanHeader({
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+      <dl className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
         <NumericField
           label="Total budget"
           prefix="£"
           value={plan.total_budget}
           inputRe={MONEY_INPUT_RE}
           onCommit={(n) => onPatch({ total_budget: n })}
+        />
+        <NumericField
+          label="Pre-plan spend"
+          prefix="£"
+          value={plan.legacy_spend ?? null}
+          inputRe={MONEY_INPUT_RE}
+          onCommit={(n) => onPatch({ legacy_spend: n })}
+          help="Ad spend from before this plan's start date. Rolls into total spend for planned vs actual comparison."
         />
         <NumericField
           label="Ticket target"
@@ -449,12 +457,20 @@ function NumericField({
   value,
   inputRe,
   onCommit,
+  help,
 }: {
   label: string;
   prefix?: string;
   value: number | null;
   inputRe: RegExp;
   onCommit: (n: number | null) => Promise<void> | void;
+  /**
+   * Optional muted helper text shown beneath the input. Used for fields
+   * whose semantics aren't obvious from the label alone (e.g.
+   * "Pre-plan spend" needs to spell out that it counts toward the
+   * planned-vs-actual rollup). Omitted = no helper line.
+   */
+  help?: string;
 }) {
   const serialise = useCallback(
     (v: number | null) => (v == null ? "" : String(v)),
@@ -499,6 +515,11 @@ function NumericField({
           className="w-full min-w-0 rounded-sm border border-transparent bg-transparent px-1 py-0.5 text-sm outline-none hover:border-border focus:border-foreground focus:bg-background"
         />
       </div>
+      {help && (
+        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+          {help}
+        </p>
+      )}
     </Field>
   );
 }

@@ -28,6 +28,22 @@ export interface AdPlan {
   total_budget: number | null;
   ticket_target: number | null;
   landing_page_url: string | null;
+  /**
+   * Pre-plan ad spend that still counts toward the event's marketing
+   * budget — money spent before this plan's start_date (e.g. a series
+   * teaser run that fired before the per-event plan was authored).
+   * Null when there is no legacy spend; explicit 0 means "verified
+   * none" and is preserved through round-trips.
+   *
+   * Rolls into PlanStatCards "Plan allocated" (so Budget remaining
+   * deducts it) and into the V.3 actual-vs-planned totals. Set via
+   * the inline NumericField on PlanHeader.
+   *
+   * Persisted by migration 013 (column was added after the original
+   * 005 schema). Reads through PostgREST will return `undefined` on
+   * pre-013 environments — caller code must treat it as nullable.
+   */
+  legacy_spend: number | null;
   /** YYYY-MM-DD */
   start_date: string;
   /** YYYY-MM-DD */
@@ -103,7 +119,12 @@ export type AdPlanDayBulkPatch = AdPlanDayPatch & { id: string };
 export type AdPlanPatch = Partial<
   Pick<
     AdPlan,
-    "total_budget" | "ticket_target" | "landing_page_url" | "name" | "status"
+    | "total_budget"
+    | "ticket_target"
+    | "landing_page_url"
+    | "legacy_spend"
+    | "name"
+    | "status"
   >
 >;
 
