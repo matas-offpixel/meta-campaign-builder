@@ -185,7 +185,15 @@ export async function deleteShare(token: string): Promise<void> {
 
 export type ResolvedShare = {
   token: string;
-  event_id: string;
+  /**
+   * Nullable since migration 014 — `scope='client'` shares carry a
+   * `client_id` instead of an `event_id`. The current resolver only
+   * returns rows looked up by token (with no scope filter), so callers
+   * MUST guard against null before treating this as a string. The
+   * existing public report page + creatives route both error out with
+   * the appropriate "no_event_code" / 503 path when this is null.
+   */
+  event_id: string | null;
   user_id: string;
   enabled: boolean;
   expires_at: string | null;

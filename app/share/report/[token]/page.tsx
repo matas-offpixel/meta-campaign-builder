@@ -133,6 +133,14 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
 
   const { event_id, user_id } = resolved.share;
 
+  // Migration 014 made `report_shares.event_id` nullable for client-scope
+  // shares. This page only renders event-scoped shares, so a null here
+  // means the token belongs to a client share that mistakenly hit this
+  // route — collapse to the same generic 404 surface as missing/disabled.
+  if (!event_id) {
+    notFound();
+  }
+
   // Fan-out: event lookup + owner token + plan-side tickets cumulative
   // in parallel. Plan-tickets reuses the same admin client so no extra
   // Supabase connection is opened.
