@@ -25,6 +25,9 @@ import {
   type EventTab,
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
+import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
+import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
+import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
@@ -312,6 +315,75 @@ export function EventDetail({
               <VenueSection event={event} />
               <DatesSection event={event} />
               <LinksSection event={event} />
+              <GoogleDriveCard
+                eventId={event.id}
+                eventName={event.name}
+                clientName={event.client?.name ?? null}
+                folderId={
+                  // Migration 015 columns — typed as unknown until the
+                  // generated types catch up. Cast at this single read
+                  // boundary so consumers downstream stay strict.
+                  (event as unknown as {
+                    google_drive_folder_id?: string | null;
+                  }).google_drive_folder_id ?? null
+                }
+                folderUrl={
+                  (event as unknown as {
+                    google_drive_folder_url?: string | null;
+                  }).google_drive_folder_url ?? null
+                }
+              />
+              <PlatformConfigCard
+                metaAdAccount={{
+                  // Events don't carry their own meta_ad_account_id
+                  // override yet, so the resolved value is always the
+                  // client-level one (inherited).
+                  value: event.client?.meta_ad_account_id ?? null,
+                  inherited: Boolean(event.client?.meta_ad_account_id),
+                }}
+                tiktokAccount={{
+                  // Migration 016 added events.tiktok_account_id;
+                  // migration 018 added clients.tiktok_account_id.
+                  // Both are typed loosely until the generated types
+                  // catch up — fall back from event override to
+                  // client default. We surface the raw UUID for now
+                  // (account-name resolution lands once a /api/tiktok/
+                  // accounts/[id] lookup exists).
+                  value:
+                    (event as unknown as { tiktok_account_id?: string | null })
+                      .tiktok_account_id ??
+                    event.client?.tiktok_account_id ??
+                    null,
+                  inherited:
+                    !(event as unknown as { tiktok_account_id?: string | null })
+                      .tiktok_account_id &&
+                    Boolean(event.client?.tiktok_account_id),
+                }}
+                googleAdsAccount={{
+                  // Same fallback pattern; both columns land in
+                  // migration 018 so they read as undefined today.
+                  value:
+                    (
+                      event as unknown as {
+                        google_ads_account_id?: string | null;
+                      }
+                    ).google_ads_account_id ??
+                    event.client?.google_ads_account_id ??
+                    null,
+                  inherited:
+                    !(
+                      event as unknown as {
+                        google_ads_account_id?: string | null;
+                      }
+                    ).google_ads_account_id &&
+                    Boolean(event.client?.google_ads_account_id),
+                }}
+                driveFolderUrl={
+                  (event as unknown as {
+                    google_drive_folder_url?: string | null;
+                  }).google_drive_folder_url ?? null
+                }
+              />
               {event.notes && <NotesSection notes={event.notes} />}
             </div>
           </TabPanel>
@@ -431,43 +503,64 @@ export function EventDetail({
               />
 
               {/*
-                Internal mirror of the public report. Same layout
-                (`EventReportView`) the share URL renders, fetched via
-                the auth route `/api/insights/event/[id]`. Wrapped in
-                its own card so it nests cleanly inside the Reporting
-                tab's space-y-6 column without the report's max-w-6xl
-                fighting the dashboard's chrome.
+                Per-channel reporting sub-tabs (Meta / TikTok / Google
+                Ads). Meta is the existing live report; TikTok and
+                Google Ads are scaffolds rendered by their own
+                placeholder components until the OAuth + insights flows
+                land. The Meta panel keeps its own card chrome so it
+                nests cleanly inside the Reporting tab's space-y-6
+                column without the report's max-w-6xl fighting the
+                dashboard's chrome.
               */}
-              <section className="rounded-md border border-border bg-card p-5">
-                <div className="mb-4 flex items-start gap-3">
-                  <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                  <div className="min-w-0">
-                    <h2 className="font-heading text-base tracking-wide">
-                      Live report
-                    </h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Same view your client sees on the public share URL,
-                      pulled fresh from Meta and cached for 5 minutes per
-                      timeframe.
-                    </p>
-                  </div>
-                </div>
-                <InternalEventReport
-                  eventId={event.id}
-                  event={{
-                    name: event.name,
-                    venueName: event.venue_name,
-                    venueCity: event.venue_city,
-                    venueCountry: event.venue_country,
-                    eventDate: event.event_date,
-                    eventStartAt: event.event_start_at,
-                    paidMediaBudget: event.budget_marketing,
-                    ticketsSold: resolvedTicketsSold,
-                    ticketsSoldSource: resolvedTicketsSource,
-                    ticketsSoldAsOf: resolvedTicketsAsOf,
-                  }}
-                />
-              </section>
+              <EventReportingTabs
+                eventId={event.id}
+                initialTikTokAccountId={
+                  // Migration 016 column — typed as unknown until the
+                  // generated types catch up. Cast at this single read
+                  // boundary so consumers downstream stay strict.
+                  (event as unknown as {
+                    tiktok_account_id?: string | null;
+                  }).tiktok_account_id ?? null
+                }
+                // Slice 4 doesn't yet prefetch the plan id server-side
+                // (no lib/db helper landed in this scaffold) — pass null
+                // so the Google Ads tab renders the "create plan" CTA.
+                // Once Slice 5 wires the prefetch, swap to the resolved
+                // google_ad_plans row id here.
+                initialGoogleAdsPlanId={null}
+                metaPanel={
+                  <section className="rounded-md border border-border bg-card p-5">
+                    <div className="mb-4 flex items-start gap-3">
+                      <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <h2 className="font-heading text-base tracking-wide">
+                          Live report
+                        </h2>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Same view your client sees on the public share URL,
+                          pulled fresh from Meta and cached for 5 minutes per
+                          timeframe.
+                        </p>
+                      </div>
+                    </div>
+                    <InternalEventReport
+                      eventId={event.id}
+                      event={{
+                        name: event.name,
+                        venueName: event.venue_name,
+                        venueCity: event.venue_city,
+                        venueCountry: event.venue_country,
+                        eventDate: event.event_date,
+                        eventStartAt: event.event_start_at,
+                        paidMediaBudget: event.budget_marketing,
+                        ticketsSold: resolvedTicketsSold,
+                        ticketsSoldSource: resolvedTicketsSource,
+                        ticketsSoldAsOf: resolvedTicketsAsOf,
+                      }}
+                    />
+                  </section>
+                }
+              />
 
               <section className="rounded-md border border-border bg-card p-5">
                 <h2 className="font-heading text-base tracking-wide mb-3">

@@ -21,7 +21,7 @@ export async function getEventByIdServer(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("events")
-    .select("*, client:clients ( id, name, slug, primary_type )")
+    .select("*, client:clients ( id, name, slug, primary_type, meta_business_id, meta_ad_account_id, meta_pixel_id )")
     .eq("id", id)
     .maybeSingle();
 
@@ -57,7 +57,7 @@ export async function listEventsServer(
   const supabase = await createClient();
   let query = supabase
     .from("events")
-    .select("*, client:clients ( id, name, slug, primary_type )")
+    .select("*, client:clients ( id, name, slug, primary_type, meta_business_id, meta_ad_account_id, meta_pixel_id )")
     .eq("user_id", userId)
     .order("event_date", { ascending: true, nullsFirst: false });
 

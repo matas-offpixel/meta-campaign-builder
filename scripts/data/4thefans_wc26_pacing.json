@@ -1,0 +1,1772 @@
+{
+  "WC26-BIRMINGHAM": {
+    "venue": "O2 Institute",
+    "city": "Birmingham",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2291.85,
+        "budget_remaining": 5395.65
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2466.85,
+        "budget_remaining": 5220.65
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 2991.85,
+        "budget_remaining": 4695.65
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3341.85,
+        "budget_remaining": 4345.65
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3691.85,
+        "budget_remaining": 3995.65
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 4041.85,
+        "budget_remaining": 3645.65
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4741.85,
+        "budget_remaining": 2945.65
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 5441.85,
+        "budget_remaining": 2245.65
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6141.85,
+        "budget_remaining": 1545.65
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6841.85,
+        "budget_remaining": 845.65
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 7541.85,
+        "budget_remaining": 145.65
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 7541.85,
+        "budget_remaining": 145.65
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 7541.85,
+        "budget_remaining": 145.65
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 7541.85,
+        "budget_remaining": 145.65
+      }
+    ]
+  },
+  "WC26-BOURNEMOUTH": {
+    "venue": "O2 Academy",
+    "city": "Bournemouth",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2315,
+        "budget_remaining": 4603.75
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2490,
+        "budget_remaining": 4428.75
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 3015,
+        "budget_remaining": 3903.75
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3365,
+        "budget_remaining": 3553.75
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3715,
+        "budget_remaining": 3203.75
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 4065,
+        "budget_remaining": 2853.75
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4765,
+        "budget_remaining": 2153.75
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 5465,
+        "budget_remaining": 1453.75
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6165,
+        "budget_remaining": 753.75
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 6515,
+        "budget_remaining": 403.75
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 6865,
+        "budget_remaining": 53.75
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6865,
+        "budget_remaining": 53.75
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6865,
+        "budget_remaining": 53.75
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6865,
+        "budget_remaining": 53.75
+      }
+    ]
+  },
+  "WC26-BRIGHTON": {
+    "venue": "Central Park",
+    "city": "Brighton",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 2882,
+        "budget_remaining": 22743
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 3932,
+        "budget_remaining": 21693
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 300,
+        "weekly_budget": 2100,
+        "total_forecast": 6032,
+        "budget_remaining": 19593
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 300,
+        "weekly_budget": 2100,
+        "total_forecast": 8132,
+        "budget_remaining": 17493
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 300,
+        "weekly_budget": 2100,
+        "total_forecast": 10232,
+        "budget_remaining": 15393
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 300,
+        "weekly_budget": 2100,
+        "total_forecast": 12332,
+        "budget_remaining": 13293
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 500,
+        "weekly_budget": 3500,
+        "total_forecast": 15832,
+        "budget_remaining": 9793
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 500,
+        "weekly_budget": 3500,
+        "total_forecast": 19332,
+        "budget_remaining": 6293
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 500,
+        "weekly_budget": 3500,
+        "total_forecast": 22832,
+        "budget_remaining": 2793
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 400,
+        "weekly_budget": 2800,
+        "total_forecast": 25632,
+        "budget_remaining": -7
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 300,
+        "weekly_budget": 2100,
+        "total_forecast": 27732,
+        "budget_remaining": -2107
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 27732,
+        "budget_remaining": -2107
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 27732,
+        "budget_remaining": -2107
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 27732,
+        "budget_remaining": -2107
+      }
+    ]
+  },
+  "WC26-BRISTOL": {
+    "venue": "Prospect Building",
+    "city": "Bristol",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2172,
+        "budget_remaining": 4593
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2347,
+        "budget_remaining": 4418
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 2872,
+        "budget_remaining": 3893
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3222,
+        "budget_remaining": 3543
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3572,
+        "budget_remaining": 3193
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 3922,
+        "budget_remaining": 2843
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4622,
+        "budget_remaining": 2143
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 5322,
+        "budget_remaining": 1443
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6022,
+        "budget_remaining": 743
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 6372,
+        "budget_remaining": 393
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 6722,
+        "budget_remaining": 43
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6722,
+        "budget_remaining": 43
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6722,
+        "budget_remaining": 43
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6722,
+        "budget_remaining": 43
+      }
+    ]
+  },
+  "WC26-LONDON-KENTISH": {
+    "venue": "Kentish Town",
+    "city": "London",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 1175,
+        "budget_remaining": 10612.5
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 1700,
+        "budget_remaining": 10087.5
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 2750,
+        "budget_remaining": 9037.5
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 3450,
+        "budget_remaining": 8337.5
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4150,
+        "budget_remaining": 7637.5
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4850,
+        "budget_remaining": 6937.5
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 6250,
+        "budget_remaining": 5537.5
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 7650,
+        "budget_remaining": 4137.5
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 9050,
+        "budget_remaining": 2737.5
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 10450,
+        "budget_remaining": 1337.5
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 11850,
+        "budget_remaining": -62.5
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 11850,
+        "budget_remaining": -62.5
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 11850,
+        "budget_remaining": -62.5
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 11850,
+        "budget_remaining": -62.5
+      }
+    ]
+  },
+  "WC26-LONDON-SHEPHERDS": {
+    "venue": "Shepherd's Bush",
+    "city": "London",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 30,
+        "weekly_budget": 210,
+        "total_forecast": 735,
+        "budget_remaining": 4415.625
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 30,
+        "weekly_budget": 210,
+        "total_forecast": 945,
+        "budget_remaining": 4205.625
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 1470,
+        "budget_remaining": 3680.625
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 1820,
+        "budget_remaining": 3330.625
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2170,
+        "budget_remaining": 2980.625
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2520,
+        "budget_remaining": 2630.625
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 3045,
+        "budget_remaining": 2105.625
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 3745,
+        "budget_remaining": 1405.625
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4445,
+        "budget_remaining": 705.625
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 4795,
+        "budget_remaining": 355.625
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 5145,
+        "budget_remaining": 5.625
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 5145,
+        "budget_remaining": 5.625
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 5145,
+        "budget_remaining": 5.625
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 5145,
+        "budget_remaining": 5.625
+      }
+    ]
+  },
+  "WC26-LONDON-SHOREDITCH": {
+    "venue": "Shoreditch",
+    "city": "London",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 1062,
+        "budget_remaining": 4268
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 1237,
+        "budget_remaining": 4093
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 1762,
+        "budget_remaining": 3568
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2112,
+        "budget_remaining": 3218
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2462,
+        "budget_remaining": 2868
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2812,
+        "budget_remaining": 2518
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 3337,
+        "budget_remaining": 1993
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 65,
+        "weekly_budget": 455,
+        "total_forecast": 3792,
+        "budget_remaining": 1538
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 65,
+        "weekly_budget": 455,
+        "total_forecast": 4247,
+        "budget_remaining": 1083
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 4597,
+        "budget_remaining": 733
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 5297,
+        "budget_remaining": 33
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 5297,
+        "budget_remaining": 33
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 5297,
+        "budget_remaining": 33
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 5297,
+        "budget_remaining": 33
+      }
+    ]
+  },
+  "WC26-LONDON-TOTTENHAM": {
+    "venue": "Tottenham",
+    "city": "London",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 1021,
+        "budget_remaining": 5006
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 1196,
+        "budget_remaining": 4831
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 1721,
+        "budget_remaining": 4306
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2071,
+        "budget_remaining": 3956
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2421,
+        "budget_remaining": 3606
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2771,
+        "budget_remaining": 3256
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 3471,
+        "budget_remaining": 2556
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4171,
+        "budget_remaining": 1856
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4871,
+        "budget_remaining": 1156
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 5396,
+        "budget_remaining": 631
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6096,
+        "budget_remaining": -69
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6096,
+        "budget_remaining": -69
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6096,
+        "budget_remaining": -69
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 6096,
+        "budget_remaining": -69
+      }
+    ]
+  },
+  "WC26-LEEDS": {
+    "venue": "O2 Academy",
+    "city": "Leeds",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2197,
+        "budget_remaining": 7694.25
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2547,
+        "budget_remaining": 7344.25
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 3247,
+        "budget_remaining": 6644.25
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 3772,
+        "budget_remaining": 6119.25
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 4297,
+        "budget_remaining": 5594.25
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 4822,
+        "budget_remaining": 5069.25
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 6222,
+        "budget_remaining": 3669.25
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 7272,
+        "budget_remaining": 2619.25
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 8322,
+        "budget_remaining": 1569.25
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 9372,
+        "budget_remaining": 519.25
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 9722,
+        "budget_remaining": 169.25
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9722,
+        "budget_remaining": 169.25
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9722,
+        "budget_remaining": 169.25
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9722,
+        "budget_remaining": 169.25
+      }
+    ]
+  },
+  "WC26-MANCHESTER": {
+    "venue": "Depot Mayfield",
+    "city": "Manchester",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 155,
+        "weekly_budget": 1085,
+        "total_forecast": 3497,
+        "budget_remaining": 17003
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 4897,
+        "budget_remaining": 15603
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 400,
+        "weekly_budget": 2800,
+        "total_forecast": 7697,
+        "budget_remaining": 12803
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 9097,
+        "budget_remaining": 11403
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 10497,
+        "budget_remaining": 10003
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 400,
+        "weekly_budget": 2800,
+        "total_forecast": 13297,
+        "budget_remaining": 7203
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 14697,
+        "budget_remaining": 5803
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 300,
+        "weekly_budget": 2100,
+        "total_forecast": 16797,
+        "budget_remaining": 3703
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 18197,
+        "budget_remaining": 2303
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 19597,
+        "budget_remaining": 903
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 20297,
+        "budget_remaining": 203
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 20297,
+        "budget_remaining": 203
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 20297,
+        "budget_remaining": 203
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 20297,
+        "budget_remaining": 203
+      }
+    ]
+  },
+  "WC26-NEWCASTLE": {
+    "venue": "O2 City Hall",
+    "city": "Newcastle",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 2561,
+        "budget_remaining": 7689
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 2911,
+        "budget_remaining": 7339
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 3961,
+        "budget_remaining": 6289
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4661,
+        "budget_remaining": 5589
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 5361,
+        "budget_remaining": 4889
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6061,
+        "budget_remaining": 4189
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 7461,
+        "budget_remaining": 2789
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 8511,
+        "budget_remaining": 1739
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 9561,
+        "budget_remaining": 689
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 10261,
+        "budget_remaining": -11
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 10611,
+        "budget_remaining": -361
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 10611,
+        "budget_remaining": -361
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 10611,
+        "budget_remaining": -361
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 10611,
+        "budget_remaining": -361
+      }
+    ]
+  },
+  "WC26-ABERDEEN": {
+    "venue": "The Priory",
+    "city": "Aberdeen",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 25,
+        "weekly_budget": 175,
+        "total_forecast": 1418,
+        "budget_remaining": 4117
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 1768,
+        "budget_remaining": 3767
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 2818,
+        "budget_remaining": 2717
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 3518,
+        "budget_remaining": 2017
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4218,
+        "budget_remaining": 1317
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 4918,
+        "budget_remaining": 617
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 5618,
+        "budget_remaining": -83
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6318,
+        "budget_remaining": -783
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 7018,
+        "budget_remaining": -1483
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 7718,
+        "budget_remaining": -2183
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 8418,
+        "budget_remaining": -2883
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 8418,
+        "budget_remaining": -2883
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 8418,
+        "budget_remaining": -2883
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 8418,
+        "budget_remaining": -2883
+      }
+    ]
+  },
+  "WC26-EDINBURGH": {
+    "venue": "The Pitt",
+    "city": "Edinburgh",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 75,
+        "weekly_budget": 525,
+        "total_forecast": 3764,
+        "budget_remaining": 6151
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 50,
+        "weekly_budget": 350,
+        "total_forecast": 4114,
+        "budget_remaining": 5801
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 5514,
+        "budget_remaining": 4401
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6214,
+        "budget_remaining": 3701
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 6914,
+        "budget_remaining": 3001
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 7614,
+        "budget_remaining": 2301
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 8314,
+        "budget_remaining": 1601
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 9014,
+        "budget_remaining": 901
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9014,
+        "budget_remaining": 901
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9014,
+        "budget_remaining": 901
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 9714,
+        "budget_remaining": -2938.75
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9714,
+        "budget_remaining": -2938.75
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9714,
+        "budget_remaining": -2938.75
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 9714,
+        "budget_remaining": -2938.75
+      }
+    ]
+  },
+  "WC26-GLASGOW-SWG3": {
+    "venue": "SWG3",
+    "city": "Glasgow",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7335
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 2865,
+        "budget_remaining": 7050
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 3565,
+        "budget_remaining": 3405
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 3565,
+        "budget_remaining": 3405
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 3565,
+        "budget_remaining": 3405
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 3565,
+        "budget_remaining": 3405
+      }
+    ]
+  },
+  "WC26-GLASGOW-O2": {
+    "venue": "O2 Academy",
+    "city": "Glasgow",
+    "weeks": [
+      {
+        "week_start": "2026-04-13",
+        "phase_marker": "Ad Pacing Plan / Second release selling fast",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 2251,
+        "budget_remaining": 14624
+      },
+      {
+        "week_start": "2026-04-20",
+        "phase_marker": null,
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 2951,
+        "budget_remaining": 6964
+      },
+      {
+        "week_start": "2026-04-27",
+        "phase_marker": "Paday week / Final 2nd release",
+        "daily_budget": 200,
+        "weekly_budget": 1400,
+        "total_forecast": 4351,
+        "budget_remaining": 5564
+      },
+      {
+        "week_start": "2026-05-04",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 5401,
+        "budget_remaining": 4514
+      },
+      {
+        "week_start": "2026-05-11",
+        "phase_marker": "Final release price move",
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 6451,
+        "budget_remaining": 3464
+      },
+      {
+        "week_start": "2026-05-18",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 7501,
+        "budget_remaining": 2414
+      },
+      {
+        "week_start": "2026-05-25",
+        "phase_marker": "Paday week / Extra final release",
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 8551,
+        "budget_remaining": 1364
+      },
+      {
+        "week_start": "2026-06-01",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 9601,
+        "budget_remaining": 314
+      },
+      {
+        "week_start": "2026-06-08",
+        "phase_marker": null,
+        "daily_budget": 150,
+        "weekly_budget": 1050,
+        "total_forecast": 10651,
+        "budget_remaining": -736
+      },
+      {
+        "week_start": "2026-06-15",
+        "phase_marker": "WC Begins / First match - 17 June",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 11351,
+        "budget_remaining": -1436
+      },
+      {
+        "week_start": "2026-06-22",
+        "phase_marker": "Matches 2 and 3",
+        "daily_budget": 100,
+        "weekly_budget": 700,
+        "total_forecast": 12051,
+        "budget_remaining": -519.75
+      },
+      {
+        "week_start": "2026-06-29",
+        "phase_marker": "Paday week / Knockout round",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 12051,
+        "budget_remaining": -519.75
+      },
+      {
+        "week_start": "2026-07-06",
+        "phase_marker": null,
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 12051,
+        "budget_remaining": -519.75
+      },
+      {
+        "week_start": "2026-07-13",
+        "phase_marker": "Final",
+        "daily_budget": 0,
+        "weekly_budget": 0,
+        "total_forecast": 12051,
+        "budget_remaining": -519.75
+      }
+    ]
+  }
+}

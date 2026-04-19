@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/clients";
 import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
+import { PlatformAccountsCard } from "./platform-accounts-card";
 
 interface Props {
   client: ClientRow;
@@ -223,6 +224,20 @@ export function ClientDetail({ client: initial, events }: Props) {
               />
             </div>
           </section>
+
+          <PlatformAccountsCard
+            initialTikTokAccountId={
+              (client as unknown as { tiktok_account_id?: string | null })
+                .tiktok_account_id ?? null
+            }
+            initialGoogleAdsAccountId={
+              (client as unknown as { google_ads_account_id?: string | null })
+                .google_ads_account_id ?? null
+            }
+            metaBusinessId={client.meta_business_id ?? null}
+            metaAdAccountId={client.meta_ad_account_id ?? null}
+            metaPixelId={client.meta_pixel_id ?? null}
+          />
 
           <section className="rounded-md border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">

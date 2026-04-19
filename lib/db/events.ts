@@ -27,7 +27,27 @@ export const EVENT_STATUSES: EventStatus[] = [
 
 /** Event with its parent client joined in — used on list + detail views. */
 export type EventWithClient = EventRow & {
-  client: Pick<Tables<"clients">, "id" | "name" | "slug" | "primary_type"> | null;
+  client:
+    | (Pick<
+        Tables<"clients">,
+        | "id"
+        | "name"
+        | "slug"
+        | "primary_type"
+        | "meta_business_id"
+        | "meta_ad_account_id"
+        | "meta_pixel_id"
+      > & {
+        // Migration 018 — typed loosely until generated types catch up.
+        // Both columns are nullable FKs to tiktok_accounts /
+        // google_ads_accounts. They are NOT pulled into the select()
+        // strings below yet because the underlying columns do not
+        // exist until 018 is applied; consumers see undefined and
+        // fall through to "Not configured".
+        tiktok_account_id?: string | null;
+        google_ads_account_id?: string | null;
+      })
+    | null;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -61,7 +81,7 @@ export async function listEvents(
   const supabase = createClient();
   let query = supabase
     .from("events")
-    .select("*, client:clients ( id, name, slug, primary_type )")
+    .select("*, client:clients ( id, name, slug, primary_type, meta_business_id, meta_ad_account_id, meta_pixel_id )")
     .eq("user_id", userId)
     .order("event_date", { ascending: true, nullsFirst: false });
 
@@ -86,7 +106,7 @@ export async function getEventById(
   const supabase = createClient();
   const { data, error } = await supabase
     .from("events")
-    .select("*, client:clients ( id, name, slug, primary_type )")
+    .select("*, client:clients ( id, name, slug, primary_type, meta_business_id, meta_ad_account_id, meta_pixel_id )")
     .eq("id", id)
     .maybeSingle();
 
@@ -104,7 +124,7 @@ export async function getEventBySlug(
   const supabase = createClient();
   const { data, error } = await supabase
     .from("events")
-    .select("*, client:clients ( id, name, slug, primary_type )")
+    .select("*, client:clients ( id, name, slug, primary_type, meta_business_id, meta_ad_account_id, meta_pixel_id )")
     .eq("user_id", userId)
     .eq("slug", slug)
     .maybeSingle();
