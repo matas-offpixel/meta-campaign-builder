@@ -26,6 +26,7 @@ import {
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
+import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
@@ -327,6 +328,57 @@ export function EventDetail({
                   }).google_drive_folder_id ?? null
                 }
                 folderUrl={
+                  (event as unknown as {
+                    google_drive_folder_url?: string | null;
+                  }).google_drive_folder_url ?? null
+                }
+              />
+              <PlatformConfigCard
+                metaAdAccount={{
+                  // Events don't carry their own meta_ad_account_id
+                  // override yet, so the resolved value is always the
+                  // client-level one (inherited).
+                  value: event.client?.meta_ad_account_id ?? null,
+                  inherited: Boolean(event.client?.meta_ad_account_id),
+                }}
+                tiktokAccount={{
+                  // Migration 016 added events.tiktok_account_id;
+                  // migration 018 added clients.tiktok_account_id.
+                  // Both are typed loosely until the generated types
+                  // catch up — fall back from event override to
+                  // client default. We surface the raw UUID for now
+                  // (account-name resolution lands once a /api/tiktok/
+                  // accounts/[id] lookup exists).
+                  value:
+                    (event as unknown as { tiktok_account_id?: string | null })
+                      .tiktok_account_id ??
+                    event.client?.tiktok_account_id ??
+                    null,
+                  inherited:
+                    !(event as unknown as { tiktok_account_id?: string | null })
+                      .tiktok_account_id &&
+                    Boolean(event.client?.tiktok_account_id),
+                }}
+                googleAdsAccount={{
+                  // Same fallback pattern; both columns land in
+                  // migration 018 so they read as undefined today.
+                  value:
+                    (
+                      event as unknown as {
+                        google_ads_account_id?: string | null;
+                      }
+                    ).google_ads_account_id ??
+                    event.client?.google_ads_account_id ??
+                    null,
+                  inherited:
+                    !(
+                      event as unknown as {
+                        google_ads_account_id?: string | null;
+                      }
+                    ).google_ads_account_id &&
+                    Boolean(event.client?.google_ads_account_id),
+                }}
+                driveFolderUrl={
                   (event as unknown as {
                     google_drive_folder_url?: string | null;
                   }).google_drive_folder_url ?? null
