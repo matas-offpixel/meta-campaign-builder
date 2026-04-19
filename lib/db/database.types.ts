@@ -1,5 +1,5 @@
 // Generated from Supabase (project zbtldbfjbhfvpksmdvnt) via
-// `mcp generate_typescript_types` on 2026-04-19 (post-migration 011).
+// `mcp generate_typescript_types` on 2026-04-19 (post-migration 012).
 //
 // Regenerate with `supabase gen types typescript --project-id zbtldbfjbhfvpksmdvnt`
 // or via the Supabase MCP. Keep in sync with supabase/schema.sql.
@@ -458,6 +458,7 @@ export type Database = {
           slug: string
           status: string
           ticket_url: string | null
+          tickets_sold: number | null
           updated_at: string
           user_id: string
           venue_city: string | null
@@ -485,6 +486,7 @@ export type Database = {
           slug: string
           status?: string
           ticket_url?: string | null
+          tickets_sold?: number | null
           updated_at?: string
           user_id: string
           venue_city?: string | null
@@ -512,6 +514,7 @@ export type Database = {
           slug?: string
           status?: string
           ticket_url?: string | null
+          tickets_sold?: number | null
           updated_at?: string
           user_id?: string
           venue_city?: string | null
