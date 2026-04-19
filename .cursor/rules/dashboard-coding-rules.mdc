@@ -4,17 +4,10 @@ alwaysApply: true
 
 Dashboard coding standards
 
-- Server components by default.
-- Use client components only for state, browser APIs, drag/drop, forms, or interactivity.
+- Server components by default. Client components only for state, browser APIs, drag/drop, forms, or interactivity.
 - Type every boundary. Use existing Supabase generated types.
-- Reuse existing UI primitives before creating new ones.
-- Keep styling minimal, clean, editorial, fast.
-- Use Tailwind patterns already present in repo.
+- Reuse existing UI primitives and Tailwind patterns before creating new ones.
+- Keep DB logic in lib/db/* and business logic out of JSX.
 - No new dependencies without approval.
-- Prefer small reusable components over large page files.
-- Keep DB logic in lib/db/*, not inside UI components.
-- Keep business logic out of JSX.
-- Respect current route patterns and naming conventions.
-- Do not refactor unrelated files.
-- If a task expands beyond requested scope, stop and ask.
+- Do not refactor unrelated files. If scope expands, stop and ask.
 - New code must not introduce lint or type errors.
