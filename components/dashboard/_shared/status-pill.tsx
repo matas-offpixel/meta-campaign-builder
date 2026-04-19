@@ -8,7 +8,7 @@
  * Pure render — safe to use from server components.
  */
 
-type Kind = "client" | "event" | "draft";
+type Kind = "client" | "event" | "draft" | "plan";
 
 const CLIENT_TONE: Record<string, string> = {
   archived: "bg-muted text-muted-foreground",
@@ -34,11 +34,23 @@ const DRAFT_TONE: Record<string, string> = {
   archived: "bg-muted text-muted-foreground",
 };
 
+// Plan palette: draft = muted (in progress), live = primary-light (active
+// pacing), completed = muted (settled / past tense), archived = muted (out
+// of sight). Mirrors the client/event tonal logic — only the "active right
+// now" state gets the primary tint.
+const PLAN_TONE: Record<string, string> = {
+  draft: "bg-muted text-muted-foreground",
+  live: "bg-primary-light text-foreground",
+  completed: "bg-muted text-muted-foreground",
+  archived: "bg-muted text-muted-foreground",
+};
+
 const NEUTRAL = "bg-muted text-muted-foreground";
 
 function toneFor(kind: Kind, status: string): string {
   if (kind === "client") return CLIENT_TONE[status] ?? CLIENT_TONE.active;
   if (kind === "draft") return DRAFT_TONE[status] ?? NEUTRAL;
+  if (kind === "plan") return PLAN_TONE[status] ?? NEUTRAL;
   return EVENT_TONE[status] ?? NEUTRAL;
 }
 

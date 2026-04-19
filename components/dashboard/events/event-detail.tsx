@@ -23,6 +23,7 @@ import {
   EventDetailTabs,
   type EventTab,
 } from "@/components/dashboard/events/event-detail-tabs";
+import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
@@ -31,6 +32,7 @@ import {
   type EventLinkedDraft,
   type EventWithClient,
 } from "@/lib/db/events";
+import type { AdPlan, AdPlanDay } from "@/lib/db/ad-plans";
 import { fmtDate, fmtDateTime, fmtShort } from "@/lib/dashboard/format";
 
 interface Props {
@@ -40,6 +42,10 @@ interface Props {
   userId: string;
   /** Active tab, resolved from `?tab=` by the parent server component. */
   activeTab: EventTab;
+  /** Marketing plan for this event, or null if none exists yet. */
+  plan: AdPlan | null;
+  /** Day rows for the plan; empty when plan is null. */
+  planDays: AdPlanDay[];
 }
 
 /**
@@ -48,7 +54,14 @@ interface Props {
  * the URL. This component owns mutations (delete, draft handoff) and the
  * local state needed for them; tab state lives in the URL.
  */
-export function EventDetail({ event, drafts, userId, activeTab }: Props) {
+export function EventDetail({
+  event,
+  drafts,
+  userId,
+  activeTab,
+  plan,
+  planDays,
+}: Props) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
@@ -183,18 +196,9 @@ export function EventDetail({ event, drafts, userId, activeTab }: Props) {
             </div>
           </TabPanel>
 
-          {/* ───── Plan (stub) ───── */}
+          {/* ───── Plan ───── */}
           <TabPanel active={activeTab === "plan"}>
-            <section className="rounded-md border border-dashed border-border bg-card p-10 text-center">
-              <p className="font-heading text-lg tracking-wide">
-                Event plan coming soon
-              </p>
-              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground leading-relaxed">
-                The full marketing plan — milestones, audiences, creative
-                cadence, D2C schedule — will live here. Editable once the
-                shape settles.
-              </p>
-            </section>
+            <EventPlanTab event={event} plan={plan} initialDays={planDays} />
           </TabPanel>
 
           {/* ───── Campaigns ───── */}

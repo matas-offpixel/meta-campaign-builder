@@ -6,6 +6,10 @@ import {
   getEventByIdServer,
   listDraftsForEventServer,
 } from "@/lib/db/events-server";
+import {
+  getPlanByEventIdServer,
+  listDaysForPlanServer,
+} from "@/lib/db/ad-plans-server";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -23,12 +27,18 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   // proxy.ts already enforces auth; this is a defensive fallback.
   if (!user) redirect("/login");
 
-  const [event, drafts] = await Promise.all([
+  // Plan + days are fetched in parallel with event + drafts so the Plan
+  // tab paints from prefetched data even on first nav. Days are fetched
+  // sequentially after the plan because they depend on plan.id.
+  const [event, drafts, plan] = await Promise.all([
     getEventByIdServer(id),
     listDraftsForEventServer(id),
+    getPlanByEventIdServer(id),
   ]);
 
   if (!event) notFound();
+
+  const planDays = plan ? await listDaysForPlanServer(plan.id) : [];
 
   return (
     <EventDetail
@@ -36,6 +46,8 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       drafts={drafts}
       userId={user.id}
       activeTab={activeTab}
+      plan={plan}
+      planDays={planDays}
     />
   );
 }
