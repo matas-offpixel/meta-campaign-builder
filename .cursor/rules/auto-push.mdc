@@ -5,6 +5,6 @@ alwaysApply: true
 
 # Auto-push after every commit
 
-After every `git commit`, immediately run `git push origin main`.
+After every `git commit`, immediately run `git push` (pushes to the current tracking branch).
 
-Never leave a commit unpushed. Vercel is connected to GitHub and deploys automatically on every push to `main`.
+Never leave a commit unpushed. Never use `--force` on `main`.
