@@ -94,11 +94,11 @@ export function fmtDay(d: Date): string {
 }
 
 /**
- * Long date with short weekday — "19 Apr 2026 · Sat".
+ * Long date with full weekday name — "19 Apr 2026 · Saturday".
  *
  * Built in two locale calls (rather than one with both `weekday` and
- * `day` set) because Intl in en-GB renders weekday-first ("Sat 19 Apr
- * 2026") when both are requested; we want the date to lead so the
+ * `day` set) because Intl in en-GB renders weekday-first ("Saturday 19
+ * Apr 2026") when both are requested; we want the date to lead so the
  * column sorts visually like a date column.
  */
 export function fmtDayWithWeekday(d: Date): string {
@@ -107,7 +107,7 @@ export function fmtDayWithWeekday(d: Date): string {
     month: "short",
     year: "numeric",
   });
-  const weekday = d.toLocaleDateString("en-GB", { weekday: "short" });
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "long" });
   return `${date} · ${weekday}`;
 }
 

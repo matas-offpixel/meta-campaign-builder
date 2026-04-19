@@ -240,9 +240,9 @@ export function EventPlanTab({
         return prev.map((d) => byId.get(d.id) ?? d);
       });
       setInfo(
-        `Applied £${perDay.toLocaleString(undefined, {
+        `Applied £${perDay.toLocaleString("en-GB", {
           maximumFractionDigits: 2,
-        })}/day × ${days.length} day${days.length === 1 ? "" : "s"} to Conversion.`,
+        })}/day × ${days.length} day${days.length === 1 ? "" : "s"} to Conversion. Traffic cleared.`,
       );
     } catch (err) {
       setError(
@@ -314,9 +314,14 @@ export function EventPlanTab({
 }
 
 /**
- * Build patches that distribute `total` evenly across `days` and write
- * the result into the conversion key of each day's objective_budgets,
- * preserving every other key already there (Traffic, Reach, TikTok…).
+ * Build patches that distribute `total` evenly across `days`:
+ *   - Writes Conversion = perDay (last day absorbs rounding drift)
+ *   - CLEARS Traffic on every day (deletes the key so the sparse-map
+ *     contract is maintained — same zero-deletion rule writeObjectiveBudget
+ *     uses). Clearing Traffic prevents double-counting budget when the
+ *     user switches from Smart spread (which writes both Traffic and
+ *     Conversion) to Even spread (Conversion only).
+ *   - All other keys (Reach, Post engagement, TikTok, Google) are untouched.
  *
  * Pennies lost to rounding accumulate on the LAST day so the column
  * sum equals `total` exactly:
@@ -332,11 +337,12 @@ function buildEvenSpreadPatches(
   const perDay = Math.round((total / N) * 100) / 100;
   const lastDay = Math.round((total - perDay * (N - 1)) * 100) / 100;
 
-  return days.map((d, i) => ({
-    id: d.id,
-    objective_budgets: {
-      ...(d.objective_budgets ?? {}),
-      conversion: i === N - 1 ? lastDay : perDay,
-    },
-  }));
+  return days.map((d, i) => {
+    const merged = { ...(d.objective_budgets ?? {}) };
+    // Clear Traffic so Even spread's Conversion-only budget isn't
+    // double-counted alongside stale Traffic from a prior Smart spread.
+    delete merged.traffic;
+    merged.conversion = i === N - 1 ? lastDay : perDay;
+    return { id: d.id, objective_budgets: merged };
+  });
 }

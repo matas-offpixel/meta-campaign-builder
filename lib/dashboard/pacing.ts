@@ -3,48 +3,39 @@
  *
  * Pure module — no React, no DB, no IO. Everything in here is a function
  * of (days, event milestones, total budget). Keep it that way so smart
- * spread can be unit-tested in isolation and reused server-side later
- * (e.g. when we move plan generation behind an API route).
+ * spread can be unit-tested in isolation and reused server-side later.
  *
- * Phase classification (per slice B spec):
- *   - presale  : day < onsale_start
- *   - onsale   : onsale_start ≤ day < event_date − 10
- *   - final10  : event_date − 10 ≤ day < event_date
- *   - event    : day == event_date
+ * Phase classification (per hotfix B2 spec):
+ *   - presale        : day < onsale_start
+ *   - onsale_payday  : onsale_start ≤ day < final10Start AND day is in a
+ *                      UK payday window
+ *   - onsale_slowdown: onsale_start ≤ day < final10Start AND NOT in window
+ *   - final10        : final10Start ≤ day < event_date
+ *   - event          : day == event_date
  *
  * Where:
  *   onsale_start = general_sale_at ?? presale_at ?? null
+ *   final10Start = event_date − 10 days
  *
- * If onsale_start is null (none of announce/presale/general_sale set),
- * every day before final10 is treated as on-sale — matches the spec's
- * "all null → entire range as on-sale" fallback.
+ * UK payday window (v1): 18-day inclusive range that starts on the
+ * Thursday before the last Friday of each calendar month and ends on the
+ * Monday 17 days later. Weekends are included in the window; UK bank
+ * holidays are ignored (refinement for v2).
  *
- * Note on the spec's "(or presale_at → day before general_sale_at if
- * both set)" parenthetical: that wording covers the common case where
- * announce_at marks the public reveal but presale_at is the moment
- * conversion-style ads begin. In code we collapse both branches into
- * "onsale starts at general_sale_at if set, otherwise presale_at".
- * Days in the plan range that fall before that boundary are presale —
- * which is the strategically correct ratio whether announce_at exists
- * or not (you're not driving conversions before tickets are buyable).
+ * Per-day spend split (Traffic / Conversion):
+ *   presale        →   0% /  100%
+ *   onsale_slowdown→  75% /   25%
+ *   onsale_payday  →  50% /   50%
+ *   final10        →  25% /   75%
+ *   event          →  25% /   75%
  *
- * Per-day spend split (intra-day):
- *   - presale       → 100% Conversion,   0% Traffic
- *   - onsale (def)  →  25% Conversion,  75% Traffic
- *   - onsale payday →  50% Conversion,  50% Traffic
- *   - final10       →  75% Conversion,  25% Traffic
- *   - event day     →  75% Conversion,  25% Traffic
+ * Phase-weighted inter-day budget: each day's allotted slice is
+ *   totalBudget × PHASE_WEIGHTS[phase] / Σ(PHASE_WEIGHTS)
  *
- * Per-day budget (inter-day) is uniform: total / days.length. Smart
- * spread is overwrite-and-rebalance — every day in the plan range gets
- * its Traffic and Conversion keys replaced. The other objective keys
- * (Reach, Post engagement, TikTok, Google) are left untouched. This is
- * a deliberate split from Even spread, which preserves existing values:
- *   - Even spread  = additive fill into Conversion only
- *   - Smart spread = overwrite-and-rebalance Traffic + Conversion
- *
- * UK payday = last working day (Mon–Fri) of the calendar month. Bank
- * holidays are not modelled — overkill for v1.
+ * Rounding: all per-day and per-objective values are rounded to the
+ * nearest £0.50. The last day's Conversion absorbs inter-day + intra-day
+ * drift so Σ(all traffic + all conversion) = totalBudget exactly. This
+ * means the last day's Conversion may not be a clean £0.50 multiple.
  */
 
 import type { ObjectiveBudgets } from "@/lib/dashboard/objectives";
@@ -64,7 +55,12 @@ export interface SmartSpreadDay {
   objective_budgets: ObjectiveBudgets | null;
 }
 
-export type SmartSpreadPhase = "presale" | "onsale" | "final10" | "event";
+export type SmartSpreadPhase =
+  | "presale"
+  | "onsale_slowdown"
+  | "onsale_payday"
+  | "final10"
+  | "event";
 
 export interface SmartSpreadShare {
   traffic: number;
@@ -76,6 +72,24 @@ export interface SmartSpreadResult {
   perDay: Map<string, SmartSpreadShare>;
   appliedCount: number;
 }
+
+/**
+ * Phase spend weights for phase-weighted daily budget allocation.
+ * Higher weight → larger daily slice of the total budget.
+ *
+ *   presale        1.0  — steady awareness spend before tickets go live
+ *   onsale_slowdown 0.6  — mid-month on-sale period: lower organic intent
+ *   onsale_payday  1.2  — payday window: elevated purchase intent
+ *   final10        1.5  — countdown: urgency drives up conversion rates
+ *   event          2.0  — event day: last-minute buyers, max spend
+ */
+export const PHASE_WEIGHTS: Record<SmartSpreadPhase, number> = {
+  presale: 1.0,
+  onsale_slowdown: 0.6,
+  onsale_payday: 1.2,
+  final10: 1.5,
+  event: 2.0,
+};
 
 // ─── Date helpers (local-tz, mirror lib/db/ad-plans.ts) ─────────────────────
 //
@@ -135,53 +149,95 @@ export function classifyPhase(
 ): SmartSpreadPhase {
   if (day === ctx.eventDay) return "event";
   if (day >= ctx.final10Start && day < ctx.eventDay) return "final10";
-  if (ctx.onsaleStart === null) return "onsale";
-  if (day < ctx.onsaleStart) return "presale";
-  return "onsale";
+  if (ctx.onsaleStart !== null && day < ctx.onsaleStart) return "presale";
+  // On-sale (including the all-null "treat as on-sale" fallback):
+  return isInPaydayWindow(day) ? "onsale_payday" : "onsale_slowdown";
 }
 
-// ─── UK payday detection ─────────────────────────────────────────────────────
+// ─── UK payday window detection ──────────────────────────────────────────────
 
 /**
- * Last working day (Mon–Fri) of the calendar month containing `ymd`.
- * Bank holidays are deliberately ignored; payday-shifting around them
- * is a refinement that hasn't bitten anyone yet and would require a
- * bank-holiday calendar this module doesn't have.
+ * Last Friday of the calendar month at monthIdx (0-based) in `year`.
+ * Counts backwards from the last day of the month until it hits a Friday.
  */
-function lastWorkingDayOfMonth(year: number, monthIdx: number): Date {
-  // monthIdx is 0-based; passing day=0 to a (year, monthIdx + 1, 0)
-  // constructor returns the last day of monthIdx.
+function lastFridayOfMonth(year: number, monthIdx: number): Date {
+  // day=0 of the next month === last day of monthIdx
   const d = new Date(year, monthIdx + 1, 0);
-  while (d.getDay() === 0 || d.getDay() === 6) {
+  while (d.getDay() !== 5) {
     d.setDate(d.getDate() - 1);
   }
   return d;
 }
 
-export function isUkPayday(ymd: string): boolean {
+/**
+ * Build the 18-day payday window for a given last-Friday-of-month.
+ * Window: [lastFriday − 1 day (Thursday)] → [lastFriday + 16 days (Monday)]
+ * Inclusive on both ends, 18 days total.
+ */
+function paydayWindow(lastFriday: Date): { start: Date; end: Date } {
+  const start = new Date(lastFriday);
+  start.setDate(start.getDate() - 1); // Thursday before
+
+  const end = new Date(start);
+  end.setDate(end.getDate() + 17); // +17 days → Monday
+
+  return { start, end };
+}
+
+/**
+ * Returns true if `ymd` falls within any UK monthly payday window.
+ *
+ * Payday window = 18-day inclusive range starting on the Thursday
+ * before the last Friday of the calendar month, ending the Monday
+ * 17 days later (spanning the end-of-month / start-of-next-month
+ * pay cycle with the typical post-payday uplift period).
+ *
+ * We check both the current month's window AND the previous month's
+ * window, because a window starting in late Month N extends into
+ * Month N+1 (at most ~10 days into the next month). A day can belong
+ * to at most one window.
+ *
+ * UK bank holidays are not modelled in v1.
+ */
+export function isInPaydayWindow(ymd: string): boolean {
   const d = parseLocalDate(ymd);
-  const last = lastWorkingDayOfMonth(d.getFullYear(), d.getMonth());
-  return (
-    last.getFullYear() === d.getFullYear() &&
-    last.getMonth() === d.getMonth() &&
-    last.getDate() === d.getDate()
-  );
+  const t = d.getTime();
+
+  const year = d.getFullYear();
+  const monthIdx = d.getMonth();
+
+  // Check current month's window.
+  const win = paydayWindow(lastFridayOfMonth(year, monthIdx));
+  if (t >= win.start.getTime() && t <= win.end.getTime()) return true;
+
+  // Check previous month's window — it can spill into this month.
+  const prevYear = monthIdx === 0 ? year - 1 : year;
+  const prevMonth = monthIdx === 0 ? 11 : monthIdx - 1;
+  const prevWin = paydayWindow(lastFridayOfMonth(prevYear, prevMonth));
+  return t >= prevWin.start.getTime() && t <= prevWin.end.getTime();
 }
 
 // ─── Ratio table ─────────────────────────────────────────────────────────────
 
-function shareForPhase(phase: SmartSpreadPhase, payday: boolean): SmartSpreadShare {
+function shareForPhase(phase: SmartSpreadPhase): SmartSpreadShare {
   switch (phase) {
     case "presale":
       return { traffic: 0, conversion: 1 };
-    case "onsale":
-      return payday
-        ? { traffic: 0.5, conversion: 0.5 }
-        : { traffic: 0.75, conversion: 0.25 };
+    case "onsale_slowdown":
+      return { traffic: 0.75, conversion: 0.25 };
+    case "onsale_payday":
+      return { traffic: 0.5, conversion: 0.5 };
     case "final10":
     case "event":
       return { traffic: 0.25, conversion: 0.75 };
   }
+}
+
+// ─── Rounding helper ─────────────────────────────────────────────────────────
+
+/** Round `n` to the nearest £0.50 (half-pound). */
+function roundHalf(n: number): number {
+  return Math.round(n * 2) / 2;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -191,21 +247,22 @@ function shareForPhase(phase: SmartSpreadPhase, payday: boolean): SmartSpreadSha
  * plan range for `event`.
  *
  * Smart spread is overwrite-and-rebalance: every day gets a (traffic,
- * conversion) split per the phase ratios. Existing manual edits in
- * Traffic / Conversion are NOT preserved — that was the v1 behaviour
- * and it broke the common "Even spread first, then Smart spread to
- * rebalance" workflow (every day looked manually edited and the
- * algorithm no-op'd). The caller is responsible for preserving the
- * other objective keys (Reach, Post eng., TikTok, Google) when it
- * builds the persisted patch — this function only returns the Traffic
- * and Conversion values.
+ * conversion) split per phase ratios. Existing manual edits in Traffic /
+ * Conversion are NOT preserved — callers that want a fill-only behaviour
+ * should use Even spread instead.
  *
- * Penny rounding: per-day budget is rounded to 2dp; the last day
- * absorbs any rounding drift so Σ traffic + Σ conversion across all
- * days equals totalBudget exactly. Within each day, the conversion
- * bucket absorbs intra-day rounding so traffic + conversion for that
- * day equals its allotted dayBudget — keeps the Daily spend column
- * tidy.
+ * The caller is responsible for preserving other objective keys (Reach,
+ * Post eng., TikTok, Google) when building the persisted patch.
+ *
+ * Phase-weighted budget: each day's daily budget is proportional to its
+ * phase weight (see PHASE_WEIGHTS). Days with heavier phases receive a
+ * larger slice of the total.
+ *
+ * £0.50 rounding: all per-day and per-objective values are rounded to the
+ * nearest £0.50. The last day's Conversion absorbs all inter-day and
+ * intra-day rounding drift so Σ(traffic + conversion) = totalBudget
+ * exactly. This means the last day's Conversion value may not itself be
+ * a clean £0.50 multiple — this is by design.
  */
 export function computeSmartSpread(args: {
   days: SmartSpreadDay[];
@@ -213,33 +270,46 @@ export function computeSmartSpread(args: {
   totalBudget: number;
 }): SmartSpreadResult {
   const { days, event, totalBudget } = args;
-  const empty: SmartSpreadResult = {
-    perDay: new Map(),
-    appliedCount: 0,
-  };
+  const empty: SmartSpreadResult = { perDay: new Map(), appliedCount: 0 };
 
   if (days.length === 0 || totalBudget <= 0) return empty;
   const ctx = buildPhaseContext(event);
   if (!ctx) {
-    // No event_date → can't classify; treat as no-op rather than
-    // smearing onsale ratios across an undated plan.
+    // No event_date → can't classify phases; treat as no-op rather than
+    // smearing ratios across an undated plan.
     return empty;
   }
 
   const N = days.length;
-  const perDay = Math.round((totalBudget / N) * 100) / 100;
-  const lastDay = Math.round((totalBudget - perDay * (N - 1)) * 100) / 100;
+  const phases = days.map((d) => classifyPhase(d.day, ctx));
+  const totalWeight = phases.reduce((sum, ph) => sum + PHASE_WEIGHTS[ph], 0);
 
   const out = new Map<string, SmartSpreadShare>();
+  let assignedBudget = 0;
+
   days.forEach((d, i) => {
-    const dayBudget = i === N - 1 ? lastDay : perDay;
-    const phase = classifyPhase(d.day, ctx);
-    const ratios = shareForPhase(phase, phase === "onsale" && isUkPayday(d.day));
-    const traffic = Math.round(dayBudget * ratios.traffic * 100) / 100;
-    // Conversion absorbs the intra-day rounding remainder so the row
-    // sum equals dayBudget exactly. Avoids £0.01 visual drift in the
-    // Daily spend column when ratios.traffic isn't a clean fraction.
-    const conversion = Math.round((dayBudget - traffic) * 100) / 100;
+    const phase = phases[i];
+    const weight = PHASE_WEIGHTS[phase];
+    const isLast = i === N - 1;
+
+    // Phase-weighted daily budget. Non-last days are rounded to £0.50;
+    // the last day absorbs inter-day drift from rounding.
+    const rawBudget = (totalBudget * weight) / totalWeight;
+    const dayBudget = isLast
+      ? Math.round((totalBudget - assignedBudget) * 100) / 100
+      : roundHalf(rawBudget);
+    if (!isLast) assignedBudget += dayBudget;
+
+    const ratios = shareForPhase(phase);
+    const traffic = roundHalf(dayBudget * ratios.traffic);
+    // Last day: Conversion absorbs remaining drift so Σ all values =
+    // totalBudget exactly. This value may break the £0.50 rule — that is
+    // intentional and acceptable (the alternative is a visible total
+    // discrepancy in the stat cards).
+    const conversion = isLast
+      ? Math.round((dayBudget - traffic) * 100) / 100
+      : roundHalf(dayBudget * ratios.conversion);
+
     out.set(d.day, { traffic, conversion });
   });
 

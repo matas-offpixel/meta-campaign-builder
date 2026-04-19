@@ -96,6 +96,14 @@ export function PlanHeader({
   const canPullBudget =
     plan.total_budget == null && eventBudget != null && eventBudget > 0;
 
+  // Per-day amount shown in the Even spread confirm dialog. Rounded to
+  // 2dp (same rule as buildEvenSpreadPatches) so the displayed value
+  // matches what the grid will actually receive.
+  const perDayForEven =
+    canSuggest && plan.total_budget
+      ? Math.round((plan.total_budget / daysCount) * 100) / 100
+      : 0;
+
   const suggestTitle = !hasBudget
     ? "Set a total budget first"
     : !hasDays
@@ -231,9 +239,15 @@ export function PlanHeader({
       {phase !== "idle" && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
           <span className="min-w-0 flex-1 text-muted-foreground">
-            This will overwrite Conversion values on all{" "}
+            Even spread will write{" "}
+            <span className="font-medium text-foreground">
+              {fmtCurrency(perDayForEven)}
+            </span>
+            /day to Conversion on all{" "}
             <span className="font-medium text-foreground">{daysCount}</span>{" "}
-            day{daysCount === 1 ? "" : "s"}. Continue?
+            day{daysCount === 1 ? "" : "s"} and clear Traffic.
+            Reach, Post engagement, TikTok, and Google are not touched.
+            Continue?
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <Button
