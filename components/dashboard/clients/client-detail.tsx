@@ -226,6 +226,7 @@ export function ClientDetail({ client: initial, events }: Props) {
           </section>
 
           <PlatformAccountsCard
+            clientId={client.id}
             initialTikTokAccountId={client.tiktok_account_id ?? null}
             initialGoogleAdsAccountId={client.google_ads_account_id ?? null}
             metaBusinessId={client.meta_business_id ?? null}

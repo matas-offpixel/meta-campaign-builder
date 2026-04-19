@@ -323,33 +323,23 @@ export function EventDetail({
                 folderUrl={event.google_drive_folder_url ?? null}
               />
               <PlatformConfigCard
+                eventId={event.id}
+                initialEventTikTokAccountId={event.tiktok_account_id ?? null}
+                clientTikTokAccountId={
+                  event.client?.tiktok_account_id ?? null
+                }
+                initialEventGoogleAdsAccountId={
+                  event.google_ads_account_id ?? null
+                }
+                clientGoogleAdsAccountId={
+                  event.client?.google_ads_account_id ?? null
+                }
                 metaAdAccount={{
                   // Events don't carry their own meta_ad_account_id
                   // override yet, so the resolved value is always the
                   // client-level one (inherited).
                   value: event.client?.meta_ad_account_id ?? null,
                   inherited: Boolean(event.client?.meta_ad_account_id),
-                }}
-                tiktokAccount={{
-                  // Fall back from event override to client default.
-                  // Account-name resolution lands once a
-                  // /api/tiktok/accounts/[id] lookup exists.
-                  value:
-                    event.tiktok_account_id ??
-                    event.client?.tiktok_account_id ??
-                    null,
-                  inherited:
-                    !event.tiktok_account_id &&
-                    Boolean(event.client?.tiktok_account_id),
-                }}
-                googleAdsAccount={{
-                  value:
-                    event.google_ads_account_id ??
-                    event.client?.google_ads_account_id ??
-                    null,
-                  inherited:
-                    !event.google_ads_account_id &&
-                    Boolean(event.client?.google_ads_account_id),
                 }}
                 driveFolderUrl={event.google_drive_folder_url ?? null}
               />

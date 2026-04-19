@@ -1,20 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { CheckCircle2, ExternalLink, Search, Music2 } from "lucide-react";
+import { CheckCircle2, Loader2, Music2, Search } from "lucide-react";
 
 import { Select } from "@/components/ui/select";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { GoogleAdsAccount } from "@/lib/types/google-ads";
 
 interface Props {
+  /** Client UUID — required to PATCH /api/clients/[id]. */
+  clientId: string;
   /**
-   * Initial selected accounts as resolved on the client row. Both are
-   * read via an unknown-cast at the parent boundary because the
-   * underlying columns (clients.tiktok_account_id,
-   * clients.google_ads_account_id) only exist after migration 018 has
-   * been applied.
+   * Initial selected accounts as resolved on the client row. Set by
+   * the parent server-fetched `ClientRow` so reads are correct on
+   * first paint and we only refetch the picker lists.
    */
   initialTikTokAccountId: string | null;
   initialGoogleAdsAccountId: string | null;
@@ -24,16 +23,14 @@ interface Props {
   metaPixelId: string | null;
 }
 
-/**
- * Read-only summary of the platform accounts wired into a client.
- *
- * Linker UI is deferred to the per-platform settings pages once the
- * tiktok_accounts / google_ads_accounts tables hold real rows — there
- * is nothing to pick from yet, so a dropdown here would always be
- * empty. Once accounts exist, swap the placeholder copy for a Select
- * + PATCH /api/clients/[id] flow.
- */
+type SaveStatus =
+  | { kind: "idle" }
+  | { kind: "saving" }
+  | { kind: "saved"; at: number }
+  | { kind: "error"; message: string };
+
 export function PlatformAccountsCard({
+  clientId,
   initialTikTokAccountId,
   initialGoogleAdsAccountId,
   metaBusinessId,
@@ -50,6 +47,10 @@ export function PlatformAccountsCard({
   const [googleAdsId, setGoogleAdsId] = useState<string | null>(
     initialGoogleAdsAccountId,
   );
+  const [tiktokSave, setTiktokSave] = useState<SaveStatus>({ kind: "idle" });
+  const [googleAdsSave, setGoogleAdsSave] = useState<SaveStatus>({
+    kind: "idle",
+  });
 
   useEffect(() => {
     fetch("/api/tiktok/accounts")
@@ -66,6 +67,38 @@ export function PlatformAccountsCard({
       .catch(() => undefined);
   }, []);
 
+  // Optimistic patch helper — flips the field locally first, then
+  // PATCHes; reverts on failure with the previous value.
+  const patchClient = async (
+    field: "tiktok_account_id" | "google_ads_account_id",
+    nextValue: string | null,
+    setLocal: (v: string | null) => void,
+    prev: string | null,
+    setSave: (s: SaveStatus) => void,
+  ) => {
+    setLocal(nextValue);
+    setSave({ kind: "saving" });
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: nextValue }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+      } | null;
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      setSave({ kind: "saved", at: Date.now() });
+    } catch (err) {
+      setLocal(prev);
+      const message = err instanceof Error ? err.message : "Save failed";
+      setSave({ kind: "error", message });
+    }
+  };
+
   const metaConnected = Boolean(
     metaBusinessId && metaAdAccountId && metaPixelId,
   );
@@ -79,7 +112,7 @@ export function PlatformAccountsCard({
         <p className="mt-1 text-xs text-muted-foreground">
           Default platform accounts for every event under this client.
           Events can override on a case-by-case basis from the event
-          detail page.
+          detail page. Changes save automatically.
         </p>
       </div>
 
@@ -115,15 +148,26 @@ export function PlatformAccountsCard({
               <Select
                 id="client-tiktok-account-id"
                 value={tiktokId ?? ""}
-                onChange={(e) => setTiktokId(e.target.value || null)}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  void patchClient(
+                    "tiktok_account_id",
+                    next,
+                    setTiktokId,
+                    tiktokId,
+                    setTiktokSave,
+                  );
+                }}
                 placeholder="Not linked"
                 options={tiktokAccounts.map((a) => ({
                   value: a.id,
                   label: a.account_name,
                 }))}
+                disabled={tiktokSave.kind === "saving"}
               />
             ) : null
           }
+          saveStatus={tiktokSave}
         />
         <PlatformRow
           icon={<Search className="h-4 w-4" style={{ color: "#4285F4" }} />}
@@ -142,29 +186,28 @@ export function PlatformAccountsCard({
               <Select
                 id="client-google-ads-account-id"
                 value={googleAdsId ?? ""}
-                onChange={(e) => setGoogleAdsId(e.target.value || null)}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  void patchClient(
+                    "google_ads_account_id",
+                    next,
+                    setGoogleAdsId,
+                    googleAdsId,
+                    setGoogleAdsSave,
+                  );
+                }}
                 placeholder="Not linked"
                 options={googleAdsAccounts.map((a) => ({
                   value: a.id,
                   label: a.account_name,
                 }))}
+                disabled={googleAdsSave.kind === "saving"}
               />
             ) : null
           }
+          saveStatus={googleAdsSave}
         />
       </div>
-
-      <p className="text-[11px] text-muted-foreground">
-        Persistence wires up once migration 018 is applied + a PATCH
-        endpoint lands on <code>/api/clients/[id]</code>. Selections
-        here are local-only for now.{" "}
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
-        >
-          Settings <ExternalLink className="h-3 w-3" />
-        </Link>
-      </p>
     </section>
   );
 }
@@ -175,12 +218,14 @@ function PlatformRow({
   status,
   details,
   picker,
+  saveStatus,
 }: {
   icon: React.ReactNode;
   label: string;
   status: "connected" | "missing";
   details: string;
   picker?: React.ReactNode;
+  saveStatus?: SaveStatus;
 }) {
   return (
     <div className="rounded-md border border-border bg-background p-3 space-y-2">
@@ -193,6 +238,7 @@ function PlatformRow({
       </div>
       <p className="text-xs text-muted-foreground">{details}</p>
       {picker}
+      {saveStatus && <SaveIndicator status={saveStatus} />}
     </div>
   );
 }
@@ -210,5 +256,25 @@ function StatusBadge({ status }: { status: "connected" | "missing" }) {
     <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
       Not configured
     </span>
+  );
+}
+
+function SaveIndicator({ status }: { status: SaveStatus }) {
+  if (status.kind === "idle") return null;
+  if (status.kind === "saving") {
+    return (
+      <p className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Saving…
+      </p>
+    );
+  }
+  if (status.kind === "saved") {
+    return (
+      <p className="text-[11px] text-emerald-600">Saved</p>
+    );
+  }
+  return (
+    <p className="text-[11px] text-destructive">Save failed: {status.message}</p>
   );
 }
