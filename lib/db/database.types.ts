@@ -528,6 +528,47 @@ export type Database = {
           },
         ]
       }
+      report_shares: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          event_id: string
+          expires_at: string | null
+          last_viewed_at: string | null
+          token: string
+          user_id: string
+          view_count: number
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          event_id: string
+          expires_at?: string | null
+          last_viewed_at?: string | null
+          token: string
+          user_id: string
+          view_count?: number
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          event_id?: string
+          expires_at?: string | null
+          last_viewed_at?: string | null
+          token?: string
+          user_id?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_shares_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_facebook_tokens: {
         Row: {
           expires_at: string | null

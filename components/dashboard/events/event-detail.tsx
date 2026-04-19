@@ -25,6 +25,7 @@ import {
   type EventTab,
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
+import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
@@ -61,6 +62,20 @@ interface Props {
    * yet — the grid degrades to a vanilla weekday display in that case.
    */
   keyMoments: EventKeyMoment[];
+  /**
+   * Pre-fetched report_shares row for this event, or null if no share
+   * exists yet. Drives the share controls in the Reporting tab — null
+   * is the expected state until the user toggles the link on.
+   */
+  initialShare: {
+    token: string;
+    event_id: string;
+    enabled: boolean;
+    expires_at: string | null;
+    view_count: number;
+    last_viewed_at: string | null;
+    created_at: string;
+  } | null;
 }
 
 /**
@@ -77,6 +92,7 @@ export function EventDetail({
   plan,
   planDays,
   keyMoments,
+  initialShare,
 }: Props) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -368,20 +384,25 @@ export function EventDetail({
             </div>
           </TabPanel>
 
-          {/* ───── Reporting (stub) ───── */}
+          {/* ───── Reporting ───── */}
           <TabPanel active={activeTab === "reporting"}>
             <div className="space-y-6">
+              <ShareReportControls
+                eventId={event.id}
+                initialShare={initialShare}
+              />
+
               <section className="rounded-md border border-dashed border-border bg-card p-5">
                 <div className="flex items-start gap-3">
                   <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                   <div className="min-w-0">
                     <h2 className="font-heading text-base tracking-wide">
-                      Reporting coming soon
+                      Internal reporting view coming soon
                     </h2>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Live spend, ticket sales, creative performance and D2C
-                      signup data for this event will live here once
-                      BigQuery and Meta Insights are wired up.
+                      The internal dashboard mirror of the public report ships
+                      next slice. For now, use the public share link above to
+                      preview live numbers in incognito.
                     </p>
                   </div>
                 </div>

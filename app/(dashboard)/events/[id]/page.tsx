@@ -11,6 +11,7 @@ import {
   listDaysForPlanServer,
 } from "@/lib/db/ad-plans-server";
 import { listMomentsForEventServer } from "@/lib/db/event-key-moments-server";
+import { getShareForEvent } from "@/lib/db/report-shares";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -39,7 +40,11 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   // for the same reason as the plan fetches: until migration 008 ships
   // to every environment, a missing table should degrade to "no
   // moments" rather than a hard 500.
-  const [event, drafts, planResult, keyMoments] = await Promise.all([
+  // Share row is fetched in parallel with event data so the Reporting
+  // tab paints the current toggle state on first load — no client
+  // round-trip. Failure is non-fatal: a missing share row is the
+  // expected state for events that have never been shared.
+  const [event, drafts, planResult, keyMoments, share] = await Promise.all([
     getEventByIdServer(id),
     listDraftsForEventServer(id),
     getPlanByEventIdServer(id).catch((err) => {
@@ -49,6 +54,10 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     listMomentsForEventServer(id).catch((err) => {
       console.error("[EventDetailPage] listMomentsForEventServer failed:", err);
       return [];
+    }),
+    getShareForEvent(id).catch((err) => {
+      console.error("[EventDetailPage] getShareForEvent failed:", err);
+      return null;
     }),
   ]);
 
@@ -72,6 +81,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       plan={plan}
       planDays={planDays}
       keyMoments={keyMoments}
+      initialShare={share}
     />
   );
 }
