@@ -1,48 +1,31 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Users } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { createClient as createSupabase } from "@/lib/supabase/client";
-import { listClients, type ClientRow } from "@/lib/db/clients";
+import { ClientsFilters } from "@/components/dashboard/clients/clients-filters";
+import { useWriteParams } from "@/components/dashboard/_shared/use-write-params";
+import { type ClientRow } from "@/lib/db/clients";
+import { StatusPill } from "@/components/dashboard/_shared/status-pill";
 
-function StatusPill({ status }: { status: string }) {
-  const cls =
-    status === "archived"
-      ? "bg-muted text-muted-foreground"
-      : status === "paused"
-        ? "bg-warning/15 text-foreground"
-        : "bg-primary-light text-foreground";
-  return (
-    <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}
-    >
-      {status}
-    </span>
-  );
-}
-
-export function ClientsList() {
+export function ClientsList({
+  clients,
+  filtersActive,
+}: {
+  clients: ClientRow[];
+  /** True when any of ?status/?q is set. */
+  filtersActive: boolean;
+}) {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [clients, setClients] = useState<ClientRow[]>([]);
+  const { writeParams } = useWriteParams();
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createSupabase();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const rows = await listClients(user.id);
-      setClients(rows);
-      setLoading(false);
-    }
-    load();
-  }, []);
+  const clearFilters = () =>
+    writeParams((p) => {
+      p.delete("status");
+      p.delete("q");
+    });
 
   return (
     <>
@@ -58,25 +41,43 @@ export function ClientsList() {
       />
 
       <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-6xl">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : clients.length === 0 ? (
-            <div className="py-16 text-center">
-              <Users className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
-              <p className="text-sm font-medium">No clients yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Add your first client to start tracking events and campaigns.
-              </p>
-              <div className="mt-4">
-                <Button onClick={() => router.push("/clients/new")}>
-                  <Plus className="h-4 w-4" />
-                  New client
-                </Button>
+        <div className="mx-auto max-w-6xl space-y-4">
+          <ClientsFilters />
+
+          {clients.length === 0 ? (
+            filtersActive ? (
+              <div className="py-16 text-center">
+                <p className="text-sm font-medium">
+                  No clients match these filters.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Try widening the search or clearing one of the filters.
+                </p>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="py-16 text-center">
+                <Users className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
+                <p className="text-sm font-medium">No clients yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Add your first client to start tracking events and campaigns.
+                </p>
+                <div className="mt-4">
+                  <Button onClick={() => router.push("/clients/new")}>
+                    <Plus className="h-4 w-4" />
+                    New client
+                  </Button>
+                </div>
+              </div>
+            )
           ) : (
             <div className="space-y-2">
               {clients.map((c) => (
@@ -92,13 +93,14 @@ export function ClientsList() {
                         <p className="text-sm font-medium truncate">
                           {c.name}
                         </p>
-                        <StatusPill status={c.status} />
+                        <StatusPill status={c.status} kind="client" />
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <span className="font-medium">{c.primary_type}</span>
-                        {c.types.length > 0 && c.types.join(", ") !== c.primary_type && (
-                          <span>{c.types.join(" · ")}</span>
-                        )}
+                        {c.types.length > 0 &&
+                          c.types.join(", ") !== c.primary_type && (
+                            <span>{c.types.join(" · ")}</span>
+                          )}
                         {c.contact_name && <span>{c.contact_name}</span>}
                       </div>
                     </div>

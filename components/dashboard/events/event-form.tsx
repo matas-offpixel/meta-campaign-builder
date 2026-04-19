@@ -16,6 +16,10 @@ import {
   updateEventRow,
   slugifyEvent,
 } from "@/lib/db/events";
+import {
+  combineDateAndTime,
+  extractTimeFromIso,
+} from "@/lib/dashboard/format";
 
 type Mode = "create" | "edit";
 
@@ -24,6 +28,13 @@ interface Props {
   initial?: EventRow;
   /** Pre-select this client on create. */
   defaultClientId?: string;
+  /**
+   * Pre-fill `event_date` on create. Must already be a canonical
+   * `YYYY-MM-DD` string (validate at the route boundary via
+   * `parseDateParam`). Ignored in edit mode so an existing row's
+   * stored date is never overwritten.
+   */
+  initialDate?: string;
 }
 
 const STATUS_OPTIONS = EVENT_STATUSES.map((s) => ({
@@ -50,7 +61,12 @@ function isoToLocalInput(iso: string | null | undefined): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-export function EventForm({ mode, initial, defaultClientId }: Props) {
+export function EventForm({
+  mode,
+  initial,
+  defaultClientId,
+  initialDate,
+}: Props) {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -72,9 +88,16 @@ export function EventForm({ mode, initial, defaultClientId }: Props) {
   const [venueCity, setVenueCity] = useState(initial?.venue_city ?? "");
   const [venueCountry, setVenueCountry] = useState(initial?.venue_country ?? "");
   const [eventTimezone, setEventTimezone] = useState(initial?.event_timezone ?? "");
-  const [eventDate, setEventDate] = useState(initial?.event_date ?? "");
-  const [eventStartAt, setEventStartAt] = useState(
-    isoToLocalInput(initial?.event_start_at),
+  // initialDate is create-only — never overwrite an existing edit-mode
+  // row's stored event_date, even if it's empty.
+  const [eventDate, setEventDate] = useState(
+    mode === "create"
+      ? (initialDate ?? "")
+      : (initial?.event_date ?? ""),
+  );
+  // Doors / start — stores HH:MM only. Combined with eventDate on submit.
+  const [eventStartTime, setEventStartTime] = useState(
+    extractTimeFromIso(initial?.event_start_at),
   );
   const [announcementAt, setAnnouncementAt] = useState(
     isoToLocalInput(initial?.announcement_at),
@@ -143,7 +166,9 @@ export function EventForm({ mode, initial, defaultClientId }: Props) {
       venue_country: venueCountry || null,
       event_timezone: eventTimezone || null,
       event_date: eventDate || null,
-      event_start_at: localInputToIso(eventStartAt),
+      event_start_at: eventStartTime
+        ? combineDateAndTime(eventDate, eventStartTime) || null
+        : null,
       announcement_at: localInputToIso(announcementAt),
       presale_at: localInputToIso(presaleAt),
       general_sale_at: localInputToIso(generalSaleAt),
@@ -162,9 +187,22 @@ export function EventForm({ mode, initial, defaultClientId }: Props) {
           ...payload,
           user_id: userId,
         });
-        if (created) router.push(`/events/${created.id}`);
+        if (created) {
+          // Invalidate the destination's RSC payload before navigating.
+          // Without router.refresh() the soft-nav serves the cached
+          // (empty) payload from before the row existed; with it, the
+          // detail page reflects the freshly-inserted event.
+          router.refresh();
+          router.push(`/events/${created.id}`);
+        }
       } else if (mode === "edit" && initial) {
         await updateEventRow(initial.id, payload);
+        // BUG FIX: router.push to /events/[id] re-uses the cached RSC
+        // payload from the user's prior visit, so date/time edits
+        // appeared not to persist (DB write succeeded; UI showed stale
+        // values). router.refresh() invalidates the cache entry so the
+        // subsequent push re-fetches the server component.
+        router.refresh();
         router.push(`/events/${initial.id}`);
       }
     } catch (err) {
@@ -301,9 +339,11 @@ export function EventForm({ mode, initial, defaultClientId }: Props) {
           <Input
             id="event-start-at"
             label="Doors / start"
-            type="datetime-local"
-            value={eventStartAt}
-            onChange={(e) => setEventStartAt(e.target.value)}
+            type="time"
+            value={eventStartTime}
+            onChange={(e) => setEventStartTime(e.target.value)}
+            disabled={!eventDate}
+            title={!eventDate ? "Set event date first" : undefined}
           />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -359,13 +399,14 @@ export function EventForm({ mode, initial, defaultClientId }: Props) {
         />
         <div className="flex flex-col gap-1.5">
           <label htmlFor="event-notes" className="text-sm font-medium">
-            Notes
+            Description
           </label>
           <textarea
             id="event-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={4}
+            placeholder="Short description of the event, lineup, vibe — used as context for ad copy and AI features."
             className="w-full rounded-md border border-border-strong bg-background px-3 py-2 text-sm
               focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
           />

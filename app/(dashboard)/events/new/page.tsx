@@ -1,18 +1,17 @@
-"use client";
-
-import { use } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { EventForm } from "@/components/dashboard/events/event-form";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { parseDateParam } from "@/lib/dashboard/format";
 
 interface Props {
-  searchParams: Promise<{ clientId?: string }>;
+  searchParams: Promise<{ clientId?: string; date?: string }>;
 }
 
-export default function NewEventPage({ searchParams }: Props) {
-  const params = use(searchParams);
-  const clientId = params.clientId;
+export default async function NewEventPage({ searchParams }: Props) {
+  const sp = await searchParams;
+  const clientId = sp.clientId;
+  const initialDate = parseDateParam(sp.date) ?? undefined;
 
   return (
     <>
@@ -29,7 +28,11 @@ export default function NewEventPage({ searchParams }: Props) {
             <ArrowLeft className="h-3 w-3" />
             All events
           </Link>
-          <EventForm mode="create" defaultClientId={clientId} />
+          <EventForm
+            mode="create"
+            defaultClientId={clientId}
+            initialDate={initialDate}
+          />
         </div>
       </main>
     </>

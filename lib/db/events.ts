@@ -165,6 +165,25 @@ export async function updateEventRow(
   return (data as EventRow) ?? null;
 }
 
+/**
+ * Flip the favourite flag on an event. Caller is responsible for the
+ * optimistic UI toggle + router.refresh() — this helper just persists.
+ */
+export async function toggleFavourite(
+  eventId: string,
+  next: boolean,
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("events")
+    .update({ favourite: next })
+    .eq("id", eventId);
+  if (error) {
+    console.warn("Supabase toggleFavourite error:", error.message);
+    throw error;
+  }
+}
+
 export async function setEventStatus(
   id: string,
   status: EventStatus,
@@ -193,4 +212,102 @@ export async function deleteEventRow(id: string): Promise<void> {
     console.warn("Supabase deleteEvent error:", error.message);
     throw error;
   }
+}
+
+// ─── Draft link helpers ─────────────────────────────────────────────────────
+//
+// These live in events.ts (not drafts.ts) so that the creator module remains
+// untouched. They read/write `campaign_drafts.event_id` directly — a column
+// added in migration 003.
+
+/** Shape of a campaign draft row as surfaced on the event hub. */
+export type EventLinkedDraft = {
+  id: string;
+  name: string | null;
+  objective: string | null;
+  status: "draft" | "published" | "archived";
+  updated_at: string;
+};
+
+/**
+ * Attach (or detach) an event to an existing campaign draft by setting
+ * campaign_drafts.event_id. Pass `null` to unlink.
+ *
+ * Called after a new draft is created from the event hub, so the creator
+ * route can pick it up via query param *or* by reading the column in future.
+ */
+export async function linkDraftToEvent(
+  draftId: string,
+  eventId: string | null,
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("campaign_drafts")
+    .update({ event_id: eventId })
+    .eq("id", draftId);
+  if (error) {
+    console.warn("Supabase linkDraftToEvent error:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Fetch the most-recently-updated linked draft per event for the current
+ * user. Used by dashboard surfaces (Today, Calendar) to render an
+ * "Open campaign" inline action without N+1 queries.
+ *
+ * Lives in events.ts (not drafts.ts) so the creator module stays
+ * untouched. Reads campaign_drafts directly via the user_id RLS path.
+ */
+export async function listDraftsForUserByEvent(
+  userId: string,
+): Promise<Map<string, { id: string; updated_at: string }>> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("campaign_drafts")
+    .select("id, event_id, updated_at")
+    .eq("user_id", userId)
+    .not("event_id", "is", null)
+    .order("updated_at", { ascending: false });
+
+  const map = new Map<string, { id: string; updated_at: string }>();
+  if (error) {
+    console.warn("Supabase listDraftsForUserByEvent error:", error.message);
+    return map;
+  }
+  // Newest-first ordering above means the first row per event_id wins,
+  // which is the latest updated draft for that event.
+  for (const row of data ?? []) {
+    const eventId = row.event_id as string | null;
+    if (!eventId || map.has(eventId)) continue;
+    map.set(eventId, {
+      id: row.id as string,
+      updated_at: row.updated_at as string,
+    });
+  }
+  return map;
+}
+
+/** List campaign drafts linked to a given event, newest first. */
+export async function listDraftsForEvent(
+  eventId: string,
+): Promise<EventLinkedDraft[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("campaign_drafts")
+    .select("id, name, objective, status, updated_at")
+    .eq("event_id", eventId)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    console.warn("Supabase listDraftsForEvent error:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: (row.name as string | null) ?? null,
+    objective: (row.objective as string | null) ?? null,
+    status: ((row.status as EventLinkedDraft["status"] | null) ?? "draft"),
+    updated_at: row.updated_at as string,
+  }));
 }

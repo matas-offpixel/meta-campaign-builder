@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+---
+
+Dashboard coding standards
+
+- Server components by default. Client components only for state, browser APIs, drag/drop, forms, or interactivity.
+- Type every boundary. Use existing Supabase generated types.
+- Reuse existing UI primitives and Tailwind patterns before creating new ones.
+- Keep DB logic in lib/db/* and business logic out of JSX.
+- No new dependencies without approval.
+- Do not refactor unrelated files. If scope expands, stop and ask.
+- New code must not introduce lint or type errors.

@@ -1,0 +1,43 @@
+---
+alwaysApply: true
+---
+
+Dashboard thread ownership boundaries
+
+WRITE FREELY:
+- app/(dashboard)/** except any creator/library landing route
+- components/dashboard/**
+- lib/db/clients.ts
+- lib/db/events.ts
+- new lib/db/* for dashboard domains
+- new lib/dashboard/*
+
+READ ONLY:
+- app/page.tsx
+- app/campaign/**
+- app/api/meta/**
+- app/auth/facebook-*/**
+- components/wizard/**
+- components/steps/**
+- components/library/**
+- components/templates/**
+- lib/meta/**
+- lib/campaign-defaults.ts
+- lib/autosave.ts
+- lib/db/drafts.ts
+- lib/db/templates.ts
+- user_facebook_tokens
+- campaign_drafts
+- campaign_templates
+
+SHARED / ASK FIRST:
+- components/ui/**
+- lib/supabase/**
+- lib/auth/**
+- app/layout.tsx
+- app/globals.css
+- proxy.ts
+- supabase/schema.sql
+- supabase/migrations/
+
+If a requested change crosses these boundaries, stop and ask first.

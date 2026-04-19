@@ -1,18 +1,13 @@
-import { ComingSoon, PageHeader } from "@/components/dashboard/page-header";
+import { Suspense } from "react";
+import { CalendarView } from "@/components/dashboard/calendar/calendar-view";
 
 export default function CalendarPage() {
+  // CalendarView reads ?kinds= via useSearchParams. A Suspense boundary
+  // here lets the route build cleanly without forcing the whole page
+  // to opt out of static rendering.
   return (
-    <>
-      <PageHeader
-        title="Calendar"
-        description="Scheduled activity across channels — Social, Email, SMS, WhatsApp, Meta, TikTok."
-      />
-      <main className="flex-1">
-        <ComingSoon
-          title="Calendar view coming soon"
-          description="Activity calendar filtered by content type will appear here once events + integrations are connected."
-        />
-      </main>
-    </>
+    <Suspense fallback={null}>
+      <CalendarView />
+    </Suspense>
   );
 }

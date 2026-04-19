@@ -1,34 +1,23 @@
-"use client";
-
-import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { notFound } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { EventForm } from "@/components/dashboard/events/event-form";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { getEventById, type EventWithClient } from "@/lib/db/events";
+import { getEventByIdServer } from "@/lib/db/events-server";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
-export default function EditEventPage({ params }: Props) {
-  const { id } = use(params);
-  const [loading, setLoading] = useState(true);
-  const [event, setEvent] = useState<EventWithClient | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      const row = await getEventById(id);
-      setEvent(row);
-      setLoading(false);
-    }
-    load();
-  }, [id]);
+export default async function EditEventPage({ params }: Props) {
+  const { id } = await params;
+  const event = await getEventByIdServer(id);
+  if (!event) notFound();
 
   return (
     <>
       <PageHeader
-        title={event ? `Edit ${event.name}` : "Edit event"}
+        title={`Edit ${event.name}`}
         description="Update event details."
       />
       <main className="flex-1 px-6 py-6">
@@ -40,16 +29,7 @@ export default function EditEventPage({ params }: Props) {
             <ArrowLeft className="h-3 w-3" />
             Back
           </Link>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : !event ? (
-            <p className="text-sm text-muted-foreground">Event not found.</p>
-          ) : (
-            <EventForm mode="edit" initial={event} />
-          )}
+          <EventForm mode="edit" initial={event} />
         </div>
       </main>
     </>

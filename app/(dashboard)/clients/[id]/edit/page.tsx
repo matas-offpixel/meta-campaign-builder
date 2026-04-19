@@ -1,34 +1,23 @@
-"use client";
-
-import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { notFound } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { ClientForm } from "@/components/dashboard/clients/client-form";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { getClientById, type ClientRow } from "@/lib/db/clients";
+import { getClientByIdServer } from "@/lib/db/clients-server";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
-export default function EditClientPage({ params }: Props) {
-  const { id } = use(params);
-  const [loading, setLoading] = useState(true);
-  const [client, setClient] = useState<ClientRow | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      const row = await getClientById(id);
-      setClient(row);
-      setLoading(false);
-    }
-    load();
-  }, [id]);
+export default async function EditClientPage({ params }: Props) {
+  const { id } = await params;
+  const client = await getClientByIdServer(id);
+  if (!client) notFound();
 
   return (
     <>
       <PageHeader
-        title={client ? `Edit ${client.name}` : "Edit client"}
+        title={`Edit ${client.name}`}
         description="Update client details."
       />
       <main className="flex-1 px-6 py-6">
@@ -40,16 +29,7 @@ export default function EditClientPage({ params }: Props) {
             <ArrowLeft className="h-3 w-3" />
             Back
           </Link>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : !client ? (
-            <p className="text-sm text-muted-foreground">Client not found.</p>
-          ) : (
-            <ClientForm mode="edit" initial={client} />
-          )}
+          <ClientForm mode="edit" initial={client} />
         </div>
       </main>
     </>
