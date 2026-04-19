@@ -38,7 +38,6 @@ import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
-import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
 
 interface WizardShellProps {
   draftId: string;
@@ -480,10 +479,6 @@ export function WizardShell({ draftId }: WizardShellProps) {
         visibleSteps={visibleSteps}
         onStepClick={handleStepClick}
       />
-
-      {step > 0 && (
-        <FacebookConnectionBanner onGoToAccountSetup={() => setStep(0)} />
-      )}
 
       {/* Template indicator */}
       {loadedTemplateName && (

@@ -1,6 +1,11 @@
 /**
  * Browser localStorage helpers for Facebook provider_token.
  * Stores `{ userId, token }` so tokens never apply to the wrong Supabase user.
+ *
+ * `expiresAt` is the canonical server-side field — it lives on
+ * `user_facebook_tokens.expires_at`. Mirroring it here is forward-compat: the
+ * dashboard widget reads expiry from the DB, so client code may continue to
+ * leave this field undefined.
  */
 
 export const FB_TOKEN_STORAGE_KEY = "facebook_provider_token";
@@ -8,6 +13,8 @@ export const FB_TOKEN_STORAGE_KEY = "facebook_provider_token";
 export type StoredFacebookToken = {
   userId: string;
   token: string;
+  /** Optional ISO timestamp mirroring `user_facebook_tokens.expires_at`. */
+  expiresAt?: string | null;
 };
 
 export function parseStoredFacebookToken(raw: string | null): StoredFacebookToken | null {

@@ -37,8 +37,20 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { storeFacebookToken } from "@/lib/db/facebook-tokens";
 
 const DIRECT_STATE_PREFIX = "direct_";
+
+/**
+ * Graph API version used for the OAuth endpoints below.
+ *
+ * Both the auth-code exchange and `fb_exchange_token` accept versioned and
+ * unversioned URLs, but every other Meta call we make is pinned to
+ * `META_API_VERSION` (default v21.0).  Pin these too so an upstream API
+ * deprecation surfaces consistently rather than only on Graph data calls.
+ */
+const META_API_VERSION = process.env.META_API_VERSION ?? "v21.0";
+const FB_OAUTH_BASE = `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token`;
 
 function safeNext(v: string | null | undefined): string {
   if (!v || !v.startsWith("/") || v.startsWith("//")) return "/";
@@ -76,13 +88,13 @@ async function exchangeCodeWithFacebook(
     };
   }
 
-  const url = new URL("https://graph.facebook.com/oauth/access_token");
+  const url = new URL(FB_OAUTH_BASE);
   url.searchParams.set("client_id", appId);
   url.searchParams.set("client_secret", appSecret);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("code", code);
 
-  console.info("[fb-callback/direct] exchanging code → token");
+  console.info("[fb-callback/direct] exchanging code → token", `(api=${META_API_VERSION})`);
   console.info("[fb-callback/direct] redirect_uri used in exchange:", redirectUri);
 
   const res  = await fetch(url.toString(), { cache: "no-store" });
@@ -164,13 +176,16 @@ async function extendToken(shortToken: string): Promise<ExtendTokenResult> {
   );
 
   // ── Step 3: Call fb_exchange_token ────────────────────────────────────────
-  const url = new URL("https://graph.facebook.com/oauth/access_token");
+  const url = new URL(FB_OAUTH_BASE);
   url.searchParams.set("grant_type", "fb_exchange_token");
   url.searchParams.set("client_id", appId);
   url.searchParams.set("client_secret", appSecret);
   url.searchParams.set("fb_exchange_token", shortToken);
 
-  console.info("[fb-callback/direct] extendToken — calling fb_exchange_token…");
+  console.info(
+    "[fb-callback/direct] extendToken — calling fb_exchange_token…",
+    `(api=${META_API_VERSION})`,
+  );
 
   let res: Response;
   let json: FbTokenResponse;
@@ -349,24 +364,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // ── Stage 4: Persist long-lived token to DB ────────────────────────────
     // Only reached when extResult.ok === true.  Short-lived tokens are NEVER
     // written here.
-    const { error: dbError } = await supabase
-      .from("user_facebook_tokens")
-      .upsert(
-        {
-          user_id: user.id,
-          provider_token: extResult.token,   // always the long-lived token
-          updated_at: new Date().toISOString(),
-          expires_at: extResult.expiresAt,   // always set on success
-        },
-        { onConflict: "user_id" },
-      );
+    const stored = await storeFacebookToken(supabase, {
+      userId: user.id,
+      token: extResult.token,        // always the long-lived token
+      expiresAt: extResult.expiresAt, // always set on success
+    });
 
-    if (dbError) {
-      console.error("[fb-callback/direct] DB upsert failed:", dbError.message);
-      const hint = dbError.code === "42P01" || dbError.message?.includes("does not exist")
-        ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
-        : "";
-      return errorRedirect(origin, "db_write_failed", `${dbError.message}${hint}`);
+    if (!stored.ok) {
+      console.error("[fb-callback/direct] DB upsert failed:", stored.error);
+      const hint =
+        stored.errorCode === "42P01" || stored.error?.includes("does not exist")
+          ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
+          : "";
+      return errorRedirect(origin, "db_write_failed", `${stored.error ?? "unknown"}${hint}`);
     }
 
     // Clear the OAuth cookies
@@ -452,28 +462,43 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       "Facebook connected but no provider_token returned.");
   }
 
-  // MODE B provider_token is the raw short-lived token from Supabase session;
-  // we have no expires_in here, so expires_at is left null.
-  const { error: dbError } = await supabase
-    .from("user_facebook_tokens")
-    .upsert(
-      {
-        user_id: userId,
-        provider_token: providerToken,
-        updated_at: new Date().toISOString(),
-        expires_at: null,
-      },
-      { onConflict: "user_id" },
+  // MODE B's `provider_token` is the raw short-lived (~1-2h) token returned by
+  // Supabase's PKCE exchange. Run it through `fb_exchange_token` to convert it
+  // into a 60-day long-lived token before persisting — same fail-closed
+  // contract as Mode A: if the extension fails we redirect to the error page
+  // and never write the short-lived token to the DB.
+  const ext = await extendToken(providerToken);
+  if (!ext.ok) {
+    console.error(
+      "[fb-callback/supabase] long-lived token exchange FAILED:",
+      ext.error,
     );
-
-  if (dbError) {
-    console.error("[fb-callback/supabase] DB upsert failed:", dbError.message);
-    const hint = dbError.code === "42P01" || dbError.message?.includes("does not exist")
-      ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
-      : "";
-    return errorRedirect(origin, "db_write_failed", `${dbError.message}${hint}`);
+    return errorRedirect(
+      origin,
+      "token_exchange_failed",
+      ext.error ?? "fb_exchange_token failed",
+    );
   }
 
-  console.info("[fb-callback/supabase] provider_token persisted ✓ — redirecting to", next);
+  const stored = await storeFacebookToken(supabase, {
+    userId,
+    token: ext.token,
+    expiresAt: ext.expiresAt,
+  });
+
+  if (!stored.ok) {
+    console.error("[fb-callback/supabase] DB upsert failed:", stored.error);
+    const hint =
+      stored.errorCode === "42P01" || stored.error?.includes("does not exist")
+        ? " Apply supabase/migrations/002_user_facebook_tokens.sql."
+        : "";
+    return errorRedirect(origin, "db_write_failed", `${stored.error ?? "unknown"}${hint}`);
+  }
+
+  console.info(
+    "[fb-callback/supabase] long-lived provider_token persisted ✓",
+    `expires_at=${ext.expiresAt}`,
+    "— redirecting to", next,
+  );
   return successRedirect;
 }
