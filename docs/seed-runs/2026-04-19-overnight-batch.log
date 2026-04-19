@@ -1,0 +1,76 @@
+
+────────── SEED REPORT ──────────
+{
+  "dry_run": false,
+  "user_id": "b3ee4e5c-44e6-4684-acf6-efefbecd5858",
+  "summary": {
+    "clients": 5,
+    "events": 6
+  },
+  "clients": [
+    {
+      "client_slug": "louder-parable",
+      "client_id": "9d4ebdfe-f062-4e4d-8982-1947829667b8",
+      "client_action": "inserted",
+      "events": [
+        {
+          "slug": "louder-parable-ongoing",
+          "id": "152168a0-f9a3-4c86-bab4-1ba683bc423a",
+          "action": "inserted"
+        }
+      ]
+    },
+    {
+      "client_slug": "deep-house-bible",
+      "client_id": "9daab5b0-c2a4-4798-a877-c0be542a44d0",
+      "client_action": "inserted",
+      "events": [
+        {
+          "slug": "dhb-la-2026",
+          "id": "146d7172-4f7c-4651-aa04-cee0969d1500",
+          "action": "inserted"
+        },
+        {
+          "slug": "dhb-nyc-2026",
+          "id": "037cf573-63a8-4708-a820-08fc3911dc8b",
+          "action": "inserted"
+        },
+        {
+          "slug": "dhb-puglia-2026",
+          "id": "bc95c04f-641a-4372-abec-234f22fa201e",
+          "action": "inserted"
+        }
+      ]
+    },
+    {
+      "client_slug": "puzzle",
+      "client_id": "92f7334b-ef76-4095-88d6-f422ba1ff3f2",
+      "client_action": "inserted",
+      "events": [
+        {
+          "slug": "puzzle-open-air-brighton-2026",
+          "id": "2eaa938c-41f4-411a-8f50-ca013021303f",
+          "action": "inserted"
+        }
+      ]
+    },
+    {
+      "client_slug": "back-of-house",
+      "client_id": "c718d1c5-3e27-4625-9019-149a2a679faf",
+      "client_action": "inserted",
+      "events": [
+        {
+          "slug": "boh-festival-2026",
+          "id": "d18922a4-f00f-487e-bffa-bbf144cd8816",
+          "action": "inserted"
+        }
+      ]
+    },
+    {
+      "client_slug": "black-butter-records",
+      "client_id": "cc5e62f5-2f33-4167-b643-37296faf471d",
+      "client_action": "inserted",
+      "events": []
+    }
+  ]
+}
