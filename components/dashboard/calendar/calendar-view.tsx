@@ -1,20 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
   Loader2,
   Calendar as CalendarIcon,
   List,
-  Search,
-  X,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { MilestoneChip } from "@/components/dashboard/_shared/milestone-chip";
 import { DayPopover } from "@/components/dashboard/_shared/day-popover";
+import { SearchInput } from "@/components/dashboard/_shared/search-input";
+import { useWriteParams } from "@/components/dashboard/_shared/use-write-params";
 import { createClient as createSupabase } from "@/lib/supabase/client";
 import {
   listEvents,
@@ -126,9 +126,8 @@ export function CalendarView() {
   // fallback for `?m=` so the URL parser stays pure.
   const [now] = useState(() => new Date());
 
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { writeParams } = useWriteParams();
 
   const activeKinds = useMemo(
     () => parseMilestoneKinds(searchParams.get("kinds") ?? undefined),
@@ -146,17 +145,6 @@ export function CalendarView() {
   const query = useMemo(
     () => (searchParams.get("q") ?? "").trim(),
     [searchParams],
-  );
-
-  // Mutators preserve every other query param (kinds, etc).
-  const writeParams = useCallback(
-    (mutate: (p: URLSearchParams) => void) => {
-      const params = new URLSearchParams(searchParams.toString());
-      mutate(params);
-      const qs = params.toString();
-      router.push(qs ? `${pathname}?${qs}` : pathname);
-    },
-    [router, pathname, searchParams],
   );
 
   const setMonth = useCallback(
@@ -282,7 +270,12 @@ export function CalendarView() {
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <FilterStrip active={activeKinds} />
-            <SearchInput initialQuery={query} writeQuery={setQuery} />
+            <SearchInput
+              initialQuery={query}
+              writeQuery={setQuery}
+              placeholder="Search events…"
+              ariaLabel="Search events"
+            />
           </div>
 
           {loading ? (
@@ -325,19 +318,13 @@ export function CalendarView() {
 // ─── Filter strip ────────────────────────────────────────────────────────────
 
 function FilterStrip({ active }: { active: MilestoneKind[] | "all" }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { writeParams } = useWriteParams();
 
   const setKinds = (next: MilestoneKind[] | "all") => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "all") {
-      params.delete("kinds");
-    } else {
-      params.set("kinds", next.join(","));
-    }
-    const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    writeParams((p) => {
+      if (next === "all") p.delete("kinds");
+      else p.set("kinds", next.join(","));
+    });
   };
 
   const isAll = active === "all";
@@ -376,91 +363,6 @@ function FilterStrip({ active }: { active: MilestoneKind[] | "all" }) {
           </FilterChip>
         );
       })}
-    </div>
-  );
-}
-
-// ─── Search input ────────────────────────────────────────────────────────────
-
-/**
- * Debounced text filter for ?q=. Local useState mirrors keystrokes for
- * responsive typing; a useEffect with setTimeout pushes the value to the
- * URL after 250ms of quiet. The push effect is push-only — it does not
- * call setState, so React 19's set-state-in-effect rule is satisfied.
- *
- * IME composition (CJK input) is suppressed: while a composition is in
- * progress, no debounced push is scheduled and any pending push is
- * cancelled. On compositionEnd the debounce restarts with the final value.
- *
- * External URL changes (back button, etc.) intentionally do not retro-
- * actively sync into the local input value — the filter applies regardless
- * because the parent reads from searchParams. This keeps the component
- * lint-clean (no setState-in-effect for URL → local sync) at the cost of
- * one rare-path UX paper-cut.
- */
-function SearchInput({
-  initialQuery,
-  writeQuery,
-}: {
-  initialQuery: string;
-  writeQuery: (next: string) => void;
-}) {
-  const [value, setValue] = useState(initialQuery);
-  const composingRef = useRef(false);
-  const lastPushedRef = useRef(initialQuery);
-
-  useEffect(() => {
-    if (composingRef.current) return;
-    if (value === lastPushedRef.current) return;
-    const t = setTimeout(() => {
-      lastPushedRef.current = value;
-      writeQuery(value);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [value, writeQuery]);
-
-  const clear = () => {
-    setValue("");
-    // Clearing is an explicit user gesture — flush immediately, don't wait
-    // for the debounce. Update lastPushedRef so the effect treats the
-    // resulting state change as already-synced and skips a redundant push.
-    lastPushedRef.current = "";
-    writeQuery("");
-  };
-
-  return (
-    <div className="relative">
-      <Search
-        className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60"
-        aria-hidden
-      />
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onCompositionStart={() => {
-          composingRef.current = true;
-        }}
-        onCompositionEnd={(e) => {
-          composingRef.current = false;
-          // Mirror the final composed value so the debounce effect picks
-          // it up on the next render.
-          setValue(e.currentTarget.value);
-        }}
-        placeholder="Search events…"
-        aria-label="Search events"
-        className="w-56 rounded-md border border-border bg-card pl-7 pr-7 py-1.5 text-xs placeholder:text-muted-foreground/60 focus:border-border-strong focus:outline-none"
-      />
-      {value && (
-        <button
-          type="button"
-          onClick={clear}
-          aria-label="Clear search"
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      )}
     </div>
   );
 }

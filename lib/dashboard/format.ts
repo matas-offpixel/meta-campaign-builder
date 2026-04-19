@@ -295,3 +295,112 @@ export function parseCalendarView(
     ? (v as CalendarView)
     : "month";
 }
+
+// ─── Generic URL param validators ────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate a UUID URL param. Returns the canonical lowercase form on
+ * success, null on missing or malformed input. Used for `?client=`,
+ * `?event=`, etc.
+ */
+export function parseUuid(value: string | string[] | undefined): string | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  if (!v || !UUID_RE.test(v)) return null;
+  return v.toLowerCase();
+}
+
+/**
+ * Read a `?q=` text-search param: trim, return the literal string or
+ * null if empty/missing. Caller is responsible for any DB-side escaping;
+ * the recommended pattern for substring search is to apply structured
+ * filters at the Supabase query level and the q filter in memory after
+ * fetch (per-user dataset is bounded by RLS scope).
+ */
+export function parseQuery(value: string | string[] | undefined): string | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  const trimmed = v?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * Read a `?pendingAction=1` boolean toggle. Only the literal "1" counts
+ * as truthy — any other value (including "true") is treated as absent
+ * to keep the URL contract narrow.
+ */
+export function parsePendingAction(
+  value: string | string[] | undefined,
+): boolean {
+  const v = Array.isArray(value) ? value[0] : value;
+  return v === "1";
+}
+
+// ─── Domain-specific status whitelists ───────────────────────────────────────
+//
+// These intentionally hard-code the string lists rather than importing
+// EVENT_STATUSES / CLIENT_STATUSES from lib/db/* to keep this module
+// dependency-free at runtime — same convention as MILESTONE_KINDS above.
+// The lists are mirrored against the DB types via the type assertions
+// below so a drift in either direction will fail the build.
+
+const EVENT_STATUS_WHITELIST = [
+  "upcoming",
+  "announced",
+  "on_sale",
+  "sold_out",
+  "completed",
+  "cancelled",
+] as const;
+export type EventStatusParam = (typeof EVENT_STATUS_WHITELIST)[number];
+
+export function parseEventStatus(
+  value: string | string[] | undefined,
+): EventStatusParam | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  return EVENT_STATUS_WHITELIST.includes(v as EventStatusParam)
+    ? (v as EventStatusParam)
+    : null;
+}
+
+const CLIENT_STATUS_WHITELIST = ["active", "paused", "archived"] as const;
+export type ClientStatusParam = (typeof CLIENT_STATUS_WHITELIST)[number];
+
+export function parseClientStatus(
+  value: string | string[] | undefined,
+): ClientStatusParam | null {
+  if (!value) return null;
+  const v = Array.isArray(value) ? value[0] : value;
+  return CLIENT_STATUS_WHITELIST.includes(v as ClientStatusParam)
+    ? (v as ClientStatusParam)
+    : null;
+}
+
+// ─── Pending-action criteria (shared with /today panel) ──────────────────────
+//
+// "Pending action" = active event with an imminent milestone (within
+// PENDING_HORIZON_DAYS days, today inclusive) and no campaign draft
+// linked yet. Centralised here so the /today panel and the /events
+// ?pendingAction=1 filter stay in lockstep.
+
+export const PENDING_HORIZON_DAYS = 21;
+export const PENDING_ACTIVE_STATUSES: ReadonlySet<string> = new Set([
+  "upcoming",
+  "announced",
+  "on_sale",
+]);
+
+export function isPendingAction(
+  event: EventWithClient,
+  draftMap: Map<string, { id: string; updated_at: string }>,
+  now: Date,
+): boolean {
+  if (!PENDING_ACTIVE_STATUSES.has(event.status)) return false;
+  if (draftMap.has(event.id)) return false;
+  const ms = nextMilestone(event, now);
+  if (!ms) return false;
+  return ms.daysAway >= 0 && ms.daysAway <= PENDING_HORIZON_DAYS;
+}

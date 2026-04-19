@@ -27,21 +27,19 @@ import {
   daysBetween,
   fmtDay,
   fmtRelative,
+  isPendingAction,
   nextMilestone,
   parseDateOnly,
+  PENDING_HORIZON_DAYS,
   today,
 } from "@/lib/dashboard/format";
 
 // ─── Partition helpers ───────────────────────────────────────────────────────
 
-/**
- * Statuses that count as an "active" event for operational surfaces.
- * sold_out / completed / cancelled are excluded — they don't need a
- * fresh campaign even if a milestone is technically imminent.
- */
-const ACTIVE_EVENT_STATUSES = new Set(["upcoming", "announced", "on_sale"]);
-
-const PENDING_HORIZON_DAYS = 21;
+// Pending action criteria (active status + imminent milestone + no
+// draft) lives in lib/dashboard/format so the /events ?pendingAction=1
+// filter applies the same definition. We only own the row-display cap
+// here.
 const PENDING_ROW_LIMIT = 10;
 
 type MissingTag =
@@ -158,19 +156,22 @@ export function TodayDashboard() {
   // statuses only — sold_out / completed / cancelled are excluded
   // because no campaign is needed even if a milestone is near.
   const pendingAction = useMemo(() => {
-    const matches: Array<{ event: EventWithClient; ms: NonNullable<ReturnType<typeof nextMilestone>> }> = [];
+    const matches: Array<{
+      event: EventWithClient;
+      ms: NonNullable<ReturnType<typeof nextMilestone>>;
+    }> = [];
     for (const e of events) {
-      if (!ACTIVE_EVENT_STATUSES.has(e.status)) continue;
-      if (draftByEvent.has(e.id)) continue;
-      const ms = nextMilestone(e, now);
-      if (!ms) continue;
-      if (ms.daysAway < 0 || ms.daysAway > PENDING_HORIZON_DAYS) continue;
+      if (!isPendingAction(e, draftByEvent, now)) continue;
+      // isPendingAction guarantees nextMilestone is non-null and within
+      // the horizon, so re-derive it for chip rendering.
+      const ms = nextMilestone(e, now)!;
       matches.push({ event: e, ms });
     }
     matches.sort((a, b) => a.ms.daysAway - b.ms.daysAway);
     return {
       visible: matches.slice(0, PENDING_ROW_LIMIT),
       overflow: Math.max(0, matches.length - PENDING_ROW_LIMIT),
+      horizonDays: PENDING_HORIZON_DAYS,
     };
   }, [events, draftByEvent, now]);
 
