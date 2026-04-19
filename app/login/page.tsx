@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CheckCircle2, KeyRound, Loader2, Mail } from "lucide-react";
 
-type Status = "idle" | "sending" | "signing-in" | "sent" | "error";
+type Status =
+  | "idle"
+  | "sending"
+  | "signing-in"
+  | "sent"
+  | "reset-sent"
+  | "error";
 
 /**
  * Sign-in page. Two flows on a single form:
@@ -23,12 +30,37 @@ type Status = "idle" | "sending" | "signing-in" | "sent" | "error";
  * Facebook); not part of this page.
  */
 export default function LoginPage() {
+  // useSearchParams reads from the Next.js router, which can suspend on
+  // first render — wrap the form in a Suspense boundary so static
+  // optimisation doesn't bail out of the route.
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
+  const searchParams = useSearchParams();
+  // /reset-password sends the user back here with ?reset=ok after a
+  // successful password change. Read it directly from the router (no
+  // setState-in-effect anti-pattern), then strip the param via
+  // replaceState in an effect so a refresh doesn't replay the banner.
+  const resetSuccess = searchParams.get("reset") === "ok";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   const isBusy = status === "sending" || status === "signing-in";
+
+  useEffect(() => {
+    if (!resetSuccess) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("reset");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  }, [resetSuccess]);
 
   /**
    * Password sign-in. Form-level submit handler so Enter inside either
@@ -101,6 +133,41 @@ export default function LoginPage() {
     }
   };
 
+  /**
+   * Forgot password? — sends a Supabase recovery email. The link in the
+   * email goes through /auth/callback (so the PKCE code can be exchanged
+   * server-side into session cookies) and lands on /reset-password where
+   * the user picks a new password.
+   *
+   * Supabase still requires the email to belong to a provisioned user;
+   * unknown addresses get a "Email not confirmed"/"User not found"
+   * response which we surface verbatim.
+   */
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      setStatus("error");
+      setErrorMsg("Enter your email first, then press Forgot password?");
+      return;
+    }
+
+    setStatus("sending");
+    setErrorMsg("");
+
+    const redirectTo = `${window.location.origin}/auth/callback?next=/reset-password`;
+
+    const supabase = createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo,
+    });
+
+    if (error) {
+      setStatus("error");
+      setErrorMsg(error.message);
+    } else {
+      setStatus("reset-sent");
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
@@ -111,18 +178,36 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {resetSuccess && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-success/40 bg-success/10 px-3 py-2 text-xs text-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            Password updated. Sign in with your new password.
+          </div>
+        )}
+
         <div className="rounded-md border border-border bg-card p-6">
-          {status === "sent" ? (
+          {status === "sent" || status === "reset-sent" ? (
             <div className="text-center py-4">
               <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-success" />
               <h2 className="font-heading text-lg tracking-wide">
                 Check your email
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                We sent a magic link to{" "}
-                <span className="font-medium text-foreground">{email}</span>.
-                <br />
-                Click the link to sign in.
+                {status === "reset-sent" ? (
+                  <>
+                    We sent a password reset link to{" "}
+                    <span className="font-medium text-foreground">{email}</span>
+                    .<br />
+                    Click the link to set a new password.
+                  </>
+                ) : (
+                  <>
+                    We sent a magic link to{" "}
+                    <span className="font-medium text-foreground">{email}</span>
+                    .<br />
+                    Click the link to sign in.
+                  </>
+                )}
               </p>
               <button
                 type="button"
@@ -161,12 +246,22 @@ export default function LoginPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="password"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Password
-                </label>
+                <div className="flex items-baseline justify-between gap-2">
+                  <label
+                    htmlFor="password"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={isBusy}
+                    className="text-xs text-muted-foreground hover:text-foreground underline disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <input
                   id="password"
                   type="password"

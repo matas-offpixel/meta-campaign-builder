@@ -10,7 +10,15 @@ function safeNextPath(next: string | null): string {
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = safeNextPath(searchParams.get("next"));
+  // Recovery links should land on /reset-password, not the homepage.
+  // We honour ?next= when the email template includes it; as a fallback
+  // we also route on ?type=recovery (which Supabase forwards from the
+  // verify endpoint when the link was generated for password reset). If
+  // both are absent the default is "/", matching plain magic-link logins.
+  const isRecovery = searchParams.get("type") === "recovery";
+  const explicitNext = safeNextPath(searchParams.get("next"));
+  const next =
+    isRecovery && explicitNext === "/" ? "/reset-password" : explicitNext;
 
   // Supabase may redirect here with error in query (e.g. access_denied)
   const authError = searchParams.get("error_description") ?? searchParams.get("error");
