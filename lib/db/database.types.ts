@@ -1,9 +1,3 @@
-// Generated from Supabase (project zbtldbfjbhfvpksmdvnt) via
-// `mcp generate_typescript_types` on 2026-04-19 (post-migration 014).
-//
-// Regenerate with `supabase gen types typescript --project-id zbtldbfjbhfvpksmdvnt`
-// or via the Supabase MCP. Keep in sync with supabase/schema.sql.
-
 export type Json =
   | string
   | number
@@ -388,6 +382,7 @@ export type Database = {
           created_at: string
           default_page_ids: string[]
           facebook_page_handle: string | null
+          google_ads_account_id: string | null
           google_ads_customer_id: string | null
           google_drive_folder_url: string | null
           id: string
@@ -400,6 +395,7 @@ export type Database = {
           primary_type: string
           slug: string
           status: string
+          tiktok_account_id: string | null
           tiktok_ad_account_id: string | null
           tiktok_handle: string | null
           types: string[]
@@ -410,6 +406,7 @@ export type Database = {
           created_at?: string
           default_page_ids?: string[]
           facebook_page_handle?: string | null
+          google_ads_account_id?: string | null
           google_ads_customer_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
@@ -422,6 +419,7 @@ export type Database = {
           primary_type: string
           slug: string
           status?: string
+          tiktok_account_id?: string | null
           tiktok_ad_account_id?: string | null
           tiktok_handle?: string | null
           types?: string[]
@@ -432,6 +430,7 @@ export type Database = {
           created_at?: string
           default_page_ids?: string[]
           facebook_page_handle?: string | null
+          google_ads_account_id?: string | null
           google_ads_customer_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
@@ -444,13 +443,29 @@ export type Database = {
           primary_type?: string
           slug?: string
           status?: string
+          tiktok_account_id?: string | null
           tiktok_ad_account_id?: string | null
           tiktok_handle?: string | null
           types?: string[]
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_google_ads_account_id_fkey"
+            columns: ["google_ads_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clients_tiktok_account_id_fkey"
+            columns: ["tiktok_account_id"]
+            isOneToOne: false
+            referencedRelation: "tiktok_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       event_key_moments: {
         Row: {
@@ -513,6 +528,9 @@ export type Database = {
           favourite: boolean
           general_sale_at: string | null
           genres: string[]
+          google_ads_account_id: string | null
+          google_drive_folder_id: string | null
+          google_drive_folder_url: string | null
           id: string
           name: string
           notes: string | null
@@ -522,6 +540,7 @@ export type Database = {
           status: string
           ticket_url: string | null
           tickets_sold: number | null
+          tiktok_account_id: string | null
           updated_at: string
           user_id: string
           venue_city: string | null
@@ -541,6 +560,9 @@ export type Database = {
           favourite?: boolean
           general_sale_at?: string | null
           genres?: string[]
+          google_ads_account_id?: string | null
+          google_drive_folder_id?: string | null
+          google_drive_folder_url?: string | null
           id?: string
           name: string
           notes?: string | null
@@ -550,6 +572,7 @@ export type Database = {
           status?: string
           ticket_url?: string | null
           tickets_sold?: number | null
+          tiktok_account_id?: string | null
           updated_at?: string
           user_id: string
           venue_city?: string | null
@@ -569,6 +592,9 @@ export type Database = {
           favourite?: boolean
           general_sale_at?: string | null
           genres?: string[]
+          google_ads_account_id?: string | null
+          google_drive_folder_id?: string | null
+          google_drive_folder_url?: string | null
           id?: string
           name?: string
           notes?: string | null
@@ -578,6 +604,7 @@ export type Database = {
           status?: string
           ticket_url?: string | null
           tickets_sold?: number | null
+          tiktok_account_id?: string | null
           updated_at?: string
           user_id?: string
           venue_city?: string | null
@@ -592,7 +619,120 @@ export type Database = {
             referencedRelation: "clients"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "events_google_ads_account_id_fkey"
+            columns: ["google_ads_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_tiktok_account_id_fkey"
+            columns: ["tiktok_account_id"]
+            isOneToOne: false
+            referencedRelation: "tiktok_accounts"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      google_ad_plans: {
+        Row: {
+          ad_scheduling: Json
+          bidding_strategy: string | null
+          campaigns: Json
+          created_at: string
+          event_id: string
+          geo_targets: Json
+          google_ads_account_id: string | null
+          google_budget: number | null
+          google_budget_pct: number | null
+          id: string
+          rlsa_adjustments: Json
+          status: string
+          target_cpa: number | null
+          total_budget: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_scheduling?: Json
+          bidding_strategy?: string | null
+          campaigns?: Json
+          created_at?: string
+          event_id: string
+          geo_targets?: Json
+          google_ads_account_id?: string | null
+          google_budget?: number | null
+          google_budget_pct?: number | null
+          id?: string
+          rlsa_adjustments?: Json
+          status?: string
+          target_cpa?: number | null
+          total_budget?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_scheduling?: Json
+          bidding_strategy?: string | null
+          campaigns?: Json
+          created_at?: string
+          event_id?: string
+          geo_targets?: Json
+          google_ads_account_id?: string | null
+          google_budget?: number | null
+          google_budget_pct?: number | null
+          id?: string
+          rlsa_adjustments?: Json
+          status?: string
+          target_cpa?: number | null
+          total_budget?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_ad_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_ad_plans_google_ads_account_id_fkey"
+            columns: ["google_ads_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_ads_accounts: {
+        Row: {
+          account_name: string
+          created_at: string
+          google_customer_id: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_name: string
+          created_at?: string
+          google_customer_id?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_name?: string
+          created_at?: string
+          google_customer_id?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       report_shares: {
         Row: {
@@ -650,6 +790,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      tiktok_accounts: {
+        Row: {
+          access_token_encrypted: string | null
+          account_name: string
+          created_at: string
+          id: string
+          tiktok_advertiser_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_encrypted?: string | null
+          account_name: string
+          created_at?: string
+          id?: string
+          tiktok_advertiser_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_encrypted?: string | null
+          account_name?: string
+          created_at?: string
+          id?: string
+          tiktok_advertiser_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       user_facebook_tokens: {
         Row: {
