@@ -1414,8 +1414,24 @@ export function useLocationSearch(): {
         const res = await fetch(
           `/api/meta/location-search?q=${encodeURIComponent(query.trim())}&types=city,region,country`,
         );
-        const json = (await res.json()) as { data?: LocationSearchResult[]; error?: string };
-        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        const json = (await res.json()) as {
+          data?: LocationSearchResult[];
+          error?: string;
+          code?: number;
+        };
+        if (!res.ok || json.error) {
+          // Detect Meta OAuth/session-expiry and flip the global flag so the
+          // reconnect banner fires from this surface too. Mirrors the
+          // detection used by useFetchCustomAudiences / useFetchSavedAudiences.
+          if (
+            res.status === 401 ||
+            json.code === 190 ||
+            (json.error && isFacebookTokenExpiredError(json.error))
+          ) {
+            setFbTokenExpiredGlobal(true);
+          }
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
         setResults(json.data ?? []);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Location search failed");
