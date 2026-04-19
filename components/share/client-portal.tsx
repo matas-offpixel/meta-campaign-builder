@@ -1,0 +1,253 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+import type {
+  PortalClient,
+  PortalEvent,
+} from "@/lib/db/client-portal-server";
+import { ClientPortalEventCard } from "./client-portal-event-card";
+
+interface Props {
+  token: string;
+  client: PortalClient;
+  events: PortalEvent[];
+}
+
+type TabKey = "scotland" | "england_london" | "england_uk";
+const TAB_ORDER: TabKey[] = ["scotland", "england_london", "england_uk"];
+const TAB_LABELS: Record<TabKey, string> = {
+  scotland: "Scotland",
+  england_london: "England — London",
+  england_uk: "England — UK",
+};
+
+/**
+ * Bucket an event into one of the three regional tabs based on its
+ * venue_city + venue_country. Order of checks matters — Scotland
+ * before "England — UK" catch-all so a Glasgow venue with no country
+ * still lands in Scotland.
+ */
+function bucketEvent(event: PortalEvent): TabKey {
+  const city = (event.venue_city ?? "").toLowerCase();
+  const country = (event.venue_country ?? "").toLowerCase();
+  if (city.includes("glasgow") || country.includes("scotland")) {
+    return "scotland";
+  }
+  if (city.includes("london")) {
+    return "england_london";
+  }
+  return "england_uk";
+}
+
+function formatNumber(n: number): string {
+  return new Intl.NumberFormat("en-GB").format(n);
+}
+
+/**
+ * Public ticket-input portal — clean public page (no dashboard nav).
+ * Off/Pixel wordmark top-left + client name top-right. Tabs group
+ * events by region; summary bar rolls up tickets-entered vs capacity
+ * across the visible tab; per-event cards take the actual input.
+ */
+export function ClientPortal({ token, client, events: initial }: Props) {
+  // Local state owns every per-event row. Optimistic updates from the
+  // event-card component flow back here via `onSnapshotSaved`.
+  const [events, setEvents] = useState<PortalEvent[]>(initial);
+
+  const grouped = useMemo(() => {
+    const map = new Map<TabKey, PortalEvent[]>();
+    for (const ev of events) {
+      const key = bucketEvent(ev);
+      const list = map.get(key) ?? [];
+      list.push(ev);
+      map.set(key, list);
+    }
+    return map;
+  }, [events]);
+
+  const visibleTabs = TAB_ORDER.filter((k) => (grouped.get(k)?.length ?? 0) > 0);
+
+  // Default tab = the one with the most events. Ties keep the
+  // canonical TAB_ORDER preference.
+  const defaultTab = useMemo(() => {
+    if (visibleTabs.length === 0) return null;
+    let best: TabKey = visibleTabs[0];
+    let bestCount = grouped.get(best)?.length ?? 0;
+    for (const t of visibleTabs.slice(1)) {
+      const c = grouped.get(t)?.length ?? 0;
+      if (c > bestCount) {
+        best = t;
+        bestCount = c;
+      }
+    }
+    return best;
+  }, [visibleTabs, grouped]);
+
+  const [activeTab, setActiveTab] = useState<TabKey | null>(defaultTab);
+  const tabKey = activeTab && visibleTabs.includes(activeTab) ? activeTab : defaultTab;
+
+  const tabEvents = tabKey ? grouped.get(tabKey) ?? [] : [];
+
+  // Summary bar rolls up the resolved tickets_sold (snapshot first,
+  // then events.tickets_sold legacy column, then 0) vs total capacity.
+  const summary = useMemo(() => {
+    let sold = 0;
+    let cap = 0;
+    let venues = 0;
+    for (const ev of tabEvents) {
+      const resolvedSold =
+        ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+      sold += resolvedSold;
+      cap += ev.capacity ?? 0;
+      venues += 1;
+    }
+    const pct = cap > 0 ? Math.round((sold / cap) * 100) : 0;
+    return { sold, cap, venues, pct };
+  }, [tabEvents]);
+
+  const handleSnapshot = (
+    eventId: string,
+    snapshot: { tickets_sold: number; captured_at: string; week_start: string },
+  ) => {
+    setEvents((prev) =>
+      prev.map((ev) => {
+        if (ev.id !== eventId) return ev;
+        const next = { ...snapshot };
+        const newHistory = [
+          { ...next, tickets_sold: next.tickets_sold },
+          // Drop any pre-existing same-week row so the history list
+          // doesn't show two entries for one Mon-Sun period.
+          ...ev.history.filter((h) => h.week_start !== next.week_start),
+        ].slice(0, 5);
+        return {
+          ...ev,
+          latest_snapshot: { ...next },
+          history: newHistory,
+        };
+      }),
+    );
+  };
+
+  return (
+    <main className="min-h-screen bg-white text-zinc-900">
+      {/* Header */}
+      <header className="border-b border-zinc-200">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-5">
+          <p className="font-heading text-base tracking-[0.2em] text-zinc-900">
+            OFF / PIXEL
+          </p>
+          <p className="text-xs text-zinc-500 truncate max-w-[40ch]">
+            {client.name}
+          </p>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-5xl px-6 py-8 space-y-6">
+        <div>
+          <h1 className="font-heading text-2xl tracking-wide">
+            Ticket sales input
+          </h1>
+          <p className="mt-1 text-sm text-zinc-600">
+            Update tickets sold for each show whenever you have a fresh
+            number. We&apos;ll roll the latest figures into the campaign
+            reports automatically.
+          </p>
+        </div>
+
+        {visibleTabs.length === 0 ? (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-8 text-center">
+            <p className="text-sm text-zinc-600">
+              No events linked to this client yet. Get in touch if you
+              were expecting to see shows here.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Tabs — only render when more than one bucket is non-empty */}
+            {visibleTabs.length > 1 && (
+              <div
+                role="tablist"
+                aria-label="Region"
+                className="flex flex-wrap gap-1 border-b border-zinc-200"
+              >
+                {visibleTabs.map((t) => {
+                  const isActive = t === tabKey;
+                  const count = grouped.get(t)?.length ?? 0;
+                  return (
+                    <button
+                      key={t}
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setActiveTab(t)}
+                      className={`relative -mb-px inline-flex items-center gap-2 px-4 py-2.5 text-sm transition-colors ${
+                        isActive
+                          ? "border-b-2 border-zinc-900 font-medium text-zinc-900"
+                          : "border-b-2 border-transparent text-zinc-500 hover:text-zinc-900"
+                      }`}
+                    >
+                      {TAB_LABELS[t]}
+                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Summary bar */}
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
+              <p className="text-sm text-zinc-700">
+                <span className="font-semibold text-zinc-900">
+                  {formatNumber(summary.sold)}
+                </span>{" "}
+                /{" "}
+                <span className="font-semibold text-zinc-900">
+                  {formatNumber(summary.cap)}
+                </span>{" "}
+                sold across {summary.venues} venue
+                {summary.venues === 1 ? "" : "s"}
+                {summary.cap > 0 && (
+                  <>
+                    {" "}— <span className="font-semibold">{summary.pct}%</span>
+                  </>
+                )}
+              </p>
+              {summary.cap > 0 && (
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200">
+                  <div
+                    className="h-full bg-zinc-900 transition-all"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, summary.pct))}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Event cards */}
+            <div className="space-y-4">
+              {tabEvents.map((ev) => (
+                <ClientPortalEventCard
+                  key={ev.id}
+                  token={token}
+                  event={ev}
+                  onSnapshotSaved={(snapshot) =>
+                    handleSnapshot(ev.id, snapshot)
+                  }
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <footer className="border-t border-zinc-200 mt-12">
+        <div className="mx-auto max-w-5xl px-6 py-4 text-[11px] text-zinc-400">
+          Off Pixel · campaign analytics for {client.name}
+        </div>
+      </footer>
+    </main>
+  );
+}
