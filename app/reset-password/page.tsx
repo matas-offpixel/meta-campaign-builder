@@ -15,28 +15,23 @@ type Status =
 /**
  * Password recovery completion page.
  *
- * Expected arrival path (token-hash / SSR flow):
- *   Recovery email → /auth/callback?token_hash=…&type=recovery&next=/reset-password
- *   → server calls verifyOtp({ token_hash, type: "recovery" })
- *   → session written into cookies
- *   → redirect here with live session in cookies
- *   → getSession() resolves immediately → status "ready" → form shown
+ * Handles two arrival paths:
  *
- * The email template must be:
- *   <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password">
+ * A. Token-hash / SSR (preferred — set this in the Supabase email template):
+ *      Email link → /auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password
+ *      → server calls verifyOtp({ token_hash, type: "recovery" })
+ *      → session cookies set on redirect response
+ *      → browser lands here with cookies → getSession() → "ready"
  *
- * Note: {{ .TokenHash }} is a hashed OTP token. It must be verified with
- * verifyOtp() — NOT exchangeCodeForSession() (which expects a PKCE auth
- * code from OAuth/magic-link flows, a completely different token type).
+ * B. Implicit hash-fragment (default Supabase template / {{ .ConfirmationURL }}):
+ *      Email link → Supabase /auth/v1/verify → redirects to
+ *      …/reset-password#access_token=…&refresh_token=…&type=recovery
+ *      → this page parses the fragment and calls setSession() explicitly.
  *
- * Fallback: the page also listens for the PASSWORD_RECOVERY event from
- * onAuthStateChange in case the user arrives via the implicit hash-fragment
- * flow (e.g. if the Supabase dashboard's "Send password recovery" uses the
- * default {{ .ConfirmationURL }} template before the template is updated).
- * In that case the SDK consumes #access_token=…&type=recovery from the URL.
- *
- * If neither path produces a session within ~2s we surface a "link expired"
- * message and link back to /login. We never call signOut on failure.
+ *      IMPORTANT: we cannot use onAuthStateChange alone for path B. The
+ *      @supabase/ssr createBrowserClient fires PASSWORD_RECOVERY during SDK
+ *      initialisation — before useEffect runs — so the event is missed. We
+ *      must parse the hash ourselves.
  */
 export default function ResetPasswordPage() {
   const [status, setStatus] = useState<Status>("checking");
@@ -47,34 +42,73 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    // Path 1: PKCE callback already swapped code → cookies before we
-    // mounted. getSession() returns the live session synchronously from
-    // localStorage / cookies and we can show the form right away.
+    // One-time resolve guard — whichever path wins first, later paths
+    // are ignored. Prevents double state-sets from parallel async calls.
+    let settled = false;
+    const resolve = () => {
+      if (settled) return;
+      settled = true;
+      setStatus((prev) => (prev === "checking" ? "ready" : prev));
+    };
+
+    // Path 1: token-hash flow — /auth/callback ran verifyOtp() server-side,
+    // set session cookies, then redirected here. createBrowserClient reads
+    // from those cookies, so getSession() returns the live session.
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setStatus((prev) => (prev === "checking" ? "ready" : prev));
-      }
+      if (session) resolve();
     });
 
-    // Path 2: implicit hash fragment. The SDK consumes #access_token
-    // automatically on mount and emits PASSWORD_RECOVERY. SIGNED_IN can
-    // also fire on the same load if the SDK happens to classify the
-    // session that way — accept either as proof we have an actionable
-    // recovery session.
+    // Path 2: implicit hash-fragment flow — the default Supabase
+    // {{ .ConfirmationURL }} template redirects to the app with the
+    // recovery session in the URL hash:
+    //   …/reset-password#access_token=…&refresh_token=…&type=recovery
+    //
+    // @supabase/ssr's createBrowserClient fires PASSWORD_RECOVERY during
+    // SDK initialisation — before this useEffect runs — so we cannot rely
+    // on onAuthStateChange to catch it. Instead we parse the hash
+    // ourselves and call setSession() explicitly. This is the only reliable
+    // approach for the implicit flow.
+    const rawHash = window.location.hash.slice(1);
+    if (rawHash) {
+      const hp = new URLSearchParams(rawHash);
+      const accessToken = hp.get("access_token");
+      const refreshToken = hp.get("refresh_token");
+      const hashType = hp.get("type");
+
+      if (accessToken && hashType === "recovery") {
+        supabase.auth
+          .setSession({ access_token: accessToken, refresh_token: refreshToken ?? "" })
+          .then(({ data, error }) => {
+            if (!error && data.session) {
+              resolve();
+              // Strip the fragment so a hard-refresh doesn't replay the token.
+              window.history.replaceState(
+                {},
+                "",
+                window.location.pathname + window.location.search,
+              );
+            }
+          });
+      }
+    }
+
+    // Path 3: belt-and-suspenders — listen for SDK-emitted events in case
+    // the SDK does process the fragment on its own (behaviour varies across
+    // @supabase/ssr versions and browser environments).
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
-        setStatus((prev) => (prev === "checking" ? "ready" : prev));
+        resolve();
       }
     });
 
-    // No session within 2s → assume the link is expired or malformed.
-    // Functional update means we don't trample a "ready" state if the
-    // SDK is just slow to fire.
+    // 8s timeout — generous enough for slow connections, short enough to
+    // give quick feedback on a genuinely expired/invalid link. Was 2s which
+    // is too tight for the async setSession() round-trip above.
     const timer = window.setTimeout(() => {
       setStatus((prev) => (prev === "checking" ? "no-session" : prev));
-    }, 2000);
+    }, 8000);
 
     return () => {
       subscription.unsubscribe();
