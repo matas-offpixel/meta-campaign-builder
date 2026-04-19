@@ -6,6 +6,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { InvoiceCard } from "@/components/invoicing/invoice-card";
 import {
   SERVICE_TIER_LABEL,
   SETTLEMENT_TIMING_LABEL,
@@ -236,34 +237,11 @@ export function QuoteDetail({
             No invoices generated yet. Approve the quote to create them.
           </p>
         ) : (
-          <ul className="space-y-2">
+          <div className="space-y-2">
             {invoices.map((inv) => (
-              <li
-                key={inv.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs">{inv.invoice_number}</span>
-                  <span className="capitalize text-muted-foreground">
-                    {inv.invoice_type.replace(/_/g, " ")}
-                  </span>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${invoiceStatusClass(inv.status)}`}
-                  >
-                    {inv.status}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="font-semibold">
-                    {formatGBP(inv.amount_excl_vat)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Due {formatDate(inv.due_date)}
-                  </span>
-                </div>
-              </li>
+              <InvoiceCard key={inv.id} invoice={inv} />
             ))}
-          </ul>
+          </div>
         )}
       </Card>
 
@@ -365,17 +343,3 @@ function Field({
   );
 }
 
-function invoiceStatusClass(status: InvoiceRow["status"]): string {
-  switch (status) {
-    case "paid":
-      return "bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-300";
-    case "sent":
-      return "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-300";
-    case "overdue":
-      return "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-300";
-    case "cancelled":
-      return "bg-muted text-muted-foreground line-through";
-    default:
-      return "bg-muted text-muted-foreground";
-  }
-}
