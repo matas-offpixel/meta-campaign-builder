@@ -593,12 +593,18 @@ function computeOverallLondon(
 }
 
 /**
- * Roll-up for all London venues. Renders a one-row table that mirrors
- * the venue-section column layout but skips the per-event detail —
- * those live in the venue sections immediately below. The numbers are
- * derived from the same `venueSpend()` arithmetic the venue sections
- * use, so the row is internally consistent with whatever the user
- * sees when they scroll down.
+ * Roll-up for all London venues. Single-row aggregate that matches the
+ * "OVERALL" line in the England London Ticketing spreadsheet — *not* a
+ * venue table. Deliberately drops the prev / change / CPT-prev / CPT-
+ * change columns: the spreadsheet treats those as per-venue detail
+ * only, and showing them here would imply a level of period-on-period
+ * accuracy this row doesn't have (campaign-level spend is not
+ * snapshotted historically).
+ *
+ * Numbers come from `computeOverallLondon`, which over-computes a few
+ * fields the JSX no longer renders (prevTickets, change, cptPrevious,
+ * cptChange). Left in place to avoid touching shared totals plumbing
+ * for a presentational change — the unused fields cost nothing.
  */
 function OverallLondonSection({
   groups,
@@ -612,46 +618,41 @@ function OverallLondonSection({
 
   return (
     <section className="rounded-md border-2 border-zinc-900 bg-white shadow-sm">
-      <header className="flex flex-wrap items-baseline justify-between gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h2 className="font-heading text-lg tracking-wide text-zinc-900">
-            Overall London
-          </h2>
-          <p className="text-xs text-zinc-500">
-            {totals.eventCount} match{totals.eventCount === 1 ? "" : "es"}{" "}
-            across {groups.length} venue{groups.length === 1 ? "" : "s"}
+      <header className="flex flex-wrap items-baseline gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
+        <h2 className="font-heading text-lg tracking-wide text-zinc-900">
+          Overall London
+        </h2>
+        {/* Header badges intentionally surface the *source* shared-
+            campaign totals (presale + on-sale) rather than the derived
+            per-event splits — these are the two numbers the client
+            keeps in the spreadsheet header, so matching them lets the
+            admin reconcile at a glance. Hidden when null so an
+            unrefreshed state doesn't render "Pre-reg: —". */}
+        {presaleSpend !== null && (
+          <p className="text-xs text-zinc-600">
+            Pre-reg:{" "}
+            <span className="font-semibold text-zinc-900">
+              {formatGBP(presaleSpend, 2)}
+            </span>
           </p>
-          {onsaleSpend !== null && (
-            <>
-              <span className="text-xs text-zinc-400" aria-hidden="true">
-                ·
-              </span>
-              <p className="text-xs text-zinc-600">
-                Shared on-sale:{" "}
-                <span className="font-semibold text-zinc-900">
-                  {formatGBP(onsaleSpend)}
-                </span>
-              </p>
-            </>
-          )}
-          {presaleSpend !== null && (
-            <>
-              <span className="text-xs text-zinc-400" aria-hidden="true">
-                ·
-              </span>
-              <p className="text-xs text-zinc-600">
-                Shared presale:{" "}
-                <span className="font-semibold text-zinc-900">
-                  {formatGBP(presaleSpend)}
-                </span>
-              </p>
-            </>
-          )}
-        </div>
+        )}
+        {presaleSpend !== null && onsaleSpend !== null && (
+          <span className="text-xs text-zinc-400" aria-hidden="true">
+            ·
+          </span>
+        )}
+        {onsaleSpend !== null && (
+          <p className="text-xs text-zinc-600">
+            On-sale:{" "}
+            <span className="font-semibold text-zinc-900">
+              {formatGBP(onsaleSpend, 2)}
+            </span>
+          </p>
+        )}
       </header>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-sm">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-zinc-900 text-left text-xs font-medium uppercase tracking-wide text-white">
               <th className="px-3 py-2.5">Event</th>
@@ -659,11 +660,7 @@ function OverallLondonSection({
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
               <th className="px-3 py-2.5 text-right">Total Spend</th>
               <th className="px-3 py-2.5 text-right">Tickets Sold</th>
-              <th className="px-3 py-2.5 text-right">Tickets Prev</th>
-              <th className="px-3 py-2.5 text-right">Tickets Change</th>
               <th className="px-3 py-2.5 text-right">CPT</th>
-              <th className="px-3 py-2.5 text-right">CPT Prev</th>
-              <th className="px-3 py-2.5 text-right">CPT Change</th>
               <th className="px-3 py-2.5 text-right">Ticket Revenue</th>
               <th className="px-3 py-2.5 text-right">ROAS</th>
             </tr>
@@ -683,22 +680,8 @@ function OverallLondonSection({
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatNumber(totals.tickets)}
               </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-zinc-500">
-                {formatNumber(totals.prevTickets)}
-              </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {formatChange(totals.change)}
-              </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.cpt, 2)}
-              </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {formatGBP(totals.cptPrevious, 2)}
-              </td>
-              <td
-                className={`px-3 py-2.5 text-right font-semibold tabular-nums ${cptChangeClass(totals.cptChange)}`}
-              >
-                {formatCptChange(totals.cptChange)}
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.revenue)}
@@ -711,7 +694,6 @@ function OverallLondonSection({
             </tr>
           </tbody>
         </table>
-        <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
       </div>
     </section>
   );
