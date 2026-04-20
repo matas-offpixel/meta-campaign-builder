@@ -85,6 +85,31 @@ function roasClass(n: number | null): string {
   return "text-zinc-700";
 }
 
+/**
+ * CPT change is a *signed* delta in GBP. Convention:
+ *   - negative = CPT fell (more tickets per pound) → good, render green
+ *   - positive = CPT rose (each ticket costs more) → bad, render amber
+ *   - null     = previous-week CPT can't be computed (no prior tickets
+ *                or no spend yet) → muted
+ *
+ * The leading `+` / `−` characters are the typographic sign glyphs (real
+ * Unicode minus, not ASCII hyphen) so the column visually aligns even
+ * when a row has no sign prefix.
+ */
+function formatCptChange(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return "—";
+  if (n === 0) return GBP2.format(0);
+  const abs = GBP2.format(Math.abs(n));
+  return n > 0 ? `+${abs}` : `−${abs}`;
+}
+
+function cptChangeClass(n: number | null): string {
+  if (n === null) return "text-zinc-500";
+  if (n < 0) return "text-emerald-600 font-semibold";
+  if (n > 0) return "text-amber-600 font-semibold";
+  return "text-zinc-700";
+}
+
 interface VenueGroup {
   key: string;
   displayName: string;
@@ -138,6 +163,10 @@ interface EventMetrics {
   prevTickets: number;
   change: number;
   cpt: number | null;
+  /** perEventTotal / prevTickets — null when prevTickets is 0 or spend is null. */
+  cptPrevious: number | null;
+  /** cpt − cptPrevious — null when either side is null. */
+  cptChange: number | null;
   revenue: number | null;
   roas: number | null;
 }
@@ -155,6 +184,17 @@ function computeEventMetrics(
     perEventTotal !== null && perEventTotal > 0 && tickets > 0
       ? perEventTotal / tickets
       : null;
+  // Prev-week CPT uses the *same* per-event spend as the current row —
+  // the campaign-level cache doesn't carry a historical snapshot, so
+  // this is "what last week's tickets would cost at today's spend".
+  // Same trade-off the Excel sheet had; it's the only honest option
+  // until we start snapshotting meta_spend_cached too.
+  const cptPrevious =
+    perEventTotal !== null && perEventTotal > 0 && prev > 0
+      ? perEventTotal / prev
+      : null;
+  const cptChange =
+    cpt !== null && cptPrevious !== null ? cpt - cptPrevious : null;
   const revenue = ev.latest_snapshot?.revenue ?? null;
   const roas =
     revenue !== null && perEventTotal !== null && perEventTotal > 0
@@ -168,6 +208,8 @@ function computeEventMetrics(
     prevTickets: prev,
     change: tickets - prev,
     cpt,
+    cptPrevious,
+    cptChange,
     revenue,
     roas,
   };
@@ -181,6 +223,8 @@ interface VenueTotals {
   prevTickets: number;
   change: number;
   cpt: number | null;
+  cptPrevious: number | null;
+  cptChange: number | null;
   revenue: number | null;
   roas: number | null;
 }
@@ -209,6 +253,12 @@ function sumVenue(group: VenueGroup): VenueTotals {
   const total = group.campaignSpend;
   const ad = total !== null ? total - prereg : null;
   const cpt = total !== null && total > 0 && tickets > 0 ? total / tickets : null;
+  const cptPrevious =
+    total !== null && total > 0 && prevTickets > 0
+      ? total / prevTickets
+      : null;
+  const cptChange =
+    cpt !== null && cptPrevious !== null ? cpt - cptPrevious : null;
   const finalRevenue = hasRevenue ? revenue : null;
   const roas =
     finalRevenue !== null && total !== null && total > 0
@@ -222,6 +272,8 @@ function sumVenue(group: VenueGroup): VenueTotals {
     prevTickets,
     change: tickets - prevTickets,
     cpt,
+    cptPrevious,
+    cptChange,
     revenue: finalRevenue,
     roas,
   };
@@ -264,7 +316,7 @@ interface VenueSectionProps {
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
-const COL_COUNT = 10;
+const COL_COUNT = 12;
 
 function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
@@ -339,10 +391,12 @@ function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
               <th className="px-3 py-2.5 text-right">Total Spend</th>
               <th className="px-3 py-2.5 text-right">Tickets Sold</th>
-              <th className="px-3 py-2.5 text-right">Revenue</th>
-              <th className="px-3 py-2.5 text-right">Prev</th>
-              <th className="px-3 py-2.5 text-right">Change</th>
+              <th className="px-3 py-2.5 text-right">Tickets Prev</th>
+              <th className="px-3 py-2.5 text-right">Tickets Change</th>
               <th className="px-3 py-2.5 text-right">CPT</th>
+              <th className="px-3 py-2.5 text-right">CPT Prev</th>
+              <th className="px-3 py-2.5 text-right">CPT Change</th>
+              <th className="px-3 py-2.5 text-right">Ticket Revenue</th>
               <th className="px-3 py-2.5 text-right">ROAS</th>
             </tr>
           </thead>
@@ -375,9 +429,6 @@ function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatNumber(totals.tickets)}
               </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {formatGBP(totals.revenue)}
-              </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-zinc-500">
                 {formatNumber(totals.prevTickets)}
               </td>
@@ -386,6 +437,17 @@ function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.cpt, 2)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.cptPrevious, 2)}
+              </td>
+              <td
+                className={`px-3 py-2.5 text-right font-semibold tabular-nums ${cptChangeClass(totals.cptChange)}`}
+              >
+                {formatCptChange(totals.cptChange)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.revenue)}
               </td>
               <td
                 className={`px-3 py-2.5 text-right tabular-nums ${roasClass(totals.roas)}`}
@@ -455,17 +517,6 @@ function EventRow({
           onSnapshotSaved={onSnapshotSaved}
         />
       </td>
-      <td className="px-3 py-2.5 text-right">
-        <NumericCell
-          key={`revenue:${m.revenue ?? "null"}`}
-          token={token}
-          event={event}
-          field="revenue"
-          editMode={editMode}
-          currentValue={m.revenue}
-          onSnapshotSaved={onSnapshotSaved}
-        />
-      </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-zinc-500">
         {event.tickets_sold_previous === null
           ? "—"
@@ -476,6 +527,25 @@ function EventRow({
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-zinc-900">
         {formatGBP(m.cpt, 2)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-700">
+        {formatGBP(m.cptPrevious, 2)}
+      </td>
+      <td
+        className={`px-3 py-2.5 text-right tabular-nums ${cptChangeClass(m.cptChange)}`}
+      >
+        {formatCptChange(m.cptChange)}
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <NumericCell
+          key={`revenue:${m.revenue ?? "null"}`}
+          token={token}
+          event={event}
+          field="revenue"
+          editMode={editMode}
+          currentValue={m.revenue}
+          onSnapshotSaved={onSnapshotSaved}
+        />
       </td>
       <td className={`px-3 py-2.5 text-right tabular-nums ${roasClass(m.roas)}`}>
         {formatRoas(m.roas)}
