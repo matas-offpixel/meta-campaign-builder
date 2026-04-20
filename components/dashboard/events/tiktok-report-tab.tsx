@@ -12,11 +12,13 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type {
   TikTokAccount,
+  TikTokAdRow,
   TikTokDemographicRow,
   TikTokGeoRow,
   TikTokImportResult,
@@ -34,9 +36,9 @@ interface Props {
   clientId: string;
   /**
    * Server-resolved current TikTok account FK on the event row. Null
-   * when the event is not yet linked. Once Slice 5 lands, the linker
-   * dropdown also accepts the inherited client-level account as a
-   * fallback — for now we link directly per-event.
+   * when the event is not yet linked. Account linkage is now purely
+   * metadata — the report itself keys off `event_id`, so an unlinked
+   * event still renders the import dropzone and any existing snapshot.
    */
   initialTikTokAccountId: string | null;
 }
@@ -65,11 +67,9 @@ export function TikTokReportTab({
   const [accounts, setAccounts] = useState<TikTokAccount[] | null>(null);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [linkingPending, setLinkingPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // Latest manual report — fetched once we're in the linked state.
   const [report, setReport] = useState<LatestReport | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(true);
 
   const fetchReport = useCallback(async () => {
     setReportLoading(true);
@@ -87,9 +87,16 @@ export function TikTokReportTab({
     }
   }, [eventId]);
 
+  // Always fetch the latest snapshot — the report keys off event_id, not
+  // account_id, so account-linkage state is irrelevant here.
+  useEffect(() => {
+    void fetchReport();
+  }, [fetchReport]);
+
+  // Account list is needed for the metadata linker section. Fetch once on
+  // mount; the linker stays mounted regardless of account state.
   useEffect(() => {
     let cancelled = false;
-    if (accountId !== null) return;
     setAccountsLoading(true);
     fetch("/api/tiktok/accounts")
       .then((r) => r.json())
@@ -107,17 +114,11 @@ export function TikTokReportTab({
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
-
-  useEffect(() => {
-    if (accountId === null) return;
-    void fetchReport();
-  }, [accountId, fetchReport]);
+  }, []);
 
   const handleLink = async (newAccountId: string) => {
     if (!newAccountId) return;
     setLinkingPending(true);
-    setError(null);
     setAccountId(newAccountId);
     setLinkingPending(false);
   };
@@ -126,84 +127,22 @@ export function TikTokReportTab({
     ? (accounts?.find((a) => a.id === accountId) ?? null)
     : null;
 
-  // ── Unlinked state — same picker as the placeholder ────────────────
-  if (!accountId) {
-    return (
-      <section className="rounded-md border border-border bg-card p-5">
-        <div className="mb-3 flex items-start gap-3">
-          <Music2 className="mt-0.5 h-4 w-4" style={{ color: TIKTOK_PINK }} />
-          <div className="min-w-0">
-            <h2 className="font-heading text-base tracking-wide">TikTok</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Link this event to a TikTok account to surface paid spend
-              and creative performance alongside Meta.
-            </p>
-          </div>
-        </div>
-
-        {accountsLoading ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading TikTok accounts…
-          </div>
-        ) : accounts && accounts.length > 0 ? (
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-56 flex-1">
-              <Select
-                id={`tiktok-link-${eventId}`}
-                label="Link TikTok account"
-                placeholder="Select an account…"
-                options={accounts.map((a) => ({
-                  value: a.id,
-                  label: a.account_name,
-                }))}
-                onChange={(e) => handleLink(e.target.value)}
-                disabled={linkingPending}
-                defaultValue=""
-              />
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            No TikTok account linked. Add one in Settings → TikTok once
-            the platform OAuth flow is connected.
-          </p>
-        )}
-
-        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
-      </section>
-    );
-  }
-
-  // ── Linked state ───────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       <section className="rounded-md border border-border bg-card p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Music2
-              className="mt-0.5 h-4 w-4"
-              style={{ color: TIKTOK_PINK }}
-            />
-            <div className="min-w-0">
-              <h2 className="font-heading text-base tracking-wide">TikTok</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Linked to{" "}
-                <span className="font-medium text-foreground">
-                  {linkedAccount?.account_name ?? "a TikTok account"}
-                </span>
-                . Drop your weekly TikTok Ads Manager exports below — the
-                parser auto-detects each sheet&apos;s shape.
-              </p>
-            </div>
+        <div className="flex items-start gap-3">
+          <Music2
+            className="mt-0.5 h-4 w-4"
+            style={{ color: TIKTOK_PINK }}
+          />
+          <div className="min-w-0">
+            <h2 className="font-heading text-base tracking-wide">TikTok</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Drop your weekly TikTok Ads Manager exports below — the
+              parser auto-detects each sheet&apos;s shape and keys the
+              snapshot off this event.
+            </p>
           </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setAccountId(null)}
-          >
-            Unlink
-          </Button>
         </div>
       </section>
 
@@ -214,6 +153,16 @@ export function TikTokReportTab({
         defaultStart={report?.date_range_start ?? ""}
         defaultEnd={report?.date_range_end ?? ""}
         onImported={() => void fetchReport()}
+      />
+
+      <AccountLinkerCard
+        eventId={eventId}
+        accounts={accounts}
+        accountsLoading={accountsLoading}
+        linkedAccount={linkedAccount}
+        linkingPending={linkingPending}
+        onLink={handleLink}
+        onUnlink={() => setAccountId(null)}
       />
 
       {reportLoading ? (
@@ -227,6 +176,85 @@ export function TikTokReportTab({
         <EmptyReportState />
       )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Account linker — metadata only, never blocks render.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AccountLinkerProps {
+  eventId: string;
+  accounts: TikTokAccount[] | null;
+  accountsLoading: boolean;
+  linkedAccount: TikTokAccount | null;
+  linkingPending: boolean;
+  onLink: (id: string) => void;
+  onUnlink: () => void;
+}
+
+function AccountLinkerCard({
+  eventId,
+  accounts,
+  accountsLoading,
+  linkedAccount,
+  linkingPending,
+  onLink,
+  onUnlink,
+}: AccountLinkerProps) {
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-heading text-xs uppercase tracking-wider text-muted-foreground">
+            TikTok account
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {linkedAccount ? (
+              <>
+                Linked to{" "}
+                <span className="font-medium text-foreground">
+                  {linkedAccount.account_name}
+                </span>
+                . Reports import either way — this is metadata for future
+                API integration.
+              </>
+            ) : (
+              "Optional. The manual report import works regardless; linking helps once OAuth lands."
+            )}
+          </p>
+        </div>
+        {linkedAccount ? (
+          <Button size="sm" variant="ghost" onClick={onUnlink}>
+            Unlink
+          </Button>
+        ) : accountsLoading ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading…
+          </span>
+        ) : accounts && accounts.length > 0 ? (
+          <div className="min-w-56">
+            <Select
+              id={`tiktok-link-${eventId}`}
+              label=""
+              placeholder="Link an account…"
+              options={accounts.map((a) => ({
+                value: a.id,
+                label: a.account_name,
+              }))}
+              onChange={(e) => onLink(e.target.value)}
+              disabled={linkingPending}
+              defaultValue=""
+            />
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            No TikTok accounts configured yet.
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -472,31 +500,50 @@ function ReportView({ report }: { report: LatestReport }) {
   const c = snapshot.campaign;
   const currency = c?.currency ?? "GBP";
 
-  const cards = [
+  // Three rows tuned for brand + event campaigns. Destination metrics are
+  // demoted (most brand campaigns route to a TikTok in-app destination, so
+  // dest clicks + CPC are zero or vanishing); Clicks (all) / CTR (all) /
+  // Frequency / CP1KR / watch-depth metrics are what actually move.
+  const row1 = [
     {
       label: "Impressions",
       value: fmtInt(c?.impressions ?? null, c?.impressions_raw ?? null),
     },
     { label: "Reach", value: fmtInt(c?.reach ?? null) },
     { label: "Spend", value: fmtMoney(c?.cost ?? null, currency) },
-    {
-      label: "Video views (2s)",
-      value: fmtInt(c?.video_views_2s ?? null),
-    },
-    {
-      label: "Clicks (dest)",
-      value: fmtInt(c?.clicks_destination ?? null),
-    },
+    { label: "Frequency", value: fmtFrequency(c?.frequency ?? null) },
+  ];
+  const row2 = [
+    { label: "Clicks (all)", value: fmtInt(c?.clicks_all ?? null) },
+    { label: "CTR (all)", value: fmtPct(c?.ctr_all ?? null) },
     { label: "CPM", value: fmtMoney(c?.cpm ?? null, currency) },
     {
-      label: "CPC (dest)",
-      value: fmtMoney(c?.cpc_destination ?? null, currency),
-    },
-    {
-      label: "CTR (dest)",
-      value: fmtPct(c?.ctr_destination ?? null),
+      label: "Cost per 1000 reached",
+      value: fmtMoney(c?.cost_per_1000_reached ?? null, currency),
     },
   ];
+  const row3 = [
+    { label: "Video views (2s)", value: fmtInt(c?.video_views_2s ?? null) },
+    { label: "Video views (6s)", value: fmtInt(c?.video_views_6s ?? null) },
+    { label: "Video views (100%)", value: fmtInt(c?.video_views_p100 ?? null) },
+    {
+      label: "Avg play time / user",
+      value: fmtSeconds(c?.avg_play_time_per_user ?? null),
+    },
+  ];
+
+  const destClicks = c?.clicks_destination ?? null;
+  const destCpc = c?.cpc_destination ?? null;
+  const destCtr = c?.ctr_destination ?? null;
+  const destCaveat =
+    destClicks === 0
+      ? "Destination clicks: 0 — campaign had no landing page configured."
+      : destClicks != null
+        ? `Destination clicks: ${fmtInt(destClicks)} · CPC ${fmtMoney(
+            destCpc,
+            currency,
+          )} · CTR ${fmtPct(destCtr)}`
+        : null;
 
   return (
     <div className="space-y-6">
@@ -513,21 +560,25 @@ function ReportView({ report }: { report: LatestReport }) {
             </p>
           </div>
           {c?.primary_status && (
-            <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-              {c.primary_status}
-            </span>
+            <StatusBadge status={c.primary_status} />
           )}
         </div>
       </section>
 
-      <section
-        className="grid grid-cols-2 gap-3 md:grid-cols-4"
-        aria-label="TikTok campaign stats"
-      >
-        {cards.map((card) => (
-          <StatCard key={card.label} label={card.label} value={card.value} />
-        ))}
-      </section>
+      <div className="space-y-3">
+        <StatGrid cards={row1} />
+        <StatGrid cards={row2} />
+        <StatGrid cards={row3} />
+        {destCaveat && (
+          <p className="px-1 text-[11px] text-muted-foreground">{destCaveat}</p>
+        )}
+      </div>
+
+      {snapshot.ads.length > 0 && (
+        <BreakdownSection title="Ads" defaultOpen>
+          <AdsTable rows={snapshot.ads} currency={currency} />
+        </BreakdownSection>
+      )}
 
       <BreakdownSection title="Top regions" defaultOpen>
         <GeoTable rows={snapshot.geo} currency={currency} />
@@ -538,7 +589,7 @@ function ReportView({ report }: { report: LatestReport }) {
       </BreakdownSection>
 
       <BreakdownSection title="Top interests">
-        <InterestGroupedTable rows={snapshot.interests} currency={currency} />
+        <InterestRankedTable rows={snapshot.interests} />
       </BreakdownSection>
 
       <BreakdownSection title="Top search terms">
@@ -548,6 +599,23 @@ function ReportView({ report }: { report: LatestReport }) {
         />
       </BreakdownSection>
     </div>
+  );
+}
+
+function StatGrid({
+  cards,
+}: {
+  cards: { label: string; value: string }[];
+}) {
+  return (
+    <section
+      className="grid grid-cols-2 gap-3 md:grid-cols-4"
+      aria-label="TikTok campaign stats"
+    >
+      {cards.map((card) => (
+        <StatCard key={card.label} label={card.label} value={card.value} />
+      ))}
+    </section>
   );
 }
 
@@ -567,6 +635,20 @@ function StatCard({
         {value}
       </p>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const variant: "success" | "warning" | "default" = (() => {
+    const s = status.toLowerCase();
+    if (s.includes("not delivering")) return "warning";
+    if (s.includes("active")) return "success";
+    return "default";
+  })();
+  return (
+    <Badge variant={variant} className="text-[10px] uppercase tracking-wider">
+      {status}
+    </Badge>
   );
 }
 
@@ -596,6 +678,69 @@ function BreakdownSection({
       </button>
       {open && <div className="border-t border-border px-5 py-4">{children}</div>}
     </section>
+  );
+}
+
+function AdsTable({
+  rows,
+  currency,
+}: {
+  rows: TikTokAdRow[];
+  currency: string;
+}) {
+  const sorted = [...rows].sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0));
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            <th className="pb-2">Ad</th>
+            <th className="pb-2">Status</th>
+            <th className="pb-2 text-right">Spend</th>
+            <th className="pb-2 text-right">Impr.</th>
+            <th className="pb-2 text-right">Reach</th>
+            <th className="pb-2 text-right">Clicks (all)</th>
+            <th className="pb-2 text-right">CTR (all)</th>
+            <th className="pb-2 text-right">2s views</th>
+            <th className="pb-2 text-right">100% views</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r, i) => (
+            <tr
+              key={`${r.ad_name}-${i}`}
+              className="border-t border-border/40 text-foreground"
+            >
+              <td className="py-1.5 pr-3">{r.ad_name}</td>
+              <td className="py-1.5 pr-3">
+                <StatusBadge status={r.primary_status} />
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtMoney(r.cost, currency)}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtInt(r.impressions, r.impressions_raw)}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtInt(r.reach)}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtInt(r.clicks_all)}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtPct(r.ctr_all)}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtInt(r.video_views_2s)}
+              </td>
+              <td className="py-1.5 text-right tabular-nums">
+                {fmtInt(r.video_views_p100)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -650,38 +795,61 @@ function DemographicTable({
   );
 }
 
-function InterestGroupedTable({
-  rows,
-  currency,
-}: {
-  rows: TikTokInterestRow[];
-  currency: string;
-}) {
+/**
+ * Flat ranked interest table sorted by 2-second views desc.
+ *
+ * TikTok auto-distributes spend nearly evenly across linked interests, so
+ * spend / reach / clicks columns produce a meaningless near-flat list.
+ * Watch depth (2s plays + avg play time per video view) is the only signal
+ * that actually separates audiences here — vertical is demoted to a chip
+ * for grouping context without dictating the ranking.
+ */
+function InterestRankedTable({ rows }: { rows: TikTokInterestRow[] }) {
   if (rows.length === 0)
     return <EmptyBreakdown label="No interest rows in snapshot." />;
-  const grouped = groupBy(rows, (r) => r.vertical ?? "other");
+  const top = [...rows]
+    .sort((a, b) => (b.video_views_2s ?? 0) - (a.video_views_2s ?? 0))
+    .slice(0, 15);
   return (
-    <div className="space-y-4">
-      {Array.from(grouped.entries()).map(([vertical, list]) => (
-        <div key={vertical}>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {labelForVertical(vertical)}
-          </h4>
-          <BreakdownTable
-            headers={["Audience", "Spend", "Impr.", "Clicks", "CTR"]}
-            rows={[...list]
-              .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
-              .slice(0, 10)
-              .map((r) => [
-                r.audience_label,
-                fmtMoney(r.cost, currency),
-                fmtInt(r.impressions, r.impressions_raw),
-                fmtInt(r.clicks_destination),
-                fmtPct(r.ctr_destination),
-              ])}
-          />
-        </div>
-      ))}
+    <div className="space-y-2">
+      <p className="text-[11px] text-muted-foreground">
+        TikTok auto-delivers broadly across all linked interests — rank by
+        watch depth rather than spend.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <th className="pb-2">Audience</th>
+              <th className="pb-2 text-right">Video plays (2s)</th>
+              <th className="pb-2 text-right">Avg play time / view</th>
+            </tr>
+          </thead>
+          <tbody>
+            {top.map((r, i) => (
+              <tr
+                key={`${r.audience_label}-${i}`}
+                className="border-t border-border/40 text-foreground"
+              >
+                <td className="py-1.5 pr-3">
+                  <div className="flex items-center gap-2">
+                    <span>{r.audience_label}</span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {labelForVertical(r.vertical ?? "other")}
+                    </span>
+                  </div>
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {fmtInt(r.video_views_2s)}
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {fmtSeconds(r.avg_play_time_per_video_view)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -816,6 +984,16 @@ function fmtPct(n: number | null): string {
   // (e.g. "1.23%" → 1.23), so we just append "%".
   if (n == null) return "—";
   return `${n.toFixed(2)}%`;
+}
+
+function fmtFrequency(n: number | null): string {
+  if (n == null) return "—";
+  return n.toFixed(2);
+}
+
+function fmtSeconds(n: number | null): string {
+  if (n == null) return "—";
+  return `${n.toFixed(2)}s`;
 }
 
 function fmtDate(iso: string): string {
