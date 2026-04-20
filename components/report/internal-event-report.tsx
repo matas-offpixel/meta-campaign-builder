@@ -159,7 +159,7 @@ export function InternalEventReport({ eventId, event }: Props) {
   return (
     <EventReportView
       event={event}
-      insights={state.data}
+      meta={state.data}
       datePreset={datePreset}
       customRange={customRange}
       creativesSource={{ kind: "internal", eventId }}
