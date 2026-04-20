@@ -32,7 +32,20 @@ export type InvoiceType =
   | "upfront"
   | "settlement"
   | "sell_out_bonus"
+  | "retainer"
   | "other";
+
+/**
+ * How a client is billed.
+ *
+ *   per_event  - one quote per show, generates upfront + settlement +
+ *                optional sell-out-bonus invoices via the standard pricing
+ *                calculator.
+ *   retainer   - flat monthly fee for ongoing services. Quote total =
+ *                retainer_monthly_fee × retainer_months, billed 100%
+ *                per month with one invoice per month.
+ */
+export type BillingMode = "per_event" | "retainer";
 
 export interface QuoteRow {
   id: string;
@@ -55,6 +68,12 @@ export interface QuoteRow {
   max_fee: number;
   upfront_pct: number;
   settlement_timing: SettlementTiming;
+  /**
+   * Quote-level billing mode snapshot. NULL on legacy rows (treated as
+   * 'per_event'). Retainer quotes also carry retainer_months below.
+   */
+  billing_mode: BillingMode | null;
+  retainer_months: number | null;
   status: QuoteStatus;
   approved_at: string | null;
   converted_at: string | null;
@@ -69,7 +88,8 @@ export interface InvoiceRow {
   client_id: string;
   event_id: string | null;
   quote_id: string | null;
-  invoice_number: string;
+  /** Manually entered post-creation. Null until the user types it in. */
+  invoice_number: string | null;
   invoice_type: InvoiceType;
   amount_excl_vat: number;
   vat_applicable: boolean;
@@ -101,6 +121,14 @@ export interface CreateQuoteRequest {
   settlement_timing: SettlementTiming;
   notes: string | null;
   /**
+   * Per-event vs retainer. Defaults to 'per_event' for backwards compat.
+   * When 'retainer', service_tier / capacity / sold_out_expected are
+   * ignored — pricing comes from the client's retainer_monthly_fee
+   * multiplied by retainer_months.
+   */
+  billing_mode?: BillingMode;
+  retainer_months?: number | null;
+  /**
    * "draft"    save without generating invoices
    * "approved" save AND auto-generate invoice rows
    */
@@ -119,6 +147,18 @@ export interface ClientForQuoteForm {
   name: string;
   default_upfront_pct: number;
   default_settlement_timing: SettlementTiming;
+  /**
+   * Custom per-ticket rate that overrides the tier rate when set.
+   * Null = use the standard tier table.
+   */
+  custom_rate_per_ticket: number | null;
+  /** Custom minimum fee that overrides the £750 floor when set. */
+  custom_minimum_fee: number | null;
+  /** 'per_event' (default) or 'retainer'. */
+  billing_model: BillingMode;
+  /** Monthly retainer fee in £; only meaningful when billing_model='retainer'. */
+  retainer_monthly_fee: number | null;
+  retainer_started_at: string | null;
 }
 
 /** Invoice + denormalised client/event names for dashboard tables. */

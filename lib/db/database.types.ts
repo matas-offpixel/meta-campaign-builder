@@ -379,8 +379,13 @@ export type Database = {
       }
       clients: {
         Row: {
+          billing_model: string | null
           created_at: string
+          custom_minimum_fee: number | null
+          custom_rate_per_ticket: number | null
           default_page_ids: string[]
+          default_settlement_timing: string | null
+          default_upfront_pct: number | null
           facebook_page_handle: string | null
           google_ads_account_id: string | null
           google_ads_customer_id: string | null
@@ -393,6 +398,8 @@ export type Database = {
           name: string
           notes: string | null
           primary_type: string
+          retainer_monthly_fee: number | null
+          retainer_started_at: string | null
           slug: string
           status: string
           tiktok_account_id: string | null
@@ -403,8 +410,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          billing_model?: string | null
           created_at?: string
+          custom_minimum_fee?: number | null
+          custom_rate_per_ticket?: number | null
           default_page_ids?: string[]
+          default_settlement_timing?: string | null
+          default_upfront_pct?: number | null
           facebook_page_handle?: string | null
           google_ads_account_id?: string | null
           google_ads_customer_id?: string | null
@@ -417,6 +429,8 @@ export type Database = {
           name: string
           notes?: string | null
           primary_type: string
+          retainer_monthly_fee?: number | null
+          retainer_started_at?: string | null
           slug: string
           status?: string
           tiktok_account_id?: string | null
@@ -427,8 +441,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          billing_model?: string | null
           created_at?: string
+          custom_minimum_fee?: number | null
+          custom_rate_per_ticket?: number | null
           default_page_ids?: string[]
+          default_settlement_timing?: string | null
+          default_upfront_pct?: number | null
           facebook_page_handle?: string | null
           google_ads_account_id?: string | null
           google_ads_customer_id?: string | null
@@ -441,6 +460,8 @@ export type Database = {
           name?: string
           notes?: string | null
           primary_type?: string
+          retainer_monthly_fee?: number | null
+          retainer_started_at?: string | null
           slug?: string
           status?: string
           tiktok_account_id?: string | null

@@ -168,6 +168,17 @@ export function QuoteDetail({
     </span>
   );
 
+  const billingBadge =
+    quote.billing_mode === "retainer" ? (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        Monthly Retainer
+      </span>
+    ) : (
+      <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+        Per Event
+      </span>
+    );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -175,6 +186,7 @@ export function QuoteDetail({
           {quote.quote_number}
         </h2>
         {statusBadge}
+        {billingBadge}
         <span className="text-sm text-muted-foreground">
           · {clientName} · {quote.event_name}
         </span>
@@ -201,25 +213,48 @@ export function QuoteDetail({
         </Card>
 
         <Card title="Pricing">
-          <Field
-            label="Service tier"
-            value={SERVICE_TIER_LABEL[quote.service_tier]}
-          />
-          <Field
-            label="Sold-out expected"
-            value={quote.sold_out_expected ? "Yes" : "No"}
-          />
-          <Field label="Base fee" value={formatGBP(quote.base_fee)} bold />
-          <Field
-            label="Sell-out bonus"
-            value={formatGBP(quote.sell_out_bonus)}
-          />
-          <Field label="Maximum fee" value={formatGBP(quote.max_fee)} bold />
-          <Field label="Upfront %" value={`${quote.upfront_pct}%`} />
-          <Field
-            label="Settlement timing"
-            value={SETTLEMENT_TIMING_LABEL[quote.settlement_timing]}
-          />
+          {quote.billing_mode === "retainer" ? (
+            <>
+              <Field label="Billing mode" value="Monthly retainer" />
+              <Field
+                label="Months billed"
+                value={String(quote.retainer_months ?? 1)}
+              />
+              <Field
+                label="Monthly fee"
+                value={formatGBP(
+                  Math.round(
+                    (quote.base_fee / Math.max(1, quote.retainer_months ?? 1)) *
+                      100,
+                  ) / 100,
+                )}
+              />
+              <Field label="Total" value={formatGBP(quote.base_fee)} bold />
+              <Field label="Upfront" value="100% per month" />
+            </>
+          ) : (
+            <>
+              <Field
+                label="Service tier"
+                value={SERVICE_TIER_LABEL[quote.service_tier]}
+              />
+              <Field
+                label="Sold-out expected"
+                value={quote.sold_out_expected ? "Yes" : "No"}
+              />
+              <Field label="Base fee" value={formatGBP(quote.base_fee)} bold />
+              <Field
+                label="Sell-out bonus"
+                value={formatGBP(quote.sell_out_bonus)}
+              />
+              <Field label="Maximum fee" value={formatGBP(quote.max_fee)} bold />
+              <Field label="Upfront %" value={`${quote.upfront_pct}%`} />
+              <Field
+                label="Settlement timing"
+                value={SETTLEMENT_TIMING_LABEL[quote.settlement_timing]}
+              />
+            </>
+          )}
         </Card>
       </section>
 

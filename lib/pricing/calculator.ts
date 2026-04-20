@@ -85,16 +85,52 @@ export function feeCapForCapacity(capacity: number): number {
 }
 
 /**
+ * Per-client overrides that bypass the standard tier table.
+ *
+ * Both fields default to null = "use the standard pricing rules". Setting
+ * customRatePerTicket replaces the tier-derived rate entirely — the chosen
+ * service_tier still drives the SERVICE_TIER_LABEL display but the £/ticket
+ * comes from this override. Setting customMinimumFee replaces the £750
+ * floor with the override (e.g. £500 for clients on a discounted retainer).
+ *
+ * Fee caps + sell-out bonuses are unaffected by either override.
+ */
+export interface ClientOverrides {
+  customRatePerTicket?: number | null;
+  customMinimumFee?: number | null;
+}
+
+/**
  * Calculate base fee, sell-out bonus, and max fee for a quote.
  *
  * Pure function — does not touch the database, does not throw on weird
  * inputs (negative capacity is treated as 0 to keep the live preview UI
  * resilient as the user types).
+ *
+ * Pass `overrides` to substitute the per-ticket rate and/or minimum fee
+ * for a specific client; either field can be null to fall back to the
+ * standard pricing.
  */
-export function calculateQuote(inputs: QuoteInputs): QuoteOutputs {
+export function calculateQuote(
+  inputs: QuoteInputs,
+  overrides?: ClientOverrides,
+): QuoteOutputs {
   const capacity = Math.max(0, Math.floor(inputs.capacity || 0));
   const tier = inputs.service_tier;
-  const perTicket = PER_TICKET_RATE[tier];
+
+  const customRate = overrides?.customRatePerTicket;
+  const perTicket =
+    customRate != null && Number.isFinite(customRate) && customRate > 0
+      ? customRate
+      : PER_TICKET_RATE[tier];
+
+  const customMinimum = overrides?.customMinimumFee;
+  const minimumFloor =
+    customMinimum != null &&
+    Number.isFinite(customMinimum) &&
+    customMinimum >= 0
+      ? customMinimum
+      : MINIMUM_FEE;
 
   const rawFee = round2(capacity * perTicket);
   const cap = feeCapForCapacity(capacity);
@@ -103,8 +139,8 @@ export function calculateQuote(inputs: QuoteInputs): QuoteOutputs {
   let minimumApplied = false;
   let capApplied = false;
 
-  if (baseFee < MINIMUM_FEE) {
-    baseFee = MINIMUM_FEE;
+  if (baseFee < minimumFloor) {
+    baseFee = minimumFloor;
     minimumApplied = true;
   } else if (baseFee > cap) {
     baseFee = cap;

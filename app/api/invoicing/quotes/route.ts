@@ -6,6 +6,7 @@ import {
   listQuotesServer,
 } from "@/lib/db/invoicing-server";
 import type {
+  BillingMode,
   CreateQuoteRequest,
   QuoteStatus,
 } from "@/lib/types/invoicing";
@@ -81,6 +82,8 @@ interface ParseError {
   error: string;
 }
 
+const BILLING_MODES: BillingMode[] = ["per_event", "retainer"];
+
 function parseBody(input: unknown): ParseResult | ParseError {
   if (!input || typeof input !== "object") {
     return { ok: false, error: "Body must be a JSON object." };
@@ -94,8 +97,21 @@ function parseBody(input: unknown): ParseResult | ParseError {
     typeof b.event_name === "string" ? b.event_name.trim() : "";
   if (!eventName) return { ok: false, error: "event_name is required." };
 
+  const billingMode: BillingMode =
+    typeof b.billing_mode === "string" &&
+    BILLING_MODES.includes(b.billing_mode as BillingMode)
+      ? (b.billing_mode as BillingMode)
+      : "per_event";
+  const isRetainer = billingMode === "retainer";
+
+  // Service tier / capacity / settlement_timing are only meaningful for
+  // per_event quotes. Retainer quotes still send them (the form falls back
+  // to defaults) but we accept anything sane there.
   const tier = b.service_tier;
-  if (typeof tier !== "string" || !SERVICE_TIERS.includes(tier as ServiceTier)) {
+  if (
+    !isRetainer &&
+    (typeof tier !== "string" || !SERVICE_TIERS.includes(tier as ServiceTier))
+  ) {
     return {
       ok: false,
       error: `service_tier must be one of: ${SERVICE_TIERS.join(", ")}.`,
@@ -104,8 +120,9 @@ function parseBody(input: unknown): ParseResult | ParseError {
 
   const settlement = b.settlement_timing;
   if (
-    typeof settlement !== "string" ||
-    !SETTLEMENT_TIMINGS.includes(settlement as SettlementTiming)
+    !isRetainer &&
+    (typeof settlement !== "string" ||
+      !SETTLEMENT_TIMINGS.includes(settlement as SettlementTiming))
   ) {
     return {
       ok: false,
@@ -114,13 +131,28 @@ function parseBody(input: unknown): ParseResult | ParseError {
   }
 
   const capacity = Number(b.capacity);
-  if (!Number.isFinite(capacity) || capacity <= 0) {
+  if (!isRetainer && (!Number.isFinite(capacity) || capacity <= 0)) {
     return { ok: false, error: "capacity must be a positive number." };
   }
 
   const upfrontPct = Number(b.upfront_pct);
-  if (!Number.isFinite(upfrontPct) || upfrontPct < 0 || upfrontPct > 100) {
+  if (
+    !isRetainer &&
+    (!Number.isFinite(upfrontPct) || upfrontPct < 0 || upfrontPct > 100)
+  ) {
     return { ok: false, error: "upfront_pct must be between 0 and 100." };
+  }
+
+  let retainerMonths: number | null = null;
+  if (isRetainer) {
+    const m = Number(b.retainer_months ?? 1);
+    if (!Number.isFinite(m) || m < 1 || m > 60) {
+      return {
+        ok: false,
+        error: "retainer_months must be between 1 and 60.",
+      };
+    }
+    retainerMonths = Math.floor(m);
   }
 
   const marketingBudget =
@@ -142,12 +174,16 @@ function parseBody(input: unknown): ParseResult | ParseError {
     venue_city: typeof b.venue_city === "string" ? b.venue_city : null,
     venue_country:
       typeof b.venue_country === "string" ? b.venue_country : null,
-    capacity: Math.floor(capacity),
+    capacity: isRetainer ? 0 : Math.floor(capacity),
     marketing_budget: marketingBudget,
-    service_tier: tier as ServiceTier,
-    sold_out_expected: Boolean(b.sold_out_expected),
-    upfront_pct: upfrontPct,
-    settlement_timing: settlement as SettlementTiming,
+    service_tier: isRetainer ? "ads" : (tier as ServiceTier),
+    sold_out_expected: isRetainer ? false : Boolean(b.sold_out_expected),
+    upfront_pct: isRetainer ? 100 : upfrontPct,
+    settlement_timing: isRetainer
+      ? "on_completion"
+      : (settlement as SettlementTiming),
+    billing_mode: billingMode,
+    retainer_months: retainerMonths,
     notes: typeof b.notes === "string" ? b.notes : null,
     approve: Boolean(b.approve),
   };

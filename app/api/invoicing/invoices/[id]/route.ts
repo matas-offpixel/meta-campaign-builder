@@ -11,13 +11,19 @@ import type { InvoiceStatus } from "@/lib/types/invoicing";
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/invoicing/invoices/[id]
 //
-// Allowed fields: status, issued_date, due_date, paid_date, notes.
+// Allowed fields: status, issued_date, due_date, paid_date, notes,
+// invoice_number.
 //
 // Status transitions:
 //   draft → sent | cancelled
 //   sent  → paid | overdue | cancelled
 //   paid / overdue / cancelled → cancelled (lets users undo accidental edits)
+//
+// invoice_number is manually entered post-creation. Pass an empty string
+// or null to clear it. Format is enforced as INV-XXXX (1–6 digit suffix).
 // ─────────────────────────────────────────────────────────────────────────────
+
+const INVOICE_NUMBER_PATTERN = /^INV-\d{1,6}$/;
 
 const ALLOWED_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
   draft: ["sent", "cancelled"],
@@ -73,10 +79,35 @@ export async function PATCH(
       {
         ok: false,
         error:
-          "No updatable fields. Allowed: status, issued_date, due_date, paid_date, notes.",
+          "No updatable fields. Allowed: status, issued_date, due_date, paid_date, notes, invoice_number.",
       },
       { status: 400 },
     );
+  }
+
+  if ("invoice_number" in patch) {
+    const raw = patch.invoice_number;
+    if (raw == null || (typeof raw === "string" && raw.trim() === "")) {
+      patch.invoice_number = null;
+    } else if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!INVOICE_NUMBER_PATTERN.test(trimmed)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "invoice_number must look like INV-0029 (INV- prefix + up to 6 digits).",
+          },
+          { status: 400 },
+        );
+      }
+      patch.invoice_number = trimmed;
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "invoice_number must be a string or null." },
+        { status: 400 },
+      );
+    }
   }
 
   if (patch.status) {
@@ -111,12 +142,19 @@ export async function PATCH(
     }
     return NextResponse.json({ ok: true, invoice: updated });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Update failed.";
+    // Postgres unique-violation when a typed-in INV-0029 collides with
+    // another invoice's number — surface a clean 409 instead of 500.
+    const isUniqueClash =
+      /duplicate key value|invoices_invoice_number/i.test(message);
     return NextResponse.json(
       {
         ok: false,
-        error: err instanceof Error ? err.message : "Update failed.",
+        error: isUniqueClash
+          ? "That invoice number is already in use on another invoice."
+          : message,
       },
-      { status: 500 },
+      { status: isUniqueClash ? 409 : 500 },
     );
   }
 }

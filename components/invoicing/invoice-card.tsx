@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Check, Loader2, Pencil, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { InvoiceRow, InvoiceStatus } from "@/lib/types/invoicing";
@@ -65,14 +65,27 @@ const TYPE_LABEL: Record<InvoiceRow["invoice_type"], string> = {
   upfront: "Upfront",
   settlement: "Settlement",
   sell_out_bonus: "Sell-out bonus",
+  retainer: "Retainer",
   other: "Other",
 };
+
+const INVOICE_NUMBER_DIGITS = /^\d{0,6}$/;
 
 interface Props {
   invoice: InvoiceRow;
   readOnly?: boolean;
   /** Called with the updated row after a successful PATCH. */
   onUpdated?: (updated: InvoiceRow) => void;
+}
+
+/**
+ * Strip the static "INV-" prefix off a stored invoice number so the inline
+ * editor only shows / accepts digits. Returns "" for null / non-matching.
+ */
+function extractDigits(invoiceNumber: string | null): string {
+  if (!invoiceNumber) return "";
+  const m = /^INV-(\d{1,6})$/.exec(invoiceNumber.trim());
+  return m ? m[1] : "";
 }
 
 /**
@@ -91,14 +104,32 @@ function isOverdueDerived(inv: InvoiceRow): boolean {
 
 export function InvoiceCard({ invoice, readOnly, onUpdated }: Props) {
   const router = useRouter();
-  const [busy, setBusy] = useState<null | "send" | "paid">(null);
+  const [busy, setBusy] = useState<null | "send" | "paid" | "number">(null);
   const [error, setError] = useState<string | null>(null);
   const [row, setRow] = useState<InvoiceRow>(invoice);
 
   const overdue = row.status === "overdue" || isOverdueDerived(row);
   const displayStatus: InvoiceStatus = overdue ? "overdue" : row.status;
 
-  async function patch(body: Record<string, unknown>, mode: "send" | "paid") {
+  // Manual invoice number editor — strips the static "INV-" prefix from the
+  // text the user types so they only see digits, then re-prefixes on save.
+  const [editingNumber, setEditingNumber] = useState(false);
+  const [numberDraft, setNumberDraft] = useState<string>(() =>
+    extractDigits(invoice.invoice_number),
+  );
+  const numberInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingNumber) {
+      numberInputRef.current?.focus();
+      numberInputRef.current?.select();
+    }
+  }, [editingNumber]);
+
+  async function patch(
+    body: Record<string, unknown>,
+    mode: "send" | "paid" | "number",
+  ): Promise<boolean> {
     setBusy(mode);
     setError(null);
     try {
@@ -111,20 +142,42 @@ export function InvoiceCard({ invoice, readOnly, onUpdated }: Props) {
         | { ok: true; invoice: InvoiceRow }
         | { ok: false; error: string };
       if (!res.ok || !("ok" in json) || !json.ok) {
-        throw new Error(
+        const message =
           "ok" in json && !json.ok && json.error
             ? json.error
-            : "Failed to update invoice.",
-        );
+            : "Failed to update invoice.";
+        setError(message);
+        return false;
       }
       setRow(json.invoice);
       onUpdated?.(json.invoice);
       router.refresh();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update invoice.");
+      return false;
     } finally {
       setBusy(null);
     }
+  }
+
+  async function saveNumber() {
+    const digits = numberDraft.trim();
+    const value = digits === "" ? null : `INV-${digits.padStart(4, "0")}`;
+    if (value === (row.invoice_number ?? null)) {
+      setEditingNumber(false);
+      return;
+    }
+    const ok = await patch({ invoice_number: value }, "number");
+    if (ok) setEditingNumber(false);
+    // On failure the editor stays open so the user can correct the input
+    // (e.g. duplicate number → 409 surfaces via setError above).
+  }
+
+  function cancelNumberEdit() {
+    setEditingNumber(false);
+    setNumberDraft(extractDigits(row.invoice_number));
+    setError(null);
   }
 
   return (
@@ -133,7 +186,88 @@ export function InvoiceCard({ invoice, readOnly, onUpdated }: Props) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs">{row.invoice_number}</span>
+          {editingNumber && !readOnly ? (
+            <span className="inline-flex items-center gap-1 font-mono text-xs">
+              <span className="text-muted-foreground">INV-</span>
+              <input
+                ref={numberInputRef}
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={numberDraft}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (INVOICE_NUMBER_DIGITS.test(v)) setNumberDraft(v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void saveNumber();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelNumberEdit();
+                  }
+                }}
+                placeholder="0029"
+                className="w-20 rounded border border-border-strong bg-background px-1.5 py-0.5 font-mono text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                disabled={busy === "number"}
+              />
+              <button
+                type="button"
+                onClick={() => void saveNumber()}
+                disabled={busy === "number"}
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                title="Save"
+              >
+                {busy === "number" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Check className="h-3 w-3" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={cancelNumberEdit}
+                disabled={busy === "number"}
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                title="Cancel"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ) : row.invoice_number ? (
+            <button
+              type="button"
+              onClick={() => !readOnly && setEditingNumber(true)}
+              disabled={readOnly}
+              className={`inline-flex items-center gap-1 font-mono text-xs ${
+                readOnly
+                  ? "cursor-default"
+                  : "cursor-pointer hover:text-primary"
+              }`}
+              title={readOnly ? row.invoice_number : "Edit invoice number"}
+            >
+              {row.invoice_number}
+              {!readOnly && (
+                <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => !readOnly && setEditingNumber(true)}
+              disabled={readOnly}
+              className={`inline-flex items-center gap-1 font-mono text-xs italic text-muted-foreground ${
+                readOnly ? "cursor-default" : "cursor-pointer hover:text-primary"
+              }`}
+              title={readOnly ? "No invoice number set" : "Click to set invoice number"}
+            >
+              INV-____
+              {!readOnly && (
+                <span className="not-italic text-[10px]">click to set</span>
+              )}
+            </button>
+          )}
           <span className="text-xs text-muted-foreground">
             {TYPE_LABEL[row.invoice_type]}
           </span>

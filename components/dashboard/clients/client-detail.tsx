@@ -15,8 +15,10 @@ import {
 import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
+import { BillingSection } from "./billing-section";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
 import type {
+  BillingMode,
   InvoiceWithRefs,
   QuoteRow,
 } from "@/lib/types/invoicing";
@@ -267,6 +269,20 @@ export function ClientDetail({
             metaBusinessId={client.meta_business_id ?? null}
             metaAdAccountId={client.meta_ad_account_id ?? null}
             metaPixelId={client.meta_pixel_id ?? null}
+          />
+
+          <BillingSection
+            clientId={client.id}
+            initial={{
+              billing_model:
+                client.billing_model === "retainer"
+                  ? "retainer"
+                  : ("per_event" as BillingMode),
+              custom_rate_per_ticket: client.custom_rate_per_ticket ?? null,
+              custom_minimum_fee: client.custom_minimum_fee ?? null,
+              retainer_monthly_fee: client.retainer_monthly_fee ?? null,
+              retainer_started_at: client.retainer_started_at ?? null,
+            }}
           />
 
           <section className="rounded-md border border-border bg-card p-5">

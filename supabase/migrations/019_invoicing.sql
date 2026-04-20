@@ -9,10 +9,8 @@
 --                         upfront + settlement; +1 sell-out-bonus row when
 --                         the quote opted in). amount_incl_vat is a stored
 --                         generated column so callers never have to derive it.
---   - invoice_sequences   tiny key→counter map keeping INV / QUO numbers
---                         monotonically increasing per workspace. Seeded so
---                         the first invoice issued is INV-0029 (continues
---                         the legacy Puzzle sequence).
+--                         invoice_number is nullable, manually entered by
+--                         the user post-creation (no auto-sequencing).
 --
 -- Quote status lifecycle:
 --   draft → approved → converted (event created) | cancelled
@@ -66,6 +64,13 @@ create table if not exists quotes (
       '1_month_before', '2_weeks_before', 'on_completion'
     )),
 
+  -- Billing-mode snapshot. Mirrors clients.billing_model at create time so
+  -- changing a client over to retainer doesn't retroactively rewrite the
+  -- shape of historical per-event quotes.
+  billing_mode        text          not null default 'per_event'
+    check (billing_mode in ('per_event', 'retainer')),
+  retainer_months     integer,
+
   status              text          not null default 'draft'
     check (status in ('draft', 'approved', 'converted', 'cancelled')),
 
@@ -87,7 +92,7 @@ create index if not exists quotes_created_at_idx  on quotes (created_at desc);
 comment on table  quotes is
   'Fee proposals authored before an event exists. base_fee / sell_out_bonus / max_fee are frozen at create time so pricing rule changes do not retroactively rewrite history. Approved quotes spawn invoices; converted quotes link to the event they spawned.';
 comment on column quotes.quote_number is
-  'Workspace-scoped human readable id from invoice_sequences (e.g. QUO-0001). Unique per user.';
+  'Workspace-scoped human readable id (e.g. QUO-0001) computed at insert time by scanning max(quote_number) per user_id. Unique per user.';
 comment on column quotes.upfront_pct is
   'Snapshot of clients.default_upfront_pct at create time. Lets the client default change without rewriting historical quotes.';
 comment on column quotes.settlement_timing is
@@ -121,9 +126,12 @@ create table if not exists invoices (
   event_id            uuid          references events             (id) on delete set null,
   quote_id            uuid          references quotes             (id) on delete set null,
 
-  invoice_number      text          not null unique,
+  -- invoice_number is nullable + entered manually by the user.
+  -- Unique-when-set so two invoices can share NULL but a typed-in
+  -- INV-0029 still collides cleanly across the workspace.
+  invoice_number      text,
   invoice_type        text          not null
-    check (invoice_type in ('upfront', 'settlement', 'sell_out_bonus', 'other')),
+    check (invoice_type in ('upfront', 'settlement', 'sell_out_bonus', 'other', 'retainer')),
 
   amount_excl_vat     numeric(10,2) not null,
   vat_applicable      boolean       not null default true,
@@ -154,12 +162,18 @@ create index if not exists invoices_quote_id_idx      on invoices (quote_id);
 create index if not exists invoices_status_idx        on invoices (status);
 create index if not exists invoices_due_date_idx      on invoices (due_date);
 
+-- Unique-when-set: NULLs allowed (multiple invoices can be unnumbered)
+-- but a typed-in INV-0029 still collides per workspace.
+create unique index if not exists invoices_invoice_number_user_unique
+  on invoices (user_id, invoice_number)
+  where invoice_number is not null;
+
 comment on table  invoices is
-  'Concrete billable line items. Each approved quote creates one upfront row, one settlement row, and (when sold_out_expected was true) one sell_out_bonus row.';
+  'Concrete billable line items. Each approved quote creates one upfront row, one settlement row, and (when sold_out_expected was true) one sell_out_bonus row. Retainer-mode quotes create one row per month invoiced.';
 comment on column invoices.amount_incl_vat is
   'Stored generated column = round(amount_excl_vat * (1 + vat_rate), 2) when vat_applicable, else amount_excl_vat. Read this rather than recomputing client-side.';
 comment on column invoices.invoice_number is
-  'Workspace-wide unique human-readable id from invoice_sequences (e.g. INV-0029).';
+  'Manually entered by the user (e.g. INV-0029). Nullable at creation; uniqueness enforced per workspace via partial index.';
 
 alter table invoices enable row level security;
 
@@ -180,40 +194,12 @@ create policy invoices_owner_delete on invoices
   for delete using (auth.uid() = user_id);
 
 
--- ── Sequence counter ───────────────────────────────────────────────────────
+-- ── Quote + invoice numbering ──────────────────────────────────────────────
 --
--- One global counter per (key) — workspace-wide rather than per-user since
--- the agency runs as a single tenant today. Future multi-tenant revamp can
--- add a user_id column + composite key without breaking the helper.
---
--- INV starts at 28 so the next invoice issued is INV-0029 (Puzzle's last
--- invoice was INV-0028). QUO starts at 0 so the next quote is QUO-0001.
-
-create table if not exists invoice_sequences (
-  key      text     primary key,
-  last_n   integer  not null default 0
-);
-
-insert into invoice_sequences (key, last_n) values
-  ('INV', 28),
-  ('QUO', 0)
-on conflict (key) do nothing;
-
-alter table invoice_sequences enable row level security;
-
--- Single-tenant today: anyone signed in can read/increment the counter.
--- The application layer guards the actual issue path (only the quote-create
--- route bumps INV/QUO) so this still funnels through one code path.
-drop policy if exists invoice_sequences_authenticated_read on invoice_sequences;
-create policy invoice_sequences_authenticated_read on invoice_sequences
-  for select to authenticated using (true);
-
-drop policy if exists invoice_sequences_authenticated_update on invoice_sequences;
-create policy invoice_sequences_authenticated_update on invoice_sequences
-  for update to authenticated using (true) with check (true);
-
-comment on table invoice_sequences is
-  'Per-key monotonic counters that drive QUO-0001 / INV-0029 numbering. Bumped via the lib/db/invoicing-server.ts getNextInvoiceNumber helper inside the quote-creation transaction.';
+-- Quote numbers (QUO-XXXX) are computed on the application side at insert
+-- time by scanning max(quote_number) per user_id — no sequences table.
+-- Invoice numbers (INV-XXXX) are manually entered by the user post-creation
+-- so they can dovetail with the user's external bookkeeping run.
 
 
 -- ── updated_at touch triggers ──────────────────────────────────────────────

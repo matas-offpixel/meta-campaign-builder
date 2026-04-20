@@ -31,32 +31,67 @@ const ALLOWED_FIELDS = [
   "instagram_handle",
   "website_url",
   "notes",
-  // Default invoicing payment terms (added in migration 019). The columns
-  // exist post-019 — pre-migration the UPDATE will silently drop them so
-  // this is safe to land before the schema is applied.
+  // Default invoicing payment terms (added in migration 019).
   "default_upfront_pct",
   "default_settlement_timing",
+  // Per-client billing model + overrides (migration 021).
+  // billing_model: 'per_event' | 'retainer'
+  // custom_rate_per_ticket / custom_minimum_fee: null = use tier defaults
+  // retainer_monthly_fee / retainer_started_at: only meaningful when
+  // billing_model = 'retainer'.
+  "billing_model",
+  "custom_rate_per_ticket",
+  "custom_minimum_fee",
+  "retainer_monthly_fee",
+  "retainer_started_at",
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
 
+const NULLABLE_NUMERIC_FIELDS = new Set<AllowedField>([
+  "custom_rate_per_ticket",
+  "custom_minimum_fee",
+  "retainer_monthly_fee",
+]);
+
+const NULLABLE_DATE_FIELDS = new Set<AllowedField>(["retainer_started_at"]);
+
 function buildPatch(body: Record<string, unknown>): TablesUpdate<"clients"> {
   const patch: Record<string, unknown> = {};
   for (const key of ALLOWED_FIELDS) {
-    if (key in body) {
-      const value = body[key];
-      // Coerce empty strings on the dropdown FK fields to null — the
-      // <Select> ships "" when the user picks the placeholder option,
-      // but the FK columns reject empty strings (uuid type).
-      if (
-        (key === "tiktok_account_id" || key === "google_ads_account_id") &&
-        value === ""
-      ) {
+    if (!(key in body)) continue;
+    const value = body[key];
+
+    // Coerce empty strings on the dropdown FK fields to null — the
+    // <Select> ships "" when the user picks the placeholder option,
+    // but the FK columns reject empty strings (uuid type).
+    if (
+      (key === "tiktok_account_id" || key === "google_ads_account_id") &&
+      value === ""
+    ) {
+      patch[key] = null;
+      continue;
+    }
+
+    // Numeric overrides: empty string → null (so the user can clear the
+    // override and fall back to the tier default).
+    if (NULLABLE_NUMERIC_FIELDS.has(key)) {
+      if (value === "" || value == null) {
         patch[key] = null;
       } else {
-        patch[key] = value;
+        const n = Number(value);
+        patch[key] = Number.isFinite(n) ? n : null;
       }
+      continue;
     }
+
+    // Nullable date columns: empty string → null.
+    if (NULLABLE_DATE_FIELDS.has(key)) {
+      patch[key] = value === "" || value == null ? null : value;
+      continue;
+    }
+
+    patch[key] = value;
   }
   return patch as TablesUpdate<"clients">;
 }

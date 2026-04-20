@@ -9,6 +9,7 @@ import {
   type SettlementTiming,
 } from "@/lib/pricing/calculator";
 import type {
+  BillingMode,
   ClientForQuoteForm,
   CreateQuoteRequest,
   InvoiceRow,
@@ -42,7 +43,9 @@ export async function listClientsForQuoteFormServer(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clients")
-    .select("id, name, default_upfront_pct, default_settlement_timing, status")
+    .select(
+      "id, name, default_upfront_pct, default_settlement_timing, status, custom_rate_per_ticket, custom_minimum_fee, billing_model, retainer_monthly_fee, retainer_started_at",
+    )
     .eq("user_id", userId)
     .order("name", { ascending: true });
 
@@ -51,18 +54,19 @@ export async function listClientsForQuoteFormServer(
     return [];
   }
 
-  // The two default_* columns ship with migration 019 (not applied yet).
-  // Treat them as optional and fall back to the global defaults so the form
-  // works even before the migration lands.
-  // TODO(post-019): drop the cast once types regenerate.
-  const rows =
-    (data as unknown as Array<{
-      id: string;
-      name: string;
-      default_upfront_pct: number | null;
-      default_settlement_timing: SettlementTiming | null;
-      status: string | null;
-    }>) ?? [];
+  type Raw = {
+    id: string;
+    name: string;
+    default_upfront_pct: number | null;
+    default_settlement_timing: SettlementTiming | null;
+    status: string | null;
+    custom_rate_per_ticket: number | null;
+    custom_minimum_fee: number | null;
+    billing_model: BillingMode | null;
+    retainer_monthly_fee: number | null;
+    retainer_started_at: string | null;
+  };
+  const rows = (data as unknown as Raw[]) ?? [];
 
   return rows
     .filter((r) => (r.status ?? "active") !== "archived")
@@ -72,6 +76,11 @@ export async function listClientsForQuoteFormServer(
       default_upfront_pct: r.default_upfront_pct ?? 75,
       default_settlement_timing:
         r.default_settlement_timing ?? "1_month_before",
+      custom_rate_per_ticket: r.custom_rate_per_ticket,
+      custom_minimum_fee: r.custom_minimum_fee,
+      billing_model: (r.billing_model ?? "per_event") as BillingMode,
+      retainer_monthly_fee: r.retainer_monthly_fee,
+      retainer_started_at: r.retainer_started_at,
     }));
 }
 
@@ -288,55 +297,41 @@ export async function listInvoicesForQuoteServer(
   return ((data as unknown as InvoiceRow[] | null) ?? []) as InvoiceRow[];
 }
 
-// ─── Sequence helpers ───────────────────────────────────────────────────────
+// ─── Quote numbering ────────────────────────────────────────────────────────
 
 /**
- * Reserve the next QUO / INV number atomically.
+ * Compute the next QUO-XXXX number for the given user by scanning their
+ * existing quote_numbers — no sequences table.
  *
- * Uses an UPDATE … RETURNING round-trip so the read + bump happen as one
- * statement on the database. Two concurrent calls cannot reserve the same
- * number — Postgres serialises the row update under the hood.
+ * Two concurrent quote creates can race here. Acceptable trade-off: the
+ * DB-level UNIQUE (user_id, quote_number) constraint will reject the loser,
+ * the UI surfaces the error, the user retries. In practice, a single user
+ * almost never races themselves.
  *
- * Returns formatted strings: 'QUO-0001', 'INV-0029', etc.
+ * Invoice numbers (INV-XXXX) are no longer derived — they're entered
+ * manually post-creation via updateInvoiceNumber().
  */
-async function reserveSequenceValue(key: "QUO" | "INV"): Promise<number> {
+export async function getNextQuoteNumber(userId: string): Promise<string> {
   const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("quotes" as never)
+    .select("quote_number")
+    .eq("user_id", userId)
+    .like("quote_number", "QUO-%");
 
-  // Fetch current then bump. UPDATE … RETURNING in a single PostgREST call
-  // would be ideal but the JS client doesn't expose it cleanly without RPC,
-  // so we read+update and rely on RLS-bounded single-tenant access. Wrapping
-  // this in a Postgres function is the upgrade path once we go multi-tenant.
-  // TODO(post-019): swap `as never`/`as unknown as` for typed `from("invoice_sequences")`.
-  const { data: current, error: readErr } = await supabase
-    .from("invoice_sequences" as never)
-    .select("last_n")
-    .eq("key", key)
-    .maybeSingle();
-
-  if (readErr) {
-    throw new Error(`Failed to read invoice_sequences: ${readErr.message}`);
+  if (error) {
+    throw new Error(`Failed to read existing quote numbers: ${error.message}`);
   }
 
-  const lastN =
-    (current as unknown as { last_n: number } | null)?.last_n ?? 0;
-  const nextN = lastN + 1;
-
-  const { error: updateErr } = await supabase
-    .from("invoice_sequences" as never)
-    .update({ last_n: nextN } as never)
-    .eq("key", key);
-
-  if (updateErr) {
-    throw new Error(`Failed to bump invoice_sequences: ${updateErr.message}`);
+  let maxN = 0;
+  for (const row of (data as unknown as Array<{ quote_number: string }>) ??
+    []) {
+    const m = /^QUO-(\d+)$/.exec(row.quote_number ?? "");
+    if (!m) continue;
+    const n = Number.parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > maxN) maxN = n;
   }
-  return nextN;
-}
-
-export async function getNextInvoiceNumber(
-  type: "INV" | "QUO",
-): Promise<string> {
-  const n = await reserveSequenceValue(type);
-  return `${type}-${String(n).padStart(4, "0")}`;
+  return `QUO-${String(maxN + 1).padStart(4, "0")}`;
 }
 
 // ─── Create / update quotes + invoices ─────────────────────────────────────
@@ -368,17 +363,66 @@ export async function createQuoteWithInvoices(
   const { userId, request } = opts;
   const supabase = await createClient();
 
-  const tier = request.service_tier as ServiceTier;
-  const calculated = calculateQuote({
-    capacity: request.capacity,
-    marketing_budget: request.marketing_budget ?? 0,
-    service_tier: tier,
-    sold_out_expected: request.sold_out_expected,
-  });
+  const isRetainer = request.billing_mode === "retainer";
 
-  const quoteNumber = await getNextInvoiceNumber("QUO");
+  // Pull client overrides + retainer fee in one shot so the calculator and
+  // retainer path both work off the same source of truth.
+  const { data: clientRow } = await supabase
+    .from("clients")
+    .select(
+      "custom_rate_per_ticket, custom_minimum_fee, billing_model, retainer_monthly_fee",
+    )
+    .eq("id", request.client_id)
+    .maybeSingle();
+
+  const overrides = clientRow as unknown as {
+    custom_rate_per_ticket: number | null;
+    custom_minimum_fee: number | null;
+    billing_model: BillingMode | null;
+    retainer_monthly_fee: number | null;
+  } | null;
+
+  let baseFee: number;
+  let sellOutBonus: number;
+  let maxFee: number;
+
+  if (isRetainer) {
+    const months = Math.max(1, Math.floor(request.retainer_months ?? 1));
+    const monthly = Number(overrides?.retainer_monthly_fee ?? 0);
+    baseFee = Math.round(monthly * months * 100) / 100;
+    sellOutBonus = 0;
+    maxFee = baseFee;
+  } else {
+    const tier = request.service_tier as ServiceTier;
+    const calculated = calculateQuote(
+      {
+        capacity: request.capacity,
+        marketing_budget: request.marketing_budget ?? 0,
+        service_tier: tier,
+        sold_out_expected: request.sold_out_expected,
+      },
+      {
+        customRatePerTicket: overrides?.custom_rate_per_ticket ?? null,
+        customMinimumFee: overrides?.custom_minimum_fee ?? null,
+      },
+    );
+    baseFee = calculated.base_fee;
+    sellOutBonus = calculated.sell_out_bonus;
+    maxFee = calculated.max_fee;
+  }
+
+  const quoteNumber = await getNextQuoteNumber(userId);
   const wantApprove = request.approve;
-  const insertPayload = {
+
+  // Retainer quotes are paid 100% per month — force the snapshot upfront_pct
+  // to 100 and the settlement_timing to on_completion so the QuoteRow is
+  // self-consistent regardless of what the form sent.
+  const upfrontPct = isRetainer ? 100 : request.upfront_pct;
+  const settlementTiming: SettlementTiming = isRetainer
+    ? "on_completion"
+    : request.settlement_timing;
+
+  const insertPayload: Record<string, unknown> = {
     user_id: userId,
     client_id: request.client_id,
     event_id: null,
@@ -389,21 +433,24 @@ export async function createQuoteWithInvoices(
     venue_name: request.venue_name,
     venue_city: request.venue_city,
     venue_country: request.venue_country,
-    capacity: request.capacity,
+    capacity: isRetainer ? 0 : request.capacity,
     marketing_budget: request.marketing_budget,
-    service_tier: tier,
-    sold_out_expected: request.sold_out_expected,
-    base_fee: calculated.base_fee,
-    sell_out_bonus: calculated.sell_out_bonus,
-    max_fee: calculated.max_fee,
-    upfront_pct: request.upfront_pct,
-    settlement_timing: request.settlement_timing,
+    service_tier: isRetainer ? "ads" : (request.service_tier as ServiceTier),
+    sold_out_expected: isRetainer ? false : request.sold_out_expected,
+    base_fee: baseFee,
+    sell_out_bonus: sellOutBonus,
+    max_fee: maxFee,
+    upfront_pct: upfrontPct,
+    settlement_timing: settlementTiming,
+    billing_mode: isRetainer ? "retainer" : "per_event",
+    retainer_months: isRetainer
+      ? Math.max(1, Math.floor(request.retainer_months ?? 1))
+      : null,
     status: wantApprove ? "approved" : "draft",
     approved_at: wantApprove ? new Date().toISOString() : null,
     notes: request.notes,
   };
 
-  // TODO(post-019): typed insert once types regenerate.
   const { data: quoteRow, error: insertErr } = await supabase
     .from("quotes" as never)
     .insert(insertPayload as never)
@@ -422,18 +469,24 @@ export async function createQuoteWithInvoices(
     return { quote, invoices: [] };
   }
 
-  const invoices = await generateInvoicesForQuote(quote);
+  const invoices = isRetainer
+    ? await generateRetainerInvoices(
+        quote,
+        Number(overrides?.retainer_monthly_fee ?? 0),
+      )
+    : await generateInvoicesForQuote(quote);
   return { quote, invoices };
 }
 
 /**
- * Generate the canonical invoice trio for a freshly-approved quote:
- *   - upfront    base_fee × upfront_pct, due today + 7 days
- *   - settlement base_fee × (100 - upfront_pct), due per settlement_timing
- *   - sell_out_bonus  capacity × £0.10, due on completion (only if expected)
+ * Generate the canonical invoice trio for a freshly-approved per-event
+ * quote:
+ *   - upfront         base_fee × upfront_pct, due today + 7 days
+ *   - settlement      base_fee × (100 - upfront_pct), due per timing rule
+ *   - sell_out_bonus  capacity × £0.10, due on completion (when expected)
  *
- * Invoice numbers are bumped sequentially in the same order to keep audit
- * trails grouped (e.g. INV-0029 / 0030 / 0031 for one quote's trio).
+ * Invoice numbers are NOT assigned at create time — the user types them in
+ * manually post-creation via PATCH /api/invoicing/invoices/[id].
  */
 export async function generateInvoicesForQuote(
   quote: QuoteRow,
@@ -458,13 +511,12 @@ export async function generateInvoicesForQuote(
   const rows: Array<Record<string, unknown>> = [];
 
   if (split.upfront > 0) {
-    const num = await getNextInvoiceNumber("INV");
     rows.push({
       user_id: quote.user_id,
       client_id: quote.client_id,
       event_id: quote.event_id,
       quote_id: quote.id,
-      invoice_number: num,
+      invoice_number: null,
       invoice_type: "upfront",
       amount_excl_vat: split.upfront,
       vat_applicable: true,
@@ -476,13 +528,12 @@ export async function generateInvoicesForQuote(
   }
 
   if (split.settlement > 0) {
-    const num = await getNextInvoiceNumber("INV");
     rows.push({
       user_id: quote.user_id,
       client_id: quote.client_id,
       event_id: quote.event_id,
       quote_id: quote.id,
-      invoice_number: num,
+      invoice_number: null,
       invoice_type: "settlement",
       amount_excl_vat: split.settlement,
       vat_applicable: true,
@@ -496,20 +547,17 @@ export async function generateInvoicesForQuote(
   }
 
   if (quote.sold_out_expected && quote.sell_out_bonus > 0) {
-    const num = await getNextInvoiceNumber("INV");
     rows.push({
       user_id: quote.user_id,
       client_id: quote.client_id,
       event_id: quote.event_id,
       quote_id: quote.id,
-      invoice_number: num,
+      invoice_number: null,
       invoice_type: "sell_out_bonus",
       amount_excl_vat: quote.sell_out_bonus,
       vat_applicable: true,
       vat_rate: 0.2,
       issued_date: null,
-      // Bonus is only earned once the show actually sells out, so the due
-      // date mirrors the event date if known, falls back to settlement.
       due_date: settlementDue
         ? settlementDue.toISOString().slice(0, 10)
         : null,
@@ -519,7 +567,6 @@ export async function generateInvoicesForQuote(
 
   if (rows.length === 0) return [];
 
-  // TODO(post-019): typed insert once types regenerate.
   const { data, error } = await supabase
     .from("invoices" as never)
     .insert(rows as never)
@@ -527,6 +574,58 @@ export async function generateInvoicesForQuote(
 
   if (error) {
     throw new Error(`Invoice insert failed: ${error.message}`);
+  }
+  return ((data as unknown as InvoiceRow[]) ?? []) as InvoiceRow[];
+}
+
+/**
+ * Generate one invoice per month for a retainer-mode quote.
+ *
+ * Each row is invoice_type = 'retainer', amount = monthly fee,
+ * due_date = the 1st of each month from retainer_started_at (or today)
+ * forward. Invoice numbers stay null — the user types them in manually
+ * as they bill each month.
+ */
+export async function generateRetainerInvoices(
+  quote: QuoteRow,
+  monthlyFee: number,
+): Promise<InvoiceRow[]> {
+  const supabase = await createClient();
+  const months = Math.max(1, Math.floor(quote.retainer_months ?? 1));
+  if (monthlyFee <= 0) return [];
+
+  // Anchor month: event_date if set (retainer "engagement start"), else today.
+  const start = quote.event_date ? new Date(quote.event_date) : new Date();
+  start.setUTCDate(1);
+  start.setUTCHours(0, 0, 0, 0);
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < months; i++) {
+    const due = new Date(start);
+    due.setUTCMonth(due.getUTCMonth() + i);
+    rows.push({
+      user_id: quote.user_id,
+      client_id: quote.client_id,
+      event_id: quote.event_id,
+      quote_id: quote.id,
+      invoice_number: null,
+      invoice_type: "retainer",
+      amount_excl_vat: monthlyFee,
+      vat_applicable: true,
+      vat_rate: 0.2,
+      issued_date: null,
+      due_date: due.toISOString().slice(0, 10),
+      status: "draft",
+    });
+  }
+
+  const { data, error } = await supabase
+    .from("invoices" as never)
+    .insert(rows as never)
+    .select("*");
+
+  if (error) {
+    throw new Error(`Retainer invoice insert failed: ${error.message}`);
   }
   return ((data as unknown as InvoiceRow[]) ?? []) as InvoiceRow[];
 }
@@ -574,6 +673,7 @@ const INVOICE_PATCH_FIELDS = [
   "due_date",
   "paid_date",
   "notes",
+  "invoice_number",
 ] as const;
 
 export type InvoicePatchField = (typeof INVOICE_PATCH_FIELDS)[number];
@@ -601,6 +701,23 @@ export async function updateInvoice(
     .maybeSingle();
   if (error) throw new Error(error.message);
   return (data as unknown as InvoiceRow | null) ?? null;
+}
+
+/**
+ * Set the human invoice number on a row (e.g. "INV-0029").
+ *
+ * Pass an empty string to clear it back to null. Uniqueness is enforced
+ * server-side via the partial unique index in migration 019.
+ */
+export async function updateInvoiceNumber(
+  invoiceId: string,
+  invoiceNumber: string | null,
+): Promise<InvoiceRow | null> {
+  const trimmed =
+    typeof invoiceNumber === "string" ? invoiceNumber.trim() : invoiceNumber;
+  return updateInvoice(invoiceId, {
+    invoice_number: trimmed === "" ? null : trimmed,
+  });
 }
 
 export async function getInvoiceById(id: string): Promise<InvoiceRow | null> {

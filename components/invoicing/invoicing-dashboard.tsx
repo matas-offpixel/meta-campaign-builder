@@ -92,6 +92,7 @@ const STATUS_ORDER: InvoiceStatus[] = [
 const TYPE_ORDER: InvoiceType[] = [
   "upfront",
   "settlement",
+  "retainer",
   "sell_out_bonus",
   "other",
 ];
@@ -99,6 +100,7 @@ const TYPE_ORDER: InvoiceType[] = [
 const TYPE_LABEL: Record<InvoiceType, string> = {
   upfront: "Upfront",
   settlement: "Settlement",
+  retainer: "Retainer",
   sell_out_bonus: "Sell-out bonus",
   other: "Other",
 };
