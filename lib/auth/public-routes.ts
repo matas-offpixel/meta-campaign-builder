@@ -25,10 +25,13 @@ export const PUBLIC_PATHS = new Set<string>(["/login", "/reset-password"]);
  *      bypasses RLS in a controlled way.
  */
 const PUBLIC_PREFIXES: readonly string[] = [
-  // Public client-facing event report share (Slice U).
-  // Resolves a 16-char base64url token via service-role client, returns 404
-  // for unknown / disabled / expired tokens. No internal IDs ever leak into
-  // the URL or rendered HTML — token is the only identifier exposed.
+  // Public share routes — both event-scoped (/share/report/[token],
+  // Slice U) and client-scoped (/share/client/[token], the ticket-input
+  // portal) live behind these prefixes plus their /api/share counterparts.
+  // Each route resolves a 16-char base64url token via the service-role
+  // client and returns a generic 404 for unknown / disabled / expired
+  // tokens. No internal IDs ever leak into the URL or rendered HTML —
+  // the token is the only identifier exposed.
   "/share/",
   "/api/share/",
 ];

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   CalendarDays,
   LayoutDashboard,
+  LayoutList,
   Users,
   Ticket,
   Megaphone,
@@ -45,6 +46,12 @@ const NAV_SECTIONS: NavSection[] = [
   {
     items: [
       { href: "/today", label: "Today", icon: LayoutDashboard },
+      {
+        href: "/overview",
+        label: "Overview",
+        icon: LayoutList,
+        match: (p) => p === "/overview" || p.startsWith("/overview/"),
+      },
       { href: "/calendar", label: "Calendar", icon: CalendarDays },
       {
         href: "/clients",

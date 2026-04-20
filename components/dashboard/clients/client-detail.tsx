@@ -16,6 +16,7 @@ import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
 import { BillingSection } from "./billing-section";
+import { ClientShareLinkCard } from "./client-share-link-card";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
 import type {
   BillingMode,
@@ -35,6 +36,12 @@ interface Props {
     upfront_pct: number;
     settlement_timing: SettlementTiming;
   };
+  /**
+   * Pre-fetched client-scoped share row (token + enabled flag) so the
+   * "Share ticket input link" card lands with correct state on first
+   * paint, no client round-trip.
+   */
+  initialShare: { token: string; enabled: boolean } | null;
 }
 
 /**
@@ -49,6 +56,7 @@ export function ClientDetail({
   clientInvoices,
   clientQuotes,
   defaults,
+  initialShare,
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -283,6 +291,11 @@ export function ClientDetail({
               retainer_monthly_fee: client.retainer_monthly_fee ?? null,
               retainer_started_at: client.retainer_started_at ?? null,
             }}
+          />
+
+          <ClientShareLinkCard
+            clientId={client.id}
+            initialShare={initialShare}
           />
 
           <section className="rounded-md border border-border bg-card p-5">

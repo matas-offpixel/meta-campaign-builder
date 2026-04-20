@@ -7,6 +7,7 @@ import {
   listInvoicesForClientWithRefsServer,
   listQuotesServer,
 } from "@/lib/db/invoicing-server";
+import { getShareForClient } from "@/lib/db/report-shares";
 import type { SettlementTiming } from "@/lib/pricing/calculator";
 
 interface Props {
@@ -24,12 +25,14 @@ export default async function ClientDetailPage({ params }: Props) {
   // fallback in case a route slips through.
   if (!user) redirect("/login");
 
-  const [client, events, clientInvoices, clientQuotes] = await Promise.all([
-    getClientByIdServer(id),
-    listEventsServer(user.id, { clientId: id }),
-    listInvoicesForClientWithRefsServer(user.id, id),
-    listQuotesServer(user.id, { client_id: id }),
-  ]);
+  const [client, events, clientInvoices, clientQuotes, share] =
+    await Promise.all([
+      getClientByIdServer(id),
+      listEventsServer(user.id, { clientId: id }),
+      listInvoicesForClientWithRefsServer(user.id, id),
+      listQuotesServer(user.id, { client_id: id }),
+      getShareForClient(id),
+    ]);
 
   if (!client) notFound();
 
@@ -39,6 +42,10 @@ export default async function ClientDetailPage({ params }: Props) {
       "1_month_before") as SettlementTiming,
   };
 
+  const initialShare = share
+    ? { token: share.token, enabled: share.enabled }
+    : null;
+
   return (
     <ClientDetail
       client={client}
@@ -46,6 +53,7 @@ export default async function ClientDetailPage({ params }: Props) {
       clientInvoices={clientInvoices}
       clientQuotes={clientQuotes}
       defaults={defaults}
+      initialShare={initialShare}
     />
   );
 }
