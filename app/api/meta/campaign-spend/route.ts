@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
   const eventCode =
     typeof body.event_code === "string" ? body.event_code.trim() : "";
-  const adAccountId =
+  const adAccountIdRaw =
     typeof body.ad_account_id === "string" ? body.ad_account_id.trim() : "";
   if (!eventCode) {
     return NextResponse.json(
@@ -89,12 +89,26 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  if (!adAccountId) {
+  if (!adAccountIdRaw) {
     return NextResponse.json(
       { ok: false, error: "ad_account_id is required" },
       { status: 400 },
     );
   }
+
+  // Normalise to the `act_`-prefixed form. Every Graph helper in
+  // lib/meta/client.ts (fetchPixels, fetchCampaignsForAccount, etc.)
+  // expects the prefix and the docstrings call it out explicitly. The
+  // /api/meta/campaigns route hard-rejects when the prefix is missing;
+  // here we auto-prefix instead so a single mis-saved client record
+  // doesn't poison the bulk-refresh batch with a cryptic 400. Without
+  // the prefix Meta resolves the bare numeric as some other object the
+  // token can see and reports `(#100) Tried accessing nonexisting
+  // field (insights)` because /insights isn't a valid edge on that
+  // object.
+  const adAccountId = adAccountIdRaw.startsWith("act_")
+    ? adAccountIdRaw
+    : `act_${adAccountIdRaw}`;
 
   let token: string;
   try {
