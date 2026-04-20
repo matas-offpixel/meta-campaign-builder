@@ -127,7 +127,7 @@ export function TikTokReportBlock({ data }: { data: TikTokReportBlockData }) {
         <DemographicTable rows={snapshot.demographics} currency={currency} />
       </BreakdownSection>
 
-      <BreakdownSection title="Top audiences that engaged">
+      <BreakdownSection title="Cross contextual interests">
         <InterestRankedTable rows={snapshot.interests} />
       </BreakdownSection>
     </div>
@@ -323,26 +323,27 @@ function DemographicTable({
 }
 
 /**
- * Flat ranked interest table sorted by 2-second views desc.
+ * Cross-contextual interests — the interest taxonomy buckets TikTok's
+ * algorithm attributed engagement to (not what we targeted). Ranked by
+ * total video views desc.
  *
- * TikTok auto-distributes spend nearly evenly across linked interests, so
- * spend / reach / clicks columns produce a meaningless near-flat list.
- * Watch depth (2s plays + avg play time per video view) is the only signal
- * that actually separates audiences here — vertical is demoted to a chip
- * for grouping context without dictating the ranking.
+ * "Total video views" maps to `video_views_6s`: the bucket schema has no
+ * single `video_views` field; 2-second plays are TikTok's lowest-bar
+ * counter (and the user explicitly excluded them as too lenient), so we
+ * use 6-second views as the next coarsest "real view" metric. Falls
+ * back to 2s when 6s is missing on older snapshots.
  */
 function InterestRankedTable({ rows }: { rows: TikTokInterestRow[] }) {
   if (rows.length === 0)
     return <EmptyBreakdown label="No interest rows in snapshot." />;
-  const top = [...rows]
-    .sort((a, b) => (b.video_views_2s ?? 0) - (a.video_views_2s ?? 0))
-    .slice(0, 15);
+  const sortKey = (r: TikTokInterestRow): number =>
+    r.video_views_6s ?? r.video_views_2s ?? 0;
+  const top = [...rows].sort((a, b) => sortKey(b) - sortKey(a)).slice(0, 15);
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-muted-foreground">
-        These are the interest audiences TikTok&apos;s algorithm attributed
-        engagement to — not the interests we targeted. Ranked by watch
-        depth (2-second video plays).
+        This shows which content your ad engagement audience is secondarily
+        interested in.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -350,6 +351,10 @@ function InterestRankedTable({ rows }: { rows: TikTokInterestRow[] }) {
             <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
               <th className="pb-2">Audience</th>
               <th className="pb-2 text-right">Video plays (2s)</th>
+              <th className="pb-2 text-right">25% Views</th>
+              <th className="pb-2 text-right">50% Views</th>
+              <th className="pb-2 text-right">75% Views</th>
+              <th className="pb-2 text-right">100% Views</th>
               <th className="pb-2 text-right">Avg play time / view</th>
             </tr>
           </thead>
@@ -369,6 +374,18 @@ function InterestRankedTable({ rows }: { rows: TikTokInterestRow[] }) {
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
                   {fmtInt(r.video_views_2s)}
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {fmtViewDepth(r.video_views_p25)}
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {fmtViewDepth(r.video_views_p50)}
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {fmtViewDepth(r.video_views_p75)}
+                </td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {fmtViewDepth(r.video_views_p100)}
                 </td>
                 <td className="py-1.5 text-right tabular-nums">
                   {fmtSeconds(r.avg_play_time_per_video_view)}
@@ -434,6 +451,17 @@ function EmptyBreakdown({ label }: { label: string }) {
 function fmtInt(n: number | null, raw?: string | null): string {
   if (raw) return raw; // preserve TikTok's "<5" mask verbatim
   if (n == null) return "—";
+  return Math.round(n).toLocaleString();
+}
+
+/**
+ * Whole-number formatter for the view-depth columns (25/50/75/100% video
+ * views) on the cross-contextual interests table. Treats both null AND
+ * zero as "—" per spec: a literal zero in a depth column conveys no
+ * useful signal, only that the audience didn't reach that bar.
+ */
+function fmtViewDepth(n: number | null): string {
+  if (n == null || n === 0) return "—";
   return Math.round(n).toLocaleString();
 }
 

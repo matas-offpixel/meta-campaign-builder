@@ -348,8 +348,10 @@ function ImportDropzone({
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Drop up to 7 .xlsx files (campaign, ad, geo, demographic,
-            interest, search-term). Re-importing the same campaign +
-            window replaces the snapshot in place.
+            interest, search-term). Uploads merge by shape into the same
+            campaign + window — re-uploading a single sheet (e.g. just
+            the Geographic export) replaces only that breakdown and
+            leaves the others intact.
           </p>
         </div>
       </div>

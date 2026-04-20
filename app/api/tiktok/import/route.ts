@@ -254,18 +254,54 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Assemble snapshot + upsert ───────────────────────────────────────
+  // ── Merge with existing snapshot (if any) ────────────────────────────
+  //
+  // The unique constraint on `(user_id, campaign_name, date_range_start,
+  // date_range_end)` means re-importing for the same window upserts in
+  // place. Without the merge below that would clobber buckets the user
+  // didn't include in this batch — e.g. uploading the Audience-Table
+  // export first (interests only) then the Geographic export later would
+  // wipe the interests on the second upload.
+  //
+  // We merge by *shape*: only the buckets whose shape was successfully
+  // detected in this batch overwrite the previous snapshot. Re-uploading
+  // a sheet for a shape that's already present still replaces that
+  // bucket (so users can fix typos / re-export a single shape without
+  // touching the rest).
+  const detectedShapes = new Set(detected.map((d) => d.shape));
+
+  let existing: TikTokManualReportSnapshot | null = null;
+  {
+    const { data: existingRow } = await supabase
+      .from("tiktok_manual_reports")
+      .select("snapshot_json")
+      .eq("user_id", user.id)
+      .eq("campaign_name", campaign_name)
+      .eq("date_range_start", date_range_start)
+      .eq("date_range_end", date_range_end)
+      .maybeSingle();
+    if (existingRow?.snapshot_json) {
+      existing = existingRow.snapshot_json as unknown as TikTokManualReportSnapshot;
+    }
+  }
+
   const snapshot: TikTokManualReportSnapshot = {
     v: 1,
     fetchedAt: new Date().toISOString(),
     date_range_start,
     date_range_end,
-    campaign,
-    ads,
-    geo,
-    demographics,
-    interests,
-    searchTerms,
+    campaign: detectedShapes.has("campaign") ? campaign : (existing?.campaign ?? null),
+    ads: detectedShapes.has("ad") ? ads : (existing?.ads ?? []),
+    geo: detectedShapes.has("geo") ? geo : (existing?.geo ?? []),
+    demographics: detectedShapes.has("demographic")
+      ? demographics
+      : (existing?.demographics ?? []),
+    interests: detectedShapes.has("interest")
+      ? interests
+      : (existing?.interests ?? []),
+    searchTerms: detectedShapes.has("search_term")
+      ? searchTerms
+      : (existing?.searchTerms ?? []),
   };
 
   const { data: report, error: upsertErr } = await supabase
