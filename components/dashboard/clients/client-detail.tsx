@@ -25,6 +25,7 @@ import type {
   QuoteRow,
 } from "@/lib/types/invoicing";
 import type { SettlementTiming } from "@/lib/pricing/calculator";
+import type { LatestSnapshot } from "@/lib/db/client-snapshots-server";
 
 type ClientTab = "overview" | "invoicing";
 
@@ -43,6 +44,13 @@ interface Props {
    * paint, no client round-trip.
    */
   initialShare: { token: string; enabled: boolean } | null;
+  /**
+   * Latest weekly snapshot per event_id (RLS-scoped to the current
+   * user). Used by the topline stats panel + per-event metrics table
+   * to surface client-reported tickets_sold and revenue without a
+   * client-side fetch.
+   */
+  latestSnapshots: Record<string, LatestSnapshot>;
 }
 
 /**
@@ -58,6 +66,7 @@ export function ClientDetail({
   clientQuotes,
   defaults,
   initialShare,
+  latestSnapshots,
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -299,6 +308,11 @@ export function ClientDetail({
             initialShare={initialShare}
           />
 
+          <ClientStatsPanel
+            events={events}
+            latestSnapshots={latestSnapshots}
+          />
+
           <section className="rounded-md border border-border bg-card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <h2 className="font-heading text-base tracking-wide">
@@ -328,22 +342,10 @@ export function ClientDetail({
                 No events yet for this client.
               </p>
             ) : (
-              <ul className="space-y-1.5">
-                {events.map((ev) => (
-                  <li key={ev.id}>
-                    <Link
-                      href={`/events/${ev.id}`}
-                      className="flex items-center justify-between gap-3 rounded-md px-3 py-2
-                        text-sm hover:bg-muted transition-colors"
-                    >
-                      <span className="truncate">{ev.name}</span>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {ev.event_date ?? "TBD"} · {ev.status}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <ClientEventsTable
+                events={events}
+                latestSnapshots={latestSnapshots}
+              />
             )}
           </section>
           </div>
@@ -377,6 +379,305 @@ function DetailRow({ label, value }: { label: string; value: string }) {
         {label}
       </dt>
       <dd className="mt-0.5 text-sm break-words">{value}</dd>
+    </div>
+  );
+}
+
+// ─── Stats panel + per-event metrics table ──────────────────────────────────
+//
+// Both are scoped to this file because they only read the
+// EventWithClient + LatestSnapshot data that already flows through
+// ClientDetail's props. No new fetches, no shared state — extracting
+// to their own files would just move the imports around.
+//
+// Spend distribution rule (matches the client portal exactly):
+//   `meta_spend_cached` is a venue-level value cached by
+//   /api/meta/campaign-spend onto every event row sharing the same
+//   event_code. Summing it across events would N-times-count a single
+//   campaign's spend. The fix is to group by event_code, take the
+//   first non-null cached value per group as the campaign total, then
+//   either (a) sum across groups for venue rollups or (b) divide by
+//   group event_count for a per-event split.
+
+const GBP0 = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  maximumFractionDigits: 0,
+});
+const GBP2 = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const NUM = new Intl.NumberFormat("en-GB");
+
+function fmtGBP(n: number | null, dp: 0 | 2 = 0): string {
+  if (n === null || !Number.isFinite(n)) return "—";
+  return (dp === 2 ? GBP2 : GBP0).format(n);
+}
+function fmtNum(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return "—";
+  return NUM.format(n);
+}
+function fmtRoas(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(2)}×`;
+}
+function roasClass(n: number | null): string {
+  if (n === null) return "text-muted-foreground";
+  if (n >= 3) return "text-emerald-600 font-semibold";
+  if (n < 1) return "text-destructive font-semibold";
+  return "";
+}
+
+interface CampaignGroup {
+  /** First non-null meta_spend_cached in the group (or null). */
+  campaignSpend: number | null;
+  /** Number of events sharing this code (>= 1). */
+  eventCount: number;
+}
+
+/**
+ * Build a map of (event_code → CampaignGroup). Events with a null/empty
+ * event_code are placed in single-event "synthetic" groups keyed by
+ * event_id, so each contributes its own (un-shared) cached spend.
+ */
+function buildCampaignGroups(
+  events: EventWithClient[],
+): Record<string, CampaignGroup> {
+  const groups: Record<string, CampaignGroup> = {};
+  for (const e of events) {
+    const key = e.event_code?.trim() ? e.event_code.trim() : `__solo:${e.id}`;
+    const existing = groups[key];
+    if (!existing) {
+      groups[key] = {
+        campaignSpend: e.meta_spend_cached ?? null,
+        eventCount: 1,
+      };
+    } else {
+      existing.eventCount += 1;
+      if (existing.campaignSpend === null && e.meta_spend_cached !== null) {
+        existing.campaignSpend = e.meta_spend_cached;
+      }
+    }
+  }
+  return groups;
+}
+
+function groupKey(e: EventWithClient): string {
+  return e.event_code?.trim() ? e.event_code.trim() : `__solo:${e.id}`;
+}
+
+/**
+ * Resolve the tickets-sold value for an event with the same precedence
+ * the portal uses: snapshot first (the client-reported figure), then
+ * the manual override on the event row.
+ */
+function eventTickets(
+  e: EventWithClient,
+  snap: LatestSnapshot | undefined,
+): number | null {
+  return snap?.tickets_sold ?? e.tickets_sold ?? null;
+}
+
+function ClientStatsPanel({
+  events,
+  latestSnapshots,
+}: {
+  events: EventWithClient[];
+  latestSnapshots: Record<string, LatestSnapshot>;
+}) {
+  const groups = buildCampaignGroups(events);
+
+  let capacityTotal = 0;
+  let capacityHasAny = false;
+  let ticketsTotal = 0;
+  let ticketsHasAny = false;
+  let revenueTotal = 0;
+  let revenueHasAny = false;
+
+  for (const e of events) {
+    if (e.capacity !== null) {
+      capacityTotal += e.capacity;
+      capacityHasAny = true;
+    }
+    const t = eventTickets(e, latestSnapshots[e.id]);
+    if (t !== null) {
+      ticketsTotal += t;
+      ticketsHasAny = true;
+    }
+    const r = latestSnapshots[e.id]?.revenue;
+    if (r !== null && r !== undefined) {
+      revenueTotal += r;
+      revenueHasAny = true;
+    }
+  }
+
+  // Sum campaign-level spend once per group — see header rule.
+  let spendTotal = 0;
+  let spendHasAny = false;
+  for (const g of Object.values(groups)) {
+    if (g.campaignSpend !== null) {
+      spendTotal += g.campaignSpend;
+      spendHasAny = true;
+    }
+  }
+
+  const cpt =
+    spendHasAny && ticketsHasAny && ticketsTotal > 0
+      ? spendTotal / ticketsTotal
+      : null;
+  const roas =
+    spendHasAny && revenueHasAny && spendTotal > 0
+      ? revenueTotal / spendTotal
+      : null;
+
+  const stats: Array<{
+    label: string;
+    value: string;
+    valueClass?: string;
+  }> = [
+    {
+      label: "Total Capacity",
+      value: capacityHasAny ? fmtNum(capacityTotal) : "—",
+    },
+    {
+      label: "Tickets Sold",
+      value: ticketsHasAny ? fmtNum(ticketsTotal) : "—",
+    },
+    {
+      label: "Total Revenue",
+      value: revenueHasAny ? fmtGBP(revenueTotal) : "—",
+    },
+    {
+      label: "Total Spend",
+      value: spendHasAny ? fmtGBP(spendTotal) : "—",
+    },
+    {
+      label: "Overall CPT",
+      value: fmtGBP(cpt, 2),
+    },
+    {
+      label: "Overall ROAS",
+      value: fmtRoas(roas),
+      valueClass: roasClass(roas),
+    },
+  ];
+
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-3">
+        Performance summary
+      </h2>
+      <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-3">
+        {stats.map((s) => (
+          <div key={s.label} className="min-w-0">
+            <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {s.label}
+            </dt>
+            <dd
+              className={`mt-1 font-heading text-lg tracking-wide tabular-nums ${
+                s.valueClass ?? ""
+              }`}
+            >
+              {s.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function ClientEventsTable({
+  events,
+  latestSnapshots,
+}: {
+  events: EventWithClient[];
+  latestSnapshots: Record<string, LatestSnapshot>;
+}) {
+  const groups = buildCampaignGroups(events);
+
+  return (
+    <div className="overflow-x-auto -mx-2">
+      <table className="w-full min-w-[760px] border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <th className="px-2 py-2">Event</th>
+            <th className="px-2 py-2 text-right">Tickets</th>
+            <th className="px-2 py-2 text-right">Revenue</th>
+            <th className="px-2 py-2 text-right">Total Spend</th>
+            <th className="px-2 py-2 text-right">CPT</th>
+            <th className="px-2 py-2 text-right">ROAS</th>
+            <th className="px-2 py-2 text-right">Date</th>
+            <th className="px-2 py-2 text-right">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((ev) => {
+            const snap = latestSnapshots[ev.id];
+            const group = groups[groupKey(ev)];
+            const perEventSpend =
+              group && group.campaignSpend !== null && group.eventCount > 0
+                ? group.campaignSpend / group.eventCount
+                : null;
+            const tickets = eventTickets(ev, snap);
+            const revenue = snap?.revenue ?? null;
+            const cpt =
+              perEventSpend !== null &&
+              perEventSpend > 0 &&
+              tickets !== null &&
+              tickets > 0
+                ? perEventSpend / tickets
+                : null;
+            const roas =
+              perEventSpend !== null &&
+              perEventSpend > 0 &&
+              revenue !== null
+                ? revenue / perEventSpend
+                : null;
+            return (
+              <tr
+                key={ev.id}
+                className="border-b border-border last:border-b-0 hover:bg-muted/50 transition-colors"
+              >
+                <td className="px-2 py-2">
+                  <Link
+                    href={`/events/${ev.id}`}
+                    className="block truncate hover:underline"
+                  >
+                    {ev.name}
+                  </Link>
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {fmtNum(tickets)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {fmtGBP(revenue)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {fmtGBP(perEventSpend)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {fmtGBP(cpt, 2)}
+                </td>
+                <td
+                  className={`px-2 py-2 text-right tabular-nums ${roasClass(roas)}`}
+                >
+                  {fmtRoas(roas)}
+                </td>
+                <td className="px-2 py-2 text-right text-xs text-muted-foreground tabular-nums">
+                  {ev.event_date ?? "TBD"}
+                </td>
+                <td className="px-2 py-2 text-right text-xs text-muted-foreground">
+                  {ev.status}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
