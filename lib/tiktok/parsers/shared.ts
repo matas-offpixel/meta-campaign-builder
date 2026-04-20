@@ -55,47 +55,62 @@ export const TIKTOK_METRIC_COLUMNS: readonly MetricColumnSpec[] = [
   {
     header: "Clicks (destination)",
     field: "clicks_destination",
-    aliases: ["Clicks(destination)", "Destination clicks"],
+    // Bare "Clicks" appears in TikTok's Audience-Table pivot exports
+    // (View Report → Insights → Audience). The campaign / ad sheets use
+    // the fully-qualified "Clicks (destination)" header so there is no
+    // ambiguity at parse time — `findColumnIndex` resolves the canonical
+    // header first when both are present in the same sheet.
+    aliases: ["Clicks(destination)", "Destination clicks", "Clicks"],
   },
   {
     header: "CPC (destination)",
     field: "cpc_destination",
-    aliases: ["CPC(destination)"],
+    aliases: ["CPC(destination)", "CPC"],
   },
   {
     header: "CTR (destination)",
     field: "ctr_destination",
-    aliases: ["CTR(destination)"],
+    aliases: ["CTR(destination)", "CTR"],
   },
   {
     header: "2-second video views",
     field: "video_views_2s",
-    aliases: ["2s video views"],
+    aliases: ["2s video views", "2s views"],
   },
   {
     header: "6-second video views",
     field: "video_views_6s",
-    aliases: ["6s video views"],
+    aliases: ["6s video views", "6s views"],
   },
+  // Audience-Table pivots use bare "25%" / "50%" / "75%" / "100%" headers
+  // for the four watch-depth buckets. The campaign / ad exports keep the
+  // verbose "Video views at 25%" form; both shapes resolve through the
+  // alias list below so a single sheet drop never silently loses depth
+  // metrics.
   {
     header: "Video views at 25%",
     field: "video_views_p25",
-    aliases: ["Video views (P25)", "P25 video views"],
+    aliases: ["Video views (P25)", "P25 video views", "25% video views", "25%"],
   },
   {
     header: "Video views at 50%",
     field: "video_views_p50",
-    aliases: ["Video views (P50)", "P50 video views"],
+    aliases: ["Video views (P50)", "P50 video views", "50% video views", "50%"],
   },
   {
     header: "Video views at 75%",
     field: "video_views_p75",
-    aliases: ["Video views (P75)", "P75 video views"],
+    aliases: ["Video views (P75)", "P75 video views", "75% video views", "75%"],
   },
   {
     header: "Video views at 100%",
     field: "video_views_p100",
-    aliases: ["Video views (P100)", "P100 video views"],
+    aliases: [
+      "Video views (P100)",
+      "P100 video views",
+      "100% video views",
+      "100%",
+    ],
   },
   {
     header: "Average play time per user",
