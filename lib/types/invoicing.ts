@@ -1,13 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Invoicing domain types.
 //
-// Not derived from lib/db/database.types.ts because migration 019 hasn't
-// been applied to the live Supabase project yet — these types stand in
-// until `supabase gen types` is re-run, at which point we can switch to
-// `Tables<"quotes">` and `Tables<"invoices">` directly.
-//
-// TODO(post-019): once migration 019 is applied + types regenerated,
-// drop the manual definitions below and re-export `Tables<"quotes">` etc.
+// We deliberately do NOT re-export Tables<"quotes"> / Tables<"invoices">
+// from the generated database.types.ts — Supabase serialises CHECK-
+// constrained text columns (status, invoice_type, billing_mode, etc.)
+// as plain `string`, which throws away the discriminated unions we
+// rely on across the UI and the API. The interfaces below mirror the
+// regenerated schema (post migrations 019 + 021) but tighten those
+// columns into proper enums.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {

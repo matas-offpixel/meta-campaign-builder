@@ -33,18 +33,10 @@ export default async function ClientDetailPage({ params }: Props) {
 
   if (!client) notFound();
 
-  // The two default_* columns ship with migration 019 and are not in the
-  // generated Supabase types yet — fall back to global defaults so the
-  // page renders cleanly pre-migration.
-  // TODO(post-019): drop the cast once types regenerate.
-  const clientWithDefaults = client as unknown as typeof client & {
-    default_upfront_pct?: number | null;
-    default_settlement_timing?: SettlementTiming | null;
-  };
   const defaults = {
-    upfront_pct: clientWithDefaults.default_upfront_pct ?? 75,
-    settlement_timing:
-      clientWithDefaults.default_settlement_timing ?? "1_month_before",
+    upfront_pct: client.default_upfront_pct ?? 75,
+    settlement_timing: (client.default_settlement_timing ??
+      "1_month_before") as SettlementTiming,
   };
 
   return (

@@ -224,6 +224,84 @@ export type Database = {
           },
         ]
       }
+      artists: {
+        Row: {
+          created_at: string
+          genres: string[]
+          id: string
+          instagram_handle: string | null
+          meta_page_id: string | null
+          meta_page_name: string | null
+          name: string
+          notes: string | null
+          spotify_id: string | null
+          updated_at: string
+          user_id: string
+          website: string | null
+        }
+        Insert: {
+          created_at?: string
+          genres?: string[]
+          id?: string
+          instagram_handle?: string | null
+          meta_page_id?: string | null
+          meta_page_name?: string | null
+          name: string
+          notes?: string | null
+          spotify_id?: string | null
+          updated_at?: string
+          user_id: string
+          website?: string | null
+        }
+        Update: {
+          created_at?: string
+          genres?: string[]
+          id?: string
+          instagram_handle?: string | null
+          meta_page_id?: string | null
+          meta_page_name?: string | null
+          name?: string
+          notes?: string | null
+          spotify_id?: string | null
+          updated_at?: string
+          user_id?: string
+          website?: string | null
+        }
+        Relationships: []
+      }
+      audience_seeds: {
+        Row: {
+          created_at: string
+          description: string | null
+          filters: Json
+          id: string
+          meta_custom_audience_id: string | null
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          filters?: Json
+          id?: string
+          meta_custom_audience_id?: string | null
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          filters?: Json
+          id?: string
+          meta_custom_audience_id?: string | null
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_drafts: {
         Row: {
           ad_account_id: string | null
@@ -379,7 +457,7 @@ export type Database = {
       }
       clients: {
         Row: {
-          billing_model: string | null
+          billing_model: string
           created_at: string
           custom_minimum_fee: number | null
           custom_rate_per_ticket: number | null
@@ -410,7 +488,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          billing_model?: string | null
+          billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
           custom_rate_per_ticket?: number | null
@@ -441,7 +519,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          billing_model?: string | null
+          billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
           custom_rate_per_ticket?: number | null
@@ -484,6 +562,92 @@ export type Database = {
             columns: ["tiktok_account_id"]
             isOneToOne: false
             referencedRelation: "tiktok_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_tags: {
+        Row: {
+          created_at: string
+          event_id: string | null
+          id: string
+          meta_ad_id: string
+          meta_creative_id: string | null
+          tag_type: string
+          tag_value: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          meta_ad_id: string
+          meta_creative_id?: string | null
+          tag_type: string
+          tag_value: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          meta_ad_id?: string
+          meta_creative_id?: string | null
+          tag_type?: string
+          tag_value?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_tags_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_artists: {
+        Row: {
+          artist_id: string
+          billing_order: number
+          created_at: string
+          event_id: string
+          id: string
+          is_headliner: boolean
+          user_id: string
+        }
+        Insert: {
+          artist_id: string
+          billing_order?: number
+          created_at?: string
+          event_id: string
+          id?: string
+          is_headliner?: boolean
+          user_id: string
+        }
+        Update: {
+          artist_id?: string
+          billing_order?: number
+          created_at?: string
+          event_id?: string
+          id?: string
+          is_headliner?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_artists_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "artists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_artists_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -566,6 +730,7 @@ export type Database = {
           user_id: string
           venue_city: string | null
           venue_country: string | null
+          venue_id: string | null
           venue_name: string | null
         }
         Insert: {
@@ -598,6 +763,7 @@ export type Database = {
           user_id: string
           venue_city?: string | null
           venue_country?: string | null
+          venue_id?: string | null
           venue_name?: string | null
         }
         Update: {
@@ -630,6 +796,7 @@ export type Database = {
           user_id?: string
           venue_city?: string | null
           venue_country?: string | null
+          venue_id?: string | null
           venue_name?: string | null
         }
         Relationships: [
@@ -652,6 +819,13 @@ export type Database = {
             columns: ["tiktok_account_id"]
             isOneToOne: false
             referencedRelation: "tiktok_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -754,6 +928,199 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      invoices: {
+        Row: {
+          amount_excl_vat: number
+          amount_incl_vat: number | null
+          client_id: string
+          created_at: string
+          due_date: string | null
+          event_id: string | null
+          id: string
+          invoice_number: string | null
+          invoice_type: string
+          issued_date: string | null
+          notes: string | null
+          paid_date: string | null
+          quote_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          vat_applicable: boolean
+          vat_rate: number
+        }
+        Insert: {
+          amount_excl_vat: number
+          amount_incl_vat?: number | null
+          client_id: string
+          created_at?: string
+          due_date?: string | null
+          event_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          invoice_type: string
+          issued_date?: string | null
+          notes?: string | null
+          paid_date?: string | null
+          quote_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          vat_applicable?: boolean
+          vat_rate?: number
+        }
+        Update: {
+          amount_excl_vat?: number
+          amount_incl_vat?: number | null
+          client_id?: string
+          created_at?: string
+          due_date?: string | null
+          event_id?: string | null
+          id?: string
+          invoice_number?: string | null
+          invoice_type?: string
+          issued_date?: string | null
+          notes?: string | null
+          paid_date?: string | null
+          quote_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          vat_applicable?: boolean
+          vat_rate?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quotes: {
+        Row: {
+          announcement_date: string | null
+          approved_at: string | null
+          base_fee: number
+          billing_mode: string
+          capacity: number
+          client_id: string
+          converted_at: string | null
+          created_at: string
+          event_date: string | null
+          event_id: string | null
+          event_name: string
+          id: string
+          marketing_budget: number | null
+          max_fee: number
+          notes: string | null
+          quote_number: string
+          retainer_months: number | null
+          sell_out_bonus: number
+          service_tier: string
+          settlement_timing: string
+          sold_out_expected: boolean
+          status: string
+          updated_at: string
+          upfront_pct: number
+          user_id: string
+          venue_city: string | null
+          venue_country: string | null
+          venue_name: string | null
+        }
+        Insert: {
+          announcement_date?: string | null
+          approved_at?: string | null
+          base_fee: number
+          billing_mode?: string
+          capacity: number
+          client_id: string
+          converted_at?: string | null
+          created_at?: string
+          event_date?: string | null
+          event_id?: string | null
+          event_name: string
+          id?: string
+          marketing_budget?: number | null
+          max_fee: number
+          notes?: string | null
+          quote_number: string
+          retainer_months?: number | null
+          sell_out_bonus?: number
+          service_tier: string
+          settlement_timing?: string
+          sold_out_expected?: boolean
+          status?: string
+          updated_at?: string
+          upfront_pct?: number
+          user_id: string
+          venue_city?: string | null
+          venue_country?: string | null
+          venue_name?: string | null
+        }
+        Update: {
+          announcement_date?: string | null
+          approved_at?: string | null
+          base_fee?: number
+          billing_mode?: string
+          capacity?: number
+          client_id?: string
+          converted_at?: string | null
+          created_at?: string
+          event_date?: string | null
+          event_id?: string | null
+          event_name?: string
+          id?: string
+          marketing_budget?: number | null
+          max_fee?: number
+          notes?: string | null
+          quote_number?: string
+          retainer_months?: number | null
+          sell_out_bonus?: number
+          service_tier?: string
+          settlement_timing?: string
+          sold_out_expected?: boolean
+          status?: string
+          updated_at?: string
+          upfront_pct?: number
+          user_id?: string
+          venue_city?: string | null
+          venue_country?: string | null
+          venue_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       report_shares: {
         Row: {
@@ -860,6 +1227,54 @@ export type Database = {
           provider_token?: string
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      venues: {
+        Row: {
+          address: string | null
+          capacity: number | null
+          city: string
+          country: string
+          created_at: string
+          id: string
+          meta_page_id: string | null
+          meta_page_name: string | null
+          name: string
+          notes: string | null
+          updated_at: string
+          user_id: string
+          website: string | null
+        }
+        Insert: {
+          address?: string | null
+          capacity?: number | null
+          city: string
+          country?: string
+          created_at?: string
+          id?: string
+          meta_page_id?: string | null
+          meta_page_name?: string | null
+          name: string
+          notes?: string | null
+          updated_at?: string
+          user_id: string
+          website?: string | null
+        }
+        Update: {
+          address?: string | null
+          capacity?: number | null
+          city?: string
+          country?: string
+          created_at?: string
+          id?: string
+          meta_page_id?: string | null
+          meta_page_name?: string | null
+          name?: string
+          notes?: string | null
+          updated_at?: string
+          user_id?: string
+          website?: string | null
         }
         Relationships: []
       }

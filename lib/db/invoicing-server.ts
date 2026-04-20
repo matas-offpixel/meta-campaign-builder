@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import type { TablesInsert } from "@/lib/db/database.types";
 import {
   calculateInvoiceAmounts,
   calculateQuote,
@@ -18,19 +19,22 @@ import type {
   QuoteWithRefs,
 } from "@/lib/types/invoicing";
 
+type InvoiceInsert = TablesInsert<"invoices">;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-only helpers for the invoicing surfaces.
 //
 // Read helpers live here so route handlers, server components, and the API
 // layer all share one path. Write helpers (createQuoteWithInvoices,
-// getNextInvoiceNumber, transitions) are added in Step 4.
+// generateRetainerInvoices, transitions) sit alongside.
 //
 // All Supabase calls go through createClient() which is RLS-bound, so
 // callers do not need to filter by user_id explicitly — the policies in
 // migration 019 enforce that for us.
 //
-// TODO(post-019): drop the `as never` / `as unknown as` casts once
-// migration 019 is applied + types regenerated. They're flagged inline.
+// Single-step casts (`as QuoteRow`, `as InvoiceRow[]`) at the read
+// boundary narrow the generated `string` columns into the discriminated
+// unions defined in lib/types/invoicing.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -54,19 +58,18 @@ export async function listClientsForQuoteFormServer(
     return [];
   }
 
-  type Raw = {
+  const rows = (data ?? []) as Array<{
     id: string;
     name: string;
     default_upfront_pct: number | null;
-    default_settlement_timing: SettlementTiming | null;
+    default_settlement_timing: string | null;
     status: string | null;
     custom_rate_per_ticket: number | null;
     custom_minimum_fee: number | null;
-    billing_model: BillingMode | null;
+    billing_model: string | null;
     retainer_monthly_fee: number | null;
     retainer_started_at: string | null;
-  };
-  const rows = (data as unknown as Raw[]) ?? [];
+  }>;
 
   return rows
     .filter((r) => (r.status ?? "active") !== "archived")
@@ -74,8 +77,8 @@ export async function listClientsForQuoteFormServer(
       id: r.id,
       name: r.name,
       default_upfront_pct: r.default_upfront_pct ?? 75,
-      default_settlement_timing:
-        r.default_settlement_timing ?? "1_month_before",
+      default_settlement_timing: (r.default_settlement_timing ??
+        "1_month_before") as SettlementTiming,
       custom_rate_per_ticket: r.custom_rate_per_ticket,
       custom_minimum_fee: r.custom_minimum_fee,
       billing_model: (r.billing_model ?? "per_event") as BillingMode,
@@ -88,9 +91,8 @@ export async function getQuoteByIdServer(
   id: string,
 ): Promise<QuoteRow | null> {
   const supabase = await createClient();
-  // TODO(post-019): swap `as never` for typed `from("quotes")`.
   const { data, error } = await supabase
-    .from("quotes" as never)
+    .from("quotes")
     .select("*")
     .eq("id", id)
     .maybeSingle();
@@ -99,7 +101,7 @@ export async function getQuoteByIdServer(
     console.warn("[invoicing-server getQuoteById]", error.message);
     return null;
   }
-  return (data as unknown as QuoteRow | null) ?? null;
+  return (data as QuoteRow | null) ?? null;
 }
 
 export async function listQuotesServer(
@@ -107,9 +109,8 @@ export async function listQuotesServer(
   filter?: { client_id?: string; status?: QuoteRow["status"] },
 ): Promise<QuoteRow[]> {
   const supabase = await createClient();
-  // TODO(post-019): swap `as never` for typed `from("quotes")`.
   let query = supabase
-    .from("quotes" as never)
+    .from("quotes")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -122,7 +123,7 @@ export async function listQuotesServer(
     console.warn("[invoicing-server listQuotes]", error.message);
     return [];
   }
-  return ((data as unknown as QuoteRow[] | null) ?? []) as QuoteRow[];
+  return (data ?? []) as QuoteRow[];
 }
 
 /**
@@ -248,9 +249,8 @@ export async function getQuoteForEventServer(
   eventId: string,
 ): Promise<QuoteRow | null> {
   const supabase = await createClient();
-  // TODO(post-019): typed `from("quotes")`.
   const { data, error } = await supabase
-    .from("quotes" as never)
+    .from("quotes")
     .select("*")
     .eq("event_id", eventId)
     .limit(1)
@@ -259,16 +259,15 @@ export async function getQuoteForEventServer(
     console.warn("[invoicing-server getQuoteForEvent]", error.message);
     return null;
   }
-  return (data as unknown as QuoteRow | null) ?? null;
+  return (data as QuoteRow | null) ?? null;
 }
 
 export async function listInvoicesForEventServer(
   eventId: string,
 ): Promise<InvoiceRow[]> {
   const supabase = await createClient();
-  // TODO(post-019): typed `from("invoices")`.
   const { data, error } = await supabase
-    .from("invoices" as never)
+    .from("invoices")
     .select("*")
     .eq("event_id", eventId)
     .order("created_at", { ascending: true });
@@ -276,16 +275,15 @@ export async function listInvoicesForEventServer(
     console.warn("[invoicing-server listInvoicesForEvent]", error.message);
     return [];
   }
-  return ((data as unknown as InvoiceRow[]) ?? []) as InvoiceRow[];
+  return (data ?? []) as InvoiceRow[];
 }
 
 export async function listInvoicesForQuoteServer(
   quoteId: string,
 ): Promise<InvoiceRow[]> {
   const supabase = await createClient();
-  // TODO(post-019): swap `as never` for typed `from("invoices")`.
   const { data, error } = await supabase
-    .from("invoices" as never)
+    .from("invoices")
     .select("*")
     .eq("quote_id", quoteId)
     .order("created_at", { ascending: true });
@@ -294,7 +292,7 @@ export async function listInvoicesForQuoteServer(
     console.warn("[invoicing-server listInvoicesForQuote]", error.message);
     return [];
   }
-  return ((data as unknown as InvoiceRow[] | null) ?? []) as InvoiceRow[];
+  return (data ?? []) as InvoiceRow[];
 }
 
 // ─── Quote numbering ────────────────────────────────────────────────────────
@@ -314,7 +312,7 @@ export async function listInvoicesForQuoteServer(
 export async function getNextQuoteNumber(userId: string): Promise<string> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("quotes" as never)
+    .from("quotes")
     .select("quote_number")
     .eq("user_id", userId)
     .like("quote_number", "QUO-%");
@@ -324,8 +322,7 @@ export async function getNextQuoteNumber(userId: string): Promise<string> {
   }
 
   let maxN = 0;
-  for (const row of (data as unknown as Array<{ quote_number: string }>) ??
-    []) {
+  for (const row of data ?? []) {
     const m = /^QUO-(\d+)$/.exec(row.quote_number ?? "");
     if (!m) continue;
     const n = Number.parseInt(m[1], 10);
@@ -367,20 +364,13 @@ export async function createQuoteWithInvoices(
 
   // Pull client overrides + retainer fee in one shot so the calculator and
   // retainer path both work off the same source of truth.
-  const { data: clientRow } = await supabase
+  const { data: overrides } = await supabase
     .from("clients")
     .select(
       "custom_rate_per_ticket, custom_minimum_fee, billing_model, retainer_monthly_fee",
     )
     .eq("id", request.client_id)
     .maybeSingle();
-
-  const overrides = clientRow as unknown as {
-    custom_rate_per_ticket: number | null;
-    custom_minimum_fee: number | null;
-    billing_model: BillingMode | null;
-    retainer_monthly_fee: number | null;
-  } | null;
 
   let baseFee: number;
   let sellOutBonus: number;
@@ -422,7 +412,7 @@ export async function createQuoteWithInvoices(
     ? "on_completion"
     : request.settlement_timing;
 
-  const insertPayload: Record<string, unknown> = {
+  const insertPayload = {
     user_id: userId,
     client_id: request.client_id,
     event_id: null,
@@ -452,8 +442,8 @@ export async function createQuoteWithInvoices(
   };
 
   const { data: quoteRow, error: insertErr } = await supabase
-    .from("quotes" as never)
-    .insert(insertPayload as never)
+    .from("quotes")
+    .insert(insertPayload)
     .select("*")
     .maybeSingle();
 
@@ -463,7 +453,7 @@ export async function createQuoteWithInvoices(
   if (!quoteRow) {
     throw new Error("Quote insert returned no row.");
   }
-  const quote = quoteRow as unknown as QuoteRow;
+  const quote = quoteRow as QuoteRow;
 
   if (!wantApprove) {
     return { quote, invoices: [] };
@@ -508,7 +498,7 @@ export async function generateInvoicesForQuote(
     quote.settlement_timing,
   );
 
-  const rows: Array<Record<string, unknown>> = [];
+  const rows: InvoiceInsert[] = [];
 
   if (split.upfront > 0) {
     rows.push({
@@ -567,15 +557,12 @@ export async function generateInvoicesForQuote(
 
   if (rows.length === 0) return [];
 
-  const { data, error } = await supabase
-    .from("invoices" as never)
-    .insert(rows as never)
-    .select("*");
+  const { data, error } = await supabase.from("invoices").insert(rows).select("*");
 
   if (error) {
     throw new Error(`Invoice insert failed: ${error.message}`);
   }
-  return ((data as unknown as InvoiceRow[]) ?? []) as InvoiceRow[];
+  return (data ?? []) as InvoiceRow[];
 }
 
 /**
@@ -599,7 +586,7 @@ export async function generateRetainerInvoices(
   start.setUTCDate(1);
   start.setUTCHours(0, 0, 0, 0);
 
-  const rows: Array<Record<string, unknown>> = [];
+  const rows: InvoiceInsert[] = [];
   for (let i = 0; i < months; i++) {
     const due = new Date(start);
     due.setUTCMonth(due.getUTCMonth() + i);
@@ -619,15 +606,12 @@ export async function generateRetainerInvoices(
     });
   }
 
-  const { data, error } = await supabase
-    .from("invoices" as never)
-    .insert(rows as never)
-    .select("*");
+  const { data, error } = await supabase.from("invoices").insert(rows).select("*");
 
   if (error) {
     throw new Error(`Retainer invoice insert failed: ${error.message}`);
   }
-  return ((data as unknown as InvoiceRow[]) ?? []) as InvoiceRow[];
+  return (data ?? []) as InvoiceRow[];
 }
 
 // ─── Update helpers ─────────────────────────────────────────────────────────
@@ -658,13 +642,13 @@ export async function updateQuote(
 ): Promise<QuoteRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("quotes" as never)
-    .update(patch as never)
+    .from("quotes")
+    .update(patch)
     .eq("id", id)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as QuoteRow | null) ?? null;
+  return (data as QuoteRow | null) ?? null;
 }
 
 const INVOICE_PATCH_FIELDS = [
@@ -694,13 +678,13 @@ export async function updateInvoice(
 ): Promise<InvoiceRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("invoices" as never)
-    .update(patch as never)
+    .from("invoices")
+    .update(patch)
     .eq("id", id)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as InvoiceRow | null) ?? null;
+  return (data as InvoiceRow | null) ?? null;
 }
 
 /**
@@ -723,12 +707,12 @@ export async function updateInvoiceNumber(
 export async function getInvoiceById(id: string): Promise<InvoiceRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("invoices" as never)
+    .from("invoices")
     .select("*")
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as InvoiceRow | null) ?? null;
+  return (data as InvoiceRow | null) ?? null;
 }
 
 export async function listInvoicesServer(
@@ -740,9 +724,8 @@ export async function listInvoicesServer(
   },
 ): Promise<InvoiceRow[]> {
   const supabase = await createClient();
-  // TODO(post-019): swap `as never` for typed `from("invoices")`.
   let query = supabase
-    .from("invoices" as never)
+    .from("invoices")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -756,5 +739,5 @@ export async function listInvoicesServer(
     console.warn("[invoicing-server listInvoices]", error.message);
     return [];
   }
-  return ((data as unknown as InvoiceRow[] | null) ?? []) as InvoiceRow[];
+  return (data ?? []) as InvoiceRow[];
 }
