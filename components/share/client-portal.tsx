@@ -6,7 +6,7 @@ import type {
   PortalClient,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
-import { ClientPortalEventCard } from "./client-portal-event-card";
+import { ClientPortalVenueTable } from "./client-portal-venue-table";
 
 interface Props {
   token: string;
@@ -45,10 +45,13 @@ function formatNumber(n: number): string {
 }
 
 /**
- * Public ticket-input portal — clean public page (no dashboard nav).
- * Off/Pixel wordmark top-left + client name top-right. Tabs group
- * events by region; summary bar rolls up tickets-entered vs capacity
- * across the visible tab; per-event cards take the actual input.
+ * Public client reporting dashboard — clean public surface, no dashboard nav.
+ *
+ * Replaces the legacy Google Sheets layout 4theFans (and similar clients)
+ * used to maintain manually: regional tabs roll capacity up to a summary
+ * bar, then a venue-grouped table breaks every event down by Pre-reg / Ad
+ * Spend / Tickets / CPT / Revenue / ROAS. Ticket input lives inline in
+ * the table cells, so the page is both report and capture surface.
  */
 export function ClientPortal({ token, client, events: initial }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
@@ -133,7 +136,7 @@ export function ClientPortal({ token, client, events: initial }: Props) {
     <main className="min-h-screen bg-white text-zinc-900">
       {/* Header */}
       <header className="border-b border-zinc-200">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
           <p className="font-heading text-base tracking-[0.2em] text-zinc-900">
             OFF / PIXEL
           </p>
@@ -143,15 +146,14 @@ export function ClientPortal({ token, client, events: initial }: Props) {
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-6 py-8 space-y-6">
+      <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
         <div>
           <h1 className="font-heading text-2xl tracking-wide">
-            Ticket sales input
+            Campaign performance
           </h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Update tickets sold for each show whenever you have a fresh
-            number. We&apos;ll roll the latest figures into the campaign
-            reports automatically.
+            Tickets sold and ad spend breakdown by venue. Click any tickets
+            figure to update it.
           </p>
         </div>
 
@@ -226,25 +228,18 @@ export function ClientPortal({ token, client, events: initial }: Props) {
               )}
             </div>
 
-            {/* Event cards */}
-            <div className="space-y-4">
-              {tabEvents.map((ev) => (
-                <ClientPortalEventCard
-                  key={ev.id}
-                  token={token}
-                  event={ev}
-                  onSnapshotSaved={(snapshot) =>
-                    handleSnapshot(ev.id, snapshot)
-                  }
-                />
-              ))}
-            </div>
+            {/* Venue-grouped reporting table */}
+            <ClientPortalVenueTable
+              token={token}
+              events={tabEvents}
+              onSnapshotSaved={handleSnapshot}
+            />
           </>
         )}
       </div>
 
       <footer className="border-t border-zinc-200 mt-12">
-        <div className="mx-auto max-w-5xl px-6 py-4 text-[11px] text-zinc-400">
+        <div className="mx-auto max-w-7xl px-6 py-4 text-[11px] text-zinc-400">
           Off Pixel · campaign analytics for {client.name}
         </div>
       </footer>
