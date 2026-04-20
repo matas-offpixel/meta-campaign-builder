@@ -607,6 +607,66 @@ export type Database = {
           },
         ]
       }
+      daily_tracking_entries: {
+        Row: {
+          client_id: string
+          created_at: string
+          date: string
+          day_spend: number | null
+          event_id: string
+          id: string
+          link_clicks: number | null
+          notes: string | null
+          revenue: number | null
+          tickets: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          date: string
+          day_spend?: number | null
+          event_id: string
+          id?: string
+          link_clicks?: number | null
+          notes?: string | null
+          revenue?: number | null
+          tickets?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          date?: string
+          day_spend?: number | null
+          event_id?: string
+          id?: string
+          link_clicks?: number | null
+          notes?: string | null
+          revenue?: number | null
+          tickets?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_tracking_entries_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_tracking_entries_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_artists: {
         Row: {
           artist_id: string
@@ -704,6 +764,7 @@ export type Database = {
           ad_spend_actual: number | null
           announcement_at: string | null
           budget_marketing: number | null
+          campaign_end_at: string | null
           capacity: number | null
           client_id: string
           created_at: string
@@ -718,11 +779,13 @@ export type Database = {
           google_drive_folder_id: string | null
           google_drive_folder_url: string | null
           id: string
+          kind: string
           meta_campaign_id: string | null
           meta_spend_cached: number | null
           meta_spend_cached_at: string | null
           name: string
           notes: string | null
+          objective: string | null
           prereg_spend: number | null
           presale_at: string | null
           signup_url: string | null
@@ -743,6 +806,7 @@ export type Database = {
           ad_spend_actual?: number | null
           announcement_at?: string | null
           budget_marketing?: number | null
+          campaign_end_at?: string | null
           capacity?: number | null
           client_id: string
           created_at?: string
@@ -757,11 +821,13 @@ export type Database = {
           google_drive_folder_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          kind?: string
           meta_campaign_id?: string | null
           meta_spend_cached?: number | null
           meta_spend_cached_at?: string | null
           name: string
           notes?: string | null
+          objective?: string | null
           prereg_spend?: number | null
           presale_at?: string | null
           signup_url?: string | null
@@ -782,6 +848,7 @@ export type Database = {
           ad_spend_actual?: number | null
           announcement_at?: string | null
           budget_marketing?: number | null
+          campaign_end_at?: string | null
           capacity?: number | null
           client_id?: string
           created_at?: string
@@ -796,11 +863,13 @@ export type Database = {
           google_drive_folder_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          kind?: string
           meta_campaign_id?: string | null
           meta_spend_cached?: number | null
           meta_spend_cached_at?: string | null
           name?: string
           notes?: string | null
+          objective?: string | null
           prereg_spend?: number | null
           presale_at?: string | null
           signup_url?: string | null
@@ -1226,6 +1295,76 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      tiktok_manual_reports: {
+        Row: {
+          campaign_name: string
+          client_id: string | null
+          created_at: string
+          date_range_end: string
+          date_range_start: string
+          event_id: string | null
+          id: string
+          imported_at: string
+          snapshot_json: Json
+          source: string
+          tiktok_account_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_name: string
+          client_id?: string | null
+          created_at?: string
+          date_range_end: string
+          date_range_start: string
+          event_id?: string | null
+          id?: string
+          imported_at?: string
+          snapshot_json: Json
+          source?: string
+          tiktok_account_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_name?: string
+          client_id?: string | null
+          created_at?: string
+          date_range_end?: string
+          date_range_start?: string
+          event_id?: string | null
+          id?: string
+          imported_at?: string
+          snapshot_json?: Json
+          source?: string
+          tiktok_account_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tiktok_manual_reports_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiktok_manual_reports_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiktok_manual_reports_tiktok_account_id_fkey"
+            columns: ["tiktok_account_id"]
+            isOneToOne: false
+            referencedRelation: "tiktok_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_facebook_tokens: {
         Row: {
