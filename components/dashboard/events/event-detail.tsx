@@ -548,6 +548,7 @@ export function EventDetail({
               */}
               <EventReportingTabs
                 eventId={event.id}
+                clientId={event.client_id}
                 initialTikTokAccountId={event.tiktok_account_id ?? null}
                 // Slice 4 doesn't yet prefetch the plan id server-side
                 // (no lib/db helper landed in this scaffold) — pass null

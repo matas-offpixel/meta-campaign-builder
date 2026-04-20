@@ -9,6 +9,8 @@ type ReportChannel = "meta" | "tiktok" | "google-ads";
 
 interface Props {
   eventId: string;
+  /** UUID of the client owning the event. Required by the TikTok import POST. */
+  clientId: string;
   /** Live Meta report rendered by the parent server-resolved tree. */
   metaPanel: ReactNode;
   initialTikTokAccountId: string | null;
@@ -32,6 +34,7 @@ interface Props {
  */
 export function EventReportingTabs({
   eventId,
+  clientId,
   metaPanel,
   initialTikTokAccountId,
   initialGoogleAdsPlanId,
@@ -55,6 +58,7 @@ export function EventReportingTabs({
       <TabPanel active={active === "tiktok"}>
         <TikTokReportTab
           eventId={eventId}
+          clientId={clientId}
           initialTikTokAccountId={initialTikTokAccountId}
         />
       </TabPanel>
