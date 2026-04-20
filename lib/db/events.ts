@@ -4,9 +4,54 @@ import { regenerateAutoMoments } from "@/lib/db/event-key-moments";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type EventRow = Tables<"events">;
-export type EventInsert = TablesInsert<"events">;
-export type EventUpdate = TablesUpdate<"events">;
+/**
+ * Engagement type discriminator — see migration 027.
+ *   - "event"          → dated show (default; the original shape)
+ *   - "brand_campaign" → date-ranged brand / awareness push (no venue,
+ *                        no ticket cap, no presale phase)
+ */
+export const EVENT_KINDS = ["event", "brand_campaign"] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
+/**
+ * Allowed objectives when kind='brand_campaign'. Enforced by the DB check
+ * constraint `events_brand_campaign_requires_objective` (presence) and by
+ * this union in TS (value).
+ */
+export const BRAND_CAMPAIGN_OBJECTIVES = [
+  "Reach",
+  "Brand Awareness",
+  "Video View",
+  "Conversions",
+] as const;
+export type BrandCampaignObjective = (typeof BRAND_CAMPAIGN_OBJECTIVES)[number];
+
+/**
+ * Bridge until `database.types.ts` is regenerated post-migration 027.
+ *
+ * Once regen lands, Supabase will emit `kind: string` / `objective: string |
+ * null` / `campaign_end_at: string | null` on the events row — this
+ * intersection harmlessly tightens `kind` to the discriminator union and
+ * makes the columns visible whether or not the regen has happened yet.
+ */
+type EventKindColumns = {
+  kind: EventKind;
+  objective: string | null;
+  campaign_end_at: string | null;
+};
+
+export type EventRow = Omit<Tables<"events">, keyof EventKindColumns> &
+  EventKindColumns;
+export type EventInsert = Omit<
+  TablesInsert<"events">,
+  keyof EventKindColumns
+> &
+  Partial<EventKindColumns>;
+export type EventUpdate = Omit<
+  TablesUpdate<"events">,
+  keyof EventKindColumns
+> &
+  Partial<EventKindColumns>;
 
 export type EventStatus =
   | "upcoming"
@@ -174,6 +219,74 @@ export async function createEventRow(
     }
   }
   return row;
+}
+
+// ─── Create (brand campaign) ────────────────────────────────────────────────
+
+/**
+ * Caller-facing input for `createBrandCampaignRow`. Mirrors the brand
+ * campaign form: identity (name/code), the marketing brief (objective,
+ * budget), the campaign window (start/end), and the platform routing
+ * (TikTok account). Venue / capacity / presale fields are intentionally
+ * absent — those are only meaningful for kind='event' rows.
+ */
+export type CreateBrandCampaignInput = {
+  user_id: string;
+  client_id: string;
+  name: string;
+  /** Optional: derived from name via slugifyEvent when omitted. */
+  slug?: string;
+  /** Display code shown in dashboards, e.g. "[BB26-RIANBRAZIL]". */
+  event_code?: string | null;
+  objective: BrandCampaignObjective;
+  /** Total marketing budget in the client's currency (numeric(12,2)). */
+  budget_marketing?: number | null;
+  /** ISO timestamp — start of the campaign window. */
+  event_start_at?: string | null;
+  /** ISO timestamp — end of the campaign window. */
+  campaign_end_at?: string | null;
+  tiktok_account_id?: string | null;
+  notes?: string | null;
+  status?: EventStatus;
+};
+
+/**
+ * Insert a brand campaign row. Mirrors `createEventRow` but always sets
+ * `kind='brand_campaign'`, requires `objective`, and skips the venue /
+ * presale / auto-moments path (auto moments key off `event_date`, which a
+ * brand campaign deliberately leaves null).
+ */
+export async function createBrandCampaignRow(
+  input: CreateBrandCampaignInput,
+): Promise<EventRow | null> {
+  const supabase = createClient();
+  const payload: EventInsert = {
+    user_id: input.user_id,
+    client_id: input.client_id,
+    name: input.name,
+    slug: input.slug || slugifyEvent(input.name),
+    event_code: input.event_code ?? null,
+    event_start_at: input.event_start_at ?? null,
+    campaign_end_at: input.campaign_end_at ?? null,
+    budget_marketing: input.budget_marketing ?? null,
+    tiktok_account_id: input.tiktok_account_id ?? null,
+    notes: input.notes ?? null,
+    status: input.status ?? "upcoming",
+    kind: "brand_campaign",
+    objective: input.objective,
+  };
+
+  const { data, error } = await supabase
+    .from("events")
+    .insert(payload)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("Supabase createBrandCampaign error:", error.message);
+    throw error;
+  }
+  return (data as unknown as EventRow) ?? null;
 }
 
 // ─── Update ──────────────────────────────────────────────────────────────────

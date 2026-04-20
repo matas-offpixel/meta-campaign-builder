@@ -9,6 +9,7 @@ import { EventsFilters } from "@/components/dashboard/events/events-filters";
 import { useWriteParams } from "@/components/dashboard/_shared/use-write-params";
 import { type EventWithClient } from "@/lib/db/events";
 import { StatusPill } from "@/components/dashboard/_shared/status-pill";
+import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import { fmtDate } from "@/lib/dashboard/format";
 
 /**
@@ -102,6 +103,7 @@ export function EventsList({
                         <p className="text-sm font-medium truncate">
                           {ev.name}
                         </p>
+                        <KindBadge kind={ev.kind} />
                         <StatusPill status={ev.status} kind="event" />
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">

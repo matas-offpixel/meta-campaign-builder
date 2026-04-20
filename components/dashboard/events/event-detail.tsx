@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { TabPanel } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusPill } from "@/components/dashboard/_shared/status-pill";
+import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import {
   EventDetailTabs,
   type EventTab,
@@ -52,6 +53,12 @@ import {
   fmtDaysUntilEvent,
   fmtShort,
 } from "@/lib/dashboard/format";
+
+const BRAND_GBP_FMT = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  maximumFractionDigits: 0,
+});
 
 interface Props {
   event: EventWithClient;
@@ -160,6 +167,13 @@ export function EventDetail({
   const [now] = useState(() => new Date());
   const daysUntil = fmtDaysUntilEvent(event.event_date, now);
 
+  /**
+   * Engagement type discriminator (migration 027). Brand campaigns hide
+   * the venue / presale / ticket panels and the Plan tab, and surface a
+   * minimal objective + budget + window summary in their place.
+   */
+  const isBrand = event.kind === "brand_campaign";
+
   const handleToggleFavourite = async () => {
     if (favWorking) return;
     const next = !favourite;
@@ -237,7 +251,8 @@ export function EventDetail({
               />
             </button>
             <span className="truncate">{event.name}</span>
-            {daysUntil && (
+            <KindBadge kind={event.kind} />
+            {daysUntil && !isBrand && (
               <span
                 className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-normal tracking-normal ${
                   daysUntil.isPast
@@ -331,25 +346,37 @@ export function EventDetail({
             </div>
           )}
 
-          <EventDetailTabs active={activeTab} campaignsCount={drafts.length} />
+          <EventDetailTabs
+            active={activeTab}
+            campaignsCount={drafts.length}
+            eventKind={event.kind}
+          />
 
           {/* ───── Overview ───── */}
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
-              <MilestoneTimeline event={event} />
+              {isBrand ? (
+                <BrandCampaignSummary event={event} />
+              ) : (
+                <MilestoneTimeline event={event} />
+              )}
               <OverviewSection event={event} />
-              <VenueSection event={event} />
-              <EventVenuePanel
-                eventId={event.id}
-                initialVenueId={
-                  (event as unknown as { venue_id: string | null })
-                    .venue_id ?? null
-                }
-                fallbackName={event.venue_name ?? null}
-                fallbackCity={event.venue_city ?? null}
-              />
-              <EventArtistRosterPanel eventId={event.id} />
-              <DatesSection event={event} />
+              {!isBrand && (
+                <>
+                  <VenueSection event={event} />
+                  <EventVenuePanel
+                    eventId={event.id}
+                    initialVenueId={
+                      (event as unknown as { venue_id: string | null })
+                        .venue_id ?? null
+                    }
+                    fallbackName={event.venue_name ?? null}
+                    fallbackCity={event.venue_city ?? null}
+                  />
+                  <EventArtistRosterPanel eventId={event.id} />
+                  <DatesSection event={event} />
+                </>
+              )}
               <LinksSection event={event} />
               <GoogleDriveCard
                 eventId={event.id}
@@ -387,15 +414,21 @@ export function EventDetail({
             </div>
           </TabPanel>
 
-          {/* ───── Plan ───── */}
-          <TabPanel active={activeTab === "plan"}>
-            <EventPlanTab
-              event={event}
-              plan={plan}
-              initialDays={planDays}
-              initialKeyMoments={keyMoments}
-            />
-          </TabPanel>
+          {/* ───── Plan ─────
+              Brand campaigns don't have a presale grid — the tab is
+              hidden by EventDetailTabs above. The panel still renders
+              this guard in case the user lands on /events/[id]?tab=plan
+              directly (deep link or stale bookmark). */}
+          {!isBrand && (
+            <TabPanel active={activeTab === "plan"}>
+              <EventPlanTab
+                event={event}
+                plan={plan}
+                initialDays={planDays}
+                initialKeyMoments={keyMoments}
+              />
+            </TabPanel>
+          )}
 
           {/* ───── Campaigns ───── */}
           <TabPanel active={activeTab === "campaigns"}>
@@ -490,11 +523,13 @@ export function EventDetail({
           {/* ───── Reporting ───── */}
           <TabPanel active={activeTab === "reporting"}>
             <div className="space-y-6">
-              <TicketsSoldPanel
-                eventId={event.id}
-                initialTicketsSold={initialTicketsSold}
-                planTickets={planTickets}
-              />
+              {!isBrand && (
+                <TicketsSoldPanel
+                  eventId={event.id}
+                  initialTicketsSold={initialTicketsSold}
+                  planTickets={planTickets}
+                />
+              )}
 
               <ShareReportControls
                 eventId={event.id}
@@ -597,6 +632,45 @@ export function EventDetail({
 }
 
 // ─── Section components ──────────────────────────────────────────────────────
+
+/**
+ * Brand-campaign-specific summary card. Shown in place of
+ * `MilestoneTimeline` (which is presale-flavoured) for kind='brand_campaign'
+ * rows. Surfaces the three things that actually matter for an awareness
+ * push: the objective, the marketing budget, and the start–end window.
+ */
+function BrandCampaignSummary({ event }: { event: EventWithClient }) {
+  const start = event.event_start_at;
+  const end = event.campaign_end_at;
+  const window =
+    start && end
+      ? `${fmtShort(start)} → ${fmtShort(end)}`
+      : start
+        ? `From ${fmtShort(start)}`
+        : end
+          ? `Until ${fmtShort(end)}`
+          : "Not scheduled";
+
+  return (
+    <section className="rounded-md border border-border bg-card p-5">
+      <h2 className="font-heading text-base tracking-wide mb-4">
+        Brand campaign
+      </h2>
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+        <DetailRow label="Objective" value={event.objective ?? "—"} />
+        <DetailRow
+          label="Budget"
+          value={
+            event.budget_marketing != null
+              ? BRAND_GBP_FMT.format(event.budget_marketing)
+              : "—"
+          }
+        />
+        <DetailRow label="Window" value={window} />
+      </dl>
+    </section>
+  );
+}
 
 function OverviewSection({ event }: { event: EventWithClient }) {
   return (
