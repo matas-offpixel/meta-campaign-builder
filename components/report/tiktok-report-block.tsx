@@ -123,11 +123,11 @@ export function TikTokReportBlock({ data }: { data: TikTokReportBlockData }) {
         <GeoTable rows={snapshot.geo} currency={currency} />
       </BreakdownSection>
 
-      <BreakdownSection title="Demographics">
+      <BreakdownSection title="Demographics" defaultOpen>
         <DemographicTable rows={snapshot.demographics} currency={currency} />
       </BreakdownSection>
 
-      <BreakdownSection title="Cross contextual interests">
+      <BreakdownSection title="Cross contextual interests" defaultOpen>
         <InterestRankedTable rows={snapshot.interests} />
       </BreakdownSection>
     </div>
