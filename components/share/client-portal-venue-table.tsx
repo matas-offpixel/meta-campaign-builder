@@ -550,18 +550,17 @@ function computeOverallLondon(
     }
   }
 
-  // Ad spend is the headline number on this row: the shared on-sale
-  // campaign + the sum of every London venue's own meta campaign.
-  // Treat each null as 0 *for the sum* but only emit a non-null total
-  // when at least one of the inputs is actually populated — otherwise
-  // an empty state would falsely render £0 instead of "—".
+  // Ad Spend column = onsale shared campaign only — matches the
+  // spreadsheet OVERALL row where "Ad Spend" is the on-sale campaign
+  // total (£1,108.89), not the sum of all London meta activity.
+  // Total Spend = everything: presale (prereg) + onsale + venue metas,
+  // computed separately so the column triangle is: Total ≠ Pre-reg + Ad.
   const venueMetaTotal = venueMetaCount > 0 ? venueMetaSum : null;
-  const adSpend =
-    onsaleSpend === null && venueMetaTotal === null
-      ? null
-      : (onsaleSpend ?? 0) + (venueMetaTotal ?? 0);
-
-  const total = adSpend !== null ? prereg + adSpend : null;
+  const adSpend = onsaleSpend;
+  const total =
+    onsaleSpend !== null || venueMetaTotal !== null
+      ? prereg + (onsaleSpend ?? 0) + (venueMetaTotal ?? 0)
+      : null;
   const cpt = total !== null && total > 0 && tickets > 0 ? total / tickets : null;
   const cptPrevious =
     total !== null && total > 0 && prevTickets > 0
@@ -813,11 +812,8 @@ function VenueSection({
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.ad)}
               </td>
-              <td
-                className="px-3 py-2.5 text-right font-semibold tabular-nums text-zinc-400"
-                aria-label="Total spend shown in venue header"
-              >
-                —
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.total)}
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatNumber(totals.tickets)}
