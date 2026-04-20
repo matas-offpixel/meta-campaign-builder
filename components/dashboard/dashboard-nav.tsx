@@ -13,6 +13,10 @@ import {
   LogOut,
   Music2,
   Search,
+  Sparkles,
+  Image as ImageIcon,
+  MapPin,
+  Mic2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
@@ -76,6 +80,40 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Google Ads",
         icon: Search,
         match: (p) => p === "/google-ads" || p.startsWith("/google-ads/"),
+      },
+    ],
+  },
+  {
+    heading: "Intelligence",
+    items: [
+      {
+        href: "/intelligence/audiences",
+        label: "Audiences",
+        icon: Sparkles,
+        match: (p) => p.startsWith("/intelligence/audiences"),
+      },
+      {
+        href: "/intelligence/creatives",
+        label: "Creatives",
+        icon: ImageIcon,
+        match: (p) => p.startsWith("/intelligence/creatives"),
+      },
+    ],
+  },
+  {
+    heading: "Library",
+    items: [
+      {
+        href: "/venues",
+        label: "Venues",
+        icon: MapPin,
+        match: (p) => p === "/venues" || p.startsWith("/venues/"),
+      },
+      {
+        href: "/artists",
+        label: "Artists",
+        icon: Mic2,
+        match: (p) => p === "/artists" || p.startsWith("/artists/"),
       },
     ],
   },
