@@ -235,6 +235,13 @@ export interface TikTokAdRow extends TikTokMetricBlock {
   primary_source: string | null;
   attribution_source: string | null;
   currency: string;
+  /**
+   * Canonical TikTok post URL (vm.tiktok.com short link or full
+   * tiktok.com/@handle/video/id). Manually populated on the
+   * snapshot_json row until ad-level post IDs come back via an
+   * Ads API integration.
+   */
+  post_url?: string | null;
 }
 
 export type TikTokGeoRegionType = "country" | "region" | "city";
