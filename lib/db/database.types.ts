@@ -718,6 +718,9 @@ export type Database = {
           google_drive_folder_id: string | null
           google_drive_folder_url: string | null
           id: string
+          meta_campaign_id: string | null
+          meta_spend_cached: number | null
+          meta_spend_cached_at: string | null
           name: string
           notes: string | null
           prereg_spend: number | null
@@ -754,6 +757,9 @@ export type Database = {
           google_drive_folder_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          meta_campaign_id?: string | null
+          meta_spend_cached?: number | null
+          meta_spend_cached_at?: string | null
           name: string
           notes?: string | null
           prereg_spend?: number | null
@@ -790,6 +796,9 @@ export type Database = {
           google_drive_folder_id?: string | null
           google_drive_folder_url?: string | null
           id?: string
+          meta_campaign_id?: string | null
+          meta_spend_cached?: number | null
+          meta_spend_cached_at?: string | null
           name?: string
           notes?: string | null
           prereg_spend?: number | null
@@ -1370,21 +1379,20 @@ export type TablesUpdate<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+> = DefaultSchemaTableNameOrOptions extends {\n    schema: keyof DatabaseWithoutInternals
+  }
+    ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
         Update: infer U
       }
       ? U
       : never
-    : never
+    : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+      ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+          Update: infer U
+        }
+        ? U
+        : never
+      : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
