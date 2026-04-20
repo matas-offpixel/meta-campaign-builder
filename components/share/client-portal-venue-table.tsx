@@ -721,112 +721,340 @@ interface VenueSectionProps {
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
-interface TrendPoint {
-  label: string;
+/**
+ * Daily-entry rollup keyed by date. Drives the trend chart's X axis.
+ *
+ * Source values stay null when the venue's events report no value for
+ * that field on that date — distinct from "value is 0". The chart
+ * uses null to *break* lines rather than draw misleading zero
+ * segments, and the latest-value pill labels suppress similarly.
+ */
+interface ChartDay {
+  date: string;
+  spend: number | null;
+  tickets: number | null;
+  revenue: number | null;
+  linkClicks: number | null;
   cpt: number | null;
+  roas: number | null;
+  cpc: number | null;
+}
+
+type MetricKey = "spend" | "tickets" | "cpt" | "roas" | "linkClicks" | "cpc";
+
+interface MetricDef {
+  key: MetricKey;
+  label: string;
+  /** Hex colour used for the SVG line + the HTML pill swatch. Kept
+   *  as a single literal so the two surfaces never drift. */
+  colour: string;
+  format: (n: number) => string;
+}
+
+const METRICS: MetricDef[] = [
+  { key: "spend", label: "Spend", colour: "#27272a", format: (n) => GBP2.format(n) },
+  { key: "tickets", label: "Tickets", colour: "#10b981", format: (n) => NUM.format(n) },
+  { key: "cpt", label: "CPT", colour: "#f59e0b", format: (n) => GBP2.format(n) },
+  { key: "roas", label: "ROAS", colour: "#8b5cf6", format: (n) => `${n.toFixed(2)}×` },
+  { key: "linkClicks", label: "Clicks", colour: "#0ea5e9", format: (n) => NUM.format(n) },
+  { key: "cpc", label: "CPC", colour: "#f43f5e", format: (n) => GBP2.format(n) },
+];
+
+/**
+ * Aggregate per-event tracker rows down to one row per date. Sums
+ * propagate nullness: a date where every contributing entry has a
+ * null spend stays null (rather than collapsing to 0) so downstream
+ * code can distinguish "no data" from "spent nothing".
+ *
+ * Output is sorted by date ASC for direct consumption by the chart.
+ */
+function aggregateEntriesByDate(entries: DailyEntry[]): ChartDay[] {
+  type Acc = {
+    spend: number | null;
+    tickets: number | null;
+    revenue: number | null;
+    linkClicks: number | null;
+  };
+  const map = new Map<string, Acc>();
+  for (const e of entries) {
+    const cur =
+      map.get(e.date) ??
+      ({ spend: null, tickets: null, revenue: null, linkClicks: null } as Acc);
+    if (e.day_spend !== null) cur.spend = (cur.spend ?? 0) + e.day_spend;
+    if (e.tickets !== null) cur.tickets = (cur.tickets ?? 0) + e.tickets;
+    if (e.revenue !== null) cur.revenue = (cur.revenue ?? 0) + e.revenue;
+    if (e.link_clicks !== null)
+      cur.linkClicks = (cur.linkClicks ?? 0) + e.link_clicks;
+    map.set(e.date, cur);
+  }
+  return [...map.keys()]
+    .sort()
+    .map((date) => {
+      const v = map.get(date)!;
+      const cpt =
+        v.spend !== null && v.spend > 0 && v.tickets !== null && v.tickets > 0
+          ? v.spend / v.tickets
+          : null;
+      const roas =
+        v.revenue !== null && v.revenue > 0 && v.spend !== null && v.spend > 0
+          ? v.revenue / v.spend
+          : null;
+      const cpc =
+        v.spend !== null &&
+        v.spend > 0 &&
+        v.linkClicks !== null &&
+        v.linkClicks > 0
+          ? v.spend / v.linkClicks
+          : null;
+      return {
+        date,
+        spend: v.spend,
+        tickets: v.tickets,
+        revenue: v.revenue,
+        linkClicks: v.linkClicks,
+        cpt,
+        roas,
+        cpc,
+      };
+    });
 }
 
 /**
- * Compact CPT trend chart rendered between the venue table and the
- * section border. Pure inline SVG — recharts isn't in the bundle and
- * a two-bar comparison doesn't justify a charting dependency.
- *
- * Behaviour:
- *   - Renders nothing when fewer than two non-null CPT values exist.
- *     A single bar with no comparator is information-free.
- *   - Bars are colour-coded by *direction* relative to the previous
- *     point: down = emerald (good), up/equal = amber (warning). Same
- *     palette as `cptChangeClass` so the chart and the CPT-change
- *     column never disagree visually.
- *   - Y axis is auto-scaled to [0, 1.15 × max(cpt)] so the tallest bar
- *     sits ~85% up the canvas — keeps shorter bars readable without
- *     drowning them. Hard-coded 100×120px viewBox; the wrapper handles
- *     responsive width via `width="100%"`.
- *   - Data labels (£X.XX) sit above each bar. No axis ticks, no
- *     legend — the section header already names the venue and the
- *     X-axis labels do the rest.
+ * Format YYYY-MM-DD as `14 Apr` in en-GB. UTC-anchored — the API
+ * persists ISO date strings, not timestamps, so the local timezone
+ * mustn't shift the rendered day.
  */
-function CptTrendChart({ points }: { points: TrendPoint[] }) {
-  const valid = points.filter((p): p is TrendPoint & { cpt: number } =>
-    p.cpt !== null && Number.isFinite(p.cpt) && p.cpt > 0,
+function chartShortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/** Last non-null value of a metric across the day series, or null
+ *  when the metric has no data points at all. Powers the latest-
+ *  value badge inside each pill so the toggle row is also a legend. */
+function latestMetricValue(days: ChartDay[], key: MetricKey): number | null {
+  for (let i = days.length - 1; i >= 0; i--) {
+    const v = days[i][key];
+    if (v !== null && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+/**
+ * Multi-metric time-series chart for a venue's daily tracker entries.
+ *
+ * Self-hides when fewer than two distinct days of data exist — a
+ * single point can't draw a meaningful line and the empty plot would
+ * imply data we don't have.
+ *
+ * Each metric has its own implicit Y scale (max-normalised to the plot
+ * height independently), so absolute values across series aren't
+ * comparable but trends are. The pills under the title double as the
+ * legend (colour swatch + metric name + latest value) and the toggle
+ * surface — clicking adds/removes a series. Refusing to deselect the
+ * last active metric keeps the plot from going visually empty
+ * mid-interaction; the user can always swap to a different metric in
+ * a single click.
+ *
+ * Implementation detail: SVG draws lines + dots in a stretched
+ * `preserveAspectRatio="none"` viewport so the geometry fills any
+ * container width. Date labels are HTML overlaid below the SVG so
+ * they don't get horizontally squished by the viewport stretch.
+ */
+function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
+  const days = useMemo(() => aggregateEntriesByDate(entries), [entries]);
+  const [active, setActive] = useState<Set<MetricKey>>(
+    () => new Set<MetricKey>(["cpt"]),
   );
-  if (valid.length < 2) return null;
 
-  const max = Math.max(...valid.map((p) => p.cpt));
-  // Headroom so the data label above the tallest bar isn't clipped.
-  const yMax = max * 1.15 || 1;
+  if (days.length < 2) return null;
 
-  // 100 × 120 viewBox with 12px top padding for labels and 24px bottom
-  // padding for x-axis text. Bars share an even slot regardless of the
-  // total point count; with two points each slot is 50 wide and the
-  // bar itself takes 60% of the slot for visual breathing room.
-  const W = 100;
-  const H = 120;
-  const PAD_TOP = 14;
-  const PAD_BOTTOM = 24;
-  const PLOT_H = H - PAD_TOP - PAD_BOTTOM;
-  const slot = W / valid.length;
-  const barW = slot * 0.6;
+  const toggle = (key: MetricKey) => {
+    setActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        // Refuse to deselect the only remaining metric — the plot
+        // would otherwise render an empty axis frame which reads as
+        // a bug rather than a state.
+        if (next.size === 1) return prev;
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // Stretchable plot area. Geometry only — text lives in HTML below.
+  const VB_W = 600;
+  const VB_H = 150;
+  const PAD_T = 8;
+  const PAD_R = 8;
+  const PAD_B = 8;
+  const PAD_L = 8;
+  const plotW = VB_W - PAD_L - PAD_R;
+  const plotH = VB_H - PAD_T - PAD_B;
+
+  const xAt = (i: number): number =>
+    days.length === 1
+      ? PAD_L + plotW / 2
+      : PAD_L + (i / (days.length - 1)) * plotW;
+
+  // For each active metric build (a) a per-metric max for normalisation
+  // and (b) polyline segments split on null gaps. A single polyline
+  // through nulls would draw straight across missing days and lie
+  // about the trend; segmenting preserves the gap visually.
+  type SeriesPoint = { x: number; y: number; v: number };
+  type Series = {
+    metric: MetricDef;
+    segments: SeriesPoint[][];
+    points: SeriesPoint[];
+  };
+  const series: Series[] = METRICS.filter((m) => active.has(m.key)).map((m) => {
+    const raw = days.map((d) => d[m.key]);
+    const nonNull = raw.filter(
+      (v): v is number => v !== null && Number.isFinite(v),
+    );
+    const max = nonNull.length > 0 ? Math.max(...nonNull) : 0;
+    // Headroom keeps the topmost point off the upper edge.
+    const yMax = max > 0 ? max * 1.1 : 1;
+    const segments: SeriesPoint[][] = [];
+    const points: SeriesPoint[] = [];
+    let cur: SeriesPoint[] = [];
+    raw.forEach((v, i) => {
+      if (v === null || !Number.isFinite(v)) {
+        if (cur.length > 0) {
+          segments.push(cur);
+          cur = [];
+        }
+        return;
+      }
+      const y = PAD_T + plotH - (v / yMax) * plotH;
+      const point: SeriesPoint = { x: xAt(i), y, v };
+      cur.push(point);
+      points.push(point);
+    });
+    if (cur.length > 0) segments.push(cur);
+    return { metric: m, segments, points };
+  });
+
+  // Date label cadence: cap at ~6 visible labels regardless of point
+  // count so the row stays readable on mobile. Always include first
+  // and last so the timeline endpoints are anchored.
+  const labelEvery = Math.max(1, Math.ceil(days.length / 6));
+  const labelDays = days.filter(
+    (_, i) => i === 0 || i === days.length - 1 || i % labelEvery === 0,
+  );
 
   return (
     <div className="border-t border-zinc-200 px-4 py-4">
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-        CPT trend
-      </p>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        width="100%"
-        height={120}
-        role="img"
-        aria-label="Cost-per-ticket trend over recent snapshots"
-        className="overflow-visible"
-      >
-        {valid.map((p, i) => {
-          const h = (p.cpt / yMax) * PLOT_H;
-          const x = i * slot + (slot - barW) / 2;
-          const y = PAD_TOP + (PLOT_H - h);
-          // Direction relative to the previous *valid* point. First
-          // bar has no comparator so it renders neutral zinc.
-          const prev = i > 0 ? valid[i - 1].cpt : null;
-          let fill = "#71717a"; // zinc-500
-          if (prev !== null) {
-            if (p.cpt < prev) fill = "#10b981"; // emerald-500
-            else fill = "#f59e0b"; // amber-500
-          }
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          Daily trend
+        </p>
+        <p className="text-[10px] text-zinc-400">
+          {days.length} day{days.length === 1 ? "" : "s"} · click pills to
+          toggle
+        </p>
+      </div>
+      {/* Pill toggles double as legend. Latest non-null value is shown
+          alongside the metric name so the pill carries information
+          even before you read the chart. */}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {METRICS.map((m) => {
+          const isActive = active.has(m.key);
+          const latest = latestMetricValue(days, m.key);
           return (
-            <g key={p.label}>
-              <rect
-                x={x}
-                y={y}
-                width={barW}
-                height={h}
-                fill={fill}
-                rx={1}
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => toggle(m.key)}
+              aria-pressed={isActive}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                isActive
+                  ? "border-zinc-900 bg-zinc-900 text-white"
+                  : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-500"
+              }`}
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: m.colour }}
+                aria-hidden="true"
               />
-              <text
-                x={x + barW / 2}
-                y={y - 3}
-                textAnchor="middle"
-                fontSize={7}
-                fill="#18181b"
-                fontWeight={600}
-              >
-                {GBP2.format(p.cpt)}
-              </text>
-              <text
-                x={x + barW / 2}
-                y={H - 8}
-                textAnchor="middle"
-                fontSize={7}
-                fill="#71717a"
-              >
-                {p.label}
-              </text>
-            </g>
+              {m.label}
+              {latest !== null && (
+                <span
+                  className={`tabular-nums ${isActive ? "text-zinc-300" : "text-zinc-500"}`}
+                >
+                  {m.format(latest)}
+                </span>
+              )}
+            </button>
           );
         })}
-      </svg>
+      </div>
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          preserveAspectRatio="none"
+          width="100%"
+          height={150}
+          role="img"
+          aria-label="Daily metric trend chart"
+          className="overflow-visible"
+        >
+          {/* Baseline + top reference for visual grounding. */}
+          <line
+            x1={PAD_L}
+            x2={VB_W - PAD_R}
+            y1={PAD_T + plotH}
+            y2={PAD_T + plotH}
+            stroke="#e4e4e7"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+          {series.map((s) =>
+            s.segments.map((seg, i) => (
+              <polyline
+                key={`${s.metric.key}-${i}`}
+                points={seg.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke={s.metric.colour}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            )),
+          )}
+          {series.map((s) =>
+            s.points.map((p, i) => (
+              <circle
+                key={`${s.metric.key}-pt-${i}`}
+                cx={p.x}
+                cy={p.y}
+                r={2.5}
+                fill={s.metric.colour}
+                stroke="#ffffff"
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+              />
+            )),
+          )}
+        </svg>
+        {/* HTML date labels overlaid below — kept out of SVG so the
+            stretched viewport doesn't squish the text horizontally. */}
+        <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-zinc-500">
+          {labelDays.map((d) => (
+            <span key={d.date}>{chartShortDate(d.date)}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -984,16 +1212,11 @@ function VenueSection({
             future edit doesn't silently desync the grid. */}
         <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
       </div>
-      {/* Trend chart fed straight from the totals row above — guarantees
-          the bars match what the user just read off the table. Self-
-          hides when fewer than two non-null CPT values exist (new
-          venues with only this week's snapshot). */}
-      <CptTrendChart
-        points={[
-          { label: "Prev", cpt: totals.cptPrevious },
-          { label: "This week", cpt: totals.cpt },
-        ]}
-      />
+      {/* Multi-metric time-series fed by the venue's daily tracker
+          rows. Self-hides when fewer than two distinct days exist —
+          new venues without a tracker history won't render anything,
+          which is the correct empty state. */}
+      <CptTrendChart entries={venueEntries} />
       {/* Collapsed-by-default daily tracker mirrors the Excel sheet
           the client team currently keeps by hand. Read-only on the
           public portal; the underlying /daily POST route exists for a
