@@ -21,6 +21,10 @@ const ALLOWED_FIELDS = [
   "google_drive_folder_url",
   "tickets_sold",
   "notes",
+  // Added in migration 020 — links an event to a `venues` row so future
+  // queries (capacity rollups, repeat-venue analytics) can lean on the FK
+  // instead of fuzzy-matching on venue_name.
+  "venue_id",
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
@@ -34,7 +38,9 @@ function buildPatch(body: Record<string, unknown>): TablesUpdate<"events"> {
       // the <Select> placeholder ships "" but the FK columns are
       // typed as uuid and reject empty strings.
       if (
-        (key === "tiktok_account_id" || key === "google_ads_account_id") &&
+        (key === "tiktok_account_id" ||
+          key === "google_ads_account_id" ||
+          key === "venue_id") &&
         value === ""
       ) {
         patch[key] = null;

@@ -25,6 +25,8 @@ import {
   type EventTab,
 } from "@/components/dashboard/events/event-detail-tabs";
 import { EventPlanTab } from "@/components/dashboard/events/event-plan-tab";
+import { EventVenuePanel } from "@/components/dashboard/events/event-venue-panel";
+import { EventArtistRosterPanel } from "@/components/dashboard/events/event-artist-roster-panel";
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
@@ -337,6 +339,16 @@ export function EventDetail({
               <MilestoneTimeline event={event} />
               <OverviewSection event={event} />
               <VenueSection event={event} />
+              <EventVenuePanel
+                eventId={event.id}
+                initialVenueId={
+                  (event as unknown as { venue_id: string | null })
+                    .venue_id ?? null
+                }
+                fallbackName={event.venue_name ?? null}
+                fallbackCity={event.venue_city ?? null}
+              />
+              <EventArtistRosterPanel eventId={event.id} />
               <DatesSection event={event} />
               <LinksSection event={event} />
               <GoogleDriveCard
