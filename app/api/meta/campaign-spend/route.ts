@@ -133,7 +133,10 @@ export async function POST(req: NextRequest) {
     while (pageCount < MAX_INSIGHT_PAGES) {
       const params: Record<string, string> = {
         fields: "spend,campaign_name,campaign_id",
-        date_preset: "lifetime",
+        // `maximum` is Meta's documented preset for full-history spend.
+        // `lifetime` is not a valid date_preset value and triggers a
+        // #100 "Invalid parameter" from the insights endpoint.
+        date_preset: "maximum",
         level: "campaign",
         limit: "500",
       };
