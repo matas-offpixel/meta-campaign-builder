@@ -7,40 +7,55 @@ import { resolveServerMetaToken } from "@/lib/meta/server-token";
 /**
  * POST /api/meta/campaign-spend
  *
- * Refresh the cached lifetime Meta campaign spend for an event's
- * meta_campaign_id, and propagate the result to every event row owned
- * by the caller that shares the same campaign id.
+ * Refresh the cached lifetime Meta spend for an event_code by summing
+ * across every campaign in the ad account whose name contains that code,
+ * then propagating the total to every event row owned by the caller
+ * with a matching event_code.
  *
- * Why this lives server-side:
- *   - The Meta token comes from `user_facebook_tokens` (or the env
- *     fallback), which never leaves the server.
- *   - The fan-out write touches multiple rows; doing it client-side
- *     would either need a service-role key or a custom Postgres function.
+ * Why event_code (not a single campaign id):
+ *   - Multiple campaigns can target the same venue/show (e.g. a
+ *     pre-reg run + a general-sale run, or DPA reactivation pushed
+ *     into its own campaign). The portal needs the *combined* spend.
+ *   - The admin already names campaigns with the bracketed code in
+ *     Ads Manager, so substring matching is the source of truth that
+ *     never needs to be kept in sync with a manual ID input.
  *
  * Body:
- *   { campaign_id: string, ad_account_id: string }
- *
- * The `ad_account_id` isn't strictly needed for the Graph call (the
- * `/{campaign_id}/insights` endpoint scopes itself), but we accept it so
- * the admin UI can keep its existing prop wiring and so a future change
- * (e.g. validating the campaign actually lives in this account) lands
- * without an API contract break.
+ *   { event_code: string, ad_account_id: string }
  *
  * Response:
- *   200 { ok: true, spend, campaign_id, events_updated }
- *   400 { ok: false, error }   — missing fields
+ *   200 { ok, spend, event_code, campaigns_matched, events_updated, refreshed_at }
+ *   400 { ok: false, error }   — missing or empty fields
  *   401 { ok: false, error }   — not signed in
  *   502 { ok: false, error }   — Meta API or token failure
+ *   500 { ok: false, error }   — Supabase write failure
  */
 
 interface PostBody {
-  campaign_id?: unknown;
+  event_code?: unknown;
   ad_account_id?: unknown;
 }
 
-interface InsightsResponse {
-  data?: Array<{ spend?: string }>;
+interface InsightsRow {
+  spend?: string;
+  campaign_name?: string;
+  campaign_id?: string;
 }
+
+interface InsightsResponse {
+  data?: InsightsRow[];
+  paging?: {
+    cursors?: { after?: string };
+    next?: string;
+  };
+}
+
+/**
+ * Hard cap on pagination so a runaway account doesn't pin the request.
+ * Each insights page can hold up to 500 rows; 20 pages = 10k campaigns,
+ * which is well past any sane account size.
+ */
+const MAX_INSIGHT_PAGES = 20;
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -64,13 +79,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const campaignId =
-    typeof body.campaign_id === "string" ? body.campaign_id.trim() : "";
+  const eventCode =
+    typeof body.event_code === "string" ? body.event_code.trim() : "";
   const adAccountId =
     typeof body.ad_account_id === "string" ? body.ad_account_id.trim() : "";
-  if (!campaignId) {
+  if (!eventCode) {
     return NextResponse.json(
-      { ok: false, error: "campaign_id is required" },
+      { ok: false, error: "event_code is required" },
       { status: 400 },
     );
   }
@@ -91,20 +106,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }
 
-  // Lifetime insights — Meta returns an empty `data` array when the
-  // campaign has no spend yet; treat that as 0, not as failure, so the
-  // admin can hit Refresh on a brand-new campaign without seeing red.
-  let spend = 0;
+  // Account-level lifetime insights at campaign level. We page through
+  // results because large accounts return more than the default 25
+  // campaigns per page and we don't want to silently miss any spend.
+  const eventCodeLower = eventCode.toLowerCase();
+  let totalSpend = 0;
+  let campaignsMatched = 0;
+  let after: string | undefined;
+  let pageCount = 0;
+
   try {
-    const res = await graphGetWithToken<InsightsResponse>(
-      `/${campaignId}/insights`,
-      { fields: "spend", date_preset: "lifetime" },
-      token,
-    );
-    const raw = res.data?.[0]?.spend;
-    if (raw !== undefined && raw !== null) {
-      const parsed = Number.parseFloat(raw);
-      if (Number.isFinite(parsed)) spend = parsed;
+    while (pageCount < MAX_INSIGHT_PAGES) {
+      const params: Record<string, string> = {
+        fields: "spend,campaign_name,campaign_id",
+        date_preset: "lifetime",
+        level: "campaign",
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<InsightsResponse>(
+        `/${adAccountId}/insights`,
+        params,
+        token,
+      );
+
+      for (const row of res.data ?? []) {
+        const name = row.campaign_name ?? "";
+        if (!name.toLowerCase().includes(eventCodeLower)) continue;
+        const parsed = Number.parseFloat(row.spend ?? "");
+        if (Number.isFinite(parsed)) {
+          totalSpend += parsed;
+          campaignsMatched += 1;
+        }
+      }
+
+      pageCount += 1;
+      const nextCursor = res.paging?.cursors?.after;
+      const hasMore = Boolean(res.paging?.next && nextCursor);
+      if (!hasMore) break;
+      after = nextCursor;
     }
   } catch (err) {
     if (err instanceof MetaApiError) {
@@ -115,6 +156,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }
 
+  if (pageCount >= MAX_INSIGHT_PAGES) {
+    console.warn(
+      `[/api/meta/campaign-spend] hit MAX_INSIGHT_PAGES=${MAX_INSIGHT_PAGES} for account ${adAccountId} — totals may be partial.`,
+    );
+  }
+
+  // Round to two decimals — Meta returns spend as a free-form string,
+  // and float summation will leak fractional pennies that look untidy
+  // in the cached column without changing any downstream maths.
+  const spend = Math.round(totalSpend * 100) / 100;
+
+  // Fan the value out to every event row the caller owns that shares
+  // the same event_code. Empty result is fine — the admin may set
+  // event_code on events later.
   const nowIso = new Date().toISOString();
   const { data: updated, error: updateErr } = await supabase
     .from("events")
@@ -123,7 +178,7 @@ export async function POST(req: NextRequest) {
       meta_spend_cached_at: nowIso,
     })
     .eq("user_id", user.id)
-    .eq("meta_campaign_id", campaignId)
+    .eq("event_code", eventCode)
     .select("id");
 
   if (updateErr) {
@@ -139,8 +194,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    campaign_id: campaignId,
+    event_code: eventCode,
     spend,
+    campaigns_matched: campaignsMatched,
     events_updated: updated?.length ?? 0,
     refreshed_at: nowIso,
   });

@@ -118,10 +118,10 @@ export function EventForm({
   );
   const [notes, setNotes] = useState(initial?.notes ?? "");
 
-  // ── Meta campaign spend wiring (migration 023) ──────────────────────────
-  const [metaCampaignId, setMetaCampaignId] = useState(
-    initial?.meta_campaign_id ?? "",
-  );
+  // ── Meta spend cache (migration 023) ────────────────────────────────────
+  // Spend is now resolved by event_code lookup, not a stored campaign id —
+  // the Refresh button below scans the client's ad account for any
+  // campaign whose name contains the event_code and sums the spend.
   const [metaSpendCached, setMetaSpendCached] = useState<number | null>(
     initial?.meta_spend_cached ?? null,
   );
@@ -130,6 +130,7 @@ export function EventForm({
   );
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshInfo, setRefreshInfo] = useState<string | null>(null);
 
   useEffect(() => {
     async function init() {
@@ -192,10 +193,6 @@ export function EventForm({
         ? Number.parseFloat(budgetMarketing)
         : null,
       notes: notes || null,
-      // Meta campaign id (migration 023) — null out empty strings so the
-      // text column doesn't accumulate "" rows that fail the eq() match
-      // in /api/meta/campaign-spend.
-      meta_campaign_id: metaCampaignId.trim() ? metaCampaignId.trim() : null,
     } as const;
 
     try {
@@ -242,8 +239,16 @@ export function EventForm({
   );
   const adAccountId = selectedClient?.meta_ad_account_id ?? null;
 
+  const trimmedEventCode = eventCode.trim();
+
   /**
-   * Refresh the cached lifetime Meta spend for the saved campaign id.
+   * Refresh the cached lifetime Meta spend for the current event_code.
+   *
+   * Hits POST /api/meta/campaign-spend, which scans the client's ad
+   * account for any campaign whose name contains the event_code and
+   * sums their lifetime spend. The result is cached on every event row
+   * sharing the same event_code (so a multi-night residency at one
+   * venue only needs one refresh click).
    *
    * Edit-mode only: in create mode the event row doesn't exist yet,
    * so the API would have nothing to update. The button is disabled
@@ -251,9 +256,9 @@ export function EventForm({
    */
   const handleRefreshSpend = async () => {
     setRefreshError(null);
-    const trimmed = metaCampaignId.trim();
-    if (!trimmed) {
-      setRefreshError("Set a Meta campaign ID first.");
+    setRefreshInfo(null);
+    if (!trimmedEventCode) {
+      setRefreshError("Set an event code first.");
       return;
     }
     if (!adAccountId) {
@@ -266,7 +271,7 @@ export function EventForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          campaign_id: trimmed,
+          event_code: trimmedEventCode,
           ad_account_id: adAccountId,
         }),
       });
@@ -274,6 +279,8 @@ export function EventForm({
         | {
             ok?: boolean;
             spend?: number;
+            campaigns_matched?: number;
+            events_updated?: number;
             refreshed_at?: string;
             error?: string;
           }
@@ -283,6 +290,12 @@ export function EventForm({
       }
       setMetaSpendCached(json.spend ?? 0);
       setMetaSpendCachedAt(json.refreshed_at ?? new Date().toISOString());
+      const matched = json.campaigns_matched ?? 0;
+      setRefreshInfo(
+        matched === 0
+          ? `No campaigns matched "${trimmedEventCode}".`
+          : `Matched ${matched} campaign${matched === 1 ? "" : "s"}.`,
+      );
     } catch (err) {
       setRefreshError(
         err instanceof Error ? err.message : "Refresh failed.",
@@ -498,20 +511,12 @@ export function EventForm({
         <div>
           <h2 className="font-heading text-base tracking-wide">Meta spend</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Paste the Meta campaign ID that covers this event. All events at
-            the same venue share one campaign — they all read the same cached
-            lifetime spend, divided across them in the client portal.
+            Refresh sums the lifetime spend of every campaign in the client&apos;s
+            ad account whose name contains this event&apos;s code. The total is
+            cached on every event row sharing the same code, so the client
+            portal reads it without hitting Meta on each pageview.
           </p>
         </div>
-
-        <Input
-          id="event-meta-campaign-id"
-          label="Meta Campaign ID"
-          value={metaCampaignId}
-          onChange={(e) => setMetaCampaignId(e.target.value)}
-          placeholder="e.g. 120200000012345678"
-          autoComplete="off"
-        />
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -521,7 +526,7 @@ export function EventForm({
             disabled={
               refreshing ||
               mode === "create" ||
-              !metaCampaignId.trim() ||
+              !trimmedEventCode ||
               !adAccountId
             }
           >
@@ -547,12 +552,23 @@ export function EventForm({
           )}
         </div>
 
+        {trimmedEventCode && (
+          <p className="text-xs text-muted-foreground">
+            Searches Meta for all campaigns whose name contains &ldquo;
+            {trimmedEventCode}&rdquo; and caches the total lifetime spend.
+          </p>
+        )}
         {mode === "create" && (
           <p className="text-xs text-muted-foreground">
             Save the event first, then come back here to refresh spend.
           </p>
         )}
-        {mode === "edit" && !adAccountId && (
+        {mode === "edit" && !trimmedEventCode && (
+          <p className="text-xs text-amber-600">
+            Set an event code (in the Basics section above) to enable Refresh.
+          </p>
+        )}
+        {mode === "edit" && trimmedEventCode && !adAccountId && (
           <p className="text-xs text-amber-600">
             This client has no Meta ad account configured — set one on the
             client record to enable Refresh.
@@ -566,6 +582,9 @@ export function EventForm({
               timeStyle: "short",
             })}
           </p>
+        )}
+        {refreshInfo && !refreshError && (
+          <p className="text-xs text-muted-foreground">{refreshInfo}</p>
         )}
         {refreshError && (
           <p className="text-xs text-destructive">{refreshError}</p>
