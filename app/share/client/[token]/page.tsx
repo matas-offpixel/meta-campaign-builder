@@ -52,6 +52,7 @@ export default async function ClientPortalPage({ params }: Props) {
       events={result.events}
       londonOnsaleSpend={result.londonOnsaleSpend}
       londonPresaleSpend={result.londonPresaleSpend}
+      dailyEntries={result.dailyEntries}
     />
   );
 }

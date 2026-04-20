@@ -79,6 +79,28 @@ export interface PortalClient {
 }
 
 /**
+ * One day's tracker entry for one event. Mirrors the
+ * `daily_tracking_entries` row introduced in migration 025; the UI
+ * (`components/share/daily-tracker.tsx`) groups entries by event_id
+ * and pads any missing calendar days between the earliest entry and
+ * today so the venue table can show a continuous timeline.
+ *
+ * All numeric fields are nullable: a partial-day entry (spend
+ * recorded but tickets not yet reported) is a valid intermediate
+ * state and renders as "—" in the UI.
+ */
+export interface DailyEntry {
+  id: string;
+  event_id: string;
+  date: string;
+  day_spend: number | null;
+  tickets: number | null;
+  revenue: number | null;
+  link_clicks: number | null;
+  notes: string | null;
+}
+
+/**
  * Synthetic event_codes used to model London-wide shared campaigns.
  * The rows live in the events table (migration 024) so the existing
  * "Refresh all spend" flow picks them up automatically — but they are
@@ -115,6 +137,14 @@ export type ClientPortalData =
        * refreshed.
        */
       londonPresaleSpend: number | null;
+      /**
+       * Daily tracker rows for every event under the share's client.
+       * Ordered by (event_id, date ASC) so the UI can group by event
+       * without re-sorting. Empty array when no rows exist yet — the
+       * tracker still renders (collapsed) so admins can see the
+       * affordance.
+       */
+      dailyEntries: DailyEntry[];
     }
   | {
       ok: false;
@@ -225,6 +255,35 @@ export async function loadClientPortalData(
     }
   }
 
+  // Daily tracker rows for every event under this client. Filtered by
+  // client_id (not event_ids) so the query is one round-trip even
+  // when the event list is long. Ordered (event_id, date ASC) so the
+  // UI can group/iterate without re-sorting.
+  let dailyEntries: DailyEntry[] = [];
+  {
+    const { data: rows, error: dailyErr } = await admin
+      .from("daily_tracking_entries")
+      .select("id, event_id, date, day_spend, tickets, revenue, link_clicks, notes")
+      .eq("client_id", share.client_id)
+      .order("event_id", { ascending: true })
+      .order("date", { ascending: true });
+    // Soft-fail: if the table doesn't exist yet (migration 025 not
+    // applied) or the query trips, render the rest of the portal with
+    // an empty tracker rather than 500-ing the whole page.
+    if (!dailyErr && rows) {
+      dailyEntries = rows.map((r) => ({
+        id: r.id as string,
+        event_id: r.event_id as string,
+        date: r.date as string,
+        day_spend: (r.day_spend as number | null) ?? null,
+        tickets: (r.tickets as number | null) ?? null,
+        revenue: (r.revenue as number | null) ?? null,
+        link_clicks: (r.link_clicks as number | null) ?? null,
+        notes: (r.notes as string | null) ?? null,
+      }));
+    }
+  }
+
   return {
     ok: true,
     client: {
@@ -235,6 +294,7 @@ export async function loadClientPortalData(
     },
     londonOnsaleSpend,
     londonPresaleSpend,
+    dailyEntries,
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       return {

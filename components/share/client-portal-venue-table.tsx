@@ -3,7 +3,8 @@
 import { useMemo, useRef, useState } from "react";
 import { Loader2, Pencil } from "lucide-react";
 
-import type { PortalEvent } from "@/lib/db/client-portal-server";
+import type { DailyEntry, PortalEvent } from "@/lib/db/client-portal-server";
+import { DailyTracker } from "./daily-tracker";
 
 interface SavedSnapshot {
   tickets_sold: number;
@@ -29,6 +30,11 @@ interface Props {
    * this value is not redistributed by the table.
    */
   londonPresaleSpend: number | null;
+  /**
+   * All daily tracker rows for the client. Filtered down to the
+   * venue's events inside each VenueSection's <DailyTracker />.
+   */
+  dailyEntries: DailyEntry[];
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
 }
 
@@ -444,6 +450,7 @@ export function ClientPortalVenueTable({
   events,
   londonOnsaleSpend,
   londonPresaleSpend,
+  dailyEntries,
   onSnapshotSaved,
 }: Props) {
   const venues = useMemo(() => groupByVenue(events), [events]);
@@ -486,6 +493,7 @@ export function ClientPortalVenueTable({
                 token={token}
                 group={group}
                 spend={venueSpend(group, londonOnsaleSpend)}
+                dailyEntries={dailyEntries}
                 onSnapshotSaved={onSnapshotSaved}
               />
             ))}
@@ -707,7 +715,120 @@ interface VenueSectionProps {
    * Overall London row + venue rows draw from identical arithmetic.
    */
   spend: GroupSpend;
+  /** All daily tracker rows for the client. Filtered to this venue's
+   *  events by the embedded <DailyTracker />. */
+  dailyEntries: DailyEntry[];
   onSnapshotSaved: Props["onSnapshotSaved"];
+}
+
+interface TrendPoint {
+  label: string;
+  cpt: number | null;
+}
+
+/**
+ * Compact CPT trend chart rendered between the venue table and the
+ * section border. Pure inline SVG — recharts isn't in the bundle and
+ * a two-bar comparison doesn't justify a charting dependency.
+ *
+ * Behaviour:
+ *   - Renders nothing when fewer than two non-null CPT values exist.
+ *     A single bar with no comparator is information-free.
+ *   - Bars are colour-coded by *direction* relative to the previous
+ *     point: down = emerald (good), up/equal = amber (warning). Same
+ *     palette as `cptChangeClass` so the chart and the CPT-change
+ *     column never disagree visually.
+ *   - Y axis is auto-scaled to [0, 1.15 × max(cpt)] so the tallest bar
+ *     sits ~85% up the canvas — keeps shorter bars readable without
+ *     drowning them. Hard-coded 100×120px viewBox; the wrapper handles
+ *     responsive width via `width="100%"`.
+ *   - Data labels (£X.XX) sit above each bar. No axis ticks, no
+ *     legend — the section header already names the venue and the
+ *     X-axis labels do the rest.
+ */
+function CptTrendChart({ points }: { points: TrendPoint[] }) {
+  const valid = points.filter((p): p is TrendPoint & { cpt: number } =>
+    p.cpt !== null && Number.isFinite(p.cpt) && p.cpt > 0,
+  );
+  if (valid.length < 2) return null;
+
+  const max = Math.max(...valid.map((p) => p.cpt));
+  // Headroom so the data label above the tallest bar isn't clipped.
+  const yMax = max * 1.15 || 1;
+
+  // 100 × 120 viewBox with 12px top padding for labels and 24px bottom
+  // padding for x-axis text. Bars share an even slot regardless of the
+  // total point count; with two points each slot is 50 wide and the
+  // bar itself takes 60% of the slot for visual breathing room.
+  const W = 100;
+  const H = 120;
+  const PAD_TOP = 14;
+  const PAD_BOTTOM = 24;
+  const PLOT_H = H - PAD_TOP - PAD_BOTTOM;
+  const slot = W / valid.length;
+  const barW = slot * 0.6;
+
+  return (
+    <div className="border-t border-zinc-200 px-4 py-4">
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+        CPT trend
+      </p>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        width="100%"
+        height={120}
+        role="img"
+        aria-label="Cost-per-ticket trend over recent snapshots"
+        className="overflow-visible"
+      >
+        {valid.map((p, i) => {
+          const h = (p.cpt / yMax) * PLOT_H;
+          const x = i * slot + (slot - barW) / 2;
+          const y = PAD_TOP + (PLOT_H - h);
+          // Direction relative to the previous *valid* point. First
+          // bar has no comparator so it renders neutral zinc.
+          const prev = i > 0 ? valid[i - 1].cpt : null;
+          let fill = "#71717a"; // zinc-500
+          if (prev !== null) {
+            if (p.cpt < prev) fill = "#10b981"; // emerald-500
+            else fill = "#f59e0b"; // amber-500
+          }
+          return (
+            <g key={p.label}>
+              <rect
+                x={x}
+                y={y}
+                width={barW}
+                height={h}
+                fill={fill}
+                rx={1}
+              />
+              <text
+                x={x + barW / 2}
+                y={y - 3}
+                textAnchor="middle"
+                fontSize={7}
+                fill="#18181b"
+                fontWeight={600}
+              >
+                {GBP2.format(p.cpt)}
+              </text>
+              <text
+                x={x + barW / 2}
+                y={H - 8}
+                textAnchor="middle"
+                fontSize={7}
+                fill="#71717a"
+              >
+                {p.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
 }
 
 const COL_COUNT = 12;
@@ -716,6 +837,7 @@ function VenueSection({
   token,
   group,
   spend,
+  dailyEntries,
   onSnapshotSaved,
 }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
@@ -723,6 +845,18 @@ function VenueSection({
   const headerLabel = group.city
     ? `${group.displayName}, ${group.city}`
     : group.displayName;
+  // Pre-filter the client-wide tracker rows down to this venue's
+  // events. Done here (cheap) rather than passing the full set into
+  // every DailyTracker so the per-event grouping inside the tracker
+  // doesn't have to also discriminate by venue.
+  const venueEventIds = useMemo(
+    () => new Set(group.events.map((e) => e.id)),
+    [group.events],
+  );
+  const venueEntries = useMemo(
+    () => dailyEntries.filter((e) => venueEventIds.has(e.event_id)),
+    [dailyEntries, venueEventIds],
+  );
 
   return (
     <section className="rounded-md border border-zinc-200 bg-white shadow-sm">
@@ -850,6 +984,25 @@ function VenueSection({
             future edit doesn't silently desync the grid. */}
         <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
       </div>
+      {/* Trend chart fed straight from the totals row above — guarantees
+          the bars match what the user just read off the table. Self-
+          hides when fewer than two non-null CPT values exist (new
+          venues with only this week's snapshot). */}
+      <CptTrendChart
+        points={[
+          { label: "Prev", cpt: totals.cptPrevious },
+          { label: "This week", cpt: totals.cpt },
+        ]}
+      />
+      {/* Collapsed-by-default daily tracker mirrors the Excel sheet
+          the client team currently keeps by hand. Read-only on the
+          public portal; the underlying /daily POST route exists for a
+          future internal admin UI. */}
+      <DailyTracker
+        token={token}
+        events={group.events}
+        entries={venueEntries}
+      />
     </section>
   );
 }

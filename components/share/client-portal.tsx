@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import type {
+  DailyEntry,
   PortalClient,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
@@ -24,6 +25,12 @@ interface Props {
    * because prereg_spend is already split correctly per event.
    */
   londonPresaleSpend: number | null;
+  /**
+   * All daily tracker rows across every event under this client.
+   * Pre-sorted by (event_id, date ASC) by the data layer; the venue
+   * table filters them per-venue at render time.
+   */
+  dailyEntries: DailyEntry[];
 }
 
 type TabKey = "scotland" | "england_london" | "england_uk";
@@ -71,6 +78,7 @@ export function ClientPortal({
   events: initial,
   londonOnsaleSpend,
   londonPresaleSpend,
+  dailyEntries,
 }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
@@ -256,6 +264,7 @@ export function ClientPortal({
               events={tabEvents}
               londonOnsaleSpend={londonOnsaleSpend}
               londonPresaleSpend={londonPresaleSpend}
+              dailyEntries={dailyEntries}
               onSnapshotSaved={handleSnapshot}
             />
           </>
