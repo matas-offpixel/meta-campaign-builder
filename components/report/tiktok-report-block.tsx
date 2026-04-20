@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -237,7 +237,9 @@ function AdsTable({
               key={`${r.ad_name}-${i}`}
               className="border-t border-border/40 text-foreground"
             >
-              <td className="py-1.5 pr-3">{r.ad_name}</td>
+              <td className="py-1.5 pr-3">
+                <AdNameCell name={r.ad_name} url={r.post_url ?? null} />
+              </td>
               <td className="py-1.5 pr-3">
                 <StatusBadge status={r.primary_status} />
               </td>
@@ -267,6 +269,29 @@ function AdsTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Renders an ad name as a link to its TikTok post when the snapshot row
+ * carries a `post_url`, plain text otherwise. URLs live on `snapshot_json`
+ * and are manually populated until ad-level post IDs surface via the
+ * Ads API; we only treat non-empty strings as linkable so a stray "" or
+ * null doesn't render a useless anchor.
+ */
+function AdNameCell({ name, url }: { name: string; url: string | null }) {
+  const hasUrl = typeof url === "string" && url.trim().length > 0;
+  if (!hasUrl) return <span className="text-foreground">{name}</span>;
+  return (
+    <a
+      href={url ?? undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center text-foreground hover:underline"
+    >
+      <span>{name}</span>
+      <ExternalLink className="ml-1 h-3 w-3 text-muted-foreground" />
+    </a>
   );
 }
 
