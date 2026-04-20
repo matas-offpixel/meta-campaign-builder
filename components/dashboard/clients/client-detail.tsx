@@ -17,6 +17,7 @@ import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
 import { BillingSection } from "./billing-section";
 import { ClientShareLinkCard } from "./client-share-link-card";
+import { RefreshAllSpendButton } from "./refresh-all-spend-button";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
 import type {
   BillingMode,
@@ -299,19 +300,28 @@ export function ClientDetail({
           />
 
           <section className="rounded-md border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <h2 className="font-heading text-base tracking-wide">
                 Events ({events.length})
               </h2>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  router.push(`/events/new?clientId=${client.id}`)
-                }
-              >
-                New event
-              </Button>
+              <div className="flex flex-wrap items-start gap-2">
+                <RefreshAllSpendButton
+                  events={events.map((e) => ({
+                    id: e.id,
+                    event_code: e.event_code,
+                  }))}
+                  adAccountId={client.meta_ad_account_id ?? null}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    router.push(`/events/new?clientId=${client.id}`)
+                  }
+                >
+                  New event
+                </Button>
+              </div>
             </div>
             {events.length === 0 ? (
               <p className="text-xs text-muted-foreground">
