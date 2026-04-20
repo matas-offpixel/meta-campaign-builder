@@ -834,6 +834,19 @@ function chartShortDate(iso: string): string {
   });
 }
 
+/** Fuller date format for the hover tooltip — `Mon 14 Apr`. Same UTC
+ *  anchoring as `chartShortDate`. */
+function chartTooltipDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
 /** Last non-null value of a metric across the day series, or null
  *  when the metric has no data points at all. Powers the latest-
  *  value badge inside each pill so the toggle row is also a legend. */
@@ -871,6 +884,14 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
   const [active, setActive] = useState<Set<MetricKey>>(
     () => new Set<MetricKey>(["cpt"]),
   );
+  // Hover state lives at the chart level so the tooltip + hairline can
+  // share a single source of truth. `chartWidth` is captured at hover
+  // time (no ResizeObserver) because the only consumers are the
+  // tooltip + hairline rendered in the same pass.
+  const [hover, setHover] = useState<{
+    index: number;
+    chartWidth: number;
+  } | null>(null);
 
   if (days.length < 2) return null;
 
@@ -912,6 +933,12 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
   type SeriesPoint = { x: number; y: number; v: number };
   type Series = {
     metric: MetricDef;
+    /** Maximum non-null value in the series. Anchors Y-axis tick
+     *  values for the primary metric. */
+    metricMax: number;
+    /** metricMax * 1.1 — the y=0 of the plot area maps to this so the
+     *  topmost data point sits inside the canvas. */
+    yMax: number;
     segments: SeriesPoint[][];
     points: SeriesPoint[];
   };
@@ -920,9 +947,9 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
     const nonNull = raw.filter(
       (v): v is number => v !== null && Number.isFinite(v),
     );
-    const max = nonNull.length > 0 ? Math.max(...nonNull) : 0;
+    const metricMax = nonNull.length > 0 ? Math.max(...nonNull) : 0;
     // Headroom keeps the topmost point off the upper edge.
-    const yMax = max > 0 ? max * 1.1 : 1;
+    const yMax = metricMax > 0 ? metricMax * 1.1 : 1;
     const segments: SeriesPoint[][] = [];
     const points: SeriesPoint[] = [];
     let cur: SeriesPoint[] = [];
@@ -940,8 +967,48 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
       points.push(point);
     });
     if (cur.length > 0) segments.push(cur);
-    return { metric: m, segments, points };
+    return { metric: m, metricMax, yMax, segments, points };
   });
+
+  // Y-axis tick values anchored to the *primary* metric (first active
+  // in canonical METRICS order so the choice is deterministic and
+  // matches the leftmost pill). Each tick sits at a meaningful
+  // fraction of the metric's max — value labels at 0, max/3, 2max/3,
+  // max — rather than at evenly-spaced fractions of the plot height,
+  // which would put the top tick in the headroom band where no data
+  // can land.
+  const Y_TICK_COUNT = 4;
+  const primary = series[0];
+  const yTicks = primary
+    ? Array.from({ length: Y_TICK_COUNT }, (_, i) => {
+        const fraction = (Y_TICK_COUNT - 1 - i) / (Y_TICK_COUNT - 1);
+        const value = primary.metricMax * fraction;
+        const yPx = PAD_T + plotH - (value / primary.yMax) * plotH;
+        return { value, yPx };
+      })
+    : [];
+
+  // Hover state: index into `days` of the snapped point + the chart
+  // column's pixel width at hover-time. We capture width on each
+  // mousemove rather than via ResizeObserver because (a) we already
+  // have the bounding rect and (b) the only consumer is the tooltip
+  // position computed in the same render pass.
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || days.length === 0) return;
+    const x = e.clientX - rect.left;
+    const vbX = (x / rect.width) * VB_W;
+    let nearest = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < days.length; i++) {
+      const dist = Math.abs(xAt(i) - vbX);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = i;
+      }
+    }
+    setHover({ index: nearest, chartWidth: rect.width });
+  };
 
   // Date label cadence: cap at ~6 visible labels regardless of point
   // count so the row stays readable on mobile. Always include first
@@ -998,61 +1065,158 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
           );
         })}
       </div>
-      <div className="relative">
-        <svg
-          viewBox={`0 0 ${VB_W} ${VB_H}`}
-          preserveAspectRatio="none"
-          width="100%"
-          height={150}
-          role="img"
-          aria-label="Daily metric trend chart"
-          className="overflow-visible"
+      <div className="flex">
+        {/* Y-axis column — fixed width, height matches SVG so absolute
+            tick positions resolve in the same coordinate space the
+            SVG draws in. Y values use the *primary* metric's scale
+            (formatted via that metric's formatter). When a second
+            series is also active its absolute values won't line up
+            with these ticks — that's an inherent trade-off of
+            independently-normalised series and matches the spec. */}
+        <div
+          className="relative h-[150px] w-12 flex-shrink-0"
+          aria-hidden={primary ? undefined : true}
         >
-          {/* Baseline + top reference for visual grounding. */}
-          <line
-            x1={PAD_L}
-            x2={VB_W - PAD_R}
-            y1={PAD_T + plotH}
-            y2={PAD_T + plotH}
-            stroke="#e4e4e7"
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-          />
-          {series.map((s) =>
-            s.segments.map((seg, i) => (
-              <polyline
-                key={`${s.metric.key}-${i}`}
-                points={seg.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke={s.metric.colour}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            )),
-          )}
-          {series.map((s) =>
-            s.points.map((p, i) => (
-              <circle
-                key={`${s.metric.key}-pt-${i}`}
-                cx={p.x}
-                cy={p.y}
-                r={2.5}
-                fill={s.metric.colour}
-                stroke="#ffffff"
+          {primary &&
+            yTicks.map((t) => (
+              <span
+                key={t.value}
+                className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-zinc-500"
+                style={{ top: `${t.yPx}px` }}
+              >
+                {primary.metric.format(t.value)}
+              </span>
+            ))}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div
+            className="relative h-[150px]"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setHover(null)}
+          >
+            <svg
+              viewBox={`0 0 ${VB_W} ${VB_H}`}
+              preserveAspectRatio="none"
+              width="100%"
+              height={150}
+              role="img"
+              aria-label="Daily metric trend chart"
+              className="overflow-visible"
+            >
+              {/* Baseline + top reference for visual grounding. Tick
+                  rules come from the Y-axis column's labels — drawing
+                  them as SVG lines too would just be visual noise. */}
+              <line
+                x1={PAD_L}
+                x2={VB_W - PAD_R}
+                y1={PAD_T + plotH}
+                y2={PAD_T + plotH}
+                stroke="#e4e4e7"
                 strokeWidth={1}
                 vectorEffect="non-scaling-stroke"
               />
-            )),
-          )}
-        </svg>
-        {/* HTML date labels overlaid below — kept out of SVG so the
-            stretched viewport doesn't squish the text horizontally. */}
-        <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-zinc-500">
-          {labelDays.map((d) => (
-            <span key={d.date}>{chartShortDate(d.date)}</span>
-          ))}
+              {series.map((s) =>
+                s.segments.map((seg, i) => (
+                  <polyline
+                    key={`${s.metric.key}-${i}`}
+                    points={seg.map((p) => `${p.x},${p.y}`).join(" ")}
+                    fill="none"
+                    stroke={s.metric.colour}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )),
+              )}
+              {series.map((s) =>
+                s.points.map((p, i) => (
+                  <circle
+                    key={`${s.metric.key}-pt-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={2.5}
+                    fill={s.metric.colour}
+                    stroke="#ffffff"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )),
+              )}
+            </svg>
+            {/* Hover hairline + tooltip. Both positioned in HTML pixel
+                space (not SVG units) so the text inside the tooltip
+                isn't subject to the SVG's stretched viewport. The
+                tooltip flips to the left of the hairline once we cross
+                the 60% mark of the chart width — the threshold is
+                slightly past centre to avoid a flicker on points near
+                the middle. */}
+            {hover &&
+              (() => {
+                const idx = hover.index;
+                const day = days[idx];
+                if (!day) return null;
+                const vbX = xAt(idx);
+                const pixelX = (vbX / VB_W) * hover.chartWidth;
+                const flipLeft = pixelX > hover.chartWidth * 0.6;
+                return (
+                  <>
+                    <div
+                      className="pointer-events-none absolute bottom-0 top-0 w-px bg-zinc-400/70"
+                      style={{ left: `${pixelX}px` }}
+                      aria-hidden="true"
+                    />
+                    <div
+                      className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-[11px] shadow-md"
+                      style={
+                        flipLeft
+                          ? {
+                              right: `${hover.chartWidth - pixelX + 8}px`,
+                              top: 4,
+                            }
+                          : { left: `${pixelX + 8}px`, top: 4 }
+                      }
+                    >
+                      <p className="mb-1 font-medium text-zinc-900">
+                        {chartTooltipDate(day.date)}
+                      </p>
+                      <ul className="space-y-0.5">
+                        {series.map((s) => {
+                          const v = day[s.metric.key];
+                          return (
+                            <li
+                              key={s.metric.key}
+                              className="flex items-center gap-2"
+                            >
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: s.metric.colour }}
+                                aria-hidden="true"
+                              />
+                              <span className="text-zinc-600">
+                                {s.metric.label}
+                              </span>
+                              <span className="ml-auto tabular-nums text-zinc-900">
+                                {v !== null && Number.isFinite(v)
+                                  ? s.metric.format(v)
+                                  : "—"}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </>
+                );
+              })()}
+          </div>
+          {/* HTML date labels overlaid below — kept out of SVG so the
+              stretched viewport doesn't squish the text horizontally. */}
+          <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-zinc-500">
+            {labelDays.map((d) => (
+              <span key={d.date}>{chartShortDate(d.date)}</span>
+            ))}
+          </div>
         </div>
       </div>
     </div>
