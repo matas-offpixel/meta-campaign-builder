@@ -76,10 +76,15 @@ export function RefreshAllSpendButton({ events, adAccountId }: Props) {
   const disabled =
     running || total === 0 || !adAccountId;
 
+  // Wording is deliberately actionable rather than diagnostic: the
+  // admin sees this on the client overview, where the fix (set the
+  // Meta ad account ID on the client record / set event_code on each
+  // event) is one click away — telling them *what* is wrong without
+  // *what to do* sends them hunting.
   const disabledReason = !adAccountId
-    ? "This client has no Meta ad account configured."
+    ? "Add a Meta ad account ID to the client record to enable spend refresh"
     : total === 0
-      ? "None of this client's events have an event code."
+      ? "Add an event code to at least one event to enable spend refresh"
       : null;
 
   const handleClick = async () => {
