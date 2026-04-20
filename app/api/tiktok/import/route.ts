@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const shape = detectFileType(rows[0]);
+    const shape = detectFileType(rows[0], rows[1]);
     if (!shape) {
       skipped.push({ name, reason: "unrecognised header row" });
       continue;

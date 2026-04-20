@@ -158,21 +158,39 @@ export function headersInclude(
 }
 
 /**
+ * Matches an "<age-bucket> - <gender>" cell from TikTok's combined
+ * Audience-pivot demographic export. Examples: "18-24 - Male",
+ * "25-34 - Female", "65+ - Unknown". Used by {@link detectFileType}
+ * to disambiguate the leftmost-"Audience" case.
+ */
+const AGE_GENDER_CELL_RE = /^(?:\d+[-–]\d+|\d+\+)\s*-\s*[A-Za-z]+$/;
+
+/**
  * Detects which TikTok report shape a file is from based on its header
- * row. Returns null when the headers don't match any known shape — the
- * import route surfaces the file's name in the `skipped` array and
- * carries on so a single bad file doesn't kill the whole batch.
+ * row (and optionally the first data row). Returns null when the
+ * headers don't match any known shape — the import route surfaces the
+ * file's name in the `skipped` array and carries on so a single bad
+ * file doesn't kill the whole batch.
  *
  * Detection is presence-based, not order-based: we look for the
- * distinctive first column(s) per shape. Search-term and interest
- * exports both omit the metric block's CPC/CTR sometimes but they're
- * distinguished by their leftmost label column.
+ * distinctive first column(s) per shape. The one exception is the
+ * leftmost-"Audience" path: TikTok exports both geo and demographic
+ * breakdowns with a generic "Audience" first column (rather than
+ * "Country" / "Age"+"Gender"), so when we see that we peek at the
+ * first data cell — an "<age-bucket> - <gender>" shape (e.g.
+ * "18-24 - Male") wins demographic; anything else (region / country
+ * names like "England", "Unknown", "United Kingdom") wins geo. This
+ * runs before the existing interest fallback so true interest exports
+ * (leftmost "Interest", or "Audience" without an age-gender first
+ * row but with an interest taxonomy label) still classify correctly.
  */
 export function detectFileType(
   headerRow: readonly unknown[],
+  firstDataRow?: readonly unknown[],
 ): TikTokFileType | null {
   const headers = headerRow.map((cell) => String(cell ?? ""));
   const norm = new Set(headers.map(normaliseHeader));
+  const leftmost = normaliseHeader(headers[0]);
 
   if (norm.has("ad name")) return "ad";
   if (norm.has("campaign name") && norm.has("primary status")) return "campaign";
@@ -180,6 +198,18 @@ export function detectFileType(
     return "geo";
   }
   if (norm.has("age") && norm.has("gender")) return "demographic";
+
+  if (leftmost === "audience") {
+    const firstCell = firstDataRow?.[0];
+    if (firstCell != null) {
+      const value = String(firstCell).trim();
+      if (AGE_GENDER_CELL_RE.test(value)) return "demographic";
+      if (value !== "") return "geo";
+    }
+    // Couldn't sample the first row — fall through to the interest
+    // fallback below so we don't regress files we used to detect.
+  }
+
   if (norm.has("audience") || norm.has("interest")) return "interest";
   if (norm.has("search term")) return "search_term";
 

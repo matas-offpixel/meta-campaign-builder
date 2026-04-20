@@ -49,4 +49,24 @@ describe("parseGeoSheet", () => {
     ];
     assert.deepEqual(parseGeoSheet(rows), []);
   });
+
+  it("accepts 'Audience' leftmost header → region type, verbatim name", () => {
+    const rows = [
+      ["Audience", "Cost", "Impressions"],
+      ["England", "£500", "100,000"],
+      ["Scotland", "£120", "30,000"],
+      ["Northern Ireland", "£40", "8,000"],
+      ["Unknown", "£10", "<5"],
+    ];
+    const out = parseGeoSheet(rows);
+    assert.equal(out.length, 4);
+    for (const row of out) {
+      assert.equal(row.region_type, "region");
+    }
+    assert.equal(out[0].region_name, "England");
+    assert.equal(out[0].cost, 500);
+    assert.equal(out[3].region_name, "Unknown");
+    assert.equal(out[3].impressions, null);
+    assert.equal(out[3].impressions_raw, "<5");
+  });
 });

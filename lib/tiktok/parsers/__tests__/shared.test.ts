@@ -135,9 +135,62 @@ describe("detectFileType", () => {
     );
   });
 
-  it("detects interest exports by Audience or Interest", () => {
-    assert.equal(detectFileType(["Audience", "Cost"]), "interest");
+  it("detects interest exports by Interest leftmost", () => {
     assert.equal(detectFileType(["Interest", "Cost"]), "interest");
+  });
+
+  it("falls back to interest when leftmost is Audience but no first row sample", () => {
+    // Without a first-row sample the Audience-leftmost path can't
+    // disambiguate, so we keep the historical interest classification
+    // rather than regress.
+    assert.equal(detectFileType(["Audience", "Cost"]), "interest");
+  });
+
+  it("classifies leftmost-Audience as demographic when first cell is age-gender", () => {
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["18-24 - Male", "£10"]),
+      "demographic",
+    );
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["65+ - Female", "£10"]),
+      "demographic",
+    );
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["25-34 - Unknown", "£10"]),
+      "demographic",
+    );
+  });
+
+  it("classifies leftmost-Audience as geo when first cell is a region label", () => {
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["England", "£100"]),
+      "geo",
+    );
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["Scotland", "£100"]),
+      "geo",
+    );
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["Northern Ireland", "£100"]),
+      "geo",
+    );
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["Unknown", "£100"]),
+      "geo",
+    );
+    assert.equal(
+      detectFileType(["Audience", "Cost"], ["United Kingdom", "£100"]),
+      "geo",
+    );
+  });
+
+  it("does not let leftmost-Audience demographic detection fire when leftmost is Interest", () => {
+    // Even if the first row happens to look age-gender-shaped, an
+    // "Interest" leftmost should still classify as interest.
+    assert.equal(
+      detectFileType(["Interest", "Cost"], ["18-24 - Male", "£10"]),
+      "interest",
+    );
   });
 
   it("detects search-term exports", () => {

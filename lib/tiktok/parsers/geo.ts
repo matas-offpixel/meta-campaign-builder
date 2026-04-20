@@ -25,6 +25,13 @@ function inferRegionType(
   if (norm === "country") return { name: "Country", type: "country" };
   if (norm === "region") return { name: "Region", type: "region" };
   if (norm === "city") return { name: "City", type: "city" };
+  // TikTok also exports geo breakdowns under a generic "Audience" first
+  // column (the same header used for the demographic pivot). Detection
+  // in `shared.ts#detectFileType` already disambiguates by sampling the
+  // first data row; once routed here we treat the cell as a region label
+  // and persist `region_type: "region"` since UK exports almost always
+  // sit at the region level (England / Scotland / Wales / NI).
+  if (norm === "audience") return { name: "Audience", type: "region" };
   return null;
 }
 

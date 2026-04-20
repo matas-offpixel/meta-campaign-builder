@@ -24,7 +24,6 @@ import type {
   TikTokImportResult,
   TikTokInterestRow,
   TikTokManualReportSnapshot,
-  TikTokSearchTermRow,
   TikTokVertical,
 } from "@/lib/types/tiktok";
 
@@ -588,15 +587,8 @@ function ReportView({ report }: { report: LatestReport }) {
         <DemographicTable rows={snapshot.demographics} currency={currency} />
       </BreakdownSection>
 
-      <BreakdownSection title="Top interests">
+      <BreakdownSection title="Top audiences that engaged">
         <InterestRankedTable rows={snapshot.interests} />
-      </BreakdownSection>
-
-      <BreakdownSection title="Top search terms">
-        <SearchTermGroupedTable
-          rows={snapshot.searchTerms}
-          currency={currency}
-        />
       </BreakdownSection>
     </div>
   );
@@ -813,8 +805,9 @@ function InterestRankedTable({ rows }: { rows: TikTokInterestRow[] }) {
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-muted-foreground">
-        TikTok auto-delivers broadly across all linked interests — rank by
-        watch depth rather than spend.
+        These are the interest audiences TikTok&apos;s algorithm attributed
+        engagement to — not the interests we targeted. Ranked by watch
+        depth (2-second video plays).
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -850,42 +843,6 @@ function InterestRankedTable({ rows }: { rows: TikTokInterestRow[] }) {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function SearchTermGroupedTable({
-  rows,
-  currency,
-}: {
-  rows: TikTokSearchTermRow[];
-  currency: string;
-}) {
-  if (rows.length === 0)
-    return <EmptyBreakdown label="No search-term rows in snapshot." />;
-  const grouped = groupBy(rows, (r) => r.theme_bucket ?? "__unbucketed__");
-  return (
-    <div className="space-y-4">
-      {Array.from(grouped.entries()).map(([bucket, list]) => (
-        <div key={bucket}>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {bucket === "__unbucketed__" ? "Other" : bucket}
-          </h4>
-          <BreakdownTable
-            headers={["Search term", "Spend", "Impr.", "Clicks", "CTR"]}
-            rows={[...list]
-              .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
-              .slice(0, 10)
-              .map((r) => [
-                r.search_term,
-                fmtMoney(r.cost, currency),
-                fmtInt(r.impressions, r.impressions_raw),
-                fmtInt(r.clicks_destination),
-                fmtPct(r.ctr_destination),
-              ])}
-          />
-        </div>
-      ))}
     </div>
   );
 }
@@ -1022,17 +979,6 @@ function fmtRelative(iso: string): string {
     day: "2-digit",
     month: "short",
   });
-}
-
-function groupBy<T, K>(items: readonly T[], keyOf: (item: T) => K): Map<K, T[]> {
-  const out = new Map<K, T[]>();
-  for (const item of items) {
-    const key = keyOf(item);
-    const list = out.get(key);
-    if (list) list.push(item);
-    else out.set(key, [item]);
-  }
-  return out;
 }
 
 const VERTICAL_LABELS: Record<TikTokVertical | "other", string> = {
