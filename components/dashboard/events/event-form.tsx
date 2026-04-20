@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -118,6 +118,19 @@ export function EventForm({
   );
   const [notes, setNotes] = useState(initial?.notes ?? "");
 
+  // ── Meta campaign spend wiring (migration 023) ──────────────────────────
+  const [metaCampaignId, setMetaCampaignId] = useState(
+    initial?.meta_campaign_id ?? "",
+  );
+  const [metaSpendCached, setMetaSpendCached] = useState<number | null>(
+    initial?.meta_spend_cached ?? null,
+  );
+  const [metaSpendCachedAt, setMetaSpendCachedAt] = useState<string | null>(
+    initial?.meta_spend_cached_at ?? null,
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
   useEffect(() => {
     async function init() {
       const supabase = createSupabase();
@@ -179,6 +192,10 @@ export function EventForm({
         ? Number.parseFloat(budgetMarketing)
         : null,
       notes: notes || null,
+      // Meta campaign id (migration 023) — null out empty strings so the
+      // text column doesn't accumulate "" rows that fail the eq() match
+      // in /api/meta/campaign-spend.
+      meta_campaign_id: metaCampaignId.trim() ? metaCampaignId.trim() : null,
     } as const;
 
     try {
@@ -218,6 +235,62 @@ export function EventForm({
     value: c.id,
     label: c.name,
   }));
+
+  const selectedClient = useMemo(
+    () => clients.find((c) => c.id === clientId) ?? null,
+    [clients, clientId],
+  );
+  const adAccountId = selectedClient?.meta_ad_account_id ?? null;
+
+  /**
+   * Refresh the cached lifetime Meta spend for the saved campaign id.
+   *
+   * Edit-mode only: in create mode the event row doesn't exist yet,
+   * so the API would have nothing to update. The button is disabled
+   * in that case via the JSX guard below.
+   */
+  const handleRefreshSpend = async () => {
+    setRefreshError(null);
+    const trimmed = metaCampaignId.trim();
+    if (!trimmed) {
+      setRefreshError("Set a Meta campaign ID first.");
+      return;
+    }
+    if (!adAccountId) {
+      setRefreshError("Selected client has no Meta ad account configured.");
+      return;
+    }
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/meta/campaign-spend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaign_id: trimmed,
+          ad_account_id: adAccountId,
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            spend?: number;
+            refreshed_at?: string;
+            error?: string;
+          }
+        | null;
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? `HTTP ${res.status}`);
+      }
+      setMetaSpendCached(json.spend ?? 0);
+      setMetaSpendCachedAt(json.refreshed_at ?? new Date().toISOString());
+    } catch (err) {
+      setRefreshError(
+        err instanceof Error ? err.message : "Refresh failed.",
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -419,6 +492,84 @@ export function EventForm({
               focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
+      </section>
+
+      <section className="rounded-md border border-border bg-card p-5 space-y-4">
+        <div>
+          <h2 className="font-heading text-base tracking-wide">Meta spend</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Paste the Meta campaign ID that covers this event. All events at
+            the same venue share one campaign — they all read the same cached
+            lifetime spend, divided across them in the client portal.
+          </p>
+        </div>
+
+        <Input
+          id="event-meta-campaign-id"
+          label="Meta Campaign ID"
+          value={metaCampaignId}
+          onChange={(e) => setMetaCampaignId(e.target.value)}
+          placeholder="e.g. 120200000012345678"
+          autoComplete="off"
+        />
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleRefreshSpend}
+            disabled={
+              refreshing ||
+              mode === "create" ||
+              !metaCampaignId.trim() ||
+              !adAccountId
+            }
+          >
+            {refreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh Meta spend
+          </Button>
+
+          {metaSpendCached !== null && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs tabular-nums text-foreground">
+              Cached:&nbsp;
+              <span className="font-semibold">
+                £
+                {new Intl.NumberFormat("en-GB", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }).format(metaSpendCached)}
+              </span>
+            </span>
+          )}
+        </div>
+
+        {mode === "create" && (
+          <p className="text-xs text-muted-foreground">
+            Save the event first, then come back here to refresh spend.
+          </p>
+        )}
+        {mode === "edit" && !adAccountId && (
+          <p className="text-xs text-amber-600">
+            This client has no Meta ad account configured — set one on the
+            client record to enable Refresh.
+          </p>
+        )}
+        {metaSpendCachedAt && (
+          <p className="text-xs text-muted-foreground">
+            Last synced:{" "}
+            {new Date(metaSpendCachedAt).toLocaleString("en-GB", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+          </p>
+        )}
+        {refreshError && (
+          <p className="text-xs text-destructive">{refreshError}</p>
+        )}
       </section>
 
       {error && <p className="text-xs text-destructive">{error}</p>}

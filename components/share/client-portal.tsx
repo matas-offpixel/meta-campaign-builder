@@ -111,21 +111,25 @@ export function ClientPortal({ token, client, events: initial }: Props) {
 
   const handleSnapshot = (
     eventId: string,
-    snapshot: { tickets_sold: number; captured_at: string; week_start: string },
+    snapshot: {
+      tickets_sold: number;
+      revenue: number | null;
+      captured_at: string;
+      week_start: string;
+    },
   ) => {
     setEvents((prev) =>
       prev.map((ev) => {
         if (ev.id !== eventId) return ev;
-        const next = { ...snapshot };
         const newHistory = [
-          { ...next, tickets_sold: next.tickets_sold },
+          { ...snapshot },
           // Drop any pre-existing same-week row so the history list
           // doesn't show two entries for one Mon-Sun period.
-          ...ev.history.filter((h) => h.week_start !== next.week_start),
+          ...ev.history.filter((h) => h.week_start !== snapshot.week_start),
         ].slice(0, 5);
         return {
           ...ev,
-          latest_snapshot: { ...next },
+          latest_snapshot: { ...snapshot },
           history: newHistory,
         };
       }),
