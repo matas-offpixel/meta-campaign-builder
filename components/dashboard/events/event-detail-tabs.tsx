@@ -6,12 +6,18 @@ import {
   parseEventTab,
   type EventTab,
 } from "@/lib/dashboard/format";
+import type { EventKind } from "@/lib/db/events";
 
 export type { EventTab };
 
 interface Props {
   active: EventTab;
   campaignsCount: number;
+  /**
+   * Engagement type. `brand_campaign` rows hide the Plan tab — there's no
+   * presale grid to render on a date-ranged awareness push.
+   */
+  eventKind?: EventKind;
 }
 
 /**
@@ -21,7 +27,11 @@ interface Props {
  * with the new searchParams, no client-side fetching, browser back/forward
  * and refresh-stable.
  */
-export function EventDetailTabs({ active, campaignsCount }: Props) {
+export function EventDetailTabs({
+  active,
+  campaignsCount,
+  eventKind = "event",
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -38,16 +48,16 @@ export function EventDetailTabs({ active, campaignsCount }: Props) {
     router.push(qs ? `${pathname}?${qs}` : pathname);
   };
 
+  const tabs = [
+    { id: "overview", label: "Overview" },
+    ...(eventKind === "brand_campaign"
+      ? []
+      : [{ id: "plan", label: "Plan" }]),
+    { id: "campaigns", label: "Campaigns", count: campaignsCount },
+    { id: "reporting", label: "Reporting" },
+  ];
+
   return (
-    <Tabs
-      tabs={[
-        { id: "overview", label: "Overview" },
-        { id: "plan", label: "Plan" },
-        { id: "campaigns", label: "Campaigns", count: campaignsCount },
-        { id: "reporting", label: "Reporting" },
-      ]}
-      activeTab={active}
-      onTabChange={handleChange}
-    />
+    <Tabs tabs={tabs} activeTab={active} onTabChange={handleChange} />
   );
 }

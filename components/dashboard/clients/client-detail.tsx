@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Pencil, Archive, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
@@ -18,6 +19,7 @@ import { PlatformAccountsCard } from "./platform-accounts-card";
 import { BillingSection } from "./billing-section";
 import { ClientShareLinkCard } from "./client-share-link-card";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
+import { NewEventKindModal } from "./new-event-kind-modal";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
 import type {
   BillingMode,
@@ -74,6 +76,7 @@ export function ClientDetail({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ClientTab>("overview");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const invoiceCount = clientInvoices.length;
 
@@ -329,11 +332,9 @@ export function ClientDetail({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() =>
-                    router.push(`/events/new?clientId=${client.id}`)
-                  }
+                  onClick={() => setPickerOpen(true)}
                 >
-                  New event
+                  New
                 </Button>
               </div>
             </div>
@@ -368,6 +369,11 @@ export function ClientDetail({
           </TabPanel>
         </div>
       </main>
+      <NewEventKindModal
+        open={pickerOpen}
+        clientId={client.id}
+        onClose={() => setPickerOpen(false)}
+      />
     </>
   );
 }
@@ -643,12 +649,15 @@ function ClientEventsTable({
                 className="border-b border-border last:border-b-0 hover:bg-muted/50 transition-colors"
               >
                 <td className="px-2 py-2">
-                  <Link
-                    href={`/events/${ev.id}`}
-                    className="block truncate hover:underline"
-                  >
-                    {ev.name}
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/events/${ev.id}`}
+                      className="block min-w-0 flex-1 truncate hover:underline"
+                    >
+                      {ev.name}
+                    </Link>
+                    <KindBadge kind={ev.kind} />
+                  </div>
                 </td>
                 <td className="px-2 py-2 text-right tabular-nums">
                   {fmtNum(tickets)}
