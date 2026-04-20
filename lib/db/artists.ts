@@ -13,8 +13,6 @@ import type {
 // Mirrors lib/db/venues.ts. Genre filter is applied with the PostgREST `cs.`
 // (contains) operator so it leans on the GIN index on artists.genres rather
 // than fetching everything and filtering in memory.
-//
-// TODO(post-020): drop the `as never` casts once types regenerate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type { ArtistRow, ArtistInsert, ArtistUpdate };
@@ -25,7 +23,7 @@ export async function listArtists(
 ): Promise<ArtistRow[]> {
   const supabase = await createClient();
   let query = supabase
-    .from("artists" as never)
+    .from("artists")
     .select("*")
     .eq("user_id", userId)
     .order("name", { ascending: true });
@@ -40,13 +38,13 @@ export async function listArtists(
     console.warn("[artists listArtists]", error.message);
     return [];
   }
-  return ((data as unknown as ArtistRow[]) ?? []) as ArtistRow[];
+  return data ?? [];
 }
 
 export async function getArtist(id: string): Promise<ArtistRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("artists" as never)
+    .from("artists")
     .select("*")
     .eq("id", id)
     .maybeSingle();
@@ -54,7 +52,7 @@ export async function getArtist(id: string): Promise<ArtistRow | null> {
     console.warn("[artists getArtist]", error.message);
     return null;
   }
-  return (data as unknown as ArtistRow | null) ?? null;
+  return data;
 }
 
 export async function createArtist(
@@ -62,15 +60,14 @@ export async function createArtist(
   input: Omit<ArtistInsert, "user_id">,
 ): Promise<ArtistRow> {
   const supabase = await createClient();
-  const payload = { ...input, user_id: userId } as unknown as Record<string, unknown>;
   const { data, error } = await supabase
-    .from("artists" as never)
-    .insert(payload as never)
+    .from("artists")
+    .insert({ ...input, user_id: userId })
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("createArtist returned no row");
-  return data as unknown as ArtistRow;
+  return data;
 }
 
 export async function updateArtist(
@@ -79,21 +76,18 @@ export async function updateArtist(
 ): Promise<ArtistRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("artists" as never)
-    .update(patch as never)
+    .from("artists")
+    .update(patch)
     .eq("id", id)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as ArtistRow | null) ?? null;
+  return data;
 }
 
 export async function deleteArtist(id: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("artists" as never)
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("artists").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -107,12 +101,12 @@ export async function countEventsByArtist(
 ): Promise<Map<string, number>> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("event_artists" as never)
+    .from("event_artists")
     .select("artist_id")
     .eq("user_id", userId);
   const counts = new Map<string, number>();
   if (error || !data) return counts;
-  for (const row of data as Array<{ artist_id?: string | null }>) {
+  for (const row of data) {
     if (!row.artist_id) continue;
     counts.set(row.artist_id, (counts.get(row.artist_id) ?? 0) + 1);
   }

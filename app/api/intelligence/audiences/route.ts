@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
   let eaRows: EARow[] = [];
   if (eventIdsForArtistLookup.length > 0) {
     const { data: ea, error: eaErr } = await supabase
-      .from("event_artists" as never)
+      .from("event_artists")
       .select("event_id, artist_id, is_headliner, artist:artists ( name )")
       .in("event_id", eventIdsForArtistLookup);
     if (eaErr) {
@@ -110,7 +110,21 @@ export async function GET(req: NextRequest) {
         eaErr.message,
       );
     } else {
-      eaRows = (ea as unknown as EARow[]) ?? [];
+      // PostgREST embed types `artist` as either object or array depending
+      // on FK cardinality; normalise to a single object before we hand it
+      // to the consumer types.
+      eaRows = (ea ?? []).map((row) => {
+        const artistRel = row.artist as
+          | { name: string | null }
+          | Array<{ name: string | null }>
+          | null;
+        return {
+          event_id: row.event_id,
+          artist_id: row.artist_id,
+          is_headliner: row.is_headliner,
+          artist: Array.isArray(artistRel) ? artistRel[0] ?? null : artistRel,
+        };
+      });
     }
   }
 

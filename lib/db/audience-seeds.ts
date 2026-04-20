@@ -13,9 +13,8 @@ import type {
 //
 // Filters are stored as JSONB so the cross-event filter set can evolve
 // without schema churn — the AudienceSeedFilters type doubles as the API
-// contract for /api/intelligence/audiences.
-//
-// TODO(post-020): drop the `as never` casts once types regenerate.
+// contract for /api/intelligence/audiences. We narrow `filters` from the
+// generated `Json` back to AudienceSeedFilters at the read boundary.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type {
@@ -30,7 +29,7 @@ export async function listAudienceSeeds(
 ): Promise<AudienceSeedRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("audience_seeds" as never)
+    .from("audience_seeds")
     .select("*")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
@@ -38,7 +37,7 @@ export async function listAudienceSeeds(
     console.warn("[audience-seeds listAudienceSeeds]", error.message);
     return [];
   }
-  return ((data as unknown as AudienceSeedRow[]) ?? []) as AudienceSeedRow[];
+  return (data ?? []) as AudienceSeedRow[];
 }
 
 export async function getAudienceSeed(
@@ -46,7 +45,7 @@ export async function getAudienceSeed(
 ): Promise<AudienceSeedRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("audience_seeds" as never)
+    .from("audience_seeds")
     .select("*")
     .eq("id", id)
     .maybeSingle();
@@ -54,7 +53,7 @@ export async function getAudienceSeed(
     console.warn("[audience-seeds getAudienceSeed]", error.message);
     return null;
   }
-  return (data as unknown as AudienceSeedRow | null) ?? null;
+  return (data as AudienceSeedRow | null) ?? null;
 }
 
 export async function createAudienceSeed(
@@ -62,21 +61,20 @@ export async function createAudienceSeed(
   input: Omit<AudienceSeedInsert, "user_id">,
 ): Promise<AudienceSeedRow> {
   const supabase = await createClient();
-  const payload = {
-    user_id: userId,
-    name: input.name,
-    description: input.description ?? null,
-    filters: input.filters ?? {},
-    meta_custom_audience_id: input.meta_custom_audience_id ?? null,
-  };
   const { data, error } = await supabase
-    .from("audience_seeds" as never)
-    .insert(payload as never)
+    .from("audience_seeds")
+    .insert({
+      user_id: userId,
+      name: input.name,
+      description: input.description ?? null,
+      filters: input.filters ?? {},
+      meta_custom_audience_id: input.meta_custom_audience_id ?? null,
+    })
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("createAudienceSeed returned no row");
-  return data as unknown as AudienceSeedRow;
+  return data as AudienceSeedRow;
 }
 
 export async function updateAudienceSeed(
@@ -85,19 +83,19 @@ export async function updateAudienceSeed(
 ): Promise<AudienceSeedRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("audience_seeds" as never)
-    .update(patch as never)
+    .from("audience_seeds")
+    .update(patch)
     .eq("id", id)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as AudienceSeedRow | null) ?? null;
+  return (data as AudienceSeedRow | null) ?? null;
 }
 
 export async function deleteAudienceSeed(id: string): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase
-    .from("audience_seeds" as never)
+    .from("audience_seeds")
     .delete()
     .eq("id", id);
   if (error) throw new Error(error.message);

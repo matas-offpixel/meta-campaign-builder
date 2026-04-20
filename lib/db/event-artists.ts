@@ -14,8 +14,6 @@ import type {
 // which is what every consumer actually wants. Mutation helpers stay narrow:
 // add / remove / re-bill — there's deliberately no bulk replace because
 // that would mask which row caused a constraint violation.
-//
-// TODO(post-020): drop the `as never` casts once types regenerate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type { EventArtistRow, EventArtistJoined };
@@ -28,7 +26,7 @@ export async function listEventArtists(
   // junction row in a single round-trip. Sort by billing_order then name
   // so the UI list reads predictably.
   const { data, error } = await supabase
-    .from("event_artists" as never)
+    .from("event_artists")
     .select(
       "id, event_id, artist_id, is_headliner, billing_order, artist:artists ( name, genres, meta_page_id, meta_page_name )",
     )
@@ -40,28 +38,33 @@ export async function listEventArtists(
     return [];
   }
 
-  type Row = {
-    id: string;
-    event_id: string;
-    artist_id: string;
-    is_headliner: boolean;
-    billing_order: number;
-    artist: Pick<ArtistRow, "name" | "genres" | "meta_page_id" | "meta_page_name"> | null;
-  };
+  type ArtistEmbed = Pick<
+    ArtistRow,
+    "name" | "genres" | "meta_page_id" | "meta_page_name"
+  >;
 
-  return ((data as unknown as Row[]) ?? [])
-    .map((row) => ({
-      id: row.id,
-      event_id: row.event_id,
-      artist_id: row.artist_id,
-      is_headliner: row.is_headliner,
-      billing_order: row.billing_order,
-      artist_name: row.artist?.name ?? "(unknown artist)",
-      genres: row.artist?.genres ?? [],
-      meta_page_id: row.artist?.meta_page_id ?? null,
-      meta_page_name: row.artist?.meta_page_name ?? null,
-    }))
-    .sort((a, b) => a.billing_order - b.billing_order || a.artist_name.localeCompare(b.artist_name));
+  return (data ?? [])
+    .map((row) => {
+      // PostgREST types FK embeds as an array even on many-to-one; normalise.
+      const artistRel = row.artist as ArtistEmbed | ArtistEmbed[] | null;
+      const artist = Array.isArray(artistRel) ? artistRel[0] ?? null : artistRel;
+      return {
+        id: row.id,
+        event_id: row.event_id,
+        artist_id: row.artist_id,
+        is_headliner: row.is_headliner,
+        billing_order: row.billing_order,
+        artist_name: artist?.name ?? "(unknown artist)",
+        genres: artist?.genres ?? [],
+        meta_page_id: artist?.meta_page_id ?? null,
+        meta_page_name: artist?.meta_page_name ?? null,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.billing_order - b.billing_order ||
+        a.artist_name.localeCompare(b.artist_name),
+    );
 }
 
 interface AddOpts {
@@ -76,21 +79,20 @@ export async function addEventArtist(
   opts: AddOpts = {},
 ): Promise<EventArtistRow> {
   const supabase = await createClient();
-  const payload = {
-    user_id: userId,
-    event_id: eventId,
-    artist_id: artistId,
-    is_headliner: opts.isHeadliner ?? false,
-    billing_order: opts.billingOrder ?? 0,
-  };
   const { data, error } = await supabase
-    .from("event_artists" as never)
-    .insert(payload as never)
+    .from("event_artists")
+    .insert({
+      user_id: userId,
+      event_id: eventId,
+      artist_id: artistId,
+      is_headliner: opts.isHeadliner ?? false,
+      billing_order: opts.billingOrder ?? 0,
+    })
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("addEventArtist returned no row");
-  return data as unknown as EventArtistRow;
+  return data;
 }
 
 export async function removeEventArtist(
@@ -99,7 +101,7 @@ export async function removeEventArtist(
 ): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase
-    .from("event_artists" as never)
+    .from("event_artists")
     .delete()
     .eq("event_id", eventId)
     .eq("artist_id", artistId);
@@ -114,12 +116,12 @@ export async function updateEventArtistBilling(
 ): Promise<EventArtistRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("event_artists" as never)
-    .update({ is_headliner: isHeadliner, billing_order: billingOrder } as never)
+    .from("event_artists")
+    .update({ is_headliner: isHeadliner, billing_order: billingOrder })
     .eq("event_id", eventId)
     .eq("artist_id", artistId)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as EventArtistRow | null) ?? null;
+  return data;
 }

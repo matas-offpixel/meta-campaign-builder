@@ -13,18 +13,14 @@ import type {
 // All helpers are RLS-bound — callers don't pass user_id; the cookie session
 // resolves it. Insert helpers take a userId because the row's user_id column
 // is owned, not derived from auth.uid() during the INSERT path.
-//
-// TODO(post-020): drop the `as never` casts below once the generated
-// `database.types.ts` includes the `venues` table.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type { VenueRow, VenueInsert, VenueUpdate };
 
 export async function listVenues(userId: string): Promise<VenueRow[]> {
   const supabase = await createClient();
-  // TODO(post-020): typed `from("venues")`.
   const { data, error } = await supabase
-    .from("venues" as never)
+    .from("venues")
     .select("*")
     .eq("user_id", userId)
     .order("name", { ascending: true });
@@ -32,13 +28,13 @@ export async function listVenues(userId: string): Promise<VenueRow[]> {
     console.warn("[venues listVenues]", error.message);
     return [];
   }
-  return ((data as unknown as VenueRow[]) ?? []) as VenueRow[];
+  return data ?? [];
 }
 
 export async function getVenue(id: string): Promise<VenueRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("venues" as never)
+    .from("venues")
     .select("*")
     .eq("id", id)
     .maybeSingle();
@@ -46,7 +42,7 @@ export async function getVenue(id: string): Promise<VenueRow | null> {
     console.warn("[venues getVenue]", error.message);
     return null;
   }
-  return (data as unknown as VenueRow | null) ?? null;
+  return data;
 }
 
 export async function createVenue(
@@ -54,15 +50,14 @@ export async function createVenue(
   input: Omit<VenueInsert, "user_id">,
 ): Promise<VenueRow> {
   const supabase = await createClient();
-  const payload = { ...input, user_id: userId } as unknown as Record<string, unknown>;
   const { data, error } = await supabase
-    .from("venues" as never)
-    .insert(payload as never)
+    .from("venues")
+    .insert({ ...input, user_id: userId })
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("createVenue returned no row");
-  return data as unknown as VenueRow;
+  return data;
 }
 
 export async function updateVenue(
@@ -71,21 +66,18 @@ export async function updateVenue(
 ): Promise<VenueRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("venues" as never)
-    .update(patch as never)
+    .from("venues")
+    .update(patch)
     .eq("id", id)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as unknown as VenueRow | null) ?? null;
+  return data;
 }
 
 export async function deleteVenue(id: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("venues" as never)
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("venues").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -103,7 +95,7 @@ export async function countEventsByVenue(
     .eq("user_id", userId);
   const counts = new Map<string, number>();
   if (error || !data) return counts;
-  for (const row of data as Array<{ venue_id?: string | null }>) {
+  for (const row of data) {
     if (!row.venue_id) continue;
     counts.set(row.venue_id, (counts.get(row.venue_id) ?? 0) + 1);
   }

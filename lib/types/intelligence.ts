@@ -1,71 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Intelligence-layer domain types.
 //
-// Manual definitions because migration 020 hasn't been applied yet — these
-// stand in until `supabase gen types` is re-run, at which point the helpers
-// in lib/db/{venues,artists,event-artists,creative-tags,audience-seeds}.ts
-// can switch to `Tables<"venues">` etc. directly.
+// Tables that map 1:1 onto the generated Supabase schema (venues, artists,
+// event_artists) re-export `Tables<"...">` directly so the row shape stays
+// in lockstep with `database.types.ts` after each `supabase gen types` run.
 //
-// TODO(post-020): drop the manual definitions and re-export the generated
-// types after migration 020 is applied.
+// Tables with CHECK-constrained text columns or JSON payloads
+// (creative_tags.tag_type, audience_seeds.filters) keep manual narrowed
+// shapes — Supabase serialises those as plain `string`/`Json`, which
+// throws away the discriminated unions the UI depends on.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface VenueRow {
-  id: string;
-  user_id: string;
-  name: string;
-  city: string;
-  country: string;
-  capacity: number | null;
-  address: string | null;
-  meta_page_id: string | null;
-  meta_page_name: string | null;
-  website: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
+import type {
+  Tables,
+  TablesInsert,
+  TablesUpdate,
+} from "@/lib/db/database.types";
 
-export type VenueInsert = Omit<VenueRow, "id" | "created_at" | "updated_at"> & {
-  id?: string;
-  created_at?: string;
-  updated_at?: string;
-};
+export type VenueRow = Tables<"venues">;
+export type VenueInsert = TablesInsert<"venues">;
+export type VenueUpdate = TablesUpdate<"venues">;
 
-export type VenueUpdate = Partial<Omit<VenueRow, "id" | "user_id" | "created_at" | "updated_at">>;
+export type ArtistRow = Tables<"artists">;
+export type ArtistInsert = TablesInsert<"artists">;
+export type ArtistUpdate = TablesUpdate<"artists">;
 
-export interface ArtistRow {
-  id: string;
-  user_id: string;
-  name: string;
-  genres: string[];
-  meta_page_id: string | null;
-  meta_page_name: string | null;
-  instagram_handle: string | null;
-  spotify_id: string | null;
-  website: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export type ArtistInsert = Omit<ArtistRow, "id" | "created_at" | "updated_at"> & {
-  id?: string;
-  created_at?: string;
-  updated_at?: string;
-};
-
-export type ArtistUpdate = Partial<Omit<ArtistRow, "id" | "user_id" | "created_at" | "updated_at">>;
-
-export interface EventArtistRow {
-  id: string;
-  event_id: string;
-  artist_id: string;
-  user_id: string;
-  is_headliner: boolean;
-  billing_order: number;
-  created_at: string;
-}
+export type EventArtistRow = Tables<"event_artists">;
 
 /** Joined shape returned by listEventArtists — artist columns flattened in. */
 export interface EventArtistJoined {
