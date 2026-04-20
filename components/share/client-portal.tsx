@@ -12,6 +12,18 @@ interface Props {
   token: string;
   client: PortalClient;
   events: PortalEvent[];
+  /**
+   * Cached lifetime spend for the WC26-LONDON-ONSALE shared campaign.
+   * Distributed by the venue table across the four London venues.
+   * `null` until the admin runs Refresh All Spend.
+   */
+  londonOnsaleSpend: number | null;
+  /**
+   * Cached lifetime spend for the WC26-LONDON-PRESALE shared campaign.
+   * Display-only on the Overall London aggregate; no per-event impact
+   * because prereg_spend is already split correctly per event.
+   */
+  londonPresaleSpend: number | null;
 }
 
 type TabKey = "scotland" | "england_london" | "england_uk";
@@ -53,7 +65,13 @@ function formatNumber(n: number): string {
  * Spend / Tickets / CPT / Revenue / ROAS. Ticket input lives inline in
  * the table cells, so the page is both report and capture surface.
  */
-export function ClientPortal({ token, client, events: initial }: Props) {
+export function ClientPortal({
+  token,
+  client,
+  events: initial,
+  londonOnsaleSpend,
+  londonPresaleSpend,
+}: Props) {
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
   const [events, setEvents] = useState<PortalEvent[]>(initial);
@@ -236,6 +254,8 @@ export function ClientPortal({ token, client, events: initial }: Props) {
             <ClientPortalVenueTable
               token={token}
               events={tabEvents}
+              londonOnsaleSpend={londonOnsaleSpend}
+              londonPresaleSpend={londonPresaleSpend}
               onSnapshotSaved={handleSnapshot}
             />
           </>

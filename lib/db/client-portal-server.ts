@@ -78,11 +78,43 @@ export interface PortalClient {
   primary_type: string | null;
 }
 
+/**
+ * Synthetic event_codes used to model London-wide shared campaigns.
+ * The rows live in the events table (migration 024) so the existing
+ * "Refresh all spend" flow picks them up automatically — but they are
+ * NOT shown as venues in the portal. Instead their meta_spend_cached
+ * values are surfaced as top-level `londonOnsaleSpend` / `londonPresaleSpend`
+ * on the portal payload and consumed by the venue table for the
+ * London aggregate row + per-venue onsale split.
+ */
+export const LONDON_ONSALE_EVENT_CODE = "WC26-LONDON-ONSALE";
+export const LONDON_PRESALE_EVENT_CODE = "WC26-LONDON-PRESALE";
+
+const SYNTHETIC_LONDON_CODES = new Set<string>([
+  LONDON_ONSALE_EVENT_CODE,
+  LONDON_PRESALE_EVENT_CODE,
+]);
+
 export type ClientPortalData =
   | {
       ok: true;
       client: PortalClient;
       events: PortalEvent[];
+      /**
+       * Lifetime Meta spend for the shared London on-sale campaign,
+       * pulled from the synthetic event row keyed by
+       * `LONDON_ONSALE_EVENT_CODE`. Distributed equally across the four
+       * London venues by the portal table. `null` until the admin runs
+       * the refresh-all-spend action against this client.
+       */
+      londonOnsaleSpend: number | null;
+      /**
+       * Lifetime Meta spend for the shared London presale campaign.
+       * Display-only (per-event prereg_spend already carries the split
+       * across the venues that ran a presale). `null` when not yet
+       * refreshed.
+       */
+      londonPresaleSpend: number | null;
     }
   | {
       ok: false;
@@ -140,7 +172,28 @@ export async function loadClientPortalData(
     return { ok: false, reason: "events_load_failed" };
   }
 
-  const eventRows = events ?? [];
+  const allRows = events ?? [];
+
+  // Pull the synthetic London shared-campaign rows out of the event
+  // list so they never reach the UI as venues. The portal renders the
+  // single Overall London aggregate from the spend totals below; the
+  // synthetic rows would otherwise show up as a "London, London" venue
+  // group with one or two zero-ticket events.
+  let londonOnsaleSpend: number | null = null;
+  let londonPresaleSpend: number | null = null;
+  const eventRows: typeof allRows = [];
+  for (const row of allRows) {
+    if (row.event_code && SYNTHETIC_LONDON_CODES.has(row.event_code)) {
+      if (row.event_code === LONDON_ONSALE_EVENT_CODE) {
+        londonOnsaleSpend = row.meta_spend_cached ?? null;
+      } else if (row.event_code === LONDON_PRESALE_EVENT_CODE) {
+        londonPresaleSpend = row.meta_spend_cached ?? null;
+      }
+      continue;
+    }
+    eventRows.push(row);
+  }
+
   const eventIds = eventRows.map((e) => e.id);
 
   const snapshotsByEvent = new Map<string, PortalSnapshot>();
@@ -180,6 +233,8 @@ export async function loadClientPortalData(
       slug: client.slug,
       primary_type: client.primary_type,
     },
+    londonOnsaleSpend,
+    londonPresaleSpend,
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       return {

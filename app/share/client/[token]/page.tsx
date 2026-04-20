@@ -50,6 +50,8 @@ export default async function ClientPortalPage({ params }: Props) {
       token={token}
       client={result.client}
       events={result.events}
+      londonOnsaleSpend={result.londonOnsaleSpend}
+      londonPresaleSpend={result.londonPresaleSpend}
     />
   );
 }

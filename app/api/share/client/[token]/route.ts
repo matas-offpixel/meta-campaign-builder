@@ -37,5 +37,7 @@ export async function GET(
     ok: true,
     client: result.client,
     events: result.events,
+    londonOnsaleSpend: result.londonOnsaleSpend,
+    londonPresaleSpend: result.londonPresaleSpend,
   });
 }

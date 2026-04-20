@@ -15,6 +15,20 @@ interface SavedSnapshot {
 interface Props {
   token: string;
   events: PortalEvent[];
+  /**
+   * Lifetime spend of the shared WC26-LONDON-ONSALE campaign. When non-null,
+   * the four London venue sections switch from the default `split` spend
+   * model to the `add` model (see `venueSpend` below) and an Overall London
+   * aggregate row renders ahead of the individual venues.
+   */
+  londonOnsaleSpend: number | null;
+  /**
+   * Lifetime spend of the shared WC26-LONDON-PRESALE campaign. Surfaced as
+   * an informational badge on the Overall London header — per-event prereg
+   * is already split correctly across the venues that ran a presale, so
+   * this value is not redistributed by the table.
+   */
+  londonPresaleSpend: number | null;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
 }
 
@@ -25,14 +39,17 @@ interface Props {
  * event, plus a "Total" row that re-derives CPT / ROAS from the
  * venue-level sums.
  *
- * Spend model (matches migration 023):
- *   - meta_spend_cached lives on every event sharing the same meta_campaign_id
- *     and represents the *campaign-level* lifetime Meta spend.
- *   - For each venue we take the first non-null meta_spend_cached as the
- *     campaign total, then divide by the number of events in the group to
- *     get the per-event total spend.
- *   - prereg_spend stays on the event row (manual, frozen after presale).
- *   - per-event ad_spend is computed at render = perEventTotal − prereg.
+ * Two spend models — picked per venue group via `venueSpend()`:
+ *   - `split` (default, non-London): meta_spend_cached is treated as the
+ *     campaign's *combined* spend (prereg + on-sale rolled into one Meta
+ *     campaign). Per-event total = campaignSpend / eventCount; per-event
+ *     ad = perEventTotal − prereg. This is the historical model.
+ *   - `add` (London venues, when londonOnsaleSpend is provided): the four
+ *     London venues share an extra on-sale campaign on top of each
+ *     venue's own meta campaign. Per-event ad = ((onsale / 4) + venueMeta)
+ *     / eventCount. Per-event total = prereg + perEventAd. This matches
+ *     the new WC26 wiring where prereg and on-sale live in distinct Meta
+ *     campaigns.
  *
  * Revenue is no longer derived from a stored ticket_price — the client
  * types it in directly through the snapshot row.
@@ -41,6 +58,89 @@ interface Props {
  * flips every Tickets Sold + Revenue cell to inline inputs. Cells save
  * on blur (no per-row Save button). "Done" exits edit mode.
  */
+
+/**
+ * Number of London venues sharing the WC26-LONDON-ONSALE campaign.
+ * Hard-coded because the divisor is a contractual fact about how the
+ * shared spend is allocated, not a count derived from venue rows
+ * present in any given snapshot — using `londonGroups.length` would
+ * silently rebalance if a venue went missing from the dataset.
+ */
+const LONDON_VENUE_COUNT = 4;
+
+function isLondonCity(city: string | null | undefined): boolean {
+  return (city ?? "").toLowerCase() === "london";
+}
+
+/**
+ * Region buckets the venue table renders as separate sub-sections.
+ * Order here is also the render order top-to-bottom on the page.
+ */
+type Region = "scotland" | "london" | "england_uk";
+
+const REGION_LABEL: Record<Region, string> = {
+  scotland: "Scotland",
+  london: "England – London",
+  england_uk: "England – UK",
+};
+
+const REGION_ORDER: Region[] = ["scotland", "london", "england_uk"];
+
+/**
+ * Fixed render order for the four London venues — matches the
+ * spreadsheet sheet the client expects to see. Substring matching
+ * (case-insensitive) so harmless name variants like "Shepherds Bush"
+ * vs "Shepherd's Bush" both anchor to the same slot.
+ */
+const LONDON_VENUE_ORDER = [
+  "kentish",
+  "shepherd",
+  "shoreditch",
+  "tottenham",
+] as const;
+
+function londonOrderIndex(displayName: string): number {
+  const lower = displayName.toLowerCase();
+  for (let i = 0; i < LONDON_VENUE_ORDER.length; i++) {
+    if (lower.includes(LONDON_VENUE_ORDER[i])) return i;
+  }
+  // Anything not on the canonical list lands at the end. Defensive — a
+  // new London venue we haven't slotted yet shouldn't disappear.
+  return LONDON_VENUE_ORDER.length;
+}
+
+function regionForGroup(group: VenueGroup): Region {
+  // Scotland is country-driven (Aberdeen / Edinburgh have no city
+  // signal that distinguishes them from English cities). Spec calls
+  // out reading from group.events[0].venue_country specifically; every
+  // event in a group shares a venue, so [0] is sufficient.
+  if (group.events[0]?.venue_country === "Scotland") return "scotland";
+  if (isLondonCity(group.city)) return "london";
+  return "england_uk";
+}
+
+function compareByCityThenName(a: VenueGroup, b: VenueGroup): number {
+  const cityCmp = (a.city ?? "").localeCompare(b.city ?? "");
+  if (cityCmp !== 0) return cityCmp;
+  return a.displayName.localeCompare(b.displayName);
+}
+
+function partitionByRegion(venues: VenueGroup[]): Record<Region, VenueGroup[]> {
+  const out: Record<Region, VenueGroup[]> = {
+    scotland: [],
+    london: [],
+    england_uk: [],
+  };
+  for (const group of venues) {
+    out[regionForGroup(group)].push(group);
+  }
+  out.scotland.sort(compareByCityThenName);
+  out.london.sort(
+    (a, b) => londonOrderIndex(a.displayName) - londonOrderIndex(b.displayName),
+  );
+  out.england_uk.sort(compareByCityThenName);
+  return out;
+}
 
 const GBP = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -155,6 +255,40 @@ function groupByVenue(events: PortalEvent[]): VenueGroup[] {
   );
 }
 
+/**
+ * Per-venue spend model. `split` is the legacy shape (campaign total
+ * is one number, prereg is carved out of it). `add` is the WC26 London
+ * shape (prereg and on-sale spend live in different Meta campaigns and
+ * are *added* to produce the per-event total).
+ */
+type GroupSpend =
+  | { kind: "split"; perEventTotal: number | null }
+  | { kind: "add"; perEventAd: number | null };
+
+function venueSpend(
+  group: VenueGroup,
+  londonOnsaleSpend: number | null,
+): GroupSpend {
+  if (isLondonCity(group.city) && londonOnsaleSpend !== null) {
+    // London additive model. Either input may be null in transitional
+    // states (e.g. admin has refreshed onsale but not yet the venue
+    // campaign). Treat null as 0 for the sum so a half-populated state
+    // still surfaces whichever half is known. Returns null only when
+    // the venue truly has no spend signal *and* no event count to
+    // divide by.
+    const onsaleShare = londonOnsaleSpend / LONDON_VENUE_COUNT;
+    const venueMeta = group.campaignSpend ?? 0;
+    const perEventAd =
+      group.eventCount > 0 ? (onsaleShare + venueMeta) / group.eventCount : null;
+    return { kind: "add", perEventAd };
+  }
+  const perEventTotal =
+    group.campaignSpend !== null && group.eventCount > 0
+      ? group.campaignSpend / group.eventCount
+      : null;
+  return { kind: "split", perEventTotal };
+}
+
 interface EventMetrics {
   prereg: number | null;
   perEventTotal: number | null;
@@ -173,11 +307,25 @@ interface EventMetrics {
 
 function computeEventMetrics(
   ev: PortalEvent,
-  perEventTotal: number | null,
+  spend: GroupSpend,
 ): EventMetrics {
   const prereg = ev.prereg_spend;
-  const perEventAd =
-    perEventTotal !== null ? perEventTotal - (prereg ?? 0) : null;
+
+  // Resolve perEventAd / perEventTotal pair from the two spend models.
+  // The "ad / total / prereg" triangle is consistent in both: total =
+  // prereg + ad. The models differ only in *which* of (ad, total) is the
+  // independent input the venue carries.
+  let perEventAd: number | null;
+  let perEventTotal: number | null;
+  if (spend.kind === "split") {
+    perEventTotal = spend.perEventTotal;
+    perEventAd =
+      perEventTotal !== null ? perEventTotal - (prereg ?? 0) : null;
+  } else {
+    perEventAd = spend.perEventAd;
+    perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
+  }
+
   const tickets = ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
   const prev = ev.tickets_sold_previous ?? 0;
   const cpt =
@@ -229,7 +377,7 @@ interface VenueTotals {
   roas: number | null;
 }
 
-function sumVenue(group: VenueGroup): VenueTotals {
+function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   let prereg = 0;
   let tickets = 0;
   let prevTickets = 0;
@@ -246,12 +394,24 @@ function sumVenue(group: VenueGroup): VenueTotals {
       revenue += r;
     }
   }
-  // Venue total spend = the campaign's lifetime spend, NOT the sum of
-  // per-event splits (they're identical by construction, but reading
-  // the campaign value directly avoids floating-point drift on the
-  // division round-trip).
-  const total = group.campaignSpend;
-  const ad = total !== null ? total - prereg : null;
+
+  let total: number | null;
+  let ad: number | null;
+  if (spend.kind === "split") {
+    // Legacy: campaign value already includes prereg, so ad = total − prereg.
+    total = group.campaignSpend;
+    ad = total !== null ? total - prereg : null;
+  } else {
+    // London: venue ad = perEventAd × eventCount (== onsaleShare + venueMeta).
+    // Total = prereg + venueAd. Re-multiplying perEventAd preserves the
+    // exact same arithmetic the per-row cells use, so the venue total
+    // matches the visible sum of its rows without floating-point drift.
+    const venueAd =
+      spend.perEventAd !== null ? spend.perEventAd * group.eventCount : null;
+    ad = venueAd;
+    total = venueAd !== null ? prereg + venueAd : null;
+  }
+
   const cpt = total !== null && total > 0 && tickets > 0 ? total / tickets : null;
   const cptPrevious =
     total !== null && total > 0 && prevTickets > 0
@@ -282,9 +442,12 @@ function sumVenue(group: VenueGroup): VenueTotals {
 export function ClientPortalVenueTable({
   token,
   events,
+  londonOnsaleSpend,
+  londonPresaleSpend,
   onSnapshotSaved,
 }: Props) {
   const venues = useMemo(() => groupByVenue(events), [events]);
+  const regions = useMemo(() => partitionByRegion(venues), [venues]);
 
   if (venues.length === 0) {
     return (
@@ -297,40 +460,288 @@ export function ClientPortalVenueTable({
   }
 
   return (
-    <div className="space-y-8">
-      {venues.map((group) => (
-        <VenueSection
-          key={group.key}
-          token={token}
-          group={group}
-          onSnapshotSaved={onSnapshotSaved}
-        />
-      ))}
+    <div className="space-y-10">
+      {REGION_ORDER.map((region) => {
+        const groups = regions[region];
+        if (groups.length === 0) return null;
+        return (
+          <div key={region} className="space-y-6">
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+              {REGION_LABEL[region]}
+            </h2>
+            {/* Overall London aggregate sits at the top of the London
+                region, mirroring the spreadsheet layout the client uses
+                offline. Other regions don't have a shared-campaign
+                aggregate so this only fires for `london`. */}
+            {region === "london" && (
+              <OverallLondonSection
+                groups={groups}
+                onsaleSpend={londonOnsaleSpend}
+                presaleSpend={londonPresaleSpend}
+              />
+            )}
+            {groups.map((group) => (
+              <VenueSection
+                key={group.key}
+                token={token}
+                group={group}
+                spend={venueSpend(group, londonOnsaleSpend)}
+                onSnapshotSaved={onSnapshotSaved}
+              />
+            ))}
+          </div>
+        );
+      })}
     </div>
+  );
+}
+
+interface OverallLondonSectionProps {
+  groups: VenueGroup[];
+  onsaleSpend: number | null;
+  presaleSpend: number | null;
+}
+
+interface OverallLondonTotals {
+  prereg: number;
+  ad: number | null;
+  total: number | null;
+  tickets: number;
+  prevTickets: number;
+  change: number;
+  cpt: number | null;
+  cptPrevious: number | null;
+  cptChange: number | null;
+  revenue: number | null;
+  roas: number | null;
+  /** Sum of meta_spend_cached across the London venue groups (display only). */
+  venueMetaSum: number | null;
+  /** Number of underlying London match events (sanity-check / footnote). */
+  eventCount: number;
+}
+
+function computeOverallLondon(
+  groups: VenueGroup[],
+  onsaleSpend: number | null,
+): OverallLondonTotals {
+  let prereg = 0;
+  let tickets = 0;
+  let prevTickets = 0;
+  let revenue = 0;
+  let hasRevenue = false;
+  let venueMetaSum = 0;
+  let venueMetaCount = 0;
+  let eventCount = 0;
+  for (const group of groups) {
+    eventCount += group.eventCount;
+    if (group.campaignSpend !== null) {
+      venueMetaSum += group.campaignSpend;
+      venueMetaCount += 1;
+    }
+    for (const ev of group.events) {
+      prereg += ev.prereg_spend ?? 0;
+      tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+      prevTickets += ev.tickets_sold_previous ?? 0;
+      const r = ev.latest_snapshot?.revenue;
+      if (r !== null && r !== undefined) {
+        hasRevenue = true;
+        revenue += r;
+      }
+    }
+  }
+
+  // Ad spend is the headline number on this row: the shared on-sale
+  // campaign + the sum of every London venue's own meta campaign.
+  // Treat each null as 0 *for the sum* but only emit a non-null total
+  // when at least one of the inputs is actually populated — otherwise
+  // an empty state would falsely render £0 instead of "—".
+  const venueMetaTotal = venueMetaCount > 0 ? venueMetaSum : null;
+  const adSpend =
+    onsaleSpend === null && venueMetaTotal === null
+      ? null
+      : (onsaleSpend ?? 0) + (venueMetaTotal ?? 0);
+
+  const total = adSpend !== null ? prereg + adSpend : null;
+  const cpt = total !== null && total > 0 && tickets > 0 ? total / tickets : null;
+  const cptPrevious =
+    total !== null && total > 0 && prevTickets > 0
+      ? total / prevTickets
+      : null;
+  const cptChange =
+    cpt !== null && cptPrevious !== null ? cpt - cptPrevious : null;
+  const finalRevenue = hasRevenue ? revenue : null;
+  const roas =
+    finalRevenue !== null && total !== null && total > 0
+      ? finalRevenue / total
+      : null;
+
+  return {
+    prereg,
+    ad: adSpend,
+    total,
+    tickets,
+    prevTickets,
+    change: tickets - prevTickets,
+    cpt,
+    cptPrevious,
+    cptChange,
+    revenue: finalRevenue,
+    roas,
+    venueMetaSum: venueMetaTotal,
+    eventCount,
+  };
+}
+
+/**
+ * Roll-up for all London venues. Renders a one-row table that mirrors
+ * the venue-section column layout but skips the per-event detail —
+ * those live in the venue sections immediately below. The numbers are
+ * derived from the same `venueSpend()` arithmetic the venue sections
+ * use, so the row is internally consistent with whatever the user
+ * sees when they scroll down.
+ */
+function OverallLondonSection({
+  groups,
+  onsaleSpend,
+  presaleSpend,
+}: OverallLondonSectionProps) {
+  const totals = useMemo(
+    () => computeOverallLondon(groups, onsaleSpend),
+    [groups, onsaleSpend],
+  );
+
+  return (
+    <section className="rounded-md border-2 border-zinc-900 bg-white shadow-sm">
+      <header className="flex flex-wrap items-baseline justify-between gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h2 className="font-heading text-lg tracking-wide text-zinc-900">
+            Overall London
+          </h2>
+          <p className="text-xs text-zinc-500">
+            {totals.eventCount} match{totals.eventCount === 1 ? "" : "es"}{" "}
+            across {groups.length} venue{groups.length === 1 ? "" : "s"}
+          </p>
+          {onsaleSpend !== null && (
+            <>
+              <span className="text-xs text-zinc-400" aria-hidden="true">
+                ·
+              </span>
+              <p className="text-xs text-zinc-600">
+                Shared on-sale:{" "}
+                <span className="font-semibold text-zinc-900">
+                  {formatGBP(onsaleSpend)}
+                </span>
+              </p>
+            </>
+          )}
+          {presaleSpend !== null && (
+            <>
+              <span className="text-xs text-zinc-400" aria-hidden="true">
+                ·
+              </span>
+              <p className="text-xs text-zinc-600">
+                Shared presale:{" "}
+                <span className="font-semibold text-zinc-900">
+                  {formatGBP(presaleSpend)}
+                </span>
+              </p>
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-zinc-900 text-left text-xs font-medium uppercase tracking-wide text-white">
+              <th className="px-3 py-2.5">Event</th>
+              <th className="px-3 py-2.5 text-right">Pre-reg</th>
+              <th className="px-3 py-2.5 text-right">Ad Spend</th>
+              <th className="px-3 py-2.5 text-right">Total Spend</th>
+              <th className="px-3 py-2.5 text-right">Tickets Sold</th>
+              <th className="px-3 py-2.5 text-right">Tickets Prev</th>
+              <th className="px-3 py-2.5 text-right">Tickets Change</th>
+              <th className="px-3 py-2.5 text-right">CPT</th>
+              <th className="px-3 py-2.5 text-right">CPT Prev</th>
+              <th className="px-3 py-2.5 text-right">CPT Change</th>
+              <th className="px-3 py-2.5 text-right">Ticket Revenue</th>
+              <th className="px-3 py-2.5 text-right">ROAS</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="bg-zinc-100 text-zinc-900">
+              <td className="px-3 py-2.5 font-semibold">All London</td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.prereg)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.ad)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.total)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatNumber(totals.tickets)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-zinc-500">
+                {formatNumber(totals.prevTickets)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatChange(totals.change)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.cpt, 2)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.cptPrevious, 2)}
+              </td>
+              <td
+                className={`px-3 py-2.5 text-right font-semibold tabular-nums ${cptChangeClass(totals.cptChange)}`}
+              >
+                {formatCptChange(totals.cptChange)}
+              </td>
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                {formatGBP(totals.revenue)}
+              </td>
+              <td
+                className={`px-3 py-2.5 text-right tabular-nums ${roasClass(totals.roas)}`}
+              >
+                {formatRoas(totals.roas)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
+      </div>
+    </section>
   );
 }
 
 interface VenueSectionProps {
   token: string;
   group: VenueGroup;
+  /**
+   * Spend model for this venue. Computed once by the parent via
+   * `venueSpend()` so the model selection lives in one place and the
+   * Overall London row + venue rows draw from identical arithmetic.
+   */
+  spend: GroupSpend;
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
 const COL_COUNT = 12;
 
-function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
+function VenueSection({
+  token,
+  group,
+  spend,
+  onSnapshotSaved,
+}: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
-  const totals = useMemo(() => sumVenue(group), [group]);
+  const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
   const headerLabel = group.city
     ? `${group.displayName}, ${group.city}`
     : group.displayName;
-
-  // Per-event total spend = campaign spend / event count. Computed once
-  // here so every row in the venue uses the same divisor.
-  const perEventTotal =
-    group.campaignSpend !== null && group.eventCount > 0
-      ? group.campaignSpend / group.eventCount
-      : null;
 
   return (
     <section className="rounded-md border border-zinc-200 bg-white shadow-sm">
@@ -408,7 +819,7 @@ function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
                 event={ev}
                 striped={i % 2 === 1}
                 editMode={editMode}
-                perEventTotal={perEventTotal}
+                spend={spend}
                 onSnapshotSaved={onSnapshotSaved}
               />
             ))}
@@ -470,7 +881,7 @@ interface EventRowProps {
   event: PortalEvent;
   striped: boolean;
   editMode: boolean;
-  perEventTotal: number | null;
+  spend: GroupSpend;
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
@@ -479,10 +890,10 @@ function EventRow({
   event,
   striped,
   editMode,
-  perEventTotal,
+  spend,
   onSnapshotSaved,
 }: EventRowProps) {
-  const m = computeEventMetrics(event, perEventTotal);
+  const m = computeEventMetrics(event, spend);
   const rowBg = striped ? "bg-zinc-50" : "bg-white";
 
   return (
