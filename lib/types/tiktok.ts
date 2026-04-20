@@ -93,7 +93,7 @@ export type TikTokInsightsResult =
 // `tiktok_manual_reports` (migration 026).
 //
 // `TikTokMetricBlock` is the 16-metric shared shape every breakdown row
-// (campaign totals, geo, demographic, interest, search term) carries.
+// (campaign totals, ad, geo, demographic, interest, search term) carries.
 // `impressions` is coerced to `number | null` so callers can `??` against a
 // numeric default; `impressions_raw` preserves TikTok's "<5" masking string
 // for low-volume rows so the UI can render the original cell verbatim.
@@ -129,19 +129,56 @@ export interface TikTokMetricBlock {
   engagements: number | null;
 }
 
-export type TikTokBudgetMode = "LIFETIME" | "DAILY";
-
-/** Campaign-level totals row from a manual report. */
+/**
+ * Campaign-level totals row from a manual report.
+ *
+ * `clicks_all` / `ctr_all` are TikTok's "all clicks" pair (vs the destination
+ * clicks already in `TikTokMetricBlock`). They appear on campaign and ad
+ * exports only — breakdown exports omit them.
+ *
+ * `objective` / `budget_mode` / `budget_amount` are NOT in the xlsx export.
+ * They're collected in the upload form (or backfilled from API once OAuth
+ * lands), so they're optional here.
+ */
 export interface TikTokCampaignTotals extends TikTokMetricBlock {
   campaign_name: string;
-  objective: string | null;
-  budget_mode: TikTokBudgetMode;
-  budget_amount: number | null;
-  currency: string | null;
-  date_range_start: string;
-  date_range_end: string;
-  /** Override of the shared block — campaign-level reach is always present. */
+  /** "Active" | "Paused" | "Not delivering" — TikTok's primary status label. */
+  primary_status: string;
   reach: number | null;
+  cost_per_1000_reached: number | null;
+  frequency: number | null;
+  /** TikTok's "Clicks (all)" — superset of destination clicks. */
+  clicks_all: number | null;
+  /** TikTok's "CTR (all)". */
+  ctr_all: number | null;
+  /** ISO 4217 (e.g. "GBP"). Always present on the campaign export. */
+  currency: string;
+  objective?: string | null;
+  budget_mode?: "LIFETIME" | "DAILY" | null;
+  budget_amount?: number | null;
+}
+
+/**
+ * Creative-level row from a manual report (one row per ad).
+ *
+ * Status / source columns are coerced from TikTok's "--" placeholder to
+ * `null` by the parser. `currency` is always present.
+ */
+export interface TikTokAdRow extends TikTokMetricBlock {
+  ad_name: string;
+  primary_status: string;
+  secondary_status: string;
+  reach: number | null;
+  cost_per_1000_reached: number | null;
+  frequency: number | null;
+  clicks_all: number | null;
+  ctr_all: number | null;
+  /** "Authorized by video code" etc; null when "--". */
+  secondary_source: string | null;
+  /** "TikTok creator content" etc; null when "--". */
+  primary_source: string | null;
+  attribution_source: string | null;
+  currency: string;
 }
 
 export type TikTokGeoRegionType = "country" | "region" | "city";
@@ -203,6 +240,7 @@ export interface TikTokManualReportSnapshot {
   date_range_start: string;
   date_range_end: string;
   campaign: TikTokCampaignTotals | null;
+  ads: TikTokAdRow[];
   geo: TikTokGeoRow[];
   demographics: TikTokDemographicRow[];
   interests: TikTokInterestRow[];
