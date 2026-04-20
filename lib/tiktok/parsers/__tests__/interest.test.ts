@@ -14,8 +14,9 @@ describe("parseInterestSheet", () => {
     assert.equal(out.length, 2);
     assert.equal(out[0].audience_label, "Electronic Music");
     assert.equal(out[0].cost, 100);
-    // vertical comes from the stub classifyVertical → null until commit 3.
-    assert.equal(typeof out[0].vertical, "object");
+    assert.equal(out[0].vertical, "music_entertainment");
+    assert.equal(out[1].audience_label, "Streetwear");
+    assert.equal(out[1].vertical, "beauty_fashion");
   });
 
   it("accepts Interest column alias and skips total row", () => {
