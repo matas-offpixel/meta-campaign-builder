@@ -12,10 +12,25 @@ import {
   EventReportView,
   type EventReportViewEvent,
 } from "./event-report-view";
+import type { TikTokReportBlockData } from "./tiktok-report-block";
 
 interface Props {
   event: EventReportViewEvent;
-  insights: EventInsightsPayload;
+  /**
+   * Meta insights payload. `null` when the client has no Meta ad account
+   * linked (or no event_code, or Meta upstream errored on a token still
+   * in scope) — in that case the share page is expected to also pass a
+   * non-null `tiktok` snapshot so something still renders. The page-level
+   * fallback (ReportUnavailable) catches the both-null case before this
+   * component is ever instantiated.
+   */
+  meta: EventInsightsPayload | null;
+  /**
+   * Latest manual TikTok report snapshot for this event, or null when no
+   * import has happened yet. Either `meta` or `tiktok` (often both) is
+   * non-null when this component renders.
+   */
+  tiktok: TikTokReportBlockData | null;
   /**
    * Public share token. Already in the URL — rendering it in the page
    * (via the lazy creative loader's source prop) doesn't add exposure.
@@ -53,7 +68,8 @@ interface Props {
  */
 export function PublicReport({
   event,
-  insights,
+  meta,
+  tiktok,
   shareToken,
   datePreset,
   customRange,
@@ -103,7 +119,8 @@ export function PublicReport({
   return (
     <EventReportView
       event={event}
-      insights={insights}
+      meta={meta}
+      tiktok={tiktok}
       datePreset={datePreset}
       customRange={customRange}
       creativesSource={{ kind: "share", token: shareToken }}

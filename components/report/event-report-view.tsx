@@ -12,6 +12,10 @@ import {
 } from "@/lib/insights/types";
 
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
+import {
+  TikTokReportBlock,
+  type TikTokReportBlockData,
+} from "./tiktok-report-block";
 
 /**
  * components/report/event-report-view.tsx
@@ -64,7 +68,23 @@ export type CreativesSource =
 
 interface Props {
   event: EventReportViewEvent;
-  insights: EventInsightsPayload;
+  /**
+   * Meta insights payload. Optional — when null/undefined the entire Meta
+   * section (timeframe selector, campaign performance, per-campaign
+   * breakdown, creative performance) is omitted. The TikTok-only share
+   * path (no Meta ad account on the client) lands here with `meta=null`
+   * and a non-null `tiktok` prop.
+   */
+  meta?: EventInsightsPayload | null;
+  /**
+   * Latest manual TikTok report snapshot. Optional — when present, a
+   * read-only TikTokReportBlock renders below the Meta section. At least
+   * one of `meta` / `tiktok` is guaranteed non-null by the caller; if
+   * both are null this view collapses to event header + budget tile only,
+   * which is intentional for the (currently unused) "no data either side"
+   * fallback.
+   */
+  tiktok?: TikTokReportBlockData | null;
   datePreset: DatePreset;
   /**
    * Active custom range when `datePreset === "custom"`. Drives the
@@ -106,7 +126,8 @@ interface Props {
 
 export function EventReportView({
   event,
-  insights,
+  meta = null,
+  tiktok = null,
   datePreset,
   customRange,
   creativesSource,
@@ -122,21 +143,27 @@ export function EventReportView({
 
   const daysUntil = computeDaysUntil(event.eventDate);
   const budget = event.paidMediaBudget ?? 0;
-  const spend = insights.totals.spend;
+  const spend = meta?.totals.spend ?? 0;
   const remaining = Math.max(0, budget - spend);
   const budgetUsedPct =
-    budget > 0 ? Math.min(100, (spend / budget) * 100) : null;
+    budget > 0 && meta ? Math.min(100, (spend / budget) * 100) : null;
 
   // Tickets sold + cost per ticket. Null/zero ticket counts render
   // as em-dash to avoid misleading clients with a £Infinity / £NaN.
   const ticketsSold = event.ticketsSold;
-  const totalSpend = insights.totalSpend;
+  const totalSpend = meta?.totalSpend ?? 0;
   const costPerTicket =
-    ticketsSold && ticketsSold > 0 && totalSpend > 0
+    meta && ticketsSold && ticketsSold > 0 && totalSpend > 0
       ? totalSpend / ticketsSold
       : null;
 
-  const channelMultiActive = isMultiChannelActive(insights);
+  const channelMultiActive = meta ? isMultiChannelActive(meta) : false;
+  // "Last updated" footer prefers whichever data source was refreshed
+  // most recently. When both are present (a client running Meta + manual
+  // TikTok side-by-side) we surface the newer of the two so the visitor
+  // doesn't see a stale Meta timestamp on a freshly-imported TikTok
+  // snapshot, or vice versa.
+  const lastUpdatedIso = pickLastUpdated(meta, tiktok);
 
   // Embedded mode skips the standalone chrome (the dashboard's
   // PageHeader already shows event name + venue + date) and renders the
@@ -181,221 +208,300 @@ export function EventReportView({
           />
         </section>
 
-        {/* Timeframe selector — shared with both surfaces */}
-        <div className="space-y-2">
-          <TimeframeSelector
-            active={datePreset}
-            disabled={isRefreshing}
-            onChange={(preset) => onTimeframeChange(preset)}
-          />
-          <CustomRangePicker
-            active={datePreset === "custom"}
-            disabled={isRefreshing}
-            initialRange={customRange ?? null}
-            onApply={(range) => onTimeframeChange("custom", range)}
-          />
-        </div>
-
-        {/* Campaign performance — high-level money + tickets */}
-        <Section title="Campaign performance">
-          <div
-            className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 ${
-              isRefreshing ? "opacity-60 transition-opacity" : ""
-            }`}
-          >
-            <StatCard label="Total spend" value={fmtCurrency(insights.totalSpend)} />
-            <StatCard label="Meta spend" value={fmtCurrency(insights.totals.spend)} />
-            <StatCard
-              label="Budget used"
-              value={
-                budget > 0
-                  ? `${((spend / budget) * 100).toFixed(0)}%`
-                  : "—"
-              }
-              sub={budget > 0 ? fmtCurrency(spend) : null}
+        {/* Timeframe selector — Meta-only (drives Meta insights window).
+            Hidden on TikTok-only renders since the manual TikTok snapshot
+            already carries its own date range and re-imports replace it. */}
+        {meta ? (
+          <div className="space-y-2">
+            <TimeframeSelector
+              active={datePreset}
+              disabled={isRefreshing}
+              onChange={(preset) => onTimeframeChange(preset)}
             />
-            <StatCard
-              label="Budget remaining"
-              value={budget > 0 ? fmtCurrency(remaining) : "—"}
-            />
-            <StatCard
-              label="Tickets sold"
-              value={ticketsSold != null ? fmtInt(ticketsSold) : "—"}
-              sub={resolveTicketsSoldSub(event)}
-            />
-            <StatCard
-              label="Cost per ticket"
-              value={costPerTicket != null ? fmtCurrency(costPerTicket) : "—"}
-              sub={
-                costPerTicket != null
-                  ? `${fmtInt(ticketsSold!)} tickets`
-                  : ticketsSold === 0
-                    ? "0 tickets sold"
-                    : null
-              }
+            <CustomRangePicker
+              active={datePreset === "custom"}
+              disabled={isRefreshing}
+              initialRange={customRange ?? null}
+              onApply={(range) => onTimeframeChange("custom", range)}
             />
           </div>
-          {channelMultiActive ? (
-            <ChannelBreakdownStrip
-              meta={insights.channelBreakdown.meta}
-              tiktok={insights.channelBreakdown.tiktok}
-              google={insights.channelBreakdown.google}
-            />
-          ) : null}
-        </Section>
+        ) : null}
 
-        {/* Meta campaign stats — flat metric grid */}
-        <Section title="Meta campaign stats">
-          <div
-            className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 ${
-              isRefreshing ? "opacity-60 transition-opacity" : ""
-            }`}
-          >
-            <Metric label="Spend" value={fmtCurrency(insights.totals.spend)} />
-            <Metric
-              label="Impressions"
-              value={fmtInt(insights.totals.impressions)}
-            />
-            {/*
-              "Reach (sum)" — explicitly labelled so a client can't read
-              this as deduped unique reach across the event. The aside
-              below the grid spells out the caveat.
-            */}
-            <Metric
-              label="Reach (sum)"
-              value={fmtInt(insights.totals.reachSum)}
-            />
-            <Metric
-              label="Landing page views"
-              value={fmtInt(insights.totals.landingPageViews)}
-              sub={formatCostPerSub(
-                insights.totalSpend,
-                insights.totals.landingPageViews,
-                "LPV",
-              )}
-            />
-            <Metric
-              label="Clicks"
-              value={fmtInt(insights.totals.clicks)}
-              sub={formatCostPerSub(
-                insights.totalSpend,
-                insights.totals.clicks,
-                "click",
-              )}
-            />
-            <Metric
-              label="Registrations"
-              value={fmtInt(insights.totals.registrations)}
-            />
-            <Metric
-              label="Purchases"
-              value={fmtInt(insights.totals.purchases)}
-            />
-            <Metric label="ROAS" value={fmtRoas(insights.totals.roas)} />
-            <Metric
-              label="Purchase value"
-              value={fmtCurrency(insights.totals.purchaseValue)}
-            />
-            <Metric label="CPM" value={fmtCurrency(insights.totals.cpm)} />
-            <Metric
-              label="Frequency"
-              value={fmtDecimal(insights.totals.frequency)}
-            />
-            <Metric label="CPR" value={fmtCurrency(insights.totals.cpr)} />
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            <span className="font-medium text-foreground">Reach (sum)</span> is
-            summed across campaigns — not deduplicated unique reach across the
-            event. A user reached by more than one campaign is counted once
-            per campaign. Frequency is derived from the same sum and is
-            therefore a conservative under-estimate. Per-campaign rows below
-            show each campaign&rsquo;s deduplicated reach.
-          </p>
-        </Section>
-
-        {/* Per-campaign breakdown table */}
-        <Section title="Meta campaign breakdown">
-          {insights.campaigns.length === 0 ? (
-            <EmptyHint>No matched Meta campaigns yet.</EmptyHint>
-          ) : (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full min-w-[720px] border-collapse text-xs">
-                <thead className="bg-card text-[10px] uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <Th align="left">Campaign</Th>
-                    <Th>Status</Th>
-                    <Th align="right">Spend</Th>
-                    <Th align="right">Regs</Th>
-                    <Th align="right">LPV</Th>
-                    <Th align="right">Purch</Th>
-                    <Th align="right">Reach</Th>
-                    <Th align="right">Impr</Th>
-                    <Th align="right">CPR</Th>
-                    <Th align="right">CPLPV</Th>
-                    <Th align="right">ROAS</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {insights.campaigns.map((c) => (
-                    <tr
-                      key={c.id}
-                      className="border-t border-border odd:bg-background even:bg-card/40"
-                    >
-                      {/*
-                        Campaign name can leak the bracket-wrapped event_code
-                        (e.g. "[UTB0042-New] Awareness"). That's fine — the
-                        code is intentionally human-readable and the client
-                        already knows their event. Numeric internal IDs
-                        (campaign.id) are NOT rendered.
-                      */}
-                      <Td align="left">
-                        <span className="block max-w-[260px] truncate">
-                          {c.name}
-                        </span>
-                      </Td>
-                      <Td>
-                        <StatusChip status={c.status} />
-                      </Td>
-                      <Td align="right">{fmtCurrency(c.spend)}</Td>
-                      <Td align="right">{fmtInt(c.registrations)}</Td>
-                      <Td align="right">{fmtInt(c.landingPageViews)}</Td>
-                      <Td align="right">{fmtInt(c.purchases)}</Td>
-                      <Td align="right">{fmtInt(c.reach)}</Td>
-                      <Td align="right">{fmtInt(c.impressions)}</Td>
-                      <Td align="right">
-                        {c.cpr > 0 ? fmtCurrency(c.cpr) : "—"}
-                      </Td>
-                      <Td align="right">
-                        {c.cplpv > 0 ? fmtCurrency(c.cplpv) : "—"}
-                      </Td>
-                      <Td align="right">{fmtRoas(c.roas)}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Section>
-
-        {/* Creative performance — lazy load, source-aware (share vs internal) */}
-        <Section title="Creative performance">
-          <CreativePerformanceLazy
-            source={creativesSource}
+        {/* ─── Meta block ───────────────────────────────────────── */}
+        {meta ? (
+          <MetaReportBlock
+            meta={meta}
+            event={event}
+            budget={budget}
+            spend={spend}
+            remaining={remaining}
+            ticketsSold={ticketsSold}
+            costPerTicket={costPerTicket}
+            channelMultiActive={channelMultiActive}
+            isRefreshing={isRefreshing}
             datePreset={datePreset}
             customRange={customRange}
+            creativesSource={creativesSource}
           />
-        </Section>
+        ) : null}
+
+        {/* ─── TikTok block ─────────────────────────────────────── */}
+        {tiktok ? <TikTokReportBlock data={tiktok} /> : null}
       </div>
 
       {variant === "standalone" ? (
-        <ReportFooter fetchedAt={insights.fetchedAt} />
+        <ReportFooter fetchedAt={lastUpdatedIso} />
       ) : (
         <p className="pt-4 text-right text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Last updated {fmtRelativeShort(insights.fetchedAt)} · refreshes every 5 minutes
+          Last updated {fmtRelativeShort(lastUpdatedIso)} · refreshes every 5 minutes
         </p>
       )}
     </Outer>
   );
+}
+
+// ─── Meta report block ─────────────────────────────────────────────────────
+
+interface MetaReportBlockProps {
+  meta: EventInsightsPayload;
+  event: EventReportViewEvent;
+  budget: number;
+  spend: number;
+  remaining: number;
+  ticketsSold: number | null;
+  costPerTicket: number | null;
+  channelMultiActive: boolean;
+  isRefreshing: boolean;
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+  creativesSource: CreativesSource;
+}
+
+function MetaReportBlock({
+  meta,
+  event,
+  budget,
+  spend,
+  remaining,
+  ticketsSold,
+  costPerTicket,
+  channelMultiActive,
+  isRefreshing,
+  datePreset,
+  customRange,
+  creativesSource,
+}: MetaReportBlockProps) {
+  return (
+    <>
+      <Section title="Campaign performance">
+        <div
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 ${
+            isRefreshing ? "opacity-60 transition-opacity" : ""
+          }`}
+        >
+          <StatCard label="Total spend" value={fmtCurrency(meta.totalSpend)} />
+          <StatCard label="Meta spend" value={fmtCurrency(meta.totals.spend)} />
+          <StatCard
+            label="Budget used"
+            value={
+              budget > 0
+                ? `${((spend / budget) * 100).toFixed(0)}%`
+                : "—"
+            }
+            sub={budget > 0 ? fmtCurrency(spend) : null}
+          />
+          <StatCard
+            label="Budget remaining"
+            value={budget > 0 ? fmtCurrency(remaining) : "—"}
+          />
+          <StatCard
+            label="Tickets sold"
+            value={ticketsSold != null ? fmtInt(ticketsSold) : "—"}
+            sub={resolveTicketsSoldSub(event)}
+          />
+          <StatCard
+            label="Cost per ticket"
+            value={costPerTicket != null ? fmtCurrency(costPerTicket) : "—"}
+            sub={
+              costPerTicket != null
+                ? `${fmtInt(ticketsSold!)} tickets`
+                : ticketsSold === 0
+                  ? "0 tickets sold"
+                  : null
+            }
+          />
+        </div>
+        {channelMultiActive ? (
+          <ChannelBreakdownStrip
+            meta={meta.channelBreakdown.meta}
+            tiktok={meta.channelBreakdown.tiktok}
+            google={meta.channelBreakdown.google}
+          />
+        ) : null}
+      </Section>
+
+      {/* Meta campaign stats — flat metric grid */}
+      <Section title="Meta campaign stats">
+        <div
+          className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 ${
+            isRefreshing ? "opacity-60 transition-opacity" : ""
+          }`}
+        >
+          <Metric label="Spend" value={fmtCurrency(meta.totals.spend)} />
+          <Metric
+            label="Impressions"
+            value={fmtInt(meta.totals.impressions)}
+          />
+          {/*
+            "Reach (sum)" — explicitly labelled so a client can't read
+            this as deduped unique reach across the event. The aside
+            below the grid spells out the caveat.
+          */}
+          <Metric
+            label="Reach (sum)"
+            value={fmtInt(meta.totals.reachSum)}
+          />
+          <Metric
+            label="Landing page views"
+            value={fmtInt(meta.totals.landingPageViews)}
+            sub={formatCostPerSub(
+              meta.totalSpend,
+              meta.totals.landingPageViews,
+              "LPV",
+            )}
+          />
+          <Metric
+            label="Clicks"
+            value={fmtInt(meta.totals.clicks)}
+            sub={formatCostPerSub(
+              meta.totalSpend,
+              meta.totals.clicks,
+              "click",
+            )}
+          />
+          <Metric
+            label="Registrations"
+            value={fmtInt(meta.totals.registrations)}
+          />
+          <Metric
+            label="Purchases"
+            value={fmtInt(meta.totals.purchases)}
+          />
+          <Metric label="ROAS" value={fmtRoas(meta.totals.roas)} />
+          <Metric
+            label="Purchase value"
+            value={fmtCurrency(meta.totals.purchaseValue)}
+          />
+          <Metric label="CPM" value={fmtCurrency(meta.totals.cpm)} />
+          <Metric
+            label="Frequency"
+            value={fmtDecimal(meta.totals.frequency)}
+          />
+          <Metric label="CPR" value={fmtCurrency(meta.totals.cpr)} />
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">Reach (sum)</span> is
+          summed across campaigns — not deduplicated unique reach across the
+          event. A user reached by more than one campaign is counted once
+          per campaign. Frequency is derived from the same sum and is
+          therefore a conservative under-estimate. Per-campaign rows below
+          show each campaign&rsquo;s deduplicated reach.
+        </p>
+      </Section>
+
+      {/* Per-campaign breakdown table */}
+      <Section title="Meta campaign breakdown">
+        {meta.campaigns.length === 0 ? (
+          <EmptyHint>No matched Meta campaigns yet.</EmptyHint>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full min-w-[720px] border-collapse text-xs">
+              <thead className="bg-card text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <Th align="left">Campaign</Th>
+                  <Th>Status</Th>
+                  <Th align="right">Spend</Th>
+                  <Th align="right">Regs</Th>
+                  <Th align="right">LPV</Th>
+                  <Th align="right">Purch</Th>
+                  <Th align="right">Reach</Th>
+                  <Th align="right">Impr</Th>
+                  <Th align="right">CPR</Th>
+                  <Th align="right">CPLPV</Th>
+                  <Th align="right">ROAS</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {meta.campaigns.map((c) => (
+                  <tr
+                    key={c.id}
+                    className="border-t border-border odd:bg-background even:bg-card/40"
+                  >
+                    {/*
+                      Campaign name can leak the bracket-wrapped event_code
+                      (e.g. "[UTB0042-New] Awareness"). That's fine — the
+                      code is intentionally human-readable and the client
+                      already knows their event. Numeric internal IDs
+                      (campaign.id) are NOT rendered.
+                    */}
+                    <Td align="left">
+                      <span className="block max-w-[260px] truncate">
+                        {c.name}
+                      </span>
+                    </Td>
+                    <Td>
+                      <StatusChip status={c.status} />
+                    </Td>
+                    <Td align="right">{fmtCurrency(c.spend)}</Td>
+                    <Td align="right">{fmtInt(c.registrations)}</Td>
+                    <Td align="right">{fmtInt(c.landingPageViews)}</Td>
+                    <Td align="right">{fmtInt(c.purchases)}</Td>
+                    <Td align="right">{fmtInt(c.reach)}</Td>
+                    <Td align="right">{fmtInt(c.impressions)}</Td>
+                    <Td align="right">
+                      {c.cpr > 0 ? fmtCurrency(c.cpr) : "—"}
+                    </Td>
+                    <Td align="right">
+                      {c.cplpv > 0 ? fmtCurrency(c.cplpv) : "—"}
+                    </Td>
+                    <Td align="right">{fmtRoas(c.roas)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* Creative performance — lazy load, source-aware (share vs internal) */}
+      <Section title="Creative performance">
+        <CreativePerformanceLazy
+          source={creativesSource}
+          datePreset={datePreset}
+          customRange={customRange}
+        />
+      </Section>
+    </>
+  );
+}
+
+// ─── Last-updated picker ───────────────────────────────────────────────────
+
+/**
+ * Pick the more recent of `meta.fetchedAt` and `tiktok.importedAt` for the
+ * footer's "Last updated" timestamp. Falls back to "now" only when both
+ * sources are missing — that branch is unreachable in practice because
+ * the share page never renders this view without at least one source.
+ */
+function pickLastUpdated(
+  meta: EventInsightsPayload | null,
+  tiktok: TikTokReportBlockData | null,
+): string {
+  const candidates = [meta?.fetchedAt, tiktok?.imported_at].filter(
+    (s): s is string => typeof s === "string" && s.length > 0,
+  );
+  if (candidates.length === 0) return new Date().toISOString();
+  return candidates.sort().at(-1)!;
 }
 
 // ─── Tickets sold sub-line ─────────────────────────────────────────────────

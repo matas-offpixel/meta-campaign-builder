@@ -13,9 +13,13 @@ import {
   DATE_PRESETS,
   type CustomDateRange,
   type DatePreset,
+  type EventInsightsPayload,
+  type InsightsErrorReason,
   type InsightsResult,
 } from "@/lib/insights/types";
+import type { TikTokManualReportSnapshot } from "@/lib/types/tiktok";
 import { PublicReport } from "@/components/report/public-report";
+import type { TikTokReportBlockData } from "@/components/report/tiktok-report-block";
 import { ReportUnavailable } from "@/components/report/report-unavailable";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
@@ -142,9 +146,11 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   }
 
   // Fan-out: event lookup + owner token + plan-side tickets cumulative
-  // in parallel. Plan-tickets reuses the same admin client so no extra
-  // Supabase connection is opened.
-  const [eventRow, providerToken, planTickets] = await Promise.all([
+  // + latest TikTok manual report in parallel. Plan-tickets reuses the
+  // same admin client so no extra Supabase connection is opened. The
+  // TikTok read returns null on any failure so a missing snapshot never
+  // poisons the Meta path — TikTok is purely additive here.
+  const [eventRow, providerToken, planTickets, tiktokRow] = await Promise.all([
     admin
       .from("events")
       .select(
@@ -154,6 +160,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       .maybeSingle(),
     getOwnerFacebookToken(user_id, admin),
     getLatestTicketsSoldForEventAdmin(admin, event_id),
+    fetchLatestTikTokSnapshot(admin, event_id, token).catch(() => null),
   ]);
 
   if (eventRow.error || !eventRow.data) {
@@ -215,55 +222,59 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // Wrapped in a fire-and-forget so a slow update doesn't add to LCP.
   bumpShareView(token, admin).catch(() => undefined);
 
-  // Resolve insights. Any failure renders the "temporarily unavailable"
-  // UI rather than a 500, with the event header still visible so the
-  // recipient knows they have the right link.
-  let insights: InsightsResult;
-  if (!providerToken) {
-    insights = {
-      ok: false,
-      error: {
-        reason: "no_owner_token",
-        message: "Owner Facebook token unavailable or expired.",
-      },
-    };
-  } else if (!event.eventCode) {
-    insights = {
-      ok: false,
-      error: {
-        reason: "no_event_code",
-        message: "Event has no event_code set.",
-      },
-    };
-  } else if (!event.adAccountId) {
-    insights = {
-      ok: false,
-      error: {
-        reason: "no_ad_account",
-        message: "Client has no Meta ad account linked.",
-      },
-    };
+  // Resolve Meta insights.
+  //
+  // Two of the previous "fatal" reasons — `no_event_code` and
+  // `no_ad_account` — are now soft: they mean the client never set up
+  // Meta for this event, which is a perfectly valid TikTok-only state
+  // (e.g. brand campaigns on Black Butter Records). Soft-failing them
+  // to `meta=null` lets the page fall through to the TikTok block when
+  // a manual snapshot is present, instead of slamming up the
+  // ReportUnavailable screen.
+  //
+  // Genuine failures — no owner token, expired token, Meta upstream
+  // error, no campaigns matched, invalid date range — still surface
+  // their reason so the page-level fallback can render the right
+  // diagnostic, but only when there's also no TikTok snapshot to fall
+  // back on.
+  let metaPayload: EventInsightsPayload | null = null;
+  let metaErrorReason: InsightsErrorReason | null = null;
+  if (!event.adAccountId || !event.eventCode) {
+    // Soft-skip: client/event isn't set up for Meta. Not an error.
+    metaPayload = null;
+  } else if (!providerToken) {
+    metaErrorReason = "no_owner_token";
   } else {
-    insights = await fetchEventInsights({
+    const insights: InsightsResult = await fetchEventInsights({
       eventCode: event.eventCode,
       adAccountId: event.adAccountId,
       token: providerToken,
       datePreset,
       customRange,
     });
+    if (insights.ok) {
+      metaPayload = insights.data;
+    } else {
+      metaErrorReason = insights.error.reason;
+      console.warn(
+        `[share/report] meta insights failed token=${token} reason=${insights.error.reason} msg=${insights.error.message}`,
+      );
+    }
   }
 
-  if (!insights.ok) {
-    console.warn(
-      `[share/report] insights unavailable token=${token} reason=${insights.error.reason} msg=${insights.error.message}`,
-    );
+  // Final fatal branch: only when there is genuinely nothing to render
+  // — no Meta payload AND no TikTok snapshot. ReportUnavailable's reason
+  // diagnostic uses the Meta error if we have one; otherwise we fall
+  // back to `no_ad_account` (the most common cause of a TikTok-only
+  // client also lacking a TikTok import).
+  if (!metaPayload && !tiktokRow) {
     return (
       <ReportUnavailable
         eventName={event.name}
         venueName={event.venueName}
         venueCity={event.venueCity}
         eventDate={event.eventDate}
-        reason={insights.error.reason}
+        reason={metaErrorReason ?? "no_ad_account"}
       />
     );
   }
@@ -282,10 +293,55 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         ticketsSoldSource: event.ticketsSoldSource,
         ticketsSoldAsOf: event.ticketsSoldAsOf,
       }}
-      insights={insights.data}
+      meta={metaPayload}
+      tiktok={tiktokRow}
       shareToken={token}
       datePreset={datePreset}
       customRange={customRange}
     />
   );
+}
+
+/**
+ * Fetch the latest `tiktok_manual_reports` row for an event, mapped to
+ * the shape consumed by `<TikTokReportBlock>`. Returns null on missing
+ * row or any DB error — the share page treats TikTok purely as an
+ * optional add-on, never a hard dependency.
+ *
+ * Uses the admin (service-role) client because the share token is the
+ * only auth we have here; RLS would otherwise block the read entirely.
+ * The fan-out caller wraps this in a try/catch one more time as
+ * defense-in-depth.
+ */
+async function fetchLatestTikTokSnapshot(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  eventId: string,
+  token: string,
+): Promise<TikTokReportBlockData | null> {
+  const { data, error } = await admin
+    .from("tiktok_manual_reports")
+    .select(
+      "id, campaign_name, date_range_start, date_range_end, imported_at, snapshot_json",
+    )
+    .eq("event_id", eventId)
+    .order("imported_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      `[share/report] tiktok lookup failed for token=${token}: ${error.message}`,
+    );
+    return null;
+  }
+  if (!data) return null;
+
+  return {
+    id: data.id as string,
+    campaign_name: data.campaign_name as string,
+    date_range_start: data.date_range_start as string,
+    date_range_end: data.date_range_end as string,
+    imported_at: data.imported_at as string,
+    snapshot: data.snapshot_json as unknown as TikTokManualReportSnapshot,
+  };
 }
