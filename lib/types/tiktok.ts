@@ -92,41 +92,56 @@ export type TikTokInsightsResult =
 // onto these types and persists the bundle as `snapshot_json` on
 // `tiktok_manual_reports` (migration 026).
 //
-// `TikTokMetricBlock` is the 16-metric shared shape every breakdown row
-// (campaign totals, ad, geo, demographic, interest, search term) carries.
-// `impressions` is coerced to `number | null` so callers can `??` against a
-// numeric default; `impressions_raw` preserves TikTok's "<5" masking string
-// for low-volume rows so the UI can render the original cell verbatim.
+// `TikTokMetricBlock` is the shared metric shape every row in a manual report
+// carries (campaign totals, ad, geo, demographic, interest, search term). The
+// field names and order mirror the xlsx column headers verbatim so the parser
+// can map `columns[i] → TikTokMetricBlock[key]` by index. `impressions_raw`
+// is the one synthetic field: it preserves TikTok's "<5" masking token for
+// low-volume rows so the UI can render the original cell, while `impressions`
+// holds the numeric coercion (`null` when masked).
+//
+// `reach` is intentionally NOT on the base — it only appears on campaign and
+// ad exports and is re-declared on `TikTokCampaignTotals` / `TikTokAdRow`.
+// TIKTOK_METRIC_COLUMNS (parsers/shared.ts) must iterate these fields in the
+// same order as the 16 xlsx header strings.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 16-metric shape shared by every TikTok report breakdown row.
+ * Metric columns shared by every row in a TikTok manual report.
  *
- * TikTok masks impressions on low-volume rows by emitting the literal string
- * "<5". Parsers normalise that into `impressions = null` while keeping the
- * original token in `impressions_raw` so the UI can render the masked value
- * verbatim if it wants to.
+ * Field order matches the xlsx column order so the parser can do an
+ * index-based map from header → field. TikTok masks impressions on
+ * low-volume rows by emitting the literal string "<5"; the parser coerces
+ * that into `impressions = null` and preserves the original token in
+ * `impressions_raw` for verbatim UI display.
  */
 export interface TikTokMetricBlock {
-  /** Coerced to number; null when TikTok masked the cell (e.g. "<5"). */
+  /** xlsx: "Cost". */
+  cost: number | null;
+  /** xlsx: "Impressions". Null when TikTok masked the cell as "<5". */
   impressions: number | null;
-  /** Original cell value when masked ("<5"); null when impressions is a real number. */
+  /** Original cell value when masked ("<5"); null when `impressions` is a real number. */
   impressions_raw: string | null;
-  reach: number | null;
-  clicks: number | null;
-  spend: number | null;
-  ctr: number | null;
-  cpc: number | null;
+  /** xlsx: "CPM". */
   cpm: number | null;
-  conversions: number | null;
-  cost_per_conversion: number | null;
-  conversion_rate: number | null;
-  video_views: number | null;
+  /** xlsx: "Clicks (destination)". */
+  clicks_destination: number | null;
+  /** xlsx: "CPC (destination)". */
+  cpc_destination: number | null;
+  /** xlsx: "CTR (destination)". */
+  ctr_destination: number | null;
+  /** xlsx: "2-second video views". */
+  video_views_2s: number | null;
+  /** xlsx: "6-second video views". */
+  video_views_6s: number | null;
   video_views_p25: number | null;
   video_views_p50: number | null;
   video_views_p75: number | null;
   video_views_p100: number | null;
-  engagements: number | null;
+  avg_play_time_per_user: number | null;
+  avg_play_time_per_video_view: number | null;
+  interactive_addon_impressions: number | null;
+  interactive_addon_destination_clicks: number | null;
 }
 
 /**
