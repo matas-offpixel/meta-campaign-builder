@@ -295,6 +295,19 @@ function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
               </span>
             </p>
           )}
+          {group.budget !== null && group.campaignSpend !== null && (
+            <span className="text-xs text-zinc-400" aria-hidden="true">
+              ·
+            </span>
+          )}
+          {group.campaignSpend !== null && (
+            <p className="text-xs text-zinc-600">
+              Meta Spend:{" "}
+              <span className="font-semibold text-zinc-900">
+                {formatGBP(group.campaignSpend)}
+              </span>
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -353,8 +366,11 @@ function VenueSection({ token, group, onSnapshotSaved }: VenueSectionProps) {
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.ad)}
               </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {formatGBP(totals.total)}
+              <td
+                className="px-3 py-2.5 text-right font-semibold tabular-nums text-zinc-400"
+                aria-label="Total spend shown in venue header"
+              >
+                —
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatNumber(totals.tickets)}
