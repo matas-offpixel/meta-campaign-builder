@@ -85,6 +85,47 @@ export type TikTokInsightsResult =
   | { ok: false; error: TikTokInsightsError };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Manual report import — request / response contract.
+//
+// Mirrors the `{ ok: true | false, ... }` discriminated-union pattern the
+// rest of the TikTok surface uses. Reasons are deliberately granular so the
+// dropzone UI can surface targeted error copy without parsing message text.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TikTokImportErrorReason =
+  | "not_signed_in"
+  | "missing_field"
+  | "invalid_field"
+  | "no_files"
+  | "too_many_files"
+  | "event_not_found"
+  | "forbidden"
+  | "parse_failed"
+  | "no_recognised_files"
+  | "persist_failed";
+
+export interface TikTokImportError {
+  reason: TikTokImportErrorReason;
+  message: string;
+}
+
+/**
+ * Successful import response. `detected_files` lists the files the parser
+ * accepted (label + shape); `skipped` lists files whose header didn't
+ * match any known shape — surfaced verbatim so the user can re-export.
+ */
+export interface TikTokImportSuccess {
+  ok: true;
+  report_id: string;
+  detected_files: { name: string; shape: string }[];
+  skipped: { name: string; reason: string }[];
+}
+
+export type TikTokImportResult =
+  | TikTokImportSuccess
+  | { ok: false; error: TikTokImportError };
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Manual XLSX/CSV report snapshots.
 //
 // Until the TikTok Business OAuth flow is wired, reports are sourced from
