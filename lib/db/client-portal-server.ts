@@ -35,8 +35,20 @@ export interface PortalEvent {
   capacity: number | null;
   event_date: string | null;
   budget_marketing: number | null;
+  /** Face value per ticket (migration 022). Drives Ticket Revenue. */
+  ticket_price: number | null;
+  /** Meta ad spend allocated to this event (migration 022). */
+  ad_spend_actual: number | null;
+  /** Pre-registration / D2C phase spend (migration 022). */
+  prereg_spend: number | null;
   /** Manual tickets_sold override on the event row itself (legacy). */
   tickets_sold: number | null;
+  /**
+   * Second-most-recent snapshot reading. Populated from history[1] —
+   * the snapshot list is captured-at DESC, so [0] is "this week" and
+   * [1] is "last week" for the Prev / Change / Prev-CPT columns.
+   */
+  tickets_sold_previous: number | null;
   /** Most-recent client_report_weekly_snapshots row for this event. */
   latest_snapshot: PortalSnapshot | null;
   /** Up to 5 most-recent snapshots, newest first. */
@@ -103,7 +115,7 @@ export async function loadClientPortalData(
   const { data: events, error: eventsErr } = await admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, budget_marketing, tickets_sold",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, budget_marketing, tickets_sold, ticket_price, ad_spend_actual, prereg_spend",
     )
     .eq("client_id", share.client_id)
     .order("event_date", { ascending: true, nullsFirst: false });
@@ -151,20 +163,29 @@ export async function loadClientPortalData(
       slug: client.slug,
       primary_type: client.primary_type,
     },
-    events: eventRows.map((e) => ({
-      id: e.id,
-      name: e.name,
-      slug: e.slug,
-      event_code: e.event_code,
-      venue_name: e.venue_name,
-      venue_city: e.venue_city,
-      venue_country: e.venue_country,
-      capacity: e.capacity,
-      event_date: e.event_date,
-      budget_marketing: e.budget_marketing,
-      tickets_sold: e.tickets_sold,
-      latest_snapshot: snapshotsByEvent.get(e.id) ?? null,
-      history: historyByEvent.get(e.id) ?? [],
-    })),
+    events: eventRows.map((e) => {
+      const history = historyByEvent.get(e.id) ?? [];
+      return {
+        id: e.id,
+        name: e.name,
+        slug: e.slug,
+        event_code: e.event_code,
+        venue_name: e.venue_name,
+        venue_city: e.venue_city,
+        venue_country: e.venue_country,
+        capacity: e.capacity,
+        event_date: e.event_date,
+        budget_marketing: e.budget_marketing,
+        ticket_price: e.ticket_price,
+        ad_spend_actual: e.ad_spend_actual,
+        prereg_spend: e.prereg_spend,
+        tickets_sold: e.tickets_sold,
+        // history is newest-first, so index [1] is the previous week's
+        // entry. Null when the client only has one (or zero) updates.
+        tickets_sold_previous: history[1]?.tickets_sold ?? null,
+        latest_snapshot: snapshotsByEvent.get(e.id) ?? null,
+        history,
+      };
+    }),
   };
 }

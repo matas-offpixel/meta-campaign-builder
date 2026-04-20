@@ -32,7 +32,7 @@ export const revalidate = 0;
 
 export async function generateMetadata({ params: _ }: Props): Promise<Metadata> {
   return {
-    title: "Ticket Input · Off Pixel",
+    title: "Campaign Dashboard · Off Pixel",
     robots: { index: false, follow: false },
   };
 }

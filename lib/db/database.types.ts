@@ -701,6 +701,7 @@ export type Database = {
       }
       events: {
         Row: {
+          ad_spend_actual: number | null
           announcement_at: string | null
           budget_marketing: number | null
           capacity: number | null
@@ -719,10 +720,12 @@ export type Database = {
           id: string
           name: string
           notes: string | null
+          prereg_spend: number | null
           presale_at: string | null
           signup_url: string | null
           slug: string
           status: string
+          ticket_price: number | null
           ticket_url: string | null
           tickets_sold: number | null
           tiktok_account_id: string | null
@@ -734,6 +737,7 @@ export type Database = {
           venue_name: string | null
         }
         Insert: {
+          ad_spend_actual?: number | null
           announcement_at?: string | null
           budget_marketing?: number | null
           capacity?: number | null
@@ -752,10 +756,12 @@ export type Database = {
           id?: string
           name: string
           notes?: string | null
+          prereg_spend?: number | null
           presale_at?: string | null
           signup_url?: string | null
           slug: string
           status?: string
+          ticket_price?: number | null
           ticket_url?: string | null
           tickets_sold?: number | null
           tiktok_account_id?: string | null
@@ -767,6 +773,7 @@ export type Database = {
           venue_name?: string | null
         }
         Update: {
+          ad_spend_actual?: number | null
           announcement_at?: string | null
           budget_marketing?: number | null
           capacity?: number | null
@@ -785,10 +792,12 @@ export type Database = {
           id?: string
           name?: string
           notes?: string | null
+          prereg_spend?: number | null
           presale_at?: string | null
           signup_url?: string | null
           slug?: string
           status?: string
+          ticket_price?: number | null
           ticket_url?: string | null
           tickets_sold?: number | null
           tiktok_account_id?: string | null
