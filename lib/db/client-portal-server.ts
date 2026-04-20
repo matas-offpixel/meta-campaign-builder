@@ -20,6 +20,13 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 
 export interface PortalSnapshot {
   tickets_sold: number | null;
+  /**
+   * Client-reported gross ticket revenue for this snapshot week.
+   * Lives on `client_report_weekly_snapshots.revenue` and is the only
+   * source of revenue on the portal — `events.ticket_price` is no longer
+   * used (kept in DB for legacy rows; deliberately not selected here).
+   */
+  revenue: number | null;
   captured_at: string;
   week_start: string;
 }
@@ -35,10 +42,19 @@ export interface PortalEvent {
   capacity: number | null;
   event_date: string | null;
   budget_marketing: number | null;
-  /** Face value per ticket (migration 022). Drives Ticket Revenue. */
-  ticket_price: number | null;
-  /** Meta ad spend allocated to this event (migration 022). */
-  ad_spend_actual: number | null;
+  /**
+   * Meta campaign id covering this event (migration 023). All events at
+   * the same venue share one campaign, so the venue-level rollup in the
+   * portal matches the campaign's lifetime spend exactly.
+   */
+  meta_campaign_id: string | null;
+  /**
+   * Cached lifetime spend for `meta_campaign_id` (migration 023).
+   * Identical across every event sharing the campaign id; the portal
+   * picks the first non-null value within a venue group as the venue
+   * total, then divides by event count for the per-event split.
+   */
+  meta_spend_cached: number | null;
   /** Pre-registration / D2C phase spend (migration 022). */
   prereg_spend: number | null;
   /** Manual tickets_sold override on the event row itself (legacy). */
@@ -115,7 +131,7 @@ export async function loadClientPortalData(
   const { data: events, error: eventsErr } = await admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, budget_marketing, tickets_sold, ticket_price, ad_spend_actual, prereg_spend",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached",
     )
     .eq("client_id", share.client_id)
     .order("event_date", { ascending: true, nullsFirst: false });
@@ -133,7 +149,7 @@ export async function loadClientPortalData(
   if (eventIds.length > 0) {
     const { data: snapshots } = await admin
       .from("client_report_weekly_snapshots")
-      .select("event_id, tickets_sold, captured_at, week_start")
+      .select("event_id, tickets_sold, revenue, captured_at, week_start")
       .in("event_id", eventIds)
       .order("captured_at", { ascending: false });
 
@@ -141,6 +157,7 @@ export async function loadClientPortalData(
       const eventId = row.event_id as string;
       const snap: PortalSnapshot = {
         tickets_sold: row.tickets_sold,
+        revenue: row.revenue,
         captured_at: row.captured_at,
         week_start: row.week_start,
       };
@@ -176,8 +193,8 @@ export async function loadClientPortalData(
         capacity: e.capacity,
         event_date: e.event_date,
         budget_marketing: e.budget_marketing,
-        ticket_price: e.ticket_price,
-        ad_spend_actual: e.ad_spend_actual,
+        meta_campaign_id: e.meta_campaign_id,
+        meta_spend_cached: e.meta_spend_cached,
         prereg_spend: e.prereg_spend,
         tickets_sold: e.tickets_sold,
         // history is newest-first, so index [1] is the previous week's

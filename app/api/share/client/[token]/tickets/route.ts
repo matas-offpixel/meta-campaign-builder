@@ -25,6 +25,12 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 interface PostBody {
   event_id?: unknown;
   tickets_sold?: unknown;
+  /**
+   * Optional gross revenue for the snapshot week. Persisted to
+   * `client_report_weekly_snapshots.revenue`. Omitted / null leaves the
+   * column at null (the portal renders "—" in that case).
+   */
+  revenue?: unknown;
 }
 
 function isUuid(v: unknown): v is string {
@@ -118,6 +124,29 @@ export async function POST(
   const eventId = body.event_id;
   const ticketsSold = ticketsRaw;
 
+  // Revenue is optional. Accept null/undefined as "no change requested"
+  // (we still write null so the snapshot row carries through). Reject
+  // negatives and non-finite numbers; allow decimals (gross takings
+  // aren't always whole pounds).
+  const revenueRaw = body.revenue;
+  let revenue: number | null = null;
+  if (revenueRaw !== undefined && revenueRaw !== null) {
+    if (
+      typeof revenueRaw !== "number" ||
+      !Number.isFinite(revenueRaw) ||
+      revenueRaw < 0
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "revenue must be a non-negative number when provided",
+        },
+        { status: 400 },
+      );
+    }
+    revenue = revenueRaw;
+  }
+
   // Cross-tenant guard: the submitted event must belong to the same
   // client this token authorises. Without this, a token holder could
   // POST any event_id they could guess.
@@ -151,13 +180,14 @@ export async function POST(
         event_id: eventId,
         week_start: weekStart,
         tickets_sold: ticketsSold,
+        revenue,
         captured_at: nowIso,
         captured_by: "client",
         updated_at: nowIso,
       },
       { onConflict: "event_id,week_start" },
     )
-    .select("id, event_id, tickets_sold, captured_at, week_start")
+    .select("id, event_id, tickets_sold, revenue, captured_at, week_start")
     .maybeSingle();
 
   if (upsertErr || !upserted) {
