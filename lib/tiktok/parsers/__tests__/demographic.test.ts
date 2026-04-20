@@ -34,7 +34,7 @@ describe("parseDemographicSheet", () => {
     assert.equal(out[0].impressions_raw, "<5");
   });
 
-  it("returns [] when Age or Gender header missing", () => {
+  it("returns [] when Age + Gender + Audience all missing", () => {
     assert.deepEqual(
       parseDemographicSheet([
         ["Age", "Cost"],
@@ -42,5 +42,53 @@ describe("parseDemographicSheet", () => {
       ]),
       [],
     );
+  });
+
+  it("splits combined 'Audience' cells of the form '<age> - <gender>'", () => {
+    const rows = [
+      ["Audience", "Cost", "Impressions", "CTR (destination)"],
+      ["18-24 - Male", "£250", "30,000", "1.10%"],
+      ["18-24 - Female", "£200", "25,000", "1.20%"],
+      ["65+ - Female", "£40", "5,000", "0.50%"],
+      ["25-34 - Other", "£10", "<5", "0.20%"],
+    ];
+    const out = parseDemographicSheet(rows);
+    assert.equal(out.length, 4);
+    assert.equal(out[0].age_bucket, "18-24");
+    assert.equal(out[0].gender, "Male");
+    assert.equal(out[0].cost, 250);
+    assert.equal(out[1].gender, "Female");
+    assert.equal(out[2].age_bucket, "65+");
+    assert.equal(out[2].gender, "Female");
+    assert.equal(out[3].gender, "Unknown"); // unknown variant coerces
+    assert.equal(out[3].impressions, null);
+    assert.equal(out[3].impressions_raw, "<5");
+  });
+
+  it("drops Audience rows that don't carry the ' - ' separator", () => {
+    // Mixed export: rows that look like geo labels (no dash) should be
+    // silently skipped — the geo parser handles those once detection
+    // routes the file correctly.
+    const rows = [
+      ["Audience", "Cost"],
+      ["18-24 - Male", "£10"],
+      ["England", "£100"],
+      ["Total", "£110"],
+    ];
+    const out = parseDemographicSheet(rows);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].age_bucket, "18-24");
+    assert.equal(out[0].gender, "Male");
+  });
+
+  it("prefers Age + Gender columns when both layouts are present", () => {
+    const rows = [
+      ["Age", "Gender", "Audience", "Cost"],
+      ["18-24", "Male", "should-be-ignored", "£10"],
+    ];
+    const out = parseDemographicSheet(rows);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].age_bucket, "18-24");
+    assert.equal(out[0].gender, "Male");
   });
 });
