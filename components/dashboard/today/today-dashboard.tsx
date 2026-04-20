@@ -229,6 +229,15 @@ export function TodayDashboard() {
             </div>
           ) : (
             <>
+              <div className="-mt-2 flex justify-end">
+                <Link
+                  href="/overview"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  View full overview
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
               {/* ───── Pending action ───── */}
               {pendingAction.visible.length > 0 && (
                 <section className="space-y-3">

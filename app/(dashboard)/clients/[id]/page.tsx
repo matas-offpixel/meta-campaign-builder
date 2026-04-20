@@ -3,6 +3,12 @@ import { ClientDetail } from "@/components/dashboard/clients/client-detail";
 import { createClient } from "@/lib/supabase/server";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { listEventsServer } from "@/lib/db/events-server";
+import {
+  listInvoicesForClientWithRefsServer,
+  listQuotesServer,
+} from "@/lib/db/invoicing-server";
+import { getShareForClient } from "@/lib/db/report-shares";
+import type { SettlementTiming } from "@/lib/pricing/calculator";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -19,12 +25,35 @@ export default async function ClientDetailPage({ params }: Props) {
   // fallback in case a route slips through.
   if (!user) redirect("/login");
 
-  const [client, events] = await Promise.all([
-    getClientByIdServer(id),
-    listEventsServer(user.id, { clientId: id }),
-  ]);
+  const [client, events, clientInvoices, clientQuotes, share] =
+    await Promise.all([
+      getClientByIdServer(id),
+      listEventsServer(user.id, { clientId: id }),
+      listInvoicesForClientWithRefsServer(user.id, id),
+      listQuotesServer(user.id, { client_id: id }),
+      getShareForClient(id),
+    ]);
 
   if (!client) notFound();
 
-  return <ClientDetail client={client} events={events} />;
+  const defaults = {
+    upfront_pct: client.default_upfront_pct ?? 75,
+    settlement_timing: (client.default_settlement_timing ??
+      "1_month_before") as SettlementTiming,
+  };
+
+  const initialShare = share
+    ? { token: share.token, enabled: share.enabled }
+    : null;
+
+  return (
+    <ClientDetail
+      client={client}
+      events={events}
+      clientInvoices={clientInvoices}
+      clientQuotes={clientQuotes}
+      defaults={defaults}
+      initialShare={initialShare}
+    />
+  );
 }

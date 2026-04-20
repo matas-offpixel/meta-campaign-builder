@@ -44,6 +44,8 @@ import {
 } from "@/lib/db/events";
 import type { AdPlan, AdPlanDay } from "@/lib/db/ad-plans";
 import type { EventKeyMoment } from "@/lib/db/event-key-moments";
+import type { InvoiceRow, QuoteRow } from "@/lib/types/invoicing";
+import { EventInvoicingPanel } from "@/components/invoicing/event-invoicing-panel";
 import {
   fmtDate,
   fmtDateTime,
@@ -99,6 +101,17 @@ interface Props {
    * override) and the panel renders read-only.
    */
   planTickets: { value: number; asOfDay: string } | null;
+  /**
+   * Quote that originally spawned this event (when converted from the
+   * invoicing flow). Null = event was created directly. Drives the
+   * "From quote" badge in the header and unlocks the Invoicing panel.
+   */
+  linkedQuote: QuoteRow | null;
+  /**
+   * All invoices linked to this event (regardless of which quote they
+   * came from). Powers the Invoicing collapsible on the Overview tab.
+   */
+  linkedInvoices: InvoiceRow[];
 }
 
 /**
@@ -118,6 +131,8 @@ export function EventDetail({
   initialShare,
   initialTicketsSold,
   planTickets,
+  linkedQuote,
+  linkedInvoices,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -232,6 +247,15 @@ export function EventDetail({
               >
                 {daysUntil.label}
               </span>
+            )}
+            {linkedQuote && (
+              <Link
+                href={`/invoicing/quotes/${linkedQuote.id}`}
+                className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-normal tracking-normal text-muted-foreground hover:border-border-strong hover:text-foreground"
+                title="View originating quote"
+              >
+                From quote {linkedQuote.quote_number}
+              </Link>
             )}
           </span>
         }
@@ -354,6 +378,10 @@ export function EventDetail({
                   inherited: Boolean(event.client?.meta_ad_account_id),
                 }}
                 driveFolderUrl={event.google_drive_folder_url ?? null}
+              />
+              <EventInvoicingPanel
+                quote={linkedQuote}
+                invoices={linkedInvoices}
               />
               {event.notes && <NotesSection notes={event.notes} />}
             </div>

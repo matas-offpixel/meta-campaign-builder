@@ -95,6 +95,72 @@ export async function createShare(input: {
 }
 
 /**
+ * Fetch the client-scoped share row for a given client owned by the
+ * current user. Returns null when no share exists yet.
+ *
+ * Mirror of `getShareForEvent` for `scope='client'` shares — the
+ * client portal lives behind one of these tokens (event_id is null,
+ * client_id is the FK pivot).
+ */
+export async function getShareForClient(
+  clientId: string,
+): Promise<ReportShareRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("report_shares")
+    .select("*")
+    .eq("scope", "client")
+    .eq("client_id", clientId)
+    .eq("enabled", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[report-shares getShareForClient] error:", error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+/**
+ * Mint a fresh client-scoped share row. The token grants edit access
+ * (can_edit=true) so the public portal can capture tickets-sold
+ * snapshots back into client_report_weekly_snapshots.
+ *
+ * Idempotency is handled by the caller (POST /api/share/client) which
+ * runs `getShareForClient` first; this helper unconditionally inserts.
+ */
+export async function mintClientShare(input: {
+  clientId: string;
+  userId: string;
+  expiresAt?: string | null;
+}): Promise<ReportShareRow> {
+  const supabase = await createClient();
+  const token = generateShareToken();
+
+  const { data, error } = await supabase
+    .from("report_shares")
+    .insert({
+      token,
+      scope: "client",
+      client_id: input.clientId,
+      event_id: null,
+      can_edit: true,
+      user_id: input.userId,
+      enabled: true,
+      expires_at: input.expiresAt ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("[report-shares mintClientShare] error:", error.message);
+    throw error;
+  }
+  return data as ReportShareRow;
+}
+
+/**
  * Toggle a share on/off. Soft kill — preserves the row + view counters so
  * re-enabling the same link works without a token rotation.
  */
@@ -194,6 +260,11 @@ export type ResolvedShare = {
    * the appropriate "no_event_code" / 503 path when this is null.
    */
   event_id: string | null;
+  /** Populated when scope='client'; null for legacy event-scoped shares. */
+  client_id: string | null;
+  scope: "event" | "client";
+  /** True when the token grants edit operations (e.g. tickets-sold capture). */
+  can_edit: boolean;
   user_id: string;
   enabled: boolean;
   expires_at: string | null;
@@ -223,7 +294,7 @@ export async function resolveShareByToken(
   const { data, error } = await supabase
     .from("report_shares")
     .select(
-      "token, event_id, user_id, enabled, expires_at, view_count, last_viewed_at, created_at",
+      "token, event_id, client_id, scope, can_edit, user_id, enabled, expires_at, view_count, last_viewed_at, created_at",
     )
     .eq("token", token)
     .maybeSingle();
