@@ -130,20 +130,19 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);
   if (!resolved.ok) {
-    // Single 404 surface for missing / disabled / expired so an attacker
-    // probing the token namespace can't distinguish.
+    // Single 404 surface for missing / disabled / expired / malformed so
+    // an attacker probing the token namespace can't distinguish.
     notFound();
   }
 
+  // This page only renders event-scope tokens. Client-scope tokens belong
+  // on the client portal (see `app/share/client/[token]`), so route them
+  // to the same generic 404 surface as missing/disabled. The discriminated
+  // union keeps `event_id` typed as `string` (non-null) inside this branch.
+  if (resolved.share.scope !== "event") {
+    notFound();
+  }
   const { event_id, user_id } = resolved.share;
-
-  // Migration 014 made `report_shares.event_id` nullable for client-scope
-  // shares. This page only renders event-scoped shares, so a null here
-  // means the token belongs to a client share that mistakenly hit this
-  // route — collapse to the same generic 404 surface as missing/disabled.
-  if (!event_id) {
-    notFound();
-  }
 
   // Fan-out: event lookup + owner token + plan-side tickets cumulative
   // + latest TikTok manual report in parallel. Plan-tickets reuses the

@@ -79,15 +79,14 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { event_id, user_id } = resolved.share;
-
-  // Migration 014 made `report_shares.event_id` nullable for client-scope
-  // shares. This route only serves event-scoped shares — collapse to the
-  // same 404 surface used for missing/disabled tokens so we never leak
-  // the existence of a client-scope token here.
-  if (!event_id) {
+  // Event-scope tokens only. Client-scope tokens collapse to the same
+  // 404 surface so we never leak their existence here. Narrowing on
+  // `scope` lets the discriminated union give us `event_id: string`
+  // without an extra null check below.
+  if (resolved.share.scope !== "event") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  const { event_id, user_id } = resolved.share;
 
   const [eventRes, providerToken] = await Promise.all([
     admin

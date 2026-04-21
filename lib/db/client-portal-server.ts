@@ -172,10 +172,13 @@ export async function loadClientPortalData(
   if (!resolved.ok || resolved.share.scope !== "client") {
     return { ok: false, reason: "not_found" };
   }
+  // The discriminated union now narrows `client_id` to `string` once the
+  // scope check above has fired (the resolver rejects malformed rows
+  // where scope='client' but client_id is null with reason='malformed').
+  // The previous `missing_client_id` branch is therefore dead — keep the
+  // reason in the union for backwards compatibility with any caller that
+  // exhaustively switches on it, but stop emitting it.
   const share = resolved.share;
-  if (!share.client_id) {
-    return { ok: false, reason: "missing_client_id" };
-  }
 
   if (options?.bumpView) {
     void bumpShareView(token, admin);

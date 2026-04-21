@@ -249,20 +249,13 @@ export async function deleteShare(token: string): Promise<void> {
 
 // ─── Public-side helpers (service role) ────────────────────────────────────
 
-export type ResolvedShare = {
+/**
+ * Common fields shared by every successfully resolved share row. Split
+ * from the discriminator-bearing variants so additions to the row schema
+ * land in one place.
+ */
+type ResolvedShareBase = {
   token: string;
-  /**
-   * Nullable since migration 014 — `scope='client'` shares carry a
-   * `client_id` instead of an `event_id`. The current resolver only
-   * returns rows looked up by token (with no scope filter), so callers
-   * MUST guard against null before treating this as a string. The
-   * existing public report page + creatives route both error out with
-   * the appropriate "no_event_code" / 503 path when this is null.
-   */
-  event_id: string | null;
-  /** Populated when scope='client'; null for legacy event-scoped shares. */
-  client_id: string | null;
-  scope: "event" | "client";
   /** True when the token grants edit operations (e.g. tickets-sold capture). */
   can_edit: boolean;
   user_id: string;
@@ -273,9 +266,83 @@ export type ResolvedShare = {
   created_at: string;
 };
 
+/**
+ * Event-scoped share row, validated to carry a non-null `event_id`. This
+ * is the shape the public event report page + the creatives route operate
+ * on. Code that has narrowed via `share.scope === "event"` (or via
+ * `isEventScopedShare`) can read `event_id` as `string` without further
+ * null-guarding.
+ */
+export type EventScopedShare = ResolvedShareBase & {
+  scope: "event";
+  event_id: string;
+  client_id: string | null;
+};
+
+/**
+ * Client-scoped share row (introduced by migration 014). Carries a
+ * `client_id` and explicitly null `event_id` — the client portal renders
+ * an aggregate of all events under the client, not a single event.
+ */
+export type ClientScopedShare = ResolvedShareBase & {
+  scope: "client";
+  event_id: null;
+  client_id: string;
+};
+
+/**
+ * Discriminated union of every valid resolved share. Switch on
+ * `share.scope` (or use the `isEventScopedShare` / `isClientScopedShare`
+ * guards) to narrow to the right variant. Replaces the previous loose
+ * shape that had `event_id: string | null` regardless of scope, which
+ * required every call site to manually re-check for null.
+ */
+export type ResolvedShare = EventScopedShare | ClientScopedShare;
+
+/**
+ * Type guard for the event-scope variant. Use when a call site wants to
+ * fail fast on a client-scope share rather than handle both.
+ */
+export function isEventScopedShare(
+  share: ResolvedShare,
+): share is EventScopedShare {
+  return share.scope === "event";
+}
+
+/**
+ * Type guard for the client-scope variant. Mirror of
+ * `isEventScopedShare` for portal/tickets endpoints that only accept
+ * client-scope tokens.
+ */
+export function isClientScopedShare(
+  share: ResolvedShare,
+): share is ClientScopedShare {
+  return share.scope === "client";
+}
+
+/**
+ * Reason codes for a failed `resolveShareByToken` call.
+ *
+ * - `missing`: token did not match a row.
+ * - `disabled`: row exists but `enabled=false` (owner soft-killed it).
+ * - `expired`: row past `expires_at`.
+ * - `malformed`: row exists but its `(scope, event_id, client_id)` tuple
+ *   is structurally inconsistent (e.g. scope='event' with null event_id,
+ *   or scope='client' with null client_id). Indicates corrupted data —
+ *   should be treated as a 404 by the public surface but logged on the
+ *   server so the row can be cleaned up.
+ * - `error`: Supabase call itself failed.
+ */
+export type ResolveShareFailReason =
+  | "missing"
+  | "disabled"
+  | "expired"
+  | "malformed"
+  | "error";
+
 export type ResolveShareResult =
   | { ok: true; share: ResolvedShare }
-  | { ok: false; reason: "missing" | "disabled" | "expired" | "error" };
+  | { ok: false; reason: ResolveShareFailReason };
 
 /**
  * Resolve a public share token via the service-role client. Used by
@@ -311,7 +378,61 @@ export async function resolveShareByToken(
   if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) {
     return { ok: false, reason: "expired" };
   }
-  return { ok: true, share: data as ResolvedShare };
+
+  // Structural validation rather than an unchecked `as ResolvedShare`
+  // cast. Migration 014 made `event_id` nullable for client-scope shares,
+  // which means any site that read `share.event_id as string` post-cast
+  // would crash on the first client-scope token through the door. Build
+  // the discriminated union explicitly so callers narrow safely.
+  const base = {
+    token: data.token,
+    can_edit: data.can_edit,
+    user_id: data.user_id,
+    enabled: data.enabled,
+    expires_at: data.expires_at,
+    view_count: data.view_count,
+    last_viewed_at: data.last_viewed_at,
+    created_at: data.created_at,
+  };
+
+  if (data.scope === "event") {
+    if (!data.event_id) {
+      console.warn(
+        `[report-shares resolveShareByToken] malformed event-scope share (token=${token}): event_id is null`,
+      );
+      return { ok: false, reason: "malformed" };
+    }
+    const share: EventScopedShare = {
+      ...base,
+      scope: "event",
+      event_id: data.event_id,
+      client_id: data.client_id,
+    };
+    return { ok: true, share };
+  }
+
+  if (data.scope === "client") {
+    if (!data.client_id) {
+      console.warn(
+        `[report-shares resolveShareByToken] malformed client-scope share (token=${token}): client_id is null`,
+      );
+      return { ok: false, reason: "malformed" };
+    }
+    const share: ClientScopedShare = {
+      ...base,
+      scope: "client",
+      event_id: null,
+      client_id: data.client_id,
+    };
+    return { ok: true, share };
+  }
+
+  // Unknown scope value — schema check on the table normally prevents
+  // this, but a forgotten `alter table` could land us here. Surface it.
+  console.warn(
+    `[report-shares resolveShareByToken] unknown scope (token=${token}): ${String(data.scope)}`,
+  );
+  return { ok: false, reason: "malformed" };
 }
 
 /**
