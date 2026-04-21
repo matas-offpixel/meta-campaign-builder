@@ -88,6 +88,11 @@ export async function saveDraftToDb(draft: CampaignDraft, userId: string): Promi
       objective: draft.settings.objective || null,
       status: draft.status ?? "draft",
       ad_account_id: draft.settings.adAccountId || null,
+      // FK columns added in migration 003. Empty strings come from the
+      // default settings shape (`createDefaultDraft`) before the library
+      // picker has run — coerce to SQL NULL so the uuid FK does not error.
+      client_id: draft.settings.clientId || null,
+      event_id: draft.settings.eventId || null,
       draft_json: draft,
       updated_at: new Date().toISOString(),
     },
