@@ -21,11 +21,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
-import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb, loadCampaignList, duplicateCampaign, deleteCampaign, updateCampaignStatus } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { applyTemplate } from "@/lib/templates";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
+import { NewCampaignModal } from "@/components/library/new-campaign-modal";
 import type { CampaignListItem, CampaignDraft, CampaignTemplate } from "@/lib/types";
 
 type LibraryTab = "drafts" | "published" | "archived" | "templates";
@@ -80,6 +80,10 @@ export function CampaignLibrary() {
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateSourceId, setTemplateSourceId] = useState<string | null>(null);
+
+  // "New Campaign" picker modal — replaces the old immediate-create flow
+  // so the wizard always opens with client + event already linked.
+  const [newCampaignOpen, setNewCampaignOpen] = useState(false);
 
   // ─── Init ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -145,11 +149,12 @@ export function CampaignLibrary() {
   }, [templates, search]);
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
-  const handleNewCampaign = async () => {
+  // Opens the picker modal. Draft creation + navigation happen inside
+  // <NewCampaignModal /> after the user confirms a client + event so we
+  // never leave an orphan draft if they back out.
+  const handleNewCampaign = () => {
     if (!userId) return;
-    const draft = createDefaultDraft();
-    await saveDraftToDb(draft, userId);
-    router.push(`/campaign/${draft.id}`);
+    setNewCampaignOpen(true);
   };
 
   const handleOpen = (id: string) => {
@@ -395,6 +400,12 @@ export function CampaignLibrary() {
         saving={templateSaving}
         onClose={() => { setTemplateModalOpen(false); setTemplateSourceId(null); }}
         onSave={handleSaveTemplateConfirm}
+      />
+
+      <NewCampaignModal
+        open={newCampaignOpen}
+        userId={userId}
+        onClose={() => setNewCampaignOpen(false)}
       />
     </div>
   );
