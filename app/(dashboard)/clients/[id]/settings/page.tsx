@@ -4,9 +4,11 @@ import { ArrowLeft } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticketing-connections-panel";
+import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
 import { createClient } from "@/lib/supabase/server";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { listConnectionsForUser } from "@/lib/db/ticketing";
+import { listD2CConnectionsForUser } from "@/lib/db/d2c";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -31,9 +33,10 @@ export default async function ClientSettingsPage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [client, connections] = await Promise.all([
+  const [client, connections, d2cConnections] = await Promise.all([
     getClientByIdServer(id),
     listConnectionsForUser(supabase, { clientId: id }),
+    listD2CConnectionsForUser(supabase, { clientId: id }),
   ]);
 
   if (!client) notFound();
@@ -42,6 +45,10 @@ export default async function ClientSettingsPage({ params }: Props) {
   // route does this on its public surface; we mirror the rule here so a
   // direct server fetch stays consistent).
   const safeConnections = connections.map((c) => ({
+    ...c,
+    credentials: null as null,
+  }));
+  const safeD2CConnections = d2cConnections.map((c) => ({
     ...c,
     credentials: null as null,
   }));
@@ -64,6 +71,10 @@ export default async function ClientSettingsPage({ params }: Props) {
           <TicketingConnectionsPanel
             clientId={id}
             initial={safeConnections}
+          />
+          <D2CConnectionsPanel
+            clientId={id}
+            initial={safeD2CConnections}
           />
         </div>
       </main>
