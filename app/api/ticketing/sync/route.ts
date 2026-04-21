@@ -1,0 +1,149 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+import { createClient } from "@/lib/supabase/server";
+import {
+  getConnectionById,
+  insertSnapshot,
+  listLinksForEvent,
+  recordConnectionSync,
+} from "@/lib/db/ticketing";
+import { getProvider } from "@/lib/ticketing/registry";
+import { TicketingProviderDisabledError } from "@/lib/ticketing/types";
+
+/**
+ * POST /api/ticketing/sync?eventId=X
+ *
+ * Force-syncs ticket sales for a single internal event. Iterates every
+ * `event_ticketing_links` row for the event, calls `getEventSales` on
+ * the matching provider, writes one `ticket_sales_snapshots` row per
+ * link, and records the success / error on the connection.
+ *
+ * One bad link does not stop the batch — every link's outcome is
+ * captured in the response so the dashboard can surface partial-failure
+ * states cleanly.
+ */
+
+interface LinkSyncResult {
+  linkId: string;
+  connectionId: string;
+  provider: string;
+  ok: boolean;
+  ticketsSold?: number;
+  error?: string;
+  disabled?: boolean;
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { ok: false, error: "Not signed in" },
+      { status: 401 },
+    );
+  }
+
+  const eventId = req.nextUrl.searchParams.get("eventId");
+  if (!eventId) {
+    return NextResponse.json(
+      { ok: false, error: "eventId is required" },
+      { status: 400 },
+    );
+  }
+
+  const { data: event, error: eventErr } = await supabase
+    .from("events")
+    .select("id, user_id")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (eventErr) {
+    return NextResponse.json(
+      { ok: false, error: eventErr.message },
+      { status: 500 },
+    );
+  }
+  if (!event) {
+    return NextResponse.json(
+      { ok: false, error: "Event not found" },
+      { status: 404 },
+    );
+  }
+  if (event.user_id !== user.id) {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden" },
+      { status: 403 },
+    );
+  }
+
+  const links = await listLinksForEvent(supabase, eventId);
+  if (links.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      results: [] as LinkSyncResult[],
+      note: "No ticketing links — connect a provider on the client first.",
+    });
+  }
+
+  const results: LinkSyncResult[] = [];
+  for (const link of links) {
+    const connection = await getConnectionById(supabase, link.connection_id);
+    if (!connection) {
+      results.push({
+        linkId: link.id,
+        connectionId: link.connection_id,
+        provider: "(unknown)",
+        ok: false,
+        error: "Connection vanished — re-create the link.",
+      });
+      continue;
+    }
+    try {
+      const provider = getProvider(connection.provider);
+      const fetched = await provider.getEventSales(
+        connection,
+        link.external_event_id,
+      );
+      await insertSnapshot(supabase, {
+        userId: user.id,
+        eventId,
+        connectionId: connection.id,
+        ticketsSold: fetched.ticketsSold,
+        ticketsAvailable: fetched.ticketsAvailable,
+        grossRevenueCents: fetched.grossRevenueCents,
+        currency: fetched.currency,
+        rawPayload: fetched.rawPayload,
+      });
+      await recordConnectionSync(supabase, connection.id, { ok: true });
+      results.push({
+        linkId: link.id,
+        connectionId: connection.id,
+        provider: connection.provider,
+        ok: true,
+        ticketsSold: fetched.ticketsSold,
+      });
+    } catch (err) {
+      const isDisabled = err instanceof TicketingProviderDisabledError;
+      const message = err instanceof Error ? err.message : "Unknown error";
+      await recordConnectionSync(supabase, connection.id, {
+        ok: false,
+        error: message,
+      });
+      results.push({
+        linkId: link.id,
+        connectionId: connection.id,
+        provider: connection.provider,
+        ok: false,
+        error: message,
+        disabled: isDisabled,
+      });
+    }
+  }
+
+  const allOk = results.every((r) => r.ok);
+  return NextResponse.json(
+    { ok: allOk, results },
+    { status: allOk ? 200 : 207 },
+  );
+}
