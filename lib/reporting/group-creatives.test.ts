@@ -621,6 +621,55 @@ test("ad.name drives grouping when creative_name is template-polluted", () => {
   assert.deepEqual(g.ad_names, ["Motion V2", "Motion V2 - Copy"]);
 });
 
+test("name-above-thumbnail: same ad.name + different thumbnails collapse on name (PR #49)", () => {
+  // Regression: pre-PR #49, the waterfall ran thumbnail BEFORE name,
+  // so Meta's CDN URL rotation (different per creative_id even when
+  // the underlying asset is byte-identical) split same-concept
+  // re-uploads into separate cards. After PR #49, name precedes
+  // thumbnail — so distinct CDN URLs no longer mask a shared
+  // marketer-intended name.
+  const rows: ConceptInputRow[] = [
+    row({
+      creative_id: "cid-A",
+      creative_name: null,
+      ad_names: ["Pre-Sale Push"],
+      // Pre-fix: thumbnail tier would have keyed this as
+      //   thumb:scontent.example.com/.../presale-cdn-A.jpg
+      thumbnail_url: "https://scontent.example.com/t45/p480x480/presale-cdn-A.jpg",
+      effective_object_story_id: null,
+      object_story_id: null,
+      primary_asset_signature: null,
+      spend: 200,
+      impressions: 2000,
+      clicks: 40,
+      reach: 1500,
+    }),
+    row({
+      creative_id: "cid-B",
+      creative_name: null,
+      ad_names: ["Pre-Sale Push - Copy"],
+      // Different CDN URL — same image asset post-rotation.
+      thumbnail_url: "https://scontent.example.com/t45/p480x480/presale-cdn-B.jpg",
+      effective_object_story_id: null,
+      object_story_id: null,
+      primary_asset_signature: null,
+      spend: 100,
+      impressions: 1000,
+      clicks: 20,
+      reach: 800,
+    }),
+  ];
+
+  const groups = groupByAssetSignature(rows);
+  assert.equal(groups.length, 1, "name tier must collapse before thumbnail");
+  const g = groups[0];
+  assert.deepEqual(g.reasons, ["name"]);
+  assert.equal(g.group_key, "name:pre-sale push");
+  assert.equal(g.creative_id_count, 2);
+  assert.equal(g.spend, 300);
+  assert.equal(g.display_name, "Pre-Sale Push");
+});
+
 test("token-polluted ad.name is rejected → falls through to tier 6", () => {
   // ad_names[0] contains a `{{...}}` token. Even though tier 5 has
   // input, isAcceptableNameToken rejects the template-token form so

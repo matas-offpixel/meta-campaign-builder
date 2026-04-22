@@ -218,47 +218,85 @@ export interface CreativeRow {
   fatigueScore: FatigueScore;
 }
 
-// ─── Action-type allowlists ──────────────────────────────────────────────────
+// ─── Action-type priority lists ─────────────────────────────────────────────
 //
-// Different ad accounts surface registrations / purchases under
-// different action_type strings depending on whether they're using
-// lead-gen forms, server-side conversions API events, or off-Meta
-// pixel events. Sum across the whole allowlist so the panel reads
-// consistently across Matas's accounts. If a single account starts
-// double-counting, tune these lists rather than adding a column to
-// the schema.
+// PR #49: Meta returns the SAME conversion event under multiple
+// overlapping `action_type` keys in a single insights row, e.g. a
+// purchase shows up as `omni_purchase` (deduped total) AND
+// `offsite_conversion.fb_pixel_purchase` (pixel-only subset) AND
+// `purchase` (generic fallback subset). Summing across the whole
+// allowlist (the previous Set+sum approach) triple-counts. Worse,
+// which variants Meta returns varies by attribution window and
+// date range — so the inflation factor changes per timeframe and
+// the share report's purchase / LPV numbers drift non-monotonically
+// as the window widens. Last-7d sometimes printed higher purchases
+// than last-30d for the same creative — impossible for cumulative
+// metrics.
+//
+// Fix: pick exactly ONE variant per ad in priority order, preferring
+// Meta's most-deduplicated tier first. The priority order is the
+// load-bearing data — keep it tight and document the rationale per
+// list. {@link pickActionValue} consumes these.
 
-export const REGISTRATION_ACTION_TYPES: ReadonlySet<string> = new Set([
+const PURCHASE_ACTION_PRIORITY = [
+  // Meta's already-deduped total across pixel + CAPI + app.
+  "omni_purchase",
+  // Pixel-only subset of omni — used as a fallback for accounts that
+  // haven't enabled CAPI yet.
+  "offsite_conversion.fb_pixel_purchase",
+  // Generic last-resort label.
+  "purchase",
+] as const;
+
+const LANDING_PAGE_VIEW_ACTION_PRIORITY = [
+  // Cross-surface deduped (web + app).
+  "omni_landing_page_view",
+  // Pixel-only subset.
+  "offsite_conversion.fb_pixel_landing_page_view",
+  // Generic fallback for older accounts.
+  "landing_page_view",
+] as const;
+
+const REGISTRATION_ACTION_PRIORITY = [
+  // Meta's deduped on-site leads bucket — the "correct" value when
+  // both lead-gen forms and pixel events are firing for the same
+  // submission.
+  "onsite_conversion.lead_grouped",
+  // Pixel CAPI variants that the older 4thefans accounts report
+  // under. Two distinct event names (registration vs lead) and we
+  // prefer registration where present.
+  "offsite_conversion.fb_pixel_complete_registration",
+  "offsite_conversion.fb_pixel_lead",
+  // Generic fallbacks.
   "complete_registration",
   "lead",
   "registration",
-  "offsite_conversion.fb_pixel_complete_registration",
-  "offsite_conversion.fb_pixel_lead",
-  "onsite_conversion.lead_grouped",
-]);
-
-export const PURCHASE_ACTION_TYPES: ReadonlySet<string> = new Set([
-  "purchase",
-  "omni_purchase",
-  "offsite_conversion.fb_pixel_purchase",
-]);
+] as const;
 
 /**
- * Landing-page-view action types. Meta surfaces LPV under three
- * names depending on how the pixel was instrumented; sum across
- * all of them for a stable funnel-step count.
+ * Pick the first matching `action_type` from the priority list.
+ * Stops at the first hit so overlapping Meta variants don't
+ * triple-count. Returns `0` when no priority entry is present
+ * (or the value is non-numeric / non-finite).
  *
- * `omni_landing_page_view` is Meta's de-duplicated combined
- * (web + app) LPV — equivalent in coverage to `omni_purchase`
- * for purchases. `landing_page_view` is the pixel-only flavour
- * the older accounts still report under, so we keep both rather
- * than picking one and missing data on the older accounts.
+ * The priority list itself is the canonical de-dup contract —
+ * see the rationale on each `*_ACTION_PRIORITY` const. Same
+ * helper handles `actions[]` (counts) and `action_values[]`
+ * (revenue) since both arrays share the
+ * `{ action_type, value }` shape.
  */
-export const LANDING_PAGE_VIEW_ACTION_TYPES: ReadonlySet<string> = new Set([
-  "landing_page_view",
-  "omni_landing_page_view",
-  "offsite_conversion.fb_pixel_landing_page_view",
-]);
+function pickActionValue(
+  actions: readonly AdInsightAction[] | undefined,
+  priorityList: readonly string[],
+): number {
+  if (!actions || actions.length === 0) return 0;
+  for (const type of priorityList) {
+    const hit = actions.find((a) => a.action_type === type);
+    if (!hit) continue;
+    return Number.isFinite(hit.value) ? hit.value : 0;
+  }
+  return 0;
+}
 
 /**
  * Map a frequency value into the same three-bucket fatigue scale
@@ -358,22 +396,23 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     const adImpressions = ins?.impressions ?? 0;
     const adClicks = ins?.clicks ?? 0;
     const adReach = ins?.reach ?? 0;
-    const actions = ins?.actions ?? [];
 
-    let registrations = 0;
-    let purchases = 0;
-    let landingPageViews = 0;
-    for (const a of actions) {
-      if (REGISTRATION_ACTION_TYPES.has(a.action_type)) {
-        registrations += Number.isFinite(a.value) ? a.value : 0;
-      }
-      if (PURCHASE_ACTION_TYPES.has(a.action_type)) {
-        purchases += Number.isFinite(a.value) ? a.value : 0;
-      }
-      if (LANDING_PAGE_VIEW_ACTION_TYPES.has(a.action_type)) {
-        landingPageViews += Number.isFinite(a.value) ? a.value : 0;
-      }
-    }
+    // Per-ad: pick ONE variant in priority order so overlapping Meta
+    // labels (omni_* vs pixel vs generic) don't triple-count. Cross-ad
+    // sums still happen below — different ads with the same single
+    // event type contribute additively as expected.
+    const registrations = pickActionValue(
+      ins?.actions,
+      REGISTRATION_ACTION_PRIORITY,
+    );
+    const purchases = pickActionValue(
+      ins?.actions,
+      PURCHASE_ACTION_PRIORITY,
+    );
+    const landingPageViews = pickActionValue(
+      ins?.actions,
+      LANDING_PAGE_VIEW_ACTION_PRIORITY,
+    );
 
     const acc = buckets.get(ad.creative_id) ?? {
       creative_id: ad.creative_id,
