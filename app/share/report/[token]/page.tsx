@@ -21,8 +21,18 @@ import type { TikTokManualReportSnapshot } from "@/lib/types/tiktok";
 import { PublicReport } from "@/components/report/public-report";
 import type { TikTokReportBlockData } from "@/components/report/tiktok-report-block";
 import { ReportUnavailable } from "@/components/report/report-unavailable";
-import { fetchShareActiveCreatives } from "@/lib/reporting/share-active-creatives";
+import {
+  fetchShareActiveCreatives,
+  type ShareActiveCreativesResult,
+} from "@/lib/reporting/share-active-creatives";
 import { ShareActiveCreativesSection } from "@/components/share/share-active-creatives-section";
+import {
+  readShareSnapshot,
+  writeShareSnapshot,
+  type ShareSnapshotPayload,
+} from "@/lib/db/share-snapshots";
+import type { ResolvedShare } from "@/lib/db/report-shares";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -128,6 +138,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     pickQueryParam(sp.from),
     pickQueryParam(sp.to),
   );
+  // `?refresh=1` skips the Supabase snapshot read (NOT the write —
+  // a fresh fetch still warms the cache for the next visitor). Use
+  // for manual re-warming when an agency has just relaunched a
+  // campaign and wants the new spend reflected before TTL elapses.
+  // Any truthy string ("1" / "true") activates it; "" / missing
+  // leaves the cache enabled.
+  const forceRefresh = isTruthyParam(pickQueryParam(sp.refresh));
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);
@@ -223,84 +240,24 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // Wrapped in a fire-and-forget so a slow update doesn't add to LCP.
   bumpShareView(token, admin).catch(() => undefined);
 
-  // Resolve Meta insights.
+  // Resolve the report payload (Meta insights + active creatives)
+  // through the Supabase snapshot cache. The cache short-circuits
+  // both fetches on a hit; a miss runs the same fetches the page
+  // used to do inline, then writes the result back.
   //
-  // Two of the previous "fatal" reasons — `no_event_code` and
-  // `no_ad_account` — are now soft: they mean the client never set up
-  // Meta for this event, which is a perfectly valid TikTok-only state
-  // (e.g. brand campaigns on Black Butter Records). Soft-failing them
-  // to `meta=null` lets the page fall through to the TikTok block when
-  // a manual snapshot is present, instead of slamming up the
-  // ReportUnavailable screen.
-  //
-  // Genuine failures — no owner token, expired token, Meta upstream
-  // error, no campaigns matched, invalid date range — still surface
-  // their reason so the page-level fallback can render the right
-  // diagnostic, but only when there's also no TikTok snapshot to fall
-  // back on.
-  let metaPayload: EventInsightsPayload | null = null;
-  let metaErrorReason: InsightsErrorReason | null = null;
-  if (!event.adAccountId || !event.eventCode) {
-    // Soft-skip: client/event isn't set up for Meta. Not an error.
-    metaPayload = null;
-  } else if (!providerToken) {
-    metaErrorReason = "no_owner_token";
-  } else {
-    const insights: InsightsResult = await fetchEventInsights({
-      eventCode: event.eventCode,
-      adAccountId: event.adAccountId,
-      token: providerToken,
+  // See `lib/db/share-snapshots.ts` for the cache contract; the
+  // helper below is the only call site that knows about it.
+  const { metaPayload, metaErrorReason, creativesResult } =
+    await resolveReportData({
+      admin,
+      shareToken: token,
       datePreset,
       customRange,
+      forceRefresh,
+      share: resolved.share,
+      event,
+      providerToken,
     });
-    if (insights.ok) {
-      metaPayload = insights.data;
-    } else {
-      metaErrorReason = insights.error.reason;
-      console.warn(
-        `[share/report] meta insights failed token=${token} reason=${insights.error.reason} msg=${insights.error.message}`,
-      );
-    }
-  }
-
-  // Server-render the "Active creatives" section upfront. Wrapped
-  // in try/catch on top of the helper's own error union so a
-  // genuinely unexpected throw can never 500 the whole share page —
-  // we'd rather render the report without the creative breakdown
-  // than show a blank screen.
-  //
-  // Resilience: we fan this out even when the headline insights
-  // call FAILED, not only when it succeeded. Meta's per-account
-  // rate budget on a wide event with a 7-day window can knock out
-  // the heavier aggregate insights endpoint while leaving the
-  // per-ad fan-out responsive — in that case we'd rather render a
-  // partial report (creatives + muted banner) than the full
-  // ReportUnavailable surface. The only exit ramp from this fetch
-  // is a TikTok-only client (no Meta ad account / event code at
-  // all), where there's nothing to fetch in the first place.
-  //
-  // Linter quirk: JSX construction inside try/catch trips
-  // react-hooks/error-boundaries. Resolve the data first, then
-  // build the element from the resolved value below.
-  const canFetchCreatives = !!event.adAccountId && !!event.eventCode;
-  const creativesResult = canFetchCreatives
-    ? await fetchShareActiveCreatives({
-        share: resolved.share,
-        admin,
-        eventCode: event.eventCode,
-        adAccountId: event.adAccountId,
-      }).catch((err) => {
-        console.warn(
-          `[share/report] active-creatives fetch crashed for token=${token}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-        return {
-          kind: "error" as const,
-          reason: "meta_failed" as const,
-          message: "Unexpected error",
-        };
-      })
-    : null;
 
   // True when the creative breakdown actually has something to
   // render. `kind === "skip"` (no_event_code / no_ad_account /
@@ -364,6 +321,181 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       headlineUnavailable={headlineUnavailable}
     />
   );
+}
+
+/**
+ * `?refresh=1` / `?refresh=true` toggles a cache-bypass on this
+ * render. Anything else (missing, "0", "false") leaves the cache
+ * enabled. Kept tolerant rather than strict-equals because the
+ * agency pastes the URL into ops dashboards / Slack hand-rolling
+ * the param, and nothing here is security-sensitive.
+ */
+function isTruthyParam(value: string | null): boolean {
+  if (!value) return false;
+  return value === "1" || value.toLowerCase() === "true";
+}
+
+interface ResolveReportInput {
+  admin: SupabaseClient;
+  shareToken: string;
+  datePreset: DatePreset;
+  customRange: CustomDateRange | undefined;
+  forceRefresh: boolean;
+  share: ResolvedShare;
+  event: ResolvedEvent;
+  providerToken: string | null;
+}
+
+interface ResolvedReport {
+  metaPayload: EventInsightsPayload | null;
+  metaErrorReason: InsightsErrorReason | null;
+  creativesResult: ShareActiveCreativesResult | null;
+}
+
+/**
+ * Read-through cache for the share page's Meta payload + active
+ * creatives. On a fresh hit, returns the cached bundle and skips
+ * Meta entirely. On a miss (or `?refresh=1`), runs the same
+ * fetches the page used to do inline, then upserts the result for
+ * the next visitor.
+ *
+ * Cache write is gated:
+ *   - `metaPayload != null` — the headline call succeeded. We
+ *     deliberately do NOT cache failure states (rate-limit,
+ *     data_too_large, owner-token-expired) because those are
+ *     usually transient and the next visitor should retry fresh.
+ *   - `creativesResult?.kind !== "error"` — same logic for the
+ *     creative breakdown side. A `skip` (genuinely empty event)
+ *     is fine to cache; an `error` (Meta failure) is not.
+ *   - The Meta-less soft-skip path (no event_code or no ad
+ *     account) never goes through the cache at all — there's no
+ *     Meta call to skip, and re-running the lookup is essentially
+ *     free.
+ *
+ * The fetches inside the miss path retain the existing sequential
+ * shape: `fetchEventInsights` first, then
+ * `fetchShareActiveCreatives` second. The internal fan-out
+ * already parallelises per-campaign within each call;
+ * parallelising the two top-level calls would double the per-
+ * account rate-budget pressure during the same wall-clock window
+ * and is what PR #42's resilience work explicitly avoided.
+ */
+async function resolveReportData(
+  input: ResolveReportInput,
+): Promise<ResolvedReport> {
+  const {
+    admin,
+    shareToken,
+    datePreset,
+    customRange,
+    forceRefresh,
+    share,
+    event,
+    providerToken,
+  } = input;
+  const tokenTag = shareToken.slice(0, 6);
+
+  // Soft-skip: no Meta config means no Meta fetch and nothing
+  // worth caching. Bail out early so the cache table only holds
+  // rows that actually save a Meta round-trip.
+  if (!event.adAccountId || !event.eventCode) {
+    return {
+      metaPayload: null,
+      metaErrorReason: null,
+      creativesResult: null,
+    };
+  }
+
+  if (!forceRefresh) {
+    const hit = await readShareSnapshot(admin, {
+      shareToken,
+      datePreset,
+      customRange,
+    });
+    if (hit) {
+      console.log("[share-snapshots] hit", {
+        token: tokenTag,
+        preset: datePreset,
+        ageMs: hit.ageMs,
+      });
+      return {
+        metaPayload: hit.payload.metaPayload,
+        metaErrorReason: hit.payload.metaErrorReason,
+        creativesResult: hit.payload.activeCreatives,
+      };
+    }
+  }
+  console.log("[share-snapshots] miss", {
+    token: tokenTag,
+    preset: datePreset,
+    forced: forceRefresh,
+  });
+
+  let metaPayload: EventInsightsPayload | null = null;
+  let metaErrorReason: InsightsErrorReason | null = null;
+  if (!providerToken) {
+    metaErrorReason = "no_owner_token";
+  } else {
+    const insights: InsightsResult = await fetchEventInsights({
+      eventCode: event.eventCode,
+      adAccountId: event.adAccountId,
+      token: providerToken,
+      datePreset,
+      customRange,
+    });
+    if (insights.ok) {
+      metaPayload = insights.data;
+    } else {
+      metaErrorReason = insights.error.reason;
+      console.warn(
+        `[share/report] meta insights failed token=${shareToken} reason=${insights.error.reason} msg=${insights.error.message}`,
+      );
+    }
+  }
+
+  // Active creatives — wrapped so a thrown error never 500s the
+  // page. See the original inline note: we fan this out even when
+  // the headline call failed so a partial render survives.
+  // Linter quirk: JSX construction inside try/catch trips
+  // react-hooks/error-boundaries, so resolve the data here and
+  // build the element from it back in the page body.
+  const creativesResult: ShareActiveCreativesResult = await fetchShareActiveCreatives({
+    share,
+    admin,
+    eventCode: event.eventCode,
+    adAccountId: event.adAccountId,
+  }).catch((err) => {
+    console.warn(
+      `[share/report] active-creatives fetch crashed for token=${shareToken}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return {
+      kind: "error" as const,
+      reason: "meta_failed" as const,
+      message: "Unexpected error",
+    };
+  });
+
+  // Cache write — best-effort, fire-and-forget. We deliberately
+  // await it because Vercel's RSC runtime can suspend background
+  // promises mid-flight; the write is fast (single upsert) so the
+  // ~10ms latency cost is worth the durability guarantee.
+  const cacheable =
+    metaPayload != null && creativesResult.kind !== "error";
+  if (cacheable) {
+    const payload: ShareSnapshotPayload = {
+      metaPayload,
+      metaErrorReason,
+      activeCreatives: creativesResult,
+    };
+    await writeShareSnapshot(
+      admin,
+      { shareToken, datePreset, customRange },
+      payload,
+    );
+  }
+
+  return { metaPayload, metaErrorReason, creativesResult };
 }
 
 /**
