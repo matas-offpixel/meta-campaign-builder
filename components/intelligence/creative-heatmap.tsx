@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Tag, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, Plus, RefreshCw, Tag, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,28 @@ import type {
   CreativeTagType,
 } from "@/lib/types/intelligence";
 import type { MetaAdAccount } from "@/lib/types";
+
+/**
+ * Surfaced error shape for the heatmap's two read paths.
+ * `retryable` drives whether the destructive banner shows a "Try
+ * again" button. The mount fetch (ad accounts) is always treated as
+ * retryable because `/api/meta/ad-accounts` shares the same
+ * `graphGetWithToken` retry/transient code path that the creatives
+ * route uses, so the same Meta rate-limit blip can hit either.
+ */
+type HeatmapError = { message: string; retryable: boolean } | null;
+
+/**
+ * Internal-only error so the catch block can distinguish a structured
+ * failure (parsed from the route's JSON body) from anything else
+ * thrown along the way (network errors, JSON parse failures, etc.).
+ */
+class HeatmapFetchError extends Error {
+  constructor(message: string, public readonly retryable: boolean) {
+    super(message);
+    this.name = "HeatmapFetchError";
+  }
+}
 
 const TAG_TYPES: { value: CreativeTagType; label: string }[] = [
   { value: "format", label: "Format" },
@@ -64,43 +86,55 @@ export function CreativeHeatmapPage() {
 
   const [rows, setRows] = useState<CreativeInsightRow[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<HeatmapError>(null);
+  // Tracks which fetch path produced the current error so the "Try
+  // again" button knows what to re-run. `null` whenever there is no
+  // active error or the error is non-retryable user input.
+  const [lastFailed, setLastFailed] = useState<"accounts" | "creatives" | null>(
+    null,
+  );
 
   // Load ad accounts on mount so the dropdown is populated by the time
-  // the user lands on the page.
-  useEffect(() => {
-    let cancelled = false;
-    async function loadAccounts() {
-      try {
-        const res = await fetch("/api/meta/ad-accounts", { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const j = (await res.json()) as { data: MetaAdAccount[] };
-        if (!cancelled) setAdAccounts(j.data ?? []);
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? `Couldn't load ad accounts: ${err.message}`
-              : "Couldn't load ad accounts.",
-          );
-        }
-      } finally {
-        if (!cancelled) setAdAccountsLoading(false);
-      }
+  // the user lands on the page. Wrapped in a useCallback so the
+  // "Try again" button can re-invoke it without re-running the whole
+  // mount effect.
+  const loadAccounts = useCallback(async (): Promise<void> => {
+    setAdAccountsLoading(true);
+    try {
+      const res = await fetch("/api/meta/ad-accounts", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as { data: MetaAdAccount[] };
+      setAdAccounts(j.data ?? []);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? `Couldn't load ad accounts: ${err.message}`
+          : "Couldn't load ad accounts.";
+      // /api/meta/ad-accounts goes through the same graphGetWithToken
+      // retry path as the creatives route — if it still failed, the
+      // most likely cause is a transient Meta hiccup that's worth
+      // letting the user retry by hand.
+      setError({ message: msg, retryable: true });
+      setLastFailed("accounts");
+    } finally {
+      setAdAccountsLoading(false);
     }
-    void loadAccounts();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  const loadCreatives = async () => {
+  useEffect(() => {
+    void loadAccounts();
+  }, [loadAccounts]);
+
+  const loadCreatives = useCallback(async (): Promise<void> => {
     if (!adAccountId) {
-      setError("Choose an ad account first.");
+      // User-error, not a Meta failure — no point offering retry.
+      setError({ message: "Choose an ad account first.", retryable: false });
+      setLastFailed(null);
       return;
     }
     setLoading(true);
     setError(null);
+    setLastFailed(null);
     try {
       const sp = new URLSearchParams({ adAccountId, since, until });
       const res = await fetch(
@@ -108,19 +142,43 @@ export function CreativeHeatmapPage() {
         { cache: "no-store" },
       );
       if (!res.ok) {
-        const j = (await res.json().catch(() => null)) as
-          | { error?: string }
+        // The creatives route now returns
+        //   { ok: false, error, retryable, code?, fbtrace_id? }
+        // Honour `retryable` when present, fall back to true on
+        // unstructured failures (network blip, gateway) since reads
+        // are idempotent and a retry is harmless.
+        const body = (await res.json().catch(() => null)) as
+          | { error?: string; retryable?: boolean }
           | null;
-        throw new Error(j?.error ?? `HTTP ${res.status}`);
+        const message = body?.error ?? `HTTP ${res.status}`;
+        const retryable =
+          typeof body?.retryable === "boolean" ? body.retryable : true;
+        throw new HeatmapFetchError(message, retryable);
       }
       const j = (await res.json()) as { creatives: CreativeInsightRow[] };
       setRows(j.creatives ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load creatives");
+      if (err instanceof HeatmapFetchError) {
+        setError({ message: err.message, retryable: err.retryable });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : "Failed to load creatives",
+          retryable: true,
+        });
+      }
+      setLastFailed("creatives");
     } finally {
       setLoading(false);
     }
-  };
+  }, [adAccountId, since, until]);
+
+  const handleRetry = useCallback((): void => {
+    if (lastFailed === "accounts") {
+      void loadAccounts();
+    } else if (lastFailed === "creatives") {
+      void loadCreatives();
+    }
+  }, [lastFailed, loadAccounts, loadCreatives]);
 
   const filteredRows = useMemo(() => {
     if (!rows) return null;
@@ -218,8 +276,24 @@ export function CreativeHeatmapPage() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive">
-          {error}
+        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive">
+          <span className="leading-relaxed">{error.message}</span>
+          {error.retryable && lastFailed && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleRetry()}
+              disabled={adAccountsLoading || loading}
+              className="shrink-0"
+            >
+              {(adAccountsLoading || loading) ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              Try again
+            </Button>
+          )}
         </div>
       )}
 
