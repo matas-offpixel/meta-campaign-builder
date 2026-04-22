@@ -13,6 +13,7 @@ import {
   upsertMetaRollups,
 } from "@/lib/db/event-daily-rollups";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
+import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
 
 /**
  * POST /api/ticketing/rollup-sync?eventId=X
@@ -33,9 +34,36 @@ import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
  *           timezone. Failures are recorded on the connection row so
  *           the Eventbrite live block surfaces the same error.
  *
- * Returns 200 with `{ ok, meta, eventbrite }` describing each leg.
- * 207 (multi-status) when at least one leg failed but at least one
- * succeeded; 500 only when both fail catastrophically.
+ * Response shape:
+ *   {
+ *     ok: boolean,                      // true when both legs ok
+ *     summary: {                        // top-level booleans + total
+ *       metaOk, metaError, metaReason,
+ *       eventbriteOk, eventbriteError, eventbriteReason,
+ *       rowsUpserted,
+ *     },
+ *     meta: SyncLegResult,              // legacy per-leg detail kept
+ *     eventbrite: SyncLegResult,        // for backwards compat
+ *     diagnostics: { ... }              // env / scope / counts — safe
+ *                                       // to log to the browser
+ *   }
+ *
+ *   Status codes:
+ *     200 — both legs succeeded (rowsUpserted may be 0 when nothing
+ *           to write yet — that's a valid steady state, not an error).
+ *     207 — at least one leg succeeded and at least one failed.
+ *     200 with ok=false — both legs failed (no HTTP error because the
+ *           per-leg error strings are the actual diagnostic; we want
+ *           the client to render them, not see a generic 500).
+ *
+ * Diagnostic logging:
+ *   Every run emits a structured `[rollup-sync]` log line per leg
+ *   plus one summary line. This is the _only_ place we get to print
+ *   the env shape (EVENTBRITE_TOKEN_KEY presence, resolved Meta ad
+ *   account id, matched campaigns) so when a sync silently writes
+ *   zero rows we have a paper trail without needing to redeploy.
+ *   Tokens are NEVER printed — only "present"/"missing" booleans and
+ *   ID/code values that are already non-secret.
  *
  * Sits next to the existing `/api/ticketing/sync` route (which writes
  * a single `ticket_sales_snapshots` row) — the snapshot route stays
@@ -48,6 +76,55 @@ interface SyncLegResult {
   rowsWritten?: number;
   error?: string;
   reason?: string;
+}
+
+interface SyncDiagnostics {
+  /** Resolved `clients.meta_ad_account_id` for the event's client.
+   *  Null when the client has no ad account linked. */
+  metaAdAccountId: string | null;
+  /** Bracket-wrapped event_code we filtered on (or null when unset). */
+  metaCodeBracketed: string | null;
+  /** Distinct Meta campaign names that matched the case-sensitive
+   *  filter — empty array doesn't mean "broken", it means no live
+   *  campaigns yet for this event. */
+  metaCampaignsMatched: string[];
+  /** Number of distinct days Meta returned. */
+  metaDaysReturned: number;
+  /** Number of Meta rows we attempted to upsert (== days returned;
+   *  a separate field anyway because future versions may pad zero
+   *  rows for empty days). */
+  metaRowsAttempted: number;
+  /** True when EVENTBRITE_TOKEN_KEY is set in the running process.
+   *  Always boolean — the actual key is never returned. */
+  eventbriteTokenKeyPresent: boolean;
+  /** Number of `event_ticketing_links` rows for this event. >1 only
+   *  if the event was linked to multiple Eventbrite events at once,
+   *  which v1 doesn't surface in the UI. */
+  eventbriteLinksCount: number;
+  /** External (Eventbrite) event id we synced from. Null when we
+   *  couldn't resolve a link. Comma-joined when multiple links. */
+  eventbriteEventIds: string[];
+  /** Number of Eventbrite rows we attempted to upsert (sum across
+   *  all links). */
+  eventbriteRowsAttempted: number;
+  /** Date window used for the Meta query (inclusive). */
+  windowSince: string;
+  windowUntil: string;
+  /** Resolved event reporting timezone (or null when unset). */
+  eventTimezone: string | null;
+}
+
+interface SummaryBlock {
+  metaOk: boolean;
+  metaError: string | null;
+  metaReason: string | null;
+  metaRowsUpserted: number;
+  eventbriteOk: boolean;
+  eventbriteError: string | null;
+  eventbriteReason: string | null;
+  eventbriteRowsUpserted: number;
+  /** Sum across both legs — the easiest "did anything happen?" gauge. */
+  rowsUpserted: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -118,14 +195,44 @@ export async function POST(req: NextRequest) {
   const sinceStr = ymd(since);
   const untilStr = ymd(until);
 
+  // Diagnostic record — populated by both legs as we go and emitted
+  // back to the caller (and to server logs) at the end. Defaulted up
+  // front so a mid-flight throw still has a populated shape to log.
+  const diagnostics: SyncDiagnostics = {
+    metaAdAccountId: adAccountId,
+    metaCodeBracketed: eventCode ? `[${eventCode}]` : null,
+    metaCampaignsMatched: [],
+    metaDaysReturned: 0,
+    metaRowsAttempted: 0,
+    eventbriteTokenKeyPresent: tryGetEventbriteTokenKey() !== null,
+    eventbriteLinksCount: 0,
+    eventbriteEventIds: [],
+    eventbriteRowsAttempted: 0,
+    windowSince: sinceStr,
+    windowUntil: untilStr,
+    eventTimezone,
+  };
+
+  console.log(
+    `[rollup-sync] start event_id=${eventId} user_id=${user.id} event_code=${
+      eventCode ?? "<null>"
+    } meta_ad_account_id=${adAccountId ?? "<null>"} tz=${
+      eventTimezone ?? "<null>"
+    } window=${sinceStr}..${untilStr} EVENTBRITE_TOKEN_KEY=${
+      diagnostics.eventbriteTokenKeyPresent ? "present" : "missing"
+    }`,
+  );
+
   // ── Meta leg ──────────────────────────────────────────────────────
   const metaResult: SyncLegResult = { ok: false };
   if (!eventCode) {
     metaResult.reason = "no_event_code";
     metaResult.error = "Event has no event_code — set one to track Meta spend.";
+    console.warn(`[rollup-sync] meta skip: ${metaResult.reason}`);
   } else if (!adAccountId) {
     metaResult.reason = "no_ad_account";
     metaResult.error = "Client has no Meta ad account linked.";
+    console.warn(`[rollup-sync] meta skip: ${metaResult.reason}`);
   } else {
     try {
       const { token } = await resolveServerMetaToken(supabase, user.id);
@@ -139,21 +246,46 @@ export async function POST(req: NextRequest) {
       if (!metaFetch.ok) {
         metaResult.reason = metaFetch.error.reason;
         metaResult.error = metaFetch.error.message;
+        console.warn(
+          `[rollup-sync] meta fetch failed reason=${metaFetch.error.reason} msg=${metaFetch.error.message}`,
+        );
       } else {
-        await upsertMetaRollups(supabase, {
-          userId: user.id,
-          eventId,
-          rows: metaFetch.days.map((d) => ({
-            date: d.day,
-            ad_spend: d.spend,
-            link_clicks: d.linkClicks,
-          })),
-        });
-        metaResult.ok = true;
-        metaResult.rowsWritten = metaFetch.days.length;
+        diagnostics.metaCampaignsMatched = metaFetch.campaignNames;
+        diagnostics.metaDaysReturned = metaFetch.days.length;
+        diagnostics.metaRowsAttempted = metaFetch.days.length;
+        console.log(
+          `[rollup-sync] meta fetch ok campaigns=${
+            metaFetch.campaignNames.length
+          } days=${metaFetch.days.length}${
+            metaFetch.campaignNames.length > 0
+              ? ` names=${JSON.stringify(metaFetch.campaignNames)}`
+              : ""
+          }`,
+        );
+        try {
+          await upsertMetaRollups(supabase, {
+            userId: user.id,
+            eventId,
+            rows: metaFetch.days.map((d) => ({
+              date: d.day,
+              ad_spend: d.spend,
+              link_clicks: d.linkClicks,
+            })),
+          });
+          metaResult.ok = true;
+          metaResult.rowsWritten = metaFetch.days.length;
+          console.log(
+            `[rollup-sync] meta upsert ok rows_written=${metaFetch.days.length}`,
+          );
+        } catch (err) {
+          metaResult.error =
+            err instanceof Error ? err.message : "Unknown error";
+          console.error(`[rollup-sync] meta upsert failed: ${metaResult.error}`);
+        }
       }
     } catch (err) {
       metaResult.error = err instanceof Error ? err.message : "Unknown error";
+      console.error(`[rollup-sync] meta leg threw: ${metaResult.error}`);
     }
   }
 
@@ -161,11 +293,19 @@ export async function POST(req: NextRequest) {
   const eventbriteResult: SyncLegResult = { ok: false };
   try {
     const links = await listLinksForEvent(supabase, eventId);
+    diagnostics.eventbriteLinksCount = links.length;
+    diagnostics.eventbriteEventIds = links.map((l) => l.external_event_id);
     if (links.length === 0) {
       eventbriteResult.reason = "not_linked";
       eventbriteResult.error =
         "No ticketing link — pick the Eventbrite event in the panel above first.";
+      console.warn(`[rollup-sync] eventbrite skip: ${eventbriteResult.reason}`);
     } else {
+      console.log(
+        `[rollup-sync] eventbrite links=${links.length} external_ids=${JSON.stringify(
+          diagnostics.eventbriteEventIds,
+        )}`,
+      );
       let totalRows = 0;
       let firstError: string | null = null;
       for (const link of links) {
@@ -176,6 +316,9 @@ export async function POST(req: NextRequest) {
           );
           if (!connection) {
             firstError ??= "Connection vanished — re-create the link.";
+            console.warn(
+              `[rollup-sync] eventbrite connection ${link.connection_id} vanished`,
+            );
             continue;
           }
           // Only Eventbrite orders are wired in v1. Other providers
@@ -183,6 +326,9 @@ export async function POST(req: NextRequest) {
           // same provider name check.
           if (connection.provider !== "eventbrite") {
             firstError ??= `Daily breakdown not implemented for provider "${connection.provider}".`;
+            console.warn(
+              `[rollup-sync] eventbrite skip provider=${connection.provider}`,
+            );
             continue;
           }
           const { rows } = await fetchDailyOrdersForEvent({
@@ -190,6 +336,10 @@ export async function POST(req: NextRequest) {
             externalEventId: link.external_event_id,
             eventTimezone,
           });
+          diagnostics.eventbriteRowsAttempted += rows.length;
+          console.log(
+            `[rollup-sync] eventbrite link=${link.external_event_id} fetched_rows=${rows.length}`,
+          );
           await upsertEventbriteRollups(supabase, {
             userId: user.id,
             eventId,
@@ -201,9 +351,15 @@ export async function POST(req: NextRequest) {
           });
           await recordConnectionSync(supabase, connection.id, { ok: true });
           totalRows += rows.length;
+          console.log(
+            `[rollup-sync] eventbrite link=${link.external_event_id} upsert ok rows_written=${rows.length}`,
+          );
         } catch (err) {
           const message = err instanceof Error ? err.message : "Unknown error";
           firstError ??= message;
+          console.error(
+            `[rollup-sync] eventbrite link=${link.external_event_id} failed: ${message}`,
+          );
           // Best-effort: flip the connection to error state so the
           // live block badge picks it up.
           try {
@@ -225,13 +381,47 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (err) {
-    eventbriteResult.error = err instanceof Error ? err.message : "Unknown error";
+    eventbriteResult.error =
+      err instanceof Error ? err.message : "Unknown error";
+    console.error(`[rollup-sync] eventbrite leg threw: ${eventbriteResult.error}`);
   }
 
   const allOk = metaResult.ok && eventbriteResult.ok;
   const anyOk = metaResult.ok || eventbriteResult.ok;
+
+  const summary: SummaryBlock = {
+    metaOk: metaResult.ok,
+    metaError: metaResult.ok ? null : (metaResult.error ?? null),
+    metaReason: metaResult.reason ?? null,
+    metaRowsUpserted: metaResult.rowsWritten ?? 0,
+    eventbriteOk: eventbriteResult.ok,
+    eventbriteError: eventbriteResult.ok
+      ? null
+      : (eventbriteResult.error ?? null),
+    eventbriteReason: eventbriteResult.reason ?? null,
+    eventbriteRowsUpserted: eventbriteResult.rowsWritten ?? 0,
+    rowsUpserted:
+      (metaResult.rowsWritten ?? 0) + (eventbriteResult.rowsWritten ?? 0),
+  };
+
+  console.log(
+    `[rollup-sync] done event_id=${eventId} ok=${allOk} meta_ok=${
+      summary.metaOk
+    } meta_rows=${summary.metaRowsUpserted} eb_ok=${
+      summary.eventbriteOk
+    } eb_rows=${summary.eventbriteRowsUpserted} total_rows=${
+      summary.rowsUpserted
+    }`,
+  );
+
   return NextResponse.json(
-    { ok: allOk, meta: metaResult, eventbrite: eventbriteResult },
+    {
+      ok: allOk,
+      summary,
+      meta: metaResult,
+      eventbrite: eventbriteResult,
+      diagnostics,
+    },
     { status: allOk ? 200 : anyOk ? 207 : 200 },
   );
 }

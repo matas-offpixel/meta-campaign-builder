@@ -361,24 +361,28 @@ export function DailyTracker({
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
-            Refresh
+            Sync now
           </Button>
         )}
       </header>
 
-      {error ? (
+      {/* In controlled mode the orchestrator owns a richer SyncStatusPanel
+          above the table — duplicating the leg-error chips here would just
+          repeat the same message twice. Uncontrolled callers (the legacy
+          embed sites) still need their own in-table error surface. */}
+      {!isControlled && error ? (
         <p className="mx-4 mt-3 inline-flex items-center gap-1 text-xs text-destructive">
           <AlertCircle className="h-3 w-3" />
           {error}
         </p>
       ) : null}
-      {legErrors?.meta ? (
+      {!isControlled && legErrors?.meta ? (
         <p className="mx-4 mt-3 inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
           <AlertCircle className="h-3 w-3" />
           Meta: {legErrors.meta}
         </p>
       ) : null}
-      {legErrors?.eventbrite ? (
+      {!isControlled && legErrors?.eventbrite ? (
         <p className="mx-4 mt-3 inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
           <AlertCircle className="h-3 w-3" />
           Eventbrite: {legErrors.eventbrite}

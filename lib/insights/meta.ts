@@ -1343,6 +1343,11 @@ export async function fetchEventDailyMetaMetrics(
     // by day so the caller gets a single number per calendar date.
     const totalsSpend = new Map<string, number>();
     const totalsClicks = new Map<string, number>();
+    // Track which distinct campaigns survived the case-sensitive
+    // post-filter — surfaced in the result for diagnostic logging
+    // (rollup-sync prints these so we can confirm at a glance the
+    // sync saw the same campaigns the live block sees).
+    const matchedCampaigns = new Set<string>();
 
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
@@ -1378,6 +1383,7 @@ export async function fetchEventDailyMetaMetrics(
         // case-sensitive substring check we want.
         const name = row.campaign_name ?? "";
         if (!name.includes(codeBracketed)) continue;
+        matchedCampaigns.add(name);
         totalsSpend.set(
           day,
           (totalsSpend.get(day) ?? 0) + parseNum(row.spend),
@@ -1400,7 +1406,11 @@ export async function fetchEventDailyMetaMetrics(
         linkClicks: totalsClicks.get(day) ?? 0,
       }));
 
-    return { ok: true, days };
+    return {
+      ok: true,
+      days,
+      campaignNames: [...matchedCampaigns].sort(),
+    };
   } catch (err) {
     return handleMetaError(err);
   }
