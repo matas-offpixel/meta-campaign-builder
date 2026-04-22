@@ -32,6 +32,7 @@ import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
+import { EventActiveCreativesPanel } from "@/components/dashboard/events/event-active-creatives-panel";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
 import {
   TicketPacingCard,
@@ -681,6 +682,16 @@ export function EventDetail({
               gracefully degrades when artists / venue coords are
               missing — the whole panel never 500s on a single
               upstream failure. */}
+          {/* ───── Active Creatives ─────
+              Live (no cache) per-event view of every ACTIVE Meta
+              ad, grouped by creative_id so one card represents one
+              creative even when it's deployed across several ad
+              sets / campaigns. Concurrency-capped fetch on the
+              server side; sort + refresh on the client. */}
+          <TabPanel active={activeTab === "active-creatives"}>
+            <EventActiveCreativesPanel eventId={event.id} />
+          </TabPanel>
+
           <TabPanel active={activeTab === "activity"}>
             <EventActivityPanel eventId={event.id} />
           </TabPanel>
