@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getConnectionById } from "@/lib/db/ticketing";
+import {
+  getConnectionById,
+  getConnectionWithDecryptedCredentials,
+} from "@/lib/db/ticketing";
 import { getProvider } from "@/lib/ticketing/registry";
 import { TicketingProviderDisabledError } from "@/lib/ticketing/types";
 
@@ -50,8 +53,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const provider = getProvider(connection.provider);
-    const events = await provider.listEvents(connection);
+    // Re-fetch the connection with decrypted credentials before
+    // handing it to the provider — `getConnectionById` above only
+    // returned the row for the ownership / status checks, and its
+    // `credentials` field is `{}` for any post-migration-038 row.
+    const decrypted = await getConnectionWithDecryptedCredentials(
+      supabase,
+      connection.id,
+    );
+    if (!decrypted) {
+      return NextResponse.json(
+        { ok: false, error: "Connection not found" },
+        { status: 404 },
+      );
+    }
+    const provider = getProvider(decrypted.provider);
+    const events = await provider.listEvents(decrypted);
     return NextResponse.json({ ok: true, events });
   } catch (err) {
     if (err instanceof TicketingProviderDisabledError) {

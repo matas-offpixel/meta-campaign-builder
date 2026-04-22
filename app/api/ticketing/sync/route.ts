@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getConnectionById,
+  getConnectionWithDecryptedCredentials,
   insertSnapshot,
   listLinksForEvent,
   recordConnectionSync,
@@ -88,7 +89,38 @@ export async function POST(req: NextRequest) {
 
   const results: LinkSyncResult[] = [];
   for (const link of links) {
-    const connection = await getConnectionById(supabase, link.connection_id);
+    // Decrypt credentials on demand — the row in `event_ticketing_links`
+    // only carries the connection id, so we re-resolve here. Provider
+    // calls below MUST use the decrypted variant; the registry-side
+    // providers expect a populated `credentials.personal_token`.
+    let connection;
+    try {
+      connection = await getConnectionWithDecryptedCredentials(
+        supabase,
+        link.connection_id,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      // Best-effort: also flip the connection row to `error` so the
+      // dashboard pill surfaces the same message instead of staying
+      // green. Use the cheaper non-decrypting helper for the lookup
+      // so a missing key here doesn't recurse.
+      const fallback = await getConnectionById(supabase, link.connection_id);
+      if (fallback) {
+        await recordConnectionSync(supabase, fallback.id, {
+          ok: false,
+          error: message,
+        });
+      }
+      results.push({
+        linkId: link.id,
+        connectionId: link.connection_id,
+        provider: fallback?.provider ?? "(unknown)",
+        ok: false,
+        error: message,
+      });
+      continue;
+    }
     if (!connection) {
       results.push({
         linkId: link.id,

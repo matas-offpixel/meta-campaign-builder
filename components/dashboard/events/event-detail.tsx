@@ -38,6 +38,9 @@ import {
   TicketPacingCard,
   type PacingSnapshot,
 } from "@/components/dashboard/events/ticket-pacing-card";
+import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
+import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
+import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
@@ -134,6 +137,13 @@ interface Props {
    * connect-ticketing empty state.
    */
   ticketSnapshots: PacingSnapshot[];
+  /**
+   * Pre-fetched Eventbrite link + connection + latest snapshot
+   * summary for the live block at the top of the page. Server-built
+   * via `getEventTicketingSummary`. Empty/null fields mean "render
+   * the connect / link CTA instead of the live numbers".
+   */
+  ticketingSummary: EventTicketingSummary;
 }
 
 /**
@@ -156,6 +166,7 @@ export function EventDetail({
   linkedQuote,
   linkedInvoices,
   ticketSnapshots,
+  ticketingSummary,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -359,6 +370,36 @@ export function EventDetail({
           {error && (
             <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-xs text-destructive">
               {error}
+            </div>
+          )}
+
+          {/*
+            Eventbrite block sits above the tabs so it's visible
+            regardless of which tab the user lands on. Brand
+            campaigns hide it (no tickets concept). The live block
+            handles its own empty / not-linked / linked states; the
+            link panel is only shown when a connection exists but
+            the event isn't bound yet (or the operator clicks
+            "Change" on the linked-state summary).
+          */}
+          {!isBrand && event.client_id && (
+            <div className="space-y-3">
+              <EventbriteLiveBlock
+                eventId={event.id}
+                clientId={event.client_id}
+                fallbackCapacity={event.capacity}
+                initialLink={ticketingSummary.link}
+                initialConnection={ticketingSummary.connection}
+                initialLatestSnapshot={ticketingSummary.latestSnapshot}
+              />
+              <EventbriteLinkPanel
+                eventId={event.id}
+                clientId={event.client_id}
+                availableConnections={
+                  ticketingSummary.availableConnections
+                }
+                existingLink={ticketingSummary.link}
+              />
             </div>
           )}
 

@@ -18,6 +18,7 @@ import {
   listInvoicesForEventServer,
 } from "@/lib/db/invoicing-server";
 import { getSnapshotsForEvent } from "@/lib/db/ticket-snapshots";
+import { getEventTicketingSummary } from "@/lib/db/event-ticketing-summary";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -110,12 +111,33 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
 
   const plan = planResult ?? null;
 
-  const planDays = plan
-    ? await listDaysForPlanServer(plan.id).catch((err) => {
-        console.error("[EventDetailPage] listDaysForPlanServer failed:", err);
-        return [];
-      })
-    : [];
+  // event.client_id only resolves after the notFound guard above, so
+  // the ticketing summary fetch sequences after the main fan-out
+  // rather than joining it. Wrapped defensively for the same reason
+  // as the snapshot fetch — migration 029/038 may not be applied
+  // everywhere.
+  const [planDays, ticketingSummary] = await Promise.all([
+    plan
+      ? listDaysForPlanServer(plan.id).catch((err) => {
+          console.error("[EventDetailPage] listDaysForPlanServer failed:", err);
+          return [];
+        })
+      : Promise.resolve([]),
+    getEventTicketingSummary(event.id, event.client_id ?? null).catch(
+      (err) => {
+        console.error(
+          "[EventDetailPage] getEventTicketingSummary failed:",
+          err,
+        );
+        return {
+          link: null,
+          connection: null,
+          latestSnapshot: null,
+          availableConnections: [],
+        };
+      },
+    ),
+  ]);
 
   return (
     <EventDetail
@@ -132,6 +154,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       linkedQuote={linkedQuote}
       linkedInvoices={linkedInvoices}
       ticketSnapshots={ticketSnapshots}
+      ticketingSummary={ticketingSummary}
     />
   );
 }

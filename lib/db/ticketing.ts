@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getEventbriteTokenKey } from "@/lib/ticketing/secrets";
 import type {
   EventTicketingLink,
   TicketingConnection,
@@ -85,6 +86,75 @@ export async function getConnectionById(
   return (data as unknown as TicketingConnection) ?? null;
 }
 
+/**
+ * Same as `getConnectionById` but populates `credentials` with the
+ * decrypted JSON pulled from `credentials_encrypted` via the
+ * `get_ticketing_credentials` RPC (migration 038).
+ *
+ * Three precedence rules:
+ *   1. If `credentials_encrypted` exists, decrypt it and use that.
+ *   2. Otherwise (legacy row pre-migration 038) fall back to the
+ *      plaintext `credentials` jsonb column. Any in-place re-save will
+ *      flip the row over to the encrypted path.
+ *   3. If both are empty, return the row with `credentials: {}`. The
+ *      provider's `validateCredentials` / `getEventSales` will then
+ *      throw a clear "missing personal_token" error.
+ *
+ * Throws `MissingTokenKeyError` when `EVENTBRITE_TOKEN_KEY` is unset,
+ * which is the right blast radius — without the key we have no way
+ * to talk to Eventbrite for THIS connection regardless of provider,
+ * and we'd rather surface that as a 500 than as an opaque "Eventbrite
+ * rejected the token".
+ */
+export async function getConnectionWithDecryptedCredentials(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<TicketingConnection | null> {
+  const sb = asAnyTable(supabase);
+  const row = await getConnectionById(supabase, id);
+  if (!row) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawRow = row as unknown as Record<string, any>;
+  const hasEncryptedBlob = rawRow.credentials_encrypted != null;
+
+  if (hasEncryptedBlob) {
+    const key = getEventbriteTokenKey();
+    const { data, error } = await sb.rpc("get_ticketing_credentials", {
+      p_connection_id: id,
+      p_key: key,
+    });
+    if (error) {
+      console.warn(
+        "[ticketing getConnectionWithDecryptedCredentials] decrypt failed:",
+        error.message,
+      );
+      throw new Error(
+        "Could not decrypt the saved Eventbrite credentials. Re-save the connection on the client's Ticketing tab.",
+      );
+    }
+    if (typeof data === "string" && data.length > 0) {
+      let parsed: Record<string, unknown> = {};
+      try {
+        const obj = JSON.parse(data);
+        if (obj && typeof obj === "object") {
+          parsed = obj as Record<string, unknown>;
+        }
+      } catch {
+        // Should not happen — `set_ticketing_credentials` always
+        // stores JSON-stringified objects. Leave parsed = {} so the
+        // provider surfaces "missing personal_token" rather than
+        // crashing the caller.
+      }
+      return { ...row, credentials: parsed };
+    }
+  }
+
+  // Legacy path: row pre-dates migration 038 and still has plaintext
+  // credentials in the jsonb column. Pass through unchanged.
+  return row;
+}
+
 export interface UpsertConnectionInput {
   userId: string;
   clientId: string;
@@ -99,12 +169,31 @@ export interface UpsertConnectionInput {
  * table backs the conflict target. Re-saving an existing connection
  * overwrites credentials + external_account_id and resets status to
  * 'active', clearing any prior `last_error`.
+ *
+ * Two-step write so we never persist plaintext credentials in the
+ * legacy `credentials jsonb` column:
+ *
+ *   1. Upsert the row with `credentials = '{}'::jsonb`. This sets
+ *      everything except the secret and gives us back the row id.
+ *   2. Call `set_ticketing_credentials(id, json, key)` (migration 038)
+ *      which `pgp_sym_encrypt`s the JSON-stringified credentials into
+ *      `credentials_encrypted` and re-asserts the empty jsonb in the
+ *      same statement.
+ *
+ * Callers must have `EVENTBRITE_TOKEN_KEY` set; we throw via
+ * `MissingTokenKeyError` otherwise so the API route can surface a
+ * clear 500 rather than silently storing a row that nothing can ever
+ * decrypt.
  */
 export async function upsertConnection(
   supabase: AnySupabaseClient,
   input: UpsertConnectionInput,
 ): Promise<TicketingConnection | null> {
   const sb = asAnyTable(supabase);
+  // Read the key BEFORE any write so a misconfigured environment fails
+  // fast instead of leaving a half-saved row behind.
+  const key = getEventbriteTokenKey();
+
   const { data, error } = await sb
     .from("client_ticketing_connections")
     .upsert(
@@ -112,7 +201,10 @@ export async function upsertConnection(
         user_id: input.userId,
         client_id: input.clientId,
         provider: input.provider,
-        credentials: input.credentials,
+        // Plaintext column is permanently `{}` for new writes; the
+        // real secret lives in `credentials_encrypted`, populated by
+        // the RPC below.
+        credentials: {},
         external_account_id: input.externalAccountId,
         status: input.status ?? "active",
         last_error: null,
@@ -126,7 +218,27 @@ export async function upsertConnection(
     console.warn("[ticketing upsertConnection]", error.message);
     return null;
   }
-  return (data as unknown as TicketingConnection) ?? null;
+  if (!data) return null;
+  const row = data as unknown as TicketingConnection;
+
+  // Encrypt + persist the credentials blob. JSON.stringify keeps the
+  // payload shape opaque to pgcrypto so we don't have to teach the
+  // SQL layer anything about provider-specific fields.
+  const plaintext = JSON.stringify(input.credentials ?? {});
+  const { error: rpcError } = await sb.rpc("set_ticketing_credentials", {
+    p_connection_id: row.id,
+    p_plaintext: plaintext,
+    p_key: key,
+  });
+  if (rpcError) {
+    console.warn(
+      "[ticketing upsertConnection] set_ticketing_credentials failed:",
+      rpcError.message,
+    );
+    return null;
+  }
+
+  return row;
 }
 
 export async function setConnectionStatus(

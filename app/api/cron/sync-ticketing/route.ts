@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
+  getConnectionWithDecryptedCredentials,
   insertSnapshot,
   recordConnectionSync,
 } from "@/lib/db/ticketing";
@@ -175,13 +176,56 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
+    // Decrypt credentials once per connection — every link below shares
+    // the same token. Service role bypasses RLS so the RPC call inside
+    // the helper still resolves; missing-key / decrypt-error states
+    // surface as a per-connection failure rather than crashing the cron.
+    let decryptedConnection: TicketingConnection | null;
+    try {
+      decryptedConnection = await getConnectionWithDecryptedCredentials(
+        supabase,
+        connection.id,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      await recordConnectionSync(supabase, connection.id, {
+        ok: false,
+        error: message,
+      });
+      results.push({
+        connectionId: connection.id,
+        provider: connection.provider,
+        linksProcessed: 0,
+        snapshotsWritten: 0,
+        errors: links.map((l) => ({ linkId: l.id, message })),
+      });
+      continue;
+    }
+    if (!decryptedConnection) {
+      results.push({
+        connectionId: connection.id,
+        provider: connection.provider,
+        linksProcessed: 0,
+        snapshotsWritten: 0,
+        errors: links.map((l) => ({
+          linkId: l.id,
+          message: "Connection vanished mid-cron",
+        })),
+      });
+      continue;
+    }
+    const connectionForProvider = decryptedConnection;
+
     const errors: { linkId: string; message: string }[] = [];
     let snapshotsWritten = 0;
     let lastError: string | null = null;
     for (const link of links) {
       try {
         const fetched = await Promise.race([
-          provider.getEventSales(connection, link.external_event_id),
+          provider.getEventSales(
+            connectionForProvider,
+            link.external_event_id,
+          ),
           new Promise((_, reject) =>
             setTimeout(
               () => reject(new Error("getEventSales timed out")),
