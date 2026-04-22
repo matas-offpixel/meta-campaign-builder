@@ -2,29 +2,54 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Ticket } from "lucide-react";
+import { LayoutGrid, List, Plus, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EventsFilters } from "@/components/dashboard/events/events-filters";
+import { EventsPipelineBoard } from "@/components/dashboard/events/events-pipeline-board";
 import { useWriteParams } from "@/components/dashboard/_shared/use-write-params";
 import { type EventWithClient } from "@/lib/db/events";
 import { StatusPill } from "@/components/dashboard/_shared/status-pill";
 import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import { fmtDate } from "@/lib/dashboard/format";
+import type { CampaignPhase } from "@/lib/wizard/phase";
+
+export type EventsView = "list" | "pipeline";
 
 /**
  * Prop-driven list. Server route fetches the filtered rows and passes
- * them in; this component owns only the page chrome + filter strip.
- * The router import stays for the "New event" header action — the only
- * client-side mutation surface at this level.
+ * them in; this component owns the page chrome + filter strip + view
+ * toggle. The router import stays for the "New event" header action.
+ *
+ * `view` is URL-driven (`?view=list|pipeline`) so a deep link survives
+ * a refresh and the toggle round-trips cleanly through the existing
+ * filter contract.
  */
 export function EventsList({
   events,
   filtersActive,
+  view,
+  phaseByEventId,
+  linkedCountByEventId,
 }: {
   events: EventWithClient[];
   /** True when any of ?client/?status/?q/?pendingAction is set. */
   filtersActive: boolean;
+  /** Current view (default `list`). */
+  view: EventsView;
+  /**
+   * Phase lookup keyed by event id. Computed server-side so we don't
+   * need to ship `derivePhase` to the browser. Always present, but
+   * may be empty in the list view path where the parent skipped the
+   * phase computation.
+   */
+  phaseByEventId: Record<string, CampaignPhase>;
+  /**
+   * Per-event linked draft count (any status). Drives the small
+   * "linked" badge on pipeline cards. Empty record when the parent
+   * couldn't load the join (logged + degraded by the parent).
+   */
+  linkedCountByEventId: Record<string, number>;
 }) {
   const router = useRouter();
   const { writeParams } = useWriteParams();
@@ -37,21 +62,36 @@ export function EventsList({
       p.delete("pendingAction");
     });
 
+  const setView = (next: EventsView) =>
+    writeParams((p) => {
+      if (next === "list") p.delete("view");
+      else p.set("view", next);
+    });
+
   return (
     <>
       <PageHeader
         title="Events"
         description="All upcoming and historical shows across clients."
         actions={
-          <Button onClick={() => router.push("/events/new")}>
-            <Plus className="h-4 w-4" />
-            New event
-          </Button>
+          <>
+            <ViewToggle view={view} onChange={setView} />
+            <Button onClick={() => router.push("/events/new")}>
+              <Plus className="h-4 w-4" />
+              New event
+            </Button>
+          </>
         }
       />
 
       <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-6xl space-y-4">
+        <div
+          className={
+            view === "pipeline"
+              ? "mx-auto max-w-[1600px] space-y-4 px-2"
+              : "mx-auto max-w-6xl space-y-4"
+          }
+        >
           <EventsFilters />
 
           {events.length === 0 ? (
@@ -88,6 +128,12 @@ export function EventsList({
                 </div>
               </div>
             )
+          ) : view === "pipeline" ? (
+            <EventsPipelineBoard
+              events={events}
+              phaseOf={(eventId) => phaseByEventId[eventId] ?? "Campaign"}
+              linkedCountOf={(eventId) => linkedCountByEventId[eventId] ?? 0}
+            />
           ) : (
             <div className="space-y-2">
               {events.map((ev) => (
@@ -130,5 +176,71 @@ export function EventsList({
         </div>
       </main>
     </>
+  );
+}
+
+/**
+ * Two-button segmented control. Sits in the page header next to the
+ * "New event" CTA and writes `?view=pipeline|<absent>` to the URL so
+ * deep-links round-trip cleanly.
+ */
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: EventsView;
+  onChange: (next: EventsView) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Switch events view"
+      className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5"
+    >
+      <ToggleButton
+        active={view === "list"}
+        onClick={() => onChange("list")}
+        aria-label="List view"
+      >
+        <List className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">List</span>
+      </ToggleButton>
+      <ToggleButton
+        active={view === "pipeline"}
+        onClick={() => onChange("pipeline")}
+        aria-label="Pipeline view"
+      >
+        <LayoutGrid className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Pipeline</span>
+      </ToggleButton>
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+  ...rest
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        "inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs",
+        active
+          ? "bg-foreground text-background"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      ].join(" ")}
+      {...rest}
+    >
+      {children}
+    </button>
   );
 }
