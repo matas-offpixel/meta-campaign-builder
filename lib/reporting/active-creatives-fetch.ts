@@ -9,6 +9,7 @@ import {
   type CreativePreview,
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
+import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
 import { buildTimeParams } from "@/lib/insights/meta";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -172,6 +173,17 @@ export interface FetchActiveCreativesMeta {
   truncated: boolean;
   /** Set when every campaign failed because the FB token is dead. */
   auth_expired: boolean;
+  /**
+   * Count of duplicate ad rows dropped by the cross-campaign dedup
+   * (PR #50). Non-zero means the `event_code` substring matched
+   * multiple sibling campaigns that share ads — Meta returns the
+   * same `ad_id` once per campaign it appears in, both from
+   * `/{campaignId}/ads` and `/{campaignId}/insights?level=ad`.
+   * First-seen wins per ad_id; subsequent rows are counted here
+   * and discarded before grouping. Surfaced for debug/log
+   * surfaces, not the UI.
+   */
+  cross_campaign_duplicates: number;
 }
 
 export interface FetchActiveCreativesResult {
@@ -762,6 +774,7 @@ export async function fetchActiveCreativesForEvent(
         dropped_no_creative: 0,
         truncated: false,
         auth_expired: false,
+        cross_campaign_duplicates: 0,
       },
     };
   }
@@ -848,9 +861,25 @@ export async function fetchActiveCreativesForEvent(
     throw new FacebookAuthExpiredError();
   }
 
-  const ads = results.flat();
-  const droppedNoCreative = ads.filter((a) => !a.creative_id).length;
-  let creatives = groupAdsByCreative(ads);
+  const rawAds = results.flat();
+  // PR #50 — cross-campaign dedup. Meta's CONTAIN campaign-filter
+  // returns multiple sibling campaigns for the same event_code; the
+  // same ad_id can appear once per matched campaign, both in
+  // /{campaignId}/ads and /{campaignId}/insights?level=ad. Without
+  // this dedup, purchases / LPV / spend on the card inflate by
+  // exactly the number of campaigns the ad is reachable from
+  // (observed 3× on Junction 2 — UGC 2 - Ry X reported 15
+  // purchases vs Ads Manager ground-truth of 5).
+  const { kept: dedupedAds, dropped: duplicatesDropped } =
+    dedupAdsByAdId(rawAds);
+  if (duplicatesDropped > 0) {
+    console.log(
+      `[active-creatives] cross-campaign dedup: dropped ${duplicatesDropped}/${rawAds.length} duplicate ad rows (event=${eventCode})`,
+    );
+  }
+
+  const droppedNoCreative = dedupedAds.filter((a) => !a.creative_id).length;
+  let creatives = groupAdsByCreative(dedupedAds);
   let truncated = false;
   if (creatives.length > PER_EVENT_CREATIVE_CAP) {
     creatives = creatives.slice(0, PER_EVENT_CREATIVE_CAP);
@@ -863,10 +892,16 @@ export async function fetchActiveCreativesForEvent(
     meta: {
       campaigns_total: campaigns.length,
       campaigns_failed: failed.length,
-      ads_fetched: ads.length,
+      // `ads_fetched` reflects the distinct-ad count after dedup —
+      // semantically "how many distinct creatives are running",
+      // not "how many duplicate rows the upstream fan-out
+      // produced". The duplicate count is broken out separately in
+      // `cross_campaign_duplicates` for debugging.
+      ads_fetched: dedupedAds.length,
       dropped_no_creative: droppedNoCreative,
       truncated,
       auth_expired: authExpired,
+      cross_campaign_duplicates: duplicatesDropped,
     },
   };
 }
