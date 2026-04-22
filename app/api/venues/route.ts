@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { createVenue, listVenues } from "@/lib/db/venues";
+import type { Json } from "@/lib/db/database.types";
 
 /**
  * GET /api/venues — list every venue the signed-in user owns.
@@ -51,24 +52,36 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Optional enrichment fields — only persisted when present so a
+  // bare {name,city} POST keeps the original behaviour intact.
+  const stringOrNull = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() !== "" ? v : null;
+  const numberOrNull = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+
   try {
     const venue = await createVenue(user.id, {
       name,
       city,
       country: typeof body.country === "string" ? body.country : "GB",
-      capacity:
-        typeof body.capacity === "number"
-          ? body.capacity
-          : body.capacity === null
-            ? null
-            : null,
-      address: typeof body.address === "string" ? body.address : null,
-      meta_page_id:
-        typeof body.meta_page_id === "string" ? body.meta_page_id : null,
-      meta_page_name:
-        typeof body.meta_page_name === "string" ? body.meta_page_name : null,
-      website: typeof body.website === "string" ? body.website : null,
-      notes: typeof body.notes === "string" ? body.notes : null,
+      capacity: numberOrNull(body.capacity),
+      address: stringOrNull(body.address),
+      meta_page_id: stringOrNull(body.meta_page_id),
+      meta_page_name: stringOrNull(body.meta_page_name),
+      website: stringOrNull(body.website),
+      notes: stringOrNull(body.notes),
+      google_place_id: stringOrNull(body.google_place_id),
+      latitude: numberOrNull(body.latitude),
+      longitude: numberOrNull(body.longitude),
+      phone: stringOrNull(body.phone),
+      address_full: stringOrNull(body.address_full),
+      google_maps_url: stringOrNull(body.google_maps_url),
+      rating: numberOrNull(body.rating),
+      user_ratings_total: numberOrNull(body.user_ratings_total),
+      photo_reference: stringOrNull(body.photo_reference),
+      ...(body.profile_jsonb && typeof body.profile_jsonb === "object"
+        ? { profile_jsonb: body.profile_jsonb as unknown as Json }
+        : {}),
     });
     return NextResponse.json({ ok: true, venue }, { status: 201 });
   } catch (err) {

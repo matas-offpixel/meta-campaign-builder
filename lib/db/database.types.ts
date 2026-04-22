@@ -1420,47 +1420,80 @@ export type Database = {
       venues: {
         Row: {
           address: string | null
+          address_full: string | null
           capacity: number | null
           city: string
           country: string
           created_at: string
+          enriched_at: string | null
+          google_maps_url: string | null
+          google_place_id: string | null
           id: string
+          latitude: number | null
+          longitude: number | null
           meta_page_id: string | null
           meta_page_name: string | null
           name: string
           notes: string | null
+          phone: string | null
+          photo_reference: string | null
+          profile_jsonb: Json
+          rating: number | null
           updated_at: string
           user_id: string
+          user_ratings_total: number | null
           website: string | null
         }
         Insert: {
           address?: string | null
+          address_full?: string | null
           capacity?: number | null
           city: string
           country?: string
           created_at?: string
+          enriched_at?: string | null
+          google_maps_url?: string | null
+          google_place_id?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           meta_page_id?: string | null
           meta_page_name?: string | null
           name: string
           notes?: string | null
+          phone?: string | null
+          photo_reference?: string | null
+          profile_jsonb?: Json
+          rating?: number | null
           updated_at?: string
           user_id: string
+          user_ratings_total?: number | null
           website?: string | null
         }
         Update: {
           address?: string | null
+          address_full?: string | null
           capacity?: number | null
           city?: string
           country?: string
           created_at?: string
+          enriched_at?: string | null
+          google_maps_url?: string | null
+          google_place_id?: string | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           meta_page_id?: string | null
           meta_page_name?: string | null
           name?: string
           notes?: string | null
+          phone?: string | null
+          photo_reference?: string | null
+          profile_jsonb?: Json
+          rating?: number | null
           updated_at?: string
           user_id?: string
+          user_ratings_total?: number | null
           website?: string | null
         }
         Relationships: []
