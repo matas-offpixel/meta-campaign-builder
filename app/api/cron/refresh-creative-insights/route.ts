@@ -33,7 +33,7 @@ import type { CreativeDatePreset } from "@/lib/types/intelligence";
  * Per-account isolation:
  *   - Each pair runs inside its own try/catch so one rate-limited
  *     account can't abort the rest of the batch.
- *   - We sleep 30s between accounts to avoid self-inflicting a
+ *   - We sleep 10s between accounts to avoid self-inflicting a
  *     Meta rate limit when the warm-set has dozens of accounts.
  *   - We log per-account outcome (success / rate-limited /
  *     other-error) so Vercel logs surface which accounts are
@@ -45,10 +45,12 @@ import type { CreativeDatePreset } from "@/lib/types/intelligence";
  */
 
 /**
- * Vercel function timeout. 300s lets us process roughly nine
- * accounts per run with the 30s inter-account spacing below.
- * Requires Pro plan; if you're on Hobby, drop this to 60 and
- * accept that one cron tick will only cover a single account.
+ * Vercel function timeout. 300s comfortably covers the realistic
+ * 5-account × 2-preset sweep with the 10s inter-account spacing
+ * below, even when act_210578427 paginates through ~20 page-25
+ * round-trips. Requires Pro plan; if you're on Hobby, drop this
+ * to 60 and accept that one cron tick will only cover a single
+ * account.
  */
 export const maxDuration = 300;
 
@@ -61,11 +63,17 @@ const SOFT_TIMEOUT_MS = 290_000;
 
 /**
  * Pause between consecutive account fetches to avoid
- * self-inflicting a Meta rate limit on a single cron run. 30s
- * matches Meta's documented rate-limit window for the ad-insights
- * endpoint.
+ * self-inflicting a Meta rate limit on a single cron run.
+ * Started at 30s as a paranoid first-cut after the 4TheFans
+ * rate-limit incident, but the force-triggered sweep on the
+ * page-25 deployment hit Vercel's hard 300s cap because the
+ * spacing alone burned 4 × 30s = 120s of wall-clock on a
+ * 5-account run. Dropped to 10s once we confirmed Meta's
+ * per-account bucket tolerates the tighter cadence; the sweep
+ * now fits in ~260s on realistic mixes with real headroom under
+ * the 290s soft cap.
  */
-const INTER_ACCOUNT_DELAY_MS = 30_000;
+const INTER_ACCOUNT_DELAY_MS = 10_000;
 
 /**
  * Same code-set the route + meta client treat as transient/retryable
@@ -205,7 +213,7 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    // Inter-account 30s spacing. Skip the wait before the first
+    // Inter-account 10s spacing. Skip the wait before the first
     // account so an idle cron doesn't sit on its hands. Done before
     // the per-account try/catch so a sleep can't hide inside an
     // error path that's supposed to be local-only.
@@ -282,7 +290,7 @@ export async function GET(req: NextRequest) {
             rateLimitedThisAccount = true;
             // Don't burn the second preset against an account Meta is
             // already throttling — bail to the next account, which the
-            // 30s sleep will give Meta room to recover from.
+            // 10s sleep will give Meta room to recover from.
             break;
           }
         }
