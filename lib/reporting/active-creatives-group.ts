@@ -44,6 +44,26 @@ export interface AdInsightAction {
   value: number;
 }
 
+/**
+ * Full preview payload for the click-to-expand modal. Carried as a
+ * sub-object on every ad / creative row so the modal can render
+ * without a second Meta round-trip.
+ *
+ * Fields are independent of the grouping layer — they're surfaced
+ * exactly as Meta returned them (already normalised to first-non-
+ * empty by `extractPreview` in active-creatives-fetch.ts) so the
+ * modal can pick which ones to show based on what's present.
+ */
+export interface CreativePreview {
+  image_url: string | null;
+  video_id: string | null;
+  instagram_permalink_url: string | null;
+  headline: string | null;
+  body: string | null;
+  call_to_action_type: string | null;
+  link_url: string | null;
+}
+
 export interface AdInput {
   ad_id: string;
   ad_name: string | null;
@@ -59,6 +79,25 @@ export interface AdInput {
   /** Body / primary text. */
   body: string | null;
   thumbnail_url: string | null;
+  /**
+   * Meta's stable post identifier. Two different `creative_id`s
+   * pointing at the SAME page post (e.g. an ad that was duplicated
+   * into a new creative but kept the same dark post) share this
+   * value, so the grouping waterfall keys on it before falling back
+   * to asset hashes / names.
+   */
+  effective_object_story_id: string | null;
+  object_story_id: string | null;
+  /**
+   * Pre-computed at fetch time from the ad's creative payload:
+   *   "video:${video_id}" | "image:${image_hash}" | "assetset:${sortedHashes}"
+   * `null` when the creative has no probe-able asset signal (e.g.
+   * a placeholder shell). The waterfall's third tier consumes this
+   * directly.
+   */
+  primary_asset_signature: string | null;
+  /** Modal preview payload — see `CreativePreview` JSDoc. */
+  preview: CreativePreview;
   /** Per-ad insights. Null when Meta returned no insight rows for the ad. */
   insights: {
     spend: number;
@@ -91,6 +130,13 @@ export interface CreativeRow {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  /** Same-post identifier used by the second-layer asset-hash grouper. */
+  effective_object_story_id: string | null;
+  object_story_id: string | null;
+  /** Asset signature (video / image-hash / asset-set hash bag). */
+  primary_asset_signature: string | null;
+  /** Top-spend ad's preview payload — drives the modal. */
+  preview: CreativePreview;
   ad_count: number;
   adsets: CreativeRowAdSet[];
   campaigns: CreativeRowCampaign[];
@@ -158,6 +204,11 @@ interface Accumulator {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  effective_object_story_id: string | null;
+  object_story_id: string | null;
+  primary_asset_signature: string | null;
+  /** Top-spend ad's preview payload — refreshed whenever a higher-spend ad lands. */
+  preview: CreativePreview;
   ad_ids: string[];
   /** Per-ad spend tracked alongside ad_ids so we can pick the top spender. */
   ad_spends: number[];
@@ -169,6 +220,20 @@ interface Accumulator {
   reach: number;
   registrations: number;
   purchases: number;
+  /** Highest-spend value seen so far — drives the preview-refresh check. */
+  topSpend: number;
+}
+
+function emptyPreview(): CreativePreview {
+  return {
+    image_url: null,
+    video_id: null,
+    instagram_permalink_url: null,
+    headline: null,
+    body: null,
+    call_to_action_type: null,
+    link_url: null,
+  };
 }
 
 /**
@@ -208,6 +273,10 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       headline: ad.headline,
       body: ad.body,
       thumbnail_url: ad.thumbnail_url,
+      effective_object_story_id: ad.effective_object_story_id,
+      object_story_id: ad.object_story_id,
+      primary_asset_signature: ad.primary_asset_signature,
+      preview: emptyPreview(),
       ad_ids: [] as string[],
       ad_spends: [] as number[],
       adsets: new Map<string, string | null>(),
@@ -218,6 +287,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       reach: 0,
       registrations: 0,
       purchases: 0,
+      topSpend: -Infinity,
     };
 
     // First-seen wins for the descriptive fields. If two ads sharing
@@ -228,6 +298,15 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     if (!acc.headline && ad.headline) acc.headline = ad.headline;
     if (!acc.body && ad.body) acc.body = ad.body;
     if (!acc.thumbnail_url && ad.thumbnail_url) acc.thumbnail_url = ad.thumbnail_url;
+    if (!acc.effective_object_story_id && ad.effective_object_story_id) {
+      acc.effective_object_story_id = ad.effective_object_story_id;
+    }
+    if (!acc.object_story_id && ad.object_story_id) {
+      acc.object_story_id = ad.object_story_id;
+    }
+    if (!acc.primary_asset_signature && ad.primary_asset_signature) {
+      acc.primary_asset_signature = ad.primary_asset_signature;
+    }
 
     acc.ad_ids.push(ad.ad_id);
     acc.ad_spends.push(adSpend);
@@ -251,6 +330,14 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     acc.registrations += registrations;
     acc.purchases += purchases;
 
+    // Preview tracking: top-spend ad's payload wins. Tie on first-seen
+    // (no need for stable sort — the modal viewer can't tell which of
+    // two equally-spending ads is shown).
+    if (adSpend > acc.topSpend) {
+      acc.topSpend = adSpend;
+      acc.preview = ad.preview;
+    }
+
     buckets.set(ad.creative_id, acc);
   }
 
@@ -271,6 +358,10 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       headline: acc.headline,
       body: acc.body,
       thumbnail_url: acc.thumbnail_url,
+      effective_object_story_id: acc.effective_object_story_id,
+      object_story_id: acc.object_story_id,
+      primary_asset_signature: acc.primary_asset_signature,
+      preview: acc.preview,
       ad_count: acc.ad_ids.length,
       adsets: [...acc.adsets.entries()].map(([id, name]) => ({ id, name })),
       campaigns: [...acc.campaigns.entries()].map(([id, name]) => ({ id, name })),

@@ -5,6 +5,7 @@ import { normaliseAdAccountId } from "@/lib/reporting/event-insights";
 import {
   groupAdsByCreative,
   type AdInput,
+  type CreativePreview,
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
 
@@ -36,7 +37,7 @@ import {
  *     and provides the FB token (so this module works equally
  *     well behind the authed route or the service-role share
  *     route).
- *   - No `groupByNormalisedName`. That second-layer collapse is
+ *   - No `groupByAssetSignature`. That second-layer collapse is
  *     applied per-surface (internal toggle, share fixed).
  */
 
@@ -52,6 +53,46 @@ interface RawCampaignRow {
   effective_status?: string;
 }
 
+interface RawCreative {
+  id?: string;
+  name?: string;
+  title?: string;
+  body?: string;
+  thumbnail_url?: string;
+  image_url?: string;
+  video_id?: string;
+  object_story_id?: string;
+  effective_object_story_id?: string;
+  instagram_permalink_url?: string;
+  call_to_action_type?: string;
+  link_url?: string;
+  object_story_spec?: {
+    link_data?: {
+      name?: string;
+      message?: string;
+      description?: string;
+      image_hash?: string;
+      picture?: string;
+      link?: string;
+      call_to_action?: { type?: string };
+    };
+    video_data?: {
+      title?: string;
+      message?: string;
+      video_id?: string;
+      image_url?: string;
+    };
+  };
+  asset_feed_spec?: {
+    images?: Array<{ hash?: string; url?: string }>;
+    videos?: Array<{ video_id?: string }>;
+    titles?: Array<{ text?: string }>;
+    bodies?: Array<{ text?: string }>;
+    call_to_action_types?: string[];
+    link_urls?: Array<{ website_url?: string }>;
+  };
+}
+
 interface RawAdRow {
   id: string;
   name?: string;
@@ -61,17 +102,7 @@ interface RawAdRow {
   campaign?: { id?: string; name?: string };
   adset_id?: string;
   adset?: { id?: string; name?: string };
-  creative?: {
-    id?: string;
-    name?: string;
-    title?: string;
-    body?: string;
-    thumbnail_url?: string;
-    object_story_spec?: {
-      link_data?: { name?: string; message?: string; description?: string };
-      video_data?: { title?: string; message?: string };
-    };
-  };
+  creative?: RawCreative;
   insights?: {
     data?: Array<{
       spend?: string;
@@ -127,7 +158,7 @@ function num(v: string | number | undefined): number {
  * renders consistently across types.
  */
 function extractCopy(
-  creative: RawAdRow["creative"],
+  creative: RawCreative | undefined,
 ): { headline: string | null; body: string | null } {
   if (!creative) return { headline: null, body: null };
   const oss = creative.object_story_spec;
@@ -143,6 +174,116 @@ function extractCopy(
     oss?.video_data?.message?.trim() ||
     null;
   return { headline, body };
+}
+
+/**
+ * Derive a stable asset signature for the second-layer grouper.
+ * First non-null in the priority order wins:
+ *   1. Video id  → "video:${id}"
+ *   2. Single-image hash → "image:${hash}"
+ *   3. Advantage+ asset-set hashes → "assetset:${sortedHashes}"
+ *
+ * Pure / structural — exported for unit tests and re-use from any
+ * fetch path that produces the same RawCreative shape (e.g. a
+ * future share-side fetch that also wants the signature).
+ *
+ * Returns `null` when nothing usable is present (placeholder
+ * creatives, mis-tagged ads, or an Advantage+ shell where the
+ * asset_feed_spec lists videos / titles but no image hashes — in
+ * that case the waterfall falls through to thumbnail / name).
+ */
+export function deriveAssetSignature(
+  creative: RawCreative | undefined,
+): string | null {
+  if (!creative) return null;
+  const oss = creative.object_story_spec;
+  // Video first — a video-data spec has a video_id even when the
+  // creative also carries a thumbnail image_url, so we want it
+  // higher priority than any image-based signal.
+  const videoId =
+    oss?.video_data?.video_id?.trim() || creative.video_id?.trim() || null;
+  if (videoId) return `video:${videoId}`;
+
+  const imageHash = oss?.link_data?.image_hash?.trim();
+  if (imageHash) return `image:${imageHash}`;
+
+  // Advantage+ creatives bundle multiple image variants. We sort
+  // the hashes so two Meta payloads listing the same set in
+  // different orders still collapse to one signature. Drop empties
+  // defensively — Meta sometimes returns objects with the wrong
+  // sub-fields populated.
+  const afsHashes = creative.asset_feed_spec?.images
+    ?.map((i) => i.hash?.trim())
+    .filter((h): h is string => !!h && h.length > 0)
+    .sort();
+  if (afsHashes && afsHashes.length > 0) {
+    return `assetset:${afsHashes.join("|")}`;
+  }
+
+  return null;
+}
+
+/**
+ * Build the modal preview payload from a raw Meta creative. Each
+ * field falls through the same probe order as the existing
+ * `extractCopy` (object_story_spec → top-level), so the modal can
+ * render across single-image, video, link, and Advantage+ creatives
+ * without per-type branching.
+ *
+ * `image_url` priority: link_data.picture > top-level image_url >
+ * thumbnail_url. The first two are the marketer-supplied source;
+ * thumbnail_url is Meta's auto-generated 64×64 cropped version,
+ * fine for the card but ugly when blown up in the modal — only used
+ * as a final fallback.
+ */
+function extractPreview(creative: RawCreative | undefined): CreativePreview {
+  if (!creative) {
+    return {
+      image_url: null,
+      video_id: null,
+      instagram_permalink_url: null,
+      headline: null,
+      body: null,
+      call_to_action_type: null,
+      link_url: null,
+    };
+  }
+  const oss = creative.object_story_spec;
+  const ld = oss?.link_data;
+  const vd = oss?.video_data;
+  const image_url =
+    ld?.picture?.trim() ||
+    vd?.image_url?.trim() ||
+    creative.image_url?.trim() ||
+    creative.thumbnail_url?.trim() ||
+    null;
+  const video_id =
+    vd?.video_id?.trim() || creative.video_id?.trim() || null;
+  const instagram_permalink_url =
+    creative.instagram_permalink_url?.trim() || null;
+  const headline =
+    ld?.name?.trim() ||
+    creative.title?.trim() ||
+    creative.name?.trim() ||
+    null;
+  const body =
+    ld?.message?.trim() ||
+    creative.body?.trim() ||
+    null;
+  const call_to_action_type =
+    ld?.call_to_action?.type?.trim() ||
+    creative.call_to_action_type?.trim() ||
+    null;
+  const link_url = ld?.link?.trim() || creative.link_url?.trim() || null;
+  return {
+    image_url,
+    video_id,
+    instagram_permalink_url,
+    headline,
+    body,
+    call_to_action_type,
+    link_url,
+  };
 }
 
 async function listLinkedCampaignIds(
@@ -175,6 +316,12 @@ async function fetchActiveAdsForCampaign(
   campaignName: string | null,
   token: string,
 ): Promise<AdInput[]> {
+  // Meta's nested-field syntax: braces expand related objects.
+  // Asset-grouping needs object_story_spec + asset_feed_spec sub-
+  // fields (image_hash, video_id, picture, link, call_to_action),
+  // and the modal preview pulls from the same payload so we don't
+  // round-trip again. asset_feed_spec is requested as a flat field
+  // because Meta returns the whole sub-tree when asked by name.
   const fields = [
     "id",
     "name",
@@ -184,7 +331,7 @@ async function fetchActiveAdsForCampaign(
     "campaign{id,name}",
     "adset_id",
     "adset{id,name}",
-    "creative{id,name,title,body,thumbnail_url,object_story_spec{link_data{name,message,description},video_data{title,message}}}",
+    "creative{id,name,title,body,thumbnail_url,image_url,video_id,object_story_id,effective_object_story_id,instagram_permalink_url,call_to_action_type,link_url,object_story_spec{link_data{name,message,description,image_hash,picture,link,call_to_action{type}},video_data{title,message,video_id,image_url}},asset_feed_spec}",
     "insights{spend,impressions,clicks,reach,frequency,actions}",
   ].join(",");
 
@@ -207,6 +354,8 @@ async function fetchActiveAdsForCampaign(
     for (const ad of res.data ?? []) {
       const insight = ad.insights?.data?.[0];
       const { headline, body } = extractCopy(ad.creative);
+      const preview = extractPreview(ad.creative);
+      const primary_asset_signature = deriveAssetSignature(ad.creative);
       out.push({
         ad_id: ad.id,
         ad_name: ad.name ?? null,
@@ -220,6 +369,11 @@ async function fetchActiveAdsForCampaign(
         headline,
         body,
         thumbnail_url: ad.creative?.thumbnail_url ?? null,
+        effective_object_story_id:
+          ad.creative?.effective_object_story_id?.trim() || null,
+        object_story_id: ad.creative?.object_story_id?.trim() || null,
+        primary_asset_signature,
+        preview,
         insights: insight
           ? {
               spend: num(insight.spend),

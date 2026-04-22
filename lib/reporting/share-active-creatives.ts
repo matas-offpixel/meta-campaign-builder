@@ -9,9 +9,9 @@ import {
   FacebookAuthExpiredError,
 } from "@/lib/reporting/active-creatives-fetch";
 import {
-  groupByNormalisedName,
+  groupByAssetSignature,
   type ConceptGroupRow,
-} from "@/lib/reporting/group-creatives-by-name";
+} from "@/lib/reporting/group-creatives";
 
 /**
  * lib/reporting/share-active-creatives.ts
@@ -23,8 +23,9 @@ import {
  *     service-role Supabase client + `getOwnerFacebookToken`),
  *     never the visitor's session — share routes don't have one.
  *   - Applies the second-layer concept grouping
- *     (`groupByNormalisedName`) so re-uploaded creatives collapse
- *     into one card on the client-facing report.
+ *     (`groupByAssetSignature`) so re-uploaded creatives — including
+ *     headless / numeric-name re-uploads, and Advantage+ asset-feed
+ *     variants — collapse into one card on the client-facing report.
  *   - Caps output at 30 groups (defensive — a single event almost
  *     never crosses this, but a mis-tagged account dump shouldn't
  *     blow up the share render).
@@ -140,7 +141,7 @@ export async function fetchShareActiveCreatives(
     return { kind: "skip", reason: "no_linked_campaigns" };
   }
 
-  const allGroups = groupByNormalisedName(result.creatives);
+  const allGroups = groupByAssetSignature(result.creatives);
   const groups = allGroups.slice(0, SHARE_GROUPS_CAP);
 
   return {
