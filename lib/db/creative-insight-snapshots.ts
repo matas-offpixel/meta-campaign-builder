@@ -363,8 +363,17 @@ export async function listEligibleAccountPairs(
     user_id: string;
     meta_ad_account_id: string | null;
   }[]) {
-    const adAccountId = (row.meta_ad_account_id ?? "").trim();
-    if (!adAccountId) continue;
+    const raw = (row.meta_ad_account_id ?? "").trim();
+    if (!raw) continue;
+    // Normalise to Meta's canonical `act_<numeric>` form. The client
+    // form + seed scripts persist whatever the user typed (often the
+    // bare numeric — see scripts/seed-clients-batch.mjs), but every
+    // downstream consumer (Graph URLs, the live read route's
+    // `act_`-prefix validation, the cache's `ad_account_id` column)
+    // expects the canonical shape. Doing it here means cron-written
+    // snapshot rows key against the same `ad_account_id` value the
+    // live UI reads with, so the cache hit actually lands.
+    const adAccountId = raw.startsWith("act_") ? raw : `act_${raw}`;
     // Multiple clients can share the same ad account (a venue + the
     // promoter that books it, for example). Dedupe so we don't fetch
     // the same Meta account twice and burn our rate-limit budget.

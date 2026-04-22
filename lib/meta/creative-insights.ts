@@ -75,6 +75,24 @@ interface FetchOptions {
 
 const DEFAULT_DATE_PRESET: CreativeDatePreset = "last_30d";
 
+/**
+ * Meta addresses ad accounts as `act_<numeric>`. The live UI reaches
+ * us through `/api/intelligence/creatives` which 400s on missing
+ * prefix, so callers down that path are always canonical. The cron
+ * (and any future server-side caller that pulls IDs out of the
+ * `clients` table) sees the raw numeric form persisted by the seed
+ * scripts + the client form (no normalisation at write time). Without
+ * this prefix Meta resolves `/<numeric>/ads` against the wrong node
+ * type and returns "(#100) Tried accessing nonexisting field (ads)".
+ * Belt-and-suspenders normalisation here keeps `fetchCreativeInsights`
+ * safe for any caller; the data layer also normalises so cache rows
+ * key consistently.
+ */
+function ensureActPrefix(adAccountId: string): string {
+  const trimmed = adAccountId.trim();
+  return trimmed.startsWith("act_") ? trimmed : `act_${trimmed}`;
+}
+
 function num(v: string | undefined): number {
   if (v == null) return 0;
   const n = Number(v);
@@ -131,6 +149,7 @@ export async function fetchCreativeInsights(
   options: FetchOptions,
 ): Promise<CreativeInsightRow[]> {
   const datePreset = options.datePreset ?? DEFAULT_DATE_PRESET;
+  const accountPath = ensureActPrefix(adAccountId);
 
   const fields = [
     "id",
@@ -160,7 +179,7 @@ export async function fetchCreativeInsights(
   do {
     if (after) params.after = after;
     const res = await graphGetWithToken<PagedResponse<RawAd>>(
-      `/${adAccountId}/ads`,
+      `/${accountPath}/ads`,
       params,
       accessToken,
     );
