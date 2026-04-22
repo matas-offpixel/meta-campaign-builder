@@ -456,7 +456,8 @@ export type EventTab =
   | "plan"
   | "campaigns"
   | "reporting"
-  | "activity";
+  | "activity"
+  | "active-creatives";
 
 const VALID_EVENT_TABS: EventTab[] = [
   "overview",
@@ -464,6 +465,7 @@ const VALID_EVENT_TABS: EventTab[] = [
   "campaigns",
   "reporting",
   "activity",
+  "active-creatives",
 ];
 
 /** Parse `?tab=` into a validated EventTab, defaulting to "overview". */
