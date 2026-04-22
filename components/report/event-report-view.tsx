@@ -243,7 +243,32 @@ export function EventReportView({
         />
       ) : null}
 
-      <div className={bodyClass}>
+      <div className={`${bodyClass} relative`}>
+        {/* Sticky pending bar — surfaces useTransition's pending flag
+            from PublicReport so a timeframe switch always shows
+            visible motion, even on cache hits where there's no
+            Suspense fallback to fall back to. The shimmer keyframe
+            lives in globals.css alongside the same effect on the
+            active-creatives skeleton, so the two surfaces stay
+            visually consistent. The standalone wrapper has px-6;
+            the negative margin + extra width pulls the bar out so
+            it spans the full visual edge rather than stopping at
+            the padded inner column. Embedded mode skips the negative
+            offset because the dashboard chrome sits right against
+            the bar — extending would clip the sidebar. */}
+        {isRefreshing ? (
+          <div
+            className={`sticky top-0 z-10 h-0.5 overflow-hidden bg-muted ${
+              variant === "standalone"
+                ? "-mx-6 w-[calc(100%+3rem)]"
+                : "w-full"
+            }`}
+            aria-hidden
+          >
+            <div className="h-full w-1/3 bg-primary animate-[shimmer_1.2s_ease-in-out_infinite]" />
+          </div>
+        ) : null}
+
         {/* Top row — event-level facts */}
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <StatCard

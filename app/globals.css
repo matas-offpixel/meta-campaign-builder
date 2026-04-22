@@ -80,3 +80,23 @@ textarea {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/*
+ * Indeterminate progress shimmer used by:
+ *   - components/share/share-active-creatives-skeleton.tsx (Suspense
+ *     fallback for the share page's active-creatives section)
+ *   - components/report/event-report-view.tsx (sticky pending bar
+ *     surfaced via useTransition while a timeframe switch resolves,
+ *     including cache hits where there's no Suspense fallback)
+ *
+ * One keyframe shared so a future surface (skeleton table headers,
+ * export-running banner, etc.) can pull it in via
+ * `animate-[shimmer_<dur>_ease-in-out_infinite]` without needing a
+ * second definition. Keep the translateX range wide enough that the
+ * 1/3-width sliver fully clears the right edge before looping —
+ * looks broken otherwise.
+ */
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

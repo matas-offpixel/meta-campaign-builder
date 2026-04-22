@@ -32,22 +32,32 @@ const SKELETON_CARD_COUNT = 6;
 export function ShareActiveCreativesSkeleton() {
   return (
     <section className="space-y-3">
-      {/*
-        Indeterminate progress bar — Tailwind's pulse on a
-        gradient is enough motion to read as "in flight" without
-        adding a keyframe to the global stylesheet. Sat at the
-        very top of the section so it lines up with the visual
-        boundary the user is staring at.
-      */}
-      <div className="h-0.5 animate-pulse bg-gradient-to-r from-transparent via-stone-500 to-transparent" />
-
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="font-heading text-base tracking-wide text-foreground">
           Active creatives
         </h2>
-        <span className="text-xs text-muted-foreground">
-          Loading creative breakdown…
-        </span>
+      </div>
+
+      {/*
+        Real indeterminate progress bar — a sliver of accent colour
+        sliding across a muted track, driven by the shared `shimmer`
+        keyframe in globals.css. Replaces the previous animate-pulse
+        line which read as static at a glance and made wide-event
+        loads (15-30s on cache miss) look indistinguishable from a
+        timeout. The status copy underneath sets the user's
+        expectation ("up to 30s") so they don't bounce.
+      */}
+      <div className="space-y-2">
+        <div
+          className="relative h-1 w-full overflow-hidden rounded-full bg-muted"
+          aria-hidden
+        >
+          <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary/70 animate-[shimmer_1.4s_ease-in-out_infinite]" />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Loading creative breakdown — this can take up to 30 seconds on wider
+          timeframes.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
