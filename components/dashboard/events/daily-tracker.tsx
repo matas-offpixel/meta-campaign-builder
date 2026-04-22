@@ -11,6 +11,10 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { fmtCurrency } from "@/lib/dashboard/format";
+import type {
+  TimelineRow,
+  TimelineSource,
+} from "@/lib/db/event-daily-timeline";
 
 /**
  * components/dashboard/events/daily-tracker.tsx
@@ -25,13 +29,31 @@ import { fmtCurrency } from "@/lib/dashboard/format";
  *   | CPL | Running spend | Running tickets | Running avg CPT
  *   | Running revenue | Running ROAS | Notes
  *
+ * Two render modes:
+ *   - Uncontrolled (default): the component owns its own data
+ *     lifecycle — initial GET /rollup, auto-sync on stale/empty,
+ *     manual Refresh, in-place notes edits via PATCH /rollup.
+ *     Used standalone (e.g. legacy callers / direct embedding).
+ *   - Controlled (`controlled` prop set): an orchestrator
+ *     (`EventDailyReportBlock`) supplies the timeline + presale +
+ *     sync state via props. The component renders the table only
+ *     and forwards Refresh clicks to the parent. Notes editing is
+ *     suppressed when `controlled.readOnly` is true (public share
+ *     page) and when the row's data source is "manual" — manual
+ *     entries live in `daily_tracking_entries`, not the rollup
+ *     table the PATCH endpoint targets.
+ *
+ * Source badge (per-row "Manual" / "Live"):
+ *   The unified timeline tags every day with the upstream table
+ *   that fed it (manual operator entry vs. auto-synced rollup).
+ *   Each row renders a small pill so it's clear at a glance which
+ *   number an operator can override and which is live.
+ *
  * Presale bucket:
  *   When `events.general_sale_at` is set, every row whose date is
  *   strictly before that cutoff collapses into a single "Presale"
- *   row at the top. Server computes the bucket via
- *   /api/ticketing/rollup so the client doesn't need the cutoff
- *   semantics. Running cols include the bucket as the first
- *   contributor, matching the xlsx behaviour.
+ *   row at the top. The presale bucket is rollup-only (operators
+ *   don't type presale rows) so the badge is suppressed for it.
  *
  * Empty state:
  *   When the event has neither a Meta event_code nor an Eventbrite
@@ -39,7 +61,7 @@ import { fmtCurrency } from "@/lib/dashboard/format";
  *   instead of an empty grid. This is intentionally upstream of the
  *   "no rows yet" state — those two cases want different copy.
  *
- * Sync model:
+ * Sync model (uncontrolled mode only):
  *   - Manual Refresh: POST /rollup-sync then GET /rollup. Mirrors
  *     the eventbrite-live-block UX 1:1.
  *   - Auto-sync on mount: when the freshest source_*_at on any row
@@ -84,6 +106,10 @@ interface PresaleBucket {
 interface RollupResponse {
   ok: boolean;
   rows?: DailyRollup[];
+  /** Unified per-day view: live rollups + manual entries merged with
+   *  per-date precedence (manual wins). Each row carries `source` for
+   *  the badge. */
+  timeline?: TimelineRow[];
   presale?: PresaleBucket | null;
   generalSaleAt?: string | null;
   error?: string;
@@ -106,20 +132,40 @@ interface Props {
   /** True when the event has an event_code AND the client has a Meta ad account. */
   hasMetaScope: boolean;
   hasEventbriteLink: boolean;
+  /**
+   * When provided, the component runs in controlled mode: it skips
+   * its own fetch + sync and renders from the supplied props. Used
+   * by the report-block orchestrator so the summary header, chart,
+   * and table all read from one timeline.
+   */
+  controlled?: {
+    timeline: TimelineRow[];
+    presale: PresaleBucket | null;
+    syncing?: boolean;
+    error?: string | null;
+    legErrors?: { meta?: string; eventbrite?: string } | null;
+    onSync?: () => void | Promise<void>;
+    /** Suppresses notes editing + the per-table Refresh button.
+     *  Used on the public share page where the token is read-only. */
+    readOnly?: boolean;
+  };
 }
 
 interface DisplayRow {
   key: string;
   /** Label shown in the Date column ("Presale", or formatted date). */
   label: string;
-  /** True for the Presale bucket — used for subtle styling. */
+  /** True for the Presale bucket — used for subtle styling + suppresses badge. */
   isPresale: boolean;
   /** True when this row is "today" — used for highlight. */
   isToday: boolean;
-  /** True for the synthetic empty "today" row. */
+  /** True for the synthetic empty "today" row (no data, no badge). */
   isSynthetic: boolean;
   /** Source date string for the row (used as PATCH key for notes). */
   date: string | null;
+  /** Which upstream table fed this row — null for synthetic / presale.
+   *  Drives the "Manual" / "Live" badge in the Date column. */
+  source: TimelineSource | null;
   ad_spend: number | null;
   link_clicks: number | null;
   tickets_sold: number | null;
@@ -136,17 +182,36 @@ export function DailyTracker({
   eventId,
   hasMetaScope,
   hasEventbriteLink,
+  controlled,
 }: Props) {
-  const [rows, setRows] = useState<DailyRollup[]>([]);
-  const [presale, setPresale] = useState<PresaleBucket | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [legErrors, setLegErrors] = useState<{
+  const isControlled = controlled !== undefined;
+
+  // Internal state — only ever populated in uncontrolled mode. In
+  // controlled mode we read straight from `controlled.*` and skip
+  // the fetch/sync side effects entirely.
+  const [internalTimeline, setInternalTimeline] = useState<TimelineRow[]>([]);
+  const [internalPresale, setInternalPresale] = useState<PresaleBucket | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(!isControlled);
+  const [internalSyncing, setInternalSyncing] = useState(false);
+  const [internalError, setInternalError] = useState<string | null>(null);
+  const [internalLegErrors, setInternalLegErrors] = useState<{
     meta?: string;
     eventbrite?: string;
   } | null>(null);
   const [autoTried, setAutoTried] = useState(false);
+
+  const timeline = isControlled ? controlled.timeline : internalTimeline;
+  const presale = isControlled ? controlled.presale : internalPresale;
+  const syncing = isControlled ? !!controlled.syncing : internalSyncing;
+  const error = isControlled
+    ? (controlled.error ?? null)
+    : internalError;
+  const legErrors = isControlled
+    ? (controlled.legErrors ?? null)
+    : internalLegErrors;
+  const readOnly = isControlled ? !!controlled.readOnly : false;
 
   const refresh = useCallback(async () => {
     const res = await fetch(
@@ -157,22 +222,22 @@ export function DailyTracker({
     if (!res.ok || !json.ok) {
       throw new Error(json.error ?? "Failed to load rollup data.");
     }
-    setRows(json.rows ?? []);
-    setPresale(json.presale ?? null);
+    setInternalTimeline(json.timeline ?? []);
+    setInternalPresale(json.presale ?? null);
   }, [eventId]);
 
-  const syncNow = useCallback(async () => {
-    setSyncing(true);
-    setError(null);
-    setLegErrors(null);
+  const internalSyncNow = useCallback(async () => {
+    setInternalSyncing(true);
+    setInternalError(null);
+    setInternalLegErrors(null);
     try {
       const res = await fetch(
         `/api/ticketing/rollup-sync?eventId=${encodeURIComponent(eventId)}`,
         { method: "POST" },
       );
       const json = (await res.json()) as SyncResponse;
-      // 207 means partial success — surface per-leg errors but keep
-      // refreshing so the working leg's data lands.
+      // 207 = partial success: surface per-leg errors but still
+      // refresh so the working leg's data lands.
       if (!res.ok && res.status !== 207) {
         throw new Error(json.error ?? "Sync failed.");
       }
@@ -183,17 +248,18 @@ export function DailyTracker({
       if (json.eventbrite && !json.eventbrite.ok && json.eventbrite.error) {
         lErrs.eventbrite = json.eventbrite.error;
       }
-      if (lErrs.meta || lErrs.eventbrite) setLegErrors(lErrs);
+      if (lErrs.meta || lErrs.eventbrite) setInternalLegErrors(lErrs);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error.");
+      setInternalError(err instanceof Error ? err.message : "Unknown error.");
     } finally {
-      setSyncing(false);
+      setInternalSyncing(false);
     }
   }, [eventId, refresh]);
 
-  // Initial load
+  // Initial load — uncontrolled only.
   useEffect(() => {
+    if (isControlled) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -201,7 +267,9 @@ export function DailyTracker({
         await refresh();
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unknown error.");
+          setInternalError(
+            err instanceof Error ? err.message : "Unknown error.",
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -210,21 +278,38 @@ export function DailyTracker({
     return () => {
       cancelled = true;
     };
-  }, [refresh]);
+  }, [refresh, isControlled]);
 
-  // Auto-sync when stale or empty.
+  // Auto-sync when stale or empty — uncontrolled only.
   useEffect(() => {
+    if (isControlled) return;
     if (autoTried || loading) return;
     if (!hasMetaScope && !hasEventbriteLink) return;
-    const stale = isStale(rows);
-    if (rows.length > 0 && !stale) return;
+    const stale = isStaleTimeline(internalTimeline);
+    if (internalTimeline.length > 0 && !stale) return;
     setAutoTried(true);
-    void syncNow();
-  }, [autoTried, loading, rows, syncNow, hasMetaScope, hasEventbriteLink]);
+    void internalSyncNow();
+  }, [
+    autoTried,
+    loading,
+    internalTimeline,
+    internalSyncNow,
+    hasMetaScope,
+    hasEventbriteLink,
+    isControlled,
+  ]);
+
+  const onSyncClick = useCallback(() => {
+    if (isControlled) {
+      if (controlled?.onSync) void controlled.onSync();
+      return;
+    }
+    void internalSyncNow();
+  }, [isControlled, controlled, internalSyncNow]);
 
   const display = useMemo(
-    () => buildDisplayRows({ rows, presale }),
-    [rows, presale],
+    () => buildDisplayRows({ timeline, presale }),
+    [timeline, presale],
   );
 
   // ── Empty / loading states ─────────────────────────────────────────
@@ -264,19 +349,21 @@ export function DailyTracker({
             </p>
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void syncNow()}
-          disabled={syncing || loading}
-        >
-          {syncing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          Refresh
-        </Button>
+        {!readOnly && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onSyncClick}
+            disabled={syncing || loading}
+          >
+            {syncing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </Button>
+        )}
       </header>
 
       {error ? (
@@ -344,8 +431,13 @@ export function DailyTracker({
                   key={row.key}
                   row={row}
                   eventId={eventId}
+                  readOnly={readOnly}
                   onNotesSaved={(date, notes) => {
-                    setRows((prev) =>
+                    // Note edits are only supported in uncontrolled
+                    // mode (the orchestrator owns the timeline state
+                    // when controlled). Bail to avoid a stale-write.
+                    if (isControlled) return;
+                    setInternalTimeline((prev) =>
                       prev.map((r) =>
                         r.date === date ? { ...r, notes } : r,
                       ),
@@ -366,10 +458,12 @@ export function DailyTracker({
 function RowEl({
   row,
   eventId,
+  readOnly,
   onNotesSaved,
 }: {
   row: DisplayRow;
   eventId: string;
+  readOnly: boolean;
   onNotesSaved: (date: string, notes: string | null) => void;
 }) {
   const cpt = derive(row.ad_spend, row.tickets_sold);
@@ -391,12 +485,23 @@ function RowEl({
     .filter(Boolean)
     .join(" ");
 
+  // Manual rows live in daily_tracking_entries — the PATCH endpoint
+  // targets event_daily_rollups, so editing a manual row from here
+  // would silently no-op. Render the typed note read-only.
+  // Same for the public share view (readOnly).
+  const notesReadOnly = readOnly || row.source === "manual";
+
   return (
     <tr className={rowClass}>
       <Td align="left">
-        <span className={row.isPresale ? "tracking-wide" : ""}>
-          {row.label}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={row.isPresale ? "tracking-wide" : ""}>
+            {row.label}
+          </span>
+          {row.source && !row.isSynthetic && !row.isPresale ? (
+            <SourceBadge source={row.source} />
+          ) : null}
+        </div>
       </Td>
       <Td>{fmtMoney(row.ad_spend)}</Td>
       <Td>{fmtInt(row.tickets_sold)}</Td>
@@ -412,17 +517,45 @@ function RowEl({
       <Td>{fmtRoas(runRoas)}</Td>
       <Td align="left" wide>
         {row.date ? (
-          <NotesCell
-            eventId={eventId}
-            date={row.date}
-            initial={row.notes}
-            onSaved={(n) => onNotesSaved(row.date as string, n)}
-          />
+          notesReadOnly ? (
+            <span
+              className={row.notes ? "text-foreground" : "text-muted-foreground"}
+            >
+              {row.notes ?? "—"}
+            </span>
+          ) : (
+            <NotesCell
+              eventId={eventId}
+              date={row.date}
+              initial={row.notes}
+              onSaved={(n) => onNotesSaved(row.date as string, n)}
+            />
+          )
         ) : (
           <span className="text-muted-foreground">—</span>
         )}
       </Td>
     </tr>
+  );
+}
+
+function SourceBadge({ source }: { source: TimelineSource }) {
+  const isManual = source === "manual";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-1.5 py-px text-[9px] font-medium uppercase tracking-wider ${
+        isManual
+          ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      }`}
+      title={
+        isManual
+          ? "Operator-typed entry from daily_tracking_entries"
+          : "Auto-synced from Meta + Eventbrite"
+      }
+    >
+      {isManual ? "Manual" : "Live"}
+    </span>
   );
 }
 
@@ -564,43 +697,63 @@ function Td({
 // ─── Display-row builder ─────────────────────────────────────────────
 
 function buildDisplayRows({
-  rows,
+  timeline,
   presale,
 }: {
-  rows: DailyRollup[];
+  timeline: TimelineRow[];
   presale: PresaleBucket | null;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
+  // Working shape — same fields as the upstream timeline row plus a
+  // synthetic flag for the empty "today" placeholder.
+  type Row = {
+    date: string;
+    source: TimelineSource;
+    isSynthetic: boolean;
+    ad_spend: number | null;
+    link_clicks: number | null;
+    tickets_sold: number | null;
+    revenue: number | null;
+    notes: string | null;
+  };
+
   // Rows after the cutoff (or all rows when there is no cutoff). Sort
   // ascending so we can compute running totals in chronological order;
   // we'll reverse at the end to render newest-first.
-  const dailyRows = (
+  const dailyRows: Row[] = (
     generalSaleCutoff
-      ? rows.filter((r) => r.date >= generalSaleCutoff)
-      : rows.slice()
-  ).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      ? timeline.filter((r) => r.date >= generalSaleCutoff)
+      : timeline.slice()
+  )
+    .map((r) => ({
+      date: r.date,
+      source: r.source,
+      isSynthetic: false,
+      ad_spend: r.ad_spend,
+      link_clicks: r.link_clicks,
+      tickets_sold: r.tickets_sold,
+      revenue: r.revenue,
+      notes: r.notes,
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   // Synthetic "today" row when today isn't in the dataset yet — keeps
   // the table responsive even before the first sync writes anything
-  // for today.
+  // for today. Tagged "live" but the badge is suppressed for synthetic
+  // rows in the renderer.
   const hasToday = dailyRows.some((r) => r.date === todayStr);
   if (!hasToday && (!generalSaleCutoff || todayStr >= generalSaleCutoff)) {
     dailyRows.push({
-      id: `synthetic-${todayStr}`,
-      user_id: "",
-      event_id: "",
       date: todayStr,
+      source: "live",
+      isSynthetic: true,
       ad_spend: null,
       link_clicks: null,
       tickets_sold: null,
       revenue: null,
-      source_meta_at: null,
-      source_eventbrite_at: null,
       notes: null,
-      created_at: "",
-      updated_at: "",
     });
     dailyRows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   }
@@ -617,14 +770,14 @@ function buildDisplayRows({
     runClicks += num(r.link_clicks);
     runTickets += num(r.tickets_sold);
     runRevenue += num(r.revenue);
-    const isSynthetic = r.id.startsWith("synthetic-");
     return {
       key: `d-${r.date}`,
       label: fmtDateLabel(r.date),
       isPresale: false,
       isToday: r.date === todayStr,
-      isSynthetic,
+      isSynthetic: r.isSynthetic,
       date: r.date,
+      source: r.source,
       ad_spend: r.ad_spend,
       link_clicks: r.link_clicks,
       tickets_sold: r.tickets_sold,
@@ -650,6 +803,10 @@ function buildDisplayRows({
       isToday: false,
       isSynthetic: false,
       date: null,
+      // Presale bucket is rollup-only by construction; the renderer
+      // suppresses the badge for `isPresale` rows anyway, so this
+      // value is just shape-completeness.
+      source: null,
       ad_spend: presale.ad_spend,
       link_clicks: presale.link_clicks,
       tickets_sold: presale.tickets_sold,
@@ -668,16 +825,13 @@ function buildDisplayRows({
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
-function isStale(rows: DailyRollup[]): boolean {
+function isStaleTimeline(rows: TimelineRow[]): boolean {
   if (rows.length === 0) return true;
   let newest = 0;
   for (const r of rows) {
-    const m = r.source_meta_at ? new Date(r.source_meta_at).getTime() : 0;
-    const e = r.source_eventbrite_at
-      ? new Date(r.source_eventbrite_at).getTime()
-      : 0;
-    if (m > newest) newest = m;
-    if (e > newest) newest = e;
+    if (!r.freshness_at) continue;
+    const t = new Date(r.freshness_at).getTime();
+    if (Number.isFinite(t) && t > newest) newest = t;
   }
   if (!newest) return true;
   return Date.now() - newest > STALE_THRESHOLD_MS;

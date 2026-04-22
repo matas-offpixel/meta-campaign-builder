@@ -60,6 +60,18 @@ interface Props {
    */
   creativesSlot?: React.ReactNode;
   /**
+   * Optional server-rendered slot for the per-event daily report
+   * block (summary header + trend chart + tracker table). Server-
+   * rendered upstream so the public visitor doesn't need a separate
+   * authenticated round-trip — the share token IS the credential and
+   * the RSC has already resolved the timeline through the service-
+   * role client.
+   *
+   * Same ReactNode contract as `creativesSlot` so a server component
+   * passes straight through this client wrapper.
+   */
+  eventDailySlot?: React.ReactNode;
+  /**
    * True when the share RSC's headline insights call failed but
    * the active-creatives call succeeded. Drives a partial render:
    * `meta` will be null in this case, the headline metric grid is
@@ -92,6 +104,7 @@ export function PublicReport({
   datePreset,
   customRange,
   creativesSlot,
+  eventDailySlot,
   headlineUnavailable = false,
 }: Props) {
   const router = useRouter();
@@ -146,6 +159,7 @@ export function PublicReport({
       creativesSource={{ kind: "share", token: shareToken }}
       onTimeframeChange={handleTimeframeChange}
       creativesSlot={creativesSlot}
+      eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
     />
   );
