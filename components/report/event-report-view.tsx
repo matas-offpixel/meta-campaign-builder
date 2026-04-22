@@ -141,6 +141,26 @@ interface Props {
    * standard "RSC slot in a client parent" composition.
    */
   creativesSlot?: React.ReactNode;
+  /**
+   * Partial-render flag. Set by the share page when the headline
+   * insights call (event-wide aggregate) failed but the per-ad
+   * "Active creatives" call succeeded — typically a Meta-side
+   * rate-limit on a 7-day query that hits the heavier insights
+   * endpoint harder than the per-ad fan-out.
+   *
+   * When true:
+   *   - `meta` is expected to be null. The headline metric grid
+   *     (Campaign performance, Meta campaign stats, breakdown
+   *     table) is suppressed entirely.
+   *   - A muted banner explains that summary numbers are
+   *     temporarily unavailable.
+   *   - The timeframe selector still renders so the visitor can
+   *     try a different preset (each preset is a separate cache
+   *     bucket, so a re-pick may hit a healthy upstream).
+   *   - `creativesSlot` (if provided) renders below — the live
+   *     bit the visitor came for.
+   */
+  headlineUnavailable?: boolean;
 }
 
 export function EventReportView({
@@ -154,6 +174,7 @@ export function EventReportView({
   isRefreshing = false,
   variant = "standalone",
   creativesSlot,
+  headlineUnavailable = false,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -230,8 +251,11 @@ export function EventReportView({
 
         {/* Timeframe selector — Meta-only (drives Meta insights window).
             Hidden on TikTok-only renders since the manual TikTok snapshot
-            already carries its own date range and re-imports replace it. */}
-        {meta ? (
+            already carries its own date range and re-imports replace it.
+            Also rendered on the partial-render branch (headlineUnavailable)
+            so the visitor can try a different preset — each preset is its
+            own cache bucket, a re-pick may hit a healthy upstream. */}
+        {meta || headlineUnavailable ? (
           <div className="space-y-2">
             <TimeframeSelector
               active={datePreset}
@@ -246,6 +270,11 @@ export function EventReportView({
             />
           </div>
         ) : null}
+
+        {/* Partial-render banner — appears when the headline insights
+            call failed but the active-creatives call succeeded, so the
+            page can still render the creative breakdown below. */}
+        {!meta && headlineUnavailable ? <HeadlineUnavailableBanner /> : null}
 
         {/* ─── Meta block ───────────────────────────────────────── */}
         {meta ? (
@@ -264,6 +293,14 @@ export function EventReportView({
             creativesSource={creativesSource}
             creativesSlot={creativesSlot}
           />
+        ) : creativesSlot ? (
+          // Headline-failed partial-render path. `meta` is null but the
+          // upstream share RSC still resolved a creative breakdown — so
+          // render the slot directly here, outside `MetaReportBlock`,
+          // since the block requires a non-null `meta`. The standard
+          // "Section" wrapper is omitted because `creativesSlot` already
+          // provides its own `<section>` heading.
+          creativesSlot
         ) : null}
 
         {/* ─── TikTok block ─────────────────────────────────────── */}
@@ -513,6 +550,27 @@ function MetaReportBlock({
         </Section>
       )}
     </>
+  );
+}
+
+// ─── Partial-render banner ─────────────────────────────────────────────────
+
+/**
+ * Muted banner that sits above the creative breakdown when the
+ * share page's headline insights call failed but active-creatives
+ * succeeded. Tells the visitor exactly what they're seeing — and
+ * what they're not — without pretending the report is fully live.
+ */
+function HeadlineUnavailableBanner() {
+  return (
+    <div className="rounded-md border border-dashed border-border bg-card/60 px-4 py-3">
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">
+          Summary metrics are temporarily unavailable
+        </span>{" "}
+        — refreshing in the background. Creative breakdown below is live.
+      </p>
+    </div>
   );
 }
 
