@@ -94,12 +94,37 @@ export type AudienceSeedUpdate = Partial<{
   meta_custom_audience_id: string | null;
 }>;
 
+/**
+ * Date window passed through from the UI to /api/intelligence/creatives.
+ * Mirrors Meta Graph's `date_preset` enum 1:1 — keeping the same string
+ * values means the value can flow straight through to Meta without an
+ * extra mapping table.
+ */
+export type CreativeDatePreset =
+  | "today"
+  | "yesterday"
+  | "last_3d"
+  | "last_7d"
+  | "last_14d"
+  | "last_30d"
+  | "maximum";
+
 /** Per-ad shape returned by /api/intelligence/creatives. */
 export interface CreativeInsightRow {
   adId: string;
   adName: string;
   status: string | null;
   campaignId: string | null;
+  /** Human-readable campaign name (added in H1 so H3 can filter). */
+  campaignName: string | null;
+  /**
+   * Meta campaign objective string, e.g. `OUTCOME_LEADS`,
+   * `OUTCOME_SALES`, `LINK_CLICKS`. Pulled verbatim from Meta — the
+   * group-mapping (leads / sales / traffic / awareness / engagement /
+   * other) lives in `lib/intelligence/objective-metrics.ts` (H3) so
+   * we never embed business rules in the wire shape.
+   */
+  campaignObjective: string | null;
   adsetId: string | null;
   creativeId: string | null;
   creativeName: string | null;
@@ -114,6 +139,13 @@ export interface CreativeInsightRow {
   reach: number;
   linkClicks: number;
   purchases: number;
+  /**
+   * Sum of registration-flavoured Meta action types
+   * (`complete_registration`, `lead`, `registration`, `view_content`).
+   * Added in H1 so the cache table can answer "which lead-objective
+   * ads are converting" without a second Graph round-trip.
+   */
+  registrations: number;
   /** Cost per link click. null when linkClicks is 0. */
   cpl: number | null;
   fatigueScore: "ok" | "warning" | "critical";
