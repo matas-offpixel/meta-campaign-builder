@@ -32,6 +32,10 @@ import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
+import {
+  TicketPacingCard,
+  type PacingSnapshot,
+} from "@/components/dashboard/events/ticket-pacing-card";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
@@ -120,6 +124,14 @@ interface Props {
    * came from). Powers the Invoicing collapsible on the Overview tab.
    */
   linkedInvoices: InvoiceRow[];
+  /**
+   * Recent ticket-sales snapshots (ascending) used by the new pacing
+   * chart that sits inside the Meta sub-panel of the Reporting tab.
+   * Empty array = no snapshots yet (Eventbrite not connected, sync
+   * hasn't run, or migration 029 not applied) — the card renders its
+   * connect-ticketing empty state.
+   */
+  ticketSnapshots: PacingSnapshot[];
 }
 
 /**
@@ -141,6 +153,7 @@ export function EventDetail({
   planTickets,
   linkedQuote,
   linkedInvoices,
+  ticketSnapshots,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -572,36 +585,54 @@ export function EventDetail({
                 // google_ad_plans row id here.
                 initialGoogleAdsPlanId={null}
                 metaPanel={
-                  <section className="rounded-md border border-border bg-card p-5">
-                    <div className="mb-4 flex items-start gap-3">
-                      <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <h2 className="font-heading text-base tracking-wide">
-                          Live report
-                        </h2>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Same view your client sees on the public share URL,
-                          pulled fresh from Meta and cached for 5 minutes per
-                          timeframe.
-                        </p>
+                  <div className="space-y-6">
+                    <section className="rounded-md border border-border bg-card p-5">
+                      <div className="mb-4 flex items-start gap-3">
+                        <BarChart3 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <h2 className="font-heading text-base tracking-wide">
+                            Live report
+                          </h2>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Same view your client sees on the public share URL,
+                            pulled fresh from Meta and cached for 5 minutes per
+                            timeframe.
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <InternalEventReport
-                      eventId={event.id}
-                      event={{
-                        name: event.name,
-                        venueName: event.venue_name,
-                        venueCity: event.venue_city,
-                        venueCountry: event.venue_country,
-                        eventDate: event.event_date,
-                        eventStartAt: event.event_start_at,
-                        paidMediaBudget: event.budget_marketing,
-                        ticketsSold: resolvedTicketsSold,
-                        ticketsSoldSource: resolvedTicketsSource,
-                        ticketsSoldAsOf: resolvedTicketsAsOf,
-                      }}
-                    />
-                  </section>
+                      <InternalEventReport
+                        eventId={event.id}
+                        event={{
+                          name: event.name,
+                          venueName: event.venue_name,
+                          venueCity: event.venue_city,
+                          venueCountry: event.venue_country,
+                          eventDate: event.event_date,
+                          eventStartAt: event.event_start_at,
+                          paidMediaBudget: event.budget_marketing,
+                          ticketsSold: resolvedTicketsSold,
+                          ticketsSoldSource: resolvedTicketsSource,
+                          ticketsSoldAsOf: resolvedTicketsAsOf,
+                        }}
+                      />
+                    </section>
+                    {/*
+                      Ticket pacing card — additive, never replaces
+                      TicketsSoldPanel above. Renders the empty
+                      state with a deep-link to the client's
+                      ticketing settings when no snapshots exist.
+                      Only shown for kind='event'; brand campaigns
+                      have no capacity / pacing concept.
+                    */}
+                    {!isBrand && event.client_id && (
+                      <TicketPacingCard
+                        snapshots={ticketSnapshots}
+                        capacity={event.capacity}
+                        planLatest={planTickets?.value ?? null}
+                        clientId={event.client_id}
+                      />
+                    )}
+                  </div>
                 }
               />
 
