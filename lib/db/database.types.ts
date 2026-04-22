@@ -485,6 +485,56 @@ export type Database = {
           },
         ]
       }
+      client_ticketing_connections: {
+        Row: {
+          client_id: string
+          created_at: string
+          credentials: Json
+          external_account_id: string | null
+          id: string
+          last_error: string | null
+          last_synced_at: string | null
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          credentials?: Json
+          external_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          provider: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          credentials?: Json
+          external_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_ticketing_connections_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           billing_model: string
@@ -596,6 +646,162 @@ export type Database = {
           },
         ]
       }
+      creative_insight_snapshots: {
+        Row: {
+          ad_account_id: string
+          ad_id: string
+          ad_name: string | null
+          ad_status: string | null
+          adset_id: string | null
+          campaign_id: string | null
+          campaign_name: string | null
+          campaign_objective: string | null
+          clicks: number | null
+          cpc: number | null
+          cpl: number | null
+          cpm: number | null
+          created_at: string
+          creative_id: string | null
+          creative_name: string | null
+          ctr: number | null
+          date_preset: string
+          fatigue_score: string | null
+          frequency: number | null
+          id: string
+          impressions: number | null
+          link_clicks: number | null
+          purchases: number | null
+          raw_insights: Json | null
+          reach: number | null
+          registrations: number | null
+          snapshot_at: string
+          spend: number | null
+          thumbnail_url: string | null
+          user_id: string
+        }
+        Insert: {
+          ad_account_id: string
+          ad_id: string
+          ad_name?: string | null
+          ad_status?: string | null
+          adset_id?: string | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          campaign_objective?: string | null
+          clicks?: number | null
+          cpc?: number | null
+          cpl?: number | null
+          cpm?: number | null
+          created_at?: string
+          creative_id?: string | null
+          creative_name?: string | null
+          ctr?: number | null
+          date_preset: string
+          fatigue_score?: string | null
+          frequency?: number | null
+          id?: string
+          impressions?: number | null
+          link_clicks?: number | null
+          purchases?: number | null
+          raw_insights?: Json | null
+          reach?: number | null
+          registrations?: number | null
+          snapshot_at?: string
+          spend?: number | null
+          thumbnail_url?: string | null
+          user_id: string
+        }
+        Update: {
+          ad_account_id?: string
+          ad_id?: string
+          ad_name?: string | null
+          ad_status?: string | null
+          adset_id?: string | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          campaign_objective?: string | null
+          clicks?: number | null
+          cpc?: number | null
+          cpl?: number | null
+          cpm?: number | null
+          created_at?: string
+          creative_id?: string | null
+          creative_name?: string | null
+          ctr?: number | null
+          date_preset?: string
+          fatigue_score?: string | null
+          frequency?: number | null
+          id?: string
+          impressions?: number | null
+          link_clicks?: number | null
+          purchases?: number | null
+          raw_insights?: Json | null
+          reach?: number | null
+          registrations?: number | null
+          snapshot_at?: string
+          spend?: number | null
+          thumbnail_url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      creative_renders: {
+        Row: {
+          asset_url: string | null
+          created_at: string
+          error_message: string | null
+          event_id: string | null
+          fields_jsonb: Json
+          id: string
+          provider_job_id: string | null
+          status: string
+          template_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          event_id?: string | null
+          fields_jsonb?: Json
+          id?: string
+          provider_job_id?: string | null
+          status?: string
+          template_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          event_id?: string | null
+          fields_jsonb?: Json
+          id?: string
+          provider_job_id?: string | null
+          status?: string
+          template_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_renders_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_renders_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "creative_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_tags: {
         Row: {
           created_at: string
@@ -633,6 +839,218 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_templates: {
+        Row: {
+          aspect_ratios: string[]
+          channel: string
+          created_at: string
+          external_template_id: string | null
+          fields_jsonb: Json
+          id: string
+          name: string
+          notes: string | null
+          provider: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          aspect_ratios?: string[]
+          channel?: string
+          created_at?: string
+          external_template_id?: string | null
+          fields_jsonb?: Json
+          id?: string
+          name: string
+          notes?: string | null
+          provider: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          aspect_ratios?: string[]
+          channel?: string
+          created_at?: string
+          external_template_id?: string | null
+          fields_jsonb?: Json
+          id?: string
+          name?: string
+          notes?: string | null
+          provider?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      d2c_connections: {
+        Row: {
+          client_id: string
+          created_at: string
+          credentials: Json
+          external_account_id: string | null
+          id: string
+          last_error: string | null
+          last_synced_at: string | null
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          credentials?: Json
+          external_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          provider: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          credentials?: Json
+          external_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_connections_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      d2c_scheduled_sends: {
+        Row: {
+          audience: Json
+          channel: string
+          connection_id: string
+          created_at: string
+          dry_run: boolean
+          event_id: string
+          id: string
+          result_jsonb: Json | null
+          scheduled_for: string
+          status: string
+          template_id: string
+          updated_at: string
+          user_id: string
+          variables: Json
+        }
+        Insert: {
+          audience?: Json
+          channel: string
+          connection_id: string
+          created_at?: string
+          dry_run?: boolean
+          event_id: string
+          id?: string
+          result_jsonb?: Json | null
+          scheduled_for: string
+          status?: string
+          template_id: string
+          updated_at?: string
+          user_id: string
+          variables?: Json
+        }
+        Update: {
+          audience?: Json
+          channel?: string
+          connection_id?: string
+          created_at?: string
+          dry_run?: boolean
+          event_id?: string
+          id?: string
+          result_jsonb?: Json | null
+          scheduled_for?: string
+          status?: string
+          template_id?: string
+          updated_at?: string
+          user_id?: string
+          variables?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_scheduled_sends_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "d2c_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_scheduled_sends_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_scheduled_sends_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "d2c_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      d2c_templates: {
+        Row: {
+          body_markdown: string
+          channel: string
+          client_id: string | null
+          created_at: string
+          id: string
+          name: string
+          subject: string | null
+          updated_at: string
+          user_id: string
+          variables_jsonb: Json
+        }
+        Insert: {
+          body_markdown?: string
+          channel: string
+          client_id?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          subject?: string | null
+          updated_at?: string
+          user_id: string
+          variables_jsonb?: Json
+        }
+        Update: {
+          body_markdown?: string
+          channel?: string
+          client_id?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          subject?: string | null
+          updated_at?: string
+          user_id?: string
+          variables_jsonb?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_templates_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
             referencedColumns: ["id"]
           },
         ]
@@ -817,6 +1235,54 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "event_key_moments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_ticketing_links: {
+        Row: {
+          connection_id: string
+          created_at: string
+          event_id: string
+          external_event_id: string
+          external_event_url: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          event_id: string
+          external_event_id: string
+          external_event_url?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          event_id?: string
+          external_event_id?: string
+          external_event_url?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticketing_links_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "client_ticketing_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_ticketing_links_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
@@ -1324,6 +1790,63 @@ export type Database = {
           },
           {
             foreignKeyName: "report_shares_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_sales_snapshots: {
+        Row: {
+          connection_id: string
+          created_at: string
+          currency: string | null
+          event_id: string
+          gross_revenue_cents: number | null
+          id: string
+          raw_payload: Json | null
+          snapshot_at: string
+          tickets_available: number | null
+          tickets_sold: number
+          user_id: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          currency?: string | null
+          event_id: string
+          gross_revenue_cents?: number | null
+          id?: string
+          raw_payload?: Json | null
+          snapshot_at?: string
+          tickets_available?: number | null
+          tickets_sold?: number
+          user_id: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          currency?: string | null
+          event_id?: string
+          gross_revenue_cents?: number | null
+          id?: string
+          raw_payload?: Json | null
+          snapshot_at?: string
+          tickets_available?: number | null
+          tickets_sold?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_sales_snapshots_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "client_ticketing_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_sales_snapshots_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"

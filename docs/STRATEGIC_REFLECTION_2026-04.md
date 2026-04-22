@@ -1,287 +1,246 @@
 # Off/Pixel — Strategic Reflection & Roadmap
 
-**Date:** 21 April 2026
+**First written:** 21 April 2026
+**Last reflected:** 22 April 2026 — one day later, but a meaningful one
 **Business age:** ~2 months (founded 22 Feb 2026)
-**Snapshot:** ~£13k MRR, 8 clients, 1 dashboard product, 0 D2C automation, 0 creative automation
+**Snapshot:** ~£13k MRR, 8 clients, 1 dashboard product, D2C schema scaffolded (dry-run), creative automation schema scaffolded (dry-run), creative reporting loop live today for the first time
 
-This document is a reflection on where the dashboard and campaign tooling are, what's been done well, what's been underbuilt, and — most importantly — how to attack the two biggest remaining time sinks: **creative production** and **D2C comms orchestration**. It assumes you've already read CLAUDE.md / AGENTS.md / PROJECT_CONTEXT.md and doesn't repeat that content.
+This document is a living reflection on where the dashboard and tooling are. The 21 April pass treated most of the big automation workstreams as "missing entirely." In the 24 hours since, overnight Cursor runs and a production debug session have moved most of that ground forward — so the gap between "what we have" and "what we talk about having" is smaller than yesterday's version of this doc admitted. Rewriting to realign.
+
+It assumes you've already read CLAUDE.md / AGENTS.md / PROJECT_CONTEXT.md and doesn't repeat that content.
 
 ---
 
-## 1. Milestones — where we actually are
-
-The documented project scope (CLAUDE.md) has drifted behind reality. The repo has grown beyond "Meta campaign wizard" and is already closer to an agency OS skeleton than the docs suggest. For the record, here's what the audit actually found:
+## 1. Milestones — where we actually are (22 April revision)
 
 ### Shipped and solid
 
-- **Full 8-step Meta wizard** — account → campaign → optimisation → audiences → creatives → budget → assign → review/launch. No stub steps. Audience panel alone handles Page engagement audiences, Custom Audiences, Saved Audiences, Interest groups, lookalike seeding with % and range, interest validation and deprecation fallback.
-- **Meta API end-to-end** — `lib/meta/{client,campaign,adset,creative,upload}.ts` plus the matching `app/api/meta/*` routes. Launch pipeline has phased error recovery, lookalike retry logic, interest sanitisation with cluster-based replacement.
-- **Data model that anticipates the agency OS** — Supabase schema already includes `clients`, `events` (with `event_date`, `event_start_at`, `event_timezone`, `presale_at`, `general_sale_at`), `venues`, `artists`, `event_artists` junction, `creative_tags`, `audience_seeds`, plus `campaign_drafts` / `campaign_templates`. Migrations 003–020 show this grew organically. Your model is further ahead than the doc.
-- **Persistence + schema evolution** — dual-layer (localStorage + Supabase), `migrateDraft()` handles forward-compat on load. This is mature engineering, not prototype code.
-- **Auth** — magic link + invite allowlist, RLS per user, three-client Supabase setup (browser/server/proxy). Solid.
-- **Shared report tokens** — client-facing share surface exists (`/api/share/report/[token]/*`) with tables and routes, even if the UI layer is thin.
+- **Full 8-step Meta wizard.** Account → campaign → optimisation → audiences → creatives → budget → assign → review/launch. No stub steps. Audience panel handles Page engagement, Custom, Saved, Interests, lookalike seeding, interest validation + deprecation fallback.
+- **Meta API end-to-end.** `lib/meta/{client,campaign,adset,creative,upload}.ts` plus `app/api/meta/*`. Phased launch recovery, lookalike retry, interest sanitisation, cluster-based replacement. As of this week, the client layer also has hardened retry with backoff + Retry-After caps (`graphGetWithToken`, `RETRYABLE_META_CODES`).
+- **Agency-OS data model.** Supabase schema has `clients`, `events` (`event_date`, `event_start_at`, `event_timezone`, `presale_at`, `general_sale_at`, `kind`), `venues`, `artists`, `event_artists`, `creative_tags`, `audience_seeds`, `campaign_drafts`, `campaign_templates`, plus client/event platform link tables. Migrations 003–032 show this grew deliberately.
+- **Persistence + schema evolution.** Dual-layer (localStorage + Supabase), `migrateDraft()` handles forward-compat.
+- **Auth.** Magic link + invite allowlist + RLS per user + three-client Supabase setup.
+- **Event linkage in the wizard.** (PR #8, merged `fa6f554`.) Step 0 now picks client + event and auto-populates downstream — closes yesterday's "#1 event linkage" gap.
+- **Event-aware wizard / phase detection / linked-campaigns rollup.** (PR #16, merged `1861179`.) `lib/wizard/phase.ts` computes `derivePhase` once and is reused everywhere else (reporting rollup, pipeline view).
+- **Cross-event reporting rollup.** (PR #18 — Task A.) `/reporting` with client / date-range / platform filters, blended KPI strip, events table colour-coded against rolling-90 ad-account benchmarks. Reuses `lib/reporting/event-insights.ts`; `node:test` unit test for the aggregator.
+- **Ticket pacing card.** (PR #19 — Task F, merged.) Inline-SVG chart (no new deps), `>5%` "plan vs latest snapshot" warning, empty-state deep-links.
+- **Pipeline / kanban view on `/events`.** (PR #20 — Task G, merged.) Six-column `derivePhase` view, cancelled strip, filter contract preserved.
+- **Creative Heatmap.** Tasks H1/H2/H3. Snapshot cache table (`creative_insight_snapshots`, migration 032), pre-warmed by `/api/cron/refresh-creative-insights` every 2h. Filter-bar reflow, sort, progress indication. First successful live render happened today on 4TheFans (GBP, Active, Last 7d) — 2,000 ads, £5,583 spend, 4.98% CTR, 4 fatigued creatives. **This is the reporting loop closing in real-time.**
+- **Infrastructure maturity.** Vercel upgraded to Pro (22 April, £16/mo). Cron `maxDuration` bumped to 800s with soft-timeout at 790s. Inter-account spacing 10s. `/api/intelligence/creatives` capped at 300s for the user-facing live-fetch path. Cache write-through so the next default read is instant.
+- **Shared report tokens.** Routes and structure in place for client-facing sharing (`/api/share/report/[token]/*`); UI thin but unblocked.
 
-### Partially built (skeletons — needs UI and plumbing)
+### Partially built — schema done, needs flags flipped and UX wired
 
-- **Event / client / venue / artist UI** — routes exist (`/api/events`, `/api/clients`, `/api/artists`, `/api/venues`) but the dashboard doesn't surface them. The wizard has FKs (`client_id`, `event_id`) but doesn't populate them from a real event picker. This is the single biggest "almost there" area.
-- **Reporting surface** — TikTok report import (`/api/tiktok/import`), Meta spend tracking (`/api/meta/campaign-spend`), Google Ads scaffolding, creative insights endpoint (`/api/intelligence/creatives`). All of this returns JSON; none of it has a UI. The loop is unclosed — you can launch but you can't see.
-- **Invoicing** — table exists (migration 019), routes return 501. Quote generator is built (`offpixel.co.uk/quote`) but decoupled from the app.
-- **TikTok / Google Ads** — schema + some routes, no wizard surface, no unified abstraction. If you want multi-platform one day, you're paying the "platform-specific silo" cost already.
+- **D2C comms engine.** Migration 030 shipped. Tables: `d2c_connections`, `d2c_templates`, `d2c_scheduled_sends`. Provider adapters stubbed for Mailchimp / Klaviyo / Bird / Firetext behind `FEATURE_D2C_LIVE=false` (dry-run logger). This is the roadmap's old "#4 comms templating" item — schema-complete, not yet live.
+- **Canva Connect / Bannerbear / Placid creative rendering.** Migration 031 shipped. Tables: `creative_templates`, `creative_renders`. Providers stubbed behind `FEATURE_CANVA_AUTOFILL` / `FEATURE_BANNERBEAR` / `FEATURE_PLACID`. This is the roadmap's old "#5 creative engine" item — ditto, schema-complete, not yet live.
+- **Invoicing.** Table exists (migration 019), routes still return 501. Quote generator on the website still decoupled.
+- **TikTok / Google Ads.** Schema + some routes (migrations 016/017), plus a TikTok manual reports import (`/api/tiktok/import`, migrations 026/028). No wizard surface yet; fan-out abstraction still not chosen.
 
-### Missing entirely (the strategic gaps)
+### Missing entirely (the strategic gaps that remain)
 
-- **Comms / D2C layer** — zero. No email, SMS, WhatsApp, Mailchimp, Klaviyo, Bird, or templating engine. This is the biggest operational time sink in the business and has zero product surface.
-- **Creative library / Canva / Figma integration** — zero. The Creatives step accepts manual uploads only.
-- **AI-driven creative or copy variations** — types exist for `AssetVariation` and `CaptionVariant` but no generator, no Claude-side variant engine, no artist tone-of-voice caching.
-- **Automated optimisation execution** — rules are configurable but no background worker pauses/scales ad sets based on CPA/ROAS thresholds. This means your "optimisation strategy" step is advisory, not operational.
-- **Asset tagging + retrieval by event/artist** — `creative_tags` exists but there's no UI for browsing past-event creatives.
-
----
-
-## 2. Things done well — and what to stop worrying about
-
-Be honest with yourself: these are legitimately good decisions that most agencies don't make in month two.
-
-1. **The schema is thinking further ahead than the UI.** Clients / events / artists / venues all exist as proper entities with FKs, not as free-text strings on a campaign. This is the load-bearing decision that makes everything downstream — reporting, D2C, invoicing, client portal — possible without a rewrite.
-2. **RLS per user from day one.** When Sarah is full-time and a junior eventually joins, you won't be retrofitting auth.
-3. **Error recovery on Meta launches is genuinely production-grade.** The lookalike retry + interest sanitisation + phased launch summary is the kind of thing that normally gets built after a painful outage, and you built it pre-emptively.
-4. **Shared report tokens exist.** Client-facing reporting surface is half-built structurally — when you're ready to flip it on, you don't start from scratch.
-5. **Dual-layer persistence + `migrateDraft()`.** Autosave works offline-ish and schema changes don't orphan drafts. That's a better engineering posture than most internal tools.
-
-Stop treating these like "basics." They're not. They're why we can actually build on top.
+- **Live D2C sending.** Schema and adapters exist but `FEATURE_D2C_LIVE` is off. We haven't tested real sends, haven't done per-client OAuth connection flows, haven't built the "generate all 10–12 comms for event X" wizard UI on top of the templating tables.
+- **Live Canva rendering.** Same shape as above — tables done, no "pick template + autofill + render + attach to creatives" UX yet. Blocked partly on Canva Enterprise (Autofill API gate), so Bannerbear is the pragmatic first provider.
+- **Claude-native copy-angle endpoint.** Still a chat loop. The `/api/creative/copy-angles` we talked about hasn't been built yet.
+- **Automated optimisation execution.** The wizard can configure rules, but no background worker enforces CPA/ROAS thresholds. Still advisory.
+- **Weekly Monday brief.** Not started.
+- **Per-event AI brief on open.** Not started.
 
 ---
 
-## 3. Things to improve — and brutal honesty
+## 2. What's genuinely impressive here
 
-### 3a. The reporting loop is the single biggest strategic miss right now
+Honest take, not cheerleading: the pace from "missing entirely" to "schema shipped, dry-run safe" on D2C and Canva inside 24 hours is the kind of compounding the Cursor-executes / Cowork-plans workflow was designed for. Two forces are stacking:
 
-You have 8 clients and growing. You're selling campaigns with optimisation strategy baked in. But **you can't currently show a client a live campaign view from inside the dashboard** — you're still going to Meta Ads Manager, Looker Studio, or exported sheets for that story. Every week you don't ship reporting, the dashboard's perceived value to clients is lower than its actual cost to you.
+1. **The schema thinks ahead of the UI.** Yesterday's doc already called this out. Today it paid out again — overnight Cursor runs could land full D2C and creative-render tables inside a weekend because the event / client / artist model was ready to hang them off.
+2. **Feature-flag-first shipping discipline.** Every risky new workstream lands behind `FEATURE_*` env flags with dry-run adapters. That means we can merge into `main` without going live, review in production, and flip the flag per-client when we're ready. The Vercel Pro upgrade + Cursor's habit of shipping dry-run stubs means we can keep moving without client-facing blast radius.
+3. **Operational learnings from the 22-April rate-limit ordeal are now codified.** The cron debug session (PRs #26 through #32, full Meta pagination hardening, Pro-plan budget) produced a written playbook in the cron route's comments, a per-account logging pattern, and a rule in memory not to curl-force the same endpoint repeatedly because Meta's bucket stays warm and we punish ourselves.
 
-The fact that the backends (`/api/meta/campaign-spend`, `/api/insights/event/...`, `tiktok/reports`) already exist makes this worse, not better: you've paid the schema + integration cost but aren't realising the retention / upsell value.
-
-**Fix:** before anything else in this doc, ship one reporting page — event-level spend/CTR/CPR — even if it's ugly. It'll instantly change client conversations.
-
-### 3b. The wizard isn't yet connected to events
-
-You modelled events properly, but a user creating a campaign still types in names, dates, and launch windows by hand rather than picking an event that already exists. That means:
-
-- The same event data is re-entered per campaign per platform
-- Reporting across campaigns for one event requires manual stitching
-- D2C can't reuse event metadata (because it isn't the source of truth yet)
-
-**Fix:** Step 0 should be "pick a client → pick an event" and auto-populate downstream. This is a 1–2 day piece of work that compounds later.
-
-### 3c. Multi-platform is half-laid
-
-TikTok and Google Ads have tables but no unified "Campaign Brief" abstraction that fans out to platforms. If you keep building per-platform silos, you'll be refactoring in 6 months when a client says "run this across Meta + TikTok."
-
-**Fix (non-urgent but decide soon):** either commit to Meta-only for 2026 H1 and rip out the TikTok/Google stubs, or commit to a `CampaignBrief` abstraction and build the TikTok wizard step with the same data model. Having both half-built is worse than either choice.
-
-### 3d. Known latent issues flagged in memory
-
-- **`report-shares` unsafe cast** — when you mint client-scoped shares, the `as ResolvedShare` cast will crash on null `event_id`. Fix before the first external client demo.
-- **Facebook reconnect short-lived token** — extendToken failure on reconnect (being fixed in Cursor).
+Stop treating these like "basics." They're the scaffolding that lets the next 30 days be an execution month rather than a discovery one.
 
 ---
 
-## 4. The creative time sink — attack plan
+## 3. What to improve — brutal honesty, April-22 revised
 
-### What's actually happening today
+### 3a. The reporting loop is officially closing — don't stop short
 
-From cross-session patterns, your creative workflow has a consistent shape:
+Yesterday: "you can't show a client a live campaign view from the dashboard." Today: the Creative Heatmap rendered 2,000 live Meta rows inside the widget for the first time. The `/reporting` cross-event rollup is live. The event-level ticket pacing card is live.
 
-1. **Asset sourcing** — scrape artist IG/TikTok or pull from press kit folders
-2. **Tone-of-voice extraction** — reverse-engineer artist/client IG captions for voice
-3. **Copy generation** — 3–4 angles per creative (FOMO, urgency, atmosphere, POV)
-4. **Overlay production** — CapCut for UGC/video, Photoshop for static templates
-5. **Iterate-to-lock** — 3–5 turns of refinement per creative set
+The loop is not fully closed — it needs:
+- **A consistent surface area for external sharing.** `report_shares` table exists, but the heatmap isn't plumbed into it yet. The latent `as ResolvedShare` cast bug (see §3d) will bite the first time we mint a client-scoped share.
+- **Persistence across accidental page refreshes.** Today's session surfaced a real UX bug: accidental reload nukes the loaded heatmap. Fix in `fix/heatmap-client-snapshot` is prompted and queued.
+- **Table density / overflow.** Same branch handles the right-edge clip that hides `Reg. / CPR / Purchases` at the widget edge.
 
-Steps 2 and 3 are already partially in Claude. Steps 1 and 4 are the actual bottleneck.
+None of these are "build reporting from scratch" — they're "harden the reporting we've just shipped." Next 7 days material.
 
-### Competitive landscape
+### 3b. Flip the flags — D2C and Canva are schema-rich, reality-poor
 
-The creative automation space is crowded but none of it is built for your context:
+The uncomfortable truth: having tables behind feature flags is cheap theatre until one real client is using them. The discipline that unlocks the next £7k of MRR is picking one narrow slice and going live:
 
-| Tool | What it does | Cost ref | Fit for you |
-|------|--------------|----------|-------------|
-| **AdCreative.ai** | Template-driven static ad variations with AI copy | $39–$599/mo | Too consumer-brand-focused, no event rhythm understanding |
-| **Pencil / pencil.ai** | AI video ad generation from product assets | Hidden pricing | Product-centric; weak for artist/venue content |
-| **Creatopy** | CSV → hundreds of display ad variations | Mid-tier SaaS | Strong for display, not social-first |
-| **Smartly.io** | Enterprise creative automation, 5k+ variations | Enterprise ($$$$) | Out of budget, overkill |
-| **Arcads** | AI UGC avatars for TikTok/Reels-style ads | $110–$220/mo | Interesting — might replace sourcing real creators for low-budget shows |
-| **Motion** | Creative analytics across Meta/TikTok/etc | $49/mo+ | **Worth subscribing to for benchmarks alone** |
-| **Canva Connect API** | Autofill templates with JSON → PNG/MP4 | Included w/ Teams | This is the actual build target |
+- **D2C slice to flip first:** Jackies presale-reminder email via Mailchimp. One client, one provider, one template. If that works, Phase 2 is the 24-hour WhatsApp reminder for the same client on Bird.
+- **Canva slice to flip first:** 4TheFans fan-park statics via Bannerbear (not Canva — Bannerbear doesn't need Enterprise approval and supports autofill at $0.05–0.20/render). One client, one template, one variable set.
 
-### The plan — Canva-first, Claude-native creative engine
+Both of these are 3–5 day pieces of work each now that schema is done. Both produce visible time savings inside the same week.
 
-Given your answers (Canva + Mailchimp-first), here's the specific build:
+### 3c. Multi-platform is still half-laid
 
-**Phase 1 — Canva Connect integration (2 weeks of focused dev)**
-- Add a `client_brand_templates` table: per-client Canva brand template IDs, mapped to autofill field names (`{artist_name}`, `{venue}`, `{date}`, `{ticket_link}`, `{hero_image_url}`, `{sold_tier}`)
-- New wizard sub-step "Creatives → Generate from template": pick template, confirm autofill payload, fire Canva job, poll for render, attach to creatives
-- Canva requires Enterprise for Autofill API — add this cost into your quote model (you can pass it through or absorb it against the time saved)
-- Fallback: **Bannerbear** ($0.05–$0.20/render) for high-volume per-artist fan cards at festivals like Junction 2
+TikTok manual reports import is nice but isolated. Google Ads has tables and nothing else. The decision from yesterday still stands: either commit to Meta-only for 2026 H1 (rip TikTok/Google stubs), or commit to a `CampaignBrief` abstraction and do it properly. Half-built is still worse than either choice.
 
-**Phase 2 — Claude-native copy engine (1 week)**
-- Move the "3–4 angles" caption generation out of chat into a deterministic endpoint: `/api/creative/copy-angles` that takes `{event_id, artist_id, angle: "fomo"|"atmosphere"|"urgency"|"pov"}` and returns 3 variants
-- Cache artist tone-of-voice per `artist_id` in Supabase (first call scrapes IG via Chrome MCP, stores, reuses)
-- Auto-surface "use template from KINYXX event" when doing a similar show — reuse winning variants
+Revised recommendation: **stay Meta-only through end of June**. The Creative Heatmap only just started surfacing useful creative performance data. Don't fragment focus until that signal is driving decisions.
 
-**Phase 3 — CapCut stays, but thinner (defer)**
-- Keep CapCut for UGC video overlays; don't try to rebuild video editing
-- Build an "overlay copy pack" export: from the wizard, one click exports all overlay text as a structured JSON/CSV that you paste-load into CapCut's text elements. Kills the manual retyping step.
+### 3d. Latent issues still on the board
 
-**What's actually ownable here vs off-the-shelf:** event-rhythm-aware creative generation. None of Creatopy/Smartly/AdCreative understand that a creative for "announcement phase" looks different from "final tickets phase." Your system knows, because the campaign wizard knows.
+- ~~**`report-shares` unsafe `as ResolvedShare` cast.**~~ **Resolved in PR #9** (2026-04-21). `resolveShareByToken` now returns a discriminated `{ ok: false, reason: "malformed" }` instead of crashing on null `event_id` / `client_id`. Client-scoped share minting is safe.
+- **Facebook reconnect short-lived token.** `extendToken` failure on reconnect path — Matas's memory says "fix being done in Cursor, don't touch callback files." Check if it merged.
+- **Meta app approval pending.** Clients still run ads in their own Ads Manager. This is a business-flow constraint, not a bug — but the dashboard needs to keep assuming `clients.meta_ad_account_id` can be null.
 
 ---
 
-## 5. The D2C time sink — attack plan
+## 4. The creative time sink — attack plan (revised)
 
-### What's actually happening today
+**What's changed since 21 April:** migration 031 shipped. `creative_templates` and `creative_renders` tables are live. Providers (Canva / Bannerbear / Placid / manual) are in the schema. Feature flags off.
 
-Pattern from ~10 session transcripts: every event produces **10–12 comms** in a repeating structure:
+**Scope note — no AI image generation.** AdCreative.ai / Pencil / Arcads / Midjourney are out of scope. Matas's deliverable is client-approved template adherence — fonts, placement, logo position, typographic hierarchy are all dictated by the client. The automation target is (a) Bannerbear autofill of existing Photoshop/Canva templates with structured variables, and (b) a CapCut overlay-text JSON export for video. Generative imagery would break the client contract and regress brand consistency. Every "creative engine" decision below is a template filler, not an image generator.
 
-| Phase | Channels | Typical count |
-|-------|----------|---------------|
-| Autoresponder (on signup) | Email + WhatsApp | 2 |
-| Announcement mailer | Email | 1–4 (per city) |
-| Presale reminder (24h before) | Email + WA DM + WA Community | 3 |
-| Presale live | Email + WA DM + WA Community | 3 |
-| General sale live | Email + WA DM | 2 |
-| Urgency / final tickets | Email | 1–2 |
+**Creative modes in practice (for context):**
+- **UGC-style caption overlays on video** — currently done in CapCut by manually typing each caption. Automation target: overlay-text JSON export (see Phase 3).
+- **Artwork overlays (artist-focus statics + video)** — currently edited from client Photoshop templates, then merged over clips in CapCut. Automation target: Bannerbear autofill (Phase 1).
+- **Call-to-action overlays (statics + video)** — same workflow as artwork overlays. Same automation target.
 
-That's **10–12 pieces of comms × 11 Jackies events / month = 110+ individual comms per month for one client**. The structure is deterministic. The variables (event name, date, venue, sold %, positioning line, ticket link) are a small finite set.
+**Phase 1 — Bannerbear-first live rendering (5 days)**
+- Phase 1 of the old plan assumed Canva Connect as the autofill target. Revised: Bannerbear first because it doesn't need an Enterprise contract and prices per-render ($0.05–$0.20). Use `FEATURE_BANNERBEAR=true` and ship a narrow "render fan-park static for 4TheFans" UX as the live test.
+- Keep Canva autofill stubbed for when the Enterprise side is ready.
+- Shared variable schema (`{{event.name}}`, `{{artist.primary}}`, `{{sold_tier}}`) is the durable decision — whatever provider fires first, the variables are the same.
 
-This is the single biggest automation opportunity in the entire business.
+**Phase 2 — Claude copy-angle endpoint (3 days)**
+- Still not built. Move the "3–4 angles" caption generation out of chat into `/api/creative/copy-angles`. Cache artist tone-of-voice in Supabase keyed by `artist_id`. Refresh monthly via a cron similar to `refresh-creative-insights`.
+- Make this a button inside the wizard's Creatives step — not a chat.
 
-### Competitive landscape
+**Phase 3 — CapCut overlay-text JSON export (2 days, higher-priority than previously scoped)**
+- One-click export from the event record: structured JSON of every overlay string (artist name, date, venue, presale copy variants, ticket URL, caption-variant bank from the Claude copy-angle endpoint) formatted so Matas pastes it into CapCut's text layers instead of retyping each line.
+- This kills the single biggest manual step in the current video-overlay workflow and is cheap relative to its time saving. Promoted from "nice to have" to roadmap item 8 in §7.
+- No plan to replace CapCut itself — the tool is fine, the retyping is the waste.
 
-| Tool | API maturity | Multi-tenant story | Fit |
-|------|--------------|--------------------|------|
-| **Mailchimp** | Full Marketing API, OAuth2 | Agency-friendly via OAuth2, datacenter-aware host | **Best first target** — most clients already here |
-| **Klaviyo** | Strongest event-industry fit, native "event purchased" triggers | OAuth2 GA | Push to new clients; migrate where possible |
-| **Bird (ex-MessageBird)** | Channels API for SMS + WA + email | Workspace-scoped keys | Jackies uses this — needed for WhatsApp DM scheduling |
-| **WhatsApp Cloud API (Meta direct)** | Official, template-gated | Tech Partner route for multi-client | Required for WhatsApp Community comms at scale |
-| **Firetext** | Simple UK SMS | Per-client key | Niche — only if client insists on SMS |
-| **Twilio Subaccounts** | Cleanest multi-tenant | Subaccount per client | Great fallback if Bird gets complicated |
-
-### The plan — templating engine first, then provider adapters
-
-**Phase 1 — Comms templating layer (2 weeks)**
-
-Build the engine **inside** the dashboard before any API integration. This is the "templating before integrations" path.
-
-- New tables: `comms_templates` (phase, channel, body, subject, variable schema), `comms_campaigns` (event_id → array of scheduled sends), `comms_variables` (per-event computed values: sold %, ticket link, positioning line)
-- Template model uses liquid-style `{{event.name}}` / `{{artist.primary}}` / `{{sold_tier}}` — same variable schema as Canva autofill, so Canva templates and Mailchimp templates share variables
-- "Generate all comms for event X" wizard: picks the event, computes all 10–12 comms as drafts, shows you a calendar preview aligned to `presale_at` / `general_sale_at`
-- Output modes: copy-to-clipboard per comm (for today's manual flow), export-as-CSV, future API send
-
-This alone — before any API push — will probably halve your D2C time. You stop writing the scaffolding.
-
-**Phase 2 — Mailchimp adapter (1 week)**
-
-- OAuth2 per-client connection stored encrypted in `client_integrations`
-- Push scheduled Mailchimp campaigns from the dashboard with subject + body + scheduled send time
-- Still human-approved before send (don't auto-fire), but one click instead of 12 re-creations in Mailchimp UI
-
-**Phase 3 — WhatsApp Cloud API (2 weeks — deeper because of approval gate)**
-
-- Apply to become a Meta Tech Provider (you already run a Meta app for ad management; adding messaging API is mostly paperwork)
-- Embedded signup so clients can connect their WABA
-- WA template approval workflow: draft in dashboard → submit to Meta → track approval → use in campaign
-- Warning: Meta is slow here (weeks). Start this early if you're serious.
-
-**Phase 4 — Bird + Firetext adapters (1 week each, on demand)**
-
-Only build when an existing client (Jackies = Bird) needs it. Don't pre-build.
-
-**Phase 5 — Hands-off mode (aspirational)**
-
-Once Phases 1–3 are stable, add "scheduled auto-send" for low-risk comms (autoresponder, presale reminder 24h) gated by event launch window. You stay in loop for announce / general sale live.
-
-### What's ownable here vs off-the-shelf:
-- **Event-phase awareness**: no CRM natively understands announce/presale/onsale rhythm
-- **Cross-channel template sharing**: same variables drive Canva, Mailchimp, WhatsApp
-- **Source-of-truth events**: client/event data flows from the dashboard, not duplicated in each CRM
-- **Agency multi-tenant**: one dashboard, many clients' CRMs — no existing tool does this for events
+**Phase 4 — Heatmap-driven template recommendations (new for this revision)**
+- The Creative Heatmap now produces real per-creative CPR / CTR / spend. When Phase 1 live-rendering ships, use the heatmap to rank past templates for a given `(client, event_kind, phase)` and surface "use this template — it produced the best CPR for 4TheFans fan-park statics last cycle." This is the "system learns" loop finally closing.
 
 ---
 
-## 6. Claude embedded in the dashboard — the vision
+## 5. The D2C time sink — attack plan (revised)
 
-You asked for Claude to be "more embedded in the app to empower insights, efficiency, performance." Concrete ways:
+**What's changed since 21 April:** migration 030 shipped. `d2c_connections` + `d2c_templates` + `d2c_scheduled_sends` are live with provider stubs for Mailchimp / Klaviyo / Bird / Firetext. `FEATURE_D2C_LIVE=false` — everything is dry-run logger-only right now.
 
-1. **Per-event AI brief on open** — when you open an event in the dashboard, Claude (via Agent SDK sub-agent) pre-computes: "This event is 3 weeks out, sold at 34%. Pacing vs similar past events = -12%. Recommended: shift Louder template budget toward cold prospecting, refresh creatives with urgency angle." One call, one card, visible.
-2. **Creative performance classifier** — tag creatives with `creative_tags` automatically from Meta insights: "this creative underperformed on CPR after 72h." Next time you pick templates, surface the top 5 by past ROAS for this client.
-3. **Copy-angle generator embedded in Creatives step** — not a chat. A button that produces 4 pre-framed variants with "why" explainer per angle.
-4. **D2C comms draft-all** — on event creation, Claude drafts the full 10–12 comms pack with variables filled. You review, approve, push.
-5. **Weekly Monday brief** — on Mondays at 9am (you planning day), auto-generate: "Here are this week's 14 events across clients. Here's what needs creative refresh. Here's what's pacing poorly."
-6. **Artist tone-of-voice cache** — keyed by artist IG handle, refreshed monthly. Reused across events.
+**Phase 1 — Mailchimp live for Jackies presale reminder (5 days)**
+- OAuth2 per-client flow (token encrypted into `d2c_connections.credential_jsonb`). Mailchimp datacenter-aware host handling.
+- Template authoring UI: preview with live event variables populated from the selected event.
+- Schedule-send (not immediate) — Matas in the loop as approver before flag flip.
+- This is the narrowest, highest-value slice. Jackies is already the biggest D2C time sink at 11 events/month.
 
-All of these are Agent SDK patterns the dashboard can call internally. None of them require a chat UI in the product — they run silently and surface results.
+**Phase 2 — Bird WhatsApp DM for Jackies presale reminder (5 days)**
+- Jackies already uses Bird. Reuse the `d2c_connections` shape; Bird workspace-scoped key handling.
+- WA template approval is the scary path. Start submissions to Meta WABA now if we want to hit this phase in May.
 
----
+**Phase 3 — "Generate all comms for event X" draft flow (3 days)**
+- Use the existing `d2c_templates` table as the source. Deterministic 10–12 comms draft per event, aligned to `presale_at` / `general_sale_at`. Copy-to-clipboard outputs for the channels we haven't flipped live yet (e.g. WA Community while WABA approval is pending).
+- This is the "halve D2C time before any API" piece that yesterday's doc rightly called the highest-leverage move.
 
-## 7. Priority-ordered roadmap (next 90 days)
+**Phase 4 — Meta WhatsApp Cloud API / Tech Provider status (2+ weeks, Meta-gated)**
+- Kick off the application now if we're serious about May/June. Don't wait for Phase 1.
 
-Given £13k MRR → £20k target, 2 operators, no hiring, here's the priority-ordered list. Each item lists the unlock.
-
-| # | Item | Est. effort | Unlock |
-|---|------|-------------|--------|
-| 1 | **Event → campaign linkage in wizard** (Step 0 picks client+event, auto-populates) | 2 days | Every downstream feature |
-| 2 | **Reporting v1** — one event-level page (spend/CTR/CPR over time) using existing `/api/meta/campaign-spend` | 3 days | Client-perceived value jumps |
-| 3 | **Fix `report-shares` unsafe cast** (latent crash) | 0.5 day | Unblocks client-facing share links |
-| 4 | **Comms templating engine (Phase 1)** — tables + "generate all comms" UI + copy-to-clipboard output | 2 weeks | Halves D2C time before any API |
-| 5 | **Canva Connect integration (Phase 1)** — client brand templates + autofill generator | 2 weeks | Kills Photoshop for statics |
-| 6 | **Claude copy-angle endpoint** in Creatives step (not chat) | 1 week | Kills chat iterate loop |
-| 7 | **Mailchimp adapter + OAuth2** | 1 week | First "push from dashboard" channel |
-| 8 | **Weekly Monday brief** (cron + Claude + email) | 3 days | Makes Mondays mechanical |
-| 9 | **WhatsApp Cloud API via Tech Partner** | 2 weeks (+ Meta approval wait) | Biggest Jackies time save |
-| 10 | **Creative tag performance surface** — "best past creatives for this client" | 1 week | Starts the "system learns" loop |
-
-Weeks 1–2: items 1, 2, 3 → close the reporting loop, unblock everything.
-Weeks 3–5: items 4, 5 → crush the two biggest time sinks.
-Weeks 6–9: items 6, 7, 8 → automate the repetitive layer.
-Weeks 10–12: items 9, 10 → start the "hands-off" vision in earnest.
+**Phase 5 — Hands-off mode for low-risk comms**
+- Autoresponder + 24h presale reminder become auto-send once Phase 1/2 are stable per-client.
 
 ---
 
-## 8. What to explicitly NOT build
+## 6. Claude embedded in the dashboard — still the vision
 
-Opportunities that are tempting but wrong-fit right now:
+No change from yesterday on shape; what's changed is the surface is closer to hand:
 
-- **Rebuilding Meta Ads Manager features (bid adjustments, creative rotation).** Madgicx at $69/mo does this. Subscribe, don't build.
-- **Creative analytics from scratch.** Motion at $49/mo has benchmark data from $1.3B of spend. Subscribe, don't rebuild.
-- **Your own ticketing platform.** Dice/RA/Skiddle/Fatsoma are platform plays. You're an agency on top of them. Stay there.
-- **A heavy CRM (Customer.io / Braze replacement).** You just need a templating layer + push adapters, not lifecycle orchestration.
-- **TikTok wizard before reporting is live.** Don't add platforms until the first one feels finished.
-- **Figma integration.** You don't have a design system or a full-time designer. Canva covers it.
-- **Client-facing self-serve dashboard.** Share tokens + read-only reports are enough for 2026.
-
----
-
-## 9. Sarah's growth path inside this plan
-
-You said you want Sarah's role to grow. The build above gives her natural surface:
-
-- **Reporting UI (item #2)** — Looker Studio / BigQuery background makes her the right owner of the data backbone and the first reporting surface
-- **D2C templating engine schema (item #4)** — data modelling and event/comms variable schema design is her wheelhouse
-- **Governance layer** — consent/opt-in handling, GDPR-compliant audience segmentation for D2C, data protection for client integrations → she can own this as a visible service line
-- **Dashboard ops service line** — once this internal tool stabilises, selling "dashboard-as-a-service" to other agencies or promoters is the commercial expansion you've talked about
-
-Sarah's revenue contribution becomes legible when her layer is visibly what makes the whole thing work.
+1. **Per-event AI brief on open** — still not built. Candidate for a 5-day build once Phase 1 flags are flipped (because the signal is richer with live D2C / creative data).
+2. **Creative performance classifier** — the Heatmap already computes `fatigued` counts per ad. The next step is auto-tagging via `creative_tags` based on 72h CPR decay, then surfacing "top 5 by past ROAS for this client" on template pick.
+3. **Copy-angle generator embedded in Creatives step** — same as yesterday. See §4 Phase 2.
+4. **D2C comms draft-all** — see §5 Phase 3.
+5. **Weekly Monday brief** — unchanged from yesterday's plan, now realistically buildable because the event / campaign / spend / pacing data is all in one place.
+6. **Artist tone-of-voice cache** — keyed by artist IG handle, refreshed monthly. Build alongside §4 Phase 2.
 
 ---
 
-## 10. Closing honest take
+## 7. Priority-ordered roadmap — revised 90 days
 
-Two months in, the engineering posture is well ahead of the revenue scale. That's not a problem; it's an asset — assuming the next 90 days close the loop between "powerful internal tooling" and "client-visible value."
+Yesterday's roadmap had 10 items; 4 of them are now done or close. Here's the remaining list with revised estimates.
 
-The two biggest risks right now:
-1. **Build debt drift.** Starting TikTok before finishing Meta reporting. Building D2C adapters before finishing templating. The dashboard becomes a graveyard of half-shipped systems.
-2. **Revenue ceiling without leverage.** £13k MRR at 2 operators is comfortable but fragile. The only path to £20k without hiring is the automation this doc describes. Every week the comms engine isn't built, you're paying for it in hours you can't scale past.
+| # | Item | Est. effort | Status (22 Apr) | Unlock |
+|---|------|-------------|-----------------|--------|
+| 1 | ~~Event → campaign linkage in wizard~~ | — | **DONE (PR #8)** | Done |
+| 2 | ~~Reporting v1 (event-level spend/CTR/CPR)~~ | — | **DONE — Creative Heatmap + /reporting + ticket pacing** | Done |
+| 3 | ~~Fix `report-shares` unsafe cast~~ | — | **DONE (PR #9 — discriminated union)** | Done |
+| 4 | Harden Creative Heatmap (client snapshot + table overflow) | 1 day | **In flight, `fix/heatmap-client-snapshot`** | UX quality on the flagship reporting surface |
+| 5 | D2C Phase 1 — Mailchimp live for Jackies presale reminder | 5 days | Schema done (mig 030), flag off | First live "push from dashboard" comm |
+| 6 | Canva/Bannerbear Phase 1 — Bannerbear live for 4TheFans fan-park statics | 5 days | Schema done (mig 031), flag off | First live "render from dashboard" asset |
+| 7 | Claude copy-angle endpoint (wizard button, not chat) | 3 days | Not started | Kills chat iterate loop |
+| 8 | CapCut overlay-text JSON export (event → clipboard) | 2 days | Not started | Removes biggest retyping step in video overlay workflow |
+| 9 | D2C Phase 2 — Bird WhatsApp DM for Jackies | 5 days | Schema done, flag off, Bird WABA approvals pending | Biggest Jackies time save |
+| 10 | "Generate all comms for event X" draft flow | 3 days | Tables ready, UX not built | Halves D2C time before full live |
+| 11 | Weekly Monday brief (cron + Claude + email) | 3 days | Not started | Makes Mondays mechanical |
+| 12 | Creative performance classifier → template ranker | 1 week | Heatmap produces the signal; tagger not wired | Starts "system learns" loop |
+| 13 | Meta WABA Tech Provider application | admin + wait | Not started | Gate to scalable WA Community comms |
+| 14 | Automated optimisation execution (background worker) | 1 week | Not started | Turns advisory rules operational |
 
-Attack creatives and D2C in that order. Ship reporting in between. Don't touch multi-platform until Meta feels finished.
+**Week 1 (22–28 Apr):** item 4 plus the in-flight Task A/B/C enrichment (artist + venue + event activity) — close the reporting loop UX gaps and give the wizard richer per-event context.
+**Week 2–3 (29 Apr – 12 May):** items 5, 6, 8 — flip the first two feature flags, land the CapCut JSON export alongside Bannerbear (same creative-step surface).
+**Week 4 (13–19 May):** items 7, 10 — compound the earlier wins with AI copy + draft-all.
+**Week 5–6 (20 May – 2 Jun):** items 9, 11 — WhatsApp Jackies + Monday brief.
+**Week 7+ (Jun onward):** items 12, 14 — learn-and-execute loop. Item 13 runs in the background throughout.
 
-— End of reflection
+Target: two live-flipped feature flags (D2C Mailchimp + Canva/Bannerbear) and a working Monday brief by end of May. That's the unlock for the £20k MRR conversation.
+
+---
+
+## 8. What to explicitly NOT build — unchanged, reinforced
+
+- **Rebuilding Meta Ads Manager features.** Madgicx at $69/mo. Don't build.
+- **Creative analytics from scratch.** Motion at $49/mo. We're running a Motion trial already — use it as spec input, don't clone it.
+- **Our own ticketing platform.** Stay the agency on top of Dice/RA/Skiddle/Fatsoma.
+- **A heavy CRM (Customer.io / Braze replacement).** We're building a templating + adapters layer, not lifecycle orchestration.
+- **TikTok wizard before Meta feels finished.** Hardened.
+- **Figma integration.** No design system or designer. Canva/Bannerbear covers it.
+- **Client-facing self-serve dashboard.** Share tokens + read-only reports for 2026.
+
+New addition: **don't build a "campaign auto-launcher" until the D2C comms are live and clients are used to receiving pushed outputs from the dashboard.** Order of operations matters — we need the dashboard to be the system of record for comms before we trust it to launch ads autonomously.
+
+---
+
+## 9. Sarah's growth path inside this plan — revised
+
+Yesterday's framing holds up. Concrete revisions:
+
+- **Reporting UI (item 2 — DONE):** Sarah should do the next-layer thinking now that the shape is live. What does the cross-event rollup need to look like for a client-facing share? What's the Looker Studio tie-in that maximises her expertise?
+- **D2C templating engine schema (items 5, 9):** the per-client OAuth flows, credential encryption, and datacenter-aware Mailchimp handling all need careful data governance thinking. Native Sarah territory.
+- **Governance layer:** consent / opt-in handling, GDPR-compliant audience segmentation, data protection for per-client API credentials. Becomes visible once D2C flips live — Sarah can own this as a service line.
+- **"Dashboard-as-a-service" to other agencies:** once flags are flipping cleanly and we have two live-tenant stories, this becomes a pitchable commercial line. Sarah's technical-training background is the natural fit for onboarding other agencies onto the platform.
+
+---
+
+## 10. Operational learnings from the 22 April rate-limit ordeal
+
+New section. These aren't strategy — they're the house rules that keep the build disciplined. Worth writing down.
+
+1. **Don't curl-force the same Meta endpoint repeatedly during a debug session.** Meta's rate-limit bucket stays warm, and each subsequent trigger gets worse data. Push the fix, wait for the cron to run, read the logs.
+2. **Sandbox egress is blocked for our own domains.** Cowork can't curl `app.offpixel.co.uk` or `vercel.com`. Any live-endpoint verification has to come from Matas's terminal. Codified in memory.
+3. **`gh` CLI restored at `/usr/local/bin/gh` (22 April PM)** — authed via browser OAuth. Cursor prompts can again end with `gh pr create` + `gh pr merge --squash --delete-branch --auto`, which sets up auto-merge so PRs close themselves on green CI. If `gh` ever regresses, re-install by dropping the macOS arm64 zip binary into `/usr/local/bin` (which is on the default PATH for both zsh and Cursor's shell — `~/.local/bin` is not).
+4. **Vercel Pro is the right call when the workload genuinely needs >300s.** The Hobby-plan pain wasn't about rate limiting — it was about our pagination burning budget via retry backoffs. Pro at £16/mo paid for itself the morning it went live.
+5. **Feature-flag every risky integration.** Migration 030 and 031 both shipped this way. Nothing goes to a client until a flag flips per-client.
+6. **Cowork vs Cursor split is real and working.** Cowork = strategy, research, prompt crafting, memory curation. Cursor = execution, git, PRs. Don't try to do git from Cowork; don't try to do roadmap thinking from Cursor.
+
+---
+
+## 11. Closing honest take — 22 April edit
+
+Yesterday the concern was "build debt drift — half-shipped systems everywhere." 24 hours of disciplined shipping plus a hard-won Meta rate-limit lesson has shifted that concern.
+
+The new risk is **flag inertia.** Having tables and adapters behind dry-run flags feels like progress, and technically it is — but it doesn't create client-visible value or revenue lift until one flag flips live for one client. Three scaffolded phases without a live phase is a worse position than one scaffolded phase with one live phase, because it fragments attention without producing proof.
+
+Discipline for the next 30 days: pick the two narrowest flag-flips (Mailchimp for Jackies, Bannerbear for 4TheFans), execute them end-to-end, and *then* scaffold the next layer. Don't build Phase 2 of anything until Phase 1 of that workstream is live for a real client.
+
+Attack creatives and D2C live-shipping in that order. Reporting UX cleanup lives in parallel because it's cheap and high-leverage. Don't touch multi-platform until Meta feels finished.
+
+— End of reflection · 22 April 2026
