@@ -17,6 +17,17 @@ const PATCH_FIELDS: Array<keyof ArtistUpdate> = [
   "spotify_id",
   "website",
   "notes",
+  // Enrichment-derived fields — accepted on PATCH so the slide-over
+  // "Save" persists fields the candidate panel populated.
+  "musicbrainz_id",
+  "facebook_page_url",
+  "tiktok_handle",
+  "soundcloud_url",
+  "beatport_url",
+  "bandcamp_url",
+  "profile_image_url",
+  "popularity_score",
+  "profile_jsonb",
 ];
 
 function buildPatch(body: Record<string, unknown>): ArtistUpdate {

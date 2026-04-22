@@ -226,43 +226,73 @@ export type Database = {
       }
       artists: {
         Row: {
+          bandcamp_url: string | null
+          beatport_url: string | null
           created_at: string
+          enriched_at: string | null
+          facebook_page_url: string | null
           genres: string[]
           id: string
           instagram_handle: string | null
           meta_page_id: string | null
           meta_page_name: string | null
+          musicbrainz_id: string | null
           name: string
           notes: string | null
+          popularity_score: number | null
+          profile_image_url: string | null
+          profile_jsonb: Json
+          soundcloud_url: string | null
           spotify_id: string | null
+          tiktok_handle: string | null
           updated_at: string
           user_id: string
           website: string | null
         }
         Insert: {
+          bandcamp_url?: string | null
+          beatport_url?: string | null
           created_at?: string
+          enriched_at?: string | null
+          facebook_page_url?: string | null
           genres?: string[]
           id?: string
           instagram_handle?: string | null
           meta_page_id?: string | null
           meta_page_name?: string | null
+          musicbrainz_id?: string | null
           name: string
           notes?: string | null
+          popularity_score?: number | null
+          profile_image_url?: string | null
+          profile_jsonb?: Json
+          soundcloud_url?: string | null
           spotify_id?: string | null
+          tiktok_handle?: string | null
           updated_at?: string
           user_id: string
           website?: string | null
         }
         Update: {
+          bandcamp_url?: string | null
+          beatport_url?: string | null
           created_at?: string
+          enriched_at?: string | null
+          facebook_page_url?: string | null
           genres?: string[]
           id?: string
           instagram_handle?: string | null
           meta_page_id?: string | null
           meta_page_name?: string | null
+          musicbrainz_id?: string | null
           name?: string
           notes?: string | null
+          popularity_score?: number | null
+          profile_image_url?: string | null
+          profile_jsonb?: Json
+          soundcloud_url?: string | null
           spotify_id?: string | null
+          tiktok_handle?: string | null
           updated_at?: string
           user_id?: string
           website?: string | null

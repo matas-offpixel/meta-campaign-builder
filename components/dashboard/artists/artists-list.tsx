@@ -1,11 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ArtistRow } from "@/lib/types/intelligence";
+
+interface ArtistEnrichmentCandidate {
+  name: string;
+  spotify_id: string | null;
+  musicbrainz_id: string | null;
+  genres: string[];
+  popularity_score: number | null;
+  profile_image_url: string | null;
+  instagram_handle: string | null;
+  facebook_page_url: string | null;
+  tiktok_handle: string | null;
+  soundcloud_url: string | null;
+  beatport_url: string | null;
+  bandcamp_url: string | null;
+  website: string | null;
+  profile_jsonb: Record<string, unknown>;
+}
 
 const GENRES = [
   "Melodic Techno",
@@ -29,6 +56,19 @@ type FormState = {
   spotify_id: string;
   website: string;
   notes: string;
+  // Enrichment-only fields, populated by the search panel + persisted
+  // on save. They aren't surfaced as edit inputs (Spotify is the
+  // canonical source — typing them by hand would be busywork) but we
+  // still round-trip them so a re-save doesn't blank them out.
+  musicbrainz_id: string | null;
+  facebook_page_url: string | null;
+  tiktok_handle: string | null;
+  soundcloud_url: string | null;
+  beatport_url: string | null;
+  bandcamp_url: string | null;
+  profile_image_url: string | null;
+  popularity_score: number | null;
+  profile_jsonb: Record<string, unknown> | null;
 };
 
 const EMPTY: FormState = {
@@ -40,6 +80,15 @@ const EMPTY: FormState = {
   spotify_id: "",
   website: "",
   notes: "",
+  musicbrainz_id: null,
+  facebook_page_url: null,
+  tiktok_handle: null,
+  soundcloud_url: null,
+  beatport_url: null,
+  bandcamp_url: null,
+  profile_image_url: null,
+  popularity_score: null,
+  profile_jsonb: null,
 };
 
 function rowToForm(a: ArtistRow): FormState {
@@ -53,6 +102,16 @@ function rowToForm(a: ArtistRow): FormState {
     spotify_id: a.spotify_id ?? "",
     website: a.website ?? "",
     notes: a.notes ?? "",
+    musicbrainz_id: a.musicbrainz_id ?? null,
+    facebook_page_url: a.facebook_page_url ?? null,
+    tiktok_handle: a.tiktok_handle ?? null,
+    soundcloud_url: a.soundcloud_url ?? null,
+    beatport_url: a.beatport_url ?? null,
+    bandcamp_url: a.bandcamp_url ?? null,
+    profile_image_url: a.profile_image_url ?? null,
+    popularity_score: a.popularity_score ?? null,
+    profile_jsonb:
+      (a.profile_jsonb as Record<string, unknown> | null) ?? null,
   };
 }
 
@@ -66,6 +125,42 @@ function formToPayload(f: FormState) {
     spotify_id: f.spotify_id.trim() || null,
     website: f.website.trim() || null,
     notes: f.notes.trim() || null,
+    musicbrainz_id: f.musicbrainz_id,
+    facebook_page_url: f.facebook_page_url,
+    tiktok_handle: f.tiktok_handle,
+    soundcloud_url: f.soundcloud_url,
+    beatport_url: f.beatport_url,
+    bandcamp_url: f.bandcamp_url,
+    profile_image_url: f.profile_image_url,
+    popularity_score: f.popularity_score,
+    profile_jsonb: f.profile_jsonb ?? {},
+  };
+}
+
+function applyCandidateToForm(
+  prev: FormState,
+  c: ArtistEnrichmentCandidate,
+): FormState {
+  return {
+    ...prev,
+    // Sticky merge — never overwrite a manually-typed value with a
+    // candidate-derived one. Matas owns the manual fields.
+    name: prev.name.trim() ? prev.name : c.name,
+    genres: prev.genres.length > 0 ? prev.genres : c.genres,
+    spotify_id: prev.spotify_id.trim() ? prev.spotify_id : c.spotify_id ?? "",
+    instagram_handle: prev.instagram_handle.trim()
+      ? prev.instagram_handle
+      : c.instagram_handle ?? "",
+    website: prev.website.trim() ? prev.website : c.website ?? "",
+    musicbrainz_id: prev.musicbrainz_id ?? c.musicbrainz_id,
+    facebook_page_url: prev.facebook_page_url ?? c.facebook_page_url,
+    tiktok_handle: prev.tiktok_handle ?? c.tiktok_handle,
+    soundcloud_url: prev.soundcloud_url ?? c.soundcloud_url,
+    beatport_url: prev.beatport_url ?? c.beatport_url,
+    bandcamp_url: prev.bandcamp_url ?? c.bandcamp_url,
+    profile_image_url: prev.profile_image_url ?? c.profile_image_url,
+    popularity_score: prev.popularity_score ?? c.popularity_score,
+    profile_jsonb: c.profile_jsonb,
   };
 }
 
@@ -83,6 +178,46 @@ export function ArtistsList({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [enrichmentEnabled, setEnrichmentEnabled] = useState<boolean>(false);
+  const [reEnriching, setReEnriching] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/artists/enrichment-health", {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as { enabled?: boolean };
+        if (!cancelled) setEnrichmentEnabled(Boolean(j.enabled));
+      } catch {
+        if (!cancelled) setEnrichmentEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const reEnrichRow = async (id: string) => {
+    setReEnriching(id);
+    try {
+      const res = await fetch(`/api/artists/${id}/enrich`, { method: "POST" });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(j?.error ?? `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as { artist: ArtistRow };
+      setArtists((prev) => prev.map((a) => (a.id === id ? j.artist : a)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Enrichment failed");
+    } finally {
+      setReEnriching(null);
+    }
+  };
 
   const filtered = useMemo(() => {
     return artists.filter((a) => {
@@ -271,6 +406,35 @@ export function ArtistsList({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
+                      {enrichmentEnabled &&
+                        (a.enriched_at ? (
+                          <span
+                            className="inline-flex h-2 w-2 rounded-full bg-emerald-500"
+                            title={`Enriched ${new Date(
+                              a.enriched_at,
+                            ).toLocaleDateString(undefined, {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}`}
+                            aria-label="Enriched"
+                          />
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void reEnrichRow(a.id)}
+                            disabled={reEnriching === a.id}
+                            aria-label="Enrich"
+                            title="Enrich from Spotify + MusicBrainz"
+                          >
+                            {reEnriching === a.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        ))}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -323,6 +487,14 @@ export function ArtistsList({
           }
         >
           <div className="space-y-3">
+            {enrichmentEnabled && (
+              <ArtistEnrichmentSearch
+                seed={editing.name}
+                onPick={(c) =>
+                  setEditing((prev) => (prev ? applyCandidateToForm(prev, c) : prev))
+                }
+              />
+            )}
             <Input
               label="Name *"
               value={editing.name}
@@ -407,6 +579,173 @@ export function ArtistsList({
         </SlideOver>
       )}
     </div>
+  );
+}
+
+/**
+ * Search Spotify + MusicBrainz from inside the artist slide-over.
+ * Renders up to 5 candidate cards; "Use this artist" hands the
+ * picked candidate back to the parent which sticky-merges it into
+ * the form (manual values always win).
+ */
+function ArtistEnrichmentSearch({
+  seed,
+  onPick,
+}: {
+  seed: string;
+  onPick: (candidate: ArtistEnrichmentCandidate) => void;
+}) {
+  const [q, setQ] = useState(seed);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<ArtistEnrichmentCandidate[] | null>(
+    null,
+  );
+
+  // Sync the input when the parent slide-over opens for a different
+  // artist — otherwise the previous query's text would persist.
+  useEffect(() => {
+    setQ(seed);
+    setCandidates(null);
+    setError(null);
+  }, [seed]);
+
+  const submit = async () => {
+    const query = q.trim();
+    if (!query) return;
+    setLoading(true);
+    setError(null);
+    setCandidates(null);
+    try {
+      const res = await fetch("/api/artists/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q: query }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        if (j?.error === "ARTIST_ENRICHMENT_DISABLED") {
+          throw new Error(
+            "Enrichment is disabled. Ask the admin to add SPOTIFY_CLIENT_ID + SECRET.",
+          );
+        }
+        throw new Error(j?.error ?? `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as { candidates: ArtistEnrichmentCandidate[] };
+      setCandidates(j.candidates ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-dashed border-border bg-muted/30 p-3">
+      <p className="mb-2 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <Sparkles className="h-3 w-3" />
+        Search Spotify &amp; MusicBrainz
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void submit();
+            }
+          }}
+          placeholder="Artist name…"
+          className="h-8 flex-1 rounded border border-border-strong bg-background px-2 text-sm focus:border-primary focus:outline-none"
+        />
+        <Button size="sm" onClick={() => void submit()} disabled={loading || !q.trim()}>
+          {loading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Search className="h-3.5 w-3.5" />
+          )}
+          Search
+        </Button>
+      </div>
+      {error && (
+        <p className="mt-2 text-[11px] text-destructive">{error}</p>
+      )}
+      {candidates && candidates.length === 0 && !error && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          No matches. Try a different spelling.
+        </p>
+      )}
+      {candidates && candidates.length > 0 && (
+        <ul className="mt-2 space-y-2">
+          {candidates.map((c) => (
+            <li
+              key={c.spotify_id ?? c.name}
+              className="flex items-center gap-3 rounded border border-border bg-card p-2"
+            >
+              {c.profile_image_url ? (
+                <Image
+                  src={c.profile_image_url}
+                  alt={c.name}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className="h-10 w-10 rounded object-cover"
+                />
+              ) : (
+                <div className="h-10 w-10 rounded bg-muted" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{c.name}</p>
+                <p className="truncate text-[10px] text-muted-foreground">
+                  {c.genres.slice(0, 3).join(" · ") || "no genres"}
+                  {c.popularity_score != null
+                    ? ` · ${c.popularity_score}/100`
+                    : ""}
+                </p>
+                <SocialIcons candidate={c} />
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => onPick(c)}>
+                <Check className="h-3.5 w-3.5" />
+                Use
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SocialIcons({ candidate }: { candidate: ArtistEnrichmentCandidate }) {
+  const items: { label: string; present: boolean }[] = [
+    { label: "IG", present: !!candidate.instagram_handle },
+    { label: "FB", present: !!candidate.facebook_page_url },
+    { label: "TT", present: !!candidate.tiktok_handle },
+    { label: "SC", present: !!candidate.soundcloud_url },
+    { label: "BC", present: !!candidate.bandcamp_url },
+    { label: "BP", present: !!candidate.beatport_url },
+    { label: "Web", present: !!candidate.website },
+  ];
+  return (
+    <p className="mt-0.5 flex items-center gap-1 text-[9px] uppercase tracking-wider text-muted-foreground/70">
+      {items
+        .filter((i) => i.present)
+        .map((i) => (
+          <span
+            key={i.label}
+            className="rounded bg-muted px-1 py-px text-foreground/80"
+          >
+            {i.label}
+          </span>
+        ))}
+      {items.every((i) => !i.present) && (
+        <span className="italic">no socials found</span>
+      )}
+    </p>
   );
 }
 
