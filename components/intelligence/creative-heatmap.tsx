@@ -76,6 +76,26 @@ function defaultDate(daysAgo: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * "X mins ago" / "X hours ago" / "X days ago" / "just now" formatter
+ * for the snapshot freshness badge. Stays here rather than reaching
+ * into `lib/dashboard/format.ts` because that file is server-side
+ * focused (`fmtDate`/`fmtShort` use locale formatting) — this is a
+ * one-off relative formatter, not a date renderer.
+ */
+function formatRelativeFromNow(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "just now";
+  const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min${diffMin === 1 ? "" : "s"} ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hr${diffHr === 1 ? "" : "s"} ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay} day${diffDay === 1 ? "" : "s"} ago`;
+}
+
 export function CreativeHeatmapPage() {
   const [adAccounts, setAdAccounts] = useState<MetaAdAccount[]>([]);
   const [adAccountsLoading, setAdAccountsLoading] = useState(true);
@@ -93,6 +113,14 @@ export function CreativeHeatmapPage() {
   const [lastFailed, setLastFailed] = useState<"accounts" | "creatives" | null>(
     null,
   );
+  // H1 cache surface state. `snapshotAt` is the MAX(snapshot_at) the
+  // route returned (cached reads or live writes both populate it);
+  // drives the "Refreshed X mins ago" badge next to the button.
+  // `needsRefresh` is the route's signal that the cache is empty for
+  // the current (account, datePreset) so we should prompt the user
+  // to kick a live fetch rather than render an empty heatmap.
+  const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
 
   // Load ad accounts on mount so the dropdown is populated by the time
   // the user lands on the page. Wrapped in a useCallback so the
@@ -125,52 +153,83 @@ export function CreativeHeatmapPage() {
     void loadAccounts();
   }, [loadAccounts]);
 
-  const loadCreatives = useCallback(async (): Promise<void> => {
-    if (!adAccountId) {
-      // User-error, not a Meta failure — no point offering retry.
-      setError({ message: "Choose an ad account first.", retryable: false });
+  /**
+   * Load creatives for the current account. `refresh: true` forces a
+   * live Meta fetch (~5 min on a 1k-ad account) and writes through to
+   * the cache; `refresh: false` (default) reads from the cache and
+   * sets `needsRefresh` if the cache is cold.
+   *
+   * `since`/`until` are passed for backwards-compat — the route
+   * accepts them as no-ops post-H1.
+   */
+  const loadCreatives = useCallback(
+    async (opts?: { refresh?: boolean }): Promise<void> => {
+      const refresh = opts?.refresh === true;
+      if (!adAccountId) {
+        setError({ message: "Choose an ad account first.", retryable: false });
+        setLastFailed(null);
+        return;
+      }
+      setLoading(true);
+      setError(null);
       setLastFailed(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setLastFailed(null);
-    try {
-      const sp = new URLSearchParams({ adAccountId, since, until });
-      const res = await fetch(
-        `/api/intelligence/creatives?${sp.toString()}`,
-        { cache: "no-store" },
-      );
-      if (!res.ok) {
-        // The creatives route now returns
-        //   { ok: false, error, retryable, code?, fbtrace_id? }
-        // Honour `retryable` when present, fall back to true on
-        // unstructured failures (network blip, gateway) since reads
-        // are idempotent and a retry is harmless.
-        const body = (await res.json().catch(() => null)) as
-          | { error?: string; retryable?: boolean }
-          | null;
-        const message = body?.error ?? `HTTP ${res.status}`;
-        const retryable =
-          typeof body?.retryable === "boolean" ? body.retryable : true;
-        throw new HeatmapFetchError(message, retryable);
+      try {
+        const sp = new URLSearchParams({ adAccountId, since, until });
+        if (refresh) sp.set("refresh", "1");
+        const res = await fetch(
+          `/api/intelligence/creatives?${sp.toString()}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as
+            | { error?: string; retryable?: boolean }
+            | null;
+          const message = body?.error ?? `HTTP ${res.status}`;
+          const retryable =
+            typeof body?.retryable === "boolean" ? body.retryable : true;
+          throw new HeatmapFetchError(message, retryable);
+        }
+        const j = (await res.json()) as {
+          creatives: CreativeInsightRow[];
+          snapshotAt?: string | null;
+          needsRefresh?: boolean;
+          source?: "cache" | "live";
+        };
+        setRows(j.creatives ?? []);
+        setSnapshotAt(j.snapshotAt ?? null);
+        setNeedsRefresh(j.needsRefresh === true);
+      } catch (err) {
+        if (err instanceof HeatmapFetchError) {
+          setError({ message: err.message, retryable: err.retryable });
+        } else {
+          setError({
+            message:
+              err instanceof Error ? err.message : "Failed to load creatives",
+            retryable: true,
+          });
+        }
+        setLastFailed("creatives");
+      } finally {
+        setLoading(false);
       }
-      const j = (await res.json()) as { creatives: CreativeInsightRow[] };
-      setRows(j.creatives ?? []);
-    } catch (err) {
-      if (err instanceof HeatmapFetchError) {
-        setError({ message: err.message, retryable: err.retryable });
-      } else {
-        setError({
-          message: err instanceof Error ? err.message : "Failed to load creatives",
-          retryable: true,
-        });
-      }
-      setLastFailed("creatives");
-    } finally {
-      setLoading(false);
-    }
-  }, [adAccountId, since, until]);
+    },
+    [adAccountId, since, until],
+  );
+
+  // H1: auto-fire the cached read whenever the user picks an account.
+  // The cache path is fast (single Postgres query) so the delay is
+  // imperceptible; it spares the user clicking through twice when
+  // they already know what they want to look at.
+  useEffect(() => {
+    if (!adAccountId) return;
+    void loadCreatives();
+    // We deliberately re-run on adAccountId only — `since/until` from
+    // the date inputs are ignored by the route post-H1, and re-firing
+    // on every keystroke would thrash the cache lookup. H2 will swap
+    // the date inputs for `datePreset` chips with their own change
+    // handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adAccountId]);
 
   const handleRetry = useCallback((): void => {
     if (lastFailed === "accounts") {
@@ -260,17 +319,24 @@ export function CreativeHeatmapPage() {
             onChange={(e) => setStatus(e.target.value)}
             options={STATUS_FILTERS}
           />
-          <div className="flex items-end">
+          <div className="flex flex-col items-end justify-end gap-1">
             <Button
-              onClick={() => void loadCreatives()}
+              onClick={() => void loadCreatives({ refresh: true })}
               disabled={loading || !adAccountId}
               size="sm"
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              Load creatives
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {rows && rows.length > 0 ? "Refresh from Meta" : "Load creatives"}
             </Button>
+            {snapshotAt && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                Refreshed {formatRelativeFromNow(snapshotAt)}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -301,6 +367,27 @@ export function CreativeHeatmapPage() {
       {!rows && !loading && (
         <div className="flex h-72 items-center justify-center rounded-md border border-dashed border-border bg-card text-sm text-muted-foreground">
           Select an ad account to load creative performance data.
+        </div>
+      )}
+
+      {rows && rows.length === 0 && needsRefresh && !loading && (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+          <p>
+            No cached snapshot yet for this account.
+          </p>
+          <p className="text-xs text-muted-foreground/80">
+            Click <span className="font-medium text-foreground">Refresh from Meta</span>{" "}
+            to populate the cache. The first fetch can take a few minutes
+            on large accounts; subsequent loads are instant.
+          </p>
+          <Button
+            onClick={() => void loadCreatives({ refresh: true })}
+            disabled={loading}
+            size="sm"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh from Meta
+          </Button>
         </div>
       )}
 

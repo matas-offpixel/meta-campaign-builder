@@ -2,21 +2,33 @@
  * lib/meta/creative-insights.ts
  *
  * Server-only Meta Graph API helper for the creative heatmap. Pulls every
- * ad under an ad account along with last-30d insights and maps the wire
- * shape into our internal CreativeInsightRow.
+ * ad under an ad account along with insights for a given date preset and
+ * maps the wire shape into our internal CreativeInsightRow.
  *
  * Uses the existing graphGetWithToken helper from lib/meta/client.ts —
- * no new HTTP layer.
+ * no new HTTP layer. Sequential paging is intentional: this fetcher
+ * feeds the cache table behind /api/cron/refresh-creative-insights, so
+ * the user-facing read path no longer waits on Meta. Optimising the
+ * fetcher itself (parallel paging, GraphQL batching, etc.) is a
+ * separate follow-up.
  */
 
 import { graphGetWithToken } from "@/lib/meta/client";
-import type { CreativeInsightRow } from "@/lib/types/intelligence";
+import type {
+  CreativeDatePreset,
+  CreativeInsightRow,
+} from "@/lib/types/intelligence";
 
 interface RawAd {
   id: string;
   name: string;
   status?: string;
   campaign_id?: string;
+  // Added in H1 — `campaign{name,objective}` field expansion.
+  campaign?: {
+    name?: string;
+    objective?: string;
+  };
   adset_id?: string;
   creative?: {
     id?: string;
@@ -44,13 +56,24 @@ interface PagedResponse<T> {
 }
 
 interface FetchOptions {
-  /** ISO date YYYY-MM-DD (currently unused — Meta's `date_preset=last_30d` overrides). */
-  since: string;
-  /** ISO date YYYY-MM-DD (currently unused — Meta's `date_preset=last_30d` overrides). */
-  until: string;
+  /**
+   * Meta `date_preset` value. Defaults to `last_30d` (matches the
+   * pre-H1 hardcoded behaviour).
+   */
+  datePreset?: CreativeDatePreset;
+  /**
+   * Reserved. The route currently accepts these for backwards-compat
+   * with in-flight clients but does NOT translate them into Meta's
+   * `time_range` parameter — that swap is a future change. Passed
+   * through here purely so callers can keep their existing typing.
+   */
+  since?: string;
+  until?: string;
   /** Optional list of campaign IDs to filter ads by. */
   campaignIds?: string[];
 }
+
+const DEFAULT_DATE_PRESET: CreativeDatePreset = "last_30d";
 
 function num(v: string | undefined): number {
   if (v == null) return 0;
@@ -77,27 +100,50 @@ function fatigueFromFrequency(freq: number): CreativeInsightRow["fatigueScore"] 
 }
 
 /**
- * Fetch every ad under the given ad account along with its last-30-days
- * performance insights. Returns one CreativeInsightRow per ad — empty
- * array if Meta returns no rows or the call fails (caller decides how
- * to surface that to the UI).
+ * Registration-flavoured Meta action types. Different ad accounts
+ * surface registrations under different action_type strings depending
+ * on whether they're using lead-gen forms, pixel events, or off-Meta
+ * conversions — summing the lot here means H3's `cpr` derivation
+ * works consistently across them. If a Matas account turns out to
+ * double-count, tune this list rather than adding a column.
+ */
+const REGISTRATION_ACTION_TYPES = [
+  "complete_registration",
+  "lead",
+  "registration",
+  "view_content",
+  "offsite_conversion.fb_pixel_complete_registration",
+  "offsite_conversion.fb_pixel_lead",
+];
+
+/**
+ * Fetch every ad under the given ad account along with its insights for
+ * `options.datePreset` (defaults to `last_30d`). Returns one
+ * CreativeInsightRow per ad — empty array if Meta returns no rows or
+ * the call fails (caller decides how to surface that to the UI).
  *
- * Uses date_preset=last_30d via the nested insights expansion so we get
- * one round-trip per page rather than fetching ads then insights serially.
+ * Uses Meta's nested insights expansion so we get one round-trip per
+ * page rather than fetching ads then insights serially.
  */
 export async function fetchCreativeInsights(
   adAccountId: string,
   accessToken: string,
   options: FetchOptions,
 ): Promise<CreativeInsightRow[]> {
+  const datePreset = options.datePreset ?? DEFAULT_DATE_PRESET;
+
   const fields = [
     "id",
     "name",
     "status",
     "campaign_id",
+    // H1: pull campaign name + objective so the cache table is
+    // self-sufficient and H3's objective filter doesn't need a
+    // second join.
+    "campaign{name,objective}",
     "adset_id",
     "creative{id,name,thumbnail_url}",
-    "insights.date_preset(last_30d){spend,impressions,clicks,actions,cpm,cpc,ctr,frequency,reach}",
+    `insights.date_preset(${datePreset}){spend,impressions,clicks,actions,cpm,cpc,ctr,frequency,reach}`,
   ].join(",");
 
   const params: Record<string, string> = { fields, limit: "100" };
@@ -135,6 +181,10 @@ export async function fetchCreativeInsights(
         "purchase",
         "offsite_conversion.fb_pixel_purchase",
       ]);
+      const registrations = sumAction(
+        insight?.actions,
+        REGISTRATION_ACTION_TYPES,
+      );
       const cpl = linkClicks > 0 ? Number((spend / linkClicks).toFixed(2)) : null;
 
       rows.push({
@@ -142,6 +192,8 @@ export async function fetchCreativeInsights(
         adName: ad.name,
         status: ad.status ?? null,
         campaignId: ad.campaign_id ?? null,
+        campaignName: ad.campaign?.name ?? null,
+        campaignObjective: ad.campaign?.objective ?? null,
         adsetId: ad.adset_id ?? null,
         creativeId: ad.creative?.id ?? null,
         creativeName: ad.creative?.name ?? null,
@@ -156,6 +208,7 @@ export async function fetchCreativeInsights(
         reach,
         linkClicks,
         purchases,
+        registrations,
         cpl,
         fatigueScore: fatigueFromFrequency(frequency),
         // Tags are merged in by the API route after fetching, so the Meta

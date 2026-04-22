@@ -2,30 +2,68 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { listAllTagsForUser } from "@/lib/db/creative-tags";
+import {
+  readCachedCreativeSnapshots,
+  upsertCreativeSnapshots,
+} from "@/lib/db/creative-insight-snapshots";
 import { fetchCreativeInsights } from "@/lib/meta/creative-insights";
 import { MetaApiError } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import type { CreativeInsightRow } from "@/lib/types/intelligence";
+import type {
+  CreativeDatePreset,
+  CreativeInsightRow,
+} from "@/lib/types/intelligence";
 
 /**
- * GET /api/intelligence/creatives?adAccountId=&since=&until=&campaignIds=
+ * GET /api/intelligence/creatives
+ *   ?adAccountId=act_…           required
+ *   ?datePreset=last_30d|…       optional, default `last_30d`
+ *   ?refresh=1                   optional, force live Meta fetch
+ *   ?campaignIds=                optional, only honoured on the live path
+ *   ?since=&until=               accepted as no-op for backwards-compat
  *
- * Pulls every ad in the requested account with last-30d insights, then
- * left-joins the user's creative_tags rows in memory so each row carries
- * its annotated tags. Failure modes:
- *   - missing adAccountId    → 400
- *   - no Meta token          → 502
- *   - Meta API error         → 502 with the original error JSON shape
+ * Default behaviour is to read from `creative_insight_snapshots` —
+ * the cache table pre-warmed daily by /api/cron/refresh-creative-
+ * insights (Hobby cron cap; spec targeted 2h on Pro). Cache miss
+ * returns `needsRefresh: true` (with no rows) so the UI can prompt
+ * the user to kick a live fetch rather than render an empty heatmap.
  *
- * Token comes from resolveServerMetaToken (DB user_facebook_tokens row,
- * or META_ACCESS_TOKEN fallback) — same path every other Meta route uses.
+ * `?refresh=1` runs the live Meta fetch (~5 min on a 1k-ad account),
+ * upserts the result into the cache, and returns it with
+ * `source: 'live'`. The MetaApiError → friendly UI mapping shipped in
+ * PR #17 is preserved on this path.
+ *
+ * `since` / `until` were never wired through to Meta's `time_range`
+ * parameter pre-H1 — we accept them as no-ops here so in-flight
+ * shares / bookmarks keep working without 400ing.
  */
 
-function parseDateOrDefault(raw: string | null, daysAgo: number): string {
-  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - daysAgo);
-  return d.toISOString().slice(0, 10);
+const VALID_PRESETS: CreativeDatePreset[] = [
+  "today",
+  "yesterday",
+  "last_3d",
+  "last_7d",
+  "last_14d",
+  "last_30d",
+  "maximum",
+];
+
+function parseDatePreset(raw: string | null): CreativeDatePreset {
+  if (!raw) return "last_30d";
+  const v = raw.trim();
+  return (VALID_PRESETS as readonly string[]).includes(v)
+    ? (v as CreativeDatePreset)
+    : "last_30d";
+}
+
+function attachTags(
+  rows: CreativeInsightRow[],
+  tagsByAd: Map<string, CreativeInsightRow["tags"]>,
+): CreativeInsightRow[] {
+  for (const row of rows) {
+    row.tags = tagsByAd.get(row.adId) ?? [];
+  }
+  return rows;
 }
 
 export async function GET(req: NextRequest) {
@@ -34,7 +72,10 @@ export async function GET(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "Not signed in" },
+      { status: 401 },
+    );
   }
 
   const adAccountId = req.nextUrl.searchParams.get("adAccountId")?.trim();
@@ -51,8 +92,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const since = parseDateOrDefault(req.nextUrl.searchParams.get("since"), 30);
-  const until = parseDateOrDefault(req.nextUrl.searchParams.get("until"), 0);
+  const datePreset = parseDatePreset(
+    req.nextUrl.searchParams.get("datePreset"),
+  );
+  const refresh = req.nextUrl.searchParams.get("refresh") === "1";
   const campaignIdsParam = req.nextUrl.searchParams.get("campaignIds");
   const campaignIds = campaignIdsParam
     ? campaignIdsParam
@@ -61,8 +104,44 @@ export async function GET(req: NextRequest) {
         .filter(Boolean)
     : undefined;
 
-  // Resolve the freshest Meta token before fanning out — one round trip,
-  // shared between the ad list and any future cursor pages.
+  // Tags are merged on either path; pull them once up-front so the
+  // cache and live branches share the work.
+  const tags = await listAllTagsForUser(user.id);
+  const tagsByAd = new Map<string, CreativeInsightRow["tags"]>();
+  for (const t of tags) {
+    const arr = tagsByAd.get(t.meta_ad_id) ?? [];
+    arr.push({ id: t.id, type: t.tag_type, value: t.tag_value });
+    tagsByAd.set(t.meta_ad_id, arr);
+  }
+
+  // ── Cache path (default) ────────────────────────────────────────────
+  if (!refresh) {
+    const cached = await readCachedCreativeSnapshots({
+      supabase,
+      userId: user.id,
+      adAccountId,
+      datePreset,
+    });
+    if (cached.rows.length === 0 && cached.snapshotAt === null) {
+      return NextResponse.json({
+        ok: true,
+        creatives: [],
+        snapshotAt: null,
+        source: "cache" as const,
+        needsRefresh: true,
+      });
+    }
+    const decorated = attachTags(cached.rows, tagsByAd);
+    return NextResponse.json({
+      ok: true,
+      creatives: decorated,
+      snapshotAt: cached.snapshotAt,
+      source: "cache" as const,
+      needsRefresh: false,
+    });
+  }
+
+  // ── Live path (?refresh=1) ──────────────────────────────────────────
   let token: string;
   try {
     const resolved = await resolveServerMetaToken(supabase, user.id);
@@ -75,14 +154,13 @@ export async function GET(req: NextRequest) {
   let rows: CreativeInsightRow[];
   try {
     rows = await fetchCreativeInsights(adAccountId, token, {
-      since,
-      until,
+      datePreset,
       campaignIds,
     });
   } catch (err) {
     if (err instanceof MetaApiError) {
-      // Log the trace id + raw message before remapping so debugging
-      // a "Meta is rate-limiting…" report from the UI still has a
+      // PR #17: log the trace + raw message before remapping so
+      // debugging a "Meta is rate-limiting…" report still has a
       // server-side breadcrumb back to the original failure.
       console.error(
         `[/api/intelligence/creatives] Meta error: code=${err.code ?? "?"} trace=${err.fbtraceId ?? "?"} msg="${err.message}"`,
@@ -92,11 +170,6 @@ export async function GET(req: NextRequest) {
         {
           ok: false,
           ...err.toJSON(),
-          // Override the verbatim Meta string with our friendlier
-          // copy. `toJSON()` already populated `code`, `type`, and
-          // `fbtrace_id` — we want those for debugging but not the
-          // raw "Service temporarily unavailable" message that
-          // confused users.
           error: mapped.message,
           retryable: mapped.retryable,
         },
@@ -109,29 +182,35 @@ export async function GET(req: NextRequest) {
       {
         ok: false,
         error: "Failed to load creative insights.",
-        // Unknown failure modes (DNS hiccup, downstream Supabase
-        // blip, etc.) are usually transient — let the UI offer a
-        // retry rather than dead-ending the user.
         retryable: true,
       },
       { status: 500 },
     );
   }
 
-  // Merge user tags onto each row. One Supabase round trip; fan-out lookup
-  // is in-memory which is fine for the realistic upper bound (a few k tags).
-  const tags = await listAllTagsForUser(user.id);
-  const tagsByAd = new Map<string, CreativeInsightRow["tags"]>();
-  for (const t of tags) {
-    const arr = tagsByAd.get(t.meta_ad_id) ?? [];
-    arr.push({ id: t.id, type: t.tag_type, value: t.tag_value });
-    tagsByAd.set(t.meta_ad_id, arr);
-  }
-  for (const row of rows) {
-    row.tags = tagsByAd.get(row.adId) ?? [];
-  }
+  // Write through to the cache so the next default load is instant.
+  // Best-effort; an upsert failure here shouldn't fail the response.
+  await upsertCreativeSnapshots({
+    supabase,
+    userId: user.id,
+    adAccountId,
+    datePreset,
+    rows,
+  }).catch((err) => {
+    console.warn(
+      "[/api/intelligence/creatives] cache write failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  });
 
-  return NextResponse.json({ ok: true, creatives: rows });
+  const decorated = attachTags(rows, tagsByAd);
+  return NextResponse.json({
+    ok: true,
+    creatives: decorated,
+    snapshotAt: new Date().toISOString(),
+    source: "live" as const,
+    needsRefresh: false,
+  });
 }
 
 // ─── Error mapping ───────────────────────────────────────────────────────────
