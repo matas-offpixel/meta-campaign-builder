@@ -357,38 +357,57 @@ function shortThumbHash(normalisedThumb: string): string {
  * Derive the grouping key + reason for a single row.
  *
  * Waterfall (first non-null wins):
- *   1. effective_object_story_id → `post:${id}` / "post_id"
- *   2. object_story_id           → `post:${id}` / "post_id"
- *   3. primary_asset_signature   → signature  / "asset_hash"
- *   4. normaliseAdName(ad_names[0]) IF acceptable token →
+ *   1. normaliseAdName(ad_names[0]) IF acceptable token →
  *        `name:${normalised}` / "name"
+ *   2. effective_object_story_id → `post:${id}` / "post_id"
+ *   3. object_story_id           → `post:${id}` / "post_id"
+ *   4. primary_asset_signature   → signature  / "asset_hash"
  *   5. thumbnail_url (normalised) → `thumb:${...}` / "thumbnail"
  *   6. creative_id literal       → `id:${id}` / "creative_id"
  *
- * Tier 4 (name) reads the dominant *ad-level* name (not
+ * Tier 1 (name) reads the dominant *ad-level* name (not
  * creative.name) — Meta auto-generates polluted creative.name
  * values from product feeds (e.g. "{{product.name}} 2026-03-31-
  * <uuid>") that are per-row unique and defeat grouping. Ad-level
  * names are what marketers type into Ads Manager and what they
  * want collapsed.
  *
- * Tier 4 also rejects names that are pure-numeric (Meta auto-IDs),
+ * Tier 1 also rejects names that are pure-numeric (Meta auto-IDs),
  * contain unrendered `{{...}}` template tokens, or are too short
  * (< 3 chars) — see `isAcceptableNameToken` for the canonical rules.
  *
- * PR #49: tiers 4 + 5 swapped (name now precedes thumbnail). Meta's
- * CDN rotates thumbnail URLs per creative_id even when the
- * underlying asset is byte-identical, so the thumbnail tier was
- * splitting same-concept ads that share a marketer-intended name.
+ * PR #50: name tier promoted to the very top, above post_id and
+ * asset_hash. Event-scoped reports (share page, internal panel)
+ * consider marketer-intended ad names authoritative. Meta mints
+ * fresh post_ids and asset signatures per re-upload of the same
+ * concept ("LINEUP PROMO EDIT" was rendering as ~10 separate
+ * cards because each upload spawned a fresh dark-post id), so
+ * keying on those splits same-named re-uploads.
+ * `isAcceptableNameToken` already rejects pure-numeric IDs,
+ * template tokens, and < 3-char strings — the residual risk is
+ * two unrelated concepts sharing a marketer name inside one
+ * event report, which is a trade-off Matas has explicitly
+ * accepted as the lesser evil vs the current fragmentation.
+ *
  * `normaliseAdName` already strips Meta's auto-suffixes (" - Copy
  * [N]", " (N)", " - vN", trailing ISO dates) so the name tier is
- * safe-by-default for re-uploads. Thumbnail is now a final
- * fallback for headless / numeric-name re-uploads.
+ * safe-by-default for re-uploads. post_id / asset_hash now serve
+ * as fallbacks for ads with unacceptable names (e.g. headless /
+ * numeric-name re-uploads, template-token names that never
+ * rendered).
  */
 export function deriveGroupKey(row: ConceptInputRow): {
   key: string;
   reason: GroupKeyReason;
 } {
+  const dominantAdName = row.ad_names[0]?.trim();
+  if (dominantAdName) {
+    const name = normaliseAdName(dominantAdName);
+    if (isAcceptableNameToken(name)) {
+      return { key: `name:${name}`, reason: "name" };
+    }
+  }
+
   const eosi = row.effective_object_story_id?.trim();
   if (eosi) return { key: `post:${eosi}`, reason: "post_id" };
 
@@ -397,14 +416,6 @@ export function deriveGroupKey(row: ConceptInputRow): {
 
   const sig = row.primary_asset_signature?.trim();
   if (sig) return { key: sig, reason: "asset_hash" };
-
-  const dominantAdName = row.ad_names[0]?.trim();
-  if (dominantAdName) {
-    const name = normaliseAdName(dominantAdName);
-    if (isAcceptableNameToken(name)) {
-      return { key: `name:${name}`, reason: "name" };
-    }
-  }
 
   const thumb = normaliseThumbnailUrl(row.thumbnail_url);
   if (thumb) return { key: `thumb:${thumb}`, reason: "thumbnail" };

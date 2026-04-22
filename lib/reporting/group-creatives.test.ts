@@ -670,6 +670,67 @@ test("name-above-thumbnail: same ad.name + different thumbnails collapse on name
   assert.equal(g.display_name, "Pre-Sale Push");
 });
 
+test("name-above-post-and-asset: same ad.name + different post_id + different asset_signature collapse on name (PR #50)", () => {
+  // Regression for the live "LINEUP PROMO EDIT" failure: each
+  // re-upload of the concept minted a fresh dark post
+  // (effective_object_story_id) and Meta sometimes also assigned
+  // a fresh asset signature, so pre-PR-#50 the post_id tier (and
+  // failing that, the asset_hash tier) won the waterfall and
+  // split same-named re-uploads into ~10 separate cards.
+  //
+  // After PR #50 the name tier sits ABOVE post_id + asset_hash,
+  // so an acceptable marketer-intended name collapses these
+  // back into a single concept. The trade-off (two unrelated
+  // concepts could in theory share a marketer name inside one
+  // event report) was explicitly accepted as the lesser evil
+  // vs the current fragmentation.
+  const rows: ConceptInputRow[] = [
+    row({
+      creative_id: "cid-LP-1",
+      creative_name: null,
+      ad_names: ["Lineup Promo Edit"],
+      // Distinct dark-post ids — pre-fix would have each row win
+      // the post_id tier and split.
+      effective_object_story_id: "1234567890_111",
+      object_story_id: null,
+      // Also distinct asset signatures — second-tier fallback
+      // would also have split.
+      primary_asset_signature: "video:1111111111",
+      thumbnail_url: "https://scontent.example.com/p480x480/lp-A.jpg",
+      spend: 200,
+      impressions: 2000,
+      clicks: 40,
+      reach: 1500,
+    }),
+    row({
+      creative_id: "cid-LP-2",
+      creative_name: null,
+      ad_names: ["Lineup Promo Edit"],
+      effective_object_story_id: "1234567890_222",
+      object_story_id: null,
+      primary_asset_signature: "video:2222222222",
+      thumbnail_url: "https://scontent.example.com/p480x480/lp-B.jpg",
+      spend: 100,
+      impressions: 1000,
+      clicks: 20,
+      reach: 800,
+    }),
+  ];
+
+  const groups = groupByAssetSignature(rows);
+  assert.equal(
+    groups.length,
+    1,
+    "name tier must collapse before post_id + asset_hash",
+  );
+  const g = groups[0];
+  assert.deepEqual(g.reasons, ["name"]);
+  assert.equal(g.group_key, "name:lineup promo edit");
+  assert.equal(g.creative_id_count, 2);
+  assert.equal(g.spend, 300);
+  assert.equal(g.display_name, "Lineup Promo Edit");
+});
+
 test("token-polluted ad.name is rejected → falls through to tier 6", () => {
   // ad_names[0] contains a `{{...}}` token. Even though tier 5 has
   // input, isAcceptableNameToken rejects the template-token form so
