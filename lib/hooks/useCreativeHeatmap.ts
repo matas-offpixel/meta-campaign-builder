@@ -57,6 +57,78 @@ interface CreativesResponse {
   source?: "cache" | "live";
 }
 
+// ─── Client-side snapshot layer ─────────────────────────────────────
+//
+// Persists the last-loaded row set per (adAccountId, datePreset) in
+// localStorage so an accidental browser refresh on a £5,583-spend,
+// 2 000-ad heatmap doesn't nuke the view and force the user to wait
+// out another multi-minute Meta fetch. The server-side write-through
+// in `app/api/intelligence/creatives/route.ts` is best-effort
+// (swallows upsert errors), so the client cache is the only reliable
+// fallback for "I already saw this; show it to me again".
+//
+// Versioned key prefix so a future schema change to CreativeInsightRow
+// can be invalidated wholesale without manual user action.
+
+const SNAPSHOT_KEY_PREFIX = "creative-heatmap:v1";
+
+interface ClientSnapshot {
+  rows: CreativeInsightRow[];
+  snapshotAt: string | null;
+  source: "cache" | "live" | null;
+  savedAt: string;
+}
+
+function snapshotKey(adAccountId: string, datePreset: CreativeDatePreset): string {
+  return `${SNAPSHOT_KEY_PREFIX}:${adAccountId}:${datePreset}`;
+}
+
+function readSnapshot(
+  adAccountId: string,
+  datePreset: CreativeDatePreset,
+): ClientSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(snapshotKey(adAccountId, datePreset));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ClientSnapshot> | null;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.rows) ||
+      typeof parsed.savedAt !== "string"
+    ) {
+      return null;
+    }
+    return {
+      rows: parsed.rows,
+      snapshotAt: parsed.snapshotAt ?? null,
+      source: parsed.source ?? null,
+      savedAt: parsed.savedAt,
+    };
+  } catch {
+    // Quota error, JSON parse failure, Safari private mode — treat as
+    // cache miss rather than letting the hook crash on mount.
+    return null;
+  }
+}
+
+function writeSnapshot(
+  adAccountId: string,
+  datePreset: CreativeDatePreset,
+  snapshot: ClientSnapshot,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      snapshotKey(adAccountId, datePreset),
+      JSON.stringify(snapshot),
+    );
+  } catch {
+    // Quota / private mode — best-effort, the in-memory state still
+    // works for this session.
+  }
+}
+
 export interface UseCreativeHeatmapResult {
   // ── Inputs ────────────────────────────────────────────────────────
   adAccountId: string;
@@ -80,6 +152,13 @@ export interface UseCreativeHeatmapResult {
   needsRefresh: boolean;
   /** `'cache'` for the default read; `'live'` for `?refresh=1`. */
   source: "cache" | "live" | null;
+  /**
+   * `savedAt` of the localStorage snapshot currently backing `rows`,
+   * or `null` when `rows` came from a fresh server response (or no
+   * snapshot exists yet). Lets the UI render "Showing cached
+   * snapshot · 12 mins ago" while a slow Meta fetch is in flight.
+   */
+  snapshotSavedAt: string | null;
 
   // ── State ─────────────────────────────────────────────────────────
   loading: boolean;
@@ -112,6 +191,7 @@ export function useCreativeHeatmap(): UseCreativeHeatmapResult {
   const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [source, setSource] = useState<"cache" | "live" | null>(null);
+  const [snapshotSavedAt, setSnapshotSavedAt] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -187,11 +267,47 @@ export function useCreativeHeatmap(): UseCreativeHeatmapResult {
           throw new HeatmapFetchError(message, retryable);
         }
         const j = (await res.json()) as CreativesResponse;
-        setRowsState(j.creatives ?? []);
+        const incoming = j.creatives ?? [];
+        const incomingNeedsRefresh = j.needsRefresh === true;
+
+        // Regression guard: when the server cache is cold it returns
+        // `{ creatives: [], needsRefresh: true }`. The previous
+        // implementation unconditionally `setRowsState(j.creatives)`,
+        // which wiped whatever was on screen — including the local
+        // snapshot we just hydrated from. Surface the refresh CTA
+        // (snapshotAt / needsRefresh / source) without touching rows
+        // when the server is telling us "I have nothing fresh".
+        const shouldOverwriteRows =
+          !(incoming.length === 0 && incomingNeedsRefresh);
+        if (shouldOverwriteRows) {
+          setRowsState(incoming);
+        }
         setSnapshotAt(j.snapshotAt ?? null);
-        setNeedsRefresh(j.needsRefresh === true);
+        setNeedsRefresh(incomingNeedsRefresh);
         setSource(j.source ?? null);
+
+        // Write-through to the client snapshot. Only persist non-empty
+        // result sets — an empty `[]` is either a cold cache or a real
+        // "no ads in this window" answer; either way overwriting a
+        // populated snapshot would defeat the whole point of this
+        // layer. We persist the cache-source response too because
+        // hydrating from it on the next page load is exactly the same
+        // shape the server would have returned.
+        if (incoming.length > 0) {
+          const savedAt = new Date().toISOString();
+          writeSnapshot(adAccountId, datePreset, {
+            rows: incoming,
+            snapshotAt: j.snapshotAt ?? null,
+            source: j.source ?? null,
+            savedAt,
+          });
+          setSnapshotSavedAt(savedAt);
+        }
       } catch (err) {
+        // `rows` is intentionally not touched here — the previous-state
+        // snapshot stays on screen so a transient network blip doesn't
+        // empty the heatmap. The error banner + Try-again button are
+        // the user-facing recovery path.
         if (err instanceof HeatmapFetchError) {
           setError({ message: err.message, retryable: err.retryable });
         } else {
@@ -213,13 +329,37 @@ export function useCreativeHeatmap(): UseCreativeHeatmapResult {
   const load = useCallback(() => fetchCreatives(false), [fetchCreatives]);
   const refresh = useCallback(() => fetchCreatives(true), [fetchCreatives]);
 
-  // Auto-fire cached read when the account or preset changes. Cache
-  // path is fast (single Postgres query) so the user gets immediate
-  // feedback after picking either filter. Re-firing on every keystroke
-  // would only matter if we surfaced a free-text filter — neither
-  // input here is free text.
+  // Hydrate the client snapshot for the new (account, preset) pair
+  // BEFORE the network fetch fires. Synchronous read inside the
+  // effect — React batches the state updates with the fetch trigger
+  // below, so the user never sees a flash of empty state when
+  // there's a valid snapshot on disk. The fetch then runs in the
+  // background and either confirms the snapshot (server cache hit
+  // with newer data) or leaves rows untouched (cold-cache path,
+  // see fetchCreatives' `shouldOverwriteRows` guard).
   useEffect(() => {
-    if (!adAccountId) return;
+    if (!adAccountId) {
+      setRowsState(null);
+      setSnapshotAt(null);
+      setNeedsRefresh(false);
+      setSource(null);
+      setSnapshotSavedAt(null);
+      return;
+    }
+    const snap = readSnapshot(adAccountId, datePreset);
+    if (snap) {
+      setRowsState(snap.rows);
+      setSnapshotAt(snap.snapshotAt);
+      setSource(snap.source);
+      setSnapshotSavedAt(snap.savedAt);
+      setNeedsRefresh(false);
+    } else {
+      setRowsState(null);
+      setSnapshotAt(null);
+      setNeedsRefresh(false);
+      setSource(null);
+      setSnapshotSavedAt(null);
+    }
     void fetchCreatives(false);
   }, [adAccountId, datePreset, fetchCreatives]);
 
@@ -243,6 +383,7 @@ export function useCreativeHeatmap(): UseCreativeHeatmapResult {
     snapshotAt,
     needsRefresh,
     source,
+    snapshotSavedAt,
     loading,
     isRefreshing,
     error,

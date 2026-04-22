@@ -208,6 +208,7 @@ function CreativeHeatmapInner({
     setRows,
     snapshotAt,
     needsRefresh,
+    snapshotSavedAt,
     loading,
     isRefreshing,
     error,
@@ -215,6 +216,21 @@ function CreativeHeatmapInner({
     refresh,
     retry,
   } = heatmap;
+
+  // Show the "Showing cached snapshot" chip whenever the rows on
+  // screen are coming from the localStorage snapshot rather than a
+  // freshly resolved server response. That's true while the
+  // background fetch is still in flight (loading) and also after the
+  // server returned a cold-cache `needsRefresh: true` response — the
+  // hook's `shouldOverwriteRows` guard keeps the snapshot rows
+  // visible in both cases. snapshotSavedAt is null once a fresh
+  // populated server response has overwritten rows, so the chip
+  // disappears on its own.
+  const showingClientSnapshot =
+    snapshotSavedAt != null &&
+    rows != null &&
+    rows.length > 0 &&
+    (loading || needsRefresh);
 
   /**
    * Per-group counts across the *unfiltered* row set. Counts have to
@@ -375,6 +391,14 @@ function CreativeHeatmapInner({
                 Refreshed {formatRelativeFromNow(snapshotAt)}
               </span>
             )}
+            {showingClientSnapshot && snapshotSavedAt && (
+              <span
+                className="text-[10px] text-muted-foreground/80 tabular-nums"
+                title="Rows are restored from your last visit to this view; the latest data is loading in the background."
+              >
+                Showing cached snapshot · {formatRelativeFromNow(snapshotSavedAt)}
+              </span>
+            )}
           </div>
         </div>
 
@@ -430,7 +454,7 @@ function CreativeHeatmapInner({
       )}
 
       {loading && isRefreshing && <RefreshProgressBar />}
-      {loading && !isRefreshing && (
+      {loading && !isRefreshing && !rows && (
         <div className="space-y-1.5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -441,7 +465,15 @@ function CreativeHeatmapInner({
         </div>
       )}
 
-      {filteredRows && !loading && summary && (
+      {/*
+       * Render the table whenever we have rows, even mid-fetch — the
+       * client snapshot makes the background refresh non-disruptive,
+       * and the "Showing cached snapshot" chip up top tells the user
+       * what they're looking at. We still hide it during a live
+       * `?refresh=1` (isRefreshing) so the progress bar isn't
+       * competing with stale data.
+       */}
+      {filteredRows && summary && !isRefreshing && (
         <>
           <ObjectiveChips
             value={objective}
@@ -938,40 +970,62 @@ function CreativesTable({
   const allowed = visibleMetrics ?? ALL_METRIC_KEYS;
   const columns = METRIC_COLUMNS.filter((c) => allowed.includes(c.key));
 
+  // The page wrapper caps width at `max-w-6xl` (1152px). With 14+
+  // columns the rightmost ones (Reg., CPR, Purchases) get squeezed
+  // to nothing or clip outright. Force the inner table to a real
+  // minimum so `overflow-x-auto` actually engages, and overlay a
+  // subtle right-edge gradient as a scroll affordance — macOS hides
+  // scrollbars by default and Matas was missing the affordance
+  // entirely. The scrollbar gutter is reserved via Tailwind's
+  // arbitrary `[scrollbar-gutter:stable]` so the layout doesn't jump
+  // when content stops needing scroll.
   return (
-    <div className="overflow-x-auto rounded-md border border-border bg-card">
-      <table className="w-full text-xs">
-        <thead className="border-b border-border bg-muted/30 text-left text-muted-foreground">
-          <tr>
-            <th className="px-2 py-2 font-medium">Creative</th>
-            <th className="px-2 py-2 font-medium">Ad</th>
-            {columns.map((col) => (
-              <SortableTh
-                key={col.key}
-                label={col.label}
-                sortKey={col.key}
-                sort={sort}
-                onSortChange={onSortChange}
-                align="right"
-                hint={col.hint}
+    <div className="relative">
+      <div className="overflow-x-auto rounded-md border border-border bg-card [scrollbar-gutter:stable]">
+        <table className="w-full min-w-[1100px] text-xs">
+          <thead className="border-b border-border bg-muted/30 text-left text-muted-foreground">
+            <tr>
+              <th className="px-2 py-2 font-medium">Creative</th>
+              <th className="px-2 py-2 font-medium">Ad</th>
+              {columns.map((col) => (
+                <SortableTh
+                  key={col.key}
+                  label={col.label}
+                  sortKey={col.key}
+                  sort={sort}
+                  onSortChange={onSortChange}
+                  align="right"
+                  hint={col.hint}
+                />
+              ))}
+              <th className="px-2 py-2 font-medium">Fatigue</th>
+              <th className="px-2 py-2 font-medium">Tags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <CreativeRow
+                key={row.adId}
+                row={row}
+                columns={columns}
+                onTagAdded={onTagAdded}
+                onTagRemoved={onTagRemoved}
               />
             ))}
-            <th className="px-2 py-2 font-medium">Fatigue</th>
-            <th className="px-2 py-2 font-medium">Tags</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <CreativeRow
-              key={row.adId}
-              row={row}
-              columns={columns}
-              onTagAdded={onTagAdded}
-              onTagRemoved={onTagRemoved}
-            />
-          ))}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
+      {/*
+       * Right-edge gradient that fades the table off into the card
+       * background when there's more to scroll to. `pointer-events-none`
+       * keeps it from blocking clicks on the rightmost cells; the
+       * `from-card` matches the surface the table sits on so it's
+       * invisible against an empty area.
+       */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 right-0 w-8 rounded-r-md bg-gradient-to-l from-card to-transparent"
+      />
     </div>
   );
 }
