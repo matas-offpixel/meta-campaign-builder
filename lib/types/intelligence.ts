@@ -148,6 +148,15 @@ export interface CreativeInsightRow {
   registrations: number;
   /** Cost per link click. null when linkClicks is 0. */
   cpl: number | null;
+  /**
+   * Cost per registration, derived as `spend / registrations` at
+   * read time when `registrations > 0`, else null. Added in H3 to
+   * give lead-objective campaigns a meaningful primary metric — we
+   * deliberately do NOT persist this on `creative_insight_snapshots`;
+   * the column count stays as-is and the divisor (`registrations`)
+   * is already cached on the row.
+   */
+  cpr: number | null;
   fatigueScore: "ok" | "warning" | "critical";
   tags: { id: string; type: CreativeTagType; value: string }[];
 }

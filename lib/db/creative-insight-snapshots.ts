@@ -133,6 +133,13 @@ function rowToInsert(
 function rowFromDb(row: SnapshotRow): CreativeInsightRow {
   const linkClicks = row.link_clicks ?? 0;
   const spend = num(row.spend);
+  const registrations = num(row.registrations);
+  // H3: derive cpr at read time so we don't need another column on
+  // `creative_insight_snapshots`. Null when no registrations; that
+  // matches the live fetcher and the lead-preset summary's "no data"
+  // semantics.
+  const cpr =
+    registrations > 0 ? Number((spend / registrations).toFixed(2)) : null;
   return {
     adId: row.ad_id,
     adName: row.ad_name ?? "",
@@ -154,8 +161,9 @@ function rowFromDb(row: SnapshotRow): CreativeInsightRow {
     reach: num(row.reach),
     linkClicks,
     purchases: num(row.purchases),
-    registrations: num(row.registrations),
+    registrations,
     cpl: row.cpl,
+    cpr,
     fatigueScore: fatigueOrOk(row.fatigue_score),
     tags: [],
   };

@@ -12,6 +12,14 @@ import {
   useCreativeHeatmap,
   type UseCreativeHeatmapResult,
 } from "@/lib/hooks/useCreativeHeatmap";
+import {
+  groupForObjective,
+  OBJECTIVE_GROUP_ORDER,
+  OBJECTIVE_PRESETS,
+  type CreativeNumericMetric,
+  type ObjectiveGroup,
+  type ObjectivePreset,
+} from "@/lib/intelligence/objective-metrics";
 import type {
   CreativeDatePreset,
   CreativeInsightRow,
@@ -90,16 +98,13 @@ function formatRelativeFromNow(iso: string): string {
 
 // ─── Sort model ──────────────────────────────────────────────────────────────
 
-/** Columns the user can click-to-sort. Anchored at the table header. */
-type SortKey =
-  | "spend"
-  | "impressions"
-  | "ctr"
-  | "cpm"
-  | "cpc"
-  | "frequency"
-  | "cpl"
-  | "purchases";
+/**
+ * Columns the user can click-to-sort. Anchored at the table header.
+ * Extended in H3 with the columns the objective presets surface
+ * (registrations, cpr, linkClicks, reach) so the per-group default
+ * sort + the user's manual sort agree on a key.
+ */
+type SortKey = CreativeNumericMetric;
 
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
@@ -142,16 +147,34 @@ function applySort(rows: CreativeInsightRow[], sort: SortState): CreativeInsight
   return [...rows].sort((a, b) => compareNumeric(a[key], b[key], dir));
 }
 
+/** "All" sentinel for the objective chip row. Keeps the URL of the
+ * objective state simple (`null` → all groups) and means we never
+ * have to teach the chip-rendering loop about a special label. */
+type ObjectiveFilter = ObjectiveGroup | "all";
+
 export function CreativeHeatmapPage() {
   const heatmap = useCreativeHeatmap();
   // Status filter stays component-local — it never round-trips to the
   // route, just shapes the rendered set.
   const [status, setStatus] = useState<string>("ALL");
   // Sort state is component-local for the same reason. Default sort
-  // is ascending CPL (best leads first), matching pre-H2 behaviour.
+  // is ascending CPL (best leads first) when no objective is active;
+  // an active preset overrides this via the chip handler.
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  // H3: active objective chip. `'all'` keeps the pre-H3 layout.
+  const [objective, setObjective] = useState<ObjectiveFilter>("all");
 
-  return <CreativeHeatmapInner heatmap={heatmap} status={status} setStatus={setStatus} sort={sort} setSort={setSort} />;
+  return (
+    <CreativeHeatmapInner
+      heatmap={heatmap}
+      status={status}
+      setStatus={setStatus}
+      sort={sort}
+      setSort={setSort}
+      objective={objective}
+      setObjective={setObjective}
+    />
+  );
 }
 
 function CreativeHeatmapInner({
@@ -160,12 +183,16 @@ function CreativeHeatmapInner({
   setStatus,
   sort,
   setSort,
+  objective,
+  setObjective,
 }: {
   heatmap: UseCreativeHeatmapResult;
   status: string;
   setStatus: (v: string) => void;
   sort: SortState;
   setSort: (next: SortState) => void;
+  objective: ObjectiveFilter;
+  setObjective: (next: ObjectiveFilter) => void;
 }) {
   const {
     adAccounts,
@@ -186,24 +213,96 @@ function CreativeHeatmapInner({
     retry,
   } = heatmap;
 
+  /**
+   * Per-group counts across the *unfiltered* row set. Counts have to
+   * be stable as the user toggles status / objective so the chip row
+   * remains a reliable pointer to "where my budget is".
+   */
+  const objectiveCounts = useMemo(() => {
+    const counts: Record<ObjectiveGroup, number> = {
+      leads: 0,
+      sales: 0,
+      traffic: 0,
+      awareness: 0,
+      engagement: 0,
+      other: 0,
+    };
+    if (!rows) return counts;
+    for (const r of rows) counts[groupForObjective(r.campaignObjective)] += 1;
+    return counts;
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     if (!rows) return null;
-    const filtered =
-      status === "ALL"
-        ? rows
-        : rows.filter((r) => (r.status ?? "").toUpperCase() === status);
-    return applySort(filtered, sort);
-  }, [rows, status, sort]);
+    let next = rows;
+    if (status !== "ALL") {
+      next = next.filter((r) => (r.status ?? "").toUpperCase() === status);
+    }
+    if (objective !== "all") {
+      next = next.filter(
+        (r) => groupForObjective(r.campaignObjective) === objective,
+      );
+    }
+    return applySort(next, sort);
+  }, [rows, status, sort, objective]);
 
+  /**
+   * Generic summary used when objective='all' — same shape as
+   * pre-H3. The objective-specific summary is computed separately so
+   * we can swap the headline metric without losing the count chip.
+   */
   const summary = useMemo(() => {
     if (!filteredRows) return null;
     const totalSpend = filteredRows.reduce((s, r) => s + r.spend, 0);
     const totalImpr = filteredRows.reduce((s, r) => s + r.impressions, 0);
     const totalClicks = filteredRows.reduce((s, r) => s + r.clicks, 0);
+    const totalRegistrations = filteredRows.reduce(
+      (s, r) => s + r.registrations,
+      0,
+    );
+    const totalPurchases = filteredRows.reduce((s, r) => s + r.purchases, 0);
+    const totalLinkClicks = filteredRows.reduce((s, r) => s + r.linkClicks, 0);
+    const totalReach = filteredRows.reduce((s, r) => s + r.reach, 0);
     const avgCtr = totalImpr > 0 ? (totalClicks / totalImpr) * 100 : 0;
+    const blendedCpr =
+      totalRegistrations > 0 ? totalSpend / totalRegistrations : null;
+    const blendedCpc =
+      totalLinkClicks > 0 ? totalSpend / totalLinkClicks : null;
+    const blendedCpm = totalImpr > 0 ? (totalSpend / totalImpr) * 1000 : null;
     const fatigued = filteredRows.filter((r) => r.fatigueScore !== "ok").length;
-    return { count: filteredRows.length, totalSpend, avgCtr, fatigued };
+    return {
+      count: filteredRows.length,
+      totalSpend,
+      avgCtr,
+      fatigued,
+      totalRegistrations,
+      totalPurchases,
+      totalLinkClicks,
+      totalReach,
+      blendedCpr,
+      blendedCpc,
+      blendedCpm,
+    };
   }, [filteredRows]);
+
+  /**
+   * Active preset for the table column swap + summary headline.
+   * `null` when objective='all' (table renders the full column set).
+   */
+  const activePreset = objective === "all" ? null : OBJECTIVE_PRESETS[objective];
+
+  // When the user picks a non-`all` chip, flip the default sort to
+  // the preset's primary metric. Any subsequent header click still
+  // wins via setSort, so the user can override per-session.
+  const handleObjectiveChange = (next: ObjectiveFilter) => {
+    setObjective(next);
+    if (next === "all") {
+      setSort(DEFAULT_SORT);
+    } else {
+      const preset = OBJECTIVE_PRESETS[next];
+      setSort({ key: preset.primaryMetric, dir: preset.defaultSortDir });
+    }
+  };
 
   const handleTagAdded = (
     adId: string,
@@ -341,24 +440,14 @@ function CreativeHeatmapInner({
 
       {filteredRows && !loading && summary && (
         <>
-          <div className="rounded-md border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">
-              {summary.count}
-            </span>{" "}
-            ads ·{" "}
-            <span className="font-medium text-foreground">
-              {fmtMoney(summary.totalSpend)}
-            </span>{" "}
-            total spend · Avg CTR{" "}
-            <span className="font-medium text-foreground">
-              {fmtPct(summary.avgCtr)}
-            </span>{" "}
-            ·{" "}
-            <span className="font-medium text-foreground">
-              {summary.fatigued}
-            </span>{" "}
-            creative{summary.fatigued === 1 ? "" : "s"} flagged as fatigued
-          </div>
+          <ObjectiveChips
+            value={objective}
+            onChange={handleObjectiveChange}
+            counts={objectiveCounts}
+            total={rows?.length ?? 0}
+          />
+
+          <SummaryBar summary={summary} preset={activePreset} />
 
           {filteredRows.length === 0 ? (
             <div className="rounded-md border border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
@@ -371,6 +460,7 @@ function CreativeHeatmapInner({
               onSortChange={(key) => setSort(nextSort(sort, key))}
               onTagAdded={handleTagAdded}
               onTagRemoved={handleTagRemoved}
+              visibleMetrics={activePreset?.visibleMetrics ?? null}
             />
           )}
         </>
@@ -378,6 +468,232 @@ function CreativeHeatmapInner({
     </div>
   );
 }
+
+// ─── Objective chip row ─────────────────────────────────────────────────────
+
+/**
+ * Chip row for the objective filter. Renders an "All" chip first, then
+ * one per group in `OBJECTIVE_GROUP_ORDER`. The count next to each
+ * label is the per-group total across the whole row set (independent
+ * of the active filter) so the chips read as "where my ads live", not
+ * "what's in the current view".
+ */
+function ObjectiveChips({
+  value,
+  onChange,
+  counts,
+  total,
+}: {
+  value: ObjectiveFilter;
+  onChange: (next: ObjectiveFilter) => void;
+  counts: Record<ObjectiveGroup, number>;
+  total: number;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Filter by campaign objective"
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      <ObjectiveChip
+        active={value === "all"}
+        onClick={() => onChange("all")}
+        label="All"
+        count={total}
+      />
+      {OBJECTIVE_GROUP_ORDER.map((g) => {
+        const c = counts[g];
+        // Hide groups with 0 ads — they'd just be visual noise.
+        // `other` is included even at 0 so the user can confirm
+        // every objective got mapped.
+        if (c === 0 && g !== "other") return null;
+        return (
+          <ObjectiveChip
+            key={g}
+            active={value === g}
+            onClick={() => onChange(g)}
+            label={OBJECTIVE_PRESETS[g].label}
+            count={c}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ObjectiveChip({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] transition-colors",
+        active
+          ? "border-foreground bg-foreground text-background"
+          : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground",
+      ].join(" ")}
+    >
+      <span>{label}</span>
+      <span
+        className={[
+          "tabular-nums",
+          active ? "text-background/70" : "text-muted-foreground/70",
+        ].join(" ")}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ─── Summary bar ────────────────────────────────────────────────────────────
+
+interface SummaryShape {
+  count: number;
+  totalSpend: number;
+  avgCtr: number;
+  fatigued: number;
+  totalRegistrations: number;
+  totalPurchases: number;
+  totalLinkClicks: number;
+  totalReach: number;
+  blendedCpr: number | null;
+  blendedCpc: number | null;
+  blendedCpm: number | null;
+}
+
+/**
+ * Summary chip strip. When no objective preset is active we keep the
+ * pre-H3 wording (count · spend · CTR · fatigued); when a preset is
+ * active we lead with that group's primary metric (e.g. "312 ads ·
+ * £4,812 spend · 287 registrations · £16.77 CPR" for the leads
+ * preset). Counts always survive the swap so the user can tell at
+ * a glance how many ads they're looking at.
+ */
+function SummaryBar({
+  summary,
+  preset,
+}: {
+  summary: SummaryShape;
+  preset: ObjectivePreset | null;
+}) {
+  const adsLabel = `${summary.count} ad${summary.count === 1 ? "" : "s"}`;
+
+  if (!preset) {
+    return (
+      <div className="rounded-md border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{summary.count}</span> ads ·{" "}
+        <span className="font-medium text-foreground">{fmtMoney(summary.totalSpend)}</span>{" "}
+        total spend · Avg CTR{" "}
+        <span className="font-medium text-foreground">{fmtPct(summary.avgCtr)}</span> ·{" "}
+        <span className="font-medium text-foreground">{summary.fatigued}</span>{" "}
+        creative{summary.fatigued === 1 ? "" : "s"} flagged as fatigued
+      </div>
+    );
+  }
+
+  // Per-preset headline. The cases below pick the metric pair that
+  // actually matters for that group; the generic spend/CTR pair stays
+  // available below as the always-visible secondary line.
+  let headline: React.ReactNode = null;
+  switch (preset.group) {
+    case "leads":
+      headline = (
+        <>
+          <span className="font-medium text-foreground">
+            {fmtNum(summary.totalRegistrations)}
+          </span>{" "}
+          registrations · CPR{" "}
+          <span className="font-medium text-foreground">
+            {summary.blendedCpr != null ? fmtMoney(summary.blendedCpr) : "—"}
+          </span>
+        </>
+      );
+      break;
+    case "sales":
+      headline = (
+        <>
+          <span className="font-medium text-foreground">
+            {fmtNum(summary.totalPurchases)}
+          </span>{" "}
+          purchases · CPC{" "}
+          <span className="font-medium text-foreground">
+            {summary.blendedCpc != null ? fmtMoney(summary.blendedCpc) : "—"}
+          </span>
+        </>
+      );
+      break;
+    case "traffic":
+      headline = (
+        <>
+          <span className="font-medium text-foreground">
+            {fmtNum(summary.totalLinkClicks)}
+          </span>{" "}
+          link clicks · CPC{" "}
+          <span className="font-medium text-foreground">
+            {summary.blendedCpc != null ? fmtMoney(summary.blendedCpc) : "—"}
+          </span>
+        </>
+      );
+      break;
+    case "awareness":
+      headline = (
+        <>
+          <span className="font-medium text-foreground">
+            {fmtNum(summary.totalReach)}
+          </span>{" "}
+          reach · CPM{" "}
+          <span className="font-medium text-foreground">
+            {summary.blendedCpm != null ? fmtMoney(summary.blendedCpm) : "—"}
+          </span>
+        </>
+      );
+      break;
+    case "engagement":
+      headline = (
+        <>
+          Avg CTR{" "}
+          <span className="font-medium text-foreground">
+            {fmtPct(summary.avgCtr)}
+          </span>
+        </>
+      );
+      break;
+    default:
+      headline = (
+        <>
+          Avg CTR{" "}
+          <span className="font-medium text-foreground">
+            {fmtPct(summary.avgCtr)}
+          </span>
+        </>
+      );
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">{adsLabel}</span> ·{" "}
+      <span className="font-medium text-foreground">
+        {fmtMoney(summary.totalSpend)}
+      </span>{" "}
+      spend · {headline} ·{" "}
+      <span className="font-medium text-foreground">{summary.fatigued}</span>{" "}
+      flagged
+    </div>
+  );
+}
+
 
 // ─── Date preset chip group ─────────────────────────────────────────────────
 
@@ -496,12 +812,20 @@ function SortableTh({
   sort,
   onSortChange,
   align = "left",
+  hint,
 }: {
   label: string;
   sortKey: SortKey;
   sort: SortState;
   onSortChange: (key: SortKey) => void;
   align?: "left" | "right";
+  /**
+   * Optional aria-described tooltip text. When present, renders a
+   * small ⓘ marker next to the label with `title=hint` so the user
+   * can read it on hover. Used for the "Purchases" column to call
+   * out that counts may be 0 outside sales-objective campaigns.
+   */
+  hint?: string;
 }) {
   const ariaSort = ariaSortFor(sort, sortKey);
   const isActive = sort?.key === sortKey;
@@ -520,6 +844,15 @@ function SortableTh({
         ].join(" ")}
       >
         <span>{label}</span>
+        {hint && (
+          <span
+            title={hint}
+            aria-label={hint}
+            className="cursor-help text-[10px] text-muted-foreground/70"
+          >
+            ⓘ
+          </span>
+        )}
         <span
           aria-hidden
           className={[
@@ -536,19 +869,72 @@ function SortableTh({
 
 // ─── Table ─────────────────────────────────────────────────────────────────
 
+/**
+ * Catalog of every metric column the table can render. Order here is
+ * the canonical column order — when an objective preset trims to a
+ * subset we still render in this order so muscle memory survives the
+ * column swap.
+ */
+interface MetricColumn {
+  key: CreativeNumericMetric;
+  label: string;
+  format: "money" | "int" | "pct" | "ratio";
+  /** Optional header tooltip — see SortableTh.hint. */
+  hint?: string;
+}
+
+const METRIC_COLUMNS: MetricColumn[] = [
+  { key: "spend", label: "Spend", format: "money" },
+  { key: "impressions", label: "Impr.", format: "int" },
+  { key: "reach", label: "Reach", format: "int" },
+  { key: "ctr", label: "CTR", format: "pct" },
+  { key: "cpm", label: "CPM", format: "money" },
+  { key: "cpc", label: "CPC", format: "money" },
+  { key: "frequency", label: "Freq.", format: "ratio" },
+  { key: "linkClicks", label: "Link clicks", format: "int" },
+  { key: "cpl", label: "CPL", format: "money" },
+  { key: "registrations", label: "Reg.", format: "int" },
+  { key: "cpr", label: "CPR", format: "money" },
+  {
+    key: "purchases",
+    label: "Purchases",
+    format: "int",
+    hint: "Counted only on Sales / Conversion campaigns. Lead, traffic, awareness and engagement objectives will read 0 here — that's correct, not broken.",
+  },
+];
+
+const ALL_METRIC_KEYS: CreativeNumericMetric[] = METRIC_COLUMNS.map((c) => c.key);
+
+function formatMetric(
+  value: number | null | undefined,
+  format: "money" | "int" | "pct" | "ratio",
+): string {
+  if (value == null) return "—";
+  if (format === "money") return fmtMoney(value);
+  if (format === "pct") return fmtPct(value);
+  if (format === "ratio") return Number(value).toFixed(2);
+  return fmtNum(value);
+}
+
 function CreativesTable({
   rows,
   sort,
   onSortChange,
   onTagAdded,
   onTagRemoved,
+  visibleMetrics,
 }: {
   rows: CreativeInsightRow[];
   sort: SortState;
   onSortChange: (key: SortKey) => void;
   onTagAdded: (adId: string, tag: CreativeInsightRow["tags"][number]) => void;
   onTagRemoved: (adId: string, tagId: string) => void;
+  /** When null, render the full column catalog (objective='all'). */
+  visibleMetrics: CreativeNumericMetric[] | null;
 }) {
+  const allowed = visibleMetrics ?? ALL_METRIC_KEYS;
+  const columns = METRIC_COLUMNS.filter((c) => allowed.includes(c.key));
+
   return (
     <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full text-xs">
@@ -556,14 +942,17 @@ function CreativesTable({
           <tr>
             <th className="px-2 py-2 font-medium">Creative</th>
             <th className="px-2 py-2 font-medium">Ad</th>
-            <SortableTh label="Spend" sortKey="spend" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="Impr." sortKey="impressions" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="CTR" sortKey="ctr" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="CPM" sortKey="cpm" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="CPC" sortKey="cpc" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="Freq." sortKey="frequency" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="CPL" sortKey="cpl" sort={sort} onSortChange={onSortChange} align="right" />
-            <SortableTh label="Purchases" sortKey="purchases" sort={sort} onSortChange={onSortChange} align="right" />
+            {columns.map((col) => (
+              <SortableTh
+                key={col.key}
+                label={col.label}
+                sortKey={col.key}
+                sort={sort}
+                onSortChange={onSortChange}
+                align="right"
+                hint={col.hint}
+              />
+            ))}
             <th className="px-2 py-2 font-medium">Fatigue</th>
             <th className="px-2 py-2 font-medium">Tags</th>
           </tr>
@@ -573,6 +962,7 @@ function CreativesTable({
             <CreativeRow
               key={row.adId}
               row={row}
+              columns={columns}
               onTagAdded={onTagAdded}
               onTagRemoved={onTagRemoved}
             />
@@ -585,10 +975,12 @@ function CreativesTable({
 
 function CreativeRow({
   row,
+  columns,
   onTagAdded,
   onTagRemoved,
 }: {
   row: CreativeInsightRow;
+  columns: MetricColumn[];
   onTagAdded: (adId: string, tag: CreativeInsightRow["tags"][number]) => void;
   onTagRemoved: (adId: string, tagId: string) => void;
 }) {
@@ -639,16 +1031,11 @@ function CreativeRow({
           {row.creativeName ?? row.creativeId ?? "—"}
         </div>
       </td>
-      <td className="px-2 py-2 text-right tabular-nums">{fmtMoney(row.spend)}</td>
-      <td className="px-2 py-2 text-right tabular-nums">{fmtNum(row.impressions)}</td>
-      <td className="px-2 py-2 text-right tabular-nums">{fmtPct(row.ctr)}</td>
-      <td className="px-2 py-2 text-right tabular-nums">{fmtMoney(row.cpm)}</td>
-      <td className="px-2 py-2 text-right tabular-nums">{fmtMoney(row.cpc)}</td>
-      <td className="px-2 py-2 text-right tabular-nums">{row.frequency.toFixed(2)}</td>
-      <td className="px-2 py-2 text-right tabular-nums">
-        {row.cpl != null ? fmtMoney(row.cpl) : "—"}
-      </td>
-      <td className="px-2 py-2 text-right tabular-nums">{fmtNum(row.purchases)}</td>
+      {columns.map((col) => (
+        <td key={col.key} className="px-2 py-2 text-right tabular-nums">
+          {formatMetric(row[col.key], col.format)}
+        </td>
+      ))}
       <td className="px-2 py-2">
         <span
           className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${fatigueClasses}`}

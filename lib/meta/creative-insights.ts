@@ -186,6 +186,11 @@ export async function fetchCreativeInsights(
         REGISTRATION_ACTION_TYPES,
       );
       const cpl = linkClicks > 0 ? Number((spend / linkClicks).toFixed(2)) : null;
+      // H3: derive cpr at fetch time so the cache row + UI agree without
+      // a second column on `creative_insight_snapshots`. Null when no
+      // registrations so the lead-preset summary doesn't show £Infinity.
+      const cpr =
+        registrations > 0 ? Number((spend / registrations).toFixed(2)) : null;
 
       rows.push({
         adId: ad.id,
@@ -210,6 +215,7 @@ export async function fetchCreativeInsights(
         purchases,
         registrations,
         cpl,
+        cpr,
         fatigueScore: fatigueFromFrequency(frequency),
         // Tags are merged in by the API route after fetching, so the Meta
         // client stays unaware of our local annotations table.
