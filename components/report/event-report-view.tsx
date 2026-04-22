@@ -142,6 +142,18 @@ interface Props {
    */
   creativesSlot?: React.ReactNode;
   /**
+   * Optional pre-rendered slot for the per-event daily report block
+   * (summary header + trend chart + tracker table). When provided,
+   * renders below the Meta + TikTok blocks. The share RSC builds it
+   * server-side from the unified timeline (live + manual entries) so
+   * the block can render on the public share page without an extra
+   * authenticated round-trip.
+   *
+   * Internal Reporting tab leaves this undefined — the dashboard's
+   * Overview tab already renders the same block directly.
+   */
+  eventDailySlot?: React.ReactNode;
+  /**
    * Partial-render flag. Set by the share page when the headline
    * insights call (event-wide aggregate) failed but the per-ad
    * "Active creatives" call succeeded — typically a Meta-side
@@ -174,6 +186,7 @@ export function EventReportView({
   isRefreshing = false,
   variant = "standalone",
   creativesSlot,
+  eventDailySlot,
   headlineUnavailable = false,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
@@ -305,6 +318,13 @@ export function EventReportView({
 
         {/* ─── TikTok block ─────────────────────────────────────── */}
         {tiktok ? <TikTokReportBlock data={tiktok} /> : null}
+
+        {/* ─── Event daily report block ─────────────────────────── */
+         /* Server-rendered from the unified timeline (live rollups +
+            manual daily entries) so it renders on the public share
+            page with no extra client fetch. The slot owns its own
+            section heading + summary/chart/table. */}
+        {eventDailySlot ?? null}
       </div>
 
       {variant === "standalone" ? (
