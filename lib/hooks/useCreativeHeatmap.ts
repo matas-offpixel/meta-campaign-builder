@@ -101,7 +101,12 @@ export function useCreativeHeatmap(): UseCreativeHeatmapResult {
   const [adAccounts, setAdAccounts] = useState<MetaAdAccount[]>([]);
   const [adAccountsLoading, setAdAccountsLoading] = useState(true);
   const [adAccountId, setAdAccountId] = useState<string>("");
-  const [datePreset, setDatePreset] = useState<CreativeDatePreset>("last_30d");
+  // Default window is "last_7d" rather than "last_30d" so a cold
+  // page load asks Meta for one week of insights instead of a month.
+  // Pairs with the "Active" status default to keep the first request
+  // under Meta's rate-limit threshold on heavy accounts; "Last 30d"
+  // and "All time" remain available as opt-in chips.
+  const [datePreset, setDatePreset] = useState<CreativeDatePreset>("last_7d");
 
   const [rows, setRowsState] = useState<CreativeInsightRow[] | null>(null);
   const [snapshotAt, setSnapshotAt] = useState<string | null>(null);

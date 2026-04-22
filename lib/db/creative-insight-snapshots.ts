@@ -288,8 +288,13 @@ export async function readCachedCreativeSnapshots(
 
 /**
  * Distinct `(user_id, ad_account_id)` pairs that have at least one
- * snapshot row — the warm-set the cron iterates. Service-role only:
- * we read across users.
+ * snapshot row — the legacy warm-set the cron used to iterate.
+ * Superseded by `listEligibleAccountPairs` which sources from
+ * `clients.meta_ad_account_id` so brand-new accounts get pre-warmed
+ * the next cron tick instead of waiting on a manual refresh first.
+ * Kept exported because the type-checker complains otherwise and
+ * because it's harmless utility a future "cleanup orphan snapshots"
+ * job would want.
  */
 export async function listWarmPairs(
   supabase: SupabaseClient,
@@ -318,6 +323,55 @@ export async function listWarmPairs(
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ userId: row.user_id, adAccountId: row.ad_account_id });
+  }
+  return out;
+}
+
+/**
+ * Distinct `(user_id, ad_account_id)` pairs derived from the
+ * `clients` table — every client with a non-null `meta_ad_account_id`
+ * yields one pair. This is the cron's iteration source: it covers
+ * EVERY account the dashboard knows about, not just the subset that
+ * happened to load the heatmap once. Without this, accounts that
+ * never see a manual refresh stay forever uncached and the user
+ * eats a cold ?refresh=1 every visit (which is exactly how
+ * 4TheFans hit Meta's rate limit).
+ *
+ * Service-role only — we read across users.
+ */
+export async function listEligibleAccountPairs(
+  supabase: SupabaseClient,
+): Promise<{ userId: string; adAccountId: string }[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as unknown as any;
+  const { data, error } = await sb
+    .from("clients")
+    .select("user_id, meta_ad_account_id")
+    .not("meta_ad_account_id", "is", null);
+
+  if (error) {
+    console.warn(
+      "[creative-insight-snapshots listEligibleAccountPairs] error:",
+      error.message,
+    );
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const out: { userId: string; adAccountId: string }[] = [];
+  for (const row of (data ?? []) as {
+    user_id: string;
+    meta_ad_account_id: string | null;
+  }[]) {
+    const adAccountId = (row.meta_ad_account_id ?? "").trim();
+    if (!adAccountId) continue;
+    // Multiple clients can share the same ad account (a venue + the
+    // promoter that books it, for example). Dedupe so we don't fetch
+    // the same Meta account twice and burn our rate-limit budget.
+    const key = `${row.user_id}::${adAccountId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ userId: row.user_id, adAccountId });
   }
   return out;
 }
