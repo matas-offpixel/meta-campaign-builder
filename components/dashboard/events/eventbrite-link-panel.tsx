@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, Link as LinkIcon, Loader2 } from "lucide-rea
 
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { ExternalEventPicker } from "@/components/dashboard/events/external-event-picker";
 import type {
   EventTicketingLink,
   ExternalEventSummary,
@@ -241,19 +242,14 @@ export function EventbriteLinkPanel({
             in Eventbrite, then click Refresh.
           </p>
         ) : (
-          <Select
+          <ExternalEventPicker
+            events={externalEvents ?? []}
             value={externalEventId}
-            onChange={(e) => {
-              const v = e.target.value;
-              setExternalEventId(v);
-              const match = externalEvents?.find((x) => x.externalEventId === v);
-              setExternalEventUrl(match?.url ?? null);
+            onChange={(id, ev) => {
+              setExternalEventId(id);
+              setExternalEventUrl(ev?.url ?? null);
             }}
             placeholder="Select an Eventbrite event"
-            options={(externalEvents ?? []).map((ev) => ({
-              value: ev.externalEventId,
-              label: formatExternalEventLabel(ev),
-            }))}
           />
         )}
       </div>
@@ -307,24 +303,3 @@ export function EventbriteLinkPanel({
   );
 }
 
-function formatExternalEventLabel(ev: ExternalEventSummary): string {
-  const parts: string[] = [ev.name];
-  if (ev.startsAt) {
-    try {
-      const d = new Date(ev.startsAt);
-      if (Number.isFinite(d.getTime())) {
-        parts.push(
-          d.toLocaleDateString("en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "2-digit",
-          }),
-        );
-      }
-    } catch {
-      // ignore — just drop the date piece if it doesn't parse
-    }
-  }
-  if (ev.status) parts.push(ev.status);
-  return parts.join(" · ");
-}
