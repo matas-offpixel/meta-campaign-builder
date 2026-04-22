@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       ad_plan_audiences: {
@@ -490,6 +515,8 @@ export type Database = {
           client_id: string
           created_at: string
           credentials: Json
+          credentials_encrypted: string | null
+          credentials_format: string
           external_account_id: string | null
           id: string
           last_error: string | null
@@ -503,6 +530,8 @@ export type Database = {
           client_id: string
           created_at?: string
           credentials?: Json
+          credentials_encrypted?: string | null
+          credentials_format?: string
           external_account_id?: string | null
           id?: string
           last_error?: string | null
@@ -516,6 +545,8 @@ export type Database = {
           client_id?: string
           created_at?: string
           credentials?: Json
+          credentials_encrypted?: string | null
+          credentials_format?: string
           external_account_id?: string | null
           id?: string
           last_error?: string | null
@@ -1797,6 +1828,42 @@ export type Database = {
           },
         ]
       }
+      share_insight_snapshots: {
+        Row: {
+          created_at: string
+          custom_since: string | null
+          custom_until: string | null
+          date_preset: string
+          expires_at: string
+          fetched_at: string
+          id: string
+          payload: Json
+          share_token: string
+        }
+        Insert: {
+          created_at?: string
+          custom_since?: string | null
+          custom_until?: string | null
+          date_preset: string
+          expires_at: string
+          fetched_at?: string
+          id?: string
+          payload: Json
+          share_token: string
+        }
+        Update: {
+          created_at?: string
+          custom_since?: string | null
+          custom_until?: string | null
+          date_preset?: string
+          expires_at?: string
+          fetched_at?: string
+          id?: string
+          payload?: Json
+          share_token?: string
+        }
+        Relationships: []
+      }
       ticket_sales_snapshots: {
         Row: {
           connection_id: string
@@ -2061,7 +2128,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_ticketing_credentials: {
+        Args: { p_connection_id: string; p_key: string }
+        Returns: string
+      }
+      set_ticketing_credentials: {
+        Args: { p_connection_id: string; p_key: string; p_plaintext: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
@@ -2190,6 +2264,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
