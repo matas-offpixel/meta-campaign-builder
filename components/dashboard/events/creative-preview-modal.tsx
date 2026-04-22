@@ -38,6 +38,32 @@ interface Props {
 
 const FB_PLUGIN_BASE = "https://www.facebook.com/plugins/post.php";
 
+// Instagram public-post URLs always live under /p/, /reel/ or /tv/.
+// We pull the shortcode from the first capture group and build the
+// canonical "/embed/captioned" URL — Meta's plugin URL renders blank
+// for IG sources because /plugins/post.php expects an FB graph URL.
+const IG_PERMALINK_RE = /instagram\.com\/(p|reel|tv)\/([A-Za-z0-9_-]+)/i;
+const FB_HOST_RE = /(?:^|\.)facebook\.com\//i;
+
+/**
+ * Build the iframe `src` for an embedded creative preview.
+ *
+ * Returns `null` when the permalink doesn't match either Instagram
+ * (handled via /embed/captioned) or Facebook (handled via the
+ * plugin URL) — caller falls through to the next asset tier.
+ */
+function getEmbedSrc(permalink: string): string | null {
+  const ig = permalink.match(IG_PERMALINK_RE);
+  if (ig) {
+    const [, kind, shortcode] = ig;
+    return `https://www.instagram.com/${kind}/${shortcode}/embed/captioned`;
+  }
+  if (FB_HOST_RE.test(permalink)) {
+    return `${FB_PLUGIN_BASE}?href=${encodeURIComponent(permalink)}&show_text=false`;
+  }
+  return null;
+}
+
 function adsManagerUrl(adId: string, adAccountId: string | null): string {
   // selected_ad_ids deep-links straight to the ad row.
   // act_id is required to scope to the right ad account; without
@@ -107,8 +133,15 @@ export default function CreativePreviewModal({
     preview.image_url || group.representative_thumbnail || null;
   const cta = ctaLabel(preview.call_to_action_type);
   const link = preview.link_url;
-  const headline = preview.headline || group.display_name;
+  // Title comes from the group's display_name (which already
+  // prefers the dominant ad.name → sanitised creative.name →
+  // semantic fallback) so we never surface raw "{{product.name}}…"
+  // strings here. Headline copy is rendered as a secondary block
+  // inside the body — distinct from the modal title.
+  const title = group.display_name || "Creative";
+  const headlineCopy = preview.headline;
   const body = preview.body || group.representative_body_preview;
+  const altText = headlineCopy || title;
 
   return (
     <div
@@ -128,19 +161,23 @@ export default function CreativePreviewModal({
         className="relative z-10 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <ModalHeader title={headline ?? "Creative"} onClose={onClose} />
+        <ModalHeader
+          title={title}
+          adNames={group.ad_names}
+          onClose={onClose}
+        />
 
         <div className="space-y-5 p-5">
           <AssetBlock
             preview={preview}
             fallbackImage={fallbackImage}
-            altText={headline ?? "Creative preview"}
+            altText={altText}
           />
 
           <div className="space-y-3">
-            {headline && (
+            {headlineCopy && (
               <div className="text-base font-semibold text-foreground">
-                {headline}
+                {headlineCopy}
               </div>
             )}
             {body && (
@@ -182,17 +219,38 @@ export default function CreativePreviewModal({
 
 function ModalHeader({
   title,
+  adNames,
   onClose,
 }: {
   title: string;
+  /**
+   * Distinct ad-level names in the group, spend-DESC ordered. When
+   * length > 1 we render a muted subtitle listing the first three
+   * (with a "+N more" tail) so the user can see why the bucket
+   * collapsed — useful for QA when the dominant name doesn't match
+   * a marketer's mental model.
+   */
+  adNames: readonly string[];
   onClose: () => void;
 }) {
+  const showVariants = adNames.length > 1;
+  const head = adNames.slice(0, 3).join(", ");
+  const more = adNames.length > 3 ? ` +${adNames.length - 3} more` : "";
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
       <div className="min-w-0 flex-1">
         <h2 className="line-clamp-2 font-heading text-lg tracking-wide text-foreground">
           {title}
         </h2>
+        {showVariants && (
+          <div
+            className="mt-1 line-clamp-2 text-xs text-muted-foreground"
+            title={adNames.join(", ")}
+          >
+            {adNames.length} ad name variants: {head}
+            {more}
+          </div>
+        )}
       </div>
       <button
         type="button"
@@ -242,26 +300,26 @@ function AssetBlock({
   fallbackImage: string | null;
   altText: string;
 }) {
-  // Asset selection waterfall: Instagram embed > video > image >
-  // thumbnail > placeholder. Mirrors the spec — the modal renders
-  // the highest-fidelity option Meta gave us in the preview
-  // payload, and degrades gracefully when the upstream signal is
-  // missing rather than collapsing the whole block.
-  if (preview.instagram_permalink_url) {
-    const embedSrc = `${FB_PLUGIN_BASE}?href=${encodeURIComponent(
-      preview.instagram_permalink_url,
-    )}&show_text=false`;
+  // Asset selection waterfall: embed (IG/FB) > video > image >
+  // thumbnail > placeholder. The embed tier renders nothing if the
+  // permalink isn't a recognised IG / FB URL — the caller falls
+  // through to the next tier rather than collapsing the whole block.
+  const embedSrc = preview.instagram_permalink_url
+    ? getEmbedSrc(preview.instagram_permalink_url)
+    : null;
+  if (preview.instagram_permalink_url && embedSrc) {
+    const isInstagram = IG_PERMALINK_RE.test(preview.instagram_permalink_url);
     return (
       <div className="space-y-2">
         <div className="flex justify-center bg-muted">
           <iframe
             src={embedSrc}
             width={500}
-            height={500}
+            height={640}
             style={{ border: 0, overflow: "hidden" }}
             scrolling="no"
             allowFullScreen
-            title="Instagram preview"
+            title={isInstagram ? "Instagram preview" : "Facebook preview"}
           />
         </div>
         <a
@@ -270,7 +328,7 @@ function AssetBlock({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
-          View on Instagram
+          {isInstagram ? "View on Instagram" : "View on Facebook"}
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>

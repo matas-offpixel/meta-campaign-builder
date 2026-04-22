@@ -127,6 +127,22 @@ export interface CreativeRowCampaign {
 export interface CreativeRow {
   creative_id: string;
   creative_name: string | null;
+  /**
+   * Distinct trimmed `ad.name` values seen across the ads in this
+   * group, ordered by descending cumulative ad-level spend (so
+   * `ad_names[0]` is the "dominant" name to label the card by).
+   * Empty array when no ad in the group surfaced a non-empty name —
+   * the second-layer grouper / display-name picker then falls back
+   * to creative_name / semantic labels.
+   *
+   * Why ad.name not creative.name: Meta auto-generates noisy
+   * placeholder creative.name values from product feeds (e.g.
+   * "{{product.name}} 2026-03-31-<uuid>") that defeat both the
+   * name tier of the grouping waterfall AND human-readable labels.
+   * The ad-level name is what marketers actually type into Ads
+   * Manager and what they recognise in the panel.
+   */
+  ad_names: string[];
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
@@ -209,6 +225,12 @@ interface Accumulator {
   primary_asset_signature: string | null;
   /** Top-spend ad's preview payload — refreshed whenever a higher-spend ad lands. */
   preview: CreativePreview;
+  /**
+   * Distinct trimmed ad.name → cumulative ad-level spend. Spend
+   * weighting lets the materialised `ad_names` array sort dominant
+   * names first even when they appear across multiple ads.
+   */
+  ad_names_spend: Map<string, number>;
   ad_ids: string[];
   /** Per-ad spend tracked alongside ad_ids so we can pick the top spender. */
   ad_spends: number[];
@@ -277,6 +299,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       object_story_id: ad.object_story_id,
       primary_asset_signature: ad.primary_asset_signature,
       preview: emptyPreview(),
+      ad_names_spend: new Map<string, number>(),
       ad_ids: [] as string[],
       ad_spends: [] as number[],
       adsets: new Map<string, string | null>(),
@@ -310,6 +333,17 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
 
     acc.ad_ids.push(ad.ad_id);
     acc.ad_spends.push(adSpend);
+    // Collect distinct ad.names with cumulative spend weighting. Use
+    // the trimmed string as the canonical key so "Motion V2" and
+    // "Motion V2 " merge; we deliberately keep casing so the dominant
+    // entry can be surfaced as the human-readable display label.
+    const adName = ad.ad_name?.trim();
+    if (adName) {
+      acc.ad_names_spend.set(
+        adName,
+        (acc.ad_names_spend.get(adName) ?? 0) + adSpend,
+      );
+    }
     if (ad.adset_id) {
       const existing = acc.adsets.get(ad.adset_id);
       if (existing == null && ad.adset_name) {
@@ -352,9 +386,18 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       }
     }
 
+    // Sort distinct ad.names by descending cumulative spend so the
+    // first entry is the dominant label. Tie-break on insertion order
+    // (Map preserves it), which matches Meta's pagination order —
+    // good enough for a stable UI when two names have identical spend.
+    const ad_names = [...acc.ad_names_spend.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map((e) => e[0]);
+
     rows.push({
       creative_id: acc.creative_id,
       creative_name: acc.creative_name,
+      ad_names,
       headline: acc.headline,
       body: acc.body,
       thumbnail_url: acc.thumbnail_url,

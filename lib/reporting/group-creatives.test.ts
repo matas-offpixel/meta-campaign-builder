@@ -52,13 +52,14 @@ function emptyPreview(): ConceptInputPreview {
 }
 
 function row(overrides: Partial<ConceptInputRow>): ConceptInputRow {
-  // Spread + override pattern so callers can pass `null` explicitly
-  // for fields like `creative_name` without `null ?? "default"`
-  // coercing it back. Mirrors the pattern used in active-creatives-
+  // Spread + override pattern so callers can pass `null` / [] explicitly
+  // for fields like `creative_name` / `ad_names` without `null ?? "x"`
+  // coercing them back. Mirrors the pattern in active-creatives-
   // group.test.ts.
   const base: ConceptInputRow = {
     creative_id: "cid-default",
     creative_name: "Default Concept",
+    ad_names: [],
     headline: "Default Headline",
     body: "Default body",
     thumbnail_url: null,
@@ -127,14 +128,16 @@ test("normaliseAdName strips copy / version / ISO date suffixes", () => {
   assert.equal(normaliseAdName(undefined), "");
 });
 
-test("name-tier collapse: 3 ads share one concept across distinct creative_ids", () => {
-  // No post id, no asset sig, no thumbnail — waterfall falls all
-  // the way to tier 5 (name) and collapses on the normalised
-  // creative_name.
+test("name-tier collapse: 3 rows share one concept via dominant ad.name", () => {
+  // No post id, no asset sig, no thumbnail — waterfall falls to tier
+  // 5 (name) and collapses on `normaliseAdName(ad_names[0])`.
+  // Underlying creative.name is template-polluted (the bug PR #41
+  // fixes); ad.name is the canonical Ads-Manager label.
   const rows: ConceptInputRow[] = [
     row({
       creative_id: "cid-A",
-      creative_name: "Innervisions London",
+      creative_name: "{{product.name}} 2026-03-31-aaa",
+      ad_names: ["Innervisions London"],
       headline: "Innervisions London",
       ad_count: 2,
       adsets: [{ id: "as-1", name: "Adset 1" }],
@@ -146,7 +149,8 @@ test("name-tier collapse: 3 ads share one concept across distinct creative_ids",
     }),
     row({
       creative_id: "cid-B",
-      creative_name: "Innervisions London - Copy",
+      creative_name: "{{product.name}} 2026-03-31-bbb",
+      ad_names: ["Innervisions London - Copy"],
       headline: "Innervisions London - Copy",
       ad_count: 1,
       adsets: [{ id: "as-2", name: "Adset 2" }],
@@ -158,7 +162,8 @@ test("name-tier collapse: 3 ads share one concept across distinct creative_ids",
     }),
     row({
       creative_id: "cid-C",
-      creative_name: "Innervisions London - Copy 2",
+      creative_name: "{{product.name}} 2026-03-31-ccc",
+      ad_names: ["Innervisions London - Copy 2"],
       headline: "Innervisions London - Copy 2",
       ad_count: 3,
       adsets: [{ id: "as-1", name: "Adset 1" }],
@@ -180,29 +185,31 @@ test("name-tier collapse: 3 ads share one concept across distinct creative_ids",
   assert.equal(g.clicks, 46);
   assert.equal(g.reach, 1400);
   assert.equal(g.registrations, 8);
-  // Adsets dedupe — as-1 appears in two underlying rows, should
-  // still only show once in the aggregated list.
   assert.deepEqual(
     g.adsets.map((s) => s.id).sort(),
     ["as-1", "as-2"],
   );
-  // Display name = chosen rep's creative_name (top-spend row's
-  // un-normalised name, "Innervisions London" — the parent).
+  // Display name = dominant ad.name (cleaned, case preserved).
   assert.equal(g.display_name, "Innervisions London");
-  // Group key derives from the normalised name with the "name:" prefix.
+  // Group key uses the lowercase normalised form.
   assert.equal(g.group_key, "name:innervisions london");
   assert.deepEqual(g.reasons, ["name"]);
-  // Top-spend representative = first row (£100, the highest).
+  // Top-spend representative = first row (£100).
   assert.equal(g.representative_ad_id, "ad-default");
-  assert.equal(g.representative_headline, "Innervisions London");
 });
 
-test("dynamic product date strip: ISO-stamped variants collapse to one group", () => {
+test("template-token creative_name + no ad_names → rows split at tier 6", () => {
+  // Both rows have feed-template polluted creative.names AND no
+  // ad_names. The previous (PR #40) behaviour collapsed these via
+  // tier 5 (name) on the normalised creative_name, but that's exactly
+  // the bug — the template token is per-row unique noise. PR #41
+  // rejects template tokens at tier 5 and falls through to tier 6
+  // (creative_id), so each row now lands in its own bucket.
   const rows: ConceptInputRow[] = [
     row({
       creative_id: "cid-1",
-      creative_name: "{{product.name}} 2026-03-31-abc",
-      headline: "{{product.name}} 2026-03-31-abc",
+      creative_name: "{{product.name}} 2026-03-31-abcdef12",
+      ad_names: [],
       spend: 60,
       impressions: 600,
       clicks: 12,
@@ -210,8 +217,8 @@ test("dynamic product date strip: ISO-stamped variants collapse to one group", (
     }),
     row({
       creative_id: "cid-2",
-      creative_name: "{{product.name}} 2026-03-24-xyz",
-      headline: "{{product.name}} 2026-03-24-xyz",
+      creative_name: "{{product.name}} 2026-03-24-fedcba98",
+      ad_names: [],
       spend: 40,
       impressions: 400,
       clicks: 8,
@@ -220,23 +227,27 @@ test("dynamic product date strip: ISO-stamped variants collapse to one group", (
   ];
 
   const groups = groupByAssetSignature(rows);
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0].group_key, "name:{{product.name}}");
-  assert.equal(groups[0].creative_id_count, 2);
-  assert.equal(groups[0].spend, 100);
-  assert.deepEqual(groups[0].reasons, ["name"]);
+  assert.equal(groups.length, 2, "template-only names must not collapse");
+  for (const g of groups) {
+    assert.deepEqual(g.reasons, ["creative_id"]);
+    assert.equal(g.creative_id_count, 1);
+    assert.equal(g.display_name, "Untitled creative");
+  }
 });
 
 test("distinct creatives stay split into separate rows", () => {
+  // Different ad.names → tier 5 derives different bucket keys.
   const rows: ConceptInputRow[] = [
     row({
       creative_id: "cid-1",
       creative_name: "Innervisions London",
+      ad_names: ["Innervisions London"],
       spend: 200,
     }),
     row({
       creative_id: "cid-2",
       creative_name: "Jimi Jules",
+      ad_names: ["Jimi Jules"],
       spend: 80,
     }),
   ];
@@ -261,6 +272,7 @@ test("rate metrics are weighted (ratio of sums), not averaged across rows", () =
     row({
       creative_id: "cid-1",
       creative_name: "Same Concept",
+      ad_names: ["Same Concept"],
       spend: 1000,
       impressions: 100_000,
       clicks: 1000,
@@ -272,6 +284,7 @@ test("rate metrics are weighted (ratio of sums), not averaged across rows", () =
     row({
       creative_id: "cid-2",
       creative_name: "Same Concept - Copy",
+      ad_names: ["Same Concept - Copy"],
       spend: 50,
       impressions: 1000,
       clicks: 100,
@@ -494,6 +507,130 @@ test("numeric-name no-false-positive: different opaque IDs stay split", () => {
       "must never surface raw numeric ID as display name",
     );
   }
+});
+
+// ─── ad.name-driven grouping coverage (PR #41) ──────────────────────────────
+
+test("ad.name drives grouping when creative_name is template-polluted", () => {
+  // Two rows with distinct unique creative.names (per-row UUID tail
+  // means tier 5 of PR #40 saw them as different concepts), but the
+  // dominant ad.name is the same after Copy-suffix stripping. Tier 5
+  // now reads from ad_names[0] so the bucket collapses.
+  const rows: ConceptInputRow[] = [
+    row({
+      creative_id: "cid-A",
+      creative_name: "{{product.name}} 2026-03-31-aaa",
+      ad_names: ["Motion V2"],
+      spend: 120,
+      impressions: 1200,
+      clicks: 24,
+      reach: 950,
+    }),
+    row({
+      creative_id: "cid-B",
+      creative_name: "{{product.name}} 2026-03-31-bbb",
+      ad_names: ["Motion V2 - Copy"],
+      spend: 60,
+      impressions: 600,
+      clicks: 12,
+      reach: 480,
+    }),
+  ];
+
+  const groups = groupByAssetSignature(rows);
+  assert.equal(groups.length, 1, "ad.name should collapse the bucket");
+  const g = groups[0];
+  assert.deepEqual(g.reasons, ["name"]);
+  assert.equal(g.group_key, "name:motion v2");
+  assert.equal(g.creative_id_count, 2);
+  // Dominant ad.name (top-spend row's) wins display, case preserved.
+  assert.equal(g.display_name, "Motion V2");
+  // Both distinct ad.name variants surface for the modal subtitle,
+  // ordered by descending row spend.
+  assert.deepEqual(g.ad_names, ["Motion V2", "Motion V2 - Copy"]);
+});
+
+test("token-polluted ad.name is rejected → falls through to tier 6", () => {
+  // ad_names[0] contains a `{{...}}` token. Even though tier 5 has
+  // input, isAcceptableNameToken rejects the template-token form so
+  // we land on tier 6 (creative_id) — each row gets its own bucket.
+  // Display tier 1 fails the same gate; tier 2 sanitises the matching
+  // creative.name (template + ISO date + UUID tail all stripped) and
+  // returns null, so we end up on the semantic fallback.
+  const rows: ConceptInputRow[] = [
+    row({
+      creative_id: "cid-1",
+      creative_name: "{{product.name}} 2026-03-31-abc1234ef",
+      ad_names: ["{{product.name}} 2026-03-31-abc1234ef"],
+      spend: 50,
+    }),
+    row({
+      creative_id: "cid-2",
+      creative_name: "{{product.name}} 2026-04-01-deadbeef99",
+      ad_names: ["{{product.name}} 2026-04-01-deadbeef99"],
+      spend: 25,
+    }),
+  ];
+
+  const groups = groupByAssetSignature(rows);
+  assert.equal(groups.length, 2, "template-token names must not collapse");
+  for (const g of groups) {
+    assert.deepEqual(g.reasons, ["creative_id"]);
+    assert.equal(g.display_name, "Untitled creative");
+  }
+});
+
+test("multi-variant ad.names: distinct variants merge to 2 concepts", () => {
+  // Three rows, three ad.name strings. "UGC - Dixon - V4" and
+  // "UGC - Dixon - V4 - Copy" both normalise to "ugc - dixon" (the
+  // suffix-stripping canonicaliser drops "- Copy" then "- V4"), so
+  // they collapse into one bucket. "Feed - Dixon" stays separate.
+  // Result: 2 groups, the UGC group preserves both variant strings
+  // in its ad_names array (spend-DESC ordered).
+  const rows: ConceptInputRow[] = [
+    row({
+      creative_id: "cid-ugc-1",
+      creative_name: null,
+      ad_names: ["UGC - Dixon - V4"],
+      spend: 100,
+      impressions: 1000,
+      clicks: 20,
+      reach: 800,
+    }),
+    row({
+      creative_id: "cid-ugc-2",
+      creative_name: null,
+      ad_names: ["UGC - Dixon - V4 - Copy"],
+      spend: 60,
+      impressions: 600,
+      clicks: 12,
+      reach: 500,
+    }),
+    row({
+      creative_id: "cid-feed",
+      creative_name: null,
+      ad_names: ["Feed - Dixon"],
+      spend: 40,
+      impressions: 400,
+      clicks: 8,
+      reach: 350,
+    }),
+  ];
+
+  const groups = groupByAssetSignature(rows);
+  assert.equal(groups.length, 2, "expected one UGC bucket + one Feed bucket");
+  // Spend DESC order: UGC (160) before Feed (40).
+  const ugc = groups[0];
+  const feed = groups[1];
+  assert.equal(ugc.creative_id_count, 2);
+  assert.equal(ugc.spend, 160);
+  // Both distinct variants survive the merge, dominant first.
+  assert.deepEqual(ugc.ad_names, [
+    "UGC - Dixon - V4",
+    "UGC - Dixon - V4 - Copy",
+  ]);
+  assert.equal(feed.creative_id_count, 1);
+  assert.deepEqual(feed.ad_names, ["Feed - Dixon"]);
 });
 
 function round(v: number | null, digits: number): number | null {

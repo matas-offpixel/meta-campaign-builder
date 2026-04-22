@@ -22,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import {
   groupByAssetSignature,
+  pickDisplayName,
   type ConceptGroupRow,
   type ConceptInputPreview,
 } from "@/lib/reporting/group-creatives";
@@ -60,6 +61,8 @@ interface CampaignRef {
 interface CreativeRow {
   creative_id: string;
   creative_name: string | null;
+  /** Distinct ad-level names for this creative, spend-DESC ordered. */
+  ad_names: string[];
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
@@ -184,9 +187,21 @@ function fmtFreq(v: number | null): string {
  * in, one row out) so the metrics displayed match the card.
  */
 function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
+  // Display name reuses the same waterfall as the grouped path
+  // (dominant ad.name → sanitised creative.name → semantic
+  // fallback) so toggling "Group by concept" never makes the title
+  // worse for the same underlying ad.
+  const groupKey = `c:${row.creative_id}`;
+  const display = pickDisplayName(
+    row.ad_names,
+    row.creative_name,
+    "creative_id",
+    groupKey,
+    0,
+  );
   return {
-    group_key: `c:${row.creative_id}`,
-    display_name: row.creative_name ?? row.headline ?? "Creative",
+    group_key: groupKey,
+    display_name: display,
     creative_id_count: 1,
     ad_count: row.ad_count,
     adsets: row.adsets,
@@ -208,6 +223,7 @@ function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
     cpr: row.cpr,
     cpp: row.cpp,
     frequency: row.frequency,
+    ad_names: row.ad_names,
     underlying_creative_ids: [row.creative_id],
     reasons: ["creative_id"],
   };
@@ -556,10 +572,20 @@ function toCardModel(
       representativeAdId: row.representative_ad_id,
     };
   }
+  // Same waterfall as rowToSyntheticGroup / the modal so the
+  // un-grouped card title reads like the modal it opens — and never
+  // surfaces "{{product.name}}…" feed-template noise.
+  const display = pickDisplayName(
+    row.ad_names,
+    row.creative_name,
+    "creative_id",
+    `c:${row.creative_id}`,
+    0,
+  );
   return {
     thumbnail: row.thumbnail_url,
-    altText: row.creative_name ?? "Creative",
-    headline: row.headline ?? row.creative_name,
+    altText: display,
+    headline: display,
     body: row.body,
     adCount: row.ad_count,
     adsetCount: row.adsets.length,

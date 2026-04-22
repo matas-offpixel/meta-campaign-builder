@@ -50,6 +50,15 @@ export interface ConceptInputPreview {
 export interface ConceptInputRow {
   creative_id: string;
   creative_name: string | null;
+  /**
+   * Distinct trimmed ad-level names rolled up from the per-ad rows
+   * that share this creative_id, ordered by descending cumulative
+   * ad spend. Drives the name tier of the grouping waterfall and
+   * the modal title — Meta's auto-generated `creative.name` is too
+   * polluted by feed templates ("{{product.name}} 2026-...") to be
+   * trustworthy as a label or grouping signal.
+   */
+  ad_names: string[];
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
@@ -125,6 +134,14 @@ export interface ConceptGroupRow {
   cpr: number | null;
   cpp: number | null;
   frequency: number | null;
+  /**
+   * Distinct ad-level names across the rows in this concept group,
+   * ordered by descending cumulative ad spend. The first entry is
+   * the "dominant" name and is preferred for `display_name`; any
+   * extra entries surface in the modal subtitle as variants.
+   * Empty array when no underlying ad surfaced a non-empty name.
+   */
+  ad_names: string[];
   /** Underlying creative_ids — useful for telemetry / debug links. */
   underlying_creative_ids: string[];
   /**
@@ -150,13 +167,29 @@ export interface ConceptGroupRow {
 const COPY_SUFFIX_RE = /\s+-\s+copy(\s+\d+)?\s*$/i;
 const VERSION_SUFFIX_RE = /\s+(?:\(\s*\d+\s*\)|-\s+v\s*\d+)\s*$/i;
 const TRAILING_ISO_DATE_RE = /\s+\d{4}-\d{2}-\d{2}.*$/;
+/** Mustache-style placeholder left by Meta's product feed templates. */
+const TEMPLATE_TOKEN_RE = /\{\{[^{}]*\}\}/;
+const TEMPLATE_TOKEN_GLOBAL_RE = /\{\{[^{}]*\}\}/g;
+/** Trailing UUID-ish hex tail (Meta append a 6+ char id to feed names). */
+const TRAILING_UUID_RE = /[\s\-_]+[a-f0-9]{6,}\s*$/i;
+/**
+ * Standalone hex/alphanum token left over after the prior strips
+ * pulled away the surrounding separators. Used in sanitiseCreative
+ * Name to catch the "2026-03-31-abc1234ef" → "abc1234ef" residue.
+ */
+const STANDALONE_HEX_TOKEN_RE = /^[a-z0-9]{6,}$/i;
 
 /**
- * Normalise an ad name into the bucket key shared across re-uploads
- * of the same concept. Empty input → empty string (caller decides
- * whether to fall back to the next waterfall tier).
+ * Strip the suffix ladder Meta appends when ads are duplicated
+ * (`- Copy [N]`, ` (N)`, ` - vN`, trailing ISO date) while
+ * PRESERVING casing. Used as the case-preserving sibling of
+ * `normaliseAdName` — the latter lowercases the result for grouping
+ * keys, this one keeps "Motion V2" looking like "Motion V2" for the
+ * card title.
+ *
+ * Empty input → empty string (caller decides whether to fall back).
  */
-export function normaliseAdName(raw: string | null | undefined): string {
+function cleanAdName(raw: string | null | undefined): string {
   if (!raw) return "";
   let s = raw.trim();
   // Iteratively strip stacked " - Copy [N]" suffixes. Cap iterations
@@ -170,7 +203,87 @@ export function normaliseAdName(raw: string | null | undefined): string {
   }
   s = s.replace(TRAILING_ISO_DATE_RE, "").trimEnd();
   s = s.replace(/\s+/g, " ");
-  return s.toLowerCase();
+  return s;
+}
+
+/**
+ * Normalise an ad name into the bucket key shared across re-uploads
+ * of the same concept. Empty input → empty string (caller decides
+ * whether to fall back to the next waterfall tier).
+ *
+ * Lowercased to make the key case-insensitive — "Motion V2" and
+ * "motion v2" share a bucket. Display names are derived separately
+ * via `cleanAdName` / `pickDisplayName` so casing survives there.
+ */
+export function normaliseAdName(raw: string | null | undefined): string {
+  return cleanAdName(raw).toLowerCase();
+}
+
+/**
+ * Sanitise a `creative_name` for *display* (not grouping). Strips
+ * Meta's feed-template tokens (`{{...}}`), trailing ISO dates, and
+ * trailing UUID-ish hex tails — the noise that turns
+ * "{{product.name}} 2026-03-31-abc1234" into something a marketer
+ * won't recognise. Returns null when nothing usable remains.
+ */
+/**
+ * Greedier ISO-date stripper than `TRAILING_ISO_DATE_RE`. After
+ * dropping a template token from a creative.name, the residue
+ * usually opens with a date stamp ("2026-03-31-abc"), so we strip
+ * ISO dates anywhere they appear and let the surrounding noise be
+ * cleaned up separately. The `[-_T]?[\d:.]*` tail eats the optional
+ * time portion / dash-separator that often follows.
+ */
+const ANY_ISO_DATE_RE = /\d{4}-\d{2}-\d{2}[-_T]?[\d:.]*/g;
+
+function sanitiseCreativeName(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  // Template tokens come out first so any date / UUID tails they
+  // were guarding now sit at the edges where the next strips can
+  // see them.
+  s = s.replace(TEMPLATE_TOKEN_GLOBAL_RE, " ").trim();
+  s = s.replace(ANY_ISO_DATE_RE, " ").trim();
+  // Iterate UUID / hex tail strip — chained UUIDs on either side
+  // of a separator (rare but happens in feed templates) need more
+  // than one pass to fully drop.
+  for (let i = 0; i < 5 && TRAILING_UUID_RE.test(s); i += 1) {
+    s = s.replace(TRAILING_UUID_RE, "").trim();
+  }
+  // Strip leading orphan separators left behind by the above ("- abc"
+  // → "abc"). Defensive: avoids shipping a label that opens with a
+  // dash from a removed prefix.
+  s = s.replace(/^[\s\-_:.]+/, "").trim();
+  s = s.replace(/\s+/g, " ").trim();
+  if (!s) return null;
+  // If the remainder is a single 6+ char hex/alphanum token (i.e.
+  // the date strip pulled the surrounding separators with it,
+  // leaving the UUID stranded at the start of the string), reject
+  // the whole result — it's noise, not a concept label.
+  if (STANDALONE_HEX_TOKEN_RE.test(s)) return null;
+  return s;
+}
+
+const NON_DIGIT_RE_LOCAL = /[^\d]/;
+
+/**
+ * Decide whether a normalised ad name is acceptable as a grouping
+ * key OR as a display label. Rejection rules (any one fails):
+ *   (a) zero non-digit characters (pure Meta auto-ID like
+ *       "120230049821210568"),
+ *   (b) contains a `{{...}}` template token (un-rendered feed
+ *       placeholder — feed templates produce per-row unique strings
+ *       so grouping by them defeats the purpose, and they're
+ *       unreadable to a human),
+ *   (c) shorter than 3 chars after the prior strips (too short to
+ *       be a meaningful concept label).
+ */
+function isAcceptableNameToken(normalised: string): boolean {
+  if (!normalised) return false;
+  if (normalised.length < 3) return false;
+  if (TEMPLATE_TOKEN_RE.test(normalised)) return false;
+  if (!NON_DIGIT_RE_LOCAL.test(normalised)) return false;
+  return true;
 }
 
 // ─── Thumbnail normalisation ────────────────────────────────────────────────
@@ -210,8 +323,6 @@ function shortThumbHash(normalisedThumb: string): string {
 
 // ─── Waterfall ──────────────────────────────────────────────────────────────
 
-const NON_DIGIT_RE = /[^\d]/;
-
 /**
  * Derive the grouping key + reason for a single row.
  *
@@ -220,15 +331,19 @@ const NON_DIGIT_RE = /[^\d]/;
  *   2. object_story_id           → `post:${id}` / "post_id"
  *   3. primary_asset_signature   → signature  / "asset_hash"
  *   4. thumbnail_url (normalised) → `thumb:${...}` / "thumbnail"
- *   5. normaliseAdName(creative_name) IF non-pure-digit →
+ *   5. normaliseAdName(ad_names[0]) IF acceptable token →
  *        `name:${normalised}` / "name"
  *   6. creative_id literal       → `id:${id}` / "creative_id"
  *
- * Step 5 explicitly skips pure-numeric normalised names — those are
- * Meta's auto-generated ad IDs (e.g. "120230049821210568") that
- * carry no human-meaningful concept information, and grouping
- * them by name would just collide unrelated creatives that
- * happen to share an opaque ID-digit pattern.
+ * Step 5 reads the dominant *ad-level* name (not creative.name) —
+ * Meta auto-generates polluted creative.name values from product
+ * feeds (e.g. "{{product.name}} 2026-03-31-<uuid>") that are
+ * per-row unique and defeat grouping. Ad-level names are what
+ * marketers type into Ads Manager and what they want collapsed.
+ *
+ * Step 5 also rejects names that are pure-numeric (Meta auto-IDs),
+ * contain unrendered `{{...}}` template tokens, or are too short
+ * (< 3 chars) — see `isAcceptableNameToken` for the canonical rules.
  */
 export function deriveGroupKey(row: ConceptInputRow): {
   key: string;
@@ -246,29 +361,26 @@ export function deriveGroupKey(row: ConceptInputRow): {
   const thumb = normaliseThumbnailUrl(row.thumbnail_url);
   if (thumb) return { key: `thumb:${thumb}`, reason: "thumbnail" };
 
-  const name = normaliseAdName(row.creative_name);
-  if (name && NON_DIGIT_RE.test(name)) {
-    return { key: `name:${name}`, reason: "name" };
+  const dominantAdName = row.ad_names[0]?.trim();
+  if (dominantAdName) {
+    const name = normaliseAdName(dominantAdName);
+    if (isAcceptableNameToken(name)) {
+      return { key: `name:${name}`, reason: "name" };
+    }
   }
 
   return { key: `id:${row.creative_id}`, reason: "creative_id" };
 }
 
-// ─── Display-name fallback ──────────────────────────────────────────────────
+// ─── Display-name waterfall ─────────────────────────────────────────────────
 
-const PURE_DIGIT_RE = /^\d+$/;
-
-function isUsableCreativeName(name: string | null | undefined): boolean {
-  if (!name) return false;
-  const trimmed = name.trim();
-  if (!trimmed) return false;
-  // Reject pure-numeric Meta auto-names. We also reject names that
-  // are nothing but digits + separators (e.g. "120230049821210568"
-  // or "120-2300-4982" — neither is human-meaningful).
-  return !PURE_DIGIT_RE.test(trimmed.replace(/[\s\-_]/g, ""));
-}
-
-function fallbackDisplayName(
+/**
+ * Semantic fallback when neither the dominant ad.name nor the
+ * sanitised creative.name is acceptable. Picks a label from the
+ * waterfall reason so the user sees something meaningful instead
+ * of a raw Meta numeric ID.
+ */
+function semanticFallbackDisplayName(
   reason: GroupKeyReason,
   groupKey: string,
   groupIndex: number,
@@ -290,9 +402,9 @@ function fallbackDisplayName(
       return `Creative · ${shortThumbHash(normalised)}`;
     }
     case "name": {
-      // groupKey = "name:${normalisedName}" — surface the normalised
-      // form (lowercase, suffixes already stripped). Caller never
-      // reaches this branch when the chosen creative_name was usable.
+      // Only reached when the dominant ad.name passed the gate AND
+      // we somehow have no clean version — defensive only; in
+      // practice tier 1 of `pickDisplayName` already covered it.
       const n = groupKey.startsWith("name:")
         ? groupKey.slice("name:".length)
         : groupKey;
@@ -301,6 +413,55 @@ function fallbackDisplayName(
     case "creative_id":
       return "Untitled creative";
   }
+}
+
+/**
+ * Pick a human-readable display name for a concept group.
+ *
+ * Waterfall (first non-empty wins):
+ *   1. cleanAdName(dominant ad-level name) IF it passes
+ *      `isAcceptableNameToken` — preserves casing so "Motion V2"
+ *      surfaces verbatim.
+ *   2. sanitiseCreativeName(representative creative_name) IF ≥ 3
+ *      chars after stripping `{{...}}` tokens / ISO dates / UUID
+ *      tails — covers headline-only / no-ad-name corner cases.
+ *   3. semanticFallbackDisplayName(reason) — "Dark post · N",
+ *      "Video creative", "Creative · {hash6}", etc.
+ *
+ * Never surfaces a raw numeric Meta ID as a display label.
+ *
+ * Exported so the dashboard panel's "Group by concept = OFF" path
+ * (which wraps a single ConceptInputRow into a synthetic group) can
+ * reuse the same waterfall — toggling the grouping switch must
+ * never make the title worse.
+ */
+export function pickDisplayName(
+  adNames: readonly string[],
+  representativeCreativeName: string | null,
+  reason: GroupKeyReason,
+  groupKey: string,
+  groupIndex: number,
+): string {
+  // Tier 1 — dominant ad.name (case-preserved).
+  const dominant = adNames[0]?.trim();
+  if (dominant) {
+    const normalised = normaliseAdName(dominant);
+    if (isAcceptableNameToken(normalised)) {
+      const cleaned = cleanAdName(dominant);
+      if (cleaned.length >= 3) return cleaned;
+    }
+  }
+
+  // Tier 2 — sanitised representative creative_name. Gate with the
+  // same acceptance rules as tier 1 so a pure-numeric Meta auto-ID
+  // ("120230049821210568") never escapes here as a display label.
+  const sanitised = sanitiseCreativeName(representativeCreativeName);
+  if (sanitised && isAcceptableNameToken(sanitised.toLowerCase())) {
+    return sanitised;
+  }
+
+  // Tier 3 — semantic fallback.
+  return semanticFallbackDisplayName(reason, groupKey, groupIndex);
 }
 
 // ─── Grouping ───────────────────────────────────────────────────────────────
@@ -319,6 +480,14 @@ interface Accumulator {
   reach: number;
   registrations: number;
   purchases: number;
+  /**
+   * Distinct trimmed ad.name → cumulative row spend across all
+   * underlying ConceptInputRows in this bucket. Sorted DESC at
+   * materialisation to produce the public `ad_names` array — the
+   * first entry is the dominant label, the tail is shown as
+   * variants in the modal subtitle.
+   */
+  ad_names_spend: Map<string, number>;
   /** Top-spend row picked from the group (for representative_* fields). */
   topSpend: number;
   representative_ad_id: string;
@@ -367,6 +536,7 @@ export function groupByAssetSignature(
         reach: 0,
         registrations: 0,
         purchases: 0,
+        ad_names_spend: new Map<string, number>(),
         topSpend: -Infinity,
         representative_ad_id: row.representative_ad_id,
         representative_thumbnail: row.thumbnail_url,
@@ -379,6 +549,17 @@ export function groupByAssetSignature(
     acc.reasons.add(reason);
     acc.underlying_creative_ids.push(row.creative_id);
     acc.ad_count += row.ad_count;
+    // Merge distinct ad-level names. Weight each name by the row's
+    // total spend so a name appearing only in a low-spend row ranks
+    // below one that dominates the bucket. Doesn't double-count
+    // across rows: a name appearing in two rows accumulates the
+    // sum of those row spends, which is what we want.
+    for (const n of row.ad_names) {
+      acc.ad_names_spend.set(
+        n,
+        (acc.ad_names_spend.get(n) ?? 0) + row.spend,
+      );
+    }
     for (const a of row.adsets) {
       if (!acc.adsets.has(a.id)) acc.adsets.set(a.id, a.name);
     }
@@ -406,10 +587,17 @@ export function groupByAssetSignature(
   }
 
   // Materialise the buckets into the public shape. Display name is
-  // computed in two passes so we have a stable group_index for the
-  // "Dark post · N" fallback (1-based, in spend-DESC sorted order).
+  // computed in a second pass so we have a stable group_index for
+  // the "Dark post · N" fallback (1-based, in spend-DESC order).
   const out: ConceptGroupRow[] = [];
   for (const acc of buckets.values()) {
+    // Sort distinct ad.names by descending cumulative row spend.
+    // Tie-break on insertion order (Map preserves it) so the result
+    // is deterministic across calls with identical input.
+    const ad_names = [...acc.ad_names_spend.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map((e) => e[0]);
+
     out.push({
       group_key: acc.group_key,
       display_name: "", // set after sort
@@ -438,6 +626,7 @@ export function groupByAssetSignature(
       cpr: safeRate(acc.spend, acc.registrations),
       cpp: safeRate(acc.spend, acc.purchases),
       frequency: safeRate(acc.impressions, acc.reach),
+      ad_names,
       underlying_creative_ids: acc.underlying_creative_ids,
       reasons: [...acc.reasons],
     });
@@ -445,22 +634,19 @@ export function groupByAssetSignature(
 
   out.sort((a, b) => b.spend - a.spend);
 
-  // Pass 2: pick display names. Re-walk the original Accumulator to
-  // recover the chosen-rep creative_name (which we don't surface on
-  // ConceptGroupRow — it'd be redundant with display_name).
+  // Pass 2: pick display names. Re-walk the bucket to recover the
+  // top-spend representative creative_name (kept out of the public
+  // shape — would just duplicate display_name).
   for (let i = 0; i < out.length; i += 1) {
     const g = out[i];
     const acc = buckets.get(g.group_key);
-    const repName = acc?.representative_creative_name;
-    if (isUsableCreativeName(repName)) {
-      g.display_name = repName!.trim();
-    } else {
-      g.display_name = fallbackDisplayName(
-        acc?.reason ?? g.reasons[0] ?? "creative_id",
-        g.group_key,
-        i,
-      );
-    }
+    g.display_name = pickDisplayName(
+      g.ad_names,
+      acc?.representative_creative_name ?? null,
+      acc?.reason ?? g.reasons[0] ?? "creative_id",
+      g.group_key,
+      i,
+    );
   }
 
   return out;
