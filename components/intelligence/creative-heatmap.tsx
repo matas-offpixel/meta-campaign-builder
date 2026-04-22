@@ -1,39 +1,22 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, RefreshCw, Tag, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
+import {
+  useCreativeHeatmap,
+  type UseCreativeHeatmapResult,
+} from "@/lib/hooks/useCreativeHeatmap";
 import type {
+  CreativeDatePreset,
   CreativeInsightRow,
   CreativeTagType,
 } from "@/lib/types/intelligence";
-import type { MetaAdAccount } from "@/lib/types";
-
-/**
- * Surfaced error shape for the heatmap's two read paths.
- * `retryable` drives whether the destructive banner shows a "Try
- * again" button. The mount fetch (ad accounts) is always treated as
- * retryable because `/api/meta/ad-accounts` shares the same
- * `graphGetWithToken` retry/transient code path that the creatives
- * route uses, so the same Meta rate-limit blip can hit either.
- */
-type HeatmapError = { message: string; retryable: boolean } | null;
-
-/**
- * Internal-only error so the catch block can distinguish a structured
- * failure (parsed from the route's JSON body) from anything else
- * thrown along the way (network errors, JSON parse failures, etc.).
- */
-class HeatmapFetchError extends Error {
-  constructor(message: string, public readonly retryable: boolean) {
-    super(message);
-    this.name = "HeatmapFetchError";
-  }
-}
 
 const TAG_TYPES: { value: CreativeTagType; label: string }[] = [
   { value: "format", label: "Format" },
@@ -47,6 +30,21 @@ const STATUS_FILTERS = [
   { value: "ALL", label: "All" },
   { value: "ACTIVE", label: "Active" },
   { value: "PAUSED", label: "Paused" },
+];
+
+/**
+ * Date preset chip definitions. Values are passed straight through to
+ * the route's `?datePreset=…` param (which mirrors Meta's `date_preset`
+ * enum 1:1) so there's no mapping table to keep in sync.
+ */
+const DATE_PRESETS: { value: CreativeDatePreset; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last_3d", label: "Last 3d" },
+  { value: "last_7d", label: "Last 7d" },
+  { value: "last_14d", label: "Last 14d" },
+  { value: "last_30d", label: "Last 30d" },
+  { value: "maximum", label: "All time" },
 ];
 
 const TAG_COLOR: Record<CreativeTagType, string> = {
@@ -70,12 +68,6 @@ function fmtPct(n: number): string {
   return `${n.toFixed(2)}%`;
 }
 
-function defaultDate(daysAgo: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - daysAgo);
-  return d.toISOString().slice(0, 10);
-}
-
 /**
  * "X mins ago" / "X hours ago" / "X days ago" / "just now" formatter
  * for the snapshot freshness badge. Stays here rather than reaching
@@ -96,162 +88,112 @@ function formatRelativeFromNow(iso: string): string {
   return `${diffDay} day${diffDay === 1 ? "" : "s"} ago`;
 }
 
+// ─── Sort model ──────────────────────────────────────────────────────────────
+
+/** Columns the user can click-to-sort. Anchored at the table header. */
+type SortKey =
+  | "spend"
+  | "impressions"
+  | "ctr"
+  | "cpm"
+  | "cpc"
+  | "frequency"
+  | "cpl"
+  | "purchases";
+
+type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
+
+const DEFAULT_SORT: SortState = { key: "cpl", dir: "asc" };
+
+/** Three-way header click cycle: asc → desc → unsorted (back to default). */
+function nextSort(current: SortState, key: SortKey): SortState {
+  if (!current || current.key !== key) return { key, dir: "asc" };
+  if (current.dir === "asc") return { key, dir: "desc" };
+  return null;
+}
+
+function ariaSortFor(state: SortState, key: SortKey): "ascending" | "descending" | "none" {
+  if (!state || state.key !== key) return "none";
+  return state.dir === "asc" ? "ascending" : "descending";
+}
+
+function compareNumeric(
+  a: number | null | undefined,
+  b: number | null | undefined,
+  dir: "asc" | "desc",
+): number {
+  // Nulls always last regardless of direction — they aren't "low" or
+  // "high", they're "no data".
+  const aNull = a == null || !Number.isFinite(a);
+  const bNull = b == null || !Number.isFinite(b);
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  const delta = (a as number) - (b as number);
+  return dir === "asc" ? delta : -delta;
+}
+
+function applySort(rows: CreativeInsightRow[], sort: SortState): CreativeInsightRow[] {
+  if (!sort) {
+    // Unsorted = the route's natural order. Nothing to do.
+    return rows;
+  }
+  const { key, dir } = sort;
+  return [...rows].sort((a, b) => compareNumeric(a[key], b[key], dir));
+}
+
 export function CreativeHeatmapPage() {
-  const [adAccounts, setAdAccounts] = useState<MetaAdAccount[]>([]);
-  const [adAccountsLoading, setAdAccountsLoading] = useState(true);
-  const [adAccountId, setAdAccountId] = useState<string>("");
-  const [since, setSince] = useState(defaultDate(30));
-  const [until, setUntil] = useState(defaultDate(0));
+  const heatmap = useCreativeHeatmap();
+  // Status filter stays component-local — it never round-trips to the
+  // route, just shapes the rendered set.
   const [status, setStatus] = useState<string>("ALL");
+  // Sort state is component-local for the same reason. Default sort
+  // is ascending CPL (best leads first), matching pre-H2 behaviour.
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
 
-  const [rows, setRows] = useState<CreativeInsightRow[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<HeatmapError>(null);
-  // Tracks which fetch path produced the current error so the "Try
-  // again" button knows what to re-run. `null` whenever there is no
-  // active error or the error is non-retryable user input.
-  const [lastFailed, setLastFailed] = useState<"accounts" | "creatives" | null>(
-    null,
-  );
-  // H1 cache surface state. `snapshotAt` is the MAX(snapshot_at) the
-  // route returned (cached reads or live writes both populate it);
-  // drives the "Refreshed X mins ago" badge next to the button.
-  // `needsRefresh` is the route's signal that the cache is empty for
-  // the current (account, datePreset) so we should prompt the user
-  // to kick a live fetch rather than render an empty heatmap.
-  const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
-  const [needsRefresh, setNeedsRefresh] = useState(false);
+  return <CreativeHeatmapInner heatmap={heatmap} status={status} setStatus={setStatus} sort={sort} setSort={setSort} />;
+}
 
-  // Load ad accounts on mount so the dropdown is populated by the time
-  // the user lands on the page. Wrapped in a useCallback so the
-  // "Try again" button can re-invoke it without re-running the whole
-  // mount effect.
-  const loadAccounts = useCallback(async (): Promise<void> => {
-    setAdAccountsLoading(true);
-    try {
-      const res = await fetch("/api/meta/ad-accounts", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const j = (await res.json()) as { data: MetaAdAccount[] };
-      setAdAccounts(j.data ?? []);
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? `Couldn't load ad accounts: ${err.message}`
-          : "Couldn't load ad accounts.";
-      // /api/meta/ad-accounts goes through the same graphGetWithToken
-      // retry path as the creatives route — if it still failed, the
-      // most likely cause is a transient Meta hiccup that's worth
-      // letting the user retry by hand.
-      setError({ message: msg, retryable: true });
-      setLastFailed("accounts");
-    } finally {
-      setAdAccountsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadAccounts();
-  }, [loadAccounts]);
-
-  /**
-   * Load creatives for the current account. `refresh: true` forces a
-   * live Meta fetch (~5 min on a 1k-ad account) and writes through to
-   * the cache; `refresh: false` (default) reads from the cache and
-   * sets `needsRefresh` if the cache is cold.
-   *
-   * `since`/`until` are passed for backwards-compat — the route
-   * accepts them as no-ops post-H1.
-   */
-  const loadCreatives = useCallback(
-    async (opts?: { refresh?: boolean }): Promise<void> => {
-      const refresh = opts?.refresh === true;
-      if (!adAccountId) {
-        setError({ message: "Choose an ad account first.", retryable: false });
-        setLastFailed(null);
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      setLastFailed(null);
-      try {
-        const sp = new URLSearchParams({ adAccountId, since, until });
-        if (refresh) sp.set("refresh", "1");
-        const res = await fetch(
-          `/api/intelligence/creatives?${sp.toString()}`,
-          { cache: "no-store" },
-        );
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as
-            | { error?: string; retryable?: boolean }
-            | null;
-          const message = body?.error ?? `HTTP ${res.status}`;
-          const retryable =
-            typeof body?.retryable === "boolean" ? body.retryable : true;
-          throw new HeatmapFetchError(message, retryable);
-        }
-        const j = (await res.json()) as {
-          creatives: CreativeInsightRow[];
-          snapshotAt?: string | null;
-          needsRefresh?: boolean;
-          source?: "cache" | "live";
-        };
-        setRows(j.creatives ?? []);
-        setSnapshotAt(j.snapshotAt ?? null);
-        setNeedsRefresh(j.needsRefresh === true);
-      } catch (err) {
-        if (err instanceof HeatmapFetchError) {
-          setError({ message: err.message, retryable: err.retryable });
-        } else {
-          setError({
-            message:
-              err instanceof Error ? err.message : "Failed to load creatives",
-            retryable: true,
-          });
-        }
-        setLastFailed("creatives");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [adAccountId, since, until],
-  );
-
-  // H1: auto-fire the cached read whenever the user picks an account.
-  // The cache path is fast (single Postgres query) so the delay is
-  // imperceptible; it spares the user clicking through twice when
-  // they already know what they want to look at.
-  useEffect(() => {
-    if (!adAccountId) return;
-    void loadCreatives();
-    // We deliberately re-run on adAccountId only — `since/until` from
-    // the date inputs are ignored by the route post-H1, and re-firing
-    // on every keystroke would thrash the cache lookup. H2 will swap
-    // the date inputs for `datePreset` chips with their own change
-    // handler.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adAccountId]);
-
-  const handleRetry = useCallback((): void => {
-    if (lastFailed === "accounts") {
-      void loadAccounts();
-    } else if (lastFailed === "creatives") {
-      void loadCreatives();
-    }
-  }, [lastFailed, loadAccounts, loadCreatives]);
+function CreativeHeatmapInner({
+  heatmap,
+  status,
+  setStatus,
+  sort,
+  setSort,
+}: {
+  heatmap: UseCreativeHeatmapResult;
+  status: string;
+  setStatus: (v: string) => void;
+  sort: SortState;
+  setSort: (next: SortState) => void;
+}) {
+  const {
+    adAccounts,
+    adAccountsLoading,
+    adAccountId,
+    setAdAccountId,
+    datePreset,
+    setDatePreset,
+    rows,
+    setRows,
+    snapshotAt,
+    needsRefresh,
+    loading,
+    isRefreshing,
+    error,
+    lastFailed,
+    refresh,
+    retry,
+  } = heatmap;
 
   const filteredRows = useMemo(() => {
     if (!rows) return null;
-    const filtered = status === "ALL"
-      ? rows
-      : rows.filter((r) => (r.status ?? "").toUpperCase() === status);
-    // Ascending CPL with nulls last so the best-performing ads land at top.
-    return [...filtered].sort((a, b) => {
-      if (a.cpl == null && b.cpl == null) return b.spend - a.spend;
-      if (a.cpl == null) return 1;
-      if (b.cpl == null) return -1;
-      return a.cpl - b.cpl;
-    });
-  }, [rows, status]);
+    const filtered =
+      status === "ALL"
+        ? rows
+        : rows.filter((r) => (r.status ?? "").toUpperCase() === status);
+    return applySort(filtered, sort);
+  }, [rows, status, sort]);
 
   const summary = useMemo(() => {
     if (!filteredRows) return null;
@@ -263,7 +205,10 @@ export function CreativeHeatmapPage() {
     return { count: filteredRows.length, totalSpend, avgCtr, fatigued };
   }, [filteredRows]);
 
-  const handleTagAdded = (adId: string, tag: CreativeInsightRow["tags"][number]) => {
+  const handleTagAdded = (
+    adId: string,
+    tag: CreativeInsightRow["tags"][number],
+  ) => {
     setRows((prev) =>
       prev
         ? prev.map((r) =>
@@ -289,29 +234,20 @@ export function CreativeHeatmapPage() {
     <div className="space-y-5">
       {/* ── Filter bar ────────────────────────────────────────────── */}
       <div className="rounded-md border border-border bg-card p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
-          <Select
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_auto]">
+          <Combobox
             label="Ad account"
             value={adAccountId}
-            onChange={(e) => setAdAccountId(e.target.value)}
+            onChange={setAdAccountId}
             placeholder={adAccountsLoading ? "Loading…" : "Choose ad account"}
             disabled={adAccountsLoading}
+            loading={adAccountsLoading}
+            emptyText="No ad accounts match"
             options={adAccounts.map((a) => ({
               value: a.id,
               label: `${a.name} (${a.currency})`,
+              sublabel: a.id,
             }))}
-          />
-          <Input
-            label="Since"
-            type="date"
-            value={since}
-            onChange={(e) => setSince(e.target.value)}
-          />
-          <Input
-            label="Until"
-            type="date"
-            value={until}
-            onChange={(e) => setUntil(e.target.value)}
           />
           <Select
             label="Status"
@@ -321,7 +257,7 @@ export function CreativeHeatmapPage() {
           />
           <div className="flex flex-col items-end justify-end gap-1">
             <Button
-              onClick={() => void loadCreatives({ refresh: true })}
+              onClick={() => void refresh()}
               disabled={loading || !adAccountId}
               size="sm"
             >
@@ -339,6 +275,12 @@ export function CreativeHeatmapPage() {
             )}
           </div>
         </div>
+
+        <DatePresetChips
+          value={datePreset}
+          onChange={setDatePreset}
+          disabled={loading}
+        />
       </div>
 
       {error && (
@@ -348,7 +290,7 @@ export function CreativeHeatmapPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void handleRetry()}
+              onClick={() => void retry()}
               disabled={adAccountsLoading || loading}
               className="shrink-0"
             >
@@ -372,26 +314,21 @@ export function CreativeHeatmapPage() {
 
       {rows && rows.length === 0 && needsRefresh && !loading && (
         <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          <p>
-            No cached snapshot yet for this account.
-          </p>
+          <p>No cached snapshot yet for this account.</p>
           <p className="text-xs text-muted-foreground/80">
             Click <span className="font-medium text-foreground">Refresh from Meta</span>{" "}
             to populate the cache. The first fetch can take a few minutes
             on large accounts; subsequent loads are instant.
           </p>
-          <Button
-            onClick={() => void loadCreatives({ refresh: true })}
-            disabled={loading}
-            size="sm"
-          >
+          <Button onClick={() => void refresh()} disabled={loading} size="sm">
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh from Meta
           </Button>
         </div>
       )}
 
-      {loading && (
+      {loading && isRefreshing && <RefreshProgressBar />}
+      {loading && !isRefreshing && (
         <div className="space-y-1.5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -430,6 +367,8 @@ export function CreativeHeatmapPage() {
           ) : (
             <CreativesTable
               rows={filteredRows}
+              sort={sort}
+              onSortChange={(key) => setSort(nextSort(sort, key))}
               onTagAdded={handleTagAdded}
               onTagRemoved={handleTagRemoved}
             />
@@ -440,14 +379,173 @@ export function CreativeHeatmapPage() {
   );
 }
 
+// ─── Date preset chip group ─────────────────────────────────────────────────
+
+function DatePresetChips({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: CreativeDatePreset;
+  onChange: (next: CreativeDatePreset) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Date range"
+      className="mt-3 flex flex-wrap items-center gap-1.5"
+    >
+      <span className="mr-1 text-xs text-muted-foreground">Window:</span>
+      {DATE_PRESETS.map((p) => {
+        const active = value === p.value;
+        return (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => onChange(p.value)}
+            disabled={disabled}
+            aria-pressed={active}
+            className={[
+              "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+              active
+                ? "border-foreground bg-foreground text-background"
+                : "border-border text-muted-foreground hover:border-border-strong hover:text-foreground",
+            ].join(" ")}
+          >
+            {p.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Live-refresh progress bar ──────────────────────────────────────────────
+
+/**
+ * The cron-warmed cache returns in <1s, but a manual ?refresh=1 against
+ * a 1k-ad account can take 30-60s. The skeleton-rows treatment that
+ * works for the cache path leaves the user thinking the page froze on
+ * the live path — so we replace it with a labelled progress bar that
+ * fills linearly to 90% over 45s (the realistic p50) then holds at
+ * 90% until the request resolves.
+ *
+ * The progress is intentionally honest about what it isn't: we cannot
+ * know true progress without Meta telling us, and the spec says don't
+ * label it "85% complete". Label is just "Refreshing…".
+ */
+function RefreshProgressBar() {
+  const [pct, setPct] = useState(2);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const targetMs = 45_000;
+    const tick = () => {
+      const elapsed = Date.now() - startedAt;
+      const fraction = Math.min(elapsed / targetMs, 1);
+      // Cap at 90% so the bar visibly waits on the network round-trip
+      // rather than pretending we know when it'll arrive.
+      setPct(2 + fraction * 88);
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-card px-4 py-3">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="inline-flex items-center gap-2 text-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Refreshing from Meta…
+        </span>
+        <span className="text-muted-foreground">
+          This can take up to 2 minutes on large accounts.
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Refreshing from Meta"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        className="h-1.5 overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className="h-full rounded-full bg-foreground transition-[width] duration-200 ease-linear"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Sortable header cell ───────────────────────────────────────────────────
+
+/**
+ * Click-to-sort `<th>` with `aria-sort` + a tiny arrow indicator. The
+ * three-way cycle (asc → desc → unsorted) lives in the parent via
+ * `nextSort` so the indicator only needs to render the current state.
+ */
+function SortableTh({
+  label,
+  sortKey,
+  sort,
+  onSortChange,
+  align = "left",
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: SortState;
+  onSortChange: (key: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const ariaSort = ariaSortFor(sort, sortKey);
+  const isActive = sort?.key === sortKey;
+  const arrow = !isActive ? "↕" : sort.dir === "asc" ? "↑" : "↓";
+  return (
+    <th
+      aria-sort={ariaSort}
+      className={`px-2 py-2 font-medium ${align === "right" ? "text-right" : ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSortChange(sortKey)}
+        className={[
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted-foreground hover:text-foreground",
+          isActive ? "text-foreground" : "",
+        ].join(" ")}
+      >
+        <span>{label}</span>
+        <span
+          aria-hidden
+          className={[
+            "text-[9px] tabular-nums",
+            isActive ? "opacity-100" : "opacity-40",
+          ].join(" ")}
+        >
+          {arrow}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 // ─── Table ─────────────────────────────────────────────────────────────────
 
 function CreativesTable({
   rows,
+  sort,
+  onSortChange,
   onTagAdded,
   onTagRemoved,
 }: {
   rows: CreativeInsightRow[];
+  sort: SortState;
+  onSortChange: (key: SortKey) => void;
   onTagAdded: (adId: string, tag: CreativeInsightRow["tags"][number]) => void;
   onTagRemoved: (adId: string, tagId: string) => void;
 }) {
@@ -458,14 +556,14 @@ function CreativesTable({
           <tr>
             <th className="px-2 py-2 font-medium">Creative</th>
             <th className="px-2 py-2 font-medium">Ad</th>
-            <th className="px-2 py-2 font-medium text-right">Spend</th>
-            <th className="px-2 py-2 font-medium text-right">Impr.</th>
-            <th className="px-2 py-2 font-medium text-right">CTR</th>
-            <th className="px-2 py-2 font-medium text-right">CPM</th>
-            <th className="px-2 py-2 font-medium text-right">CPC</th>
-            <th className="px-2 py-2 font-medium text-right">Freq.</th>
-            <th className="px-2 py-2 font-medium text-right">CPL</th>
-            <th className="px-2 py-2 font-medium text-right">Purchases</th>
+            <SortableTh label="Spend" sortKey="spend" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="Impr." sortKey="impressions" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="CTR" sortKey="ctr" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="CPM" sortKey="cpm" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="CPC" sortKey="cpc" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="Freq." sortKey="frequency" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="CPL" sortKey="cpl" sort={sort} onSortChange={onSortChange} align="right" />
+            <SortableTh label="Purchases" sortKey="purchases" sort={sort} onSortChange={onSortChange} align="right" />
             <th className="px-2 py-2 font-medium">Fatigue</th>
             <th className="px-2 py-2 font-medium">Tags</th>
           </tr>
