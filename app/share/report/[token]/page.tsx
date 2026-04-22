@@ -21,6 +21,8 @@ import type { TikTokManualReportSnapshot } from "@/lib/types/tiktok";
 import { PublicReport } from "@/components/report/public-report";
 import type { TikTokReportBlockData } from "@/components/report/tiktok-report-block";
 import { ReportUnavailable } from "@/components/report/report-unavailable";
+import { fetchShareActiveCreatives } from "@/lib/reporting/share-active-creatives";
+import { ShareActiveCreativesSection } from "@/components/share/share-active-creatives-section";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -278,6 +280,38 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     );
   }
 
+  // Server-render the "Active creatives" section upfront. Wrapped
+  // in try/catch on top of the helper's own error union so a
+  // genuinely unexpected throw can never 500 the whole share page —
+  // we'd rather render the report without the creative breakdown
+  // than show a blank screen. When `meta` itself was soft-skipped
+  // (TikTok-only client), we also skip the Meta-derived section.
+  //
+  // Linter quirk: JSX construction inside try/catch trips
+  // react-hooks/error-boundaries. Resolve the data first, then
+  // build the element from the resolved value below.
+  const creativesResult = metaPayload
+    ? await fetchShareActiveCreatives({
+        share: resolved.share,
+        admin,
+        eventCode: event.eventCode,
+        adAccountId: event.adAccountId,
+      }).catch((err) => {
+        console.warn(
+          `[share/report] active-creatives fetch crashed for token=${token}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return {
+          kind: "error" as const,
+          reason: "meta_failed" as const,
+          message: "Unexpected error",
+        };
+      })
+    : null;
+  const creativesSlot = creativesResult ? (
+    <ShareActiveCreativesSection result={creativesResult} />
+  ) : null;
+
   return (
     <PublicReport
       event={{
@@ -297,6 +331,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       shareToken={token}
       datePreset={datePreset}
       customRange={customRange}
+      creativesSlot={creativesSlot}
     />
   );
 }
