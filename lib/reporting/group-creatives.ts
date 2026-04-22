@@ -700,6 +700,23 @@ export function groupByAssetSignature(
       .sort((a, b) => b[1] - a[1])
       .map((e) => e[0]);
 
+    // Per-bucket diagnostic — one line per concept group, surfaces
+    // which ad.name strings rolled into this bucket and their spend
+    // share. Lets us trace from the share page back to the raw row
+    // set without rebuilding the input fixture: greppable in Vercel
+    // as `[asset-grouping]`. Logging-only, no behaviour change. Runs
+    // on every caller of `groupByAssetSignature`, but in practice the
+    // share/internal report routes are the only callers and the log
+    // volume is bounded by SHARE_GROUPS_CAP=30 per request.
+    console.info(
+      `[asset-grouping] group_key=${acc.group_key} reason=${acc.reason} creative_ids=${acc.underlying_creative_ids.length} ad_count=${acc.ad_count} spend=${acc.spend.toFixed(2)} top_ad_names=${JSON.stringify(
+        [...acc.ad_names_spend.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([n, s]) => ({ n, spend: +s.toFixed(2) })),
+      )}`,
+    );
+
     out.push({
       group_key: acc.group_key,
       display_name: "", // set after sort
