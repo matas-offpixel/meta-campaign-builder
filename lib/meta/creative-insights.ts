@@ -165,16 +165,16 @@ export async function fetchCreativeInsights(
     `insights.date_preset(${datePreset}){spend,impressions,clicks,actions,cpm,cpc,ctr,frequency,reach}`,
   ].join(",");
 
-  // Page size lowered from 100 → 50 because two production accounts
-  // (act_901661116878308, act_210578427) returned Meta's "Please reduce
-  // the amount of data" error on last_7d. The expensive piece of the
-  // payload is the nested `insights{...,actions}` expansion — busy
-  // accounts surface dozens of action_type rows per ad, so 100 ads ×
-  // full insights × actions[] blows past Meta's per-response cap.
-  // Halving the page size halves the response body and roughly doubles
-  // the number of round-trips, which we already pay for via cursor
-  // pagination. Same fields, same totals, just smaller pages.
-  const params: Record<string, string> = { fields, limit: "50" };
+  // Page size lowered from 100 → 50 → 25. The 50 step cleared
+  // act_901661116878308 but act_210578427 still tripped Meta's
+  // "Please reduce the amount of data" cap, so we're going one notch
+  // tighter. The expensive piece of the payload is the nested
+  // `insights{...,actions}` expansion — busy accounts surface dozens
+  // of action_type rows per ad, so even 50 ads × full insights ×
+  // actions[] can exceed Meta's per-response budget on heavy pixel +
+  // omni-event accounts. 25 quarters the original response body at
+  // the cost of more cursor round-trips, which we already pay for.
+  const params: Record<string, string> = { fields, limit: "25" };
   if (options.campaignIds?.length) {
     params.filtering = JSON.stringify([
       { field: "campaign.id", operator: "IN", value: options.campaignIds },
@@ -253,11 +253,11 @@ export async function fetchCreativeInsights(
 
     after = res.paging?.cursors?.after;
     safetyCounter += 1;
-    // Cap stays at 2 000 ads regardless of page size — bumped from 20
-    // to 40 to compensate for the page-size halving above (40 × 50 =
-    // 2 000). More than that points at a runaway loop, bail rather
-    // than hang the request.
-    if (safetyCounter >= 40) break;
+    // Cap stays at 2 000 ads regardless of page size — bumped from 40
+    // to 80 to compensate for the second page-size halving above
+    // (80 × 25 = 2 000). More than that points at a runaway loop,
+    // bail rather than hang the request.
+    if (safetyCounter >= 80) break;
   } while (after);
 
   return rows;
