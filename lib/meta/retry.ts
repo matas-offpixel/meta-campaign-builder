@@ -47,8 +47,24 @@ export async function retryOnceOnTransient<T>(
   } catch (err) {
     if (!isRetryable(err)) throw err;
     onRetry?.(err, delayMs);
+    // Greppable line so Vercel filtering on `[meta-retry]` shows
+    // every retry decision the helper makes. Code is duck-typed off
+    // the same { code } shape the classifier inspects — non-Meta
+    // throws log "n/a", which still tells us the helper triggered.
+    const firedCode = (err as { code?: number }).code ?? "n/a";
+    console.info(
+      `[meta-retry] retry_fired meta_code=${firedCode} delay_ms=${delayMs}`,
+    );
     await sleep(delayMs);
-    return fn();
+    try {
+      return await fn();
+    } catch (err2) {
+      const exhaustedCode = (err2 as { code?: number }).code ?? "n/a";
+      console.info(
+        `[meta-retry] retry_exhausted meta_code=${exhaustedCode} delay_ms=${delayMs}`,
+      );
+      throw err2;
+    }
   }
 }
 

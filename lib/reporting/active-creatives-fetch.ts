@@ -1069,6 +1069,17 @@ export async function fetchActiveCreativesForEvent(
             );
           }
           if (orphan.ads_count > 0) orphanBuckets.push(orphan);
+          // Per-campaign success log — pairs with the
+          // `campaign_fetch_failed` line below so a Vercel filter on
+          // `[active-creatives]` shows the full per-campaign result
+          // set side-by-side. ads.length is post-/ads pagination,
+          // insightsMap.size is the per-ad insights row count
+          // (orphans + stitched). When a wider timeframe drops ads
+          // we'll see the gap directly: same campaign id, fewer ads
+          // logged, no matching `campaign_fetch_failed` line.
+          console.info(
+            `[active-creatives] campaign_fetch_ok campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} ads=${ads.length} insights_rows=${insightsMap.size}`,
+          );
           return ads;
         } catch (err) {
           if (isMetaAuthError(err)) authExpired = true;
@@ -1078,9 +1089,23 @@ export async function fetchActiveCreativesForEvent(
               : err instanceof Error
                 ? err.message
                 : String(err);
-          console.warn(
-            `[active-creatives] campaign ${c.id} (${c.name ?? "?"}) failed:`,
-            msg,
+          // Pull the Meta error envelope fields the upstream client
+          // already attaches when it can. `MetaApiError` exposes
+          // `code` / `error_subcode` / `type` as instance fields;
+          // duck-typed read keeps this resilient to non-Meta throws
+          // (network, validation, etc.) — those just log undefined
+          // for the missing fields, which is exactly the diagnostic
+          // signal we want.
+          const e = err as {
+            code?: number;
+            error_subcode?: number;
+            type?: string;
+          };
+          const customRangeStr = input.customRange
+            ? `${input.customRange.since}..${input.customRange.until}`
+            : null;
+          console.error(
+            `[active-creatives] campaign_fetch_failed campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} custom_range=${customRangeStr} meta_code=${e.code ?? "n/a"} meta_subcode=${e.error_subcode ?? "n/a"} meta_type=${e.type ?? "n/a"} message=${JSON.stringify(msg)}`,
           );
           failed.push({ campaign_id: c.id, error: msg });
           return [] as AdInput[];
