@@ -398,6 +398,25 @@ export function deriveAssetSignature(
  * fine for the card but ugly when blown up in the modal — only used
  * as a final fallback.
  */
+/**
+ * All-null `CreativePreview` factory. Used as the placeholder on
+ * AdInput rows between phase 1 (the slim `/ads` enumerate) and
+ * phase 2 (`fetchCreativeBatch` stitch). Kept as a function rather
+ * than a frozen literal so the row mutator can overwrite the
+ * fields in place without alias surprises across ads.
+ */
+function emptyPreview(): CreativePreview {
+  return {
+    image_url: null,
+    video_id: null,
+    instagram_permalink_url: null,
+    headline: null,
+    body: null,
+    call_to_action_type: null,
+    link_url: null,
+  };
+}
+
 function extractPreview(creative: RawCreative | undefined): CreativePreview {
   if (!creative) {
     return {
@@ -516,12 +535,26 @@ async function fetchActiveAdsForCampaignOnce(
   campaignName: string | null,
   token: string,
 ): Promise<AdInput[]> {
-  // Meta's nested-field syntax: braces expand related objects.
-  // Asset-grouping needs object_story_spec + asset_feed_spec sub-
-  // fields (image_hash, video_id, picture, link, call_to_action),
-  // and the modal preview pulls from the same payload so we don't
-  // round-trip again. asset_feed_spec is requested as a flat field
-  // because Meta returns the whole sub-tree when asked by name.
+  // PR #59 (fix/ads-payload-split): the /ads call now returns ONLY
+  // the scalar enumeration fields + the creative.id pointer. The
+  // full creative payload (object_story_spec, asset_feed_spec,
+  // thumbnail_url, image_url, video_id, all the modal/preview /
+  // grouping bits) is fetched in a second phase by `fetchCreativeBatch`
+  // — see the stitch loop in `fetchActiveCreativesForEvent`.
+  //
+  // Why we split: Meta's per-response size budget on
+  // `/{campaignId}/ads` collapses when the campaign has hundreds of
+  // ads and each row carries a fully-expanded creative subtree,
+  // surfacing as `meta_code=1 message="reduce the amount of data"`.
+  // Production logs (2026-04-22 22:46–22:49) caught three Junction 2
+  // campaigns (120241574082980342 / 120241610668270342 /
+  // 120242072861160342) failing on this every timeframe; the
+  // single-retry burned ~60s before the campaign-boundary catch
+  // recorded the failure and dropped the ads. The batched-IDs
+  // endpoint (GET /?ids=…&fields=…) handles 50 creatives in one
+  // call and isn't subject to the same per-page expansion budget,
+  // so the same bytes split across two response shapes go through
+  // cleanly.
   //
   // PR #47: insights are no longer nested here — they're fetched
   // in parallel by `fetchAdInsightsForCampaign` against the
@@ -535,7 +568,7 @@ async function fetchActiveAdsForCampaignOnce(
     "campaign{id,name}",
     "adset_id",
     "adset{id,name}",
-    "creative{id,name,title,body,thumbnail_url,image_url,video_id,object_story_id,effective_object_story_id,instagram_permalink_url,call_to_action_type,link_url,object_story_spec{link_data{name,message,description,image_hash,picture,link,call_to_action{type}},video_data{title,message,video_id,image_url}},asset_feed_spec}",
+    "creative{id}",
   ].join(",");
 
   // Why we don't filter to ACTIVE-only:
@@ -576,9 +609,15 @@ async function fetchActiveAdsForCampaignOnce(
       token,
     );
     for (const ad of res.data ?? []) {
-      const { headline, body } = extractCopy(ad.creative);
-      const preview = extractPreview(ad.creative);
-      const primary_asset_signature = deriveAssetSignature(ad.creative);
+      // Two-phase fetch (PR #59): we only have the creative.id
+      // pointer here. headline / body / thumbnail / preview /
+      // asset signature / object_story_id are populated by the
+      // post-dedup stitch loop in `fetchActiveCreativesForEvent`
+      // after `fetchCreativeBatch` resolves the full payloads.
+      // Empty defaults match the partial-render contract: an ad
+      // whose creative batch fetch ultimately fails still appears
+      // in the grouper, just keyed by `creative_id` rather than
+      // its asset signature.
       out.push({
         ad_id: ad.id,
         ad_name: ad.name ?? null,
@@ -588,15 +627,14 @@ async function fetchActiveAdsForCampaignOnce(
         adset_id: ad.adset?.id ?? ad.adset_id ?? null,
         adset_name: ad.adset?.name ?? null,
         creative_id: ad.creative?.id ?? null,
-        creative_name: ad.creative?.name ?? null,
-        headline,
-        body,
-        thumbnail_url: ad.creative?.thumbnail_url ?? null,
-        effective_object_story_id:
-          ad.creative?.effective_object_story_id?.trim() || null,
-        object_story_id: ad.creative?.object_story_id?.trim() || null,
-        primary_asset_signature,
-        preview,
+        creative_name: null,
+        headline: null,
+        body: null,
+        thumbnail_url: null,
+        effective_object_story_id: null,
+        object_story_id: null,
+        primary_asset_signature: null,
+        preview: emptyPreview(),
         // Filled in by the caller after fetchAdInsightsForCampaign
         // returns. Left null here so partial-failure (insights
         // lookup throws while /ads succeeds) renders cards with "—"
@@ -735,6 +773,108 @@ const AD_INSIGHT_CHUNK_CONCURRENCY = 1;
  * boundary, after a brief pause, is enough to ride out the moment.
  */
 const ADS_OUTER_RETRY_DELAY_MS = 500;
+
+/**
+ * Max creative IDs per batched-read request to Meta's
+ * `GET /?ids=…&fields=…` endpoint. 50 is the documented per-call
+ * cap; production response time at 50 sits around ~500ms which
+ * keeps the parallel fan-out below comfortably below the per-account
+ * rate ceiling for typical events (≤500 creatives = 10 calls).
+ */
+const CREATIVE_BATCH_SIZE = 50;
+
+/**
+ * Field list pulled per creative in phase 2. Mirrors the bulky
+ * subtree the old single-phase /ads call requested inline — same
+ * fields, just reachable through the batched endpoint, which
+ * Meta does NOT subject to the same per-page expansion budget
+ * that triggers `meta_code=1 reduce the amount of data` on /ads.
+ *
+ * `object_story_spec` and `asset_feed_spec` are requested as flat
+ * field names; Meta returns the full sub-tree for each (this is
+ * the same shape the old nested-field syntax produced, so
+ * `extractCopy` / `extractPreview` / `deriveAssetSignature` keep
+ * working without per-shape branching).
+ */
+const CREATIVE_BATCH_FIELDS = [
+  "id",
+  "name",
+  "title",
+  "body",
+  "thumbnail_url",
+  "image_url",
+  "video_id",
+  "object_story_id",
+  "effective_object_story_id",
+  "instagram_permalink_url",
+  "call_to_action_type",
+  "link_url",
+  "object_story_spec",
+  "asset_feed_spec",
+].join(",");
+
+/**
+ * Phase-2 creative payload fetcher (PR #59 — fix/ads-payload-split).
+ *
+ * Takes the distinct creative IDs gathered across every campaign
+ * after the cross-campaign dedup, chunks into batches of
+ * {@link CREATIVE_BATCH_SIZE} (Meta's documented cap), fans them
+ * out in parallel against the batched-IDs read endpoint, and
+ * returns a `Map<creative_id, RawCreative>` for the caller to
+ * stitch onto the AdInput rows.
+ *
+ * Failure posture: per-batch failures are swallowed and logged.
+ * The caller's stitch loop already tolerates a missing creative
+ * (the AdInput row keeps its phase-1 nulls and the grouper falls
+ * back to the `creative_id` tier of the waterfall), so degrading
+ * one batch is preferable to dropping the whole event. A bulk auth
+ * failure still surfaces because the very first batch throws and
+ * the calling site's outer try/catch records it.
+ *
+ * Why a fresh helper rather than wrapping `graphGetWithToken`
+ * directly: the batched endpoint returns an OBJECT keyed by ID
+ * (not a paged array), so the existing `PagedResponse<T>` shape
+ * doesn't fit. Keeping the deserialisation local makes the type
+ * explicit and avoids leaking `Record<string, RawCreative>` into
+ * the rest of the module.
+ */
+async function fetchCreativeBatch(
+  creativeIds: readonly string[],
+  token: string,
+): Promise<Map<string, RawCreative>> {
+  const out = new Map<string, RawCreative>();
+  if (creativeIds.length === 0) return out;
+  // Defensive de-dup at the helper boundary so callers don't have
+  // to (and so a downstream test harness can pass the raw list
+  // straight in).
+  const unique = [...new Set(creativeIds)];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += CREATIVE_BATCH_SIZE) {
+    chunks.push(unique.slice(i, i + CREATIVE_BATCH_SIZE));
+  }
+  type BatchResponse = Record<string, RawCreative>;
+  const results = await Promise.all(
+    chunks.map((batch, idx) =>
+      graphGetWithToken<BatchResponse>(
+        "",
+        { ids: batch.join(","), fields: CREATIVE_BATCH_FIELDS },
+        token,
+      ).catch((err) => {
+        const e = err as { code?: number; message?: string };
+        console.warn(
+          `[active-creatives] creative_batch_failed batch=${idx + 1}/${chunks.length} ids=${batch.length} meta_code=${e.code ?? "n/a"} message=${JSON.stringify(e.message ?? String(err))}`,
+        );
+        return {} as BatchResponse;
+      }),
+    ),
+  );
+  for (const batchResult of results) {
+    for (const [id, creative] of Object.entries(batchResult)) {
+      if (id && creative) out.set(id, creative);
+    }
+  }
+  return out;
+}
 
 /**
  * Fetch per-ad insights for one campaign from the dedicated
@@ -1137,6 +1277,57 @@ export async function fetchActiveCreativesForEvent(
       `[active-creatives] cross-campaign dedup: dropped ${duplicatesDropped}/${rawAds.length} duplicate ad rows (event=${eventCode})`,
     );
   }
+
+  // PR #59 — phase 2 of the two-phase fetch. Walk the deduped ad
+  // rows, collect their distinct creative_ids, and resolve the
+  // bulky payload (object_story_spec, asset_feed_spec, thumbnail,
+  // etc.) in batches of 50 against the /?ids=…&fields=… endpoint.
+  // Mutates each AdInput row in place to populate creative_name,
+  // headline, body, thumbnail_url, the two object_story_id
+  // variants, the asset signature, and the modal preview — same
+  // fields that used to be filled inline from the /ads response
+  // before the size-budget cap forced the split.
+  //
+  // Cross-campaign dedup runs FIRST so we never request the same
+  // creative twice when an ad is reachable from multiple sibling
+  // campaigns (the /ads side would have returned the row N times,
+  // dedupAdsByAdId collapses it). Net request count is one batched
+  // call per ≤50 distinct creatives across the whole event.
+  const distinctCreativeIds = [
+    ...new Set(
+      dedupedAds
+        .map((a) => a.creative_id)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const creativeMap =
+    distinctCreativeIds.length > 0
+      ? await fetchCreativeBatch(distinctCreativeIds, token)
+      : new Map<string, RawCreative>();
+  let creativesHydrated = 0;
+  let creativesMissing = 0;
+  for (const ad of dedupedAds) {
+    if (!ad.creative_id) continue;
+    const creative = creativeMap.get(ad.creative_id);
+    if (!creative) {
+      creativesMissing += 1;
+      continue;
+    }
+    const { headline, body } = extractCopy(creative);
+    ad.creative_name = creative.name ?? null;
+    ad.headline = headline;
+    ad.body = body;
+    ad.thumbnail_url = creative.thumbnail_url ?? null;
+    ad.effective_object_story_id =
+      creative.effective_object_story_id?.trim() || null;
+    ad.object_story_id = creative.object_story_id?.trim() || null;
+    ad.primary_asset_signature = deriveAssetSignature(creative);
+    ad.preview = extractPreview(creative);
+    creativesHydrated += 1;
+  }
+  console.info(
+    `[active-creatives] creative_batch_done event=${eventCode} distinct_creatives=${distinctCreativeIds.length} hydrated=${creativesHydrated} missing=${creativesMissing}`,
+  );
 
   const droppedNoCreative = dedupedAds.filter((a) => !a.creative_id).length;
   let creatives = groupAdsByCreative(dedupedAds);
