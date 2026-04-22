@@ -111,6 +111,23 @@ export interface AdInput {
      */
     frequency: number;
     actions: AdInsightAction[];
+    /**
+     * Inline link clicks (the funnel-aligned click metric, distinct
+     * from `clicks` which Meta inflates with social/expand/share
+     * clicks). Optional because legacy callers / tests may not set
+     * it; the grouping layer reads it via `?? 0` so missing == 0.
+     * Plumbed by PR #47 from the dedicated /insights endpoint where
+     * the field is finally requested.
+     */
+    inline_link_clicks?: number;
+    /**
+     * Per-action revenue values (e.g. `omni_purchase` →
+     * conversion-value sum). Same provenance + optionality story as
+     * `inline_link_clicks`. The grouping layer doesn't sum these
+     * yet — added now so a future ROAS column can land without
+     * touching the fetch path again.
+     */
+    action_values?: AdInsightAction[];
   } | null;
 }
 

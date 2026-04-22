@@ -267,8 +267,15 @@ const INSIGHTS_FIELDS = [
  * Always exactly one of `date_preset` / `time_range` is set, plus the
  * shared attribution windows. Centralised so campaign + ad endpoints
  * stay in sync.
+ *
+ * Exported (rather than file-private) because
+ * `lib/reporting/active-creatives-fetch.ts` reuses this exact shape
+ * for the per-campaign /{campaignId}/insights call after PR #47
+ * decoupled creative insights from the /{campaignId}/ads nested
+ * fetch. Keeping the time-param logic single-sourced means a future
+ * preset addition flows through both paths without divergence.
  */
-function buildTimeParams(
+export function buildTimeParams(
   datePreset: DatePreset,
   customRange: CustomDateRange | undefined,
 ): Record<string, string> {
