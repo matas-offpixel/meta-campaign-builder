@@ -464,6 +464,12 @@ async function resolveReportData(
     admin,
     eventCode: event.eventCode,
     adAccountId: event.adAccountId,
+    // Forward the timeframe so per-ad insights are queried in the
+    // same window the headline call uses. Without this the
+    // creative metric strip silently shows last_30d (Meta's nested-
+    // insights default) regardless of `?tf=`.
+    datePreset,
+    customRange,
   }).catch((err) => {
     console.warn(
       `[share/report] active-creatives fetch crashed for token=${shareToken}:`,

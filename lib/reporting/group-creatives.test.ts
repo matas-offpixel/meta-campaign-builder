@@ -77,11 +77,13 @@ function row(overrides: Partial<ConceptInputRow>): ConceptInputRow {
     reach: 800,
     registrations: 0,
     purchases: 0,
+    landingPageViews: 0,
     ctr: 1,
     cpm: 100,
     cpc: 10,
     cpr: null,
     cpp: null,
+    cplpv: null,
     frequency: 1.25,
   };
   return { ...base, ...overrides };
@@ -278,8 +280,10 @@ test("rate metrics are weighted (ratio of sums), not averaged across rows", () =
       clicks: 1000,
       reach: 80_000,
       registrations: 100,
+      landingPageViews: 400,
       ctr: 1, // ignored — recomputed from sums
       cpr: 10, // ignored
+      cplpv: 2.5, // ignored
     }),
     row({
       creative_id: "cid-2",
@@ -290,8 +294,10 @@ test("rate metrics are weighted (ratio of sums), not averaged across rows", () =
       clicks: 100,
       reach: 800,
       registrations: 25,
+      landingPageViews: 80,
       ctr: 10, // ignored
       cpr: 2, // ignored
+      cplpv: 0.625, // ignored
     }),
   ];
 
@@ -314,6 +320,71 @@ test("rate metrics are weighted (ratio of sums), not averaged across rows", () =
   // CPM and frequency should likewise be ratio-of-sums.
   assert.equal(round(g.cpm, 4), round((1050 / 101_000) * 1000, 4));
   assert.equal(round(g.frequency, 4), round(101_000 / 80_800, 4));
+
+  // LPV is summed; CPLPV is ratio-of-sums (1050 / 480 = 2.1875).
+  // The wrong avg-of-rates would be (2.5 + 0.625)/2 = 1.5625.
+  assert.equal(g.landingPageViews, 480);
+  assert.equal(round(g.cplpv, 4), round(1050 / 480, 4));
+  assert.notEqual(round(g.cplpv, 4), round(1.5625, 4));
+
+  // Frequency 1.25× → fatigue stays in the "ok" bucket.
+  assert.equal(g.fatigueScore, "ok");
+});
+
+test("fatigueScore tracks bucket-level frequency, not per-row", () => {
+  // Two rows: a tiny row with a high frequency, and a huge row
+  // with a fresh frequency. The naive "max of per-row" would land
+  // on critical; the correct ratio-of-sums frequency is 1.026 → ok.
+  const groups = groupByAssetSignature([
+    row({
+      creative_id: "cid-tiny",
+      ad_names: ["Combined"],
+      effective_object_story_id: "post:fatigue-1",
+      spend: 5,
+      impressions: 600,
+      clicks: 1,
+      reach: 100,
+      // per-row freq 6 → critical alone, but it gets diluted in
+      // the bucket below.
+      frequency: 6,
+    }),
+    row({
+      creative_id: "cid-huge",
+      ad_names: ["Combined"],
+      effective_object_story_id: "post:fatigue-1",
+      spend: 1000,
+      impressions: 100_000,
+      clicks: 1000,
+      reach: 98_000,
+      frequency: 1.02,
+    }),
+  ]);
+  assert.equal(groups.length, 1);
+  // (600 + 100_000) / (100 + 98_000) = 100_600 / 98_100 ≈ 1.025
+  assert.equal(round(groups[0].frequency, 3), round(100_600 / 98_100, 3));
+  assert.equal(groups[0].fatigueScore, "ok");
+});
+
+test("fatigueScore: warning + critical buckets at the boundary", () => {
+  const groups = groupByAssetSignature([
+    row({
+      creative_id: "cid-warn",
+      effective_object_story_id: "post:warn",
+      // 4000 / 1000 = 4.0 → warning (3..5 inclusive)
+      impressions: 4000,
+      reach: 1000,
+    }),
+    row({
+      creative_id: "cid-crit",
+      effective_object_story_id: "post:crit",
+      // 6000 / 1000 = 6.0 → critical (>5)
+      impressions: 6000,
+      reach: 1000,
+    }),
+  ]);
+  const byKey = new Map(groups.map((g) => [g.group_key, g]));
+  assert.equal(byKey.get("post:post:warn")?.fatigueScore, "warning");
+  assert.equal(byKey.get("post:post:crit")?.fatigueScore, "critical");
 });
 
 test("zero-denominator rate metrics return null, not Infinity / NaN", () => {

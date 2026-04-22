@@ -84,6 +84,19 @@ export interface ConceptInputRow {
   cpr: number | null;
   purchases: number;
   cpp: number | null;
+  /**
+   * Landing-page views — present on every CreativeRow we receive
+   * from `groupAdsByCreative`. Carried through structurally so the
+   * second-layer grouper can sum across re-uploads of the same
+   * concept.
+   */
+  landingPageViews: number;
+  /**
+   * Cost per landing-page view. Recomputed from summed numerator
+   * + denominator at the bucket level — the per-row value here is
+   * informational only.
+   */
+  cplpv: number | null;
   frequency: number | null;
 }
 
@@ -124,6 +137,12 @@ export interface ConceptGroupRow {
   registrations: number;
   purchases: number;
   /**
+   * Sum of landing-page views across the underlying ConceptInputRows.
+   * Drives the LPV column on the share creative card and the
+   * derived `cplpv` rate metric below.
+   */
+  landingPageViews: number;
+  /**
    * Rate metrics — recomputed from summed numerator + denominator
    * across the group. We do NOT average the per-row ctr/cpr/etc; that
    * would be the canonical Simpson's-paradox ad-reporting bug.
@@ -133,7 +152,18 @@ export interface ConceptGroupRow {
   cpc: number | null;
   cpr: number | null;
   cpp: number | null;
+  /** Cost per landing-page view. null when `landingPageViews = 0`. */
+  cplpv: number | null;
   frequency: number | null;
+  /**
+   * Three-bucket fatigue score derived from the bucket-level
+   * frequency (`< 3` ok, `3..5` warning, `> 5` critical). Same
+   * scale as `lib/meta/creative-insights.ts` so the share card and
+   * the internal heatmap pill agree on what each bucket means.
+   * Always set — `"ok"` when frequency is null / non-finite so the
+   * UI can render the pill without a separate empty branch.
+   */
+  fatigueScore: "ok" | "warning" | "critical";
   /**
    * Distinct ad-level names across the rows in this concept group,
    * ordered by descending cumulative ad spend. The first entry is
@@ -480,6 +510,7 @@ interface Accumulator {
   reach: number;
   registrations: number;
   purchases: number;
+  landingPageViews: number;
   /**
    * Distinct trimmed ad.name → cumulative row spend across all
    * underlying ConceptInputRows in this bucket. Sorted DESC at
@@ -536,6 +567,7 @@ export function groupByAssetSignature(
         reach: 0,
         registrations: 0,
         purchases: 0,
+        landingPageViews: 0,
         ad_names_spend: new Map<string, number>(),
         topSpend: -Infinity,
         representative_ad_id: row.representative_ad_id,
@@ -572,6 +604,7 @@ export function groupByAssetSignature(
     acc.reach += row.reach;
     acc.registrations += row.registrations;
     acc.purchases += row.purchases;
+    acc.landingPageViews += row.landingPageViews;
 
     if (row.spend > acc.topSpend) {
       acc.topSpend = row.spend;
@@ -619,13 +652,26 @@ export function groupByAssetSignature(
       reach: acc.reach,
       registrations: acc.registrations,
       purchases: acc.purchases,
+      landingPageViews: acc.landingPageViews,
       // Weighted rate metrics — ratio of sums, NOT average of ratios.
       ctr: safeRate(acc.clicks, acc.impressions, 100),
       cpm: safeRate(acc.spend, acc.impressions, 1000),
       cpc: safeRate(acc.spend, acc.clicks),
       cpr: safeRate(acc.spend, acc.registrations),
       cpp: safeRate(acc.spend, acc.purchases),
+      cplpv: safeRate(acc.spend, acc.landingPageViews),
       frequency: safeRate(acc.impressions, acc.reach),
+      // Mirror the three-bucket scale from
+      // `lib/meta/creative-insights.ts` (and the active-creatives
+      // group helper) so the share card and the internal heatmap
+      // pill stay in lock-step. Implemented inline rather than
+      // importing `fatigueFromFrequency` to keep this module
+      // dep-free for client-component consumers.
+      fatigueScore: ((freq: number | null) => {
+        if (freq == null || !Number.isFinite(freq) || freq < 3) return "ok";
+        if (freq <= 5) return "warning";
+        return "critical";
+      })(safeRate(acc.impressions, acc.reach)),
       ad_names,
       underlying_creative_ids: acc.underlying_creative_ids,
       reasons: [...acc.reasons],

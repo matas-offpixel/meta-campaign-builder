@@ -26,6 +26,13 @@ interface ReadRecorder {
   table: string | null;
   selects: string[];
   eqs: Array<{ col: string; val: unknown }>;
+  /**
+   * `.is(col, val)` calls — distinct from `.eq` because PostgREST
+   * translates them to different operators (`is.null` vs
+   * `eq.null`). The cache helper MUST use `.is(col, null)` for
+   * the NULL sentinels — `.eq(col, null)` matches zero rows.
+   */
+  isCalls: Array<{ col: string; val: unknown }>;
   order: { col: string; opts: Record<string, unknown> } | null;
   limit: number | null;
   /** What `.maybeSingle()` resolves with. */
@@ -54,6 +61,7 @@ function makeReadStub(
     table: null,
     selects: [],
     eqs: [],
+    isCalls: [],
     order: null,
     limit: null,
     result,
@@ -65,6 +73,10 @@ function makeReadStub(
     },
     eq(col: string, val: unknown) {
       rec.eqs.push({ col, val });
+      return builder;
+    },
+    is(col: string, val: unknown) {
+      rec.isCalls.push({ col, val });
       return builder;
     },
     order(col: string, opts: Record<string, unknown>) {
@@ -143,13 +155,16 @@ describe("readShareSnapshot", () => {
       datePreset: "last_7d",
     });
     assert.equal(out, null);
-    // Verify we filter on the cache key columns including null
-    // sentinels for the custom range. Without these explicit nulls
-    // we'd match any custom_range row for the same preset and
-    // serve stale data across windows.
+    // Token + preset go through `.eq` (real values).
     assert.deepEqual(rec.eqs, [
       { col: "share_token", val: TOKEN },
       { col: "date_preset", val: "last_7d" },
+    ]);
+    // Custom range nulls MUST go through `.is(col, null)` — the
+    // bug fixed by this PR was that `.eq(col, null)` translated
+    // to `WHERE col = NULL` and matched zero rows, so every
+    // preset query was a 100% miss.
+    assert.deepEqual(rec.isCalls, [
       { col: "custom_since", val: null },
       { col: "custom_until", val: null },
     ]);
@@ -198,19 +213,23 @@ describe("readShareSnapshot", () => {
     );
   });
 
-  it("forwards the custom range when one is provided", async () => {
+  it("forwards the custom range via .eq when one is provided", async () => {
     const { client, rec } = makeReadStub({ data: null, error: null });
     await readShareSnapshot(client, {
       shareToken: TOKEN,
       datePreset: "custom",
       customRange: { since: "2026-04-01", until: "2026-04-15" },
     });
+    // With a real range provided, all four key columns go through
+    // `.eq` — `.is(col, null)` would over-match here because we
+    // genuinely want `custom_since = '2026-04-01'`.
     assert.deepEqual(rec.eqs, [
       { col: "share_token", val: TOKEN },
       { col: "date_preset", val: "custom" },
       { col: "custom_since", val: "2026-04-01" },
       { col: "custom_until", val: "2026-04-15" },
     ]);
+    assert.deepEqual(rec.isCalls, []);
   });
 });
 

@@ -109,6 +109,7 @@ test("dedup + aggregation: 3 ads sharing one creative across 2 ad sets", () => {
         actions: [
           { action_type: "complete_registration", value: 5 },
           { action_type: "purchase", value: 2 },
+          { action_type: "landing_page_view", value: 80 },
         ],
       },
     }),
@@ -124,6 +125,7 @@ test("dedup + aggregation: 3 ads sharing one creative across 2 ad sets", () => {
         frequency: 1.25,
         actions: [
           { action_type: "lead", value: 3 },
+          { action_type: "omni_landing_page_view", value: 30 },
         ],
       },
     }),
@@ -139,6 +141,7 @@ test("dedup + aggregation: 3 ads sharing one creative across 2 ad sets", () => {
         frequency: 1.2,
         actions: [
           { action_type: "omni_purchase", value: 1 },
+          { action_type: "offsite_conversion.fb_pixel_landing_page_view", value: 10 },
         ],
       },
     }),
@@ -155,6 +158,10 @@ test("dedup + aggregation: 3 ads sharing one creative across 2 ad sets", () => {
   assert.equal(r.reach, 1450);
   assert.equal(r.registrations, 8);
   assert.equal(r.purchases, 3);
+  // LPVs aggregated across all three action_type variants:
+  //   landing_page_view (80) + omni_landing_page_view (30) +
+  //   offsite_conversion.fb_pixel_landing_page_view (10) = 120.
+  assert.equal(r.landingPageViews, 120);
 
   // Rate metrics use weighted (ratio-of-sums) math, not avg-of-rates.
   assert.equal(round(r.ctr, 4), round((46 / 1800) * 100, 4));
@@ -162,7 +169,10 @@ test("dedup + aggregation: 3 ads sharing one creative across 2 ad sets", () => {
   assert.equal(round(r.cpc, 4), round(130 / 46, 4));
   assert.equal(round(r.cpr, 4), round(130 / 8, 4));
   assert.equal(round(r.cpp, 4), round(130 / 3, 4));
+  assert.equal(round(r.cplpv, 4), round(130 / 120, 4));
   assert.equal(round(r.frequency, 4), round(1800 / 1450, 4));
+  // Frequency 1.24× is well below the warning bucket (3.0×).
+  assert.equal(r.fatigueScore, "ok");
 
   // Adset dedup — order preserved by insertion.
   const adsetIds = r.adsets.map((s) => s.id).sort();
@@ -265,10 +275,52 @@ test("edge cases: null creative dropped, null insights → 0s, registrations=0 �
   // Divide-by-zero guard — registrations=0 must yield null, not Infinity / NaN.
   assert.equal(r.cpr, null, "cpr with zero registrations must be null");
   assert.equal(r.cpp, null, "cpp with zero purchases must be null");
+  assert.equal(r.cplpv, null, "cplpv with zero LPVs must be null");
+  assert.equal(r.landingPageViews, 0);
 
   // Sanity: the populated rate metrics should still be computed.
   assert.equal(round(r.ctr, 4), round((10 / 1000) * 100, 4));
   assert.equal(round(r.cpm, 4), round((50 / 1000) * 1000, 4));
+});
+
+test("fatigueScore: ok / warning / critical buckets follow frequency", () => {
+  // One ad per creative_id, frequencies hand-tuned to land in each
+  // bucket (boundaries: <3 ok, 3..5 warning, >5 critical).
+  const ads: AdInput[] = [
+    ad({
+      ad_id: "ad-fresh",
+      creative_id: "cid-fresh",
+      // impressions 800 / reach 800 = 1.0 → ok
+      insights: {
+        spend: 50, impressions: 800, clicks: 10, reach: 800,
+        frequency: 1.0, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-warn",
+      creative_id: "cid-warn",
+      // impressions 1600 / reach 400 = 4.0 → warning
+      insights: {
+        spend: 50, impressions: 1600, clicks: 20, reach: 400,
+        frequency: 4.0, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-crit",
+      creative_id: "cid-crit",
+      // impressions 1200 / reach 200 = 6.0 → critical
+      insights: {
+        spend: 50, impressions: 1200, clicks: 12, reach: 200,
+        frequency: 6.0, actions: [],
+      },
+    }),
+  ];
+
+  const rows = groupAdsByCreative(ads);
+  const byId = new Map(rows.map((r) => [r.creative_id, r]));
+  assert.equal(byId.get("cid-fresh")?.fatigueScore, "ok");
+  assert.equal(byId.get("cid-warn")?.fatigueScore, "warning");
+  assert.equal(byId.get("cid-crit")?.fatigueScore, "critical");
 });
 
 test("ad_names: distinct trimmed ad.name values, ordered by descending spend", () => {

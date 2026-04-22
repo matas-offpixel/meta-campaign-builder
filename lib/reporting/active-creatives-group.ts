@@ -174,8 +174,31 @@ export interface CreativeRow {
   purchases: number;
   /** Account currency. null when purchases = 0. */
   cpp: number | null;
+  /**
+   * Landing-page views. Sum of every action whose `action_type`
+   * is in `LANDING_PAGE_VIEW_ACTION_TYPES` — covers the pixel
+   * (`landing_page_view`), Conversions API
+   * (`offsite_conversion.fb_pixel_landing_page_view`), and the
+   * de-duplicated cross-surface variant (`omni_landing_page_view`).
+   * Zero is a meaningful value (the ad's LP isn't pixelled / the
+   * fire didn't happen yet), so we keep it numeric rather than
+   * nullable.
+   */
+  landingPageViews: number;
+  /**
+   * Cost per landing-page view. Account currency. null when
+   * `landingPageViews = 0` — same convention as `cpr` / `cpp`.
+   */
+  cplpv: number | null;
   /** sum_impressions / sum_reach. null when reach = 0. */
   frequency: number | null;
+  /**
+   * Three-bucket frequency-derived fatigue score, computed via
+   * {@link fatigueFromFrequency}. Surfaces as a pill on the share
+   * card so a marketer can spot saturated creatives without
+   * mentally translating the frequency number.
+   */
+  fatigueScore: FatigueScore;
 }
 
 // ─── Action-type allowlists ──────────────────────────────────────────────────
@@ -202,6 +225,47 @@ export const PURCHASE_ACTION_TYPES: ReadonlySet<string> = new Set([
   "omni_purchase",
   "offsite_conversion.fb_pixel_purchase",
 ]);
+
+/**
+ * Landing-page-view action types. Meta surfaces LPV under three
+ * names depending on how the pixel was instrumented; sum across
+ * all of them for a stable funnel-step count.
+ *
+ * `omni_landing_page_view` is Meta's de-duplicated combined
+ * (web + app) LPV — equivalent in coverage to `omni_purchase`
+ * for purchases. `landing_page_view` is the pixel-only flavour
+ * the older accounts still report under, so we keep both rather
+ * than picking one and missing data on the older accounts.
+ */
+export const LANDING_PAGE_VIEW_ACTION_TYPES: ReadonlySet<string> = new Set([
+  "landing_page_view",
+  "omni_landing_page_view",
+  "offsite_conversion.fb_pixel_landing_page_view",
+]);
+
+/**
+ * Map a frequency value into the same three-bucket fatigue scale
+ * used by `lib/meta/creative-insights.ts` so the share card and
+ * the internal heatmap agree on what "warning" / "critical"
+ * means. Boundaries:
+ *   - `< 3.0` → "ok"
+ *   - `3.0..5.0` (inclusive) → "warning"
+ *   - `> 5.0` → "critical"
+ *
+ * Returns "ok" for null / non-finite frequencies so callers can
+ * always render a pill without a separate empty branch — the
+ * card downstream already shows a muted fallback when reach is
+ * zero.
+ */
+export type FatigueScore = "ok" | "warning" | "critical";
+
+export function fatigueFromFrequency(
+  freq: number | null | undefined,
+): FatigueScore {
+  if (freq == null || !Number.isFinite(freq) || freq < 3) return "ok";
+  if (freq <= 5) return "warning";
+  return "critical";
+}
 
 function safeRate(num: number, denom: number, scale = 1): number | null {
   // Defensive: denom must be a positive finite number. NaN / Infinity
@@ -242,6 +306,7 @@ interface Accumulator {
   reach: number;
   registrations: number;
   purchases: number;
+  landingPageViews: number;
   /** Highest-spend value seen so far — drives the preview-refresh check. */
   topSpend: number;
 }
@@ -280,12 +345,16 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
 
     let registrations = 0;
     let purchases = 0;
+    let landingPageViews = 0;
     for (const a of actions) {
       if (REGISTRATION_ACTION_TYPES.has(a.action_type)) {
         registrations += Number.isFinite(a.value) ? a.value : 0;
       }
       if (PURCHASE_ACTION_TYPES.has(a.action_type)) {
         purchases += Number.isFinite(a.value) ? a.value : 0;
+      }
+      if (LANDING_PAGE_VIEW_ACTION_TYPES.has(a.action_type)) {
+        landingPageViews += Number.isFinite(a.value) ? a.value : 0;
       }
     }
 
@@ -310,6 +379,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       reach: 0,
       registrations: 0,
       purchases: 0,
+      landingPageViews: 0,
       topSpend: -Infinity,
     };
 
@@ -363,6 +433,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     acc.reach += adReach;
     acc.registrations += registrations;
     acc.purchases += purchases;
+    acc.landingPageViews += landingPageViews;
 
     // Preview tracking: top-spend ad's payload wins. Tie on first-seen
     // (no need for stable sort — the modal viewer can't tell which of
@@ -394,6 +465,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       .sort((a, b) => b[1] - a[1])
       .map((e) => e[0]);
 
+    const frequency = safeRate(acc.impressions, acc.reach);
     rows.push({
       creative_id: acc.creative_id,
       creative_name: acc.creative_name,
@@ -420,7 +492,10 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       cpr: safeRate(acc.spend, acc.registrations),
       purchases: acc.purchases,
       cpp: safeRate(acc.spend, acc.purchases),
-      frequency: safeRate(acc.impressions, acc.reach),
+      landingPageViews: acc.landingPageViews,
+      cplpv: safeRate(acc.spend, acc.landingPageViews),
+      frequency,
+      fatigueScore: fatigueFromFrequency(frequency),
     });
   }
 
