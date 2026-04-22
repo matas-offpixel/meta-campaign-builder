@@ -464,7 +464,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
 
   return (
     <WizardEventContextProvider draftId={draftId} enabled={hydrated}>
-      <EventDefaultsApplier draft={draft} updateDraft={updateDraft} />
+      <EventDefaultsApplier updateDraft={updateDraft} />
       <div className="flex min-h-screen flex-col">
       {/* Back to library link */}
       <div className="border-b border-border bg-card px-6 py-2">
@@ -663,11 +663,16 @@ export function WizardShell({ draftId }: WizardShellProps) {
 // defaults and stomp on the user's edits.
 
 interface DefaultsApplierProps {
-  draft: CampaignDraft;
+  /**
+   * Functional updater. We deliberately don't take the live draft as
+   * a prop — the effect runs once after context loads and uses the
+   * functional form so we always read the freshest settings, never
+   * a stale snapshot.
+   */
   updateDraft: (updater: (d: CampaignDraft) => CampaignDraft) => void;
 }
 
-function EventDefaultsApplier({ draft, updateDraft }: DefaultsApplierProps) {
+function EventDefaultsApplier({ updateDraft }: DefaultsApplierProps) {
   const { event, client, loaded } = useWizardEventContext();
   const appliedRef = useRef(false);
 

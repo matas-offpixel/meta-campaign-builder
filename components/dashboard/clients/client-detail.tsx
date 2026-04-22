@@ -21,6 +21,16 @@ import { ClientShareLinkCard } from "./client-share-link-card";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
 import { NewEventKindModal } from "./new-event-kind-modal";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
+import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticketing-connections-panel";
+import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
+import {
+  CreativeTemplatesPanel,
+  type ProviderStatus,
+} from "@/components/dashboard/clients/creative-templates-panel";
+import {
+  ConnectedIntegrationsPill,
+  type IntegrationStatus,
+} from "@/components/dashboard/clients/connected-integrations-pill";
 import type {
   BillingMode,
   InvoiceWithRefs,
@@ -28,8 +38,30 @@ import type {
 } from "@/lib/types/invoicing";
 import type { SettlementTiming } from "@/lib/pricing/calculator";
 import type { LatestSnapshot } from "@/lib/db/client-snapshots-server";
+import type { TicketingConnection } from "@/lib/ticketing/types";
+import type { D2CConnection } from "@/lib/d2c/types";
+import type { CreativeTemplate } from "@/lib/creatives/types";
 
-type ClientTab = "overview" | "invoicing";
+type ClientTab =
+  | "overview"
+  | "events"
+  | "ticketing"
+  | "d2c"
+  | "creatives"
+  | "invoicing";
+
+/**
+ * Connection rows arrive from the server with credentials redacted.
+ * Mirror the per-panel `ConnectionRow` shape locally so we can pass
+ * them straight through without touching the panel components (which
+ * already enforce `credentials: null` on their own props).
+ */
+type SafeTicketingConnection = Omit<TicketingConnection, "credentials"> & {
+  credentials: null;
+};
+type SafeD2CConnection = Omit<D2CConnection, "credentials"> & {
+  credentials: null;
+};
 
 interface Props {
   client: ClientRow;
@@ -53,6 +85,38 @@ interface Props {
    * client-side fetch.
    */
   latestSnapshots: Record<string, LatestSnapshot>;
+  /**
+   * Pre-fetched ticketing connections for this client (credentials
+   * redacted server-side). Drives the Ticketing tab and the
+   * Eventbrite slot of the integrations pill on the Overview tab.
+   */
+  ticketingConnections: SafeTicketingConnection[];
+  /**
+   * Pre-fetched D2C connections for this client (credentials
+   * redacted). Drives the D2C tab and Mailchimp/Klaviyo/Bird/Firetext
+   * slots of the integrations pill.
+   */
+  d2cConnections: SafeD2CConnection[];
+  /**
+   * All creative templates owned by the user. Templates are not yet
+   * client-scoped (migration 031 doesn't carry a client_id column),
+   * so the list is rendered verbatim per the standalone /creatives
+   * /templates page. The Creatives Templates tab still acts as a
+   * shortcut from the client view.
+   */
+  creativeTemplates: CreativeTemplate[];
+  /**
+   * Per-provider enable flags for the creatives tab. Read on the
+   * server (`isCanvaEnabled()` etc.) so the client component stays
+   * env-free.
+   */
+  creativeProviderStatus: ProviderStatus[];
+  /**
+   * Initial active tab from the URL `?tab=` param. Defaults to
+   * "overview" when absent or unknown so deep links from the sidebar
+   * (no query) still land sensibly.
+   */
+  initialTab?: ClientTab;
 }
 
 /**
@@ -69,16 +133,52 @@ export function ClientDetail({
   defaults,
   initialShare,
   latestSnapshots,
+  ticketingConnections,
+  d2cConnections,
+  creativeTemplates,
+  creativeProviderStatus,
+  initialTab = "overview",
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ClientTab>("overview");
+  const [activeTab, setActiveTab] = useState<ClientTab>(initialTab);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const invoiceCount = clientInvoices.length;
+  const ticketingCount = ticketingConnections.length;
+  const d2cCount = d2cConnections.length;
+  const creativeCount = creativeTemplates.length;
+
+  // Surface a one-line "Connected: Eventbrite ✓ / Mailchimp — / …"
+  // pill on the Overview tab. Each slot maps to one provider name we
+  // care about; the connected flag is true when at least one row of
+  // that provider exists. Unsupported providers in the regex below
+  // (e.g. fourthefans, bird) still display via the connections list
+  // for completeness without polluting the at-a-glance pill.
+  const integrations: IntegrationStatus[] = [
+    {
+      label: "Eventbrite",
+      connected: ticketingConnections.some(
+        (c) => c.provider === "eventbrite",
+      ),
+    },
+    {
+      label: "Mailchimp",
+      connected: d2cConnections.some((c) => c.provider === "mailchimp"),
+    },
+    {
+      label: "Klaviyo",
+      connected: d2cConnections.some((c) => c.provider === "klaviyo"),
+    },
+    {
+      label: "Canva",
+      connected: creativeTemplates.some((t) => t.provider === "canva"),
+      hint: "Canva templates registered for this user.",
+    },
+  ];
 
   const handleArchive = async () => {
     setWorking(true);
@@ -192,6 +292,18 @@ export function ClientDetail({
           <Tabs
             tabs={[
               { id: "overview", label: "Overview" },
+              { id: "events", label: "Events", count: events.length },
+              {
+                id: "ticketing",
+                label: "Ticketing",
+                count: ticketingCount,
+              },
+              { id: "d2c", label: "D2C", count: d2cCount },
+              {
+                id: "creatives",
+                label: "Creatives Templates",
+                count: creativeCount,
+              },
               { id: "invoicing", label: "Invoicing", count: invoiceCount },
             ]}
             activeTab={activeTab}
@@ -200,6 +312,7 @@ export function ClientDetail({
 
           <TabPanel active={activeTab === "overview"}>
           <div className="space-y-6">
+          <ConnectedIntegrationsPill items={integrations} />
           <section className="rounded-md border border-border bg-card p-5">
             <h2 className="font-heading text-base tracking-wide mb-3">
               Details
@@ -315,41 +428,64 @@ export function ClientDetail({
             events={events}
             latestSnapshots={latestSnapshots}
           />
-
-          <section className="rounded-md border border-border bg-card p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-              <h2 className="font-heading text-base tracking-wide">
-                Events ({events.length})
-              </h2>
-              <div className="flex flex-wrap items-start gap-2">
-                <RefreshAllSpendButton
-                  events={events.map((e) => ({
-                    id: e.id,
-                    event_code: e.event_code,
-                  }))}
-                  adAccountId={client.meta_ad_account_id ?? null}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setPickerOpen(true)}
-                >
-                  New
-                </Button>
-              </div>
-            </div>
-            {events.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No events yet for this client.
-              </p>
-            ) : (
-              <ClientEventsTable
-                events={events}
-                latestSnapshots={latestSnapshots}
-              />
-            )}
-          </section>
           </div>
+          </TabPanel>
+
+          <TabPanel active={activeTab === "events"}>
+            <section className="rounded-md border border-border bg-card p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <h2 className="font-heading text-base tracking-wide">
+                  Events ({events.length})
+                </h2>
+                <div className="flex flex-wrap items-start gap-2">
+                  <RefreshAllSpendButton
+                    events={events.map((e) => ({
+                      id: e.id,
+                      event_code: e.event_code,
+                    }))}
+                    adAccountId={client.meta_ad_account_id ?? null}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPickerOpen(true)}
+                  >
+                    New
+                  </Button>
+                </div>
+              </div>
+              {events.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No events yet for this client.
+                </p>
+              ) : (
+                <ClientEventsTable
+                  events={events}
+                  latestSnapshots={latestSnapshots}
+                />
+              )}
+            </section>
+          </TabPanel>
+
+          <TabPanel active={activeTab === "ticketing"}>
+            <TicketingConnectionsPanel
+              clientId={client.id}
+              initial={ticketingConnections}
+            />
+          </TabPanel>
+
+          <TabPanel active={activeTab === "d2c"}>
+            <D2CConnectionsPanel
+              clientId={client.id}
+              initial={d2cConnections}
+            />
+          </TabPanel>
+
+          <TabPanel active={activeTab === "creatives"}>
+            <CreativeTemplatesPanel
+              templates={creativeTemplates}
+              providerStatus={creativeProviderStatus}
+            />
           </TabPanel>
 
           <TabPanel active={activeTab === "invoicing"}>
