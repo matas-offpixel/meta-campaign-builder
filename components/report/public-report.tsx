@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useCallback, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type {
@@ -160,6 +160,39 @@ export function PublicReport({
     });
   };
 
+  /**
+   * Manual refresh — wired to the Refresh button in the live
+   * report footer (PR #57 #3). Pushes the URL with `?refresh=1`
+   * so the share RSC bypasses its `share_snapshots` lookup for
+   * this (event, timeframe) bucket and writes a fresh entry.
+   * After the navigation lands the param is stripped from the
+   * URL via `router.replace` so a deep-link share / browser
+   * reload doesn't keep busting cache for every visitor — the
+   * fresh write is now warm in the cache table for the next
+   * 5-minute window. Returns once the transition settles, so
+   * `<RefreshReportButton>` can clear its spinner.
+   */
+  const handleManualRefresh = useCallback(async () => {
+    const sp = new URLSearchParams(searchParams?.toString() ?? "");
+    sp.set("refresh", "1");
+    const qs = sp.toString();
+    await new Promise<void>((resolve) => {
+      startTransition(() => {
+        router.push(`${pathname}?${qs}`);
+        resolve();
+      });
+    });
+    // Strip the bust param so the canonical URL stays clean.
+    // `replace` avoids stacking history entries; the second
+    // navigation is a no-op for the data layer because the cache
+    // entry just written is now the source for this preset.
+    const cleanup = new URLSearchParams(searchParams?.toString() ?? "");
+    cleanup.delete("refresh");
+    cleanup.delete("force");
+    const cleanQs = cleanup.toString();
+    router.replace(cleanQs ? `${pathname}?${cleanQs}` : pathname);
+  }, [pathname, router, searchParams, startTransition]);
+
   return (
     <EventReportView
       event={event}
@@ -169,6 +202,7 @@ export function PublicReport({
       customRange={customRange}
       creativesSource={{ kind: "share", token: shareToken }}
       onTimeframeChange={handleTimeframeChange}
+      onManualRefresh={handleManualRefresh}
       isRefreshing={isPending}
       creativesSlot={creativesSlot}
       eventDailySlot={eventDailySlot}

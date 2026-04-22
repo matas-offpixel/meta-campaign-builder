@@ -20,6 +20,17 @@ import {
  *
  * Cached for 5 minutes per (eventId, datePreset). `force-dynamic` was
  * dropped in U.1 so the 5-minute window actually takes effect.
+ *
+ * `?force=1` is a manual cache-bust signal (PR #57 #3): the operator
+ * clicked Refresh on the live report footer because they just renamed
+ * a creative in Ads Manager and don't want to wait for the 5-minute
+ * TTL. The route is currently route-segment-cached (no DB cache
+ * layer), so honoring the bust amounts to forwarding the signal as
+ * a `Cache-Control: no-cache` response header + logging the bypass
+ * for diagnostics. When a Supabase-backed read-through cache lands
+ * here (mirroring `share_snapshots` on the public side), the same
+ * param will skip the lookup and write a fresh entry — caller stays
+ * the same.
  */
 
 export const revalidate = 300;
@@ -60,6 +71,11 @@ export async function GET(
     sp.get("since"),
     sp.get("until"),
   );
+  // PR #57 #3 — manual cache-bust from the live report footer's
+  // Refresh button. Logged for diagnostics so we can see in
+  // production logs when ops is hammering the endpoint.
+  const force = sp.get("force");
+  const forceRefresh = force === "1" || force === "true";
 
   const supabase = await createClient();
   const {
@@ -135,6 +151,14 @@ export async function GET(
     );
   }
 
+  if (forceRefresh) {
+    console.log("[insights] force-refresh", {
+      eventId: eventId.slice(0, 8),
+      preset: datePreset,
+      userId: user.id.slice(0, 8),
+    });
+  }
+
   const result = await fetchEventInsights({
     eventCode,
     adAccountId,
@@ -144,5 +168,11 @@ export async function GET(
     ticketsInWindowResolver: (preset, range) =>
       sumTicketsSoldInWindow(supabase, eventId, preset, range),
   });
-  return NextResponse.json(result, { status: 200 });
+  // Forward the cache-bust as a no-cache response header so any
+  // downstream HTTP layer (browser, CDN) treats this response as
+  // single-use rather than rewarming its own cache.
+  const headers = forceRefresh
+    ? { "Cache-Control": "no-store, max-age=0" }
+    : undefined;
+  return NextResponse.json(result, { status: 200, headers });
 }

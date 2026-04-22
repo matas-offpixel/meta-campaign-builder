@@ -12,6 +12,7 @@ import {
 } from "@/lib/insights/types";
 
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
+import { RefreshReportButton } from "./refresh-report-button";
 import {
   TikTokReportBlock,
   type TikTokReportBlockData,
@@ -173,6 +174,17 @@ interface Props {
    *     bit the visitor came for.
    */
   headlineUnavailable?: boolean;
+  /**
+   * Manual refresh callback (PR #57 #3). Called when the user
+   * clicks the Refresh button in the live report footer. Should
+   * bypass the server-side 5-minute cache for the current
+   * (event, timeframe) bucket and resolve once the parent has
+   * rendered the fresh payload. Reject the promise on error so
+   * the button can surface an inline "Refresh failed: <message>"
+   * line. Optional — when omitted (e.g. on a TikTok-only render
+   * with no Meta payload) the button is hidden.
+   */
+  onManualRefresh?: () => Promise<void>;
 }
 
 export function EventReportView({
@@ -188,6 +200,7 @@ export function EventReportView({
   creativesSlot,
   eventDailySlot,
   headlineUnavailable = false,
+  onManualRefresh,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -371,11 +384,20 @@ export function EventReportView({
       </div>
 
       {variant === "standalone" ? (
-        <ReportFooter fetchedAt={lastUpdatedIso} />
+        <ReportFooter
+          fetchedAt={lastUpdatedIso}
+          onManualRefresh={onManualRefresh}
+        />
       ) : (
-        <p className="pt-4 text-right text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Last updated {fmtRelativeShort(lastUpdatedIso)} · refreshes every 5 minutes
-        </p>
+        <div className="flex items-center justify-end gap-3 pt-4">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            Last updated {fmtRelativeShort(lastUpdatedIso)} · refreshes every 5
+            minutes
+          </p>
+          {onManualRefresh ? (
+            <RefreshReportButton onRefresh={onManualRefresh} />
+          ) : null}
+        </div>
       )}
     </Outer>
   );
@@ -883,13 +905,24 @@ function ReportHeader({
   );
 }
 
-function ReportFooter({ fetchedAt }: { fetchedAt: string }) {
+function ReportFooter({
+  fetchedAt,
+  onManualRefresh,
+}: {
+  fetchedAt: string;
+  onManualRefresh?: () => Promise<void>;
+}) {
   return (
     <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
       <p>Powered by Off Pixel</p>
-      <p className="mt-1 text-[10px] uppercase tracking-[0.2em]">
-        Last updated {fmtRelativeShort(fetchedAt)} · refreshes every 5 minutes
-      </p>
+      <div className="mt-1 flex items-center justify-center gap-3">
+        <p className="text-[10px] uppercase tracking-[0.2em]">
+          Last updated {fmtRelativeShort(fetchedAt)} · refreshes every 5 minutes
+        </p>
+        {onManualRefresh ? (
+          <RefreshReportButton onRefresh={onManualRefresh} />
+        ) : null}
+      </div>
     </footer>
   );
 }

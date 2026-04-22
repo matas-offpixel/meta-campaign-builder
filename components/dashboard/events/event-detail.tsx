@@ -34,15 +34,12 @@ import { EventReportingTabs } from "@/components/dashboard/events/event-reportin
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
 import { EventActiveCreativesPanel } from "@/components/dashboard/events/event-active-creatives-panel";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
-import {
-  TicketPacingCard,
-  type PacingSnapshot,
-} from "@/components/dashboard/events/ticket-pacing-card";
+import type { PacingSnapshot } from "@/components/dashboard/events/ticket-pacing-card";
 import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
 import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
-import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
+import { ShareLinkStrip } from "@/components/dashboard/events/share-link-strip";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
@@ -131,13 +128,15 @@ interface Props {
    */
   linkedInvoices: InvoiceRow[];
   /**
-   * Recent ticket-sales snapshots (ascending) used by the new pacing
-   * chart that sits inside the Meta sub-panel of the Reporting tab.
-   * Empty array = no snapshots yet (Eventbrite not connected, sync
-   * hasn't run, or migration 029 not applied) — the card renders its
-   * connect-ticketing empty state.
+   * Kept on the props surface for compatibility with the parent
+   * page's prefetch fan-out, but no longer consumed: the
+   * `<TicketPacingCard>` it fed was removed from the Reporting
+   * tab in PR #57 #2 because the Daily Tracker + Daily Trend
+   * chart already cover the same shape with real per-day data.
+   * Treated as opaque so the page server doesn't have to drop
+   * its query in lock-step with the UI change.
    */
-  ticketSnapshots: PacingSnapshot[];
+  ticketSnapshots?: PacingSnapshot[];
   /**
    * Pre-fetched Eventbrite link + connection + latest snapshot
    * summary for the live block at the top of the page. Server-built
@@ -166,7 +165,8 @@ export function EventDetail({
   planTickets,
   linkedQuote,
   linkedInvoices,
-  ticketSnapshots,
+  // ticketSnapshots: see Props JSDoc — accepted but no longer
+  // rendered. The pacing card it powered moved out in PR #57 #2.
   ticketingSummary,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
@@ -375,34 +375,16 @@ export function EventDetail({
           )}
 
           {/*
-            Eventbrite block sits above the tabs so it's visible
-            regardless of which tab the user lands on. Brand
-            campaigns hide it (no tickets concept). The live block
-            handles its own empty / not-linked / linked states; the
-            link panel is only shown when a connection exists but
-            the event isn't bound yet (or the operator clicks
-            "Change" on the linked-state summary).
+            Eventbrite block + link panel used to render here,
+            visible above every tab. Moved into the Overview tab
+            in PR #57 #2 because they're operational/admin
+            surfaces, not reporting data — keeping them above
+            every tab made the Reporting view diverge from the
+            public /share/report/[token] surface clients see. The
+            Reporting tab now mirrors the share URL exactly; link
+            binding + live capacity numbers live on Overview with
+            the rest of the operational metadata.
           */}
-          {!isBrand && event.client_id && (
-            <div className="space-y-3">
-              <EventbriteLiveBlock
-                eventId={event.id}
-                clientId={event.client_id}
-                fallbackCapacity={event.capacity}
-                initialLink={ticketingSummary.link}
-                initialConnection={ticketingSummary.connection}
-                initialLatestSnapshot={ticketingSummary.latestSnapshot}
-              />
-              <EventbriteLinkPanel
-                eventId={event.id}
-                clientId={event.client_id}
-                availableConnections={
-                  ticketingSummary.availableConnections
-                }
-                existingLink={ticketingSummary.link}
-              />
-            </div>
-          )}
 
           <EventDetailTabs
             active={activeTab}
@@ -414,14 +396,54 @@ export function EventDetail({
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
               {/*
-                EventDailyReportBlock used to live here. It moved to
-                the top of the Reporting tab in PR #56 so the internal
-                view mirrors the external /share/report/[token] surface
-                clients see — single source of render, no duplication.
-                Overview now retains only the EventbriteLiveBlock above
-                the tabs + event metadata (capacity, dates, venue,
-                4thefans context).
+                Eventbrite live block + link/binding panel — moved
+                here from the above-tabs slot in PR #57 #2. They're
+                operational (capacity / sell-through / connection
+                config), not reporting, so they belong on the
+                Overview surface alongside venue + dates + drive
+                folder. The live block handles its own empty /
+                not-linked / linked states; the link panel renders
+                its own change CTA when a binding already exists.
+                Brand campaigns skip this entire block (no tickets
+                concept).
               */}
+              {!isBrand && event.client_id && (
+                <div className="space-y-3">
+                  <EventbriteLiveBlock
+                    eventId={event.id}
+                    clientId={event.client_id}
+                    fallbackCapacity={event.capacity}
+                    initialLink={ticketingSummary.link}
+                    initialConnection={ticketingSummary.connection}
+                    initialLatestSnapshot={ticketingSummary.latestSnapshot}
+                  />
+                  <EventbriteLinkPanel
+                    eventId={event.id}
+                    clientId={event.client_id}
+                    availableConnections={
+                      ticketingSummary.availableConnections
+                    }
+                    existingLink={ticketingSummary.link}
+                  />
+                </div>
+              )}
+              {/*
+                Manual tickets-sold fallback (PR #57 #2). Only
+                rendered when there's no Eventbrite link bound for
+                this event — once the API connection is live the
+                manual override is redundant noise (and risks
+                drifting out of sync with the live snapshot). When
+                a plan-derived value is present the panel itself
+                flips to read-only; this gate just hides the whole
+                section when ticketing is API-driven.
+              */}
+              {!isBrand && !ticketingSummary.link && (
+                <TicketsSoldPanel
+                  eventId={event.id}
+                  initialTicketsSold={initialTicketsSold}
+                  planTickets={planTickets}
+                />
+              )}
               {isBrand ? (
                 <BrandCampaignSummary event={event} />
               ) : (
@@ -604,6 +626,21 @@ export function EventDetail({
           {/* ───── Reporting ───── */}
           <TabPanel active={activeTab === "reporting"}>
             <div className="space-y-6">
+              {/*
+                Thin admin strip (PR #57 #2). The full
+                ShareReportControls panel collapsed into a single
+                button rendered above the Event Reporting block so
+                the Reporting tab visually mirrors the public
+                /share/report/[token] view; operators can still
+                expand the panel inline to toggle / regenerate /
+                set expiry on the public link.
+              */}
+              <ShareLinkStrip
+                eventId={event.id}
+                initialShare={initialShare}
+                shareEnabled={Boolean(initialShare?.enabled)}
+              />
+
               {!isBrand && event.client_id && (
                 // Mirrors the EventDailyReportBlock that renders at the
                 // top of the public /share/report/[token] page so the
@@ -634,18 +671,12 @@ export function EventDetail({
                 />
               )}
 
-              {!isBrand && (
-                <TicketsSoldPanel
-                  eventId={event.id}
-                  initialTicketsSold={initialTicketsSold}
-                  planTickets={planTickets}
-                />
-              )}
-
-              <ShareReportControls
-                eventId={event.id}
-                initialShare={initialShare}
-              />
+              {/*
+                TicketsSoldPanel + Eventbrite live/link blocks
+                used to render here. They're operational, not
+                reporting — see the matching JSDocs / placement
+                in the Overview tab above.
+              */}
 
               {/*
                 Per-channel reporting sub-tabs (Meta / TikTok / Google
@@ -700,21 +731,14 @@ export function EventDetail({
                       />
                     </section>
                     {/*
-                      Ticket pacing card — additive, never replaces
-                      TicketsSoldPanel above. Renders the empty
-                      state with a deep-link to the client's
-                      ticketing settings when no snapshots exist.
-                      Only shown for kind='event'; brand campaigns
-                      have no capacity / pacing concept.
+                      TicketPacingCard removed in PR #57 #2 —
+                      its single-snapshot line was redundant with
+                      the per-day Daily Trend chart + Daily Tracker
+                      table inside the Event Reporting block above
+                      (which both pull real per-day rollups), and
+                      its placement inside the Meta sub-panel was
+                      misleading (it wasn't Meta-scoped data).
                     */}
-                    {!isBrand && event.client_id && (
-                      <TicketPacingCard
-                        snapshots={ticketSnapshots}
-                        capacity={event.capacity}
-                        planLatest={planTickets?.value ?? null}
-                        clientId={event.client_id}
-                      />
-                    )}
                   </div>
                 }
               />
