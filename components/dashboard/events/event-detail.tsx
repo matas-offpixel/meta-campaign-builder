@@ -31,6 +31,7 @@ import { EventArtistRosterPanel } from "@/components/dashboard/events/event-arti
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
+import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
@@ -433,6 +434,20 @@ export function EventDetail({
           {/* ───── Campaigns ───── */}
           <TabPanel active={activeTab === "campaigns"}>
             <div className="space-y-6">
+              {/*
+                Live performance for every Meta campaign whose name
+                contains this event's event_code. Sits above the
+                actions + draft list so the question "how is the
+                campaign doing?" is answerable before "what drafts do
+                I have?". The panel handles its own empty / no-code /
+                no-account states inline so the parent doesn't need
+                to gate it.
+              */}
+              <LinkedCampaignsPerformance
+                eventId={event.id}
+                hasEventCode={Boolean(event.event_code)}
+              />
+
               <section className="rounded-md border border-border bg-card p-5">
                 <div className="flex items-start justify-between gap-6">
                   <div className="min-w-0">
