@@ -365,5 +365,17 @@ export interface DailyMetaMetricsRow {
 }
 
 export type DailyMetaMetricsResult =
-  | { ok: true; days: DailyMetaMetricsRow[] }
+  | {
+      ok: true;
+      days: DailyMetaMetricsRow[];
+      /**
+       * Distinct campaign names that survived the case-sensitive
+       * `[event_code]` post-filter. Surfaced for diagnostic logging
+       * (e.g. the rollup-sync route prints this so an operator can
+       * confirm "yes, the sync saw the same N campaigns the live
+       * block sees"). Empty when no campaigns matched — which is a
+       * legitimate "no rows yet" signal, not an error.
+       */
+      campaignNames: string[];
+    }
   | { ok: false; error: InsightsError };
