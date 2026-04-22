@@ -121,6 +121,13 @@ export async function fetchShareActiveCreatives(
       adAccountId: input.adAccountId,
       eventCode: input.eventCode,
       token: ownerToken,
+      // Sequential per-campaign fans-out — slower by ~2-3× on wide
+      // events than the internal panel's default of 3, but leaves
+      // half the per-account rate budget for the headline insights
+      // call running in parallel from the share RSC. Without this
+      // last_7d on a wide event tips both calls into 5xx + network-
+      // error retries and the whole report errors out.
+      concurrency: 1,
     });
   } catch (err) {
     if (err instanceof FacebookAuthExpiredError) {

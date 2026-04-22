@@ -127,6 +127,18 @@ export interface FetchActiveCreativesInput {
   eventCode: string;
   /** OAuth token for the user / share owner. */
   token: string;
+  /**
+   * Max parallel per-campaign /ads fetches. Defaults to
+   * {@link CAMPAIGN_CONCURRENCY} (3) — the comfortable ceiling for the
+   * authed internal panel where one user is loading at a time.
+   *
+   * The public share path passes `1` so the share RSC leaves headroom
+   * for the headline insights call running in parallel: when both
+   * paths fire at concurrency 3 against a wide event on a 7-day
+   * window, Meta's per-account rate budget tips into 5xx + network-
+   * error retries and the whole report errors out.
+   */
+  concurrency?: number;
 }
 
 export interface FetchActiveCreativesMeta {
@@ -468,6 +480,7 @@ export async function fetchActiveCreativesForEvent(
 ): Promise<FetchActiveCreativesResult> {
   const adAccountId = normaliseAdAccountId(input.adAccountId);
   const { eventCode, token } = input;
+  const concurrency = Math.max(1, input.concurrency ?? CAMPAIGN_CONCURRENCY);
 
   let campaigns: RawCampaignRow[];
   try {
@@ -494,7 +507,7 @@ export async function fetchActiveCreativesForEvent(
     };
   }
 
-  const semaphore = createSemaphore(CAMPAIGN_CONCURRENCY);
+  const semaphore = createSemaphore(concurrency);
   let authExpired = false;
   const failed: Array<{ campaign_id: string; error: string }> = [];
 

@@ -59,6 +59,14 @@ interface Props {
    * straight through this client component.
    */
   creativesSlot?: React.ReactNode;
+  /**
+   * True when the share RSC's headline insights call failed but
+   * the active-creatives call succeeded. Drives a partial render:
+   * `meta` will be null in this case, the headline metric grid is
+   * suppressed, and a muted banner explains the state above the
+   * still-live creative breakdown.
+   */
+  headlineUnavailable?: boolean;
 }
 
 /**
@@ -84,6 +92,7 @@ export function PublicReport({
   datePreset,
   customRange,
   creativesSlot,
+  headlineUnavailable = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -137,6 +146,7 @@ export function PublicReport({
       creativesSource={{ kind: "share", token: shareToken }}
       onTimeframeChange={handleTimeframeChange}
       creativesSlot={creativesSlot}
+      headlineUnavailable={headlineUnavailable}
     />
   );
 }

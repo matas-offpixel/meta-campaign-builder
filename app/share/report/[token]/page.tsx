@@ -263,34 +263,27 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     }
   }
 
-  // Final fatal branch: only when there is genuinely nothing to render
-  // — no Meta payload AND no TikTok snapshot. ReportUnavailable's reason
-  // diagnostic uses the Meta error if we have one; otherwise we fall
-  // back to `no_ad_account` (the most common cause of a TikTok-only
-  // client also lacking a TikTok import).
-  if (!metaPayload && !tiktokRow) {
-    return (
-      <ReportUnavailable
-        eventName={event.name}
-        venueName={event.venueName}
-        venueCity={event.venueCity}
-        eventDate={event.eventDate}
-        reason={metaErrorReason ?? "no_ad_account"}
-      />
-    );
-  }
-
   // Server-render the "Active creatives" section upfront. Wrapped
   // in try/catch on top of the helper's own error union so a
   // genuinely unexpected throw can never 500 the whole share page —
   // we'd rather render the report without the creative breakdown
-  // than show a blank screen. When `meta` itself was soft-skipped
-  // (TikTok-only client), we also skip the Meta-derived section.
+  // than show a blank screen.
+  //
+  // Resilience: we fan this out even when the headline insights
+  // call FAILED, not only when it succeeded. Meta's per-account
+  // rate budget on a wide event with a 7-day window can knock out
+  // the heavier aggregate insights endpoint while leaving the
+  // per-ad fan-out responsive — in that case we'd rather render a
+  // partial report (creatives + muted banner) than the full
+  // ReportUnavailable surface. The only exit ramp from this fetch
+  // is a TikTok-only client (no Meta ad account / event code at
+  // all), where there's nothing to fetch in the first place.
   //
   // Linter quirk: JSX construction inside try/catch trips
   // react-hooks/error-boundaries. Resolve the data first, then
   // build the element from the resolved value below.
-  const creativesResult = metaPayload
+  const canFetchCreatives = !!event.adAccountId && !!event.eventCode;
+  const creativesResult = canFetchCreatives
     ? await fetchShareActiveCreatives({
         share: resolved.share,
         admin,
@@ -308,6 +301,42 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         };
       })
     : null;
+
+  // True when the creative breakdown actually has something to
+  // render. `kind === "skip"` (no_event_code / no_ad_account /
+  // no_linked_campaigns) and `kind === "error"` both count as
+  // "nothing renderable" — they'd produce either a hidden section
+  // or a tiny muted note, neither of which is enough on its own
+  // to justify a partial render when headline insights also died.
+  const creativesHaveContent =
+    creativesResult?.kind === "ok" && creativesResult.groups.length > 0;
+
+  // Final fatal branch: only when there is genuinely nothing to
+  // render — no Meta payload, no TikTok snapshot, and no usable
+  // creatives. ReportUnavailable's reason diagnostic uses the Meta
+  // error if we have one; otherwise we fall back to `no_ad_account`
+  // (the most common cause of a TikTok-only client also lacking a
+  // TikTok import).
+  if (!metaPayload && !tiktokRow && !creativesHaveContent) {
+    return (
+      <ReportUnavailable
+        eventName={event.name}
+        venueName={event.venueName}
+        venueCity={event.venueCity}
+        eventDate={event.eventDate}
+        reason={metaErrorReason ?? "no_ad_account"}
+      />
+    );
+  }
+
+  // Partial-render flag: drop the headline metric grid but keep
+  // the creatives + timeframe selector + muted banner. Only when
+  // the headline call actually failed AND the creative breakdown
+  // is renderable — otherwise there's nothing to keep above the
+  // banner and we'd rather render the standard layout (which
+  // gracefully drops the Meta block when `meta=null`).
+  const headlineUnavailable = !metaPayload && creativesHaveContent;
+
   const creativesSlot = creativesResult ? (
     <ShareActiveCreativesSection result={creativesResult} />
   ) : null;
@@ -332,6 +361,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       datePreset={datePreset}
       customRange={customRange}
       creativesSlot={creativesSlot}
+      headlineUnavailable={headlineUnavailable}
     />
   );
 }

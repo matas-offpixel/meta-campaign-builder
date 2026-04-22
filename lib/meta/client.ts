@@ -116,10 +116,11 @@ export async function graphGetWithToken<T>(
 // whole load even though the next call would have succeeded.
 //
 // Retry policy:
-//   - 3 attempts total (initial + 2 retries).
-//   - Backoff schedule (ms, ±25% jitter): 500 → 1500 → 4000.
-//     Computed even though we only sleep before retries 2 and 3 — the
-//     first delay before retry 1 uses index 0 (500ms).
+//   - 5 attempts total (initial + 4 retries).
+//   - Backoff schedule (ms, ±25% jitter): 500 → 1500 → 4000 → 8000 →
+//     12000. Cumulative ceiling ~26s, comfortably under a serverless
+//     function's default timeout while giving a wide-event share page
+//     enough headroom to ride out a Meta hiccup on a 7d insights query.
 //   - Triggers: thrown fetch (network error), HTTP 429, HTTP 5xx, or a
 //     parsed Meta error code in RETRYABLE_META_CODES.
 //   - `Retry-After` header (when present) overrides the computed
@@ -127,8 +128,8 @@ export async function graphGetWithToken<T>(
 //     can't pin a request open for a minute.
 //   - GET-only on purpose. POST mutations stay single-shot.
 
-const MAX_GET_ATTEMPTS = 3;
-const BASE_BACKOFFS_MS = [500, 1500, 4000];
+const MAX_GET_ATTEMPTS = 5;
+const BASE_BACKOFFS_MS = [500, 1500, 4000, 8000, 12000];
 const RETRY_AFTER_CAP_MS = 10_000;
 
 /**
