@@ -1226,6 +1226,62 @@ export type Database = {
           },
         ]
       }
+      event_daily_rollups: {
+        Row: {
+          ad_spend: number | null
+          created_at: string
+          date: string
+          event_id: string
+          id: string
+          link_clicks: number | null
+          notes: string | null
+          revenue: number | null
+          source_eventbrite_at: string | null
+          source_meta_at: string | null
+          tickets_sold: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ad_spend?: number | null
+          created_at?: string
+          date: string
+          event_id: string
+          id?: string
+          link_clicks?: number | null
+          notes?: string | null
+          revenue?: number | null
+          source_eventbrite_at?: string | null
+          source_meta_at?: string | null
+          tickets_sold?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ad_spend?: number | null
+          created_at?: string
+          date?: string
+          event_id?: string
+          id?: string
+          link_clicks?: number | null
+          notes?: string | null
+          revenue?: number | null
+          source_eventbrite_at?: string | null
+          source_meta_at?: string | null
+          tickets_sold?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_daily_rollups_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_key_moments: {
         Row: {
           budget_multiplier: number | null
