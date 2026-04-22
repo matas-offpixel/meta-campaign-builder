@@ -22,6 +22,8 @@ import type {
 import { TIMEZONES } from "@/lib/mock-data";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { useLocationSearch, type LocationSearchResult } from "@/lib/hooks/useMeta";
+import { useWizardEventContext } from "@/lib/wizard/use-event-context";
+import { CalendarClock } from "lucide-react";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
 // Presets are resolved at runtime via the same Meta location-search API
@@ -663,6 +665,64 @@ function LocationPicker({
   );
 }
 
+// ─── Schedule card (reads event context to surface "Use event date") ────────
+
+function ScheduleCard({
+  bs,
+  updateBs,
+  days,
+}: {
+  bs: BudgetScheduleSettings;
+  updateBs: (patch: Partial<BudgetScheduleSettings>) => void;
+  days: number;
+}) {
+  const { event } = useWizardEventContext();
+  const eventDate = event?.event_date ?? null;
+  const eventEnd = eventDate ? `${eventDate}T23:59` : null;
+  const showUseEventDate = Boolean(eventEnd && bs.endDate !== eventEnd);
+
+  return (
+    <Card>
+      <CardTitle>Schedule</CardTitle>
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <Input
+          label="Start Date & Time"
+          type="datetime-local"
+          value={bs.startDate}
+          onChange={(e) => updateBs({ startDate: e.target.value })}
+        />
+        <div>
+          <Input
+            label="End Date & Time"
+            type="datetime-local"
+            value={bs.endDate}
+            onChange={(e) => updateBs({ endDate: e.target.value })}
+          />
+          {showUseEventDate && eventEnd && eventDate && (
+            <button
+              type="button"
+              onClick={() => updateBs({ endDate: eventEnd })}
+              className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+              title="Set end date to the event date"
+            >
+              <CalendarClock className="h-3 w-3" />
+              Use event date ({eventDate})
+            </button>
+          )}
+        </div>
+      </div>
+      {days > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Duration: <span className="font-medium text-foreground">{days} days</span>
+          {bs.budgetType === "daily" && (
+            <> · Total estimated spend: <span className="font-medium text-foreground">{bs.currency} {(bs.budgetAmount * days).toFixed(2)}</span></>
+          )}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function BudgetSchedule({
@@ -778,31 +838,8 @@ export function BudgetSchedule({
       </Card>
 
       {/* Schedule */}
-      <Card>
-        <CardTitle>Schedule</CardTitle>
-        <div className="mt-4 grid grid-cols-2 gap-4">
-          <Input
-            label="Start Date & Time"
-            type="datetime-local"
-            value={bs.startDate}
-            onChange={(e) => updateBs({ startDate: e.target.value })}
-          />
-          <Input
-            label="End Date & Time"
-            type="datetime-local"
-            value={bs.endDate}
-            onChange={(e) => updateBs({ endDate: e.target.value })}
-          />
-        </div>
-        {days > 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Duration: <span className="font-medium text-foreground">{days} days</span>
-            {bs.budgetType === "daily" && (
-              <> · Total estimated spend: <span className="font-medium text-foreground">{bs.currency} {(bs.budgetAmount * days).toFixed(2)}</span></>
-            )}
-          </p>
-        )}
-      </Card>
+      <ScheduleCard bs={bs} updateBs={updateBs} days={days} />
+
 
       {/* Suggested age hint */}
       {(() => {

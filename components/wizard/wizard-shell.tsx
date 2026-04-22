@@ -39,6 +39,11 @@ import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/l
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
+import {
+  WizardEventContextProvider,
+  useWizardEventContext,
+} from "@/lib/wizard/use-event-context";
+import { derivePhase } from "@/lib/wizard/phase";
 
 interface WizardShellProps {
   draftId: string;
@@ -458,7 +463,9 @@ export function WizardShell({ draftId }: WizardShellProps) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <WizardEventContextProvider draftId={draftId} enabled={hydrated}>
+      <EventDefaultsApplier draft={draft} updateDraft={updateDraft} />
+      <div className="flex min-h-screen flex-col">
       {/* Back to library link */}
       <div className="border-b border-border bg-card px-6 py-2">
         <div className="mx-auto max-w-5xl">
@@ -636,6 +643,123 @@ export function WizardShell({ draftId }: WizardShellProps) {
         onSelect={handleLoadTemplate}
         onDelete={handleDeleteTemplate}
       />
-    </div>
+      </div>
+    </WizardEventContextProvider>
   );
+}
+
+// ─── Event-context defaults applier ──────────────────────────────────────────
+//
+// Mounted inside the WizardEventContextProvider once the wizard is
+// hydrated. On the first render where the context fetch completes, it
+// soft-fills the draft with values derived from the linked event +
+// client: ad account / pixel / pages from client defaults, campaign
+// name + event_code from the event, schedule start/end from today +
+// event_date. Only ever touches fields that are still empty — user
+// edits always win.
+//
+// Guarded by a ref so navigating between steps (which re-renders
+// everything but doesn't change the draft id) doesn't reapply the
+// defaults and stomp on the user's edits.
+
+interface DefaultsApplierProps {
+  draft: CampaignDraft;
+  updateDraft: (updater: (d: CampaignDraft) => CampaignDraft) => void;
+}
+
+function EventDefaultsApplier({ draft, updateDraft }: DefaultsApplierProps) {
+  const { event, client, loaded } = useWizardEventContext();
+  const appliedRef = useRef(false);
+
+  useEffect(() => {
+    if (appliedRef.current) return;
+    if (!loaded) return;
+    if (!event && !client) {
+      // Nothing to fill — still flip the flag so we don't keep waking
+      // on every render.
+      appliedRef.current = true;
+      return;
+    }
+
+    // Snapshot once so the effect doesn't depend on the draft itself
+    // (we want it to run exactly once after context loads, never after
+    // a user edit). The applier reads through draftRef-style closure
+    // capture but we deliberately call updateDraft with the latest
+    // draft via the functional updater — see below.
+    updateDraft((d) => {
+      const next: CampaignDraft = { ...d, settings: { ...d.settings } };
+      const s = next.settings;
+
+      if (client) {
+        const clientAdAccount = client.meta_ad_account_id ?? null;
+        if (clientAdAccount && !s.adAccountId && !s.metaAdAccountId) {
+          s.adAccountId = clientAdAccount;
+          s.metaAdAccountId = clientAdAccount;
+        }
+        const clientPixel = client.meta_pixel_id ?? null;
+        if (clientPixel && !s.pixelId && !s.metaPixelId) {
+          s.pixelId = clientPixel;
+          s.metaPixelId = clientPixel;
+        }
+        const clientPages = client.default_page_ids ?? [];
+        if (clientPages.length > 0 && !s.metaPageId) {
+          s.metaPageId = clientPages[0];
+        }
+        if (!s.clientId && client.id) {
+          s.clientId = client.id;
+        }
+      }
+
+      if (event) {
+        const phase = derivePhase(event);
+        const suggestedName =
+          phase === "Campaign" ? event.name : `${event.name} — ${phase}`;
+        if (!s.campaignName) {
+          s.campaignName = suggestedName;
+        }
+        if (!s.campaignCode && event.event_code) {
+          s.campaignCode = event.event_code;
+        }
+      }
+
+      // Schedule defaults: start = today (yyyy-mm-ddT00:00 in local
+      // tz), end = event_date end-of-day. The Input is type
+      // datetime-local so the value must be a 16-char local string
+      // ("YYYY-MM-DDThh:mm"); UTC ISO breaks the picker.
+      const bs = next.budgetSchedule
+        ? { ...next.budgetSchedule }
+        : null;
+      if (bs) {
+        if (!bs.startDate) {
+          bs.startDate = formatLocalDateTime(new Date(), { hour: 0, minute: 0 });
+        }
+        if (!bs.endDate && event?.event_date) {
+          bs.endDate = `${event.event_date}T23:59`;
+        }
+        next.budgetSchedule = bs;
+      }
+
+      appliedRef.current = true;
+      return next;
+    });
+  }, [loaded, event, client, updateDraft]);
+
+  return null;
+}
+
+/**
+ * Format a Date as the local "YYYY-MM-DDThh:mm" string expected by
+ * <input type="datetime-local"> — ISO is UTC and breaks the picker
+ * across timezones.
+ */
+function formatLocalDateTime(
+  date: Date,
+  override?: { hour?: number; minute?: number },
+): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(override?.hour ?? date.getHours()).padStart(2, "0");
+  const mm = String(override?.minute ?? date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}`;
 }
