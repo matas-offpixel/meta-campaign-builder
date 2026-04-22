@@ -189,6 +189,28 @@ export interface EventInsightsPayload {
   campaigns: MetaCampaignRow[];
   /** Number of Meta campaigns matched on `[event_code]`. */
   matchedCampaignCount: number;
+  /**
+   * Tickets sold whose order date falls inside the resolved
+   * window, summed from `event_daily_rollups`. Drives the
+   * timeframe-aware "Tickets sold" stat + the "Cost per ticket"
+   * derivation in `EventReportView`.
+   *
+   *   - `null`  → no rollup data (event not yet linked to
+   *               Eventbrite, or the daily sync hasn't run yet).
+   *               UI falls back to the legacy mount-time number
+   *               passed via `event.ticketsSold`.
+   *   - `0`     → rollups exist for the event but no tickets sold
+   *               in the selected window. Distinct from `null` —
+   *               the UI MUST render "0" not "—" so the operator
+   *               sees the timeframe is genuinely empty.
+   *   - `> 0`   → summed tickets in the window. For
+   *               `datePreset === "maximum"` this sums every
+   *               rollup row regardless of date.
+   *
+   * Always present on the payload so the consumer doesn't need a
+   * narrowing hop; only the value varies.
+   */
+  ticketsSoldInWindow: number | null;
 }
 
 /** Distinct error states surfaced to the public share page. */

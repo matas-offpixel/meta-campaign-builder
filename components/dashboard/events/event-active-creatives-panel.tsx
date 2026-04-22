@@ -92,6 +92,10 @@ interface CreativeRow {
   /** Cost per landing-page view. null when LPVs = 0. */
   cplpv: number | null;
   frequency: number | null;
+  /** Plumbed PR #56 — sum of inline_link_clicks across underlying ads. */
+  inline_link_clicks?: number;
+  /** Plumbed PR #56 — true iff any underlying ad is currently ACTIVE. */
+  any_ad_active?: boolean;
 }
 
 interface SuccessResponse {
@@ -110,6 +114,22 @@ interface SuccessResponse {
     ads_fetched: number;
     dropped_no_creative: number;
     truncated: boolean;
+    /**
+     * Spend / volume from per-ad insight rows that had no AdInput
+     * to stitch onto. PR #56 backstop so total creative spend
+     * reconciles to total campaign spend on events with paused or
+     * archived ads carrying historical cost.
+     */
+    unattributed?: {
+      ads_count: number;
+      spend: number;
+      impressions: number;
+      clicks: number;
+      inline_link_clicks: number;
+      landingPageViews: number;
+      registrations: number;
+      purchases: number;
+    };
   };
 }
 
@@ -238,6 +258,8 @@ function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
         : row.frequency <= 5
           ? "warning"
           : "critical",
+    inline_link_clicks: row.inline_link_clicks ?? 0,
+    any_ad_active: row.any_ad_active ?? true,
     ad_names: row.ad_names,
     underlying_creative_ids: [row.creative_id],
     reasons: ["creative_id"],

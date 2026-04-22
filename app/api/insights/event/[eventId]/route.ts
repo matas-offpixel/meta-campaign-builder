@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { fetchEventInsights } from "@/lib/insights/meta";
+import { sumTicketsSoldInWindow } from "@/lib/db/event-daily-timeline";
 import {
   DATE_PRESETS,
   type CustomDateRange,
@@ -140,6 +141,8 @@ export async function GET(
     token,
     datePreset,
     customRange,
+    ticketsInWindowResolver: (preset, range) =>
+      sumTicketsSoldInWindow(supabase, eventId, preset, range),
   });
   return NextResponse.json(result, { status: 200 });
 }

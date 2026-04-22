@@ -98,6 +98,25 @@ export interface ConceptInputRow {
    */
   cplpv: number | null;
   frequency: number | null;
+  /**
+   * Sum of `inline_link_clicks` across the underlying ads — the
+   * funnel-aligned click metric (excludes social / share / expand
+   * clicks that Meta lumps into `clicks`). Plumbed through so the
+   * second-layer grouper can emit a true link-CTR for the share
+   * health-badge scorer. Optional for backwards-compat with older
+   * fixtures; treated as 0 when absent.
+   */
+  inline_link_clicks?: number;
+  /**
+   * True iff at least one underlying ad in this concept has
+   * `effective_status === "ACTIVE"`. Drives the "PAUSED" pill on
+   * the new health badge so a historical-spend-only concept doesn't
+   * surface a SCALE / KILL recommendation. Optional for backwards-
+   * compat with older fixtures; treated as `true` when absent so
+   * the badge degrades gracefully (i.e. no spurious "PAUSED" pills
+   * for callers that haven't plumbed the field through yet).
+   */
+  any_ad_active?: boolean;
 }
 
 export type GroupKeyReason =
@@ -162,8 +181,31 @@ export interface ConceptGroupRow {
    * the internal heatmap pill agree on what each bucket means.
    * Always set — `"ok"` when frequency is null / non-finite so the
    * UI can render the pill without a separate empty branch.
+   *
+   * NOTE PR #56: kept on the row for the internal heatmap path
+   * (`components/intelligence/creative-heatmap.tsx`) which still
+   * surfaces the single-axis pill. The share-card "Active
+   * creatives" UI now renders a richer two-axis health badge —
+   * see `lib/reporting/creative-health.ts` and the `inline_link
+   * _clicks` / `any_ad_active` fields below.
    */
   fatigueScore: "ok" | "warning" | "critical";
+  /**
+   * Sum of `inline_link_clicks` across the underlying ads. Source
+   * for the "Attention" axis on the share card's health badge
+   * (link CTR = `inline_link_clicks / impressions × 100`). Optional
+   * for backwards compat with the fixture-driven heatmap consumer
+   * — defaults to 0 when missing.
+   */
+  inline_link_clicks: number;
+  /**
+   * Same provenance as the field on `ConceptInputRow` — true iff
+   * any underlying ad is `effective_status === "ACTIVE"`. False
+   * means the concept is rolled-up historical spend only; the
+   * health badge collapses to a neutral "PAUSED" pill in that
+   * case so we don't recommend SCALE / KILL on dormant ads.
+   */
+  any_ad_active: boolean;
   /**
    * Distinct ad-level names across the rows in this concept group,
    * ordered by descending cumulative ad spend. The first entry is
@@ -532,6 +574,8 @@ interface Accumulator {
   registrations: number;
   purchases: number;
   landingPageViews: number;
+  inline_link_clicks: number;
+  any_ad_active: boolean;
   /**
    * Distinct trimmed ad.name → cumulative row spend across all
    * underlying ConceptInputRows in this bucket. Sorted DESC at
@@ -589,6 +633,8 @@ export function groupByAssetSignature(
         registrations: 0,
         purchases: 0,
         landingPageViews: 0,
+        inline_link_clicks: 0,
+        any_ad_active: false,
         ad_names_spend: new Map<string, number>(),
         topSpend: -Infinity,
         representative_ad_id: row.representative_ad_id,
@@ -626,6 +672,8 @@ export function groupByAssetSignature(
     acc.registrations += row.registrations;
     acc.purchases += row.purchases;
     acc.landingPageViews += row.landingPageViews;
+    acc.inline_link_clicks += row.inline_link_clicks ?? 0;
+    if (row.any_ad_active) acc.any_ad_active = true;
 
     if (row.spend > acc.topSpend) {
       acc.topSpend = row.spend;
@@ -693,6 +741,8 @@ export function groupByAssetSignature(
         if (freq <= 5) return "warning";
         return "critical";
       })(safeRate(acc.impressions, acc.reach)),
+      inline_link_clicks: acc.inline_link_clicks,
+      any_ad_active: acc.any_ad_active,
       ad_names,
       underlying_creative_ids: acc.underlying_creative_ids,
       reasons: [...acc.reasons],

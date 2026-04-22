@@ -413,33 +413,15 @@ export function EventDetail({
           {/* ───── Overview ───── */}
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
-              {!isBrand && event.client_id && (
-                // Event report block sits at the top of Overview,
-                // directly below the EventbriteLiveBlock above the
-                // tabs. The block handles its own empty state (no
-                // event_code AND no Eventbrite link), so we only gate
-                // on isBrand here — same gating as the live block.
-                <EventDailyReportBlock
-                  event={{
-                    id: event.id,
-                    budget_marketing: event.budget_marketing ?? null,
-                    meta_spend_cached:
-                      (event as unknown as { meta_spend_cached: number | null })
-                        .meta_spend_cached ?? null,
-                    prereg_spend:
-                      (event as unknown as { prereg_spend: number | null })
-                        .prereg_spend ?? null,
-                    general_sale_at:
-                      (event as unknown as { general_sale_at: string | null })
-                        .general_sale_at ?? null,
-                  }}
-                  hasMetaScope={Boolean(
-                    event.event_code &&
-                      event.client?.meta_ad_account_id,
-                  )}
-                  hasEventbriteLink={Boolean(ticketingSummary.link)}
-                />
-              )}
+              {/*
+                EventDailyReportBlock used to live here. It moved to
+                the top of the Reporting tab in PR #56 so the internal
+                view mirrors the external /share/report/[token] surface
+                clients see — single source of render, no duplication.
+                Overview now retains only the EventbriteLiveBlock above
+                the tabs + event metadata (capacity, dates, venue,
+                4thefans context).
+              */}
               {isBrand ? (
                 <BrandCampaignSummary event={event} />
               ) : (
@@ -622,6 +604,36 @@ export function EventDetail({
           {/* ───── Reporting ───── */}
           <TabPanel active={activeTab === "reporting"}>
             <div className="space-y-6">
+              {!isBrand && event.client_id && (
+                // Mirrors the EventDailyReportBlock that renders at the
+                // top of the public /share/report/[token] page so the
+                // internal Reporting tab and the external share URL
+                // show the same block in the same position. Block
+                // handles its own empty state (no event_code AND no
+                // Eventbrite link); gated on isBrand only because brand
+                // events don't carry presale tracking data.
+                <EventDailyReportBlock
+                  event={{
+                    id: event.id,
+                    budget_marketing: event.budget_marketing ?? null,
+                    meta_spend_cached:
+                      (event as unknown as { meta_spend_cached: number | null })
+                        .meta_spend_cached ?? null,
+                    prereg_spend:
+                      (event as unknown as { prereg_spend: number | null })
+                        .prereg_spend ?? null,
+                    general_sale_at:
+                      (event as unknown as { general_sale_at: string | null })
+                        .general_sale_at ?? null,
+                  }}
+                  hasMetaScope={Boolean(
+                    event.event_code &&
+                      event.client?.meta_ad_account_id,
+                  )}
+                  hasEventbriteLink={Boolean(ticketingSummary.link)}
+                />
+              )}
+
               {!isBrand && (
                 <TicketsSoldPanel
                   eventId={event.id}

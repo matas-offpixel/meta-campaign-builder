@@ -202,12 +202,30 @@ export function EventReportView({
   const budgetUsedPct =
     budget > 0 && meta ? Math.min(100, (spend / budget) * 100) : null;
 
-  // Tickets sold + cost per ticket. Null/zero ticket counts render
-  // as em-dash to avoid misleading clients with a £Infinity / £NaN.
-  const ticketsSold = event.ticketsSold;
+  // Tickets sold + cost per ticket. Three-way resolution:
+  //
+  //   1. `meta.ticketsSoldInWindow` (PR #56 #3) — the rollup-summed
+  //      tickets for the selected timeframe. Wins whenever it's a
+  //      number (including `0`, which is a legitimate "no tickets
+  //      sold this window" reading on a tight Past 3 days view).
+  //   2. `event.ticketsSold` — legacy mount-time snapshot from
+  //      `events.tickets_sold` / the latest plan row. Fallback for
+  //      events that haven't been linked to Eventbrite yet, or
+  //      haven't run their first rollup sync.
+  //   3. `null` → em-dash. Avoids misleading the visitor with a
+  //      £Infinity / £NaN cost-per-ticket when the denominator
+  //      is missing.
+  //
+  // CPT uses the same windowed denominator so it actually moves
+  // with the timeframe — the 1,091 / £1.42 / £0.85 / £0.43 lie in
+  // the original report came from freezing this denominator at
+  // the all-time number.
+  const windowedTickets = meta?.ticketsSoldInWindow;
+  const ticketsSold =
+    windowedTickets != null ? windowedTickets : event.ticketsSold;
   const totalSpend = meta?.totalSpend ?? 0;
   const costPerTicket =
-    meta && ticketsSold && ticketsSold > 0 && totalSpend > 0
+    meta && ticketsSold != null && ticketsSold > 0 && totalSpend > 0
       ? totalSpend / ticketsSold
       : null;
 

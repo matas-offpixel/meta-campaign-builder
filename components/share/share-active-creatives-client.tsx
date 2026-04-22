@@ -7,23 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import ShareCreativePreviewModal from "@/components/share/share-creative-preview-modal";
-
-/**
- * Fatigue pill colour scale — mirrors the internal heatmap pill
- * (`components/intelligence/creative-heatmap.tsx`) so a marketer
- * who sees both surfaces builds one mental model. "ok" is the
- * empty-state default rather than hidden so the card layout stays
- * stable as creatives saturate.
- */
-const FATIGUE_PILL_CLASSES: Record<
-  ConceptGroupRow["fatigueScore"],
-  string
-> = {
-  ok: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
-  warning:
-    "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
-  critical: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30",
-};
+import { HealthBadge } from "@/components/share/health-badge";
 
 /**
  * components/share/share-active-creatives-client.tsx
@@ -132,7 +116,20 @@ function ShareCreativeCard({
       */}
       <div className="flex items-end justify-between gap-2">
         <Stat label="Spend" value={fmtCurrency(row.spend)} prominent />
-        <FatiguePill score={row.fatigueScore} frequency={row.frequency} />
+        {/*
+          PR #56 #4 — replaces the old purchase-CPA fatigue pill
+          (which lit up CRITICAL on traffic ads with 0 purchases
+          by design). Two-axis scoring (frequency × link CTR) is
+          computed in the badge from row data already plumbed
+          through both groupers; tooltip exposes the raw numbers
+          and which threshold tripped.
+        */}
+        <HealthBadge
+          frequency={row.frequency}
+          inlineLinkClicks={row.inline_link_clicks}
+          impressions={row.impressions}
+          anyAdActive={row.any_ad_active}
+        />
       </div>
 
       {/*
@@ -207,34 +204,6 @@ function FunnelRow({
   );
 }
 
-function FatiguePill({
-  score,
-  frequency,
-}: {
-  score: ConceptGroupRow["fatigueScore"];
-  frequency: number | null;
-}) {
-  // Frequency rendered alongside the pill so the user can sanity-
-  // check the bucket boundary without opening the modal — `freq
-  // 4.7×` next to a "warning" pill is more useful than the pill
-  // alone. Falls back to a label-only pill when frequency is null
-  // (zero reach), since the pill is "ok" by definition there.
-  const freqLabel = fmtFreq(frequency);
-  return (
-    <span
-      title={`Frequency ${freqLabel} · ${score}`}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${FATIGUE_PILL_CLASSES[score]}`}
-    >
-      <span>{score}</span>
-      {frequency != null && Number.isFinite(frequency) && (
-        <span className="text-[10px] opacity-80 normal-case tracking-normal">
-          {freqLabel}×
-        </span>
-      )}
-    </span>
-  );
-}
-
 function Thumbnail({ url, alt }: { url: string | null; alt: string }) {
   if (!url) {
     return (
@@ -289,10 +258,6 @@ function Stat({
 function fmtMoneyOrDash(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return fmtCurrency(v);
-}
-function fmtFreq(v: number | null): string {
-  if (v == null || !Number.isFinite(v)) return "—";
-  return v.toFixed(2);
 }
 /**
  * Integer formatter for the funnel volume column. Locale-grouped

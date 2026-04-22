@@ -216,6 +216,22 @@ export interface CreativeRow {
    * mentally translating the frequency number.
    */
   fatigueScore: FatigueScore;
+  /**
+   * Sum of `insights.inline_link_clicks` across the underlying ads.
+   * Distinct from `clicks` (which Meta inflates with social /
+   * expand / share clicks). Plumbed PR #56 so the second-layer
+   * grouper can emit a true link-CTR for the share-card health
+   * badge. Zero when no ad in the bucket reported a value.
+   */
+  inline_link_clicks: number;
+  /**
+   * True iff at least one underlying ad has `effective_status ===
+   * "ACTIVE"`. False when every ad is paused / paused-by-campaign
+   * / paused-by-adset. Drives the "PAUSED" pill state on the
+   * share-card health badge — historical-spend-only creatives
+   * shouldn't surface a SCALE / KILL recommendation.
+   */
+  any_ad_active: boolean;
 }
 
 // ─── Action-type priority lists ─────────────────────────────────────────────
@@ -362,6 +378,8 @@ interface Accumulator {
   registrations: number;
   purchases: number;
   landingPageViews: number;
+  inline_link_clicks: number;
+  any_ad_active: boolean;
   /** Highest-spend value seen so far — drives the preview-refresh check. */
   topSpend: number;
 }
@@ -436,6 +454,8 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       registrations: 0,
       purchases: 0,
       landingPageViews: 0,
+      inline_link_clicks: 0,
+      any_ad_active: false,
       topSpend: -Infinity,
     };
 
@@ -490,6 +510,8 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     acc.registrations += registrations;
     acc.purchases += purchases;
     acc.landingPageViews += landingPageViews;
+    acc.inline_link_clicks += ins?.inline_link_clicks ?? 0;
+    if (ad.status === "ACTIVE") acc.any_ad_active = true;
 
     // Preview tracking: top-spend ad's payload wins. Tie on first-seen
     // (no need for stable sort — the modal viewer can't tell which of
@@ -552,6 +574,8 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       cplpv: safeRate(acc.spend, acc.landingPageViews),
       frequency,
       fatigueScore: fatigueFromFrequency(frequency),
+      inline_link_clicks: acc.inline_link_clicks,
+      any_ad_active: acc.any_ad_active,
     });
   }
 

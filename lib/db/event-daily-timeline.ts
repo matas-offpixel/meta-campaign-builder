@@ -4,6 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
 import { listRollupsForEvent } from "@/lib/db/event-daily-rollups";
+import { sumTicketsInWindow } from "@/lib/db/event-daily-timeline-window";
+import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 /**
  * lib/db/event-daily-timeline.ts
@@ -234,4 +237,30 @@ export function computePresaleBucket(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Sum `tickets_sold` from `event_daily_rollups` for the rows whose
+ * date falls inside the resolved date-preset window. Powers the
+ * timeframe-aware "Tickets sold" stat + "Cost per ticket"
+ * derivation in `EventReportView` (was previously frozen to the
+ * mount-time `events.tickets_sold` snapshot, which made CPT lie
+ * across timeframes — see PR #56 #3).
+ *
+ * Thin wrapper over `sumTicketsInWindow` + `listRollupsForEvent`.
+ * Pure read — no side effects, no caching. The route layer is
+ * already inside a 5-minute revalidate so adding another cache
+ * tier here would just confuse invalidation.
+ */
+export async function sumTicketsSoldInWindow(
+  supabase: AnySupabaseClient,
+  eventId: string,
+  datePreset: DatePreset,
+  customRange?: CustomDateRange,
+): Promise<number | null> {
+  const rollups = await listRollupsForEvent(supabase, eventId);
+  return sumTicketsInWindow(
+    rollups,
+    resolvePresetToDays(datePreset, customRange),
+  );
 }
