@@ -34,6 +34,15 @@ const PUBLIC_PREFIXES: readonly string[] = [
   // the token is the only identifier exposed.
   "/share/",
   "/api/share/",
+  // Vercel Cron entry points. The proxy's default-deny would 302 the
+  // scheduled invocations to /login before each route's own
+  // CRON_SECRET bearer-token check ever runs, which is how the
+  // creative-insights pre-warm and ticketing sync silently no-op'd
+  // for weeks. Each route under this prefix MUST validate
+  // `Authorization: Bearer <CRON_SECRET>` itself and return 401 on
+  // mismatch — the bypass here only stops the session check, it does
+  // not stop the route's own auth.
+  "/api/cron/",
 ];
 
 export function isPublicPath(pathname: string): boolean {
