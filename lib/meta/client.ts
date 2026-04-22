@@ -244,6 +244,13 @@ function isTransientFailure(
   return false;
 }
 
+// `isReduceDataError` lives in a separate, dependency-free module so
+// the unit tests (Node strip-only mode, which can't parse the
+// MetaApiError class's parameter properties) can import the helper
+// without dragging in this whole client. Re-export keeps the
+// canonical `lib/meta/client` import surface intact for callers.
+export { isReduceDataError } from "./error-classify";
+
 function reasonLabel(httpStatus: number, metaCode: number | undefined): string {
   if (metaCode != null && RETRYABLE_META_CODES.has(metaCode)) {
     return `meta_code_${metaCode}`;

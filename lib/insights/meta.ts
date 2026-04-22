@@ -1,6 +1,15 @@
 import "server-only";
 
-import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
+import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+import {
+  graphGetWithToken,
+  isReduceDataError,
+  MetaApiError,
+} from "@/lib/meta/client";
+
+// Re-export the pure date helper from the canonical insights module
+// so callers/tests that already import from this file keep working.
+export { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type {
   CreativeRow,
   CreativeSortKey,
@@ -285,16 +294,218 @@ async function fetchCampaignInsights(args: {
   customRange?: CustomDateRange;
 }): Promise<RawInsights | null> {
   const { campaignId, token, datePreset, customRange } = args;
-  const res = await graphGetWithToken<GraphPaged<RawInsights>>(
-    `/${campaignId}/insights`,
-    {
-      fields: INSIGHTS_FIELDS,
-      level: "campaign",
-      ...buildTimeParams(datePreset, customRange),
-    },
-    token,
+  try {
+    const res = await graphGetWithToken<GraphPaged<RawInsights>>(
+      `/${campaignId}/insights`,
+      {
+        fields: INSIGHTS_FIELDS,
+        level: "campaign",
+        ...buildTimeParams(datePreset, customRange),
+      },
+      token,
+    );
+    return res.data?.[0] ?? null;
+  } catch (err) {
+    if (isReduceDataError(err)) {
+      console.warn(
+        `[insights/meta] reduce-data fallback firing for campaign=${campaignId} preset=${datePreset}`,
+      );
+      return fetchInsightsChunked({
+        path: `/${campaignId}/insights`,
+        level: "campaign",
+        token,
+        datePreset,
+        customRange,
+      });
+    }
+    throw err;
+  }
+}
+
+// ─── Day-chunked fallback ──────────────────────────────────────────────────
+//
+// Meta's per-account compute cap on /insights kicks in on
+// `date_preset=last_7d` (and wider) for accounts with deep ad
+// trees + action-level breakdowns. The single-shot call returns
+// "Please reduce the amount of data you're asking for". Retrying
+// with a longer backoff doesn't help — the QUERY is the problem,
+// not the upstream load.
+//
+// Workaround: split the requested window into per-day calls
+// (`time_range={since:D, until:D}`) and aggregate locally. Each
+// per-day call sits comfortably under the cap. Concurrency is
+// capped at the same 3 we use elsewhere on Meta — leaves headroom
+// for parallel calls (e.g. share page's active-creatives fan-out).
+//
+// Trade-off: a 7-day window becomes 7 sequential-ish calls, which
+// adds ~6-10s to first-byte. We absorb it because the alternative
+// is a "report unavailable" page.
+
+const MAX_CHUNK_DAYS = 31;
+const CHUNK_CONCURRENCY = 3;
+
+interface FetchInsightsChunkedArgs {
+  /** e.g. `/123456/insights` */
+  path: string;
+  level: "campaign" | "ad";
+  token: string;
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+}
+
+/**
+ * Per-day fan-out for a single Meta /insights endpoint, summed
+ * back into a `RawInsights` row that downstream `mapCampaignRow`
+ * / `mapCreativeRow` can consume unchanged.
+ *
+ * Returns null on:
+ *   - "maximum" preset (which doesn't hit the cap for this data
+ *     shape, so chunking would just slow it down for no benefit)
+ *   - empty per-day result set
+ *
+ * Throws when the per-day fan-out itself fails for a non-cap
+ * reason — caller wraps for `data_too_large` if the fallback also
+ * trips the same error.
+ */
+async function fetchInsightsChunked(
+  args: FetchInsightsChunkedArgs,
+): Promise<RawInsights | null> {
+  const { path, level, token, datePreset, customRange } = args;
+  const days = resolvePresetToDays(datePreset, customRange);
+  if (!days || days.length === 0) return null;
+  // Defensive ceiling — last_30d should fan out to 30 calls; if a
+  // future preset somehow blew past 31 we'd rather refuse than
+  // open a 90-call storm.
+  if (days.length > MAX_CHUNK_DAYS) {
+    throw new MetaApiError(
+      `Day-chunked fallback exceeded ${MAX_CHUNK_DAYS} days (got ${days.length}); narrow the timeframe.`,
+    );
+  }
+
+  // Tiny semaphore to cap parallel fans-out at CHUNK_CONCURRENCY.
+  // Same shape as `lib/reporting/active-creatives-fetch.ts` — kept
+  // local so this module stays self-contained.
+  const semaphore = createChunkSemaphore(CHUNK_CONCURRENCY);
+  const perDay = await Promise.all(
+    days.map((day) =>
+      semaphore(async () => {
+        const res = await graphGetWithToken<GraphPaged<RawInsights>>(
+          path,
+          {
+            fields: INSIGHTS_FIELDS,
+            level,
+            time_range: JSON.stringify({ since: day, until: day }),
+            action_attribution_windows: ATTRIBUTION_WINDOWS,
+          },
+          token,
+        );
+        return res.data?.[0] ?? null;
+      }),
+    ),
   );
-  return res.data?.[0] ?? null;
+  return aggregateRawInsights(perDay);
+}
+
+/**
+ * Sum a list of per-day RawInsights rows back into one row matching
+ * the shape Meta would have returned for the full window.
+ *
+ * Numerics: straight addition for spend / impressions / reach /
+ * clicks / actions / action_values. Reach is summed across days
+ * — same caveat as `MetaTotals.reachSum`: a unique user reached on
+ * 3 different days counts 3 times. UI already labels this honestly
+ * everywhere it matters.
+ *
+ * Frequency is recomputed at the end as `impressions / reach`,
+ * mirroring the formula `aggregateTotals` uses (the consumer
+ * doesn't trust per-row frequency anyway). CPM is dropped — none
+ * of the downstream mappers read it.
+ */
+function aggregateRawInsights(
+  rows: ReadonlyArray<RawInsights | null>,
+): RawInsights | null {
+  const valid = rows.filter((r): r is RawInsights => r != null);
+  if (valid.length === 0) return null;
+
+  let spend = 0;
+  let impressions = 0;
+  let reach = 0;
+  let clicks = 0;
+  const actionTotals = new Map<string, number>();
+  const actionValueTotals = new Map<string, number>();
+
+  for (const row of valid) {
+    spend += parseNum(row.spend);
+    impressions += parseNum(row.impressions);
+    reach += parseNum(row.reach);
+    clicks += parseNum(row.clicks);
+    for (const a of row.actions ?? []) {
+      const v = Number(a.value);
+      if (!Number.isFinite(v)) continue;
+      actionTotals.set(
+        a.action_type,
+        (actionTotals.get(a.action_type) ?? 0) + v,
+      );
+    }
+    for (const a of row.action_values ?? []) {
+      const v = Number(a.value);
+      if (!Number.isFinite(v)) continue;
+      actionValueTotals.set(
+        a.action_type,
+        (actionValueTotals.get(a.action_type) ?? 0) + v,
+      );
+    }
+  }
+
+  const frequency = reach > 0 ? impressions / reach : 0;
+
+  return {
+    spend: String(spend),
+    impressions: String(impressions),
+    reach: String(reach),
+    clicks: String(clicks),
+    frequency: String(frequency),
+    // CPM is read by nothing downstream — emit a derived value so
+    // the shape stays honest if a future caller starts consuming it.
+    cpm: String(impressions > 0 ? spend / (impressions / 1000) : 0),
+    actions: [...actionTotals.entries()].map(([action_type, value]) => ({
+      action_type,
+      value: String(value),
+    })),
+    action_values: [...actionValueTotals.entries()].map(
+      ([action_type, value]) => ({
+        action_type,
+        value: String(value),
+      }),
+    ),
+  };
+}
+
+function createChunkSemaphore(limit: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  const next = () => {
+    if (active >= limit || queue.length === 0) return;
+    active += 1;
+    const run = queue.shift()!;
+    run();
+  };
+  return async function acquire<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const run = async () => {
+        try {
+          resolve(await fn());
+        } catch (err) {
+          reject(err);
+        } finally {
+          active -= 1;
+          next();
+        }
+      };
+      queue.push(run);
+      next();
+    });
+  };
 }
 
 // ─── Mapping ───────────────────────────────────────────────────────────────
@@ -545,16 +756,32 @@ async function fetchAdInsights(args: {
   customRange?: CustomDateRange;
 }): Promise<RawInsights | null> {
   const { adId, token, datePreset, customRange } = args;
-  const res = await graphGetWithToken<GraphPaged<RawInsights>>(
-    `/${adId}/insights`,
-    {
-      fields: INSIGHTS_FIELDS,
-      level: "ad",
-      ...buildTimeParams(datePreset, customRange),
-    },
-    token,
-  );
-  return res.data?.[0] ?? null;
+  try {
+    const res = await graphGetWithToken<GraphPaged<RawInsights>>(
+      `/${adId}/insights`,
+      {
+        fields: INSIGHTS_FIELDS,
+        level: "ad",
+        ...buildTimeParams(datePreset, customRange),
+      },
+      token,
+    );
+    return res.data?.[0] ?? null;
+  } catch (err) {
+    if (isReduceDataError(err)) {
+      console.warn(
+        `[insights/meta] reduce-data fallback firing for ad=${adId} preset=${datePreset}`,
+      );
+      return fetchInsightsChunked({
+        path: `/${adId}/insights`,
+        level: "ad",
+        token,
+        datePreset,
+        customRange,
+      });
+    }
+    throw err;
+  }
 }
 
 interface RawPreview {
@@ -1008,6 +1235,22 @@ export async function fetchEventSpendByDay(
 }
 
 function handleMetaError(err: unknown): { ok: false; error: InsightsError } {
+  // Reduce-data check first, BEFORE the generic MetaApiError branch:
+  // a reduce-data error is a code 1 / 2 with a specific message, so
+  // without the early branch it'd silently get classified as a
+  // generic `meta_api_error` and the UI would auto-retry forever.
+  // Reaching this point means the day-chunked fallback also failed
+  // (or the preset wasn't chunkable) — genuinely terminal for this
+  // query.
+  if (isReduceDataError(err)) {
+    console.error(
+      "[insights/meta] reduce-data fallback also failed — surfacing as data_too_large",
+    );
+    return errorResult(
+      "data_too_large",
+      err instanceof Error ? err.message : "Meta data window too large.",
+    );
+  }
   if (err instanceof MetaApiError) {
     // OAuth token expired = code 190. Surface as a distinct reason so the
     // public page renders the "report temporarily unavailable" copy
