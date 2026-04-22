@@ -34,6 +34,30 @@ interface Props {
 
 const FB_PLUGIN_BASE = "https://www.facebook.com/plugins/post.php";
 
+// Public IG post URLs always carry the /p/, /reel/, or /tv/ prefix —
+// extract the shortcode and rebuild the canonical /embed/captioned
+// URL. Meta's `/plugins/post.php` endpoint expects an FB Graph URL,
+// so feeding it an IG permalink renders blank for share viewers.
+const IG_PERMALINK_RE = /instagram\.com\/(p|reel|tv)\/([A-Za-z0-9_-]+)/i;
+const FB_HOST_RE = /(?:^|\.)facebook\.com\//i;
+
+/**
+ * Build the iframe `src` for a creative preview. Returns `null`
+ * when the permalink isn't a recognised IG / FB post URL — caller
+ * falls through to the next asset tier (image / thumbnail).
+ */
+function getEmbedSrc(permalink: string): string | null {
+  const ig = permalink.match(IG_PERMALINK_RE);
+  if (ig) {
+    const [, kind, shortcode] = ig;
+    return `https://www.instagram.com/${kind}/${shortcode}/embed/captioned`;
+  }
+  if (FB_HOST_RE.test(permalink)) {
+    return `${FB_PLUGIN_BASE}?href=${encodeURIComponent(permalink)}&show_text=false`;
+  }
+  return null;
+}
+
 function ctaLabel(type: string | null | undefined): string | null {
   if (!type) return null;
   const t = type.trim().toUpperCase();
@@ -80,8 +104,17 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
     preview.image_url || group.representative_thumbnail || null;
   const cta = ctaLabel(preview.call_to_action_type);
   const link = preview.link_url;
-  const headline = preview.headline || group.display_name;
+  // Title is the group's display_name (already prefers ad.name over
+  // the often-template-polluted creative.name). Headline copy from
+  // the preview is rendered separately as a body block.
+  const title = group.display_name || "Creative";
+  const headlineCopy = preview.headline;
   const body = preview.body || group.representative_body_preview;
+  const altText = headlineCopy || title;
+  const showVariants = group.ad_names.length > 1;
+  const variantsHead = group.ad_names.slice(0, 3).join(", ");
+  const variantsMore =
+    group.ad_names.length > 3 ? ` +${group.ad_names.length - 3} more` : "";
 
   return (
     <div
@@ -100,9 +133,20 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
-          <h2 className="line-clamp-2 font-heading text-lg tracking-wide text-foreground">
-            {headline ?? "Creative"}
-          </h2>
+          <div className="min-w-0 flex-1">
+            <h2 className="line-clamp-2 font-heading text-lg tracking-wide text-foreground">
+              {title}
+            </h2>
+            {showVariants && (
+              <div
+                className="mt-1 line-clamp-2 text-xs text-muted-foreground"
+                title={group.ad_names.join(", ")}
+              >
+                {group.ad_names.length} ad name variants: {variantsHead}
+                {variantsMore}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -117,13 +161,13 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
           <ShareAssetBlock
             preview={preview}
             fallbackImage={fallbackImage}
-            altText={headline ?? "Creative preview"}
+            altText={altText}
           />
 
           <div className="space-y-3">
-            {headline && (
+            {headlineCopy && (
               <div className="text-base font-semibold text-foreground">
-                {headline}
+                {headlineCopy}
               </div>
             )}
             {body && (
@@ -194,21 +238,26 @@ function ShareAssetBlock({
   fallbackImage: string | null;
   altText: string;
 }) {
-  if (preview.instagram_permalink_url) {
-    const embedSrc = `${FB_PLUGIN_BASE}?href=${encodeURIComponent(
-      preview.instagram_permalink_url,
-    )}&show_text=false`;
+  // Asset selection waterfall (share-side has no video tier — viewer
+  // has no Meta access token): embed (IG/FB) > image > thumbnail >
+  // placeholder. Embed tier falls through when the permalink isn't a
+  // recognised IG / FB URL rather than rendering a blank iframe.
+  const embedSrc = preview.instagram_permalink_url
+    ? getEmbedSrc(preview.instagram_permalink_url)
+    : null;
+  if (preview.instagram_permalink_url && embedSrc) {
+    const isInstagram = IG_PERMALINK_RE.test(preview.instagram_permalink_url);
     return (
       <div className="space-y-2">
         <div className="flex justify-center bg-muted">
           <iframe
             src={embedSrc}
             width={500}
-            height={500}
+            height={640}
             style={{ border: 0, overflow: "hidden" }}
             scrolling="no"
             allowFullScreen
-            title="Instagram preview"
+            title={isInstagram ? "Instagram preview" : "Facebook preview"}
           />
         </div>
         <a
@@ -217,7 +266,7 @@ function ShareAssetBlock({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
-          View on Instagram
+          {isInstagram ? "View on Instagram" : "View on Facebook"}
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>

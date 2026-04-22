@@ -271,6 +271,82 @@ test("edge cases: null creative dropped, null insights → 0s, registrations=0 �
   assert.equal(round(r.cpm, 4), round((50 / 1000) * 1000, 4));
 });
 
+test("ad_names: distinct trimmed ad.name values, ordered by descending spend", () => {
+  // Three ads on one creative_id with distinct ad.names. Spend order
+  // should win the dominant slot — "Motion V2" totals £100 across two
+  // ads, "UGC - Dixon - V4" totals £80 in one, "AC - Sama" totals £30.
+  // "  Motion V2  " (whitespace) merges with "Motion V2" via trim.
+  // Empty / whitespace-only names are dropped.
+  const ads: AdInput[] = [
+    ad({
+      ad_id: "ad-mv1",
+      ad_name: "Motion V2",
+      creative_id: "cid-1",
+      insights: {
+        spend: 60, impressions: 600, clicks: 12, reach: 500,
+        frequency: 1.2, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-mv2",
+      ad_name: "  Motion V2  ",
+      creative_id: "cid-1",
+      insights: {
+        spend: 40, impressions: 400, clicks: 8, reach: 350,
+        frequency: 1.14, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-ugc",
+      ad_name: "UGC - Dixon - V4",
+      creative_id: "cid-1",
+      insights: {
+        spend: 80, impressions: 800, clicks: 16, reach: 600,
+        frequency: 1.33, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-ac",
+      ad_name: "AC - Sama",
+      creative_id: "cid-1",
+      insights: {
+        spend: 30, impressions: 300, clicks: 6, reach: 250,
+        frequency: 1.2, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-blank",
+      ad_name: "   ",
+      creative_id: "cid-1",
+      insights: {
+        spend: 5, impressions: 50, clicks: 1, reach: 40,
+        frequency: 1.25, actions: [],
+      },
+    }),
+    ad({
+      ad_id: "ad-null",
+      ad_name: null,
+      creative_id: "cid-1",
+      insights: {
+        spend: 5, impressions: 50, clicks: 1, reach: 40,
+        frequency: 1.25, actions: [],
+      },
+    }),
+  ];
+
+  const rows = groupAdsByCreative(ads);
+  assert.equal(rows.length, 1);
+  const r = rows[0];
+  // "Motion V2" is dominant by cumulative ad-level spend (£100).
+  // Trimming merges the whitespace-padded variant. Blank / null names
+  // are dropped entirely.
+  assert.deepEqual(r.ad_names, [
+    "Motion V2",
+    "UGC - Dixon - V4",
+    "AC - Sama",
+  ]);
+});
+
 function round(v: number | null, digits: number): number | null {
   if (v == null) return null;
   const f = 10 ** digits;
