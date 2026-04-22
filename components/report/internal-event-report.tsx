@@ -14,6 +14,7 @@ import {
   EventReportView,
   type EventReportViewEvent,
 } from "./event-report-view";
+import { InternalActiveCreativesSection } from "./internal-active-creatives-section";
 import { ReportUnavailable } from "./report-unavailable";
 
 interface Props {
@@ -217,6 +218,17 @@ export function InternalEventReport({ eventId, event }: Props) {
       creativesSource={{ kind: "internal", eventId }}
       onTimeframeChange={handleTimeframeChange}
       onManualRefresh={handleManualRefresh}
+      // PR #62 #1 — drop the per-placement preview tile row in favour
+      // of the same concept-card summary the public share view renders.
+      // Identical surface on both views; same lazy-load opt-in so the
+      // Meta fan-out stays off the critical path of opening the tab.
+      creativesSlot={
+        <InternalActiveCreativesSection
+          eventId={eventId}
+          datePreset={datePreset}
+          customRange={customRange}
+        />
+      }
       variant="embedded"
     />
   );
