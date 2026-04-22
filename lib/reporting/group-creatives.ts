@@ -360,20 +360,30 @@ function shortThumbHash(normalisedThumb: string): string {
  *   1. effective_object_story_id → `post:${id}` / "post_id"
  *   2. object_story_id           → `post:${id}` / "post_id"
  *   3. primary_asset_signature   → signature  / "asset_hash"
- *   4. thumbnail_url (normalised) → `thumb:${...}` / "thumbnail"
- *   5. normaliseAdName(ad_names[0]) IF acceptable token →
+ *   4. normaliseAdName(ad_names[0]) IF acceptable token →
  *        `name:${normalised}` / "name"
+ *   5. thumbnail_url (normalised) → `thumb:${...}` / "thumbnail"
  *   6. creative_id literal       → `id:${id}` / "creative_id"
  *
- * Step 5 reads the dominant *ad-level* name (not creative.name) —
- * Meta auto-generates polluted creative.name values from product
- * feeds (e.g. "{{product.name}} 2026-03-31-<uuid>") that are
- * per-row unique and defeat grouping. Ad-level names are what
- * marketers type into Ads Manager and what they want collapsed.
+ * Tier 4 (name) reads the dominant *ad-level* name (not
+ * creative.name) — Meta auto-generates polluted creative.name
+ * values from product feeds (e.g. "{{product.name}} 2026-03-31-
+ * <uuid>") that are per-row unique and defeat grouping. Ad-level
+ * names are what marketers type into Ads Manager and what they
+ * want collapsed.
  *
- * Step 5 also rejects names that are pure-numeric (Meta auto-IDs),
+ * Tier 4 also rejects names that are pure-numeric (Meta auto-IDs),
  * contain unrendered `{{...}}` template tokens, or are too short
  * (< 3 chars) — see `isAcceptableNameToken` for the canonical rules.
+ *
+ * PR #49: tiers 4 + 5 swapped (name now precedes thumbnail). Meta's
+ * CDN rotates thumbnail URLs per creative_id even when the
+ * underlying asset is byte-identical, so the thumbnail tier was
+ * splitting same-concept ads that share a marketer-intended name.
+ * `normaliseAdName` already strips Meta's auto-suffixes (" - Copy
+ * [N]", " (N)", " - vN", trailing ISO dates) so the name tier is
+ * safe-by-default for re-uploads. Thumbnail is now a final
+ * fallback for headless / numeric-name re-uploads.
  */
 export function deriveGroupKey(row: ConceptInputRow): {
   key: string;
@@ -388,9 +398,6 @@ export function deriveGroupKey(row: ConceptInputRow): {
   const sig = row.primary_asset_signature?.trim();
   if (sig) return { key: sig, reason: "asset_hash" };
 
-  const thumb = normaliseThumbnailUrl(row.thumbnail_url);
-  if (thumb) return { key: `thumb:${thumb}`, reason: "thumbnail" };
-
   const dominantAdName = row.ad_names[0]?.trim();
   if (dominantAdName) {
     const name = normaliseAdName(dominantAdName);
@@ -398,6 +405,9 @@ export function deriveGroupKey(row: ConceptInputRow): {
       return { key: `name:${name}`, reason: "name" };
     }
   }
+
+  const thumb = normaliseThumbnailUrl(row.thumbnail_url);
+  if (thumb) return { key: `thumb:${thumb}`, reason: "thumbnail" };
 
   return { key: `id:${row.creative_id}`, reason: "creative_id" };
 }

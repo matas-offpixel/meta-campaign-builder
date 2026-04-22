@@ -158,9 +158,11 @@ test("dedup + aggregation: 3 ads sharing one creative across 2 ad sets", () => {
   assert.equal(r.reach, 1450);
   assert.equal(r.registrations, 8);
   assert.equal(r.purchases, 3);
-  // LPVs aggregated across all three action_type variants:
-  //   landing_page_view (80) + omni_landing_page_view (30) +
-  //   offsite_conversion.fb_pixel_landing_page_view (10) = 120.
+  // LPVs sum ACROSS ads. Each ad here carries exactly one LPV
+  // variant (priority pick is no-op when only one variant is
+  // present), so the cross-ad total = 80 + 30 + 10 = 120. The
+  // priority-pick contract is exercised separately in the dedicated
+  // dedup test below.
   assert.equal(r.landingPageViews, 120);
 
   // Rate metrics use weighted (ratio-of-sums) math, not avg-of-rates.
@@ -321,6 +323,78 @@ test("fatigueScore: ok / warning / critical buckets follow frequency", () => {
   assert.equal(byId.get("cid-fresh")?.fatigueScore, "ok");
   assert.equal(byId.get("cid-warn")?.fatigueScore, "warning");
   assert.equal(byId.get("cid-crit")?.fatigueScore, "critical");
+});
+
+test("action-type dedup: overlapping Meta variants on one ad pick highest-priority only (PR #49)", () => {
+  // Regression: Meta returns the SAME conversion under multiple
+  // action_type keys in a single insights row. Before PR #49 the
+  // grouper summed across the whole allowlist, double / triple
+  // counting and producing non-monotonic timeframe totals.
+  //
+  // Two ads on the same creative_id.
+  //   ad-omni: omni_purchase=10, fb_pixel_purchase=8, purchase=7,
+  //            omni_landing_page_view=100,
+  //            fb_pixel_landing_page_view=80, landing_page_view=70,
+  //            onsite_conversion.lead_grouped=4,
+  //            offsite_conversion.fb_pixel_lead=3, lead=2
+  //   ad-pixel: NO omni_*; fb_pixel_purchase=5, purchase=4,
+  //             fb_pixel_landing_page_view=40, landing_page_view=35,
+  //             offsite_conversion.fb_pixel_lead=1, lead=1
+  //
+  // Expected per-ad picks (top of priority list wins):
+  //   ad-omni  → purchases 10, LPV 100, registrations 4
+  //   ad-pixel → purchases 5,  LPV 40,  registrations 1
+  // Cross-ad sums:
+  //   purchases 15, LPV 140, registrations 5
+  //
+  // Pre-fix sums would have been:
+  //   purchases (10+8+7) + (5+4) = 34   (>2× inflated)
+  //   LPV (100+80+70) + (40+35) = 325   (>2× inflated)
+  //   registrations (4+3+2) + (1+1) = 11 (>2× inflated)
+  const ads: AdInput[] = [
+    ad({
+      ad_id: "ad-omni",
+      creative_id: "creative-dedup",
+      insights: {
+        spend: 50, impressions: 500, clicks: 10, reach: 400,
+        frequency: 1.25,
+        actions: [
+          { action_type: "omni_purchase", value: 10 },
+          { action_type: "offsite_conversion.fb_pixel_purchase", value: 8 },
+          { action_type: "purchase", value: 7 },
+          { action_type: "omni_landing_page_view", value: 100 },
+          { action_type: "offsite_conversion.fb_pixel_landing_page_view", value: 80 },
+          { action_type: "landing_page_view", value: 70 },
+          { action_type: "onsite_conversion.lead_grouped", value: 4 },
+          { action_type: "offsite_conversion.fb_pixel_lead", value: 3 },
+          { action_type: "lead", value: 2 },
+        ],
+      },
+    }),
+    ad({
+      ad_id: "ad-pixel",
+      creative_id: "creative-dedup",
+      insights: {
+        spend: 30, impressions: 300, clicks: 6, reach: 250,
+        frequency: 1.2,
+        actions: [
+          { action_type: "offsite_conversion.fb_pixel_purchase", value: 5 },
+          { action_type: "purchase", value: 4 },
+          { action_type: "offsite_conversion.fb_pixel_landing_page_view", value: 40 },
+          { action_type: "landing_page_view", value: 35 },
+          { action_type: "offsite_conversion.fb_pixel_lead", value: 1 },
+          { action_type: "lead", value: 1 },
+        ],
+      },
+    }),
+  ];
+
+  const rows = groupAdsByCreative(ads);
+  assert.equal(rows.length, 1);
+  const r = rows[0];
+  assert.equal(r.purchases, 15, "must NOT triple-count purchase variants");
+  assert.equal(r.landingPageViews, 140, "must NOT triple-count LPV variants");
+  assert.equal(r.registrations, 5, "must NOT triple-count registration variants");
 });
 
 test("ad_names: distinct trimmed ad.name values, ordered by descending spend", () => {
