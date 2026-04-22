@@ -697,6 +697,41 @@ export type Database = {
           },
         ]
       }
+      event_activity_snapshots: {
+        Row: {
+          event_id: string
+          fetched_at: string
+          id: string
+          payload_jsonb: Json
+          source: string
+          user_id: string
+        }
+        Insert: {
+          event_id: string
+          fetched_at?: string
+          id?: string
+          payload_jsonb: Json
+          source: string
+          user_id: string
+        }
+        Update: {
+          event_id?: string
+          fetched_at?: string
+          id?: string
+          payload_jsonb?: Json
+          source?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_activity_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_artists: {
         Row: {
           artist_id: string

@@ -55,6 +55,7 @@ export function EventDetailTabs({
       : [{ id: "plan", label: "Plan" }]),
     { id: "campaigns", label: "Campaigns", count: campaignsCount },
     { id: "reporting", label: "Reporting" },
+    { id: "activity", label: "Activity" },
   ];
 
   return (

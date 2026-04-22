@@ -451,13 +451,19 @@ export function parseClientStatus(
 // Kept here (not in event-detail-tabs.tsx) so the server page
 // can call parseEventTab without importing from a "use client" module.
 
-export type EventTab = "overview" | "plan" | "campaigns" | "reporting";
+export type EventTab =
+  | "overview"
+  | "plan"
+  | "campaigns"
+  | "reporting"
+  | "activity";
 
 const VALID_EVENT_TABS: EventTab[] = [
   "overview",
   "plan",
   "campaigns",
   "reporting",
+  "activity",
 ];
 
 /** Parse `?tab=` into a validated EventTab, defaulting to "overview". */
