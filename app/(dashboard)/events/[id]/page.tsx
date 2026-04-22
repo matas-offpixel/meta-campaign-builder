@@ -17,6 +17,7 @@ import {
   getQuoteForEventServer,
   listInvoicesForEventServer,
 } from "@/lib/db/invoicing-server";
+import { getSnapshotsForEvent } from "@/lib/db/ticket-snapshots";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -62,6 +63,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     planTickets,
     linkedQuote,
     linkedInvoices,
+    ticketSnapshots,
   ] = await Promise.all([
     getEventByIdServer(id),
     listDraftsForEventServer(id),
@@ -95,6 +97,13 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       console.error("[EventDetailPage] listInvoicesForEventServer failed:", err);
       return [];
     }),
+    // Ticket snapshots for the pacing card. Migration 029 may not be
+    // applied yet in some environments — degrade to an empty series so
+    // the card renders the connect-Eventbrite empty state.
+    getSnapshotsForEvent(id, { sinceDays: 60 }).catch((err) => {
+      console.error("[EventDetailPage] getSnapshotsForEvent failed:", err);
+      return [];
+    }),
   ]);
 
   if (!event) notFound();
@@ -122,6 +131,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       planTickets={planTickets}
       linkedQuote={linkedQuote}
       linkedInvoices={linkedInvoices}
+      ticketSnapshots={ticketSnapshots}
     />
   );
 }
