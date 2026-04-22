@@ -812,6 +812,14 @@ export interface OptimisationStrategySettings {
 
 export interface CampaignSettings {
   clientId?: string;
+  /**
+   * Linked event row (events.id). Set when the wizard is opened from the
+   * library's "New Campaign" picker so downstream features (reporting,
+   * D2C comms, Canva autofill) can read event metadata without prompting
+   * for it again. Optional for backwards compatibility with drafts that
+   * pre-date the picker — `migrateDraft` backfills this to `""`.
+   */
+  eventId?: string;
   /** Real Meta ad account ID, e.g. "act_1234567890" */
   adAccountId: string;
   pixelId?: string;

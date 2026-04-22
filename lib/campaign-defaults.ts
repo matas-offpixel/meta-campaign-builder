@@ -22,6 +22,7 @@ export function createDefaultDraft(): CampaignDraft {
     id: crypto.randomUUID(),
     settings: {
       clientId: "",
+      eventId: "",
       adAccountId: "",
       pixelId: "",
       campaignCode: "",

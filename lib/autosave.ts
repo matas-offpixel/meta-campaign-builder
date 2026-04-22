@@ -277,6 +277,18 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     if (typeof draft.settings.creativeIntegrityMode !== "boolean") {
       draft.settings.creativeIntegrityMode = true;
     }
+
+    // Backfill the client + event linkage fields so legacy drafts always
+    // carry stable strings. These get populated up-front by the library's
+    // "New Campaign" picker; pre-picker drafts simply have empty strings,
+    // matching what `createDefaultDraft` produces. The persistence layer
+    // coerces `""` to SQL NULL on the FK columns so the constraint holds.
+    if (typeof draft.settings.clientId !== "string") {
+      draft.settings.clientId = "";
+    }
+    if (typeof draft.settings.eventId !== "string") {
+      draft.settings.eventId = "";
+    }
   }
 
   if (Array.isArray(draft.creatives)) {
