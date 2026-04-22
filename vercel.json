@@ -6,8 +6,12 @@
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/cron/refresh-creative-insights",
+      "path": "/api/cron/refresh-creative-insights?preset=last_7d",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-creative-insights?preset=last_30d",
+      "schedule": "0 5 * * *"
     }
   ]
 }
