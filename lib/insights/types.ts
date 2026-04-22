@@ -204,7 +204,16 @@ export type InsightsErrorReason =
    * `customRange` failed validation (bad format, since > until,
    * future end date, or older than Meta's 37-month retention).
    */
-  | "invalid_custom_range";
+  | "invalid_custom_range"
+  /**
+   * Meta returned "Please reduce the amount of data you're asking
+   * for" — the requested window × account size × action-level
+   * breakdowns blew its compute-budget cap, AND the day-chunked
+   * fallback also failed. Genuinely terminal for this query: no
+   * countdown, no auto-retry — the agency needs to either narrow
+   * the timeframe or restructure the campaigns.
+   */
+  | "data_too_large";
 
 export interface InsightsError {
   reason: InsightsErrorReason;

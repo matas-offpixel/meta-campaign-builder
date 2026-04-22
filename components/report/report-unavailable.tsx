@@ -142,6 +142,12 @@ function resolveCopy(reason: InsightsErrorReason): UnavailableCopy {
           "retains insights for the last 37 months and dates can't sit in the future.",
         status: "invalid date range",
       };
+    case "data_too_large":
+      return {
+        title: "Report temporarily unavailable",
+        body: "This report covers too much data for a live fetch. The agency has been notified.",
+        status: "data window too large",
+      };
   }
 }
 
