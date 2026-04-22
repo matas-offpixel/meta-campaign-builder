@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useTransition } from "react";
+import { useCallback, useEffect, useRef, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type {
@@ -160,32 +160,64 @@ export function PublicReport({
     });
   };
 
+  // Resolves a pending refresh promise once `isPending` flips back
+  // to false (i.e. the RSC navigation has settled). Without this
+  // we can't reliably await the transition — `startTransition`
+  // doesn't return a promise and `router.push` resolves before the
+  // RSC has even started rendering. PR #63 — without this hop the
+  // cleanup `router.replace` below would supersede the in-flight
+  // `?refresh=1` push and the share RSC would never bypass the
+  // snapshot cache (visitor sees the same stale creative names
+  // they came in with).
+  const transitionResolveRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!isPending && transitionResolveRef.current) {
+      const resolve = transitionResolveRef.current;
+      transitionResolveRef.current = null;
+      resolve();
+    }
+  }, [isPending]);
+
   /**
-   * Manual refresh — wired to the Refresh button in the live
-   * report footer (PR #57 #3). Pushes the URL with `?refresh=1`
-   * so the share RSC bypasses its `share_snapshots` lookup for
-   * this (event, timeframe) bucket and writes a fresh entry.
-   * After the navigation lands the param is stripped from the
-   * URL via `router.replace` so a deep-link share / browser
-   * reload doesn't keep busting cache for every visitor — the
-   * fresh write is now warm in the cache table for the next
-   * 5-minute window. Returns once the transition settles, so
-   * `<RefreshReportButton>` can clear its spinner.
+   * Manual refresh — wired to the Refresh button on the Meta Live
+   * Report block's footer (PR #57 #3 / PR #63). Pushes the URL with
+   * `?refresh=1` so the share RSC bypasses its `share_snapshots`
+   * lookup for this (event, timeframe) bucket and writes a fresh
+   * entry. The snapshot bundles BOTH headline insights AND active
+   * creatives in the same row, so a single bust covers both
+   * surfaces — no need to call two separate endpoints the way the
+   * internal Reporting tab does (where insights and active-creatives
+   * are independent caches).
+   *
+   * Critically: the cleanup `router.replace` is gated on the push
+   * actually completing — see `transitionResolveRef` above. Pre-PR
+   * #63 the resolve fired immediately after `router.push` returned,
+   * which let the cleanup `router.replace` cancel the in-flight
+   * push. Result: the share RSC was re-rendered without `?refresh=1`,
+   * the snapshot was re-read from cache, and the visitor saw the
+   * same stale creative names. Symptomatic on Leeds: All Time view
+   * showed pre-rename creative names ("Loading Bars - Copy") even
+   * after clicking Refresh because the bust never made it server-
+   * side.
+   *
+   * Returns once the transition settles, so `<RefreshReportButton>`
+   * can clear its spinner.
    */
   const handleManualRefresh = useCallback(async () => {
     const sp = new URLSearchParams(searchParams?.toString() ?? "");
     sp.set("refresh", "1");
     const qs = sp.toString();
     await new Promise<void>((resolve) => {
+      transitionResolveRef.current = resolve;
       startTransition(() => {
-        router.push(`${pathname}?${qs}`);
-        resolve();
+        router.push(qs ? `${pathname}?${qs}` : pathname);
       });
     });
     // Strip the bust param so the canonical URL stays clean.
-    // `replace` avoids stacking history entries; the second
-    // navigation is a no-op for the data layer because the cache
-    // entry just written is now the source for this preset.
+    // `replace` avoids stacking history entries; safe to fire now
+    // because the push above has fully settled — the snapshot has
+    // been re-written under the new (event, timeframe) key, so a
+    // re-render at the clean URL reads the fresh entry from cache.
     const cleanup = new URLSearchParams(searchParams?.toString() ?? "");
     cleanup.delete("refresh");
     cleanup.delete("force");

@@ -1,6 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useState,
+} from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -31,6 +36,18 @@ import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
  *     timeframe pill instead of Meta's `last_30d` default
  *   - state resets to "idle" when the timeframe changes so a flick
  *     from 7d → 30d doesn't silently keep showing 7d numbers
+ *
+ * Refresh handle (PR #63 — exposed via `forwardRef` +
+ * `useImperativeHandle`):
+ *   - Parent calls `ref.current.refresh()` from the live report
+ *     footer's Refresh button. When the section is currently in
+ *     "loaded" state, this re-fetches with `?force=1` so any
+ *     server-side cache is bypassed and the fresh creative names
+ *     (e.g. after a Meta-side rename) replace the stale ones.
+ *   - When the section is in idle / loading / error state, refresh
+ *     is a no-op — there's nothing rendered to refresh, and forcing
+ *     a Meta fan-out for a section the user hasn't opted into would
+ *     defeat the whole point of the lazy-load button.
  *
  * Once loaded, the section reuses the share view's
  * `<ShareActiveCreativesClient>` island as-is — no second copy of the
@@ -79,11 +96,24 @@ type State =
   | { kind: "empty"; reason: string }
   | { kind: "error"; message: string };
 
-export function InternalActiveCreativesSection({
-  eventId,
-  datePreset,
-  customRange,
-}: Props) {
+/**
+ * Imperative handle exposed to the parent (`InternalEventReport`)
+ * so the live report footer's Refresh button can ALSO bust this
+ * section's data — not just the headline insights cache. Without
+ * this, a Meta-side creative rename never propagated to the
+ * already-loaded card grid (PR #63 bug).
+ */
+export interface InternalActiveCreativesHandle {
+  refresh: () => Promise<void>;
+}
+
+export const InternalActiveCreativesSection = forwardRef<
+  InternalActiveCreativesHandle,
+  Props
+>(function InternalActiveCreativesSection(
+  { eventId, datePreset, customRange },
+  ref,
+) {
   const [state, setState] = useState<State>({ kind: "idle" });
 
   // Reset to idle whenever the report window changes — datePreset OR
@@ -99,37 +129,58 @@ export function InternalActiveCreativesSection({
     setState({ kind: "idle" });
   }
 
-  const buildUrl = (): string => {
-    const params = new URLSearchParams({ datePreset });
-    if (datePreset === "custom" && customRange) {
-      params.set("since", customRange.since);
-      params.set("until", customRange.until);
-    }
-    return `/api/events/${encodeURIComponent(eventId)}/active-creatives?${params.toString()}`;
-  };
+  const buildUrl = useCallback(
+    (force: boolean): string => {
+      const params = new URLSearchParams({ datePreset });
+      if (datePreset === "custom" && customRange) {
+        params.set("since", customRange.since);
+        params.set("until", customRange.until);
+      }
+      if (force) params.set("force", "1");
+      return `/api/events/${encodeURIComponent(eventId)}/active-creatives?${params.toString()}`;
+    },
+    [eventId, datePreset, customRange],
+  );
 
-  const load = async () => {
-    setState({ kind: "loading" });
-    try {
-      const res = await fetch(buildUrl(), { cache: "no-store" });
+  /**
+   * Single load path used by both the initial "Load creative previews"
+   * click and the imperative refresh handle. `force=true` adds the
+   * `?force=1` query param so the route emits `Cache-Control: no-store`
+   * and (in any future caching layer) bypasses the TTL.
+   *
+   * `markLoadingOnRefresh` controls the spinner UX:
+   *   - true (initial load) — flip to "loading" so the section shows
+   *     the spinner skeleton.
+   *   - false (manual refresh of an already-loaded section) — keep
+   *     the existing card grid visible while refreshing in the
+   *     background; the page-level Refresh button owns the spinner.
+   */
+  const load = useCallback(
+    async ({
+      force,
+      markLoadingOnRefresh,
+    }: {
+      force: boolean;
+      markLoadingOnRefresh: boolean;
+    }) => {
+      if (markLoadingOnRefresh) {
+        setState({ kind: "loading" });
+      }
+      const res = await fetch(buildUrl(force), { cache: "no-store" });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as
           | FailureResponse
           | null;
-        setState({
-          kind: "error",
-          message:
-            body?.error ?? body?.reason ?? `Could not load creatives (${res.status})`,
-        });
-        return;
+        const message =
+          body?.error ?? body?.reason ?? `HTTP ${res.status}`;
+        setState({ kind: "error", message });
+        throw new Error(message);
       }
       const json = (await res.json()) as SuccessResponse | FailureResponse;
       if (!json.ok) {
-        setState({
-          kind: "error",
-          message: json.error ?? json.reason ?? "Could not load creatives",
-        });
-        return;
+        const message = json.error ?? json.reason ?? "Could not load creatives";
+        setState({ kind: "error", message });
+        throw new Error(message);
       }
       // Three "ok but nothing to show" reasons get folded into a quiet
       // empty state instead of an error pill — these are configuration
@@ -155,14 +206,34 @@ export function InternalActiveCreativesSection({
         adsFetched: json.meta.ads_fetched,
         campaignsTotal: json.meta.campaigns_total,
       });
-    } catch (err) {
-      setState({
-        kind: "error",
-        message:
-          err instanceof Error ? err.message : "Could not load creatives.",
-      });
+    },
+    [buildUrl],
+  );
+
+  const handleInitialLoad = useCallback(async () => {
+    try {
+      await load({ force: false, markLoadingOnRefresh: true });
+    } catch {
+      // load() already set the error state — swallow the throw so the
+      // initial click handler doesn't bubble an unhandled rejection.
     }
-  };
+  }, [load]);
+
+  // The imperative refresh handle re-creates whenever `state.kind`
+  // changes — that's intentional. `useImperativeHandle` re-runs and
+  // updates `.current` on the parent's ref to the latest closure, so a
+  // refresh click always observes the current state. We avoid the
+  // "mirror state into a ref during render" pattern (banned by
+  // `react-hooks/refs-during-render` in React 19) entirely.
+  const refresh = useCallback(async () => {
+    // No-op when the section hasn't been opened yet (or a previous
+    // load failed). Forcing a Meta fan-out just because the parent
+    // clicked Refresh would defeat the lazy-load opt-in.
+    if (state.kind !== "loaded") return;
+    await load({ force: true, markLoadingOnRefresh: false });
+  }, [load, state.kind]);
+
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
   if (state.kind === "idle") {
     return (
@@ -179,7 +250,7 @@ export function InternalActiveCreativesSection({
             className="mt-4"
             variant="outline"
             size="sm"
-            onClick={() => void load()}
+            onClick={() => void handleInitialLoad()}
           >
             Load creative previews
           </Button>
@@ -259,4 +330,4 @@ export function InternalActiveCreativesSection({
       </p>
     </section>
   );
-}
+});

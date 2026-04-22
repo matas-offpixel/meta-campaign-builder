@@ -361,6 +361,8 @@ export function EventReportView({
             customRange={customRange}
             creativesSource={creativesSource}
             creativesSlot={creativesSlot}
+            lastUpdatedIso={lastUpdatedIso}
+            onManualRefresh={onManualRefresh}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -383,22 +385,13 @@ export function EventReportView({
         {eventDailySlot ?? null}
       </div>
 
-      {variant === "standalone" ? (
-        <ReportFooter
-          fetchedAt={lastUpdatedIso}
-          onManualRefresh={onManualRefresh}
-        />
-      ) : (
-        <div className="flex items-center justify-end gap-3 pt-4">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            Last updated {fmtRelativeShort(lastUpdatedIso)} · refreshes every 5
-            minutes
-          </p>
-          {onManualRefresh ? (
-            <RefreshReportButton onRefresh={onManualRefresh} />
-          ) : null}
-        </div>
-      )}
+      {/* PR #63 — the "Last updated …" + manual Refresh button now
+          render at the bottom of the Meta block (see MetaReportBlock).
+          That keeps them next to the data they describe. The
+          standalone footer below is branding-only ("Powered by Off
+          Pixel"); the embedded variant has no footer at all because
+          the dashboard already provides chrome. */}
+      {variant === "standalone" ? <ReportFooter /> : null}
     </Outer>
   );
 }
@@ -420,6 +413,19 @@ interface MetaReportBlockProps {
   creativesSource: CreativesSource;
   /** When provided, replaces the default `<CreativePerformanceLazy>` section. */
   creativesSlot?: React.ReactNode;
+  /**
+   * "Last updated …" + manual Refresh button render at the bottom of
+   * the Meta block (PR #63 — moved up from the page-level footer so
+   * the share page's button isn't 800px below the block it actually
+   * refreshes). `lastUpdatedIso` falls back to "now" upstream when no
+   * fetch timestamp is available.
+   *
+   * `onManualRefresh` is optional — when omitted (e.g. a
+   * TikTok-only render where Meta payload is null and the block
+   * doesn't render at all), the Refresh button is hidden.
+   */
+  lastUpdatedIso: string;
+  onManualRefresh?: () => Promise<void>;
 }
 
 function MetaReportBlock({
@@ -436,6 +442,8 @@ function MetaReportBlock({
   customRange,
   creativesSource,
   creativesSlot,
+  lastUpdatedIso,
+  onManualRefresh,
 }: MetaReportBlockProps) {
   return (
     <>
@@ -634,6 +642,25 @@ function MetaReportBlock({
           />
         </Section>
       )}
+
+      {/* "Last updated …" + manual Refresh button (PR #63 — moved up
+          from the page-level footer so the share page's button sits
+          immediately below the block it actually refreshes; pre-fix
+          it was at the very bottom of `<ReportFooter>` after
+          TikTok + Event Reporting blocks, ~800px below the Meta
+          numbers a client looking for "this is stale" feedback would
+          scan). Same position on both internal Reporting tab and
+          public share — single source so the two surfaces don't
+          drift. */}
+      <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          Last updated {fmtRelativeShort(lastUpdatedIso)} · refreshes every 5
+          minutes
+        </p>
+        {onManualRefresh ? (
+          <RefreshReportButton onRefresh={onManualRefresh} />
+        ) : null}
+      </div>
     </>
   );
 }
@@ -905,24 +932,19 @@ function ReportHeader({
   );
 }
 
-function ReportFooter({
-  fetchedAt,
-  onManualRefresh,
-}: {
-  fetchedAt: string;
-  onManualRefresh?: () => Promise<void>;
-}) {
+/**
+ * Page-level footer for the standalone share view.
+ *
+ * Branding-only since PR #63 — the "Last updated …" timestamp +
+ * manual Refresh button moved up to the bottom of the Meta Live
+ * Report block so they sit next to the data they describe (the
+ * old position was ~800px down the page after TikTok + Event
+ * Reporting blocks, where clients consistently missed it).
+ */
+function ReportFooter() {
   return (
     <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
       <p>Powered by Off Pixel</p>
-      <div className="mt-1 flex items-center justify-center gap-3">
-        <p className="text-[10px] uppercase tracking-[0.2em]">
-          Last updated {fmtRelativeShort(fetchedAt)} · refreshes every 5 minutes
-        </p>
-        {onManualRefresh ? (
-          <RefreshReportButton onRefresh={onManualRefresh} />
-        ) : null}
-      </div>
     </footer>
   );
 }

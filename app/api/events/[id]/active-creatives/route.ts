@@ -144,6 +144,16 @@ export async function GET(
     sp.get("since"),
     sp.get("until"),
   );
+  // PR #63 — manual cache-bust signal from the live report footer's
+  // Refresh button. The route doesn't currently keep a server-side
+  // TTL of its own (each request fans out to Meta), but Next.js
+  // route handlers can be cached by the framework's Data Cache when
+  // the inner Meta fetches don't carry `cache: "no-store"`. We force
+  // a fresh fan-out + emit `Cache-Control: no-store` so any future
+  // edge / browser cache layer also defers to the upstream Meta
+  // result. Mirrors `/api/insights/event/[id]?force=1`.
+  const force = sp.get("force");
+  const forceRefresh = force === "1" || force === "true";
 
   const supabase = await createClient();
   const {
@@ -154,6 +164,14 @@ export async function GET(
       { ok: false, reason: "not_signed_in", error: "Not signed in" },
       { status: 401 },
     );
+  }
+
+  if (forceRefresh) {
+    console.log("[active-creatives] force-refresh", {
+      eventId,
+      datePreset,
+      customRange: customRange ? `${customRange.since}..${customRange.until}` : null,
+    });
   }
 
   const event = await getEventByIdServer(eventId);
@@ -270,5 +288,8 @@ export async function GET(
       unattributed: result.meta.unattributed,
     },
   };
-  return NextResponse.json(payload);
+  const headers = forceRefresh
+    ? { "Cache-Control": "no-store, max-age=0" }
+    : undefined;
+  return NextResponse.json(payload, { headers });
 }
