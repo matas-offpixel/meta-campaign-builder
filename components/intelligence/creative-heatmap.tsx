@@ -155,8 +155,11 @@ type ObjectiveFilter = ObjectiveGroup | "all";
 export function CreativeHeatmapPage() {
   const heatmap = useCreativeHeatmap();
   // Status filter stays component-local — it never round-trips to the
-  // route, just shapes the rendered set.
-  const [status, setStatus] = useState<string>("ALL");
+  // route, just shapes the rendered set. Default "ACTIVE" keeps cold
+  // loads small enough to dodge Meta rate limits on accounts with
+  // long histories; users can flip to "ALL" when they want the wider
+  // view.
+  const [status, setStatus] = useState<string>("ACTIVE");
   // Sort state is component-local for the same reason. Default sort
   // is ascending CPL (best leads first) when no objective is active;
   // an active preset overrides this via the chip handler.
