@@ -306,6 +306,10 @@ async function fetchCampaignInsights(args: {
     );
     return res.data?.[0] ?? null;
   } catch (err) {
+    // TEMP diagnostic — remove once PR #43 chunked fallback confirmed firing.
+    // Surfaces the exact error shape so we can verify isReduceDataError is
+    // matching against fields that actually exist on the production payload.
+    logRawErrorShape("campaign", campaignId, err);
     if (isReduceDataError(err)) {
       console.warn(
         `[insights/meta] reduce-data fallback firing for campaign=${campaignId} preset=${datePreset}`,
@@ -320,6 +324,30 @@ async function fetchCampaignInsights(args: {
     }
     throw err;
   }
+}
+
+/**
+ * TEMP diagnostic helper — remove once PR #43 chunked fallback
+ * confirmed firing in production logs. Exists so the next
+ * production trip reveals the exact error shape if the classifier
+ * still misses (e.g. Meta ships yet another wrapping).
+ *
+ * Single console.error call so a future grep for the marker phrase
+ * cleans up cleanly.
+ */
+function logRawErrorShape(scope: string, id: string, err: unknown): void {
+  console.error(
+    `[insights/meta] raw error shape (${scope}=${id})`,
+    JSON.stringify({
+      name: err instanceof Error ? err.name : typeof err,
+      ctor: (err as { constructor?: { name?: string } })?.constructor?.name,
+      code: (err as { code?: unknown })?.code,
+      subcode: (err as { subcode?: unknown })?.subcode,
+      message: err instanceof Error ? err.message : String(err),
+      userMsg: (err as { userMsg?: unknown })?.userMsg,
+      rawErrorData: (err as { rawErrorData?: unknown })?.rawErrorData,
+    }),
+  );
 }
 
 // ─── Day-chunked fallback ──────────────────────────────────────────────────
@@ -768,6 +796,8 @@ async function fetchAdInsights(args: {
     );
     return res.data?.[0] ?? null;
   } catch (err) {
+    // TEMP diagnostic — remove once PR #43 chunked fallback confirmed firing.
+    logRawErrorShape("ad", adId, err);
     if (isReduceDataError(err)) {
       console.warn(
         `[insights/meta] reduce-data fallback firing for ad=${adId} preset=${datePreset}`,
