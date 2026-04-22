@@ -88,6 +88,11 @@ export async function graphGet<T>(
 /**
  * GET request against the Graph API with an explicit token.
  * Use when you want to call as the user (OAuth token) rather than the app token.
+ *
+ * Includes a small internal retry loop for transient failures — see
+ * {@link RETRYABLE_META_CODES} and {@link executeGetWithRetry} below.
+ * Read paths only: POST helpers do NOT retry (single-shot to avoid
+ * double-creating campaigns / ad sets / audiences).
  */
 export async function graphGetWithToken<T>(
   path: string,
@@ -99,27 +104,175 @@ export async function graphGetWithToken<T>(
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
+  return executeGetWithRetry<T>(url, path);
+}
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), { cache: "no-store" });
-  } catch (err) {
-    throw new Error(`Network error calling Meta API: ${String(err)}`);
-  }
+// ─── GET retry internals ─────────────────────────────────────────────────────
+//
+// Why the heatmap was crashing: `fetchCreativeInsights` pages up to 20×
+// through this helper (100 ads/page). A single transient 5xx or
+// rate-limit blip from Meta would propagate `MetaApiError("Service
+// temporarily unavailable")` straight up to the route, killing the
+// whole load even though the next call would have succeeded.
+//
+// Retry policy:
+//   - 3 attempts total (initial + 2 retries).
+//   - Backoff schedule (ms, ±25% jitter): 500 → 1500 → 4000.
+//     Computed even though we only sleep before retries 2 and 3 — the
+//     first delay before retry 1 uses index 0 (500ms).
+//   - Triggers: thrown fetch (network error), HTTP 429, HTTP 5xx, or a
+//     parsed Meta error code in RETRYABLE_META_CODES.
+//   - `Retry-After` header (when present) overrides the computed
+//     backoff for that attempt, capped at 10s so a misbehaving server
+//     can't pin a request open for a minute.
+//   - GET-only on purpose. POST mutations stay single-shot.
 
-  const json = (await response.json()) as Record<string, unknown>;
+const MAX_GET_ATTEMPTS = 3;
+const BASE_BACKOFFS_MS = [500, 1500, 4000];
+const RETRY_AFTER_CAP_MS = 10_000;
 
-  if (!response.ok || json.error) {
-    const e = (json.error ?? {}) as Record<string, unknown>;
-    throw new MetaApiError(
-      (e.message as string) ?? `HTTP ${response.status}`,
-      e.code as number | undefined,
-      e.type as string | undefined,
-      e.fbtrace_id as string | undefined,
+/**
+ * Meta error codes that are safe to retry: transient backend hiccups
+ * and rate-limiting. Outside this set (auth, permissions, validation,
+ * etc.) retrying is pointless and will just waste time + budget.
+ *
+ *   1   — Unknown / transient API error
+ *   2   — "Service temporarily unavailable"
+ *   4   — Application request limit reached
+ *   17  — User request limit reached
+ *   32  — Page request limit reached
+ *   341 — Application request limit reached (alt code surfaced on some edges)
+ *   613 — Custom audiences / ads rate limit
+ */
+const RETRYABLE_META_CODES = new Set<number>([1, 2, 4, 17, 32, 341, 613]);
+
+interface ParsedMetaError {
+  message: string;
+  code?: number;
+  type?: string;
+  fbtraceId?: string;
+}
+
+async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_GET_ATTEMPTS; attempt += 1) {
+    let response: Response | null = null;
+    let networkError: unknown = null;
+    try {
+      response = await fetch(url.toString(), { cache: "no-store" });
+    } catch (err) {
+      networkError = err;
+    }
+
+    // Network failure — retryable up to MAX_GET_ATTEMPTS.
+    if (!response) {
+      lastError = new Error(`Network error calling Meta API: ${String(networkError)}`);
+      const remaining = MAX_GET_ATTEMPTS - attempt - 1;
+      if (remaining <= 0) throw lastError;
+      const delay = jitter(BASE_BACKOFFS_MS[attempt] ?? 4000);
+      console.warn(
+        `[graphGetWithToken] retry ${attempt + 1}/${MAX_GET_ATTEMPTS - 1} after ${delay}ms: ${path} (reason: network_error)`,
+      );
+      await sleep(delay);
+      continue;
+    }
+
+    // Always parse the body — even on success Meta sometimes returns a
+    // top-level `error` object alongside data.
+    const json = (await response.json()) as Record<string, unknown>;
+
+    if (response.ok && !json.error) {
+      return json as T;
+    }
+
+    const parsed = parseMetaError(json, response.status);
+    const transient = isTransientFailure(response.status, parsed.code);
+    const remaining = MAX_GET_ATTEMPTS - attempt - 1;
+
+    if (!transient || remaining <= 0) {
+      // Either non-retryable (auth / validation / 4xx) or out of
+      // attempts. Surface as MetaApiError with the same shape the
+      // single-shot version returned, so route-level
+      // `instanceof MetaApiError` checks keep working.
+      throw new MetaApiError(
+        parsed.message,
+        parsed.code,
+        parsed.type,
+        parsed.fbtraceId,
+      );
+    }
+
+    const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
+    const delay = retryAfter ?? jitter(BASE_BACKOFFS_MS[attempt] ?? 4000);
+    console.warn(
+      `[graphGetWithToken] retry ${attempt + 1}/${MAX_GET_ATTEMPTS - 1} after ${delay}ms: ${path} (reason: ${reasonLabel(response.status, parsed.code)})`,
     );
+    await sleep(delay);
+    lastError = parsed;
   }
 
-  return json as T;
+  // Defensive — the loop should always either return or throw.
+  // Surface whatever last error we observed if execution ever falls
+  // through (e.g. all attempts hit the network-error branch and we
+  // exited via `continue` without a throw — shouldn't happen but the
+  // type system can't prove it).
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("graphGetWithToken: exhausted retries without a thrown error");
+}
+
+function parseMetaError(
+  json: Record<string, unknown>,
+  status: number,
+): ParsedMetaError {
+  const e = (json.error ?? {}) as Record<string, unknown>;
+  return {
+    message: (e.message as string) ?? `HTTP ${status}`,
+    code: e.code as number | undefined,
+    type: e.type as string | undefined,
+    fbtraceId: e.fbtrace_id as string | undefined,
+  };
+}
+
+function isTransientFailure(
+  httpStatus: number,
+  metaCode: number | undefined,
+): boolean {
+  if (httpStatus === 429) return true;
+  if (httpStatus >= 500 && httpStatus <= 599) return true;
+  if (metaCode != null && RETRYABLE_META_CODES.has(metaCode)) return true;
+  return false;
+}
+
+function reasonLabel(httpStatus: number, metaCode: number | undefined): string {
+  if (metaCode != null && RETRYABLE_META_CODES.has(metaCode)) {
+    return `meta_code_${metaCode}`;
+  }
+  if (httpStatus === 429) return "http_429";
+  if (httpStatus >= 500) return `http_${httpStatus}`;
+  return "unknown";
+}
+
+/**
+ * Parse a Retry-After header. Spec allows seconds (integer) or an
+ * HTTP-date; we honour seconds and ignore the date variant (rare in
+ * practice for Meta). Returns null when missing / malformed.
+ */
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number.parseInt(value.trim(), 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(seconds * 1000, RETRY_AFTER_CAP_MS);
+}
+
+function jitter(baseMs: number): number {
+  const spread = baseMs * 0.25;
+  // ±25% uniform jitter — avoids thundering-herd if a whole account
+  // rate-limits and many concurrent reads bounce at once.
+  return Math.round(baseMs + (Math.random() * 2 - 1) * spread);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ─── POST helpers ────────────────────────────────────────────────────────────
