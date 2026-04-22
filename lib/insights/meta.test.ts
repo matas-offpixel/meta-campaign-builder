@@ -94,6 +94,60 @@ test("isReduceDataError: null / undefined → false", () => {
   assert.equal(isReduceDataError(undefined), false);
 });
 
+// ─── PR #44 regression fixtures ─────────────────────────────────────────────
+//
+// These mirror the exact shapes seen in production Vercel logs. Pre-fix
+// (PR #43), `parseMetaError` only extracted message/code/type/fbtraceId so
+// `userMsg` was always undefined and the classifier returned false even when
+// the actionable phrase was sitting in `error_user_msg`. PR #44 propagates
+// the field; these cases prove the classifier now matches it.
+
+test(
+  "PR#44 production shape: message='An unknown error occurred' + userMsg with the phrase → true",
+  () => {
+    const err = {
+      message: "An unknown error occurred",
+      code: 1,
+      userMsg:
+        "Please reduce the amount of data — Please reduce the amount of data you're asking for, then retry your request",
+    };
+    assert.equal(isReduceDataError(err), true);
+  },
+);
+
+test(
+  "PR#44 production shape: phrase only present in rawErrorData.error_user_title → true",
+  () => {
+    const err = {
+      message: "An unknown error occurred",
+      rawErrorData: {
+        error_user_title: "Please reduce the amount of data",
+      },
+    };
+    assert.equal(isReduceDataError(err), true);
+  },
+);
+
+test("PR#44: bare Error('Please reduce…') → true", () => {
+  const err = new Error(
+    "Please reduce the amount of data you're asking for",
+  );
+  assert.equal(isReduceDataError(err), true);
+});
+
+test(
+  "PR#44: code=100 with reduce-data userMsg → true (was rejected by old code-1/2 prefilter)",
+  () => {
+    const err = {
+      code: 100,
+      message: "Invalid parameter",
+      userMsg:
+        "Please reduce the amount of data you're asking for, then retry your request",
+    };
+    assert.equal(isReduceDataError(err), true);
+  },
+);
+
 // ─── resolvePresetToDays ────────────────────────────────────────────────────
 
 /** Fixed "today" in UTC so the day-list assertions stay deterministic. */

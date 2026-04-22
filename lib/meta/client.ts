@@ -152,6 +152,31 @@ interface ParsedMetaError {
   code?: number;
   type?: string;
   fbtraceId?: string;
+  /**
+   * Meta's `error_subcode` — supplements `code` for a few error
+   * families (e.g. duplicate-lookalike 1713007). Surfaced through
+   * `MetaApiError.subcode` so callers branching on subcode get the
+   * full picture from the GET retry path too (POST helpers already
+   * propagated this).
+   */
+  subcode?: number;
+  /**
+   * Concatenation of Meta's `error_user_title` + `error_user_msg`
+   * (whichever are populated). For some errors — most importantly
+   * the "reduce the amount of data" compute-budget rejection —
+   * Meta's `message` field is a generic "An unknown error
+   * occurred" and the actionable phrase ONLY appears here. Without
+   * propagating this field the day-chunked fallback in
+   * `lib/insights/meta.ts` could never trigger because
+   * `isReduceDataError` had nothing to regex against.
+   */
+  userMsg?: string;
+  /**
+   * Full raw `error` object as Meta returned it. JSON-stringified
+   * by the classifier as a last-resort substring check, and useful
+   * in production logs when triaging a misclassified error.
+   */
+  rawErrorData?: Record<string, unknown>;
 }
 
 async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
@@ -194,12 +219,21 @@ async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
       // Either non-retryable (auth / validation / 4xx) or out of
       // attempts. Surface as MetaApiError with the same shape the
       // single-shot version returned, so route-level
-      // `instanceof MetaApiError` checks keep working.
+      // `instanceof MetaApiError` checks keep working. Propagate
+      // subcode + userMsg + rawErrorData so downstream classifiers
+      // (notably `isReduceDataError`) can match the actionable text
+      // — Meta sometimes hides the real reason in error_user_msg
+      // while leaving `message` as a generic "An unknown error
+      // occurred". Pre-fix this stripped those fields and the
+      // day-chunked fallback could never trigger.
       throw new MetaApiError(
         parsed.message,
         parsed.code,
         parsed.type,
         parsed.fbtraceId,
+        parsed.subcode,
+        parsed.userMsg,
+        parsed.rawErrorData,
       );
     }
 
@@ -226,11 +260,22 @@ function parseMetaError(
   status: number,
 ): ParsedMetaError {
   const e = (json.error ?? {}) as Record<string, unknown>;
+  const userTitle = e.error_user_title as string | undefined;
+  const userMsg = e.error_user_msg as string | undefined;
   return {
     message: (e.message as string) ?? `HTTP ${status}`,
     code: e.code as number | undefined,
     type: e.type as string | undefined,
     fbtraceId: e.fbtrace_id as string | undefined,
+    subcode: e.error_subcode as number | undefined,
+    // Concatenate title + msg so either half can match the
+    // classifier regex without us having to check both fields.
+    // Meta surfaces the actionable text in either slot depending
+    // on the error family — "reduce the amount of data" lives in
+    // error_user_msg, the duplicate-name family lives in
+    // error_user_title.
+    userMsg: [userTitle, userMsg].filter(Boolean).join(" — ") || undefined,
+    rawErrorData: e,
   };
 }
 
