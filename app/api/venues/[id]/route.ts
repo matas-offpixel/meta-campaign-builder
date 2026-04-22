@@ -23,6 +23,18 @@ const PATCH_FIELDS: Array<keyof VenueUpdate> = [
   "meta_page_name",
   "website",
   "notes",
+  // Enrichment-derived fields — accepted on PATCH so the slide-over
+  // "Save" persists fields the candidate panel populated.
+  "google_place_id",
+  "latitude",
+  "longitude",
+  "phone",
+  "address_full",
+  "google_maps_url",
+  "rating",
+  "user_ratings_total",
+  "photo_reference",
+  "profile_jsonb",
 ];
 
 function buildPatch(body: Record<string, unknown>): VenueUpdate {
