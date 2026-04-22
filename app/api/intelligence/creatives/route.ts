@@ -23,10 +23,10 @@ import type {
  *   ?since=&until=               accepted as no-op for backwards-compat
  *
  * Default behaviour is to read from `creative_insight_snapshots` —
- * the cache table pre-warmed every 2h by /api/cron/refresh-creative-
- * insights. Cache miss returns `needsRefresh: true` (with no rows) so
- * the UI can prompt the user to kick a live fetch rather than render
- * an empty heatmap.
+ * the cache table pre-warmed daily by /api/cron/refresh-creative-
+ * insights (Hobby cron cap; spec targeted 2h on Pro). Cache miss
+ * returns `needsRefresh: true` (with no rows) so the UI can prompt
+ * the user to kick a live fetch rather than render an empty heatmap.
  *
  * `?refresh=1` runs the live Meta fetch (~5 min on a 1k-ad account),
  * upserts the result into the cache, and returns it with

@@ -91,4 +91,4 @@ create policy cis_owner_delete on creative_insight_snapshots
   for delete using (user_id = auth.uid());
 
 comment on table creative_insight_snapshots is
-  'Per-ad Meta insights cached from /intelligence/creatives to avoid 5-min live loads. Upserted by /api/cron/refresh-creative-insights (2h cadence) and by manual Refresh button. Unique key is (user_id, ad_account_id, ad_id, date_preset) so one row per ad per window — not append-only.';
+  'Per-ad Meta insights cached from /intelligence/creatives to avoid 5-min live loads. Upserted by /api/cron/refresh-creative-insights (daily on Hobby per Vercel cron limits; spec called for 2h, achievable on Pro by editing vercel.json) and by manual Refresh button. Unique key is (user_id, ad_account_id, ad_id, date_preset) so one row per ad per window — not append-only.';

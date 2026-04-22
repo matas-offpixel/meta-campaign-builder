@@ -13,11 +13,18 @@ import type { CreativeDatePreset } from "@/lib/types/intelligence";
  * GET /api/cron/refresh-creative-insights
  *
  * Vercel Cron entry point. Pre-warms `creative_insight_snapshots`
- * every 2h for the warm-set of `(user_id, ad_account_id)` pairs
- * that have viewed the heatmap at least once. The /intelligence/
- * creatives read route serves from this cache; the live Meta fetch
- * (which can take ~5 min on a 1k-ad account) only runs on explicit
+ * for the warm-set of `(user_id, ad_account_id)` pairs that have
+ * viewed the heatmap at least once. The /intelligence/creatives
+ * read route serves from this cache; the live Meta fetch (which
+ * can take ~5 min on a 1k-ad account) only runs on explicit
  * `?refresh=1` from the user.
+ *
+ * Cadence: configured in `vercel.json`. Currently `0 4 * * *`
+ * (once daily, ~04:00 UTC) because the project is on Vercel Hobby
+ * which caps cron at one execution per day. The original spec
+ * targeted every 2h (`0 *\/2 * * *`); upgrading the project to
+ * Vercel Pro and editing `vercel.json` is the only change needed
+ * to get there. Manual "Refresh from Meta" covers the gap on Hobby.
  *
  * Auth: bearer header `Authorization: Bearer <CRON_SECRET>`. Same
  * shape as `/api/cron/sync-ticketing`. 401 on mismatch so a leaked
