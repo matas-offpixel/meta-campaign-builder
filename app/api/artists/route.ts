@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { createArtist, listArtists } from "@/lib/db/artists";
+import type { Json } from "@/lib/db/database.types";
 
 /**
  * GET  /api/artists?genre=Techno  list every artist; optional genre filter
@@ -53,21 +54,34 @@ export async function POST(req: NextRequest) {
     ? (body.genres as unknown[]).filter((g): g is string => typeof g === "string")
     : [];
 
+  // Optional enrichment fields — only persisted when present so a
+  // bare {name,genres} POST keeps the original behaviour intact.
+  const stringOrNull = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() !== "" ? v : null;
+  const numberOrNull = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+
   try {
     const artist = await createArtist(user.id, {
       name,
       genres,
-      meta_page_id:
-        typeof body.meta_page_id === "string" ? body.meta_page_id : null,
-      meta_page_name:
-        typeof body.meta_page_name === "string" ? body.meta_page_name : null,
-      instagram_handle:
-        typeof body.instagram_handle === "string"
-          ? body.instagram_handle
-          : null,
-      spotify_id: typeof body.spotify_id === "string" ? body.spotify_id : null,
-      website: typeof body.website === "string" ? body.website : null,
-      notes: typeof body.notes === "string" ? body.notes : null,
+      meta_page_id: stringOrNull(body.meta_page_id),
+      meta_page_name: stringOrNull(body.meta_page_name),
+      instagram_handle: stringOrNull(body.instagram_handle),
+      spotify_id: stringOrNull(body.spotify_id),
+      website: stringOrNull(body.website),
+      notes: stringOrNull(body.notes),
+      musicbrainz_id: stringOrNull(body.musicbrainz_id),
+      facebook_page_url: stringOrNull(body.facebook_page_url),
+      tiktok_handle: stringOrNull(body.tiktok_handle),
+      soundcloud_url: stringOrNull(body.soundcloud_url),
+      beatport_url: stringOrNull(body.beatport_url),
+      bandcamp_url: stringOrNull(body.bandcamp_url),
+      profile_image_url: stringOrNull(body.profile_image_url),
+      popularity_score: numberOrNull(body.popularity_score),
+      ...(body.profile_jsonb && typeof body.profile_jsonb === "object"
+        ? { profile_jsonb: body.profile_jsonb as unknown as Json }
+        : {}),
     });
     return NextResponse.json({ ok: true, artist }, { status: 201 });
   } catch (err) {

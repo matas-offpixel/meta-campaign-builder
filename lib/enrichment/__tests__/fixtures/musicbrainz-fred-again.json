@@ -1,0 +1,20 @@
+{
+  "artist": {
+    "id": "31810c40-9bba-4cd9-aa42-e75b0d67a17e",
+    "name": "Fred again..",
+    "score": 100,
+    "country": "GB",
+    "disambiguation": "British producer"
+  },
+  "urls": {
+    "instagram_handle": "@fredagainagainagain",
+    "facebook_page_url": "https://www.facebook.com/fredagainmusic",
+    "tiktok_handle": "@fredagainmusic",
+    "soundcloud_url": "https://soundcloud.com/fredagain",
+    "bandcamp_url": null,
+    "beatport_url": "https://www.beatport.com/artist/fred-again/930512",
+    "website": "https://fredagain.com",
+    "spotify_id": "4oLeXFyACqeem2VImYeBFe",
+    "youtube_url": null
+  }
+}
