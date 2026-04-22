@@ -45,21 +45,21 @@ import type { CreativeDatePreset } from "@/lib/types/intelligence";
  */
 
 /**
- * Vercel function timeout. 300s comfortably covers the realistic
- * 5-account × 2-preset sweep with the 10s inter-account spacing
- * below, even when act_210578427 paginates through ~20 page-25
- * round-trips. Requires Pro plan; if you're on Hobby, drop this
- * to 60 and accept that one cron tick will only cover a single
- * account.
+ * Vercel function timeout. Pro plan provides up to 800s — we take
+ * the full budget so act_901661116878308 (~1.5k ads at page-25,
+ * both presets) actually finishes inside one invocation instead of
+ * tripping the function cap. On Hobby the 300s cap fits a single
+ * account only and you'd want the per-preset split schedule from
+ * the previous iteration of vercel.json.
  */
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 /**
  * Stop scheduling NEW accounts ~10s before the function timeout
  * fires so the response payload (which the user reads from Vercel
  * logs) actually flushes. Tuned against `maxDuration` above.
  */
-const SOFT_TIMEOUT_MS = 290_000;
+const SOFT_TIMEOUT_MS = 790_000;
 
 /**
  * Pause between consecutive account fetches to avoid

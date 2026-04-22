@@ -38,6 +38,18 @@ import type {
  * shares / bookmarks keep working without 400ing.
  */
 
+/**
+ * Vercel function timeout for the user-facing live-fetch path.
+ * Capped at 300s on purpose — the `?refresh=1` branch can spend
+ * several minutes paginating Meta on accounts like
+ * act_901661116878308 / act_210578427, but anything beyond 5
+ * minutes means the user has tabbed away long ago. The cron at
+ * /api/cron/refresh-creative-insights is the right place for an
+ * 800s sweep; this route stays bounded so we don't pin a Pro
+ * function for 13 minutes per browser tab.
+ */
+export const maxDuration = 300;
+
 const VALID_PRESETS: CreativeDatePreset[] = [
   "today",
   "yesterday",
