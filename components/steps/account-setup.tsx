@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
 import { connectFacebookAccount, FB_SCOPES, type ScopeDebugInfo } from "@/lib/facebook-connect";
+import { useWizardEventContext } from "@/lib/wizard/use-event-context";
+import { Sparkles } from "lucide-react";
 
 // ─── Inline spinner ───────────────────────────────────────────────────────────
 
@@ -70,6 +72,28 @@ interface AccountSetupProps {
 export function AccountSetup({ settings, onChange, campaignId }: AccountSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
+
+  // Soft pre-fill banner: surfaced when the wizard knows which client
+  // the draft belongs to, so users can see why the ad account / pixel
+  // landed pre-selected. The banner doesn't change behaviour — it just
+  // explains the source. Defaults are applied once globally in
+  // wizard-shell's EventDefaultsApplier.
+  const { client } = useWizardEventContext();
+  const clientAdAccount = client?.meta_ad_account_id ?? null;
+  const showPrefillBanner = Boolean(
+    client &&
+      (clientAdAccount === settings.metaAdAccountId ||
+        clientAdAccount === settings.adAccountId),
+  );
+  const handleClearDefaults = () => {
+    update({
+      adAccountId: "",
+      metaAdAccountId: undefined,
+      metaPixelId: undefined,
+      pixelId: undefined,
+      metaPageId: undefined,
+    });
+  };
 
   const [fbConnectBusy, setFbConnectBusy] = useState(false);
   const [fbScopeDebug, setFbScopeDebug] = useState<ScopeDebugInfo | null>(null);
@@ -191,6 +215,24 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
           Facebook page and Instagram account are chosen per ad in the Creatives step.
         </p>
       </div>
+
+      {showPrefillBanner && client && (
+        <div className="flex items-start gap-2.5 rounded-md border border-primary/30 bg-primary-light/40 px-3 py-2 text-xs text-foreground">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            Pre-filled from{" "}
+            <span className="font-medium">{client.name}</span> defaults — you
+            can override.
+          </div>
+          <button
+            type="button"
+            onClick={handleClearDefaults}
+            className="shrink-0 rounded px-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            clear defaults
+          </button>
+        </div>
+      )}
 
       {/* ── Facebook (user token) ─────────────────────────────────────────── */}
       <Card>

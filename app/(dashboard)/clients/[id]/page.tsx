@@ -9,14 +9,42 @@ import {
 } from "@/lib/db/invoicing-server";
 import { getShareForClient } from "@/lib/db/report-shares";
 import { listLatestSnapshotsForClient } from "@/lib/db/client-snapshots-server";
+import { listConnectionsForUser } from "@/lib/db/ticketing";
+import { listD2CConnectionsForUser } from "@/lib/db/d2c";
+import { listCreativeTemplatesForUser } from "@/lib/db/creative-templates";
+import {
+  isBannerbearEnabled,
+  isCanvaEnabled,
+  isPlacidEnabled,
+} from "@/lib/creatives/types";
+import type { ProviderStatus } from "@/components/dashboard/clients/creative-templates-panel";
 import type { SettlementTiming } from "@/lib/pricing/calculator";
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }
 
-export default async function ClientDetailPage({ params }: Props) {
+const ALLOWED_TABS = new Set([
+  "overview",
+  "events",
+  "ticketing",
+  "d2c",
+  "creatives",
+  "invoicing",
+]);
+
+type ClientTab =
+  | "overview"
+  | "events"
+  | "ticketing"
+  | "d2c"
+  | "creatives"
+  | "invoicing";
+
+export default async function ClientDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const { tab } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -26,6 +54,10 @@ export default async function ClientDetailPage({ params }: Props) {
   // fallback in case a route slips through.
   if (!user) redirect("/login");
 
+  // Fetch everything the tab shell can possibly need in parallel — the
+  // ticketing / d2c / creatives panels mount even when their tab isn't
+  // active so the count badges in the tab bar are accurate without a
+  // second round-trip. Each helper is RLS-scoped to the caller.
   const [
     client,
     events,
@@ -33,6 +65,9 @@ export default async function ClientDetailPage({ params }: Props) {
     clientQuotes,
     share,
     latestSnapshots,
+    ticketing,
+    d2c,
+    creativeTemplates,
   ] = await Promise.all([
     getClientByIdServer(id),
     listEventsServer(user.id, { clientId: id }),
@@ -40,6 +75,9 @@ export default async function ClientDetailPage({ params }: Props) {
     listQuotesServer(user.id, { client_id: id }),
     getShareForClient(id),
     listLatestSnapshotsForClient(user.id, id),
+    listConnectionsForUser(supabase, { clientId: id }),
+    listD2CConnectionsForUser(supabase, { clientId: id }),
+    listCreativeTemplatesForUser(supabase),
   ]);
 
   if (!client) notFound();
@@ -54,6 +92,48 @@ export default async function ClientDetailPage({ params }: Props) {
     ? { token: share.token, enabled: share.enabled }
     : null;
 
+  // Strip credentials before crossing the server→client boundary. The
+  // panel components also enforce `credentials: null` in their own
+  // prop types so this is belt-and-braces.
+  const safeTicketing = ticketing.map((c) => ({
+    ...c,
+    credentials: null as null,
+  }));
+  const safeD2C = d2c.map((c) => ({
+    ...c,
+    credentials: null as null,
+  }));
+
+  const creativeProviderStatus: ProviderStatus[] = [
+    {
+      provider: "canva",
+      label: "Canva Autofill",
+      enabled: isCanvaEnabled(),
+      flag: "FEATURE_CANVA_AUTOFILL",
+      blurb:
+        "Brand templates with autofill via Canva Connect. Requires Canva Enterprise approval.",
+    },
+    {
+      provider: "bannerbear",
+      label: "Bannerbear",
+      enabled: isBannerbearEnabled(),
+      flag: "FEATURE_BANNERBEAR",
+      blurb:
+        "Lightweight image / video render API. Self-serve account, no enterprise gate.",
+    },
+    {
+      provider: "placid",
+      label: "Placid",
+      enabled: isPlacidEnabled(),
+      flag: "FEATURE_PLACID",
+      blurb:
+        "Template-based render API with similar surface area to Bannerbear.",
+    },
+  ];
+
+  const initialTab: ClientTab =
+    tab && ALLOWED_TABS.has(tab) ? (tab as ClientTab) : "overview";
+
   return (
     <ClientDetail
       client={client}
@@ -63,6 +143,11 @@ export default async function ClientDetailPage({ params }: Props) {
       defaults={defaults}
       initialShare={initialShare}
       latestSnapshots={latestSnapshots}
+      ticketingConnections={safeTicketing}
+      d2cConnections={safeD2C}
+      creativeTemplates={creativeTemplates}
+      creativeProviderStatus={creativeProviderStatus}
+      initialTab={initialTab}
     />
   );
 }
