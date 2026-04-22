@@ -12,6 +12,7 @@ import {
   groupByAssetSignature,
   type ConceptGroupRow,
 } from "@/lib/reporting/group-creatives";
+import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 /**
  * lib/reporting/share-active-creatives.ts
@@ -74,6 +75,19 @@ interface FetchInput {
   eventCode: string | null;
   /** Pulled from the share page's existing client lookup. */
   adAccountId: string | null;
+  /**
+   * Forwarded to the per-ad nested `insights{...}` field so the
+   * creative metric strip honours the share page's `?tf=`
+   * selector. Without this, Meta defaults nested insights to
+   * `last_30d` regardless of the timeframe pill — which is the
+   * "creative stats ignore selected timeframe" bug this PR fixes.
+   *
+   * Optional so the internal panel route (which never calls this
+   * helper) and any future caller can stay on Meta's default.
+   */
+  datePreset?: DatePreset;
+  /** Required when `datePreset === "custom"`. */
+  customRange?: CustomDateRange;
 }
 
 /**
@@ -128,6 +142,8 @@ export async function fetchShareActiveCreatives(
       // last_7d on a wide event tips both calls into 5xx + network-
       // error retries and the whole report errors out.
       concurrency: 1,
+      datePreset: input.datePreset,
+      customRange: input.customRange,
     });
   } catch (err) {
     if (err instanceof FacebookAuthExpiredError) {

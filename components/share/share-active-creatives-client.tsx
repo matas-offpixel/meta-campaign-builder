@@ -9,6 +9,23 @@ import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import ShareCreativePreviewModal from "@/components/share/share-creative-preview-modal";
 
 /**
+ * Fatigue pill colour scale — mirrors the internal heatmap pill
+ * (`components/intelligence/creative-heatmap.tsx`) so a marketer
+ * who sees both surfaces builds one mental model. "ok" is the
+ * empty-state default rather than hidden so the card layout stays
+ * stable as creatives saturate.
+ */
+const FATIGUE_PILL_CLASSES: Record<
+  ConceptGroupRow["fatigueScore"],
+  string
+> = {
+  ok: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+  warning:
+    "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
+  critical: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30",
+};
+
+/**
  * components/share/share-active-creatives-client.tsx
  *
  * Client island that owns the click-to-expand modal state for the
@@ -106,17 +123,115 @@ function ShareCreativeCard({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+      {/*
+        Header strip: prominent Spend + fatigue pill on a single
+        baseline. CTR drops out of the headline grid (still visible
+        in the modal) because the user-facing question on a share
+        card is "where is my money going + is the creative still
+        fresh", not "how clicky is the impression".
+      */}
+      <div className="flex items-end justify-between gap-2">
         <Stat label="Spend" value={fmtCurrency(row.spend)} prominent />
-        <Stat label="CTR" value={fmtPct(row.ctr)} />
-        <Stat label="CPR" value={fmtMoneyOrDash(row.cpr)} />
-        <Stat label="Frequency" value={fmtFreq(row.frequency)} />
+        <FatiguePill score={row.fatigueScore} frequency={row.frequency} />
+      </div>
+
+      {/*
+        Funnel stack: Clicks → LPV → Purchases, each row pairing
+        the volume number (left, foreground colour) with its cost
+        per (right, muted). Reads top-down as the user's funnel,
+        which is more useful than the previous 2×2 metric grid for
+        spotting where a creative leaks. CPR shows up as a
+        horizontal pair on the Purchases row's lower line so we
+        keep registration data without adding a fifth row.
+      */}
+      <div className="space-y-1.5 text-sm">
+        <FunnelRow
+          label="Clicks"
+          volume={fmtInt(row.clicks)}
+          costLabel="CPC"
+          cost={fmtMoneyOrDash(row.cpc)}
+        />
+        <FunnelRow
+          label="LPV"
+          volume={fmtInt(row.landingPageViews)}
+          costLabel="CPLPV"
+          cost={fmtMoneyOrDash(row.cplpv)}
+        />
+        <FunnelRow
+          label="Purchases"
+          volume={fmtInt(row.purchases)}
+          costLabel="CPP"
+          cost={fmtMoneyOrDash(row.cpp)}
+        />
+        {row.registrations > 0 && (
+          <FunnelRow
+            label="Regs"
+            volume={fmtInt(row.registrations)}
+            costLabel="CPR"
+            cost={fmtMoneyOrDash(row.cpr)}
+          />
+        )}
       </div>
 
       <div className="mt-auto pt-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
         Click to preview →
       </div>
     </button>
+  );
+}
+
+function FunnelRow({
+  label,
+  volume,
+  costLabel,
+  cost,
+}: {
+  label: string;
+  volume: string;
+  costLabel: string;
+  cost: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        <span className="text-sm font-medium text-foreground">{volume}</span>
+      </div>
+      <div className="flex items-baseline gap-1.5 text-xs text-muted-foreground">
+        <span>{costLabel}</span>
+        <span className="text-foreground">{cost}</span>
+      </div>
+    </div>
+  );
+}
+
+function FatiguePill({
+  score,
+  frequency,
+}: {
+  score: ConceptGroupRow["fatigueScore"];
+  frequency: number | null;
+}) {
+  // Frequency rendered alongside the pill so the user can sanity-
+  // check the bucket boundary without opening the modal — `freq
+  // 4.7×` next to a "warning" pill is more useful than the pill
+  // alone. Falls back to a label-only pill when frequency is null
+  // (zero reach), since the pill is "ok" by definition there.
+  const freqLabel = fmtFreq(frequency);
+  return (
+    <span
+      title={`Frequency ${freqLabel} · ${score}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${FATIGUE_PILL_CLASSES[score]}`}
+    >
+      <span>{score}</span>
+      {frequency != null && Number.isFinite(frequency) && (
+        <span className="text-[10px] opacity-80 normal-case tracking-normal">
+          {freqLabel}×
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -171,10 +286,6 @@ function Stat({
   );
 }
 
-function fmtPct(v: number | null): string {
-  if (v == null || !Number.isFinite(v)) return "—";
-  return `${v.toFixed(2)}%`;
-}
 function fmtMoneyOrDash(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return fmtCurrency(v);
@@ -182,4 +293,14 @@ function fmtMoneyOrDash(v: number | null): string {
 function fmtFreq(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return v.toFixed(2);
+}
+/**
+ * Integer formatter for the funnel volume column. Locale-grouped
+ * so 1 234 567 reads cleanly on a card. Returns "—" for null /
+ * non-finite — same fallback as the cost cells so the row is
+ * visually consistent when an action type isn't pixelled.
+ */
+function fmtInt(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return Math.round(v).toLocaleString("en-GB");
 }

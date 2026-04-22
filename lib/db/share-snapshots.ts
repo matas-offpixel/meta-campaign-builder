@@ -140,13 +140,26 @@ export async function readShareSnapshot(
   // module so callers see the typed surface only.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
-  const { data, error } = await sb
+  // NULL filter dance: PostgREST translates `.eq(col, null)` to
+  // `WHERE col = NULL` (always false in SQL three-valued logic),
+  // which is why every preset query under migration 036 was a
+  // 100% miss. Use `.is(col, null)` for the IS NULL case and only
+  // fall back to `.eq` when we actually have a value to filter
+  // by — that maps to PostgREST's `is.null` operator and matches
+  // the rows the writer is upserting after migration 037 makes
+  // the unique constraint NULLS NOT DISTINCT.
+  let q = sb
     .from(TABLE)
     .select("payload, expires_at, fetched_at")
     .eq("share_token", key.shareToken)
-    .eq("date_preset", key.datePreset)
-    .eq("custom_since", key.customRange?.since ?? null)
-    .eq("custom_until", key.customRange?.until ?? null)
+    .eq("date_preset", key.datePreset);
+  q = key.customRange
+    ? q.eq("custom_since", key.customRange.since)
+    : q.is("custom_since", null);
+  q = key.customRange
+    ? q.eq("custom_until", key.customRange.until)
+    : q.is("custom_until", null);
+  const { data, error } = await q
     .order("expires_at", { ascending: false })
     .limit(1)
     .maybeSingle();

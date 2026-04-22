@@ -87,6 +87,10 @@ interface CreativeRow {
   cpr: number | null;
   purchases: number;
   cpp: number | null;
+  /** Landing-page views — see active-creatives-group.ts JSDoc. */
+  landingPageViews: number;
+  /** Cost per landing-page view. null when LPVs = 0. */
+  cplpv: number | null;
   frequency: number | null;
 }
 
@@ -217,12 +221,23 @@ function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
     reach: row.reach,
     registrations: row.registrations,
     purchases: row.purchases,
+    landingPageViews: row.landingPageViews,
     ctr: row.ctr,
     cpm: row.cpm,
     cpc: row.cpc,
     cpr: row.cpr,
     cpp: row.cpp,
+    cplpv: row.cplpv,
     frequency: row.frequency,
+    // Mirror the bucket-level scale used by groupByAssetSignature so
+    // toggling "Group by concept" off doesn't change the pill value
+    // for the same single-creative case.
+    fatigueScore:
+      row.frequency == null || !Number.isFinite(row.frequency) || row.frequency < 3
+        ? "ok"
+        : row.frequency <= 5
+          ? "warning"
+          : "critical",
     ad_names: row.ad_names,
     underlying_creative_ids: [row.creative_id],
     reasons: ["creative_id"],

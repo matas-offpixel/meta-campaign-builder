@@ -8,6 +8,7 @@ import {
   type CreativePreview,
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
+import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 /**
  * lib/reporting/active-creatives-fetch.ts
@@ -139,6 +140,25 @@ export interface FetchActiveCreativesInput {
    * error retries and the whole report errors out.
    */
   concurrency?: number;
+  /**
+   * Date window for the nested `insights{...}` field on each ad.
+   *
+   *   - `undefined` → no `date_preset(...)` / `time_range(...)`
+   *     modifier. Meta's nested-insights default is `last_30d` —
+   *     matches the internal panel's pre-existing behaviour, which
+   *     is why this stays optional rather than required.
+   *   - `"custom"` → `customRange` MUST also be provided; we
+   *     forward it as `time_range({since, until})`.
+   *   - any other preset → forwarded as `date_preset(<preset>)`.
+   *
+   * The share page is the (currently sole) caller that passes a
+   * non-default value, so creative metrics finally honour the
+   * `?tf=` selector instead of silently showing last_30d for every
+   * timeframe.
+   */
+  datePreset?: DatePreset;
+  /** Required when `datePreset === "custom"`. */
+  customRange?: CustomDateRange;
 }
 
 export interface FetchActiveCreativesMeta {
@@ -323,10 +343,49 @@ async function listLinkedCampaignIds(
   return (res.data ?? []).slice(0, PER_EVENT_CAMPAIGN_CAP);
 }
 
+/**
+ * Build the `insights{...}` expression with an optional date-window
+ * modifier. Meta's nested-field syntax allows
+ * `insights.date_preset(last_7d){...}` or
+ * `insights.time_range({since,until}){...}`. Without either, Meta
+ * defaults to `last_30d` — which silently mismatched the share
+ * page's `?tf=` selector for every preset other than `last_30d`,
+ * and fell back to the wrong window completely for `maximum`.
+ *
+ * Defensive on `customRange`: we only emit `time_range(...)` when
+ * both `since` and `until` are present. A half-set range would
+ * make Meta 400 the entire ads call, killing the page rather than
+ * just degrading metrics.
+ */
+function buildInsightsField(
+  datePreset: DatePreset | undefined,
+  customRange: CustomDateRange | undefined,
+): string {
+  const subFields = "spend,impressions,clicks,reach,frequency,actions";
+  if (!datePreset) return `insights{${subFields}}`;
+  if (datePreset === "custom") {
+    if (!customRange?.since || !customRange?.until) {
+      // Caller passed `custom` without a complete range — fall back
+      // to Meta's default rather than blowing up the whole ads
+      // call. `lib/insights/meta.ts` does its own validation up
+      // front; this branch is purely a safety net.
+      return `insights{${subFields}}`;
+    }
+    const tr = JSON.stringify({
+      since: customRange.since,
+      until: customRange.until,
+    });
+    return `insights.time_range(${tr}){${subFields}}`;
+  }
+  return `insights.date_preset(${datePreset}){${subFields}}`;
+}
+
 async function fetchActiveAdsForCampaign(
   campaignId: string,
   campaignName: string | null,
   token: string,
+  datePreset: DatePreset | undefined,
+  customRange: CustomDateRange | undefined,
 ): Promise<AdInput[]> {
   // Meta's nested-field syntax: braces expand related objects.
   // Asset-grouping needs object_story_spec + asset_feed_spec sub-
@@ -344,7 +403,7 @@ async function fetchActiveAdsForCampaign(
     "adset_id",
     "adset{id,name}",
     "creative{id,name,title,body,thumbnail_url,image_url,video_id,object_story_id,effective_object_story_id,instagram_permalink_url,call_to_action_type,link_url,object_story_spec{link_data{name,message,description,image_hash,picture,link,call_to_action{type}},video_data{title,message,video_id,image_url}},asset_feed_spec}",
-    "insights{spend,impressions,clicks,reach,frequency,actions}",
+    buildInsightsField(datePreset, customRange),
   ].join(",");
 
   const params: Record<string, string> = {
@@ -519,6 +578,8 @@ export async function fetchActiveCreativesForEvent(
             c.id,
             c.name ?? null,
             token,
+            input.datePreset,
+            input.customRange,
           );
         } catch (err) {
           if (isMetaAuthError(err)) authExpired = true;
