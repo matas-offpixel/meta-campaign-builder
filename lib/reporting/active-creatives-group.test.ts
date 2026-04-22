@@ -42,6 +42,21 @@ function ad(overrides: Partial<AdInput>): AdInput {
     headline: "Headline",
     body: "Body text",
     thumbnail_url: "https://example.com/t.jpg",
+    // PR #40: asset-signal grouping fields. Defaulted null here so
+    // dedup/aggregation tests don't have to care about them; the
+    // dedicated waterfall coverage lives in group-creatives.test.ts.
+    effective_object_story_id: null,
+    object_story_id: null,
+    primary_asset_signature: null,
+    preview: {
+      image_url: null,
+      video_id: null,
+      instagram_permalink_url: null,
+      headline: null,
+      body: null,
+      call_to_action_type: null,
+      link_url: null,
+    },
     insights: {
       spend: 100,
       impressions: 1000,

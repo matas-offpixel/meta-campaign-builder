@@ -21,9 +21,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import {
-  groupByNormalisedName,
+  groupByAssetSignature,
   type ConceptGroupRow,
-} from "@/lib/reporting/group-creatives-by-name";
+  type ConceptInputPreview,
+} from "@/lib/reporting/group-creatives";
+import CreativePreviewModal from "@/components/dashboard/events/creative-preview-modal";
 
 /**
  * components/dashboard/events/event-active-creatives-panel.tsx
@@ -61,6 +63,12 @@ interface CreativeRow {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  /** Asset-grouping signals — present on every API row (see PR #40). */
+  effective_object_story_id: string | null;
+  object_story_id: string | null;
+  primary_asset_signature: string | null;
+  /** Modal preview payload — top-spend ad's copy on the underlying creative. */
+  preview: ConceptInputPreview;
   ad_count: number;
   adsets: AdsetRef[];
   campaigns: CampaignRef[];
@@ -168,14 +176,41 @@ function fmtFreq(v: number | null): string {
   return v.toFixed(2);
 }
 
-function adsManagerUrl(adId: string, adAccountId: string | null): string {
-  // selected_ad_ids deep-links straight to the ad row.
-  // act_id is required to scope to the right ad account; without
-  // it Ads Manager throws an "ambiguous account" interstitial.
-  const accountParam = adAccountId
-    ? `&act=${encodeURIComponent(adAccountId.replace(/^act_/, ""))}`
-    : "";
-  return `https://business.facebook.com/adsmanager/manage/ads?selected_ad_ids=${encodeURIComponent(adId)}${accountParam}`;
+/**
+ * Build a synthetic ConceptGroupRow from a single per-creative_id
+ * row. Used when the "Group by concept" toggle is OFF — the modal
+ * always takes a ConceptGroupRow so we don't have to maintain two
+ * preview surfaces. Aggregation math collapses to identity (one row
+ * in, one row out) so the metrics displayed match the card.
+ */
+function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
+  return {
+    group_key: `c:${row.creative_id}`,
+    display_name: row.creative_name ?? row.headline ?? "Creative",
+    creative_id_count: 1,
+    ad_count: row.ad_count,
+    adsets: row.adsets,
+    campaigns: row.campaigns,
+    representative_ad_id: row.representative_ad_id,
+    representative_thumbnail: row.thumbnail_url,
+    representative_headline: row.headline,
+    representative_body_preview: row.body,
+    representative_preview: row.preview,
+    spend: row.spend,
+    impressions: row.impressions,
+    clicks: row.clicks,
+    reach: row.reach,
+    registrations: row.registrations,
+    purchases: row.purchases,
+    ctr: row.ctr,
+    cpm: row.cpm,
+    cpc: row.cpc,
+    cpr: row.cpr,
+    cpp: row.cpp,
+    frequency: row.frequency,
+    underlying_creative_ids: [row.creative_id],
+    reasons: ["creative_id"],
+  };
 }
 
 interface Props {
@@ -193,8 +228,15 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
   // #38 was that re-uploaded creatives (Meta mints a new creative_id
   // on duplicate) showed up as N separate rows. v1 stores in local
   // state only; we'll consider URL-persistence if it shows up in the
-  // "I keep toggling this" feedback loop.
+  // "I keep toggling this" feedback loop. Internally the grouper now
+  // runs on Meta asset signals (post id / image hash / video id) —
+  // the label stays "Group by concept" because that matches users'
+  // mental model regardless of which signal collapsed the bucket.
   const [groupByConcept, setGroupByConcept] = useState(true);
+  // Modal state — null when no preview open. We always normalise to
+  // a ConceptGroupRow so the modal has one shape to render against
+  // (per-creative_id rows are wrapped via rowToSyntheticGroup).
+  const [openGroup, setOpenGroup] = useState<ConceptGroupRow | null>(null);
 
   const load = useCallback(
     async (opts: { refresh: boolean }) => {
@@ -245,7 +287,7 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
   // sort. When OFF, sort the per-creative_id rows the route returned.
   // Both branches share the same SortableRow comparator.
   const groupedRows = useMemo(
-    () => (data ? groupByNormalisedName(data.creatives) : []),
+    () => (data ? groupByAssetSignature(data.creatives) : []),
     [data],
   );
   const visibleRows: Array<CreativeRow | ConceptGroupRow> = useMemo(() => {
@@ -376,6 +418,19 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
           sorted={visibleRows}
           eventId={eventId}
           groupByConcept={groupByConcept}
+          onOpen={(row) => {
+            setOpenGroup(
+              isConceptRow(row) ? row : rowToSyntheticGroup(row),
+            );
+          }}
+        />
+      )}
+
+      {openGroup && (
+        <CreativePreviewModal
+          group={openGroup}
+          adAccountId={data?.ad_account_id ?? null}
+          onClose={() => setOpenGroup(null)}
         />
       )}
     </div>
@@ -387,11 +442,13 @@ function EmptyOrGrid({
   sorted,
   eventId,
   groupByConcept,
+  onOpen,
 }: {
   data: SuccessResponse;
   sorted: Array<CreativeRow | ConceptGroupRow>;
   eventId: string;
   groupByConcept: boolean;
+  onOpen: (row: CreativeRow | ConceptGroupRow) => void;
 }) {
   if (data.reason === "no_event_code") {
     return (
@@ -444,7 +501,7 @@ function EmptyOrGrid({
         <CreativeCard
           key={isConceptRow(row) ? `g:${row.group_key}` : `c:${row.creative_id}`}
           row={toCardModel(row, groupByConcept)}
-          adAccountId={data.ad_account_id}
+          onClick={() => onOpen(row)}
         />
       ))}
     </div>
@@ -518,13 +575,23 @@ function toCardModel(
 
 function CreativeCard({
   row,
-  adAccountId,
+  onClick,
 }: {
   row: CardModel;
-  adAccountId: string | null;
+  onClick: () => void;
 }) {
+  // Card is the primary affordance — clicking anywhere opens the
+  // preview modal. Rendered as a real <button> (not a div with
+  // onClick) so keyboard users get focus / Enter / Space for free.
+  // The Ads Manager deep link moved into the modal footer to avoid
+  // a nested <a> inside the button.
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="View full creative"
+      className="group flex h-full flex-col gap-3 rounded-md border border-border bg-card p-4 text-left transition hover:border-border-strong hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
       <div className="flex items-start gap-3">
         <Thumbnail url={row.thumbnail} alt={row.altText} />
         <div className="min-w-0 flex-1">
@@ -565,18 +632,10 @@ function CreativeCard({
         <Stat label="Frequency" value={fmtFreq(row.frequency)} />
       </div>
 
-      <div className="mt-auto pt-1">
-        <a
-          href={adsManagerUrl(row.representativeAdId, adAccountId)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-        >
-          Open in Ads Manager
-          <ExternalLink className="h-3 w-3" />
-        </a>
+      <div className="mt-auto pt-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+        Click to preview →
       </div>
-    </div>
+    </button>
   );
 }
 
