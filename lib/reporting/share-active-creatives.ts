@@ -51,6 +51,24 @@ export type ShareActiveCreativesResult =
         ads_fetched: number;
         dropped_no_creative: number;
         truncated: boolean;
+        /**
+         * Spend / volume from per-ad insight rows that had no AdInput
+         * to stitch onto (almost always ARCHIVED / DELETED ads with
+         * historical spend in the window). Surfaced as an "Other /
+         * unattributed" footer line so the share's creative-card
+         * spend reconciles against the campaign total even when
+         * paused-and-deleted concepts contributed cost.
+         */
+        unattributed: {
+          ads_count: number;
+          spend: number;
+          impressions: number;
+          clicks: number;
+          inline_link_clicks: number;
+          landingPageViews: number;
+          registrations: number;
+          purchases: number;
+        };
       };
     }
   | {
@@ -182,6 +200,7 @@ export async function fetchShareActiveCreatives(
       // or share-side trim (>30 concept groups after grouping)
       // counts as truncated for the caveat note.
       truncated: result.meta.truncated || allGroups.length > SHARE_GROUPS_CAP,
+      unattributed: result.meta.unattributed,
     },
   };
 }

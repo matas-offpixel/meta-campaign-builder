@@ -184,6 +184,35 @@ export interface FetchActiveCreativesMeta {
    * surfaces, not the UI.
    */
   cross_campaign_duplicates: number;
+  /**
+   * Backstop bucket for insight rows that had no matching AdInput
+   * after the widen + stitch — almost always ads that were
+   * ARCHIVED or DELETED inside the reporting window (Meta strips
+   * them from /ads but still returns their historical spend on
+   * /insights?level=ad). Sum is per-event, dedup safe (orphan rows
+   * are unique by ad_id by construction). The share + internal
+   * panels surface this as an "Other / unattributed" footer line
+   * so total creative spend reconciles to total campaign spend
+   * even when archived ads carry historical cost.
+   */
+  unattributed: UnattributedBucket;
+}
+
+/**
+ * Spend / volume from per-ad insight rows that didn't match any
+ * AdInput after the cross-campaign stitch. Always present in the
+ * envelope so callers don't need a null check; `ads_count === 0`
+ * means everything was attributed.
+ */
+export interface UnattributedBucket {
+  ads_count: number;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  inline_link_clicks: number;
+  landingPageViews: number;
+  registrations: number;
+  purchases: number;
 }
 
 export interface FetchActiveCreativesResult {
@@ -192,10 +221,69 @@ export interface FetchActiveCreativesResult {
   meta: FetchActiveCreativesMeta;
 }
 
+/**
+ * All-zero `UnattributedBucket`. Returned both on the
+ * "no-campaigns-matched" early bail and as the reduce-seed when
+ * there are no orphan rows to roll up — keeps the envelope shape
+ * uniform so consumers never have to special-case `null`.
+ */
+function emptyUnattributedBucket(): UnattributedBucket {
+  return {
+    ads_count: 0,
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    inline_link_clicks: 0,
+    landingPageViews: 0,
+    registrations: 0,
+    purchases: 0,
+  };
+}
+
 function num(v: string | number | undefined): number {
   if (v == null) return 0;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+// Action-type priorities for the orphan rollup. Mirror the priority
+// lists in active-creatives-group.ts so the unattributed totals use
+// the same de-dup contract as the per-card totals — picks the first
+// matching variant per insight row, never sums across overlapping
+// Meta variants. Kept inline rather than imported from the grouper
+// to keep this module's import surface tight (the grouper itself
+// only handles AdInput rows; orphans never get that far).
+const ORPHAN_LPV_PRIORITY = [
+  "omni_landing_page_view",
+  "offsite_conversion.fb_pixel_landing_page_view",
+  "landing_page_view",
+] as const;
+
+const ORPHAN_REG_PRIORITY = [
+  "onsite_conversion.lead_grouped",
+  "offsite_conversion.fb_pixel_complete_registration",
+  "offsite_conversion.fb_pixel_lead",
+  "complete_registration",
+  "lead",
+  "registration",
+] as const;
+
+const ORPHAN_PURCHASE_PRIORITY = [
+  "omni_purchase",
+  "offsite_conversion.fb_pixel_purchase",
+  "purchase",
+] as const;
+
+function sumPriorityAction(
+  actions: Array<{ action_type?: string; value?: string }> | undefined,
+  priority: readonly string[],
+): number {
+  if (!actions || actions.length === 0) return 0;
+  for (const type of priority) {
+    const hit = actions.find((a) => a.action_type === type);
+    if (hit) return num(hit.value);
+  }
+  return 0;
 }
 
 /**
@@ -408,10 +496,31 @@ async function fetchActiveAdsForCampaign(
     "creative{id,name,title,body,thumbnail_url,image_url,video_id,object_story_id,effective_object_story_id,instagram_permalink_url,call_to_action_type,link_url,object_story_spec{link_data{name,message,description,image_hash,picture,link,call_to_action{type}},video_data{title,message,video_id,image_url}},asset_feed_spec}",
   ].join(",");
 
+  // Why we don't filter to ACTIVE-only:
+  //   The per-ad /insights call below is unfiltered and returns spend
+  //   rows for every ad with activity in the window — including ads
+  //   under paused campaigns and paused ads under active campaigns.
+  //   With the old `["ACTIVE"]` filter on /ads, those insight rows
+  //   had no AdInput to stitch onto and were silently dropped at the
+  //   "if (!row) continue;" guard in the caller, so the creative-card
+  //   totals reconciled to ~8% of the real campaign spend on the Leeds
+  //   event (PRESALE campaign paused → all ads CAMPAIGN_PAUSED → all
+  //   £523.98 of historical PRESALE spend orphaned).
+  //
+  // The widened set covers every status that can have spend in the
+  // current reporting window, while still excluding ARCHIVED / DELETED
+  // (their creative payloads are gone — Meta returns them as nulls)
+  // and review/billing limbo states that never actually ran.
   const params: Record<string, string> = {
     fields,
     limit: String(ADS_PAGE_LIMIT),
-    effective_status: JSON.stringify(["ACTIVE"]),
+    effective_status: JSON.stringify([
+      "ACTIVE",
+      "PAUSED",
+      "CAMPAIGN_PAUSED",
+      "ADSET_PAUSED",
+      "WITH_ISSUES",
+    ]),
   };
 
   const out: AdInput[] = [];
@@ -775,6 +884,7 @@ export async function fetchActiveCreativesForEvent(
         truncated: false,
         auth_expired: false,
         cross_campaign_duplicates: 0,
+        unattributed: emptyUnattributedBucket(),
       },
     };
   }
@@ -782,6 +892,23 @@ export async function fetchActiveCreativesForEvent(
   const semaphore = createSemaphore(concurrency);
   let authExpired = false;
   const failed: Array<{ campaign_id: string; error: string }> = [];
+
+  // Per-campaign orphan buckets — rolled up into a single
+  // `meta.unattributed` total at the bottom. We capture the orphans
+  // here (next to the stitch loop that creates them) rather than
+  // post-hoc to keep the bookkeeping local: the only thing the
+  // outer scope needs to see is the rolled-up sum.
+  type OrphanBucket = {
+    ads_count: number;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    inline_link_clicks: number;
+    landingPageViews: number;
+    registrations: number;
+    purchases: number;
+  };
+  const orphanBuckets: OrphanBucket[] = [];
 
   const results = await Promise.all(
     campaigns.map((c) =>
@@ -814,9 +941,11 @@ export async function fetchActiveCreativesForEvent(
           // insight row keep `insights: null` (set by
           // fetchActiveAdsForCampaign) and the grouper treats them
           // as zero-contribution.
+          const stitchedAdIds = new Set<string>();
           for (const ad of ads) {
             const row = insightsMap.get(ad.ad_id);
             if (!row) continue;
+            stitchedAdIds.add(ad.ad_id);
             ad.insights = {
               spend: num(row.spend),
               impressions: num(row.impressions),
@@ -834,6 +963,44 @@ export async function fetchActiveCreativesForEvent(
               })),
             };
           }
+
+          // Anything in the insights map that didn't get stitched is
+          // an orphan — almost always an ARCHIVED / DELETED ad whose
+          // creative payload Meta has stripped. We can't render a
+          // card for it (no thumbnail, no headline, no creative_id)
+          // but its spend is real and must reconcile against the
+          // campaign-level breakdown elsewhere in the report.
+          const orphan: OrphanBucket = {
+            ads_count: 0,
+            spend: 0,
+            impressions: 0,
+            clicks: 0,
+            inline_link_clicks: 0,
+            landingPageViews: 0,
+            registrations: 0,
+            purchases: 0,
+          };
+          for (const [adId, row] of insightsMap) {
+            if (stitchedAdIds.has(adId)) continue;
+            orphan.ads_count += 1;
+            orphan.spend += num(row.spend);
+            orphan.impressions += num(row.impressions);
+            orphan.clicks += num(row.clicks);
+            orphan.inline_link_clicks += num(row.inline_link_clicks);
+            orphan.landingPageViews += sumPriorityAction(
+              row.actions,
+              ORPHAN_LPV_PRIORITY,
+            );
+            orphan.registrations += sumPriorityAction(
+              row.actions,
+              ORPHAN_REG_PRIORITY,
+            );
+            orphan.purchases += sumPriorityAction(
+              row.actions,
+              ORPHAN_PURCHASE_PRIORITY,
+            );
+          }
+          if (orphan.ads_count > 0) orphanBuckets.push(orphan);
           return ads;
         } catch (err) {
           if (isMetaAuthError(err)) authExpired = true;
@@ -886,6 +1053,58 @@ export async function fetchActiveCreativesForEvent(
     truncated = true;
   }
 
+  // Roll up per-campaign orphans (insight rows with no AdInput to
+  // stitch onto — typically ARCHIVED / DELETED ads with historical
+  // spend in the window) into a single bucket. The grouper only
+  // sees ads with full creative payloads; orphans bypass it on
+  // purpose because we have no way to render a card for them.
+  const unattributed: UnattributedBucket = orphanBuckets.reduce(
+    (acc, b) => ({
+      ads_count: acc.ads_count + b.ads_count,
+      spend: acc.spend + b.spend,
+      impressions: acc.impressions + b.impressions,
+      clicks: acc.clicks + b.clicks,
+      inline_link_clicks: acc.inline_link_clicks + b.inline_link_clicks,
+      landingPageViews: acc.landingPageViews + b.landingPageViews,
+      registrations: acc.registrations + b.registrations,
+      purchases: acc.purchases + b.purchases,
+    }),
+    {
+      ads_count: 0,
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      inline_link_clicks: 0,
+      landingPageViews: 0,
+      registrations: 0,
+      purchases: 0,
+    } as UnattributedBucket,
+  );
+
+  // Dev-mode reconciliation: warn if the unattributed bucket is more
+  // than a rounding error so a regression in the widen / stitch path
+  // shows up immediately in `npm run dev` rather than silently
+  // dropping spend on the cards. Production stays quiet — Meta's
+  // `effective_status` filter and our archive boundary mean a
+  // long-running event will always carry SOME unattributed spend
+  // from genuinely deleted ads.
+  if (process.env.NODE_ENV !== "production" && unattributed.ads_count > 0) {
+    const stitchedSpend = creatives.reduce(
+      (acc, c) => acc + (c.spend ?? 0),
+      0,
+    );
+    const totalSpend = stitchedSpend + unattributed.spend;
+    const orphanShare = totalSpend > 0 ? unattributed.spend / totalSpend : 0;
+    if (orphanShare > 0.05) {
+      console.warn(
+        `[active-creatives] ${(orphanShare * 100).toFixed(1)}% of total ` +
+          `creative spend is unattributed (${unattributed.ads_count} ads, ` +
+          `£${unattributed.spend.toFixed(2)} of £${totalSpend.toFixed(2)}) ` +
+          `— widen the /ads effective_status filter or audit the stitch path.`,
+      );
+    }
+  }
+
   return {
     creatives,
     ad_account_id: adAccountId,
@@ -902,6 +1121,7 @@ export async function fetchActiveCreativesForEvent(
       truncated,
       auth_expired: authExpired,
       cross_campaign_duplicates: duplicatesDropped,
+      unattributed,
     },
   };
 }

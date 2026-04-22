@@ -32,6 +32,7 @@ import { listLinksForEvent } from "@/lib/db/ticketing";
 import {
   computePresaleBucket,
   loadEventDailyTimeline,
+  sumTicketsSoldInWindow,
   type TimelineRow,
 } from "@/lib/db/event-daily-timeline";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
@@ -547,6 +548,24 @@ async function resolveReportData(
       token: providerToken,
       datePreset,
       customRange,
+      // Wire the rollup-summed tickets-in-window into the
+      // payload so `EventReportView` can derive a timeframe-
+      // aware "Tickets sold" + "Cost per ticket" instead of
+      // staring at the frozen mount-time `events.tickets_sold`
+      // snapshot. See PR #56 #3 — `getTicketsSoldInWindow`
+      // returns null on first sync / unlinked events, in which
+      // case the consumer falls back to the legacy number.
+      // `share.event_id` is `string | null` on the union type
+       // (client-scope shares carry null), but the page-level
+       // narrowing above guarantees we're on an event-scope
+       // branch by the time `resolveReportData` runs. Skip the
+       // resolver entirely on the impossible-but-typesafe null
+       // case so EventReportView falls back to the legacy
+       // mount-time tickets number.
+      ticketsInWindowResolver: share.event_id
+        ? (preset, range) =>
+            sumTicketsSoldInWindow(admin, share.event_id!, preset, range)
+        : undefined,
     });
     if (insights.ok) {
       metaPayload = insights.data;

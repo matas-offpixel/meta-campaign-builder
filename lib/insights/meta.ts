@@ -107,6 +107,24 @@ export interface FetchEventInsightsArgs {
    * result rather than silently falling back to a preset.
    */
   customRange?: CustomDateRange;
+  /**
+   * Optional resolver for the windowed `tickets_sold` rollup sum.
+   * The caller (share page or internal route) supplies the closure
+   * already bound to `eventId` + `supabase`, so this module stays
+   * dep-free w.r.t. our DB layer. Errors are caught + downgraded
+   * to `null` so a Supabase blip never fails the whole insights
+   * fetch — the consumer falls back to the legacy mount-time
+   * tickets number in that case.
+   *
+   * Signature mirrors `sumTicketsSoldInWindow`:
+   *   - returns `null`  → no rollup data → consumer uses fallback.
+   *   - returns `0`     → rollups exist, no tickets in window.
+   *   - returns `> 0`   → windowed sum.
+   */
+  ticketsInWindowResolver?: (
+    datePreset: DatePreset,
+    customRange: CustomDateRange | undefined,
+  ) => Promise<number | null>;
 }
 
 export async function fetchEventInsights(
@@ -158,6 +176,26 @@ export async function fetchEventInsights(
       .sort((a, b) => b.spend - a.spend);
 
     const totals = aggregateTotals(filteredRows);
+
+    let ticketsSoldInWindow: number | null = null;
+    if (args.ticketsInWindowResolver) {
+      try {
+        ticketsSoldInWindow = await args.ticketsInWindowResolver(
+          datePreset,
+          customRange,
+        );
+      } catch (resolverErr) {
+        // Never fail the whole report on a rollup-sum hiccup —
+        // log + fall back to `null` so the consumer renders the
+        // legacy mount-time tickets number.
+        console.warn(
+          "[insights] ticketsInWindowResolver threw; falling back to null",
+          resolverErr,
+        );
+        ticketsSoldInWindow = null;
+      }
+    }
+
     const payload: EventInsightsPayload = {
       fetchedAt: new Date().toISOString(),
       datePreset,
@@ -171,6 +209,7 @@ export async function fetchEventInsights(
       },
       campaigns: filteredRows,
       matchedCampaignCount: filteredRows.length,
+      ticketsSoldInWindow,
     };
     return { ok: true, data: payload };
   } catch (err) {

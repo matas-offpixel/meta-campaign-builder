@@ -65,6 +65,23 @@ interface RouteMeta {
   ads_fetched: number;
   dropped_no_creative: number;
   truncated: boolean;
+  /**
+   * Backstop bucket for per-ad insight rows that didn't match any
+   * AdInput (almost always ARCHIVED / DELETED ads with historical
+   * spend in the window). Always present so the panel can render
+   * an "Other / unattributed" footer line — `ads_count === 0`
+   * means everything reconciled.
+   */
+  unattributed: {
+    ads_count: number;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    inline_link_clicks: number;
+    landingPageViews: number;
+    registrations: number;
+    purchases: number;
+  };
 }
 
 function emptyMeta(): RouteMeta {
@@ -74,6 +91,16 @@ function emptyMeta(): RouteMeta {
     ads_fetched: 0,
     dropped_no_creative: 0,
     truncated: false,
+    unattributed: {
+      ads_count: 0,
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      inline_link_clicks: 0,
+      landingPageViews: 0,
+      registrations: 0,
+      purchases: 0,
+    },
   };
 }
 
@@ -203,6 +230,7 @@ export async function GET(
       ads_fetched: result.meta.ads_fetched,
       dropped_no_creative: result.meta.dropped_no_creative,
       truncated: result.meta.truncated,
+      unattributed: result.meta.unattributed,
     },
   };
   return NextResponse.json(payload);
