@@ -40,6 +40,7 @@ import {
 } from "@/components/dashboard/events/ticket-pacing-card";
 import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
 import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
+import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
@@ -412,6 +413,21 @@ export function EventDetail({
           {/* ───── Overview ───── */}
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
+              {!isBrand && event.client_id && (
+                // DailyTracker sits at the top of Overview, directly
+                // below the EventbriteLiveBlock above the tabs. It
+                // handles its own empty state (no event_code AND no
+                // Eventbrite link) so we only gate on isBrand here —
+                // matches the same gating as the live block.
+                <DailyTracker
+                  eventId={event.id}
+                  hasMetaScope={Boolean(
+                    event.event_code &&
+                      event.client?.meta_ad_account_id,
+                  )}
+                  hasEventbriteLink={Boolean(ticketingSummary.link)}
+                />
+              )}
               {isBrand ? (
                 <BrandCampaignSummary event={event} />
               ) : (
