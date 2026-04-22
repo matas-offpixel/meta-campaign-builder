@@ -1,6 +1,7 @@
 import "server-only";
 
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
+import { isReduceDataError } from "@/lib/meta/error-classify";
 import { normaliseAdAccountId } from "@/lib/reporting/event-insights";
 import {
   groupAdsByCreative,
@@ -8,6 +9,8 @@ import {
   type CreativePreview,
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
+import { buildTimeParams } from "@/lib/insights/meta";
+import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 /**
@@ -104,16 +107,10 @@ interface RawAdRow {
   adset_id?: string;
   adset?: { id?: string; name?: string };
   creative?: RawCreative;
-  insights?: {
-    data?: Array<{
-      spend?: string;
-      impressions?: string;
-      clicks?: string;
-      reach?: string;
-      frequency?: string;
-      actions?: Array<{ action_type?: string; value?: string }>;
-    }>;
-  };
+  // PR #47: insights are no longer requested as a nested subfield
+  // on /ads — Meta's compute budget for nested-insights collapses
+  // on wider timeframes. Insights now come from a parallel
+  // /{campaignId}/insights call (see fetchAdInsightsForCampaign).
 }
 
 interface PagedResponse<T> {
@@ -141,20 +138,26 @@ export interface FetchActiveCreativesInput {
    */
   concurrency?: number;
   /**
-   * Date window for the nested `insights{...}` field on each ad.
+   * Date window for the per-ad insights call.
    *
-   *   - `undefined` → no `date_preset(...)` / `time_range(...)`
-   *     modifier. Meta's nested-insights default is `last_30d` —
-   *     matches the internal panel's pre-existing behaviour, which
-   *     is why this stays optional rather than required.
+   *   - `undefined` → no `date_preset` / `time_range` param sent;
+   *     Meta's /insights default (last_30d) applies. Matches the
+   *     internal panel's pre-existing behaviour, which is why this
+   *     stays optional rather than required.
    *   - `"custom"` → `customRange` MUST also be provided; we
    *     forward it as `time_range({since, until})`.
-   *   - any other preset → forwarded as `date_preset(<preset>)`.
+   *   - any other preset → forwarded as `date_preset=<preset>`.
    *
    * The share page is the (currently sole) caller that passes a
-   * non-default value, so creative metrics finally honour the
-   * `?tf=` selector instead of silently showing last_30d for every
+   * non-default value, so creative metrics honour the `?tf=`
+   * selector instead of silently showing last_30d for every
    * timeframe.
+   *
+   * Plumbed into a dedicated /{campaignId}/insights?level=ad call
+   * (PR #47) rather than the original nested `insights{...}`
+   * subfield on /ads — Meta's compute budget on nested insights is
+   * tighter than the dedicated endpoint's, and only the dedicated
+   * endpoint has the day-chunked fallback hooked up.
    */
   datePreset?: DatePreset;
   /** Required when `datePreset === "custom"`. */
@@ -343,49 +346,10 @@ async function listLinkedCampaignIds(
   return (res.data ?? []).slice(0, PER_EVENT_CAMPAIGN_CAP);
 }
 
-/**
- * Build the `insights{...}` expression with an optional date-window
- * modifier. Meta's nested-field syntax allows
- * `insights.date_preset(last_7d){...}` or
- * `insights.time_range({since,until}){...}`. Without either, Meta
- * defaults to `last_30d` — which silently mismatched the share
- * page's `?tf=` selector for every preset other than `last_30d`,
- * and fell back to the wrong window completely for `maximum`.
- *
- * Defensive on `customRange`: we only emit `time_range(...)` when
- * both `since` and `until` are present. A half-set range would
- * make Meta 400 the entire ads call, killing the page rather than
- * just degrading metrics.
- */
-function buildInsightsField(
-  datePreset: DatePreset | undefined,
-  customRange: CustomDateRange | undefined,
-): string {
-  const subFields = "spend,impressions,clicks,reach,frequency,actions";
-  if (!datePreset) return `insights{${subFields}}`;
-  if (datePreset === "custom") {
-    if (!customRange?.since || !customRange?.until) {
-      // Caller passed `custom` without a complete range — fall back
-      // to Meta's default rather than blowing up the whole ads
-      // call. `lib/insights/meta.ts` does its own validation up
-      // front; this branch is purely a safety net.
-      return `insights{${subFields}}`;
-    }
-    const tr = JSON.stringify({
-      since: customRange.since,
-      until: customRange.until,
-    });
-    return `insights.time_range(${tr}){${subFields}}`;
-  }
-  return `insights.date_preset(${datePreset}){${subFields}}`;
-}
-
 async function fetchActiveAdsForCampaign(
   campaignId: string,
   campaignName: string | null,
   token: string,
-  datePreset: DatePreset | undefined,
-  customRange: CustomDateRange | undefined,
 ): Promise<AdInput[]> {
   // Meta's nested-field syntax: braces expand related objects.
   // Asset-grouping needs object_story_spec + asset_feed_spec sub-
@@ -393,6 +357,10 @@ async function fetchActiveAdsForCampaign(
   // and the modal preview pulls from the same payload so we don't
   // round-trip again. asset_feed_spec is requested as a flat field
   // because Meta returns the whole sub-tree when asked by name.
+  //
+  // PR #47: insights are no longer nested here — they're fetched
+  // in parallel by `fetchAdInsightsForCampaign` against the
+  // dedicated /insights endpoint and stitched in by the caller.
   const fields = [
     "id",
     "name",
@@ -403,7 +371,6 @@ async function fetchActiveAdsForCampaign(
     "adset_id",
     "adset{id,name}",
     "creative{id,name,title,body,thumbnail_url,image_url,video_id,object_story_id,effective_object_story_id,instagram_permalink_url,call_to_action_type,link_url,object_story_spec{link_data{name,message,description,image_hash,picture,link,call_to_action{type}},video_data{title,message,video_id,image_url}},asset_feed_spec}",
-    buildInsightsField(datePreset, customRange),
   ].join(",");
 
   const params: Record<string, string> = {
@@ -423,7 +390,6 @@ async function fetchActiveAdsForCampaign(
       token,
     );
     for (const ad of res.data ?? []) {
-      const insight = ad.insights?.data?.[0];
       const { headline, body } = extractCopy(ad.creative);
       const preview = extractPreview(ad.creative);
       const primary_asset_signature = deriveAssetSignature(ad.creative);
@@ -445,19 +411,11 @@ async function fetchActiveAdsForCampaign(
         object_story_id: ad.creative?.object_story_id?.trim() || null,
         primary_asset_signature,
         preview,
-        insights: insight
-          ? {
-              spend: num(insight.spend),
-              impressions: num(insight.impressions),
-              clicks: num(insight.clicks),
-              reach: num(insight.reach),
-              frequency: num(insight.frequency),
-              actions: (insight.actions ?? []).map((a) => ({
-                action_type: a.action_type ?? "",
-                value: num(a.value),
-              })),
-            }
-          : null,
+        // Filled in by the caller after fetchAdInsightsForCampaign
+        // returns. Left null here so partial-failure (insights
+        // lookup throws while /ads succeeds) renders cards with "—"
+        // metrics rather than blanking the campaign.
+        insights: null,
       });
     }
     after = res.paging?.cursors?.after;
@@ -519,6 +477,225 @@ export class FacebookAuthExpiredError extends Error {
   }
 }
 
+// ─── Per-ad insights fetch (PR #47) ─────────────────────────────────────────
+//
+// Why this lives here rather than in lib/insights/meta.ts:
+//   meta.ts's fetchInsightsChunked aggregates per-day rows into ONE
+//   summed row — that shape is wrong for per-ad grain where we need
+//   N rows back, not one sum. Rather than contort that helper, we
+//   reimplement the cap detection locally: on isReduceDataError, fan
+//   out per-day and merge per-(ad_id × day) into per-ad sums.
+//
+// Why a separate /insights call instead of nesting on /ads:
+//   Meta's compute budget for the nested `insights{...}` subfield on
+//   /{campaignId}/ads is much tighter than for the dedicated
+//   /{campaignId}/insights endpoint. On wider timeframes (last_7d+)
+//   for heavy events the nested path returns "Please reduce the
+//   amount of data" and the chunked fallback in meta.ts never sees
+//   it (it only wraps fetchCampaignInsights + fetchAdInsights). The
+//   share page rendered upstream-error and the snapshot cache had
+//   zero successful writes. PR #47 splits the calls so the cap
+//   detection + day-chunked fallback works for the per-ad path too.
+
+interface RawAdInsightRow {
+  ad_id?: string;
+  spend?: string;
+  impressions?: string;
+  reach?: string;
+  clicks?: string;
+  frequency?: string;
+  inline_link_clicks?: string;
+  actions?: Array<{ action_type?: string; value?: string }>;
+  action_values?: Array<{ action_type?: string; value?: string }>;
+}
+
+const AD_INSIGHT_FIELDS = [
+  "ad_id",
+  "spend",
+  "impressions",
+  "reach",
+  "clicks",
+  "frequency",
+  "inline_link_clicks",
+  "actions",
+  "action_values",
+].join(",");
+
+const AD_INSIGHT_DAY_CHUNK_LIMIT = 31;
+const AD_INSIGHT_CHUNK_CONCURRENCY = 3;
+
+/**
+ * Fetch per-ad insights for one campaign from the dedicated
+ * /{campaignId}/insights?level=ad endpoint. Returns a Map keyed by
+ * ad_id so the caller can stitch values back onto the AdInput rows
+ * produced by `fetchActiveAdsForCampaign`.
+ *
+ * On `isReduceDataError` (Meta's compute-budget cap), falls back to
+ * a per-day fan-out merged per ad_id. On any other error, throws —
+ * caller catches at the campaign boundary so one bad campaign
+ * doesn't blank the whole event.
+ */
+async function fetchAdInsightsForCampaign(
+  campaignId: string,
+  token: string,
+  datePreset: DatePreset | undefined,
+  customRange: CustomDateRange | undefined,
+): Promise<Map<string, RawAdInsightRow>> {
+  // buildTimeParams requires a concrete DatePreset; when the caller
+  // (the internal panel route, which doesn't pipe a tf selector)
+  // passes nothing, omit the time params and let Meta fall back to
+  // its /insights default of last_30d. Same behaviour as the old
+  // nested-insights path so this path is a strict improvement, not
+  // a behavioural change.
+  const timeParams = datePreset
+    ? buildTimeParams(datePreset, customRange)
+    : {};
+  const params: Record<string, string> = {
+    fields: AD_INSIGHT_FIELDS,
+    level: "ad",
+    limit: "200",
+    ...timeParams,
+  };
+  try {
+    return await pageAdInsights(`/${campaignId}/insights`, params, token);
+  } catch (err) {
+    if (isReduceDataError(err)) {
+      console.warn(
+        `[active-creatives] reduce-data fallback firing for campaign=${campaignId} preset=${datePreset ?? "default"}`,
+      );
+      return fetchAdInsightsChunked(
+        campaignId,
+        token,
+        datePreset,
+        customRange,
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Page through /{campaignId}/insights?level=ad and collect into a
+ * Map<ad_id, RawAdInsightRow>. Capped at ADS_PAGE_SAFETY pages —
+ * the same safety belt used on /ads pagination — so a runaway
+ * `paging.next` from Meta can't keep us iterating forever.
+ */
+async function pageAdInsights(
+  path: string,
+  baseParams: Record<string, string>,
+  token: string,
+): Promise<Map<string, RawAdInsightRow>> {
+  const out = new Map<string, RawAdInsightRow>();
+  const params = { ...baseParams };
+  let after: string | undefined;
+  let pages = 0;
+  do {
+    if (after) params.after = after;
+    const res = await graphGetWithToken<PagedResponse<RawAdInsightRow>>(
+      path,
+      params,
+      token,
+    );
+    for (const row of res.data ?? []) {
+      if (row.ad_id) out.set(row.ad_id, row);
+    }
+    after = res.paging?.cursors?.after;
+    pages += 1;
+    if (!res.paging?.next) break;
+  } while (after && pages < ADS_PAGE_SAFETY);
+  return out;
+}
+
+/**
+ * Day-chunked fallback for the per-ad insights path. Issues
+ * one /insights?level=ad call per day in the resolved window,
+ * then merges per-(ad_id × day) rows into per-ad sums.
+ *
+ * Bounded to AD_INSIGHT_DAY_CHUNK_LIMIT (31) by the preset
+ * resolver — a future preset that blows past would throw rather
+ * than open a 90-call storm. `maximum` resolves to null (can't
+ * chunk lifetime) → empty map → cards render "—" rather than
+ * blanking the campaign.
+ */
+async function fetchAdInsightsChunked(
+  campaignId: string,
+  token: string,
+  datePreset: DatePreset | undefined,
+  customRange: CustomDateRange | undefined,
+): Promise<Map<string, RawAdInsightRow>> {
+  // Without a concrete preset there's nothing to chunk — Meta's
+  // own default window is what triggered the cap. Degrade
+  // gracefully (empty map → "—" cards) rather than guessing a
+  // window for the user.
+  if (!datePreset) return new Map();
+  const days = resolvePresetToDays(datePreset, customRange);
+  if (!days || days.length === 0) return new Map();
+  if (days.length > AD_INSIGHT_DAY_CHUNK_LIMIT) {
+    throw new MetaApiError(
+      `Ad-insights day-chunked fallback exceeded ${AD_INSIGHT_DAY_CHUNK_LIMIT} days (got ${days.length}); narrow the timeframe.`,
+    );
+  }
+  const semaphore = createSemaphore(AD_INSIGHT_CHUNK_CONCURRENCY);
+  const perDay = await Promise.all(
+    days.map((day) =>
+      semaphore(async () => {
+        const params: Record<string, string> = {
+          fields: AD_INSIGHT_FIELDS,
+          level: "ad",
+          limit: "200",
+          time_range: JSON.stringify({ since: day, until: day }),
+        };
+        return pageAdInsights(`/${campaignId}/insights`, params, token);
+      }),
+    ),
+  );
+  return mergeAdInsightMaps(perDay);
+}
+
+/** Sum per-(ad_id × day) rows into a single per-ad map. */
+function mergeAdInsightMaps(
+  maps: ReadonlyArray<Map<string, RawAdInsightRow>>,
+): Map<string, RawAdInsightRow> {
+  const merged = new Map<string, RawAdInsightRow>();
+  for (const m of maps) {
+    for (const [adId, row] of m) {
+      const acc = merged.get(adId);
+      if (!acc) {
+        merged.set(adId, { ...row });
+        continue;
+      }
+      acc.spend = String(num(acc.spend) + num(row.spend));
+      acc.impressions = String(num(acc.impressions) + num(row.impressions));
+      acc.reach = String(num(acc.reach) + num(row.reach));
+      acc.clicks = String(num(acc.clicks) + num(row.clicks));
+      acc.inline_link_clicks = String(
+        num(acc.inline_link_clicks) + num(row.inline_link_clicks),
+      );
+      acc.actions = mergeActionRows(acc.actions, row.actions);
+      acc.action_values = mergeActionRows(acc.action_values, row.action_values);
+      // frequency is recomputed at read-time from impressions /
+      // reach by the card renderer; don't bother summing the
+      // per-day values — sum-of-frequencies isn't meaningful.
+    }
+  }
+  return merged;
+}
+
+function mergeActionRows(
+  a: Array<{ action_type?: string; value?: string }> | undefined,
+  b: Array<{ action_type?: string; value?: string }> | undefined,
+): Array<{ action_type?: string; value?: string }> {
+  const out = new Map<string, number>();
+  for (const row of [...(a ?? []), ...(b ?? [])]) {
+    const k = row.action_type ?? "";
+    out.set(k, (out.get(k) ?? 0) + num(row.value));
+  }
+  return Array.from(out, ([action_type, v]) => ({
+    action_type,
+    value: String(v),
+  }));
+}
+
 /**
  * Fetch the active-creatives payload for one event.
  *
@@ -574,13 +751,54 @@ export async function fetchActiveCreativesForEvent(
     campaigns.map((c) =>
       semaphore(async () => {
         try {
-          return await fetchActiveAdsForCampaign(
-            c.id,
-            c.name ?? null,
-            token,
-            input.datePreset,
-            input.customRange,
-          );
+          // Fan out /ads + /insights in parallel for the same
+          // campaign. Insights failures are swallowed (logged + empty
+          // map) so the cards still render with "—" metrics rather
+          // than dropping the whole campaign — matches the partial-
+          // render contract added in PR #42. Only the /ads call is
+          // load-bearing for the auth-expired sentinel.
+          const [ads, insightsMap] = await Promise.all([
+            fetchActiveAdsForCampaign(c.id, c.name ?? null, token),
+            fetchAdInsightsForCampaign(
+              c.id,
+              token,
+              input.datePreset,
+              input.customRange,
+            ).catch((err) => {
+              if (isMetaAuthError(err)) authExpired = true;
+              console.warn(
+                `[active-creatives] insights for campaign ${c.id} (${c.name ?? "?"}) failed:`,
+                err instanceof Error ? err.message : String(err),
+              );
+              return new Map<string, RawAdInsightRow>();
+            }),
+          ]);
+
+          // Stitch insights onto the ad rows. Ads with no matching
+          // insight row keep `insights: null` (set by
+          // fetchActiveAdsForCampaign) and the grouper treats them
+          // as zero-contribution.
+          for (const ad of ads) {
+            const row = insightsMap.get(ad.ad_id);
+            if (!row) continue;
+            ad.insights = {
+              spend: num(row.spend),
+              impressions: num(row.impressions),
+              clicks: num(row.clicks),
+              reach: num(row.reach),
+              frequency: num(row.frequency),
+              actions: (row.actions ?? []).map((a) => ({
+                action_type: a.action_type ?? "",
+                value: num(a.value),
+              })),
+              inline_link_clicks: num(row.inline_link_clicks),
+              action_values: (row.action_values ?? []).map((a) => ({
+                action_type: a.action_type ?? "",
+                value: num(a.value),
+              })),
+            };
+          }
+          return ads;
         } catch (err) {
           if (isMetaAuthError(err)) authExpired = true;
           const msg =
