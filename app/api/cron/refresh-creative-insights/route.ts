@@ -155,6 +155,28 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Optional ?preset=last_7d|last_30d to restrict the sweep to a
+  // single window. The cron schedule in vercel.json fans out into
+  // two per-preset invocations so each lambda only does half the
+  // work — one preset × N accounts at page-25 already exceeds the
+  // 300s hard cap on the busier accounts. Manual curls without
+  // ?preset keep the previous both-presets behaviour for ad-hoc
+  // backfills.
+  const url = new URL(req.url);
+  const presetParam = url.searchParams.get("preset") as
+    | CreativeDatePreset
+    | null;
+  const VALID_PRESETS: CreativeDatePreset[] = ["last_7d", "last_30d"];
+  if (presetParam && !VALID_PRESETS.includes(presetParam)) {
+    return NextResponse.json(
+      { ok: false, error: "invalid preset" },
+      { status: 400 },
+    );
+  }
+  const presetsForThisRun: CreativeDatePreset[] = presetParam
+    ? [presetParam]
+    : PREWARM_PRESETS;
+
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
 
@@ -191,6 +213,9 @@ export async function GET(req: NextRequest) {
 
   console.log(
     `[cron refresh-creative-insights] starting pairs=${pairs.length}`,
+  );
+  console.log(
+    `[cron refresh-creative-insights] presets=${presetsForThisRun.join(",")}`,
   );
 
   const results: PairResult[] = [];
@@ -264,7 +289,7 @@ export async function GET(req: NextRequest) {
       let snapshotsWritten = 0;
       let rateLimitedThisAccount = false;
 
-      for (const preset of PREWARM_PRESETS) {
+      for (const preset of presetsForThisRun) {
         if (Date.now() - startMs > SOFT_TIMEOUT_MS) {
           timedOut = true;
           break;
