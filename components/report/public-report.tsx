@@ -49,6 +49,16 @@ interface Props {
    * the RSC from `?from` + `?to`. Ignored for any preset value.
    */
   customRange?: CustomDateRange;
+  /**
+   * Optional server-rendered slot that replaces the lazy "Creative
+   * performance" section. Pre-rendered upstream (in the share RSC)
+   * so the client-facing report doesn't depend on a separate fetch
+   * round-trip from the visitor's browser.
+   *
+   * ReactNode (not a render fn) so a server component can be passed
+   * straight through this client component.
+   */
+  creativesSlot?: React.ReactNode;
 }
 
 /**
@@ -73,6 +83,7 @@ export function PublicReport({
   shareToken,
   datePreset,
   customRange,
+  creativesSlot,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -125,6 +136,7 @@ export function PublicReport({
       customRange={customRange}
       creativesSource={{ kind: "share", token: shareToken }}
       onTimeframeChange={handleTimeframeChange}
+      creativesSlot={creativesSlot}
     />
   );
 }

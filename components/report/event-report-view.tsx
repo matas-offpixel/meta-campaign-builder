@@ -122,6 +122,25 @@ interface Props {
    *     the dashboard already provides chrome + page header.
    */
   variant?: "standalone" | "embedded";
+  /**
+   * Optional server-rendered replacement for the "Creative
+   * performance" section. When provided, the default lazy
+   * `<CreativePerformanceLazy>` section is hidden and the slot
+   * contents render in its place.
+   *
+   * Used by the public share page to swap in a server-rendered
+   * "Active creatives" section
+   * (`<ShareActiveCreativesSection>`) — the share page has the
+   * service-role token to fetch upfront, so there's no point
+   * shipping the lazy-load button to the client. The internal
+   * Reporting tab leaves this undefined and keeps the existing
+   * lazy section.
+   *
+   * Type is ReactNode (not a render fn) so a server component can
+   * be passed straight through this client component via the
+   * standard "RSC slot in a client parent" composition.
+   */
+  creativesSlot?: React.ReactNode;
 }
 
 export function EventReportView({
@@ -134,6 +153,7 @@ export function EventReportView({
   onTimeframeChange,
   isRefreshing = false,
   variant = "standalone",
+  creativesSlot,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -242,6 +262,7 @@ export function EventReportView({
             datePreset={datePreset}
             customRange={customRange}
             creativesSource={creativesSource}
+            creativesSlot={creativesSlot}
           />
         ) : null}
 
@@ -275,6 +296,8 @@ interface MetaReportBlockProps {
   datePreset: DatePreset;
   customRange?: CustomDateRange;
   creativesSource: CreativesSource;
+  /** When provided, replaces the default `<CreativePerformanceLazy>` section. */
+  creativesSlot?: React.ReactNode;
 }
 
 function MetaReportBlock({
@@ -290,6 +313,7 @@ function MetaReportBlock({
   datePreset,
   customRange,
   creativesSource,
+  creativesSlot,
 }: MetaReportBlockProps) {
   return (
     <>
@@ -473,14 +497,21 @@ function MetaReportBlock({
         )}
       </Section>
 
-      {/* Creative performance — lazy load, source-aware (share vs internal) */}
-      <Section title="Creative performance">
-        <CreativePerformanceLazy
-          source={creativesSource}
-          datePreset={datePreset}
-          customRange={customRange}
-        />
-      </Section>
+      {/* Creative section. The share page swaps in a server-rendered
+          "Active creatives" component via `creativesSlot` so the
+          client-facing report doesn't need a "Load creative previews"
+          click. The internal Reporting tab leaves the slot undefined
+          and keeps the existing lazy section, which still serves the
+          deeper per-creative_id breakdown for power-user inspection. */}
+      {creativesSlot ?? (
+        <Section title="Creative performance">
+          <CreativePerformanceLazy
+            source={creativesSource}
+            datePreset={datePreset}
+            customRange={customRange}
+          />
+        </Section>
+      )}
     </>
   );
 }

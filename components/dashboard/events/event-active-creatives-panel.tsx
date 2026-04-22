@@ -20,6 +20,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { fmtCurrency } from "@/lib/dashboard/format";
+import {
+  groupByNormalisedName,
+  type ConceptGroupRow,
+} from "@/lib/reporting/group-creatives-by-name";
 
 /**
  * components/dashboard/events/event-active-creatives-panel.tsx
@@ -109,10 +113,21 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: "freq_desc", label: "Frequency (high → low)" },
 ];
 
-function sortCreatives(
-  rows: readonly CreativeRow[],
+// Both per-creative_id rows and concept-grouped rows expose the same
+// metric field names — the sorter is therefore generic over the row
+// shape so the same comparator runs in either mode without a second
+// switch statement.
+interface SortableRow {
+  spend: number;
+  ctr: number | null;
+  cpr: number | null;
+  frequency: number | null;
+}
+
+function sortRows<T extends SortableRow>(
+  rows: readonly T[],
   key: SortKey,
-): CreativeRow[] {
+): T[] {
   const out = [...rows];
   const cmp = (a: number | null, b: number | null, asc: boolean): number => {
     // Nulls always sort to the bottom regardless of direction so a
@@ -174,6 +189,12 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
   const [topError, setTopError] = useState<string | null>(null);
   const [authExpired, setAuthExpired] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("spend_desc");
+  // "Group by concept" defaults ON — Matas's main complaint with PR
+  // #38 was that re-uploaded creatives (Meta mints a new creative_id
+  // on duplicate) showed up as N separate rows. v1 stores in local
+  // state only; we'll consider URL-persistence if it shows up in the
+  // "I keep toggling this" feedback loop.
+  const [groupByConcept, setGroupByConcept] = useState(true);
 
   const load = useCallback(
     async (opts: { refresh: boolean }) => {
@@ -220,10 +241,18 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
     void load({ refresh: false });
   }, [load]);
 
-  const sorted = useMemo(
-    () => (data ? sortCreatives(data.creatives, sortKey) : []),
-    [data, sortKey],
+  // When grouping is ON, collapse same-concept re-uploads first then
+  // sort. When OFF, sort the per-creative_id rows the route returned.
+  // Both branches share the same SortableRow comparator.
+  const groupedRows = useMemo(
+    () => (data ? groupByNormalisedName(data.creatives) : []),
+    [data],
   );
+  const visibleRows: Array<CreativeRow | ConceptGroupRow> = useMemo(() => {
+    if (!data) return [];
+    if (groupByConcept) return sortRows(groupedRows, sortKey);
+    return sortRows(data.creatives, sortKey);
+  }, [data, groupedRows, groupByConcept, sortKey]);
 
   const handleSortChange = (e: ChangeEvent<HTMLSelectElement>) => {
     setSortKey(e.target.value as SortKey);
@@ -238,8 +267,10 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
           </h2>
           {data && data.creatives.length > 0 && (
             <span className="text-sm text-muted-foreground">
-              {data.creatives.length} creative
-              {data.creatives.length === 1 ? "" : "s"} ·{" "}
+              {groupByConcept
+                ? `${groupedRows.length} concept${groupedRows.length === 1 ? "" : "s"}`
+                : `${data.creatives.length} creative${data.creatives.length === 1 ? "" : "s"}`}
+              {" · "}
               {data.meta.ads_fetched} ad
               {data.meta.ads_fetched === 1 ? "" : "s"} across{" "}
               {data.meta.campaigns_total} campaign
@@ -247,8 +278,20 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {data && data.creatives.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Group-by toggle. Plain checkbox over a custom UI primitive
+              because we don't have a Switch component yet and the
+              existing Checkbox primitive's label support is enough. */}
+          <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={groupByConcept}
+              onChange={(e) => setGroupByConcept(e.target.checked)}
+              className="h-4 w-4 rounded border-border-strong"
+            />
+            Group by concept
+          </label>
+          {data && visibleRows.length > 1 && (
             <div className="w-56">
               <Select
                 aria-label="Sort by"
@@ -330,8 +373,9 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
       {!loading && !topError && !authExpired && data && (
         <EmptyOrGrid
           data={data}
-          sorted={sorted}
+          sorted={visibleRows}
           eventId={eventId}
+          groupByConcept={groupByConcept}
         />
       )}
     </div>
@@ -342,10 +386,12 @@ function EmptyOrGrid({
   data,
   sorted,
   eventId,
+  groupByConcept,
 }: {
   data: SuccessResponse;
-  sorted: CreativeRow[];
+  sorted: Array<CreativeRow | ConceptGroupRow>;
   eventId: string;
+  groupByConcept: boolean;
 }) {
   if (data.reason === "no_event_code") {
     return (
@@ -396,8 +442,8 @@ function EmptyOrGrid({
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {sorted.map((row) => (
         <CreativeCard
-          key={row.creative_id}
-          row={row}
+          key={isConceptRow(row) ? `g:${row.group_key}` : `c:${row.creative_id}`}
+          row={toCardModel(row, groupByConcept)}
           adAccountId={data.ad_account_id}
         />
       ))}
@@ -405,20 +451,95 @@ function EmptyOrGrid({
   );
 }
 
+// Discriminated-union narrowing helper. ConceptGroupRow has
+// `group_key`; CreativeRow doesn't — so checking that field is a
+// safe runtime distinguisher without relying on a tagged union.
+function isConceptRow(
+  row: CreativeRow | ConceptGroupRow,
+): row is ConceptGroupRow {
+  return "group_key" in row;
+}
+
+interface CardModel {
+  thumbnail: string | null;
+  altText: string;
+  headline: string | null;
+  body: string | null;
+  adCount: number;
+  adsetCount: number;
+  campaignCount: number;
+  /** Defined only when grouping is on AND the group has > 1 underlying creative_id. */
+  conceptMultiplier: number | null;
+  spend: number;
+  ctr: number | null;
+  cpr: number | null;
+  frequency: number | null;
+  representativeAdId: string;
+}
+
+function toCardModel(
+  row: CreativeRow | ConceptGroupRow,
+  groupByConcept: boolean,
+): CardModel {
+  if (isConceptRow(row)) {
+    return {
+      thumbnail: row.representative_thumbnail,
+      altText: row.display_name,
+      headline: row.display_name,
+      body: row.representative_body_preview,
+      adCount: row.ad_count,
+      adsetCount: row.adsets.length,
+      campaignCount: row.campaigns.length,
+      conceptMultiplier:
+        groupByConcept && row.creative_id_count > 1 ? row.creative_id_count : null,
+      spend: row.spend,
+      ctr: row.ctr,
+      cpr: row.cpr,
+      frequency: row.frequency,
+      representativeAdId: row.representative_ad_id,
+    };
+  }
+  return {
+    thumbnail: row.thumbnail_url,
+    altText: row.creative_name ?? "Creative",
+    headline: row.headline ?? row.creative_name,
+    body: row.body,
+    adCount: row.ad_count,
+    adsetCount: row.adsets.length,
+    campaignCount: row.campaigns.length,
+    conceptMultiplier: null,
+    spend: row.spend,
+    ctr: row.ctr,
+    cpr: row.cpr,
+    frequency: row.frequency,
+    representativeAdId: row.representative_ad_id,
+  };
+}
+
 function CreativeCard({
   row,
   adAccountId,
 }: {
-  row: CreativeRow;
+  row: CardModel;
   adAccountId: string | null;
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border bg-card p-4">
       <div className="flex items-start gap-3">
-        <Thumbnail url={row.thumbnail_url} alt={row.creative_name ?? "Creative"} />
+        <Thumbnail url={row.thumbnail} alt={row.altText} />
         <div className="min-w-0 flex-1">
-          <div className="line-clamp-1 text-sm font-medium text-foreground">
-            {row.headline ?? row.creative_name ?? "(no headline)"}
+          <div className="flex items-center gap-1.5">
+            <div className="line-clamp-1 text-sm font-medium text-foreground">
+              {row.headline ?? "(no headline)"}
+            </div>
+            {row.conceptMultiplier && (
+              // Tiny "this concept was uploaded N times" indicator —
+              // appears only in grouped mode and only when the bucket
+              // collapses more than one creative_id.
+              <Badge variant="primary" className="shrink-0">
+                {row.conceptMultiplier}×
+              </Badge>
+            )}
           </div>
           <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
             {row.body ?? "—"}
@@ -429,13 +550,11 @@ function CreativeCard({
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge variant="outline">
           <Layers className="mr-1 h-3 w-3" />
-          {row.ad_count} ad{row.ad_count === 1 ? "" : "s"} ·{" "}
-          {row.adsets.length} ad set{row.adsets.length === 1 ? "" : "s"}
+          {row.adCount} ad{row.adCount === 1 ? "" : "s"} ·{" "}
+          {row.adsetCount} ad set{row.adsetCount === 1 ? "" : "s"}
         </Badge>
-        {row.campaigns.length > 1 && (
-          <Badge variant="outline">
-            {row.campaigns.length} campaigns
-          </Badge>
+        {row.campaignCount > 1 && (
+          <Badge variant="outline">{row.campaignCount} campaigns</Badge>
         )}
       </div>
 
@@ -448,7 +567,7 @@ function CreativeCard({
 
       <div className="mt-auto pt-1">
         <a
-          href={adsManagerUrl(row.representative_ad_id, adAccountId)}
+          href={adsManagerUrl(row.representativeAdId, adAccountId)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
