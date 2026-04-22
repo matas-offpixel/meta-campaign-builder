@@ -1,7 +1,11 @@
 import "server-only";
 
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
-import { isReduceDataError } from "@/lib/meta/error-classify";
+import {
+  isReduceDataError,
+  isTransientRateLimit,
+} from "@/lib/meta/error-classify";
+import { retryOnceOnTransient } from "@/lib/meta/retry";
 import { normaliseAdAccountId } from "@/lib/reporting/event-insights";
 import {
   groupAdsByCreative,
@@ -381,7 +385,45 @@ async function listLinkedCampaignIds(
   return (res.data ?? []).slice(0, PER_EVENT_CAMPAIGN_CAP);
 }
 
+/**
+ * Single-retry shim around `fetchActiveAdsForCampaignOnce`.
+ *
+ * On a transient rate-limit / service-unavailable error (per
+ * `isTransientRateLimit`), waits ADS_OUTER_RETRY_DELAY_MS and tries
+ * once more. Any other error class (auth, validation, etc.) re-throws
+ * immediately so the campaign-boundary catch in
+ * `fetchActiveCreativesForEvent` can record the failure and continue
+ * with siblings — same as before this PR.
+ *
+ * Why this lives here and not inside `graphGetWithToken`:
+ *   The inner client already retries 5× with backoff for the same
+ *   code set. The cascade fix needs a SECOND-LEVEL retry at the
+ *   campaign boundary, because a saturated per-account quota can
+ *   eat all 5 inner attempts on a single page and still leave the
+ *   sibling fetch with budget to succeed a few hundred ms later.
+ *   Wrapping at this scope rebuilds the page state from scratch
+ *   on the retry, which is what we want — partial pagination state
+ *   from a half-failed first attempt isn't trustworthy.
+ */
 async function fetchActiveAdsForCampaign(
+  campaignId: string,
+  campaignName: string | null,
+  token: string,
+): Promise<AdInput[]> {
+  return retryOnceOnTransient(
+    () => fetchActiveAdsForCampaignOnce(campaignId, campaignName, token),
+    isTransientRateLimit,
+    ADS_OUTER_RETRY_DELAY_MS,
+    (err, delay) => {
+      const code = (err as { code?: number }).code;
+      console.warn(
+        `[active-creatives] /ads transient meta_code=${code} on campaign=${campaignId} — single outer retry in ${delay}ms`,
+      );
+    },
+  );
+}
+
+async function fetchActiveAdsForCampaignOnce(
   campaignId: string,
   campaignName: string | null,
   token: string,
@@ -557,7 +599,33 @@ const AD_INSIGHT_FIELDS = [
 ].join(",");
 
 const AD_INSIGHT_DAY_CHUNK_LIMIT = 31;
-const AD_INSIGHT_CHUNK_CONCURRENCY = 3;
+/**
+ * Concurrency for the day-chunked /insights?level=ad fallback. Stays
+ * at 1 (sequential) because the chunked path only ever fires AFTER
+ * Meta has already said "you're asking for too much" via
+ * `isReduceDataError` — at that point fanning out per-day at 3-wide
+ * deepens the rate-limit hole rather than digging out of it. The
+ * cascade observed on Junction 2 (14d/30d losing ~51 ads vs 7d) was
+ * caused by this fan-out throttling sibling campaigns' /ads calls
+ * via the shared per-account quota; sequential keeps the total
+ * request count identical but spreads it over time so neighbouring
+ * fetches can land their pages.
+ *
+ * Cost: 14d chunked path goes from ~5s → ~14s, 30d from ~10s → ~30s.
+ * Acceptable because the whole creatives section is behind the
+ * Suspense skeleton — the share page paints headline numbers
+ * immediately and only the creative grid waits.
+ */
+const AD_INSIGHT_CHUNK_CONCURRENCY = 1;
+/**
+ * Outer single-retry budget around `fetchActiveAdsForCampaign`. The
+ * inner `graphGetWithToken` already retries 5× with exponential
+ * backoff per call, but a sustained rate-limit cascade from sibling
+ * campaigns' chunked /insights fan-outs can outlast that budget on
+ * a single /ads page. One additional attempt at the campaign-fetch
+ * boundary, after a brief pause, is enough to ride out the moment.
+ */
+const ADS_OUTER_RETRY_DELAY_MS = 500;
 
 /**
  * Fetch per-ad insights for one campaign from the dedicated

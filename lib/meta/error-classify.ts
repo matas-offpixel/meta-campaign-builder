@@ -48,6 +48,58 @@
  * importing the full Meta client module. Production callers pass
  * a real `MetaApiError` and hit the same code path.
  */
+/**
+ * Meta error codes that indicate a transient backend hiccup or
+ * rate-limit pushback — safe to retry once before giving up. Mirrors
+ * the inner `RETRYABLE_META_CODES` set in `lib/meta/client.ts`
+ * (deliberately kept in sync; these are documented Meta codes that
+ * don't change between versions). The two live in different modules
+ * because `client.ts`'s parameter-property class declarations break
+ * the unit-test runner's Node strip-only mode — this set has to stay
+ * importable without dragging that whole module in.
+ *
+ * Codes (per Meta docs):
+ *   1   — Unknown / transient API error
+ *   2   — Service temporarily unavailable
+ *   4   — Application request limit reached
+ *   17  — User request limit reached
+ *   32  — Page request limit reached
+ *   341 — Application-level rate cap (alt code on some edges)
+ *   613 — Custom audiences / ads rate limit
+ */
+const TRANSIENT_RATE_LIMIT_CODES: ReadonlySet<number> = new Set([
+  1, 2, 4, 17, 32, 341, 613,
+]);
+
+/**
+ * True for transient backend / rate-limit failures from Meta — the
+ * narrow class of errors that a single 500ms-pause retry can rescue.
+ *
+ * Used by `lib/reporting/active-creatives-fetch.ts` to wrap
+ * `fetchActiveAdsForCampaign` with one outer retry. The inner
+ * `graphGetWithToken` already retries 5× with exponential backoff,
+ * but that budget gets eaten when sibling campaigns saturate the
+ * account's rate window: e.g. the day-chunked /insights fan-out for
+ * one campaign trips Meta's per-account ceiling, so the parallel
+ * /ads call for a SIBLING campaign exhausts its 5 attempts and
+ * surfaces a transient code that — without this outer retry — would
+ * be caught at the campaign boundary and the campaign would silently
+ * report zero ads. One additional attempt at the campaign-fetch
+ * boundary is enough; sustained 429s past that mean something
+ * bigger is wrong and failing the campaign is correct.
+ *
+ * Duck-typed against the same `{ code }` shape `MetaApiError` exposes
+ * — keeps this module dependency-free so the unit tests in Node
+ * strip-only mode can import it without dragging in the full Meta
+ * client.
+ */
+export function isTransientRateLimit(err: unknown): boolean {
+  if (err == null || typeof err !== "object") return false;
+  const e = err as { code?: unknown };
+  if (typeof e.code !== "number") return false;
+  return TRANSIENT_RATE_LIMIT_CODES.has(e.code);
+}
+
 export function isReduceDataError(err: unknown): boolean {
   if (err == null) return false;
   const phrase = /reduce the amount of data/i;

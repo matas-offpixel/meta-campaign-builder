@@ -1,5 +1,6 @@
 "use client";
 
+import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type {
@@ -110,6 +111,14 @@ export function PublicReport({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  // useTransition gives us a pending flag for the duration of the
+  // RSC navigation triggered by `router.push`. Without this the
+  // visitor sees no feedback for 300-800ms when a pre-warmed preset
+  // resolves from cache — pills don't move, content doesn't change,
+  // looks like the click was lost. Wrapping the push lets us flip
+  // a sticky shimmer + dim the metric grid for the in-flight window
+  // even on cache hits where there's no Suspense fallback.
+  const [isPending, startTransition] = useTransition();
 
   const handleTimeframeChange = (
     preset: DatePreset,
@@ -146,7 +155,9 @@ export function PublicReport({
       }
     }
     const qs = sp.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    startTransition(() => {
+      router.push(qs ? `${pathname}?${qs}` : pathname);
+    });
   };
 
   return (
@@ -158,6 +169,7 @@ export function PublicReport({
       customRange={customRange}
       creativesSource={{ kind: "share", token: shareToken }}
       onTimeframeChange={handleTimeframeChange}
+      isRefreshing={isPending}
       creativesSlot={creativesSlot}
       eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
