@@ -16,6 +16,8 @@ import type {
   CreativesPayload,
   CreativesResult,
   CustomDateRange,
+  DailyMetaMetricsResult,
+  DailyMetaMetricsRow,
   DailySpendRow,
   DatePreset,
   EventInsightsPayload,
@@ -1264,6 +1266,139 @@ export async function fetchEventSpendByDay(
     const days: DailySpendRow[] = [...totals.entries()]
       .map(([day, spend]) => ({ day, spend }))
       .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+
+    return { ok: true, days };
+  } catch (err) {
+    return handleMetaError(err);
+  }
+}
+
+// ─── Daily spend + link clicks (daily-tracker table) ───────────────────────
+
+export interface FetchEventDailyMetaMetricsArgs {
+  /** Bracket-naked event code, e.g. "LEEDS26-FACUP". The matcher wraps it. */
+  eventCode: string;
+  /** "act_…" prefixed ad account id. */
+  adAccountId: string;
+  /** OAuth token of the event owner. */
+  token: string;
+  /** YYYY-MM-DD inclusive lower bound. */
+  since: string;
+  /** YYYY-MM-DD inclusive upper bound. */
+  until: string;
+}
+
+/**
+ * Per-day spend + inline link clicks for every campaign whose name
+ * contains `[eventCode]`. Backs the <DailyTracker /> table on the
+ * event detail Overview tab.
+ *
+ * Sibling to `fetchEventSpendByDay` — kept distinct so the marketing-
+ * plan tab's existing call site doesn't have to grow a wider shape it
+ * doesn't need. Both helpers share the same bracket-wrap matching
+ * convention (`[event_code]` substring on `campaign.name`) so a
+ * campaign that shows up in one tracker shows up in the other.
+ *
+ * Case sensitivity:
+ *   Meta's `CONTAIN` filter operator is case-INsensitive at the API
+ *   level. To prevent `[leeds26-facup-v2]` from leaking into a
+ *   `LEEDS26-FACUP` event we ALSO add `campaign_name` to the
+ *   requested fields and re-apply a case-sensitive `String.includes`
+ *   check client-side before aggregating. The API filter still helps
+ *   because it dramatically narrows the set of rows pulled down
+ *   (~1 campaign vs. all campaigns in the account).
+ *
+ * Returns one row per calendar day in the [since, until] window that
+ * had at least one matching-campaign row. Days with no Meta activity
+ * are NOT padded — the upsert layer creates rollup rows for the
+ * Eventbrite side independently.
+ */
+export async function fetchEventDailyMetaMetrics(
+  args: FetchEventDailyMetaMetricsArgs,
+): Promise<DailyMetaMetricsResult> {
+  const { eventCode, adAccountId, token, since, until } = args;
+  if (!eventCode.trim()) {
+    return errorResult("no_event_code", "Event has no event_code set.");
+  }
+  if (!adAccountId.trim()) {
+    return errorResult(
+      "no_ad_account",
+      "Client has no Meta ad account linked.",
+    );
+  }
+
+  const validation = resolveCustomRange("custom", { since, until });
+  if (!validation.ok) return validation;
+
+  const account = ensureActPrefix(adAccountId);
+  const codeBracketed = `[${eventCode}]`;
+  const filtering = JSON.stringify([
+    { field: "campaign.name", operator: "CONTAIN", value: codeBracketed },
+  ]);
+  const timeRange = JSON.stringify({ since, until });
+
+  try {
+    // Aggregate per-day across pages. Meta returns one row per
+    // (campaign, day) at level=campaign + time_increment=1; we sum
+    // by day so the caller gets a single number per calendar date.
+    const totalsSpend = new Map<string, number>();
+    const totalsClicks = new Map<string, number>();
+
+    let after: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = {
+        // campaign_name comes back so we can re-filter case-sensitively
+        // before aggregating (Meta's CONTAIN is case-INsensitive).
+        fields: "spend,inline_link_clicks,date_start,campaign_name",
+        level: "campaign",
+        time_increment: "1",
+        time_range: timeRange,
+        filtering,
+        action_attribution_windows: ATTRIBUTION_WINDOWS,
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<
+        GraphPaged<{
+          spend?: string;
+          inline_link_clicks?: string;
+          date_start?: string;
+          campaign_name?: string;
+        }>
+      >(`/${account}/insights`, params, token);
+
+      for (const row of res.data ?? []) {
+        const day = row.date_start;
+        if (!day) continue;
+        // Case-sensitive post-filter: Meta's CONTAIN matched
+        // case-insensitively, but the spec requires exact-case
+        // matching so `LEEDS26-FACUP-RT` matches and
+        // `leeds26-facup-v2` doesn't. Plain `includes` does the
+        // case-sensitive substring check we want.
+        const name = row.campaign_name ?? "";
+        if (!name.includes(codeBracketed)) continue;
+        totalsSpend.set(
+          day,
+          (totalsSpend.get(day) ?? 0) + parseNum(row.spend),
+        );
+        totalsClicks.set(
+          day,
+          (totalsClicks.get(day) ?? 0) + parseNum(row.inline_link_clicks),
+        );
+      }
+
+      after = res.paging?.cursors?.after;
+      if (!res.paging?.next || !after) break;
+    }
+
+    const days: DailyMetaMetricsRow[] = [...totalsSpend.keys()]
+      .sort()
+      .map((day) => ({
+        day,
+        spend: totalsSpend.get(day) ?? 0,
+        linkClicks: totalsClicks.get(day) ?? 0,
+      }));
 
     return { ok: true, days };
   } catch (err) {

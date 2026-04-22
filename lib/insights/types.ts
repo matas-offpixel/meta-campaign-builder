@@ -347,3 +347,23 @@ export interface DailySpendRow {
 export type SpendByDayResult =
   | { ok: true; days: DailySpendRow[] }
   | { ok: false; error: InsightsError };
+
+/**
+ * Per-day metrics row used by the daily-tracker table. Sibling to
+ * `DailySpendRow` — kept distinct because the tracker needs both
+ * spend and link-clicks, and we don't want callers of `fetchEventSpendByDay`
+ * (the marketing-plan tab) to start receiving a wider shape they
+ * don't use.
+ */
+export interface DailyMetaMetricsRow {
+  /** YYYY-MM-DD in the ad account's reporting timezone. */
+  day: string;
+  /** Spend in account currency for that calendar day. 0 when no Meta row. */
+  spend: number;
+  /** Inline link-clicks (the funnel-aligned click metric, not `clicks`). */
+  linkClicks: number;
+}
+
+export type DailyMetaMetricsResult =
+  | { ok: true; days: DailyMetaMetricsRow[] }
+  | { ok: false; error: InsightsError };
