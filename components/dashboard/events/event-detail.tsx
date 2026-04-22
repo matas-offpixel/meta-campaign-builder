@@ -31,6 +31,7 @@ import { EventArtistRosterPanel } from "@/components/dashboard/events/event-arti
 import { GoogleDriveCard } from "@/components/dashboard/events/google-drive-card";
 import { PlatformConfigCard } from "@/components/dashboard/events/platform-config-card";
 import { EventReportingTabs } from "@/components/dashboard/events/event-reporting-tabs";
+import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
 import {
   TicketPacingCard,
@@ -671,6 +672,17 @@ export function EventDetail({
                 )}
               </section>
             </div>
+          </TabPanel>
+
+          {/* ───── Activity ─────
+              News, Spotify releases, and weather forecast for this
+              event. Each source is independently TTL-cached on the
+              server (news 6h / releases 24h / weather 1h). The card
+              gracefully degrades when artists / venue coords are
+              missing — the whole panel never 500s on a single
+              upstream failure. */}
+          <TabPanel active={activeTab === "activity"}>
+            <EventActivityPanel eventId={event.id} />
           </TabPanel>
         </div>
       </main>
