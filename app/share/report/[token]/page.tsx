@@ -160,13 +160,16 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     pickQueryParam(sp.from),
     pickQueryParam(sp.to),
   );
-  // `?refresh=1` skips the Supabase snapshot read (NOT the write —
-  // a fresh fetch still warms the cache for the next visitor). Use
-  // for manual re-warming when an agency has just relaunched a
-  // campaign and wants the new spend reflected before TTL elapses.
-  // Any truthy string ("1" / "true") activates it; "" / missing
-  // leaves the cache enabled.
-  const forceRefresh = isTruthyParam(pickQueryParam(sp.refresh));
+  // `?refresh=1` (or `?force=1` — alias added in PR #57 #3 to
+  // mirror the internal route's bust signal) skips the Supabase
+  // snapshot read (NOT the write — a fresh fetch still warms the
+  // cache for the next visitor). Driven by the Refresh button on
+  // the live report footer; ops can also paste the URL with the
+  // param into Slack/dashboards. Any truthy string ("1" / "true")
+  // activates it; "" / missing leaves the cache enabled.
+  const forceRefresh =
+    isTruthyParam(pickQueryParam(sp.refresh)) ||
+    isTruthyParam(pickQueryParam(sp.force));
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);

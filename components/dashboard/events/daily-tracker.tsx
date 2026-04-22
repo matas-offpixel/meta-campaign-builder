@@ -816,12 +816,24 @@ function buildDisplayRows({
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
+      // Presale running totals = the bucket's own numbers — it sits
+      // chronologically before every dated row, so cumulative-as-of-
+      // end-of-presale is just the bucket sum. Reading the table
+      // bottom-up (oldest → newest) the daily running totals already
+      // start FROM these values, so the sequence stays monotonic.
       running_spend: round2(num(presale.ad_spend)),
       running_clicks: num(presale.link_clicks),
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
     };
-    return [presaleRow, ...dailyDisplay];
+    // Presale is the chronologically earliest activity in the
+    // dataset (everything strictly before `general_sale_at`). With
+    // the daily list reversed to newest-first, the presale rolled-up
+    // bucket therefore belongs at the BOTTOM of the table — below
+    // the oldest dated row — not at the top where it used to live
+    // (PR #57 #1). Reading top → bottom now mirrors a calendar from
+    // "today" back to "before sale opened".
+    return [...dailyDisplay, presaleRow];
   }
 
   return dailyDisplay;

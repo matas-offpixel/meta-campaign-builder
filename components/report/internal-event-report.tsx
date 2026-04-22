@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import type {
@@ -25,6 +25,27 @@ type FetchState =
   | { kind: "loading" }
   | { kind: "ok"; data: EventInsightsPayload }
   | { kind: "unavailable"; reason: string };
+
+/**
+ * Build the auth insights URL. When `force` is true the route's
+ * `?force=1` cache-bust signal is added (PR #57 #3) — used by the
+ * manual Refresh button on the live report footer to skip the
+ * server-side 5-minute cache for the current bucket.
+ */
+function buildInsightsUrl(
+  eventId: string,
+  datePreset: DatePreset,
+  customRange: CustomDateRange | undefined,
+  force: boolean,
+): string {
+  const qs = new URLSearchParams({ datePreset });
+  if (datePreset === "custom" && customRange) {
+    qs.set("since", customRange.since);
+    qs.set("until", customRange.until);
+  }
+  if (force) qs.set("force", "1");
+  return `/api/insights/event/${encodeURIComponent(eventId)}?${qs.toString()}`;
+}
 
 /**
  * Internal mirror of the public report — same `EventReportView` body,
@@ -73,14 +94,18 @@ export function InternalEventReport({ eventId, event }: Props) {
     }
   };
 
+  // Deps below intentionally pin `customRange?.since/until` rather
+  // than the whole `customRange` reference, so a fresh
+  // `setCustomRange({since, until})` with the same dates doesn't
+  // re-fire the fetch. We rebuild the range object locally so the
+  // URL still reflects the active window.
+  const since = customRange?.since;
+  const until = customRange?.until;
   useEffect(() => {
     let cancelled = false;
-    const qs = new URLSearchParams({ datePreset });
-    if (datePreset === "custom" && customRange) {
-      qs.set("since", customRange.since);
-      qs.set("until", customRange.until);
-    }
-    fetch(`/api/insights/event/${encodeURIComponent(eventId)}?${qs.toString()}`, {
+    const activeRange =
+      datePreset === "custom" && since && until ? { since, until } : undefined;
+    fetch(buildInsightsUrl(eventId, datePreset, activeRange, false), {
       // Route-segment revalidate already handles per-bucket caching;
       // `no-store` here forces a fresh fetch so a timeframe flick
       // bypasses any stale browser cache and surfaces the latest numbers.
@@ -118,7 +143,34 @@ export function InternalEventReport({ eventId, event }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [eventId, datePreset, customRange?.since, customRange?.until]);
+  }, [eventId, datePreset, since, until]);
+
+  /**
+   * Manual refresh — wired to the Refresh button in the live
+   * report footer. Re-runs the insights fetch with `?force=1` so
+   * the route bypasses the 5-minute server-side cache for the
+   * current (event, timeframe) bucket only. Other buckets keep
+   * their TTL — switching back to a freshly-warmed preset still
+   * hits the cache. Throws on failure so `<RefreshReportButton>`
+   * can render its inline error line.
+   */
+  const handleManualRefresh = useCallback(async () => {
+    const res = await fetch(
+      buildInsightsUrl(eventId, datePreset, customRange, true),
+      { cache: "no-store" },
+    );
+    if (res.status === 401) {
+      throw new Error("Session expired");
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const json = (await res.json()) as InsightsResult;
+    if (!json.ok) {
+      throw new Error(json.error.message ?? json.error.reason);
+    }
+    setState({ kind: "ok", data: json.data });
+  }, [eventId, datePreset, customRange]);
 
   if (state.kind === "loading") {
     return (
@@ -164,6 +216,7 @@ export function InternalEventReport({ eventId, event }: Props) {
       customRange={customRange}
       creativesSource={{ kind: "internal", eventId }}
       onTimeframeChange={handleTimeframeChange}
+      onManualRefresh={handleManualRefresh}
       variant="embedded"
     />
   );
