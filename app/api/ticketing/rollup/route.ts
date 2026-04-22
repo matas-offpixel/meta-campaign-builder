@@ -2,10 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import {
-  listRollupsForEvent,
   updateRollupNotes,
   type EventDailyRollup,
 } from "@/lib/db/event-daily-rollups";
+import {
+  computePresaleBucket,
+  loadEventDailyTimeline,
+  type PresaleBucket as TimelinePresaleBucket,
+  type TimelineRow,
+} from "@/lib/db/event-daily-timeline";
 
 /**
  * GET  /api/ticketing/rollup?eventId=X
@@ -21,22 +26,30 @@ import {
  *   the sync first); 400 when body shape is wrong.
  */
 
-export interface PresaleBucket {
-  /** ISO date (general_sale_at) — the cutoff used to compute the bucket. */
-  cutoffDate: string;
-  ad_spend: number | null;
-  link_clicks: number | null;
-  tickets_sold: number | null;
-  revenue: number | null;
-  /** Number of rollup rows folded into the bucket. */
-  daysCount: number;
-  /** Earliest date covered by the bucket (for the "from" label). */
-  earliestDate: string | null;
-}
+/**
+ * Re-exported from the shared timeline helper so existing callers
+ * (the dashboard's DailyTracker, the share page) all read from one
+ * type definition. Keeps drift impossible.
+ */
+export type PresaleBucket = TimelinePresaleBucket;
 
 interface GetResponse {
   ok: true;
+  /**
+   * Raw rollup rows (live, auto-synced). Kept on the response shape
+   * for callers that need the rollup-only view — notably the presale
+   * bucket math, which is rollup-only by design (operators don't type
+   * presale entries).
+   *
+   * UI generally renders from `timeline` instead.
+   */
   rows: EventDailyRollup[];
+  /**
+   * Unified per-day timeline: live rollups + manual `daily_tracking_entries`
+   * merged with per-date precedence (manual wins) and tagged with a
+   * `source` field the UI uses for the Manual / Live badge.
+   */
+  timeline: TimelineRow[];
   presale: PresaleBucket | null;
   generalSaleAt: string | null;
 }
@@ -85,11 +98,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const rows = await listRollupsForEvent(supabase, eventId);
+  // Single round-trip pulls both legs (live rollups + manual entries)
+  // and merges them into the unified timeline. `rollups` from the
+  // result is reused for the presale bucket math so we don't query
+  // event_daily_rollups twice.
+  const { timeline, rollups } = await loadEventDailyTimeline(supabase, eventId);
   const generalSaleAt = (event.general_sale_at as string | null) ?? null;
-  const presale = computePresaleBucket(rows, generalSaleAt);
+  const presale = computePresaleBucket(rollups, generalSaleAt);
 
-  const body: GetResponse = { ok: true, rows, presale, generalSaleAt };
+  const body: GetResponse = {
+    ok: true,
+    rows: rollups,
+    timeline,
+    presale,
+    generalSaleAt,
+  };
   return NextResponse.json(body, { status: 200 });
 }
 
@@ -197,49 +220,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-/**
- * Roll up every row strictly before `general_sale_at::date` into a
- * single Presale bucket. Returns null when general_sale_at isn't set
- * (caller renders the table flat) or when no rows fall in the bucket.
- */
-function computePresaleBucket(
-  rows: EventDailyRollup[],
-  generalSaleAt: string | null,
-): PresaleBucket | null {
-  if (!generalSaleAt) return null;
-  // general_sale_at is a timestamptz; strip to date in the UTC form
-  // Postgres gives us. Comparing date strings lexicographically is
-  // safe for canonical YYYY-MM-DD.
-  const cutoffDate = generalSaleAt.slice(0, 10);
-  const presaleRows = rows.filter((r) => r.date < cutoffDate);
-  if (presaleRows.length === 0) return null;
-
-  let ad_spend: number | null = null;
-  let link_clicks: number | null = null;
-  let tickets_sold: number | null = null;
-  let revenue: number | null = null;
-  let earliestDate: string | null = null;
-
-  for (const r of presaleRows) {
-    if (r.ad_spend != null) ad_spend = (ad_spend ?? 0) + Number(r.ad_spend);
-    if (r.link_clicks != null) link_clicks = (link_clicks ?? 0) + r.link_clicks;
-    if (r.tickets_sold != null)
-      tickets_sold = (tickets_sold ?? 0) + r.tickets_sold;
-    if (r.revenue != null) revenue = (revenue ?? 0) + Number(r.revenue);
-    if (!earliestDate || r.date < earliestDate) earliestDate = r.date;
-  }
-
-  return {
-    cutoffDate,
-    ad_spend: ad_spend != null ? round2(ad_spend) : null,
-    link_clicks,
-    tickets_sold,
-    revenue: revenue != null ? round2(revenue) : null,
-    daysCount: presaleRows.length,
-    earliestDate,
-  };
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+// `computePresaleBucket` lives in `lib/db/event-daily-timeline.ts`
+// alongside the unified-timeline merge — both endpoints (this route +
+// the public share page) import it from there so the math is defined
+// in exactly one place.

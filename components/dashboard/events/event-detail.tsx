@@ -40,7 +40,7 @@ import {
 } from "@/components/dashboard/events/ticket-pacing-card";
 import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
 import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
-import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
+import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
 import { ShareReportControls } from "@/app/(dashboard)/events/[id]/share-report-controls";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
@@ -414,13 +414,25 @@ export function EventDetail({
           <TabPanel active={activeTab === "overview"}>
             <div className="space-y-6">
               {!isBrand && event.client_id && (
-                // DailyTracker sits at the top of Overview, directly
-                // below the EventbriteLiveBlock above the tabs. It
-                // handles its own empty state (no event_code AND no
-                // Eventbrite link) so we only gate on isBrand here —
-                // matches the same gating as the live block.
-                <DailyTracker
-                  eventId={event.id}
+                // Event report block sits at the top of Overview,
+                // directly below the EventbriteLiveBlock above the
+                // tabs. The block handles its own empty state (no
+                // event_code AND no Eventbrite link), so we only gate
+                // on isBrand here — same gating as the live block.
+                <EventDailyReportBlock
+                  event={{
+                    id: event.id,
+                    budget_marketing: event.budget_marketing ?? null,
+                    meta_spend_cached:
+                      (event as unknown as { meta_spend_cached: number | null })
+                        .meta_spend_cached ?? null,
+                    prereg_spend:
+                      (event as unknown as { prereg_spend: number | null })
+                        .prereg_spend ?? null,
+                    general_sale_at:
+                      (event as unknown as { general_sale_at: string | null })
+                        .general_sale_at ?? null,
+                  }}
                   hasMetaScope={Boolean(
                     event.event_code &&
                       event.client?.meta_ad_account_id,

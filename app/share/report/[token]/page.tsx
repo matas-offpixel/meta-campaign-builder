@@ -28,6 +28,13 @@ import {
 } from "@/lib/reporting/share-active-creatives";
 import { ShareActiveCreativesSection } from "@/components/share/share-active-creatives-section";
 import { ShareActiveCreativesSkeleton } from "@/components/share/share-active-creatives-skeleton";
+import { listLinksForEvent } from "@/lib/db/ticketing";
+import {
+  computePresaleBucket,
+  loadEventDailyTimeline,
+  type TimelineRow,
+} from "@/lib/db/event-daily-timeline";
+import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import {
   readShareSnapshot,
   writeShareSnapshot,
@@ -130,6 +137,18 @@ interface ResolvedEvent {
   ticketsSoldSource: "plan" | "manual" | null;
   ticketsSoldAsOf: string | null;
   adAccountId: string | null;
+  /** Cached lifetime Meta spend — feeds the report block summary
+   *  header so the "Meta Spend" cell is consistent with the rest of
+   *  the dashboard even before the timeline fully covers the
+   *  campaign window. */
+  metaSpendCached: number | null;
+  /** Lifetime spend on the pre-launch campaign (separate from the
+   *  general-sale Meta spend tracked in the timeline). Surfaced as
+   *  the "Pre-reg" column in the summary. */
+  preregSpend: number | null;
+  /** General-sale cutoff — drives the presale bucket on the daily
+   *  table and the previous-week comparison on the summary header. */
+  generalSaleAt: string | null;
 }
 
 export default async function PublicReportPage({ params, searchParams }: Props) {
@@ -174,7 +193,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     admin
       .from("events")
       .select(
-        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, tickets_sold, client:clients ( meta_ad_account_id )",
+        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, client:clients ( meta_ad_account_id )",
       )
       .eq("id", event_id)
       .maybeSingle(),
@@ -236,6 +255,10 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     ticketsSoldSource,
     ticketsSoldAsOf,
     adAccountId,
+    metaSpendCached:
+      (eventRow.data.meta_spend_cached as number | null) ?? null,
+    preregSpend: (eventRow.data.prereg_spend as number | null) ?? null,
+    generalSaleAt: (eventRow.data.general_sale_at as string | null) ?? null,
   };
 
   // Bump the view counter best-effort — non-blocking.
@@ -306,6 +329,44 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // gracefully drops the Meta block when `meta=null`).
   const headlineUnavailable = !metaPayload && creativesHaveContent;
 
+  // Server-load the unified per-day timeline + Eventbrite link
+  // presence in parallel — both feed the Event daily report block,
+  // which renders below the headline metrics on the share page.
+  // Defensive catches keep a missing migration / dropped row from
+  // 500-ing the whole report; the block degrades gracefully when its
+  // initial timeline is empty.
+  const [eventDailyData, eventLinks] = await Promise.all([
+    loadEventDailyTimeline(admin, event_id).catch((err) => {
+      console.warn(
+        `[share/report] event-daily-timeline failed for token=${token}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { timeline: [] as TimelineRow[], rollups: [], manualCount: 0 };
+    }),
+    listLinksForEvent(admin, event_id).catch(() => []),
+  ]);
+  const presale = computePresaleBucket(
+    eventDailyData.rollups,
+    event.generalSaleAt,
+  );
+  const eventDailySlot = (
+    <EventDailyReportBlock
+      mode="share"
+      event={{
+        id: event_id,
+        budget_marketing: event.paidMediaBudget,
+        meta_spend_cached: event.metaSpendCached,
+        prereg_spend: event.preregSpend,
+        general_sale_at: event.generalSaleAt,
+      }}
+      hasMetaScope={Boolean(event.eventCode && event.adAccountId)}
+      hasEventbriteLink={eventLinks.length > 0}
+      initialTimeline={eventDailyData.timeline}
+      initialPresale={presale}
+    />
+  );
+
   // Render path:
   //   - Cache hit → render the resolved section synchronously.
   //   - Cache miss with a deferred promise → wrap the section in
@@ -344,6 +405,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       datePreset={datePreset}
       customRange={customRange}
       creativesSlot={creativesSlot}
+      eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
     />
   );
