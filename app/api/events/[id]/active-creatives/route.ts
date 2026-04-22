@@ -8,6 +8,11 @@ import {
   FacebookAuthExpiredError,
 } from "@/lib/reporting/active-creatives-fetch";
 import type { CreativeRow } from "@/lib/reporting/active-creatives-group";
+import {
+  DATE_PRESETS,
+  type CustomDateRange,
+  type DatePreset,
+} from "@/lib/insights/types";
 
 /**
  * GET /api/events/[id]/active-creatives
@@ -104,11 +109,41 @@ function emptyMeta(): RouteMeta {
   };
 }
 
+function parseDatePreset(value: string | null): DatePreset {
+  if (value === "custom") return "custom";
+  if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
+    return value as DatePreset;
+  }
+  return "maximum";
+}
+
+function parseCustomRange(
+  preset: DatePreset,
+  since: string | null,
+  until: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!since || !until) return undefined;
+  return { since, until };
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: eventId } = await params;
+  // Optional timeframe params — when provided, the per-ad nested
+  // `insights{...}` field is scoped to the same window as the headline
+  // report so the internal Reporting tab's creative cards reflect the
+  // active timeframe pill (PR #62 #1). Without these the route falls
+  // back to Meta's default `last_30d`, matching pre-PR behaviour.
+  const sp = req.nextUrl.searchParams;
+  const datePreset = parseDatePreset(sp.get("datePreset"));
+  const customRange = parseCustomRange(
+    datePreset,
+    sp.get("since"),
+    sp.get("until"),
+  );
 
   const supabase = await createClient();
   const {
@@ -177,6 +212,8 @@ export async function GET(
       adAccountId: adAccountIdRaw,
       eventCode,
       token,
+      datePreset,
+      customRange,
     });
   } catch (err) {
     if (err instanceof FacebookAuthExpiredError) {
