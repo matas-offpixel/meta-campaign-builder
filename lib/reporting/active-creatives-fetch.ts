@@ -52,8 +52,20 @@ import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 const PER_EVENT_CAMPAIGN_CAP = 50;
 export const PER_EVENT_CREATIVE_CAP = 200;
-const ADS_PAGE_LIMIT = 50;
+// Per-campaign /insights pagination guard. The /ads side now uses
+// EVENT_ADS_PAGE_LIMIT / EVENT_ADS_PAGE_SAFETY against the
+// account-level endpoint — see fetchActiveAdsForEventAccountOnce.
 const ADS_PAGE_SAFETY = 6;
+// Account-level /ads pagination. limit=500 keeps the per-page
+// payload comfortably under Meta's response budget for the slim
+// scalar+creative.id field set; safety=12 covers worst-case 6000
+// distinct ads per event (PER_EVENT_CAMPAIGN_CAP × ~120 active
+// ads/campaign), well above anything we've seen in production.
+const EVENT_ADS_PAGE_LIMIT = 500;
+const EVENT_ADS_PAGE_SAFETY = 12;
+// Per-campaign /insights fan-out concurrency. The /ads side is now
+// a single account-level call, so this only governs the insights
+// step.
 const CAMPAIGN_CONCURRENCY = 3;
 
 interface RawCampaignRow {
@@ -178,14 +190,19 @@ export interface FetchActiveCreativesMeta {
   /** Set when every campaign failed because the FB token is dead. */
   auth_expired: boolean;
   /**
-   * Count of duplicate ad rows dropped by the cross-campaign dedup
-   * (PR #50). Non-zero means the `event_code` substring matched
-   * multiple sibling campaigns that share ads — Meta returns the
-   * same `ad_id` once per campaign it appears in, both from
-   * `/{campaignId}/ads` and `/{campaignId}/insights?level=ad`.
+   * Combined count of duplicate rows dropped during the cross-
+   * campaign dedup pass. Two sources contribute (PR #50, then
+   * extended after the account-level /ads switch):
+   *   - /ads side: defensive belt-and-braces for paginated overlap.
+   *     Expected 0 now that /ads runs as a single account-level
+   *     call; was the dominant source under the old per-campaign
+   *     fan-out.
+   *   - /insights side: real, observed when sibling campaigns
+   *     under the same `event_code` substring share an ad (Meta
+   *     returns its insight row once per campaign).
    * First-seen wins per ad_id; subsequent rows are counted here
-   * and discarded before grouping. Surfaced for debug/log
-   * surfaces, not the UI.
+   * and discarded before stitching. Surfaced for debug/log, not
+   * the UI.
    */
   cross_campaign_duplicates: number;
   /**
@@ -493,109 +510,100 @@ async function listLinkedCampaignIds(
 }
 
 /**
- * Single-retry shim around `fetchActiveAdsForCampaignOnce`.
+ * Single-retry shim around `fetchActiveAdsForEventAccountOnce`.
  *
  * On a transient rate-limit / service-unavailable error (per
- * `isTransientRateLimit`), waits ADS_OUTER_RETRY_DELAY_MS and tries
- * once more. Any other error class (auth, validation, etc.) re-throws
- * immediately so the campaign-boundary catch in
- * `fetchActiveCreativesForEvent` can record the failure and continue
- * with siblings — same as before this PR.
+ * `isTransientRateLimit`), waits {@link ADS_OUTER_RETRY_DELAY_MS}
+ * and tries once more. Any other error class (auth, validation,
+ * `meta_code=1 reduce-data`, etc.) re-throws immediately so the
+ * caller can record the failure and surface a partial render.
  *
- * Why this lives here and not inside `graphGetWithToken`:
- *   The inner client already retries 5× with backoff for the same
- *   code set. The cascade fix needs a SECOND-LEVEL retry at the
- *   campaign boundary, because a saturated per-account quota can
- *   eat all 5 inner attempts on a single page and still leave the
- *   sibling fetch with budget to succeed a few hundred ms later.
- *   Wrapping at this scope rebuilds the page state from scratch
- *   on the retry, which is what we want — partial pagination state
- *   from a half-failed first attempt isn't trustworthy.
+ * Why the inner client's 5× backoff isn't enough:
+ *   `graphGetWithToken` already retries the same code set with
+ *   exponential backoff per call, but a saturated per-account
+ *   quota can eat all 5 inner attempts on a single page. One
+ *   additional attempt at the helper boundary, after a brief
+ *   pause, is enough to ride out the moment.
  */
-async function fetchActiveAdsForCampaign(
-  campaignId: string,
-  campaignName: string | null,
+async function fetchActiveAdsForEventAccount(
+  adAccountId: string,
+  campaignIds: readonly string[],
   token: string,
 ): Promise<AdInput[]> {
   return retryOnceOnTransient(
-    () => fetchActiveAdsForCampaignOnce(campaignId, campaignName, token),
+    () => fetchActiveAdsForEventAccountOnce(adAccountId, campaignIds, token),
     isTransientRateLimit,
     ADS_OUTER_RETRY_DELAY_MS,
     (err, delay) => {
       const code = (err as { code?: number }).code;
       console.warn(
-        `[active-creatives] /ads transient meta_code=${code} on campaign=${campaignId} — single outer retry in ${delay}ms`,
+        `[active-creatives] /ads transient meta_code=${code} on event-account=${adAccountId} (${campaignIds.length} campaigns) — single outer retry in ${delay}ms`,
       );
     },
   );
 }
 
-async function fetchActiveAdsForCampaignOnce(
-  campaignId: string,
-  campaignName: string | null,
+/**
+ * One account-level `/{adAccountId}/ads` call per event, replacing
+ * the prior per-campaign fan-out.
+ *
+ * Why this shape (PR #67 follow-up):
+ *   PR #67 slimmed the field list to scalars + `creative{id}` to
+ *   dodge Meta's per-response size budget, but the three Junction 2
+ *   campaigns still threw `meta_code=1 reduce-data` because Meta's
+ *   `/{campaignId}/ads` endpoint scans EVERY ad in the campaign
+ *   (including ARCHIVED) before applying our `effective_status`
+ *   filter. It's the SCAN budget that overflows on those campaigns,
+ *   not the response. Slimming fields was wasted budget once the
+ *   scan cap engaged.
+ *
+ *   Switching to `/{adAccountId}/ads` with `filtering=[{campaign.id
+ *   IN [...]}, {effective_status IN [...]}]` moves the scan to the
+ *   account-indexed view, which Meta serves out of a different
+ *   index that doesn't trip the per-campaign cap. Same response
+ *   shape, same per-row mapping into AdInput. Net request count
+ *   drops from N (campaigns) to 1 + pagination — usually 1-3 pages
+ *   total even on wide events at limit=500.
+ *
+ *   Insights stay per-campaign (`fetchAdInsightsForCampaign`) —
+ *   the dedicated `/insights` endpoint has its own day-chunked
+ *   fallback and isn't subject to the same scan cap.
+ *
+ * Status filter mirrors the per-campaign helper it replaces:
+ *   [ACTIVE, PAUSED, CAMPAIGN_PAUSED, ADSET_PAUSED, WITH_ISSUES].
+ *   Excludes ARCHIVED / DELETED / IN_PROCESS / PENDING_REVIEW /
+ *   DISAPPROVED. The CAMPAIGN_PAUSED / ADSET_PAUSED / WITH_ISSUES
+ *   inclusions are deliberate (Leeds-event spend reconciliation —
+ *   long rationale on the prior version of this helper, now
+ *   distilled here for the same reason).
+ */
+async function fetchActiveAdsForEventAccountOnce(
+  adAccountId: string,
+  campaignIds: readonly string[],
   token: string,
 ): Promise<AdInput[]> {
-  // PR #59 (fix/ads-payload-split): the /ads call now returns ONLY
-  // the scalar enumeration fields + the creative.id pointer. The
-  // full creative payload (object_story_spec, asset_feed_spec,
-  // thumbnail_url, image_url, video_id, all the modal/preview /
-  // grouping bits) is fetched in a second phase by `fetchCreativeBatch`
-  // — see the stitch loop in `fetchActiveCreativesForEvent`.
-  //
-  // Why we split: Meta's per-response size budget on
-  // `/{campaignId}/ads` collapses when the campaign has hundreds of
-  // ads and each row carries a fully-expanded creative subtree,
-  // surfacing as `meta_code=1 message="reduce the amount of data"`.
-  // Production logs (2026-04-22 22:46–22:49) caught three Junction 2
-  // campaigns (120241574082980342 / 120241610668270342 /
-  // 120242072861160342) failing on this every timeframe; the
-  // single-retry burned ~60s before the campaign-boundary catch
-  // recorded the failure and dropped the ads. The batched-IDs
-  // endpoint (GET /?ids=…&fields=…) handles 50 creatives in one
-  // call and isn't subject to the same per-page expansion budget,
-  // so the same bytes split across two response shapes go through
-  // cleanly.
-  //
-  // PR #47: insights are no longer nested here — they're fetched
-  // in parallel by `fetchAdInsightsForCampaign` against the
-  // dedicated /insights endpoint and stitched in by the caller.
+  if (campaignIds.length === 0) return [];
   const fields = [
     "id",
     "name",
     "status",
     "effective_status",
-    "campaign_id",
     "campaign{id,name}",
-    "adset_id",
     "adset{id,name}",
     "creative{id}",
   ].join(",");
-
-  // Why we don't filter to ACTIVE-only:
-  //   The per-ad /insights call below is unfiltered and returns spend
-  //   rows for every ad with activity in the window — including ads
-  //   under paused campaigns and paused ads under active campaigns.
-  //   With the old `["ACTIVE"]` filter on /ads, those insight rows
-  //   had no AdInput to stitch onto and were silently dropped at the
-  //   "if (!row) continue;" guard in the caller, so the creative-card
-  //   totals reconciled to ~8% of the real campaign spend on the Leeds
-  //   event (PRESALE campaign paused → all ads CAMPAIGN_PAUSED → all
-  //   £523.98 of historical PRESALE spend orphaned).
-  //
-  // The widened set covers every status that can have spend in the
-  // current reporting window, while still excluding ARCHIVED / DELETED
-  // (their creative payloads are gone — Meta returns them as nulls)
-  // and review/billing limbo states that never actually ran.
+  const filtering = JSON.stringify([
+    { field: "campaign.id", operator: "IN", value: [...campaignIds] },
+    {
+      field: "effective_status",
+      operator: "IN",
+      value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "WITH_ISSUES"],
+    },
+  ]);
   const params: Record<string, string> = {
     fields,
-    limit: String(ADS_PAGE_LIMIT),
-    effective_status: JSON.stringify([
-      "ACTIVE",
-      "PAUSED",
-      "CAMPAIGN_PAUSED",
-      "ADSET_PAUSED",
-      "WITH_ISSUES",
-    ]),
+    limit: String(EVENT_ADS_PAGE_LIMIT),
+    filtering,
   };
 
   const out: AdInput[] = [];
@@ -604,7 +612,7 @@ async function fetchActiveAdsForCampaignOnce(
   do {
     if (after) params.after = after;
     const res = await graphGetWithToken<PagedResponse<RawAdRow>>(
-      `/${campaignId}/ads`,
+      `/${adAccountId}/ads`,
       params,
       token,
     );
@@ -622,8 +630,13 @@ async function fetchActiveAdsForCampaignOnce(
         ad_id: ad.id,
         ad_name: ad.name ?? null,
         status: ad.effective_status ?? ad.status ?? null,
-        campaign_id: ad.campaign?.id ?? ad.campaign_id ?? campaignId,
-        campaign_name: ad.campaign?.name ?? campaignName,
+        // Account-level /ads always returns the canonical
+        // campaign{id,name} per ad (no per-campaign-endpoint
+        // fallback needed). campaign_id/adset_id legacy non-nested
+        // fields are kept as a defensive fallback in case Meta
+        // reverts to the older shape for any row.
+        campaign_id: ad.campaign?.id ?? ad.campaign_id ?? null,
+        campaign_name: ad.campaign?.name ?? null,
         adset_id: ad.adset?.id ?? ad.adset_id ?? null,
         adset_name: ad.adset?.name ?? null,
         creative_id: ad.creative?.id ?? null,
@@ -635,17 +648,17 @@ async function fetchActiveAdsForCampaignOnce(
         object_story_id: null,
         primary_asset_signature: null,
         preview: emptyPreview(),
-        // Filled in by the caller after fetchAdInsightsForCampaign
-        // returns. Left null here so partial-failure (insights
-        // lookup throws while /ads succeeds) renders cards with "—"
-        // metrics rather than blanking the campaign.
+        // Filled in by the orchestrator after the per-campaign
+        // insights fan-out resolves. Left null here so partial-
+        // failure (insights throws while /ads succeeds) renders
+        // cards with "—" metrics rather than blanking the event.
         insights: null,
       });
     }
     after = res.paging?.cursors?.after;
     pages += 1;
     if (!res.paging?.next) break;
-  } while (after && pages < ADS_PAGE_SAFETY);
+  } while (after && pages < EVENT_ADS_PAGE_SAFETY);
   return out;
 }
 
@@ -1100,12 +1113,62 @@ export async function fetchActiveCreativesForEvent(
   const semaphore = createSemaphore(concurrency);
   let authExpired = false;
   const failed: Array<{ campaign_id: string; error: string }> = [];
+  const customRangeStr = input.customRange
+    ? `${input.customRange.since}..${input.customRange.until}`
+    : null;
 
-  // Per-campaign orphan buckets — rolled up into a single
-  // `meta.unattributed` total at the bottom. We capture the orphans
-  // here (next to the stitch loop that creates them) rather than
-  // post-hoc to keep the bookkeeping local: the only thing the
-  // outer scope needs to see is the rolled-up sum.
+  // PHASE A — one account-level /ads call for the whole event.
+  // Replaces the prior per-campaign fan-out that tripped Meta's
+  // per-campaign scan-budget cap on Junction 2 (PR #67 follow-up).
+  // Auth failure here is fatal: we have no ads to render against.
+  // Any other Meta error (`reduce-data`, validation, transient that
+  // outlasted the retry) is logged + treated as "no ads this event"
+  // so the rest of the report (headline stats, campaign breakdown)
+  // still paints.
+  let rawAds: AdInput[] = [];
+  try {
+    rawAds = await fetchActiveAdsForEventAccount(
+      adAccountId,
+      campaigns.map((c) => c.id),
+      token,
+    );
+    console.info(
+      `[active-creatives] event_ads_fetch_ok event=${eventCode} ad_account=${adAccountId} campaigns=${campaigns.length} ads=${rawAds.length}`,
+    );
+  } catch (err) {
+    if (isMetaAuthError(err)) {
+      throw new FacebookAuthExpiredError();
+    }
+    const msg =
+      err instanceof MetaApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    const e = err as {
+      code?: number;
+      error_subcode?: number;
+      type?: string;
+    };
+    console.error(
+      `[active-creatives] event_ads_fetch_failed event=${eventCode} ad_account=${adAccountId} campaigns=${campaigns.length} date_preset=${input.datePreset ?? "default"} custom_range=${customRangeStr} meta_code=${e.code ?? "n/a"} meta_subcode=${e.error_subcode ?? "n/a"} meta_type=${e.type ?? "n/a"} message=${JSON.stringify(msg)}`,
+    );
+    // Record one synthetic failure-per-campaign so the meta surface
+    // continues to expose the same `campaigns_failed` shape callers
+    // already key off (notably `cacheable` in the share route — a
+    // total /ads outage shouldn't poison the snapshot cache).
+    for (const c of campaigns) {
+      failed.push({ campaign_id: c.id, error: msg });
+    }
+  }
+
+  // PHASE B — per-campaign /insights fan-out. Stays per-campaign
+  // because the /insights endpoint isn't subject to the same scan
+  // cap and already has a day-chunked fallback for the
+  // `reduce-data` case (see fetchAdInsightsChunked). Insights
+  // failures are swallowed (logged + empty map) per the partial-
+  // render contract: cards still appear with "—" metrics rather
+  // than dropping the whole campaign.
   type OrphanBucket = {
     ads_count: number;
     spend: number;
@@ -1116,111 +1179,20 @@ export async function fetchActiveCreativesForEvent(
     registrations: number;
     purchases: number;
   };
-  const orphanBuckets: OrphanBucket[] = [];
-
-  const results = await Promise.all(
+  const insightsResults = await Promise.all(
     campaigns.map((c) =>
       semaphore(async () => {
         try {
-          // Fan out /ads + /insights in parallel for the same
-          // campaign. Insights failures are swallowed (logged + empty
-          // map) so the cards still render with "—" metrics rather
-          // than dropping the whole campaign — matches the partial-
-          // render contract added in PR #42. Only the /ads call is
-          // load-bearing for the auth-expired sentinel.
-          const [ads, insightsMap] = await Promise.all([
-            fetchActiveAdsForCampaign(c.id, c.name ?? null, token),
-            fetchAdInsightsForCampaign(
-              c.id,
-              token,
-              input.datePreset,
-              input.customRange,
-            ).catch((err) => {
-              if (isMetaAuthError(err)) authExpired = true;
-              console.warn(
-                `[active-creatives] insights for campaign ${c.id} (${c.name ?? "?"}) failed:`,
-                err instanceof Error ? err.message : String(err),
-              );
-              return new Map<string, RawAdInsightRow>();
-            }),
-          ]);
-
-          // Stitch insights onto the ad rows. Ads with no matching
-          // insight row keep `insights: null` (set by
-          // fetchActiveAdsForCampaign) and the grouper treats them
-          // as zero-contribution.
-          const stitchedAdIds = new Set<string>();
-          for (const ad of ads) {
-            const row = insightsMap.get(ad.ad_id);
-            if (!row) continue;
-            stitchedAdIds.add(ad.ad_id);
-            ad.insights = {
-              spend: num(row.spend),
-              impressions: num(row.impressions),
-              clicks: num(row.clicks),
-              reach: num(row.reach),
-              frequency: num(row.frequency),
-              actions: (row.actions ?? []).map((a) => ({
-                action_type: a.action_type ?? "",
-                value: num(a.value),
-              })),
-              inline_link_clicks: num(row.inline_link_clicks),
-              action_values: (row.action_values ?? []).map((a) => ({
-                action_type: a.action_type ?? "",
-                value: num(a.value),
-              })),
-            };
-          }
-
-          // Anything in the insights map that didn't get stitched is
-          // an orphan — almost always an ARCHIVED / DELETED ad whose
-          // creative payload Meta has stripped. We can't render a
-          // card for it (no thumbnail, no headline, no creative_id)
-          // but its spend is real and must reconcile against the
-          // campaign-level breakdown elsewhere in the report.
-          const orphan: OrphanBucket = {
-            ads_count: 0,
-            spend: 0,
-            impressions: 0,
-            clicks: 0,
-            inline_link_clicks: 0,
-            landingPageViews: 0,
-            registrations: 0,
-            purchases: 0,
-          };
-          for (const [adId, row] of insightsMap) {
-            if (stitchedAdIds.has(adId)) continue;
-            orphan.ads_count += 1;
-            orphan.spend += num(row.spend);
-            orphan.impressions += num(row.impressions);
-            orphan.clicks += num(row.clicks);
-            orphan.inline_link_clicks += num(row.inline_link_clicks);
-            orphan.landingPageViews += sumPriorityAction(
-              row.actions,
-              ORPHAN_LPV_PRIORITY,
-            );
-            orphan.registrations += sumPriorityAction(
-              row.actions,
-              ORPHAN_REG_PRIORITY,
-            );
-            orphan.purchases += sumPriorityAction(
-              row.actions,
-              ORPHAN_PURCHASE_PRIORITY,
-            );
-          }
-          if (orphan.ads_count > 0) orphanBuckets.push(orphan);
-          // Per-campaign success log — pairs with the
-          // `campaign_fetch_failed` line below so a Vercel filter on
-          // `[active-creatives]` shows the full per-campaign result
-          // set side-by-side. ads.length is post-/ads pagination,
-          // insightsMap.size is the per-ad insights row count
-          // (orphans + stitched). When a wider timeframe drops ads
-          // we'll see the gap directly: same campaign id, fewer ads
-          // logged, no matching `campaign_fetch_failed` line.
-          console.info(
-            `[active-creatives] campaign_fetch_ok campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} ads=${ads.length} insights_rows=${insightsMap.size}`,
+          const map = await fetchAdInsightsForCampaign(
+            c.id,
+            token,
+            input.datePreset,
+            input.customRange,
           );
-          return ads;
+          console.info(
+            `[active-creatives] insights_fetch_ok campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} insights_rows=${map.size}`,
+          );
+          return { campaign: c, map };
         } catch (err) {
           if (isMetaAuthError(err)) authExpired = true;
           const msg =
@@ -1229,53 +1201,132 @@ export async function fetchActiveCreativesForEvent(
               : err instanceof Error
                 ? err.message
                 : String(err);
-          // Pull the Meta error envelope fields the upstream client
-          // already attaches when it can. `MetaApiError` exposes
-          // `code` / `error_subcode` / `type` as instance fields;
-          // duck-typed read keeps this resilient to non-Meta throws
-          // (network, validation, etc.) — those just log undefined
-          // for the missing fields, which is exactly the diagnostic
-          // signal we want.
           const e = err as {
             code?: number;
             error_subcode?: number;
             type?: string;
           };
-          const customRangeStr = input.customRange
-            ? `${input.customRange.since}..${input.customRange.until}`
-            : null;
-          console.error(
-            `[active-creatives] campaign_fetch_failed campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} custom_range=${customRangeStr} meta_code=${e.code ?? "n/a"} meta_subcode=${e.error_subcode ?? "n/a"} meta_type=${e.type ?? "n/a"} message=${JSON.stringify(msg)}`,
+          console.warn(
+            `[active-creatives] insights_fetch_failed campaign_id=${c.id} campaign_name=${JSON.stringify(c.name ?? null)} date_preset=${input.datePreset ?? "default"} custom_range=${customRangeStr} meta_code=${e.code ?? "n/a"} meta_subcode=${e.error_subcode ?? "n/a"} meta_type=${e.type ?? "n/a"} message=${JSON.stringify(msg)}`,
           );
-          failed.push({ campaign_id: c.id, error: msg });
-          return [] as AdInput[];
+          return {
+            campaign: c,
+            map: new Map<string, RawAdInsightRow>(),
+          };
         }
       }),
     ),
   );
 
-  if (authExpired && failed.length === campaigns.length) {
-    // Every linked campaign failed because the token is dead — surface
-    // as auth-expired rather than letting the panel render an empty
-    // grid that's indistinguishable from "no active ads".
-    throw new FacebookAuthExpiredError();
+  // Merge per-campaign insights into one event-wide map keyed by
+  // ad_id. First-seen wins on duplicate ad_ids — matches the
+  // dedupAdsByAdId posture: Meta's per-campaign /insights can
+  // surface the same ad under sibling campaigns when the event
+  // code substring-matches multiple campaigns the ad is reachable
+  // from. Counted as cross-campaign duplicates for the meta
+  // surface.
+  const insightsByAdId = new Map<string, RawAdInsightRow>();
+  let insightsDuplicates = 0;
+  for (const { map } of insightsResults) {
+    for (const [adId, row] of map) {
+      if (insightsByAdId.has(adId)) {
+        insightsDuplicates += 1;
+        continue;
+      }
+      insightsByAdId.set(adId, row);
+    }
+  }
+  if (insightsDuplicates > 0) {
+    console.log(
+      `[active-creatives] cross-campaign insights dedup: dropped ${insightsDuplicates} duplicate insight rows across sibling campaigns (event=${eventCode})`,
+    );
   }
 
-  const rawAds = results.flat();
-  // PR #50 — cross-campaign dedup. Meta's CONTAIN campaign-filter
-  // returns multiple sibling campaigns for the same event_code; the
-  // same ad_id can appear once per matched campaign, both in
-  // /{campaignId}/ads and /{campaignId}/insights?level=ad. Without
-  // this dedup, purchases / LPV / spend on the card inflate by
-  // exactly the number of campaigns the ad is reachable from
-  // (observed 3× on Junction 2 — UGC 2 - Ry X reported 15
-  // purchases vs Ads Manager ground-truth of 5).
+  // Account-level /ads inherently returns each ad once per its own
+  // campaign_id — no /ads-side dedup needed. The dedupAdsByAdId
+  // pass is preserved as a defensive belt-and-braces in case Meta
+  // ever returns an ad twice (e.g. paginated overlap), and so the
+  // meta surface keeps reporting `cross_campaign_duplicates` with
+  // the same shape downstream consumers expect.
   const { kept: dedupedAds, dropped: duplicatesDropped } =
     dedupAdsByAdId(rawAds);
   if (duplicatesDropped > 0) {
     console.log(
-      `[active-creatives] cross-campaign dedup: dropped ${duplicatesDropped}/${rawAds.length} duplicate ad rows (event=${eventCode})`,
+      `[active-creatives] /ads dedup: dropped ${duplicatesDropped}/${rawAds.length} duplicate ad rows (event=${eventCode})`,
     );
+  }
+  // Combined duplicate count for the meta surface — sums /ads-side
+  // dups (defensive, expected 0 with account-level fetch) and
+  // insights-side dups (real, observed when sibling campaigns
+  // share ads).
+  const crossCampaignDuplicates = duplicatesDropped + insightsDuplicates;
+
+  // Stitch the merged insights map onto the deduped ad list and
+  // accumulate orphans (insight rows whose ad_id never surfaced in
+  // /ads — typically ARCHIVED / DELETED ads whose status filter
+  // bites at the /ads side but whose spend still appears in the
+  // window).
+  const stitchedAdIds = new Set<string>();
+  for (const ad of dedupedAds) {
+    const row = insightsByAdId.get(ad.ad_id);
+    if (!row) continue;
+    stitchedAdIds.add(ad.ad_id);
+    ad.insights = {
+      spend: num(row.spend),
+      impressions: num(row.impressions),
+      clicks: num(row.clicks),
+      reach: num(row.reach),
+      frequency: num(row.frequency),
+      actions: (row.actions ?? []).map((a) => ({
+        action_type: a.action_type ?? "",
+        value: num(a.value),
+      })),
+      inline_link_clicks: num(row.inline_link_clicks),
+      action_values: (row.action_values ?? []).map((a) => ({
+        action_type: a.action_type ?? "",
+        value: num(a.value),
+      })),
+    };
+  }
+
+  const eventOrphan: OrphanBucket = {
+    ads_count: 0,
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    inline_link_clicks: 0,
+    landingPageViews: 0,
+    registrations: 0,
+    purchases: 0,
+  };
+  for (const [adId, row] of insightsByAdId) {
+    if (stitchedAdIds.has(adId)) continue;
+    eventOrphan.ads_count += 1;
+    eventOrphan.spend += num(row.spend);
+    eventOrphan.impressions += num(row.impressions);
+    eventOrphan.clicks += num(row.clicks);
+    eventOrphan.inline_link_clicks += num(row.inline_link_clicks);
+    eventOrphan.landingPageViews += sumPriorityAction(
+      row.actions,
+      ORPHAN_LPV_PRIORITY,
+    );
+    eventOrphan.registrations += sumPriorityAction(
+      row.actions,
+      ORPHAN_REG_PRIORITY,
+    );
+    eventOrphan.purchases += sumPriorityAction(
+      row.actions,
+      ORPHAN_PURCHASE_PRIORITY,
+    );
+  }
+  const orphanBuckets: OrphanBucket[] =
+    eventOrphan.ads_count > 0 ? [eventOrphan] : [];
+
+  if (authExpired && failed.length === campaigns.length) {
+    // Every code path failed because the token is dead — surface
+    // as auth-expired rather than letting the panel render an
+    // empty grid that's indistinguishable from "no active ads".
+    throw new FacebookAuthExpiredError();
   }
 
   // PR #59 — phase 2 of the two-phase fetch. Walk the deduped ad
@@ -1306,6 +1357,12 @@ export async function fetchActiveCreativesForEvent(
       : new Map<string, RawCreative>();
   let creativesHydrated = 0;
   let creativesMissing = 0;
+  let creativesNoThumbnail = 0;
+  // Warn-once-per-creative-id so a single broken creative shape
+  // doesn't spam Vercel logs across thousands of dup ad rows; cap
+  // the warn lines to keep the diagnostic readable.
+  const noThumbnailWarned = new Set<string>();
+  const NO_THUMB_WARN_CAP = 5;
   for (const ad of dedupedAds) {
     if (!ad.creative_id) continue;
     const creative = creativeMap.get(ad.creative_id);
@@ -1314,6 +1371,7 @@ export async function fetchActiveCreativesForEvent(
       continue;
     }
     const { headline, body } = extractCopy(creative);
+    const preview = extractPreview(creative);
     ad.creative_name = creative.name ?? null;
     ad.headline = headline;
     ad.body = body;
@@ -1322,11 +1380,34 @@ export async function fetchActiveCreativesForEvent(
       creative.effective_object_story_id?.trim() || null;
     ad.object_story_id = creative.object_story_id?.trim() || null;
     ad.primary_asset_signature = deriveAssetSignature(creative);
-    ad.preview = extractPreview(creative);
+    ad.preview = preview;
     creativesHydrated += 1;
+    // Hydration succeeded but neither the top-level thumbnail nor
+    // the preview yielded a renderable image / video. Almost
+    // always means the creative shape isn't probed by
+    // extractPreview yet — log enough surface area to identify
+    // which sub-shape we're failing to read. Counted into
+    // `creative_batch_done` so cache-write reconciliation can spot
+    // a regression even if logs are filtered.
+    if (
+      !ad.thumbnail_url &&
+      !preview.image_url &&
+      !preview.video_id
+    ) {
+      creativesNoThumbnail += 1;
+      if (
+        !noThumbnailWarned.has(ad.creative_id) &&
+        noThumbnailWarned.size < NO_THUMB_WARN_CAP
+      ) {
+        noThumbnailWarned.add(ad.creative_id);
+        console.warn(
+          `[active-creatives] hydration_no_thumbnail creative_id=${ad.creative_id} creative_name=${JSON.stringify(creative.name ?? null)} has_oss=${!!creative.object_story_spec} has_afs=${!!creative.asset_feed_spec} top_video_id=${creative.video_id ?? null} top_image_url=${creative.image_url ?? null}`,
+        );
+      }
+    }
   }
   console.info(
-    `[active-creatives] creative_batch_done event=${eventCode} distinct_creatives=${distinctCreativeIds.length} hydrated=${creativesHydrated} missing=${creativesMissing}`,
+    `[active-creatives] creative_batch_done event=${eventCode} distinct_creatives=${distinctCreativeIds.length} hydrated=${creativesHydrated} missing=${creativesMissing} no_thumbnail=${creativesNoThumbnail}`,
   );
 
   const droppedNoCreative = dedupedAds.filter((a) => !a.creative_id).length;
@@ -1404,7 +1485,7 @@ export async function fetchActiveCreativesForEvent(
       dropped_no_creative: droppedNoCreative,
       truncated,
       auth_expired: authExpired,
-      cross_campaign_duplicates: duplicatesDropped,
+      cross_campaign_duplicates: crossCampaignDuplicates,
       unattributed,
     },
   };
