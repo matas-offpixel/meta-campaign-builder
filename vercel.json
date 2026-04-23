@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/refresh-creative-insights",
       "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/rollup-sync-events",
+      "schedule": "30 */6 * * *"
     }
   ]
 }
