@@ -915,15 +915,17 @@ const CREATIVE_BATCH_FIELDS = [
   "link_url",
   "object_story_spec",
   "asset_feed_spec",
-  // PR #71 — explicit nested expansion for the shapes the flat
-  // request was failing to surface in production. Meta unions
-  // these with the flat parent requests above (no duplicate-
-  // field error) and `extractPreview` now probes each in order
-  // after the existing waterfall. Listed additively so a future
-  // regression on the flat-expansion behaviour can't silently
-  // drop these fields.
-  "asset_feed_spec{videos{video_id,thumbnail_url,url_tags},images{hash,url}}",
-  "object_story_spec{link_data{child_attachments{picture,image_hash}}}",
+  // PR #74 — earlier PR #71 also requested nested-expansion
+  // forms for the two parents above (asset_feed_spec.videos /
+  // .images and object_story_spec.link_data.child_attachments)
+  // on the assumption Meta would union them with the flat
+  // parent. It does not: Meta's field parser rejects duplicate
+  // top-level field names with "Syntax error" and fails the
+  // whole batch, so PR #73's diagnostic logs caught
+  // creative_batch_done hydrated=0 on every share render. The
+  // flat form already returns the full sub-tree (see comment
+  // block above), which is what extractPreview's waterfall
+  // reads, so the nested forms were redundant from the start.
 ].join(",");
 
 /**
