@@ -117,6 +117,10 @@ interface Props {
    */
   creativeProviderStatus: ProviderStatus[];
   /**
+   * `FEATURE_BANNERBEAR` plus `clients.bannerbear_enabled` for this client.
+   */
+  canRenderBannerbear: boolean;
+  /**
    * Initial active tab from the URL `?tab=` param. Defaults to
    * "overview" when absent or unknown so deep links from the sidebar
    * (no query) still land sensibly.
@@ -143,6 +147,7 @@ export function ClientDetail({
   d2cTemplates,
   creativeTemplates,
   creativeProviderStatus,
+  canRenderBannerbear,
   initialTab = "overview",
 }: Props) {
   const router = useRouter();
@@ -498,6 +503,9 @@ export function ClientDetail({
             <CreativeTemplatesPanel
               templates={creativeTemplates}
               providerStatus={creativeProviderStatus}
+              clientId={client.id}
+              eventOptions={events.map((e) => ({ id: e.id, name: e.name }))}
+              canRenderBannerbear={canRenderBannerbear}
             />
           </TabPanel>
 

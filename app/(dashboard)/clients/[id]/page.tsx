@@ -87,6 +87,8 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
 
   if (!client) notFound();
 
+  const canRenderBannerbear = isBannerbearEnabled() && client.bannerbear_enabled;
+
   const defaults = {
     upfront_pct: client.default_upfront_pct ?? 75,
     settlement_timing: (client.default_settlement_timing ??
@@ -153,6 +155,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       d2cTemplates={d2cTemplates}
       creativeTemplates={creativeTemplates}
       creativeProviderStatus={creativeProviderStatus}
+      canRenderBannerbear={canRenderBannerbear}
       initialTab={initialTab}
     />
   );
