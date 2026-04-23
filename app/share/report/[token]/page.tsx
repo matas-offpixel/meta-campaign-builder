@@ -80,7 +80,13 @@ function parseCustomRange(
 /**
  * Public client-facing event report.
  *
- *   - Cached for 5 minutes per token via `revalidate = 300`.
+ *   - Always invokes the route handler (`dynamic = "force-dynamic"`).
+ *     Caching is handled by the Supabase `share_insight_snapshots`
+ *     table inside `resolveReportData` — keyed by `(token,
+ *     date_preset, customRange)` with a 5-min TTL — which is the
+ *     correct shape because Next's ISR can't key on query params
+ *     and was serving the same prerendered HTML across every `?tf=`
+ *     value, masking the underlying Lambda invocations entirely.
  *   - No authentication; the token IS the credential.
  *   - The only identifier exposed in the URL is the token. No internal
  *     event_id / client_id / user_id ever leaves this server component —
@@ -103,7 +109,7 @@ interface Props {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { token } = await params;
