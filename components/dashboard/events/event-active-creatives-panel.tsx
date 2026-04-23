@@ -8,14 +8,9 @@ import {
   type ChangeEvent,
 } from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ExternalLink,
-  ImageOff,
-  Layers,
-  RefreshCw,
-} from "lucide-react";
+import { AlertTriangle, ExternalLink, Layers, RefreshCw } from "lucide-react";
 
+import { NoPreviewThumbnailCard } from "@/components/report/no-preview-placeholder";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -704,11 +699,7 @@ function CreativeCard({
 
 function Thumbnail({ url, alt }: { url: string | null; alt: string }) {
   if (!url) {
-    return (
-      <div className="flex h-16 w-16 flex-none items-center justify-center rounded border border-border bg-muted text-muted-foreground">
-        <ImageOff className="h-5 w-5" />
-      </div>
-    );
+    return <NoPreviewThumbnailCard />;
   }
   return (
     // Plain <img> instead of next/image because Meta's CDN URLs are

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ImageOff, Layers } from "lucide-react";
+import { Layers } from "lucide-react";
+
+import { NoPreviewThumbnailCard } from "@/components/report/no-preview-placeholder";
 
 import { Badge } from "@/components/ui/badge";
 import { fmtCurrency } from "@/lib/dashboard/format";
@@ -206,11 +208,7 @@ function FunnelRow({
 
 function Thumbnail({ url, alt }: { url: string | null; alt: string }) {
   if (!url) {
-    return (
-      <div className="flex h-16 w-16 flex-none items-center justify-center rounded border border-border bg-muted text-muted-foreground">
-        <ImageOff className="h-5 w-5" />
-      </div>
-    );
+    return <NoPreviewThumbnailCard />;
   }
   return (
     // Plain <img> for the same reason as the internal panel: Meta

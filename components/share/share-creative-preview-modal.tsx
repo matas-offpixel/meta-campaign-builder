@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import { ExternalLink, ImageOff, X } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
+
+import { NoPreviewModalPlaceholder } from "@/components/report/no-preview-placeholder";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -327,11 +329,7 @@ function ShareAssetBlock({
     );
   }
 
-  return (
-    <div className="flex h-64 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-      <ImageOff className="h-8 w-8" />
-    </div>
-  );
+  return <NoPreviewModalPlaceholder />;
 }
 
 function Stat({
