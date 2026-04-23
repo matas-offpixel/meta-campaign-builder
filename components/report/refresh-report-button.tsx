@@ -6,8 +6,8 @@ import { Loader2, RefreshCw } from "lucide-react";
 /**
  * components/report/refresh-report-button.tsx
  *
- * Manual refresh control rendered next to the "Last updated …
- * refreshes every 5 minutes" footer text on the live Meta Report
+ * Manual refresh control rendered next to the "Last updated … ·
+ * click refresh for latest" footer text on the live Meta Report
  * block (PR #57 #3). Owned by the report view rather than each
  * caller so the spinner / error chrome stays identical between the
  * public share page and the internal Reporting tab mirror.

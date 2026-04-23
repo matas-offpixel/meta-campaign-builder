@@ -654,8 +654,13 @@ function MetaReportBlock({
           drift. */}
       <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
         <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Last updated {fmtRelativeShort(lastUpdatedIso)} · refreshes every 5
-          minutes
+          {/* Copy reflects ACTUAL behaviour: the 5-minute window is the
+              server-side cache TTL, not a client-side poll. The page
+              never auto-refreshes — so labelling it "refreshes every 5
+              minutes" set up clients to expect updates that never come.
+              Refresh is on-demand only via the button beside this. */}
+          Last updated {fmtRelativeShort(lastUpdatedIso)} · click refresh
+          for latest
         </p>
         {onManualRefresh ? (
           <RefreshReportButton onRefresh={onManualRefresh} />
