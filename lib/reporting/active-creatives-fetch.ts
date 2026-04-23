@@ -885,7 +885,15 @@ const ADS_OUTER_RETRY_DELAY_MS = 500;
  * keeps the parallel fan-out below comfortably below the per-account
  * rate ceiling for typical events (≤500 creatives = 10 calls).
  */
-const CREATIVE_BATCH_SIZE = 50;
+// Meta's documented cap is 50, but on heavy events (e.g. 372 distinct
+// creatives with Advantage+ asset_feed_spec trees) the 50-id payload
+// trips Meta's "reduce the amount of data you're asking for"
+// (meta_code=1) cap on ~60% of batches, silently dropping those
+// creatives from hydration. Halving to 25 keeps each batch under the
+// cap on observed worst-case events. Concurrency is still gated by
+// AD_INSIGHT_CHUNK_CONCURRENCY=1 so the extra request count doesn't
+// risk rate-limit 429s.
+const CREATIVE_BATCH_SIZE = 25;
 
 /**
  * Field list pulled per creative in phase 2. Mirrors the bulky
