@@ -180,30 +180,79 @@ export function PublicReport({
 
   /**
    * Manual refresh — wired to the Refresh button on the Meta Live
-   * Report block's footer (PR #57 #3 / PR #63). Pushes the URL with
-   * `?refresh=1` so the share RSC bypasses its `share_snapshots`
-   * lookup for this (event, timeframe) bucket and writes a fresh
-   * entry. The snapshot bundles BOTH headline insights AND active
-   * creatives in the same row, so a single bust covers both
-   * surfaces — no need to call two separate endpoints the way the
-   * internal Reporting tab does (where insights and active-creatives
-   * are independent caches).
+   * Report block's footer (PR #57 #3 / PR #63 / PR #71).
+   *
+   * Two phases:
+   *
+   *   Phase 1 — Rollup-sync (PR #71). POST the public-safe
+   *   `/api/ticketing/rollup-sync/by-share-token/[token]` to write
+   *   today's Meta + Eventbrite rows into `event_daily_rollups`
+   *   BEFORE the share RSC re-reads them. Pre-PR #71 this only
+   *   fired on internal event-page mount, so a client viewing the
+   *   share URL after midnight saw a stale Daily Tracker (today's
+   *   row missing) until a staffer opened the dashboard. The route
+   *   is auth'd by the share token itself — same credential the
+   *   visitor used to load the page — and resolves the event +
+   *   owning user from `report_shares`, so we don't expose write
+   *   access to arbitrary events. Promise.allSettled posture: a
+   *   rollup-sync failure must NOT block the cache busts; the
+   *   failure is surfaced inline as `Rollup: <msg>`.
+   *
+   *   Phase 2 — Snapshot bust. Push the URL with `?refresh=1` so
+   *   the share RSC bypasses its `share_snapshots` lookup for this
+   *   (event, timeframe) bucket and writes a fresh entry. The
+   *   snapshot bundles BOTH headline insights AND active creatives
+   *   in the same row, so a single bust covers both surfaces — no
+   *   need to call two separate endpoints the way the internal
+   *   Reporting tab does. The RSC also re-reads
+   *   `event_daily_rollups` for the daily tracker block, so the
+   *   freshly-written row from Phase 1 lands in the same render.
    *
    * Critically: the cleanup `router.replace` is gated on the push
    * actually completing — see `transitionResolveRef` above. Pre-PR
    * #63 the resolve fired immediately after `router.push` returned,
    * which let the cleanup `router.replace` cancel the in-flight
-   * push. Result: the share RSC was re-rendered without `?refresh=1`,
-   * the snapshot was re-read from cache, and the visitor saw the
-   * same stale creative names. Symptomatic on Leeds: All Time view
-   * showed pre-rename creative names ("Loading Bars - Copy") even
-   * after clicking Refresh because the bust never made it server-
-   * side.
+   * push. Result: the share RSC was re-rendered without
+   * `?refresh=1`, the snapshot was re-read from cache, and the
+   * visitor saw the same stale creative names.
    *
-   * Returns once the transition settles, so `<RefreshReportButton>`
+   * Returns once both phases settle, so `<RefreshReportButton>`
    * can clear its spinner.
    */
   const handleManualRefresh = useCallback(async () => {
+    // Phase 1 — Rollup-sync via the public-safe share-token route.
+    // Run sequentially BEFORE the snapshot bust so the freshly
+    // upserted `event_daily_rollups` row is visible to the share
+    // RSC's daily-timeline read. Failures are caught and recorded
+    // but never block Phase 2 — the user spec is "if rollup-sync
+    // fails, still do the cache busts and surface error as
+    // 'Rollup: <msg>'".
+    let rollupError: string | null = null;
+    try {
+      const res = await fetch(
+        `/api/ticketing/rollup-sync/by-share-token/${encodeURIComponent(
+          shareToken,
+        )}`,
+        { method: "POST", cache: "no-store" },
+      );
+      // 207 = partial success — treat as success at this layer; the
+      // per-leg detail is logged server-side.
+      if (!res.ok && res.status !== 207) {
+        let message = `HTTP ${res.status}`;
+        try {
+          const body = (await res.json()) as { error?: string };
+          if (body?.error) message = body.error;
+        } catch {
+          // Non-JSON body — fall through to the HTTP code.
+        }
+        rollupError = message;
+      }
+    } catch (err) {
+      rollupError = err instanceof Error ? err.message : "Unknown error";
+    }
+
+    // Phase 2 — Snapshot bust via `?refresh=1` push, awaited so the
+    // cleanup `router.replace` doesn't cancel the in-flight push.
     const sp = new URLSearchParams(searchParams?.toString() ?? "");
     sp.set("refresh", "1");
     const qs = sp.toString();
@@ -223,7 +272,21 @@ export function PublicReport({
     cleanup.delete("force");
     const cleanQs = cleanup.toString();
     router.replace(cleanQs ? `${pathname}?${cleanQs}` : pathname);
-  }, [pathname, router, searchParams, startTransition]);
+
+    // Surface the rollup-sync failure (if any) to the
+    // RefreshReportButton inline error line. The cache busts have
+    // still completed at this point, so the visible report will
+    // already reflect the latest snapshot.
+    if (rollupError) {
+      throw new Error(`Rollup: ${rollupError}`);
+    }
+  }, [
+    pathname,
+    router,
+    searchParams,
+    shareToken,
+    startTransition,
+  ]);
 
   return (
     <EventReportView

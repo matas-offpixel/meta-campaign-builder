@@ -160,21 +160,60 @@ export function InternalEventReport({ eventId, event }: Props) {
 
   /**
    * Manual refresh — wired to the Refresh button in the live
-   * report footer. Re-runs the insights fetch with `?force=1` so
-   * the route bypasses the 5-minute server-side cache for the
-   * current (event, timeframe) bucket only. Other buckets keep
-   * their TTL — switching back to a freshly-warmed preset still
-   * hits the cache.
+   * report footer. Three parallel sub-tasks:
    *
-   * PR #63 — also calls into the active-creatives section's imperative
-   * `refresh()` so both endpoints' caches get busted in lockstep.
-   * Both run in parallel via `Promise.allSettled` so the spinner
-   * stays on until the slower of the two returns. On error, the
-   * combined message names which side failed so a partial outage
-   * (e.g. headline OK, creatives 502) is still actionable from the
-   * inline "Refresh failed: …" line.
+   *   1. Rollup-sync (PR #71) — POSTs `/api/ticketing/rollup-sync`
+   *      to pull today's Meta + Eventbrite rows into
+   *      `event_daily_rollups`. Pre-PR #71 this only ran on
+   *      EventDailyReportBlock mount, so a refresh from the Meta
+   *      block left the Daily Tracker stale (today's row missing)
+   *      until the user separately clicked "Sync now" on the
+   *      tracker. Now both buttons converge on the same source of
+   *      truth.
+   *
+   *   2. Insights cache-bust (PR #57 #3) — `?force=1` on the
+   *      headline insights route bypasses the 5-minute server-side
+   *      cache for the current (event, timeframe) bucket only.
+   *
+   *   3. Active-creatives cache-bust (PR #63) — calls into the
+   *      section's imperative `refresh()` so the cards re-fetch with
+   *      `?force=1`. No-op when the section hasn't been expanded.
+   *
+   * All three run via `Promise.allSettled` so the spinner stays on
+   * until the slowest side returns. Combined error message names
+   * which surface failed (`Rollup: …` / `Insights: …` / `Creatives:
+   * …`) so a partial outage is still actionable from the inline
+   * "Refresh failed: …" line.
+   *
+   * The EventDailyReportBlock owns its own cached `timeline` state
+   * via local `useState`, so the freshly-written rollup rows won't
+   * appear in the tracker until either the page is reloaded or the
+   * Daily Tracker's "Sync now" button is clicked. The new
+   * `event_daily_rollups` rows are still written though — this
+   * handler just makes sure the source of truth stays current.
    */
   const handleManualRefresh = useCallback(async () => {
+    const rollupTask = (async () => {
+      const res = await fetch(
+        `/api/ticketing/rollup-sync?eventId=${encodeURIComponent(eventId)}`,
+        { method: "POST", cache: "no-store" },
+      );
+      // 207 = partial success (one leg failed). Treat as success at
+      // this layer — the per-leg detail is logged server-side and
+      // the EventDailyReportBlock's own SyncStatusPanel covers the
+      // dedicated UX when a staffer needs the diagnostic.
+      if (!res.ok && res.status !== 207) {
+        let message = `HTTP ${res.status}`;
+        try {
+          const body = (await res.json()) as { error?: string };
+          if (body?.error) message = body.error;
+        } catch {
+          // Non-JSON body — fall through to the HTTP code.
+        }
+        throw new Error(message);
+      }
+    })();
+
     const insightsTask = (async () => {
       const res = await fetch(
         buildInsightsUrl(eventId, datePreset, customRange, true),
@@ -199,15 +238,24 @@ export function InternalEventReport({ eventId, event }: Props) {
     const creativesTask =
       creativesRef.current?.refresh() ?? Promise.resolve();
 
-    const results = await Promise.allSettled([insightsTask, creativesTask]);
+    const results = await Promise.allSettled([
+      rollupTask,
+      insightsTask,
+      creativesTask,
+    ]);
     const failures: string[] = [];
     if (results[0].status === "rejected") {
       const reason = results[0].reason;
       const msg = reason instanceof Error ? reason.message : String(reason);
-      failures.push(`Insights: ${msg}`);
+      failures.push(`Rollup: ${msg}`);
     }
     if (results[1].status === "rejected") {
       const reason = results[1].reason;
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      failures.push(`Insights: ${msg}`);
+    }
+    if (results[2].status === "rejected") {
+      const reason = results[2].reason;
       const msg = reason instanceof Error ? reason.message : String(reason);
       failures.push(`Creatives: ${msg}`);
     }
