@@ -1473,12 +1473,29 @@ export async function fetchActiveCreativesForEvent(
   // access_token for public clients). Capped per Lambda
   // invocation; one log line per distinct creative_id.
   const previewTierLogged = new Set<string>();
-  const PREVIEW_TIER_LOG_CAP = 5;
+  const PREVIEW_TIER_LOG_CAP = 50;
+  // Diagnostic: ~40% of Innervisions cards render ImageOff because
+  // Meta's /?ids= batched creative read silently drops some IDs
+  // that phase-1 /ads successfully returned. Log the missing IDs
+  // once each so we can identify whether the dropped set is
+  // consistent (deleted creatives) or inconsistent (Meta shape /
+  // permissions issue). Cap to avoid Lambda log flood.
+  const missingCreativeLogged = new Set<string>();
+  const MISSING_CREATIVE_LOG_CAP = 20;
   for (const ad of dedupedAds) {
     if (!ad.creative_id) continue;
     const creative = creativeMap.get(ad.creative_id);
     if (!creative) {
       creativesMissing += 1;
+      if (
+        !missingCreativeLogged.has(ad.creative_id) &&
+        missingCreativeLogged.size < MISSING_CREATIVE_LOG_CAP
+      ) {
+        missingCreativeLogged.add(ad.creative_id);
+        console.warn(
+          `[active-creatives] creative_missing_in_batch creative_id=${ad.creative_id} ad_id=${ad.ad_id} ad_name=${JSON.stringify(ad.ad_name ?? null)} event=${eventCode}`,
+        );
+      }
       continue;
     }
     const { headline, body } = extractCopy(creative);
