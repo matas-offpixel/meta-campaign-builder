@@ -12,6 +12,7 @@ import {
   sanitiseCreativeName,
   type ConceptGroupRow,
 } from "@/lib/reporting/group-creatives";
+import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
 
 /**
  * components/share/share-creative-preview-modal.tsx
@@ -297,8 +298,14 @@ function ShareAssetBlock({
       !!fallbackImage;
     // For the upscaled branch prefer preview.image_url when present
     // — that IS the low-res asset Meta resolved — and fall back to
-    // representative_thumbnail when preview.image_url is null.
-    const src = preview.image_url ?? fallbackImage!;
+    // representative_thumbnail when preview.image_url is null. PR #89
+    // rewrites Meta CDN stp= size tokens (e.g. _s160x160_ →
+    // _s640x640_) only here so 160px video posters are not upscaled
+    // ~2.8× in the layout.
+    const rawSrc = preview.image_url ?? fallbackImage!;
+    const src = isThumbOnly
+      ? upscaleMetaCdnUrl(rawSrc, 640)
+      : rawSrc;
     return (
       <div className="space-y-2">
         <div

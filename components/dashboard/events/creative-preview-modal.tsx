@@ -8,6 +8,7 @@ import { NoPreviewModalPlaceholder } from "@/components/report/no-preview-placeh
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmtCurrency } from "@/lib/dashboard/format";
+import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 
 /**
@@ -369,7 +370,10 @@ function AssetBlock({
     const isThumbOnly =
       (!preview.image_url || preview.is_low_res_fallback === true) &&
       !!fallbackImage;
-    const src = preview.image_url ?? fallbackImage!;
+    const rawSrc = preview.image_url ?? fallbackImage!;
+    const src = isThumbOnly
+      ? upscaleMetaCdnUrl(rawSrc, 640)
+      : rawSrc;
     return (
       <div className="space-y-2">
         <div
