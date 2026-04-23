@@ -449,7 +449,29 @@ function emptyPreview(): CreativePreview {
   };
 }
 
-function extractPreview(creative: RawCreative | undefined): CreativePreview {
+/**
+ * Internal tag identifying which tier of `extractPreview`'s
+ * waterfall resolved `image_url`. Carried back on the returned
+ * preview as `tier` (intersection-typed onto `CreativePreview`)
+ * purely for diagnostic logging in the hydration loop — group-
+ * creatives.ts and the share UI never read it. Not exported: a
+ * downstream consumer relying on this would couple to an internal
+ * decision we may rebalance.
+ */
+type PreviewTier =
+  | "link_data_picture"
+  | "video_data_image_url"
+  | "top_image_url"
+  | "top_thumbnail_url"
+  | "child_attachment_cover"
+  | "afs_image_url"
+  | "afs_video_thumb"
+  | "video_id_graph_fallback"
+  | "none";
+
+function extractPreview(
+  creative: RawCreative | undefined,
+): CreativePreview & { tier: PreviewTier } {
   if (!creative) {
     return {
       image_url: null,
@@ -459,6 +481,7 @@ function extractPreview(creative: RawCreative | undefined): CreativePreview {
       body: null,
       call_to_action_type: null,
       link_url: null,
+      tier: "none",
     };
   }
   const oss = creative.object_story_spec;
@@ -498,16 +521,32 @@ function extractPreview(creative: RawCreative | undefined): CreativePreview {
   const videoIdFallback = video_id
     ? `https://graph.facebook.com/${graphApiVersion}/${video_id}/picture?type=normal`
     : null;
-  const image_url =
-    ld?.picture?.trim() ||
-    vd?.image_url?.trim() ||
-    creative.image_url?.trim() ||
-    creative.thumbnail_url?.trim() ||
-    childCover ||
-    afsImage ||
-    afsVideoThumb ||
-    videoIdFallback ||
-    null;
+
+  // Same waterfall semantics as the prior `||` chain but tracks
+  // which tier won so the caller can log it. PR #73 — needed
+  // because PR #72's plumbing renders a URL for 100% of
+  // Innervisions creatives (no_thumbnail=0) yet the browser shows
+  // ImageOff on every card, so the resolved URL must be from a
+  // tier producing an unrenderable string (likely the
+  // video_id_graph_fallback Graph endpoint, which requires an
+  // access_token for public clients).
+  let image_url: string | null = null;
+  let tier: PreviewTier = "none";
+  const set = (v: string | null | undefined, t: PreviewTier) => {
+    if (!image_url && v?.trim()) {
+      image_url = v.trim();
+      tier = t;
+    }
+  };
+  set(ld?.picture, "link_data_picture");
+  set(vd?.image_url, "video_data_image_url");
+  set(creative.image_url, "top_image_url");
+  set(creative.thumbnail_url, "top_thumbnail_url");
+  set(childCover, "child_attachment_cover");
+  set(afsImage, "afs_image_url");
+  set(afsVideoThumb, "afs_video_thumb");
+  set(videoIdFallback, "video_id_graph_fallback");
+
   const instagram_permalink_url =
     creative.instagram_permalink_url?.trim() || null;
   const headline =
@@ -532,6 +571,7 @@ function extractPreview(creative: RawCreative | undefined): CreativePreview {
     body,
     call_to_action_type,
     link_url,
+    tier,
   };
 }
 
@@ -1423,6 +1463,15 @@ export async function fetchActiveCreativesForEvent(
   // the warn lines to keep the diagnostic readable.
   const noThumbnailWarned = new Set<string>();
   const NO_THUMB_WARN_CAP = 5;
+  // PR #73 — companion success-side log. Records which
+  // extractPreview tier resolved each ad's thumbnail URL so the
+  // "100% no_thumbnail=0 but UI shows ImageOff" pathology can
+  // identify the unrenderable tier (likely
+  // `video_id_graph_fallback` — the Graph endpoint requires an
+  // access_token for public clients). Capped per Lambda
+  // invocation; one log line per distinct creative_id.
+  const previewTierLogged = new Set<string>();
+  const PREVIEW_TIER_LOG_CAP = 5;
   for (const ad of dedupedAds) {
     if (!ad.creative_id) continue;
     const creative = creativeMap.get(ad.creative_id);
@@ -1452,6 +1501,20 @@ export async function fetchActiveCreativesForEvent(
     ad.primary_asset_signature = deriveAssetSignature(creative);
     ad.preview = preview;
     creativesHydrated += 1;
+    // PR #73 — success-side diagnostic. Logged BEFORE the
+    // hydration_no_thumbnail guard so it captures the rendered-
+    // but-broken cards (the case PR #72 left behind).
+    if (
+      !previewTierLogged.has(ad.creative_id) &&
+      previewTierLogged.size < PREVIEW_TIER_LOG_CAP
+    ) {
+      previewTierLogged.add(ad.creative_id);
+      console.info(
+        `[active-creatives] preview_resolved creative_id=${ad.creative_id} tier=${preview.tier} url_prefix=${JSON.stringify(
+          (ad.thumbnail_url ?? "").slice(0, 80),
+        )} has_video_id=${!!preview.video_id}`,
+      );
+    }
     // Hydration succeeded but neither the top-level thumbnail nor
     // the preview yielded a renderable image / video. Almost
     // always means the creative shape isn't probed by
