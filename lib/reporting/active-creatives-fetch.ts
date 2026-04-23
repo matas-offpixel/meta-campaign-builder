@@ -2,6 +2,10 @@ import "server-only";
 
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
 import {
+  pickBestVideoThumbnail,
+  type VideoThumbnail,
+} from "@/lib/meta/video-thumbnails";
+import {
   isReduceDataError,
   isTransientRateLimit,
 } from "@/lib/meta/error-classify";
@@ -143,6 +147,13 @@ export interface FetchActiveCreativesInput {
   datePreset?: DatePreset;
   /** Required when `datePreset === "custom"`. */
   customRange?: CustomDateRange;
+  /**
+   * When true, batch-calls `/{video_id}/thumbnails` for Advantage+
+   * `afs_video_thumb` low-res fallbacks and upgrades poster URLs.
+   * Only for cron / internal snapshot refresh — the share RSC path
+   * must leave this false (default) to avoid extra Graph round-trips.
+   */
+  enrichVideoThumbnails?: boolean;
 }
 
 export interface FetchActiveCreativesMeta {
@@ -809,6 +820,69 @@ async function fetchCreativeBatch(
   return out;
 }
 
+const VIDEO_THUMBNAIL_BATCH_FIELDS = [
+  "thumbnails{uri,height,width,scale,is_preferred}",
+].join(",");
+
+type GraphVideoThumbnailsNode = {
+  thumbnails?: { data?: ReadonlyArray<Record<string, unknown>> };
+  error?: { message?: string };
+};
+
+/**
+ * Given a list of `video_id`s, fetch their native-resolution thumbnails
+ * via Meta's Graph API batched endpoint (`GET /?ids=…&fields=thumbnails`).
+ * Returns a Map keyed by `video_id` with the best-quality
+ * {@link VideoThumbnail} for each. Missing / errored `video_id`s are
+ * omitted (caller falls back to the `extractPreview` waterfall).
+ *
+ * Respects {@link CREATIVE_BATCH_SIZE} (25) to stay under Meta's
+ * data-budget cap. Swallows per-batch errors — a failed batch does not
+ * poison the whole enrichment pass.
+ */
+async function fetchVideoThumbnailsBatch(
+  videoIds: string[],
+  token: string,
+): Promise<Map<string, VideoThumbnail>> {
+  const out = new Map<string, VideoThumbnail>();
+  if (videoIds.length === 0) return out;
+  const unique = [...new Set(videoIds)];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += CREATIVE_BATCH_SIZE) {
+    chunks.push(unique.slice(i, i + CREATIVE_BATCH_SIZE));
+  }
+  const results = await Promise.all(
+    chunks.map((batch, idx) =>
+      graphGetWithToken<Record<string, GraphVideoThumbnailsNode | undefined>>(
+        "",
+        { ids: batch.join(","), fields: VIDEO_THUMBNAIL_BATCH_FIELDS },
+        token,
+      ).catch((err) => {
+        const e = err as { code?: number; message?: string };
+        console.warn(
+          `[active-creatives] video_thumbnails_batch_failed batch=${idx + 1}/${chunks.length} ids=${batch.length} meta_code=${e.code ?? "n/a"} message=${JSON.stringify(e.message ?? String(err))}`,
+        );
+        return {} as Record<string, GraphVideoThumbnailsNode>;
+      }),
+    ),
+  );
+  for (const batchResult of results) {
+    for (const [id, node] of Object.entries(batchResult)) {
+      if (!id || !node || (node as GraphVideoThumbnailsNode).error) {
+        continue;
+      }
+      const n = (node as GraphVideoThumbnailsNode).thumbnails;
+      const data = n?.data;
+      if (!data?.length) continue;
+      const best = pickBestVideoThumbnail(data);
+      if (best) {
+        out.set(id, best);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Fetch per-ad insights for one campaign from the dedicated
  * /{campaignId}/insights?level=ad endpoint. Returns a Map keyed by
@@ -1001,6 +1075,7 @@ export async function fetchActiveCreativesForEvent(
 ): Promise<FetchActiveCreativesResult> {
   const adAccountId = normaliseAdAccountId(input.adAccountId);
   const { eventCode, token } = input;
+  const enrichVideoThumbnails = input.enrichVideoThumbnails === true;
   const concurrency = Math.max(1, input.concurrency ?? CAMPAIGN_CONCURRENCY);
 
   let campaigns: RawCampaignRow[];
@@ -1387,6 +1462,48 @@ export async function fetchActiveCreativesForEvent(
       }
     }
   }
+
+  if (enrichVideoThumbnails) {
+    const videoIdsToUpgrade = new Set<string>();
+    for (const ad of dedupedAds) {
+      if (
+        ad.preview?.is_low_res_fallback === true &&
+        ad.preview.tier === "afs_video_thumb" &&
+        ad.preview.video_id
+      ) {
+        videoIdsToUpgrade.add(ad.preview.video_id);
+      }
+    }
+    if (videoIdsToUpgrade.size > 0) {
+      console.log(
+        `[active-creatives] video_thumbnail_enrichment start video_ids=${videoIdsToUpgrade.size} event=${eventCode}`,
+      );
+      try {
+        const thumbnailsMap = await fetchVideoThumbnailsBatch(
+          Array.from(videoIdsToUpgrade),
+          token,
+        );
+        console.log(
+          `[active-creatives] video_thumbnail_enrichment done upgraded=${thumbnailsMap.size}/${videoIdsToUpgrade.size} event=${eventCode}`,
+        );
+        for (const ad of dedupedAds) {
+          if (ad.preview.tier !== "afs_video_thumb") continue;
+          if (!ad.preview.video_id) continue;
+          const thumb = thumbnailsMap.get(ad.preview.video_id);
+          if (!thumb) continue;
+          ad.preview.image_url = thumb.uri;
+          ad.preview.is_low_res_fallback = false;
+          ad.thumbnail_url = thumb.uri;
+        }
+      } catch (err) {
+        console.warn(
+          `[active-creatives] video_thumbnail_enrichment failed event=${eventCode}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
+
   console.info(
     `[active-creatives] creative_batch_done event=${eventCode} distinct_creatives=${distinctCreativeIds.length} hydrated=${creativesHydrated} missing=${creativesMissing} no_thumbnail=${creativesNoThumbnail}`,
   );

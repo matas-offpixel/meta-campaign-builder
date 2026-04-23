@@ -106,6 +106,13 @@ interface FetchInput {
   datePreset?: DatePreset;
   /** Required when `datePreset === "custom"`. */
   customRange?: CustomDateRange;
+  /**
+   * When true, upgrades low-res Advantage+ video posters via
+   * `/{video_id}/thumbnails` in `fetchActiveCreativesForEvent`. Only
+   * the snapshot-refresh path should set this; the share RSC should
+   * leave it false/undefined.
+   */
+  enrichVideoThumbnails?: boolean;
 }
 
 /**
@@ -162,6 +169,7 @@ export async function fetchShareActiveCreatives(
       concurrency: 1,
       datePreset: input.datePreset,
       customRange: input.customRange,
+      enrichVideoThumbnails: input.enrichVideoThumbnails,
     });
   } catch (err) {
     // Surface BOTH error branches in Vercel — the discriminated-

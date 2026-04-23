@@ -236,6 +236,7 @@ export async function refreshActiveCreativesForEvent(
         adAccountId: input.adAccountId,
         datePreset: preset,
         customRange: preset === "custom" ? input.customRange : undefined,
+        enrichVideoThumbnails: true,
       });
       kind = result.kind;
       if (result.kind === "ok") {

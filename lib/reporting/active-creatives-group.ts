@@ -1,3 +1,5 @@
+import type { PreviewTier } from "@/lib/reporting/preview-tier";
+
 /**
  * lib/reporting/active-creatives-group.ts
  *
@@ -72,6 +74,11 @@ export interface CreativePreview {
    * backward-compat with fixtures that pre-date PR #84.
    */
   is_low_res_fallback?: boolean;
+  /**
+   * Which `extractPreview` waterfall tier supplied `image_url`
+   * (diagnostic, optional for legacy fixtures / snapshots).
+   */
+  tier?: PreviewTier;
 }
 
 export interface AdInput {

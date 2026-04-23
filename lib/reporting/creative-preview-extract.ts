@@ -1,4 +1,5 @@
 import type { CreativePreview } from "@/lib/reporting/active-creatives-group";
+import type { PreviewTier } from "@/lib/reporting/preview-tier";
 
 /**
  * Raw creative document from Meta's `/{creative-id}` batch read.
@@ -53,20 +54,7 @@ export interface RawCreative {
   };
 }
 
-/**
- * Internal tag identifying which tier of `extractPreview`'s waterfall
- * resolved `image_url`.
- */
-export type PreviewTier =
-  | "link_data_picture"
-  | "video_data_image_url"
-  | "top_image_url"
-  | "top_thumbnail_url"
-  | "child_attachment_cover"
-  | "afs_image_url"
-  | "afs_video_thumb"
-  | "video_id_graph_fallback"
-  | "none";
+export type { PreviewTier } from "@/lib/reporting/preview-tier";
 
 /**
  * Subset of {@link PreviewTier} that produces a low-resolution
@@ -93,7 +81,7 @@ const LOW_RES_PREVIEW_TIERS: ReadonlySet<PreviewTier> = new Set([
  */
 export function extractPreview(
   creative: RawCreative | undefined,
-): CreativePreview & { tier: PreviewTier } {
+): CreativePreview {
   if (!creative) {
     return {
       image_url: null,
