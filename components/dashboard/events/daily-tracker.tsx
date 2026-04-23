@@ -127,6 +127,13 @@ interface SyncResponse {
   error?: string;
 }
 
+/**
+ * Daily- vs weekly-rollup of the same dataset. Only affects render —
+ * the underlying timeline rows are always per-day; weekly mode buckets
+ * them client-side into ISO weeks (Mon W/C, UTC). See `buildWeeklyDisplayRows`.
+ */
+export type TrackerCadence = "daily" | "weekly";
+
 interface Props {
   eventId: string;
   /** True when the event has an event_code AND the client has a Meta ad account. */
@@ -148,6 +155,11 @@ interface Props {
     /** Suppresses notes editing + the per-table Refresh button.
      *  Used on the public share page where the token is read-only. */
     readOnly?: boolean;
+    /** First-paint cadence default — comes from `events.report_cadence`
+     *  (migration 040). Per-session sessionStorage override on the
+     *  client wins on subsequent paints; this only seeds initial render
+     *  + acts as the SSR-safe value. Falls back to 'daily'. */
+    defaultCadence?: TrackerCadence;
   };
 }
 
@@ -212,6 +224,39 @@ export function DailyTracker({
     ? (controlled.legErrors ?? null)
     : internalLegErrors;
   const readOnly = isControlled ? !!controlled.readOnly : false;
+  const defaultCadence: TrackerCadence =
+    (isControlled && controlled.defaultCadence) || "daily";
+
+  // Per-session toggle override. Initial state matches the SSR-safe
+  // `defaultCadence` so the first client paint is identical to the
+  // server's; we then re-hydrate from sessionStorage in an effect to
+  // avoid a hydration mismatch. Key includes eventId so a client
+  // hopping between events doesn't carry the wrong setting.
+  const [cadence, setCadence] = useState<TrackerCadence>(defaultCadence);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(
+        `tracker-cadence:${eventId}`,
+      );
+      if (stored === "daily" || stored === "weekly") setCadence(stored);
+    } catch {
+      // sessionStorage can throw in privacy modes — silently fall back
+      // to the SSR default; the toggle still works for the live session.
+    }
+  }, [eventId]);
+  const onCadenceChange = useCallback(
+    (next: TrackerCadence) => {
+      setCadence(next);
+      if (typeof window === "undefined") return;
+      try {
+        window.sessionStorage.setItem(`tracker-cadence:${eventId}`, next);
+      } catch {
+        // Same defensive swallow as the read path.
+      }
+    },
+    [eventId],
+  );
 
   const refresh = useCallback(async () => {
     const res = await fetch(
@@ -308,9 +353,24 @@ export function DailyTracker({
   }, [isControlled, controlled, internalSyncNow]);
 
   const display = useMemo(
-    () => buildDisplayRows({ timeline, presale }),
-    [timeline, presale],
+    () =>
+      cadence === "weekly"
+        ? buildWeeklyDisplayRows({ timeline, presale })
+        : buildDisplayRows({ timeline, presale }),
+    [timeline, presale, cadence],
   );
+
+  // Header copy + first column label switch with cadence. "Last 60
+  // days" / "Last N weeks" comes straight from the spec; the actual
+  // padding range follows the existing daily logic (earliest entry →
+  // today / current week W/C) rather than a hard slice, so the
+  // subtitle reads as guidance rather than a claim about row count.
+  const WEEKLY_WINDOW_LABEL_WEEKS = Math.ceil(60 / 7); // = 9
+  const dateColLabel = cadence === "weekly" ? "Week (W/C)" : "Date";
+  const windowLabel =
+    cadence === "weekly"
+      ? `Last ${WEEKLY_WINDOW_LABEL_WEEKS} weeks`
+      : "Last 60 days";
 
   // ── Empty / loading states ─────────────────────────────────────────
 
@@ -342,28 +402,35 @@ export function DailyTracker({
               Daily tracker
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Last 60 days · Meta spend &amp; clicks aggregated by{" "}
+              {windowLabel} · Meta spend &amp; clicks aggregated by{" "}
               <code className="text-foreground/80">[event_code]</code>
-              {hasEventbriteLink ? " · Eventbrite tickets & revenue per day" : ""}
+              {hasEventbriteLink
+                ? cadence === "weekly"
+                  ? " · Eventbrite tickets & revenue per ISO week"
+                  : " · Eventbrite tickets & revenue per day"
+                : ""}
               {presale ? " · Presale rolled up" : ""}
             </p>
           </div>
         </div>
-        {!readOnly && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onSyncClick}
-            disabled={syncing || loading}
-          >
-            {syncing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            Sync now
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <CadenceToggle value={cadence} onChange={onCadenceChange} />
+          {!readOnly && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onSyncClick}
+              disabled={syncing || loading}
+            >
+              {syncing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Sync now
+            </Button>
+          )}
+        </div>
       </header>
 
       {/* In controlled mode the orchestrator owns a richer SyncStatusPanel
@@ -393,7 +460,7 @@ export function DailyTracker({
         <table className="min-w-full text-xs">
           <thead className="border-b border-border bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <Th align="left">Date</Th>
+              <Th align="left">{dateColLabel}</Th>
               <Th>Day spend</Th>
               <Th>Tickets</Th>
               <Th>Revenue</Th>
@@ -435,7 +502,12 @@ export function DailyTracker({
                   key={row.key}
                   row={row}
                   eventId={eventId}
-                  readOnly={readOnly}
+                  // In weekly mode the row spans seven days, so the
+                  // PATCH endpoint (`?date=YYYY-MM-DD`) has no single
+                  // target and a save would silently no-op. Lock the
+                  // notes column to read-only for the whole table.
+                  readOnly={readOnly || cadence === "weekly"}
+                  cadence={cadence}
                   onNotesSaved={(date, notes) => {
                     // Note edits are only supported in uncontrolled
                     // mode (the orchestrator owns the timeline state
@@ -463,11 +535,16 @@ function RowEl({
   row,
   eventId,
   readOnly,
+  cadence,
   onNotesSaved,
 }: {
   row: DisplayRow;
   eventId: string;
   readOnly: boolean;
+  /** Drives the per-row source badge: weekly rows aggregate across
+   *  potentially mixed sources (manual + live) so the badge is
+   *  suppressed entirely. */
+  cadence: TrackerCadence;
   onNotesSaved: (date: string, notes: string | null) => void;
 }) {
   const cpt = derive(row.ad_spend, row.tickets_sold);
@@ -502,7 +579,10 @@ function RowEl({
           <span className={row.isPresale ? "tracking-wide" : ""}>
             {row.label}
           </span>
-          {row.source && !row.isSynthetic && !row.isPresale ? (
+          {cadence === "daily" &&
+          row.source &&
+          !row.isSynthetic &&
+          !row.isPresale ? (
             <SourceBadge source={row.source} />
           ) : null}
         </div>
@@ -837,6 +917,268 @@ function buildDisplayRows({
   }
 
   return dailyDisplay;
+}
+
+// ─── Cadence toggle ──────────────────────────────────────────────────
+
+/**
+ * Compact two-button segmented control for the cadence toggle. Inline
+ * rather than a shared UI primitive so we don't expand the
+ * `components/ui/**` boundary for a single use site. Matches the
+ * existing tracker chrome (border + muted bg + xs/[10px] type).
+ */
+function CadenceToggle({
+  value,
+  onChange,
+}: {
+  value: TrackerCadence;
+  onChange: (next: TrackerCadence) => void;
+}) {
+  const opts: { id: TrackerCadence; label: string }[] = [
+    { id: "daily", label: "Daily" },
+    { id: "weekly", label: "Weekly" },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Tracker cadence"
+      className="inline-flex items-center rounded-md border border-border bg-muted/30 p-0.5 text-[11px]"
+    >
+      {opts.map((o) => {
+        const active = value === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(o.id)}
+            className={`rounded px-2 py-1 font-medium tracking-wide transition-colors ${
+              active
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Weekly display-row builder ──────────────────────────────────────
+
+/**
+ * ISO-week (Monday W/C) aggregation of the same daily timeline the
+ * daily view consumes. Pure function; reuses the `DisplayRow` shape so
+ * the table render stays unchanged between modes.
+ *
+ * Aggregation rules (matches the spec):
+ *   - Group rows by Monday W/C in UTC (handles dates anchored as
+ *     YYYY-MM-DD by the API — see `mondayUtc`).
+ *   - Sum spend / link clicks / tickets / revenue across the 7 daily
+ *     rows. Null vs zero is preserved: a week where every contributing
+ *     day is null stays null (renders "—"), distinct from a week with
+ *     genuine zero sales (renders "£0.00" / "0").
+ *   - CPT / ROAS / CPL are recomputed from the weekly sums (NEVER
+ *     averaged across daily ratios — would weight by date, lying
+ *     about the week rate). Same rule as the daily builder.
+ *   - Padding: from the Monday of the earliest dated row to the
+ *     Monday of today (current W/C). Empty weeks render em-dashes
+ *     and the running totals carry forward unchanged.
+ *   - Running totals are cumulative across the padded weeks, seeded
+ *     from the presale bucket so the first weekly row already
+ *     includes pre-launch contribution. Recomputed from the running
+ *     numerators / denominators — never averaged.
+ *   - Presale: surfaced as the same single bucket row at the bottom
+ *     the daily view uses; weekly grouping starts from the general-
+ *     sale week. Per the spec — keep the bucket as-is.
+ */
+function buildWeeklyDisplayRows({
+  timeline,
+  presale,
+}: {
+  timeline: TimelineRow[];
+  presale: PresaleBucket | null;
+}): DisplayRow[] {
+  const generalSaleCutoff = presale?.cutoffDate ?? null;
+
+  // Daily rows post-cutoff (or all rows when there's no cutoff).
+  // Sort ascending so we can fold into weeks in order.
+  const dailyRows = (
+    generalSaleCutoff
+      ? timeline.filter((r) => r.date >= generalSaleCutoff)
+      : timeline.slice()
+  ).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  // Working aggregate per week. We track null vs 0 explicitly so a
+  // week with no Eventbrite reporting at all renders "—" instead of
+  // a misleading "£0.00".
+  type WeekAgg = {
+    weekStart: string; // YYYY-MM-DD of Mon W/C (UTC)
+    spend: number | null;
+    clicks: number | null;
+    tickets: number | null;
+    revenue: number | null;
+    /** True when at least one daily row in the week was synthesised
+     *  from a `manual` source — used only to decide that the per-row
+     *  source badge can't apply. The renderer hides the badge in
+     *  weekly mode unconditionally; this is here for parity with the
+     *  DisplayRow shape. */
+    hasManualSource: boolean;
+  };
+
+  const weekMap = new Map<string, WeekAgg>();
+  for (const r of dailyRows) {
+    const wk = mondayUtc(r.date);
+    if (!wk) continue;
+    const cur =
+      weekMap.get(wk) ??
+      ({
+        weekStart: wk,
+        spend: null,
+        clicks: null,
+        tickets: null,
+        revenue: null,
+        hasManualSource: false,
+      } satisfies WeekAgg);
+    if (r.ad_spend !== null)
+      cur.spend = (cur.spend ?? 0) + Number(r.ad_spend);
+    if (r.link_clicks !== null)
+      cur.clicks = (cur.clicks ?? 0) + Number(r.link_clicks);
+    if (r.tickets_sold !== null)
+      cur.tickets = (cur.tickets ?? 0) + Number(r.tickets_sold);
+    if (r.revenue !== null)
+      cur.revenue = (cur.revenue ?? 0) + Number(r.revenue);
+    if (r.source === "manual") cur.hasManualSource = true;
+    weekMap.set(wk, cur);
+  }
+
+  // Pad from the earliest data week up to the current week (Monday
+  // containing today, UTC). Mirrors the daily padder so empty weeks
+  // still render and the running totals advance through them.
+  const todayWk = mondayUtcFromDate(new Date());
+  const sortedWeeks = [...weekMap.keys()].sort();
+  const earliestWk = sortedWeeks[0] ?? todayWk;
+  const allWeeks = weekRangeUtc(earliestWk, todayWk);
+
+  // Running totals seeded from presale, identical seeding to the
+  // daily builder so the two cadences agree on the running spine.
+  let runSpend = num(presale?.ad_spend);
+  let runClicks = num(presale?.link_clicks);
+  let runTickets = num(presale?.tickets_sold);
+  let runRevenue = num(presale?.revenue);
+
+  const weeklyDisplay: DisplayRow[] = allWeeks.map((wk) => {
+    const agg = weekMap.get(wk) ?? null;
+    const spend = agg?.spend ?? null;
+    const clicks = agg?.clicks ?? null;
+    const tickets = agg?.tickets ?? null;
+    const revenue = agg?.revenue ?? null;
+    runSpend += num(spend);
+    runClicks += num(clicks);
+    runTickets += num(tickets);
+    runRevenue += num(revenue);
+    return {
+      // Prefix prevents key collision with the daily `d-${date}` rows
+      // when the same instance is reused across cadence flips.
+      key: `w-${wk}`,
+      label: fmtDateLabel(wk),
+      isPresale: false,
+      // "Today's row" highlight in daily mode marks the in-progress
+      // entry; the weekly equivalent is the current W/C week.
+      isToday: wk === todayWk,
+      // No synthetic placeholder concept in weekly mode — empty weeks
+      // are real weeks of the calendar, just zero-data.
+      isSynthetic: false,
+      // The notes column / source badge are both suppressed in
+      // weekly mode by the renderer, so these per-row fields are
+      // shape-completeness only.
+      date: wk,
+      source: agg?.hasManualSource ? "manual" : "live",
+      ad_spend: spend,
+      link_clicks: clicks,
+      tickets_sold: tickets,
+      revenue,
+      notes: null,
+      running_spend: round2(runSpend),
+      running_clicks: runClicks,
+      running_tickets: runTickets,
+      running_revenue: round2(runRevenue),
+    } satisfies DisplayRow;
+  });
+
+  // Newest week on top — matches the daily reverse so reading order
+  // is identical between cadences.
+  weeklyDisplay.reverse();
+
+  if (presale) {
+    // Same bucket row as the daily builder — see that function's
+    // JSDoc for the chronological-bottom rationale.
+    const presaleRow: DisplayRow = {
+      key: "presale",
+      label: presale.earliestDate
+        ? `Presale (from ${fmtDateLabel(presale.earliestDate)})`
+        : "Presale",
+      isPresale: true,
+      isToday: false,
+      isSynthetic: false,
+      date: null,
+      source: null,
+      ad_spend: presale.ad_spend,
+      link_clicks: presale.link_clicks,
+      tickets_sold: presale.tickets_sold,
+      revenue: presale.revenue,
+      notes: null,
+      running_spend: round2(num(presale.ad_spend)),
+      running_clicks: num(presale.link_clicks),
+      running_tickets: num(presale.tickets_sold),
+      running_revenue: round2(num(presale.revenue)),
+    };
+    return [...weeklyDisplay, presaleRow];
+  }
+
+  return weeklyDisplay;
+}
+
+/** UTC Monday-of-week for a YYYY-MM-DD date string, returned as
+ *  YYYY-MM-DD. ISO weeks start on Monday; JS getUTCDay() returns
+ *  0=Sun..6=Sat, so we shift Sunday to 7 first. Returns `null` on a
+ *  malformed input rather than guessing. */
+function mondayUtc(yyyymmdd: string): string | null {
+  const d = new Date(`${yyyymmdd}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return mondayUtcFromDate(d);
+}
+
+function mondayUtcFromDate(d: Date): string {
+  const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay(); // 1=Mon..7=Sun
+  const monday = new Date(d.getTime());
+  monday.setUTCDate(monday.getUTCDate() - (dow - 1));
+  monday.setUTCHours(0, 0, 0, 0);
+  return monday.toISOString().slice(0, 10);
+}
+
+/** Inclusive list of Mon W/C YYYY-MM-DD strings between two
+ *  Monday-anchored weeks. Capped at 104 entries (~2 years) so a
+ *  malformed earliest-week date can't blow up the row count — the
+ *  daily builder enforces a similar 365-day cap for the same reason. */
+function weekRangeUtc(startMonday: string, endMonday: string): string[] {
+  const out: string[] = [];
+  const start = new Date(`${startMonday}T00:00:00Z`);
+  const end = new Date(`${endMonday}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return startMonday === endMonday ? [startMonday] : [];
+  }
+  const MAX_WEEKS = 104;
+  for (let i = 0; i <= MAX_WEEKS; i++) {
+    const d = new Date(start.getTime());
+    d.setUTCDate(d.getUTCDate() + i * 7);
+    if (d.getTime() > end.getTime()) break;
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────

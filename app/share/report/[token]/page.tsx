@@ -156,6 +156,10 @@ interface ResolvedEvent {
   /** General-sale cutoff — drives the presale bucket on the daily
    *  table and the previous-week comparison on the summary header. */
   generalSaleAt: string | null;
+  /** Default cadence for the embedded tracker (daily | weekly). Comes
+   *  from `events.report_cadence` (migration 040). Falls back to
+   *  'daily' for any event that pre-dates the column. */
+  reportCadence: "daily" | "weekly";
 }
 
 export default async function PublicReportPage({ params, searchParams }: Props) {
@@ -203,7 +207,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     admin
       .from("events")
       .select(
-        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, client:clients ( meta_ad_account_id )",
+        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
       )
       .eq("id", event_id)
       .maybeSingle(),
@@ -269,6 +273,15 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       (eventRow.data.meta_spend_cached as number | null) ?? null,
     preregSpend: (eventRow.data.prereg_spend as number | null) ?? null,
     generalSaleAt: (eventRow.data.general_sale_at as string | null) ?? null,
+    // Default cadence guards against rows ingested before migration 040
+    // existed (Supabase serves null until the default backfills) and
+    // against any future widening of the union — only the two known
+    // values are honoured downstream; anything else collapses to
+    // 'daily' to match the table default.
+    reportCadence:
+      (eventRow.data.report_cadence as string | null) === "weekly"
+        ? "weekly"
+        : "daily",
   };
 
   // Bump the view counter best-effort — non-blocking.
@@ -369,6 +382,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         meta_spend_cached: event.metaSpendCached,
         prereg_spend: event.preregSpend,
         general_sale_at: event.generalSaleAt,
+        report_cadence: event.reportCadence,
       }}
       hasMetaScope={Boolean(event.eventCode && event.adAccountId)}
       hasEventbriteLink={eventLinks.length > 0}

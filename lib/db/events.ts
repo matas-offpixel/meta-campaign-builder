@@ -27,31 +27,38 @@ export const BRAND_CAMPAIGN_OBJECTIVES = [
 export type BrandCampaignObjective = (typeof BRAND_CAMPAIGN_OBJECTIVES)[number];
 
 /**
- * Bridge until `database.types.ts` is regenerated post-migration 027.
+ * Bridge until `database.types.ts` is regenerated post-migration 027
+ * (and 040). Once regen lands these columns appear on the generated
+ * row type and the intersection becomes a no-op tightening — keeping
+ * the columns typed here in the meantime makes them visible to every
+ * caller without waiting on the regen pipeline.
  *
- * Once regen lands, Supabase will emit `kind: string` / `objective: string |
- * null` / `campaign_end_at: string | null` on the events row — this
- * intersection harmlessly tightens `kind` to the discriminator union and
- * makes the columns visible whether or not the regen has happened yet.
+ *   - `kind` / `objective` / `campaign_end_at` — added in migration 027.
+ *   - `report_cadence` — added in migration 040, controls the default
+ *     cadence the share / internal tracker opens on.
  */
-type EventKindColumns = {
+export const REPORT_CADENCES = ["daily", "weekly"] as const;
+export type ReportCadence = (typeof REPORT_CADENCES)[number];
+
+type EventBridgeColumns = {
   kind: EventKind;
   objective: string | null;
   campaign_end_at: string | null;
+  report_cadence: ReportCadence;
 };
 
-export type EventRow = Omit<Tables<"events">, keyof EventKindColumns> &
-  EventKindColumns;
+export type EventRow = Omit<Tables<"events">, keyof EventBridgeColumns> &
+  EventBridgeColumns;
 export type EventInsert = Omit<
   TablesInsert<"events">,
-  keyof EventKindColumns
+  keyof EventBridgeColumns
 > &
-  Partial<EventKindColumns>;
+  Partial<EventBridgeColumns>;
 export type EventUpdate = Omit<
   TablesUpdate<"events">,
-  keyof EventKindColumns
+  keyof EventBridgeColumns
 > &
-  Partial<EventKindColumns>;
+  Partial<EventBridgeColumns>;
 
 export type EventStatus =
   | "upcoming"
