@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import type { Metadata } from "next";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
@@ -28,6 +29,8 @@ import {
 } from "@/lib/reporting/share-active-creatives";
 import { ShareActiveCreativesSection } from "@/components/share/share-active-creatives-section";
 import { ShareActiveCreativesSkeleton } from "@/components/share/share-active-creatives-skeleton";
+import { ShareActiveCreativesWarming } from "@/components/share/share-active-creatives-warming";
+import { ActiveCreativesStaleBanner } from "@/components/share/active-creatives-stale-banner";
 import { listLinksForEvent } from "@/lib/db/ticketing";
 import {
   computePresaleBucket,
@@ -41,6 +44,12 @@ import {
   writeShareSnapshot,
   type ShareSnapshotPayload,
 } from "@/lib/db/share-snapshots";
+import {
+  isSnapshotFresh,
+  readActiveCreativesSnapshot,
+  type ActiveCreativesSnapshotRecord,
+} from "@/lib/db/active-creatives-snapshots";
+import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives-refresh-runner";
 import type { ResolvedShare } from "@/lib/db/report-shares";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -289,15 +298,24 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   bumpShareView(token, admin).catch(() => undefined);
 
   // Resolve the report payload through the Supabase snapshot cache.
-  // The cache short-circuits both fetches on a hit; a miss returns
-  // the headline immediately (so the rest of the report can paint)
-  // and a *deferred* creatives promise for Suspense-streaming —
-  // see `resolveReportData` for the contract.
+  //
+  // Two-tier cache:
+  //   - Headline metaPayload → `share_insight_snapshots` (5-min
+  //     TTL, keyed on the share token). Cheap to compute, fine to
+  //     refetch live on miss.
+  //   - Active creatives → `active_creatives_snapshots` (cron-
+  //     populated, 2-6h TTL, keyed on event_id + preset). NEVER
+  //     refetched live on the share render path — that traffic
+  //     shape was the one causing 80004 account-wide rate-limit
+  //     lockouts. See `docs/META_INDEPENDENCE_RESEARCH.md`.
+  //
+  // `resolveReportData` continues to handle the headline tier
+  // exactly as before (no cron involvement). The active-creatives
+  // tier is resolved separately via `resolveActiveCreatives` so
+  // the two cadences can diverge cleanly.
   const {
     metaPayload,
     metaErrorReason,
-    creativesResult,
-    deferredCreatives,
   } = await resolveReportData({
     admin,
     shareToken: token,
@@ -308,6 +326,21 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     event,
     providerToken,
   });
+
+  const activeCreativesResolution = await resolveActiveCreatives({
+    admin,
+    eventId: event_id,
+    userId: user_id,
+    eventCode: event.eventCode,
+    eventDate: event.eventDate,
+    adAccountId: event.adAccountId,
+    datePreset,
+    customRange,
+    share: resolved.share,
+    forceRefresh,
+  });
+  const { creativesResult, deferredCreatives, snapshot } =
+    activeCreativesResolution;
 
   // True when the creative breakdown actually has something to
   // render. `kind === "skip"` (no_event_code / no_ad_account /
@@ -392,21 +425,46 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   );
 
   // Render path:
-  //   - Cache hit → render the resolved section synchronously.
-  //   - Cache miss with a deferred promise → wrap the section in
-  //     Suspense so the headline + campaign breakdown above it
-  //     paint immediately while the per-event Meta fan-out
-  //     (10-30s on cache miss) streams in behind a skeleton.
+  //   - Fresh snapshot hit → render the resolved section
+  //     synchronously, no Suspense, no banner.
+  //   - Stale snapshot hit → render the resolved section
+  //     synchronously WITH a stale banner above it. The
+  //     `resolveActiveCreatives` step has already kicked the
+  //     fire-and-forget background refresh.
+  //   - No snapshot ever (cold cache, brand-new event) →
+  //     fall back to the legacy Suspense-streamed live fetch,
+  //     capped at 20s before swapping to the "Numbers warming up"
+  //     placeholder. This branch should be vanishingly rare once
+  //     the cron has been running for ~6h after deploy.
   //   - Soft-skip (no event_code / no ad account) → null.
+  const showStaleBanner = Boolean(
+    snapshot && !isSnapshotFresh(snapshot),
+  );
+  const fetchedAtIso = snapshot?.fetchedAt.toISOString();
+
   let creativesSlot: React.ReactNode = null;
   if (deferredCreatives) {
     creativesSlot = (
-      <Suspense fallback={<ShareActiveCreativesSkeleton />}>
-        <DeferredCreativesSlot promise={deferredCreatives} />
-      </Suspense>
+      <>
+        <Suspense fallback={<ShareActiveCreativesSkeleton />}>
+          <DeferredCreativesSlot promise={deferredCreatives} />
+        </Suspense>
+      </>
     );
   } else if (creativesResult) {
-    creativesSlot = <ShareActiveCreativesSection result={creativesResult} />;
+    creativesSlot = (
+      <>
+        {showStaleBanner && fetchedAtIso ? (
+          <ActiveCreativesStaleBanner
+            fetchedAt={fetchedAtIso}
+            eventId={event_id}
+            preset={datePreset}
+            customRange={customRange}
+          />
+        ) : null}
+        <ShareActiveCreativesSection result={creativesResult} />
+      </>
+    );
   }
 
   return (
@@ -461,51 +519,30 @@ interface ResolveReportInput {
 interface ResolvedReport {
   metaPayload: EventInsightsPayload | null;
   metaErrorReason: InsightsErrorReason | null;
-  /**
-   * Resolved synchronously from the cache hit path or the
-   * soft-skip path (no event_code / no ad account). Null on the
-   * deferred-creatives path — the page wraps `deferredCreatives`
-   * in Suspense instead.
-   */
-  creativesResult: ShareActiveCreativesResult | null;
-  /**
-   * Set on cache miss with a usable Meta config. The page wraps
-   * this in `<Suspense>` so the headline + campaign breakdown
-   * paint instantly while the per-event Meta fan-out (10-30s on
-   * wide events) streams in behind a skeleton. Cache write
-   * happens inside the deferred fetch once both halves resolve.
-   */
-  deferredCreatives: Promise<ShareActiveCreativesResult> | null;
 }
 
 /**
- * Read-through cache for the share page's Meta payload + active
- * creatives. On a fresh hit, returns the cached bundle and skips
- * Meta entirely. On a miss (or `?refresh=1`), the headline call
- * runs and resolves inline, while the (slow) per-event creatives
- * fan-out is returned as a deferred promise the page streams in
- * behind a Suspense skeleton — see PR #50 for the rationale.
+ * Read-through cache for the share page's HEADLINE Meta payload
+ * (`share_insight_snapshots`, 5-min TTL, keyed on share token).
  *
- * Cache write is gated:
- *   - `metaPayload != null` — the headline call succeeded. We
- *     deliberately do NOT cache failure states (rate-limit,
- *     data_too_large, owner-token-expired) because those are
- *     usually transient and the next visitor should retry fresh.
- *   - `creativesResult?.kind !== "error"` — same logic for the
- *     creative breakdown side. A `skip` (genuinely empty event)
- *     is fine to cache; an `error` (Meta failure) is not.
- *   - The Meta-less soft-skip path (no event_code or no ad
- *     account) never goes through the cache at all — there's no
- *     Meta call to skip, and re-running the lookup is essentially
- *     free.
+ * Note on scope shrink (PR #82+ snapshot-first):
+ *   This function used to also resolve the active-creatives
+ *   payload through the same cache row. That's been moved to
+ *   `resolveActiveCreatives` + `active_creatives_snapshots`
+ *   because the two halves have wildly different refresh
+ *   cadences (5 min vs 6h) and the active-creatives fan-out is
+ *   what was triggering account-wide 80004 rate-limit lockouts
+ *   when concurrent share viewers fanned it out live. The
+ *   headline call is cheap (single account-scoped insights call)
+ *   and stays on its existing 5-min TTL — no need to involve
+ *   the cron for it. See `docs/META_INDEPENDENCE_RESEARCH.md`.
  *
- * Headline + creatives still don't run in parallel within the
- * miss path: `fetchEventInsights` resolves first (so the page
- * body has data to render), then the deferred creatives fetch
- * fires from the Suspense child. This preserves the per-account
- * rate-budget headroom PR #42 cared about — the two top-level
- * Meta calls are still sequential in wall-clock time, just
- * separated by Suspense streaming on the response side.
+ * Cache write is gated on `metaPayload != null` — failure
+ * states (rate-limit, data_too_large, owner-token-expired) are
+ * deliberately uncached because the next visitor should retry
+ * fresh. The Meta-less soft-skip path (no event_code or no ad
+ * account) bypasses the cache entirely — no Meta call to skip,
+ * and re-running the lookup is essentially free.
  */
 async function resolveReportData(
   input: ResolveReportInput,
@@ -529,8 +566,6 @@ async function resolveReportData(
     return {
       metaPayload: null,
       metaErrorReason: null,
-      creativesResult: null,
-      deferredCreatives: null,
     };
   }
 
@@ -549,8 +584,6 @@ async function resolveReportData(
       return {
         metaPayload: hit.payload.metaPayload,
         metaErrorReason: hit.payload.metaErrorReason,
-        creativesResult: hit.payload.activeCreatives,
-        deferredCreatives: null,
       };
     }
   }
@@ -594,10 +627,6 @@ async function resolveReportData(
       metaPayload = insights.data;
     } else {
       metaErrorReason = insights.error.reason;
-      // Structured error log so Vercel surfaces the upstream
-      // failure — the `meta insights failed` warn alone wasn't
-      // matched by our log filters and the discriminated-union
-      // return swallowed everything else.
       console.error("[share/insights] fetch failed", {
         token: shareToken,
         reason: insights.error.reason,
@@ -610,104 +639,273 @@ async function resolveReportData(
     }
   }
 
-  // Defer the per-event creatives fan-out. The page wraps the
-  // returned promise in Suspense so the headline metrics +
-  // campaign breakdown paint immediately; only the active-
-  // creatives section stays in skeleton state until this
-  // resolves. Cache write happens in the .then() once both
-  // halves are known.
-  //
-  // Capture stable locals so the closure doesn't re-read mutable
-  // state (metaPayload is reassigned below in the no-token branch
-  // — wait, it isn't, but TS narrowing is happier with a const).
-  const cachedHeadlineForWrite = metaPayload;
-  const cachedHeadlineErrorForWrite = metaErrorReason;
-  const eventCodeForFetch = event.eventCode;
-  const adAccountIdForFetch = event.adAccountId;
-
-  const deferredCreatives = fetchShareActiveCreatives({
-    share,
-    admin,
-    eventCode: eventCodeForFetch,
-    adAccountId: adAccountIdForFetch,
-    // Forward the timeframe so per-ad insights are queried in
-    // the same window the headline call uses. Without this the
-    // creative metric strip silently shows last_30d (Meta's
-    // nested-insights default) regardless of `?tf=`.
-    datePreset,
-    customRange,
-  })
-    .catch((err): ShareActiveCreativesResult => {
-      // console.error (not warn) + full error envelope so Vercel
-      // log filters keyed on "error" surface this. Anything that
-      // makes it to this outer catch escaped both the inner
-      // try/catch in fetchActiveCreativesForEvent AND the
-      // structured error in fetchShareActiveCreatives, so it's
-      // worth the loudest possible signal.
-      console.error("[share/report] active-creatives fetch crashed", {
-        token: shareToken,
-        adAccountId: adAccountIdForFetch,
-        eventCode: eventCodeForFetch,
-        datePreset,
-        customRange,
-        error:
-          err instanceof Error
-            ? { message: err.message, stack: err.stack }
-            : String(err),
-      });
-      return {
-        kind: "error",
-        reason: "meta_failed",
-        message: "Unexpected error",
-      };
-    })
-    .then(async (creativesResult) => {
-      // Cache write is gated on BOTH halves being healthy:
-      //   - headline call succeeded (`metaPayload != null`)
-      //   - creatives didn't error (skip is fine)
-      // Failure states are deliberately uncached so the next
-      // visitor retries fresh — usually transient.
-      const cacheable =
-        cachedHeadlineForWrite != null && creativesResult.kind !== "error";
-      if (cacheable) {
-        const payload: ShareSnapshotPayload = {
-          metaPayload: cachedHeadlineForWrite,
-          metaErrorReason: cachedHeadlineErrorForWrite,
-          activeCreatives: creativesResult,
-        };
-        try {
-          await writeShareSnapshot(
-            admin,
-            { shareToken, datePreset, customRange },
-            payload,
-          );
-        } catch (err) {
-          // Best-effort: a cache write failure shouldn't blank
-          // the user's render. Log and move on.
-          console.warn(
-            `[share/report] snapshot write failed token=${shareToken}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
-      return creativesResult;
-    });
+  // Headline-only cache write. The active-creatives field is
+  // explicitly unset (legacy field, will roll off on next deploy
+  // — see `lib/db/share-snapshots.ts`).
+  if (metaPayload != null) {
+    const payload: ShareSnapshotPayload = {
+      metaPayload,
+      metaErrorReason,
+    };
+    try {
+      await writeShareSnapshot(
+        admin,
+        { shareToken, datePreset, customRange },
+        payload,
+      );
+    } catch (err) {
+      console.warn(
+        `[share/report] headline snapshot write failed token=${shareToken}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
 
   return {
     metaPayload,
     metaErrorReason,
+  };
+}
+
+interface ResolveActiveCreativesInput {
+  admin: SupabaseClient;
+  eventId: string;
+  userId: string;
+  eventCode: string | null;
+  adAccountId: string | null;
+  eventDate: string | null;
+  datePreset: DatePreset;
+  customRange: CustomDateRange | undefined;
+  share: ResolvedShare;
+  forceRefresh: boolean;
+}
+
+interface ResolveActiveCreativesResult {
+  /** Resolved synchronously when the snapshot table has a row
+   *  (fresh OR stale) OR the event is meta-less. Null only on
+   *  the cold-cache "no snapshot ever" branch — in which case
+   *  `deferredCreatives` carries the live fetch promise. */
+  creativesResult: ShareActiveCreativesResult | null;
+  /** Set ONLY on the cold-cache branch. The page wraps this in
+   *  Suspense + `withTimeout(20s)` and falls back to the
+   *  warming placeholder if Meta hasn't responded. */
+  deferredCreatives: Promise<ShareActiveCreativesResult> | null;
+  /** The snapshot row that was read, if any. Drives the stale
+   *  banner above the resolved section when `!isSnapshotFresh`. */
+  snapshot: ActiveCreativesSnapshotRecord | null;
+}
+
+/**
+ * Snapshot-first resolution for the active-creatives section.
+ *
+ * Fresh hit
+ *   Snapshot row exists AND `isSnapshotFresh()`. Return the
+ *   resolved payload synchronously, no Suspense, no banner.
+ *
+ * Stale hit
+ *   Snapshot row exists but the TTL has expired OR `is_stale`
+ *   is set. Return the (still useful) cached payload + the
+ *   snapshot record so the page can render the stale banner.
+ *   Fire a fire-and-forget background refresh via Next 16's
+ *   stable `after()` hook so the next render hits a fresh row.
+ *
+ * Cold cache (no snapshot ever)
+ *   Brand-new event the cron hasn't reached yet, OR the cron
+ *   hasn't run since deploy. Fall back to the legacy live-fetch-
+ *   with-Suspense path so the visitor still sees something this
+ *   render. ALSO kick the same background refresh so the cron
+ *   isn't the only thing populating the table — the next
+ *   visitor lands on a snapshot hit. The Suspense child is
+ *   capped at 20s by `withTimeout` and falls back to the
+ *   warming placeholder past that.
+ *
+ * Soft-skip (no Meta config)
+ *   No event_code or no ad account → no Meta call to make. Return
+ *   null for both result + deferred so the section doesn't render.
+ *
+ * `forceRefresh` (the page-level `?refresh=1`) bypasses the read
+ * — the snapshot is treated as missing for THIS render so the
+ * cold-cache live-fetch path runs. The background kick still
+ * fires so the next visitor's read benefits.
+ */
+async function resolveActiveCreatives(
+  input: ResolveActiveCreativesInput,
+): Promise<ResolveActiveCreativesResult> {
+  const {
+    admin,
+    eventId,
+    userId,
+    eventCode,
+    adAccountId,
+    eventDate,
+    datePreset,
+    customRange,
+    share,
+    forceRefresh,
+  } = input;
+
+  // Soft-skip: same posture as `resolveReportData`. No Meta call,
+  // no snapshot lookup, no banner.
+  if (!adAccountId || !eventCode) {
+    return {
+      creativesResult: null,
+      deferredCreatives: null,
+      snapshot: null,
+    };
+  }
+
+  const snapshotKey = { eventId, datePreset, customRange };
+
+  const snapshot = forceRefresh
+    ? null
+    : await readActiveCreativesSnapshot(admin, snapshotKey);
+
+  // Convenience for both stale + cold-cache paths — schedule a
+  // background refresh that runs after the response has been
+  // sent so the cache populates in time for the next render.
+  // We invoke the runner directly (rather than POSTing the
+  // internal HTTP route) because we're already on the server,
+  // already hold the service-role client, and skipping the
+  // HTTP hop removes a round-trip + a host-resolution problem
+  // (the share page's hostname isn't trivially recoverable from
+  // the RSC). The internal route is still the right surface for
+  // the dashboard's "Refresh now" button (which is client-side).
+  const scheduleBackgroundRefresh = () => {
+    after(async () => {
+      try {
+        await refreshActiveCreativesForEvent({
+          supabase: admin,
+          eventId,
+          userId,
+          eventCode,
+          adAccountId,
+          eventDate: eventDate ? new Date(eventDate) : null,
+          presets: [datePreset],
+          customRange,
+        });
+      } catch (err) {
+        console.warn(
+          `[share/report] background refresh failed event=${eventId} preset=${datePreset}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    });
+  };
+
+  if (snapshot) {
+    const fresh = isSnapshotFresh(snapshot);
+    console.log("[active-creatives-snapshots] hit", {
+      eventId,
+      preset: datePreset,
+      ageMs: snapshot.ageMs,
+      fresh,
+    });
+    if (!fresh) {
+      scheduleBackgroundRefresh();
+    }
+    return {
+      creativesResult: snapshot.payload,
+      deferredCreatives: null,
+      snapshot,
+    };
+  }
+
+  // Cold cache — no row at all. Fall back to the legacy live-
+  // fetch path so the visitor still sees something. Cap the
+  // Suspense child at 20s; past that it renders the warming
+  // placeholder. The background refresh still fires so the
+  // cron isn't the only thing filling the table.
+  console.log("[active-creatives-snapshots] miss", {
+    eventId,
+    preset: datePreset,
+    forced: forceRefresh,
+  });
+  scheduleBackgroundRefresh();
+
+  const livePromise = fetchShareActiveCreatives({
+    share,
+    admin,
+    eventCode,
+    adAccountId,
+    datePreset,
+    customRange,
+  }).catch((err): ShareActiveCreativesResult => {
+    console.error("[share/report] active-creatives live fetch crashed", {
+      eventId,
+      adAccountId,
+      eventCode,
+      datePreset,
+      customRange,
+      error:
+        err instanceof Error
+          ? { message: err.message, stack: err.stack }
+          : String(err),
+    });
+    return {
+      kind: "error",
+      reason: "meta_failed",
+      message: "Unexpected error",
+    };
+  });
+
+  return {
     creativesResult: null,
-    deferredCreatives,
+    deferredCreatives: withTimeout(livePromise, COLD_FETCH_TIMEOUT_MS),
+    snapshot: null,
   };
 }
 
 /**
- * Suspense child for the deferred creatives fetch. Awaiting the
+ * Cap the cold-cache live fetch at 20s. Past that, resolve to a
+ * sentinel `kind="skip"` value so the Suspense child can swap to
+ * the "Numbers warming up" placeholder instead of holding the
+ * skeleton open indefinitely. The original promise keeps running
+ * in the background — on the unlikely chance it succeeds it
+ * still writes via the (already-scheduled) `after()` refresh.
+ *
+ * Sentinel uses `kind="skip"` rather than `kind="error"` because
+ * `error` would render a "Creative breakdown unavailable" banner
+ * (wrong message — the data IS coming, just not in time for THIS
+ * render). The Suspense child checks for the sentinel `reason`
+ * and renders the warming placeholder explicitly.
+ */
+const COLD_FETCH_TIMEOUT_MS = 20_000;
+const TIMEOUT_SKIP_REASON = "warming_up_timeout" as const;
+
+function withTimeout(
+  promise: Promise<ShareActiveCreativesResult>,
+  ms: number,
+): Promise<ShareActiveCreativesResult> {
+  const timeoutPromise = new Promise<ShareActiveCreativesResult>((resolve) => {
+    setTimeout(() => {
+      resolve({
+        kind: "skip",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        reason: TIMEOUT_SKIP_REASON as any,
+      });
+    }, ms);
+  });
+  return Promise.race([promise, timeoutPromise]);
+}
+
+/**
+ * Suspense child for the cold-cache live fetch. Awaiting the
  * promise inside an async server component is what triggers the
  * outer `<Suspense>` fallback to render until it resolves.
  *
- * Kept dumb on purpose — all the orchestration (cache read,
- * headline fetch, cache write) lives in `resolveReportData`.
+ * Two terminal states:
+ *
+ *   - The live fetch resolved (with any kind — ok/skip/error)
+ *     within the 20s timeout → render the resolved section.
+ *   - The 20s timeout fired first → `withTimeout` resolved to
+ *     the `warming_up_timeout` sentinel → render the warming
+ *     placeholder so the visitor doesn't sit watching the
+ *     skeleton spin past the half-minute mark.
+ *
+ * The background refresh kicked by `resolveActiveCreatives`
+ * runs independently; the next visitor lands on a real snapshot
+ * either way.
  */
 async function DeferredCreativesSlot({
   promise,
@@ -715,6 +913,12 @@ async function DeferredCreativesSlot({
   promise: Promise<ShareActiveCreativesResult>;
 }) {
   const result = await promise;
+  if (
+    result.kind === "skip" &&
+    (result as { reason: string }).reason === TIMEOUT_SKIP_REASON
+  ) {
+    return <ShareActiveCreativesWarming />;
+  }
   return <ShareActiveCreativesSection result={result} />;
 }
 

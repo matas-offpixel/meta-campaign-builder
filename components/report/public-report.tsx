@@ -82,6 +82,18 @@ interface Props {
   headlineUnavailable?: boolean;
 }
 
+/*
+ * Re snapshot-first active-creatives stale banner: lives INSIDE
+ * the `creativesSlot` rather than as a `PublicReport` prop. The
+ * slot wrapper is composed in the share RSC
+ * (`app/share/report/[token]/page.tsx`) which already owns the
+ * snapshot read and the eventId / preset / customRange the
+ * banner needs to drive its Refresh button — keeping it co-
+ * located with the slot avoids prop-drilling six fields down
+ * three component layers and keeps `PublicReport` agnostic of
+ * the cache shape. See `<ActiveCreativesStaleBanner />`.
+ */
+
 /**
  * Public-side wrapper around `EventReportView`.
  *

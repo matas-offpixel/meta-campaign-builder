@@ -8,6 +8,17 @@ import type {
 } from "@/lib/insights/types";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 
+/*
+ * activeCreatives left in the payload type as an optional field
+ * for BACKWARD COMPATIBILITY with rows written before the
+ * snapshot-first cache landed (PR #82+). Old rows still carry
+ * the field and we don't want them to fail to parse on read; new
+ * writes set it to undefined and active-creatives lives in
+ * `active_creatives_snapshots` instead. Once every cached row
+ * older than `SHARE_SNAPSHOT_TTL_MS` has rolled off (5 min after
+ * the deploy), the field can be removed from the type entirely.
+ */
+
 /**
  * lib/db/share-snapshots.ts
  *
@@ -87,14 +98,18 @@ export interface ShareSnapshotPayload {
    */
   metaErrorReason: InsightsErrorReason | null;
   /**
-   * Active-creatives payload from
-   * `lib/reporting/share-active-creatives.ts`. Carries its own
-   * discriminated `kind` for `ok | skip | error`. Null when the
-   * event has neither an event_code nor an ad account
-   * (TikTok-only path) — the page just doesn't fetch in that
-   * case.
+   * Legacy field — DO NOT WRITE. Active creatives moved to a
+   * dedicated `active_creatives_snapshots` table (migration 041)
+   * with its own cron-driven refresh cadence. Kept optional on
+   * read so rows written by the previous deploy don't fail to
+   * parse during the rollover window. Drop after every cached
+   * row written pre-deploy has expired (`SHARE_SNAPSHOT_TTL_MS`,
+   * currently 5 minutes).
+   *
+   * @deprecated since the snapshot-first PR — read from
+   *   `lib/db/active-creatives-snapshots.ts` instead.
    */
-  activeCreatives: ShareActiveCreativesResult | null;
+  activeCreatives?: ShareActiveCreativesResult | null;
 }
 
 /**
