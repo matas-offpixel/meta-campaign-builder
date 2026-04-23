@@ -10,7 +10,10 @@ import {
 import { getShareForClient } from "@/lib/db/report-shares";
 import { listLatestSnapshotsForClient } from "@/lib/db/client-snapshots-server";
 import { listConnectionsForUser } from "@/lib/db/ticketing";
-import { listD2CConnectionsForUser } from "@/lib/db/d2c";
+import {
+  listD2CConnectionsForUser,
+  listD2CTemplatesForUser,
+} from "@/lib/db/d2c";
 import { listCreativeTemplatesForUser } from "@/lib/db/creative-templates";
 import {
   isBannerbearEnabled,
@@ -67,6 +70,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     latestSnapshots,
     ticketing,
     d2c,
+    d2cTemplates,
     creativeTemplates,
   ] = await Promise.all([
     getClientByIdServer(id),
@@ -77,6 +81,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listLatestSnapshotsForClient(user.id, id),
     listConnectionsForUser(supabase, { clientId: id }),
     listD2CConnectionsForUser(supabase, { clientId: id }),
+    listD2CTemplatesForUser(supabase, { clientId: id }),
     listCreativeTemplatesForUser(supabase),
   ]);
 
@@ -145,6 +150,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       latestSnapshots={latestSnapshots}
       ticketingConnections={safeTicketing}
       d2cConnections={safeD2C}
+      d2cTemplates={d2cTemplates}
       creativeTemplates={creativeTemplates}
       creativeProviderStatus={creativeProviderStatus}
       initialTab={initialTab}

@@ -15,18 +15,14 @@ import { Select } from "@/components/ui/select";
 import type {
   D2CConnection,
   D2CScheduledSend,
+  D2CScheduledSendApprovalStatus,
   D2CScheduledSendStatus,
   D2CTemplate,
 } from "@/lib/d2c/types";
 
 /**
- * components/dashboard/events/event-comms-panel.tsx
- *
- * Per-event comms planner. Lists existing scheduled sends and lets
- * the user add new ones. Until FEATURE_D2C_LIVE is on, every new
- * send is a dry-run — the API forces dry_run=true and the row keeps
- * status='scheduled'. The UI surfaces a [DRY RUN] badge wherever
- * dry_run is true.
+ * Per-event comms planner — scheduled sends require operator approval before
+ * the cron runner can perform live Mailchimp delivery.
  */
 
 interface SafeConnection extends Omit<D2CConnection, "credentials"> {
@@ -39,6 +35,7 @@ interface Props {
   connections: SafeConnection[];
   templates: D2CTemplate[];
   initialSends: D2CScheduledSend[];
+  canApproveD2C: boolean;
 }
 
 const STATUS_LABELS: Record<D2CScheduledSendStatus, string> = {
@@ -46,6 +43,12 @@ const STATUS_LABELS: Record<D2CScheduledSendStatus, string> = {
   sent: "Sent",
   failed: "Failed",
   cancelled: "Cancelled",
+};
+
+const APPROVAL_LABELS: Record<D2CScheduledSendApprovalStatus, string> = {
+  pending_approval: "Pending approval",
+  approved: "Approved",
+  rejected: "Rejected",
 };
 
 function formatTimestamp(iso: string): string {
@@ -66,6 +69,7 @@ export function EventCommsPanel({
   connections,
   templates,
   initialSends,
+  canApproveD2C,
 }: Props) {
   const [sends, setSends] = useState<D2CScheduledSend[]>(initialSends);
   const [templateId, setTemplateId] = useState<string>(
@@ -77,7 +81,11 @@ export function EventCommsPanel({
   const [scheduledFor, setScheduledFor] = useState<string>(() =>
     new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16),
   );
+  const [listId, setListId] = useState("");
+  const [replyTo, setReplyTo] = useState("");
+  const [fromName, setFromName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [okMessage, setOkMessage] = useState<string | null>(null);
 
@@ -87,8 +95,6 @@ export function EventCommsPanel({
   );
   const compatibleConnections = useMemo(() => {
     if (!selectedTemplate) return [] as SafeConnection[];
-    // Email templates → email-capable providers (Mailchimp / Klaviyo).
-    // SMS / WhatsApp templates → Bird (both) and Firetext (SMS only).
     if (selectedTemplate.channel === "email") {
       return connections.filter((c) =>
         ["mailchimp", "klaviyo"].includes(c.provider),
@@ -118,8 +124,21 @@ export function EventCommsPanel({
       setError("Set a schedule.");
       return;
     }
+    const conn = connections.find((c) => c.id === connectionId);
+    if (conn?.provider === "mailchimp") {
+      if (!listId.trim() || !replyTo.trim()) {
+        setError("Mailchimp sends need audience list id and reply-to email.");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
+      const audience: Record<string, unknown> = {};
+      if (conn?.provider === "mailchimp") {
+        audience.list_id = listId.trim();
+        audience.reply_to = replyTo.trim();
+        if (fromName.trim()) audience.from_name = fromName.trim();
+      }
       const res = await fetch("/api/d2c/scheduled", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -128,7 +147,7 @@ export function EventCommsPanel({
           templateId,
           connectionId,
           scheduledFor: new Date(scheduledFor).toISOString(),
-          audience: {},
+          audience,
           variables: {},
         }),
       });
@@ -138,7 +157,7 @@ export function EventCommsPanel({
         send?: D2CScheduledSend;
         dryRun?: boolean;
       };
-      if (!json.send) {
+      if (!res.ok || !json.ok || !json.send) {
         setError(json.error ?? "Failed to schedule the send.");
         return;
       }
@@ -146,15 +165,40 @@ export function EventCommsPanel({
         a.scheduled_for.localeCompare(b.scheduled_for),
       ));
       setOkMessage(
-        json.dryRun
-          ? "Scheduled (dry-run — live mode disabled)."
-          : "Scheduled.",
+        "Presale reminder scheduled — pending operator approval before send.",
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleApprove(id: string) {
+    setError(null);
+    setApprovingId(id);
+    try {
+      const res = await fetch(`/api/d2c/scheduled/${id}/approve`, {
+        method: "PATCH",
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        send?: D2CScheduledSend;
+      };
+      if (!res.ok || !json.ok || !json.send) {
+        setError(json.error ?? "Approval failed.");
+        return;
+      }
+      setSends((prev) =>
+        prev.map((s) => (s.id === json.send!.id ? json.send! : s)),
+      );
+      setOkMessage("Send approved for cron delivery.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approval failed.");
+    } finally {
+      setApprovingId(null);
     }
   }
 
@@ -171,7 +215,7 @@ export function EventCommsPanel({
         error?: string;
         send?: D2CScheduledSend;
       };
-      if (!json.send) {
+      if (!res.ok || !json.send) {
         setError(json.error ?? "Failed to cancel.");
         return;
       }
@@ -185,17 +229,17 @@ export function EventCommsPanel({
 
   const noTemplates = templates.length === 0;
   const noConnections = connections.length === 0;
+  const selectedConn = connections.find((c) => c.id === connectionId);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>D2C comms</CardTitle>
         <CardDescription>
-          Plan email, SMS, and WhatsApp sends for this event. Live
-          delivery is gated behind{" "}
-          <code className="rounded bg-muted px-1">FEATURE_D2C_LIVE</code> —
-          while it&apos;s off, every scheduled send runs as a dry-run
-          and is logged but never delivered.
+          Schedule a presale reminder email; an operator must approve before
+          the cron job sends via Mailchimp. Live delivery requires{" "}
+          <code className="rounded bg-muted px-1">FEATURE_D2C_LIVE</code>, per-
+          connection live flags, and Matas approval on the connection.
         </CardDescription>
       </CardHeader>
 
@@ -213,12 +257,13 @@ export function EventCommsPanel({
               {sends.map((s) => (
                 <li
                   key={s.id}
-                  className="flex items-center justify-between gap-4 px-3 py-2 text-sm"
+                  className="flex flex-col gap-2 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 font-medium text-foreground">
                       <span className="capitalize">{s.channel}</span>
                       <StatusPill status={s.status} />
+                      <ApprovalPill status={s.approval_status} />
                       {s.dry_run ? <DryRunBadge /> : null}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">
@@ -232,16 +277,34 @@ export function EventCommsPanel({
                       </code>
                     </p>
                   </div>
-                  {s.status === "scheduled" ? (
-                    <Button
-                      variant="ghost"
-                      type="button"
-                      onClick={() => handleCancel(s.id)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      Cancel
-                    </Button>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {s.status === "scheduled" &&
+                    s.approval_status === "pending_approval" &&
+                    canApproveD2C ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleApprove(s.id)}
+                        disabled={approvingId === s.id}
+                      >
+                        {approvingId === s.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Approve & schedule"
+                        )}
+                      </Button>
+                    ) : null}
+                    {s.status === "scheduled" ? (
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        onClick={() => void handleCancel(s.id)}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -251,13 +314,13 @@ export function EventCommsPanel({
         {noTemplates || noConnections ? (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {noTemplates
-              ? "No templates yet — create one in client settings before scheduling."
+              ? "No templates yet — create one on the client D2C tab before scheduling."
               : "No D2C connections on this client — add one in client settings before scheduling."}
           </p>
         ) : (
           <form className="space-y-3" onSubmit={handleSubmit}>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Schedule a send
+              Schedule presale reminder
             </h4>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="flex flex-col gap-1 text-sm">
@@ -294,6 +357,42 @@ export function EventCommsPanel({
               </label>
             </div>
 
+            {selectedConn?.provider === "mailchimp" ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-xs text-muted-foreground">
+                    Mailchimp list id
+                  </span>
+                  <Input
+                    value={listId}
+                    onChange={(e) => setListId(e.target.value)}
+                    placeholder="abc123"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-xs text-muted-foreground">
+                    Reply-to email
+                  </span>
+                  <Input
+                    type="email"
+                    value={replyTo}
+                    onChange={(e) => setReplyTo(e.target.value)}
+                    placeholder="hello@example.com"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-xs text-muted-foreground">
+                    From name (optional)
+                  </span>
+                  <Input
+                    value={fromName}
+                    onChange={(e) => setFromName(e.target.value)}
+                    placeholder="Jackies"
+                  />
+                </label>
+              </div>
+            ) : null}
+
             {error ? (
               <p className="inline-flex items-center gap-1 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -315,7 +414,7 @@ export function EventCommsPanel({
                     Scheduling…
                   </>
                 ) : (
-                  "Schedule send"
+                  "Schedule presale reminder"
                 )}
               </Button>
             </div>
@@ -340,6 +439,26 @@ function StatusPill({ status }: { status: D2CScheduledSendStatus }) {
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
     >
       {STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+function ApprovalPill({
+  status,
+}: {
+  status: D2CScheduledSendApprovalStatus;
+}) {
+  const tone =
+    status === "approved"
+      ? "bg-emerald-50 text-emerald-800"
+      : status === "rejected"
+        ? "bg-destructive/10 text-destructive"
+        : "bg-slate-100 text-slate-800";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
+    >
+      {APPROVAL_LABELS[status]}
     </span>
   );
 }

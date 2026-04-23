@@ -16,7 +16,7 @@ import type {
   D2CMessage,
   D2CProviderName,
   SendResult,
-} from "@/lib/d2c/types";
+} from "./types.ts";
 
 interface DryRunSummary {
   channel: D2CMessage["channel"];

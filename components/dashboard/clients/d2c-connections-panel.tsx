@@ -35,6 +35,22 @@ interface ConnectionRow extends Omit<D2CConnection, "credentials"> {
   credentials: null;
 }
 
+async function patchLiveFlags(
+  id: string,
+  body: { live_enabled: boolean; approved_by_matas: boolean },
+): Promise<{ ok: boolean; error?: string; connection?: ConnectionRow }> {
+  const res = await fetch(`/api/d2c/connections/${id}/live`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return (await res.json()) as {
+    ok: boolean;
+    error?: string;
+    connection?: ConnectionRow;
+  };
+}
+
 interface Props {
   clientId: string;
   initial: ConnectionRow[];
@@ -99,6 +115,7 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [okMessage, setOkMessage] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [liveSavingId, setLiveSavingId] = useState<string | null>(null);
 
   useEffect(() => {
     setConnections(initial);
@@ -167,6 +184,30 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
     }
   }
 
+  async function handleLivePatch(
+    id: string,
+    next: { live_enabled: boolean; approved_by_matas: boolean },
+  ) {
+    setError(null);
+    setOkMessage(null);
+    setLiveSavingId(id);
+    try {
+      const json = await patchLiveFlags(id, next);
+      if (!json.ok || !json.connection) {
+        setError(json.error ?? "Failed to update live flags.");
+        return;
+      }
+      setConnections((prev) =>
+        prev.map((c) => (c.id === id ? json.connection! : c)),
+      );
+      setOkMessage("Live flags updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLiveSavingId(null);
+    }
+  }
+
   async function handleRemove(id: string) {
     setError(null);
     setOkMessage(null);
@@ -194,12 +235,12 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
       <CardHeader>
         <CardTitle>D2C comms</CardTitle>
         <CardDescription>
-          Connect a sending provider so the dashboard can schedule
-          ticket-ops messaging. Live sends are gated behind{" "}
-          <code className="rounded bg-muted px-1">FEATURE_D2C_LIVE</code> —
-          until that flag is on, every send is a dry-run and nothing
-          leaves the server. Saved tokens never round-trip back through
-          the browser.
+          Connect Mailchimp (API key + server prefix validated via ping).
+          Credentials are encrypted at rest. Per-client{" "}
+          <strong className="font-medium">live</strong> and{" "}
+          <strong className="font-medium">Matas approved</strong> toggles,
+          plus the global <code className="rounded bg-muted px-1">FEATURE_D2C_LIVE</code>{" "}
+          env flag, must all be on before real sends leave the server.
         </CardDescription>
       </CardHeader>
 
@@ -235,6 +276,38 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
                         {c.last_error}
                       </p>
                     ) : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                      <label className="inline-flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          className="rounded border-input"
+                          checked={c.live_enabled}
+                          disabled={liveSavingId === c.id}
+                          onChange={(e) =>
+                            void handleLivePatch(c.id, {
+                              live_enabled: e.target.checked,
+                              approved_by_matas: c.approved_by_matas,
+                            })
+                          }
+                        />
+                        Live enabled
+                      </label>
+                      <label className="inline-flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          className="rounded border-input"
+                          checked={c.approved_by_matas}
+                          disabled={liveSavingId === c.id}
+                          onChange={(e) =>
+                            void handleLivePatch(c.id, {
+                              live_enabled: c.live_enabled,
+                              approved_by_matas: e.target.checked,
+                            })
+                          }
+                        />
+                        Matas approved
+                      </label>
+                    </div>
                   </div>
                   <Button
                     variant="ghost"
@@ -299,15 +372,6 @@ export function D2CConnectionsPanel({ clientId, initial }: Props) {
               ))}
             </div>
           </div>
-
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Live mode is disabled — saving is allowed for record-keeping
-            but credentials cannot be validated until{" "}
-            <code className="rounded bg-amber-100 px-1">
-              FEATURE_D2C_LIVE
-            </code>{" "}
-            is on. Until then, scheduled sends will run as dry-runs.
-          </p>
 
           {error ? (
             <p className="inline-flex items-center gap-1 text-sm text-destructive">
