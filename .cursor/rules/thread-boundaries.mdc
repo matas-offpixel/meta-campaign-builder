@@ -1,0 +1,31 @@
+---
+description: Thread-based folder boundaries for the 4-thread parallel workflow. Branch prefix determines which folders the PR can touch.
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Thread boundaries (2026-04-23 onward)
+
+The repo runs four parallel Cowork threads. Branch prefix dictates which folders a PR may edit. If the current branch starts with:
+
+- `creator/` — `lib/reporting/*`, `lib/insights/*`, `lib/db/share-*.ts`, `lib/db/active-creatives-snapshots.ts`, `lib/db/events.ts`, `lib/db/drafts.ts`, `lib/db/templates.ts`, `lib/db/event-daily-timeline.ts`, `app/(dashboard)/events/*`, `app/(dashboard)/reporting/*`, `app/share/*`, `app/api/cron/refresh-active-creatives/*`, `app/api/cron/rollup-sync-events/*`, `app/api/internal/refresh-active-creatives/*`, `components/report/*`, `components/share/*`, `components/dashboard/events/*`, `components/wizard/*`, `components/steps/*`, `supabase/migrations/*` (events / campaigns / share tables only)
+- `creative/` — `lib/creatives/*`, `lib/db/creative-*.ts`, `app/api/creative/*`, `components/steps/creatives.tsx`, `supabase/migrations/*` (creative tables only)
+- `d2c/` — `lib/d2c/*`, `lib/db/d2c-*.ts`, `app/api/d2c/*`, `components/d2c/*`, `supabase/migrations/*` (D2C tables only)
+- `ops/` — may edit any file, but typically `CLAUDE.md`, `AGENTS.md`, `docs/*`, `package.json`, `supabase/schema.sql` mirror
+
+## Shared files — editable ONLY from ops/ branches
+
+- `CLAUDE.md`, `AGENTS.md`
+- `docs/STRATEGIC_REFLECTION_*.md`, `docs/PROJECT_CONTEXT.md`
+- `lib/types.ts` (root-level CampaignDraft additions)
+- `supabase/schema.sql` (summary mirror — migrations themselves live in whichever thread owns the feature)
+- `package.json`
+
+## Always write a session log
+
+Every PR must commit `docs/session-logs/pr-{N}-{branch}.md` conforming to `docs/SESSION_LOG_TEMPLATE.md`, in the same PR as the changes. Populate every template section (mark "N/A" if truly inapplicable). Commit the log, then open the PR.
+
+## If a prompt asks for changes outside the current branch's scope
+
+Halt and ask the user to confirm the scope expansion or re-route to the correct thread's Cursor window. Do not silently edit out-of-scope files.
