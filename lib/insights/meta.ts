@@ -1455,6 +1455,125 @@ export async function fetchEventDailyMetaMetrics(
   }
 }
 
+// ─── Today's live partial spend (Meta `date_preset=today`) ────────────────
+
+export interface FetchEventTodayMetaSnapshotArgs {
+  /** Bracket-naked event code, e.g. "LEEDS26-FACUP". The matcher wraps it. */
+  eventCode: string;
+  /** "act_…" prefixed ad account id. */
+  adAccountId: string;
+  /** OAuth token of the event owner. */
+  token: string;
+  /**
+   * Caller's "today" in YYYY-MM-DD form. We DON'T derive this here
+   * because the caller (rollup-sync runner) needs the snapshot row's
+   * `day` to match the same key the caller uses for upsert dedupe and
+   * dev-mode assertion. Different timezones / clocks across processes
+   * would otherwise create a ghost row keyed on a date the rest of
+   * the system never queries for.
+   */
+  todayDate: string;
+}
+
+/**
+ * Fetch today's live spend + link-click totals for every campaign whose
+ * name contains `[eventCode]`, using Meta's `date_preset=today`.
+ *
+ * Why a separate helper from `fetchEventDailyMetaMetrics`:
+ *   The daily helper uses `time_increment=1` over a [since, until]
+ *   window. Meta's daily breakdown for "today" is materialised on a
+ *   ~hourly cron — it can be MISSING from the response for the first
+ *   few hours of the day even when live ads are running. The
+ *   `date_preset=today` endpoint pulls from the same live counter
+ *   that powers the Ads Manager top bar, so it returns partial
+ *   numbers within minutes. The runner uses this as a fall-forward
+ *   when the daily call doesn't return today.
+ *
+ * Returns `{ ok: true, days: [{day: todayDate, spend, linkClicks}] }`
+ * when the API responds. `spend === 0 && linkClicks === 0` is a
+ * legitimate "no ad activity yet today" answer — the caller still
+ * upserts so the daily-tracker row exists rather than rendering the
+ * synthetic placeholder.
+ *
+ * No `time_increment` here on purpose: with `date_preset=today` Meta
+ * returns one summary row per campaign for today (no per-day split),
+ * which is exactly what we want.
+ */
+export async function fetchEventTodayMetaSnapshot(
+  args: FetchEventTodayMetaSnapshotArgs,
+): Promise<DailyMetaMetricsResult> {
+  const { eventCode, adAccountId, token, todayDate } = args;
+  if (!eventCode.trim()) {
+    return errorResult("no_event_code", "Event has no event_code set.");
+  }
+  if (!adAccountId.trim()) {
+    return errorResult(
+      "no_ad_account",
+      "Client has no Meta ad account linked.",
+    );
+  }
+
+  const account = ensureActPrefix(adAccountId);
+  const codeBracketed = `[${eventCode}]`;
+  const filtering = JSON.stringify([
+    { field: "campaign.name", operator: "CONTAIN", value: codeBracketed },
+  ]);
+
+  try {
+    let totalSpend = 0;
+    let totalClicks = 0;
+    const matchedCampaigns = new Set<string>();
+
+    let after: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = {
+        // campaign_name comes back so we can re-filter case-sensitively
+        // before aggregating (Meta's CONTAIN is case-INsensitive).
+        fields: "spend,inline_link_clicks,campaign_name",
+        level: "campaign",
+        date_preset: "today",
+        filtering,
+        action_attribution_windows: ATTRIBUTION_WINDOWS,
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<
+        GraphPaged<{
+          spend?: string;
+          inline_link_clicks?: string;
+          campaign_name?: string;
+        }>
+      >(`/${account}/insights`, params, token);
+
+      for (const row of res.data ?? []) {
+        const name = row.campaign_name ?? "";
+        if (!name.includes(codeBracketed)) continue;
+        matchedCampaigns.add(name);
+        totalSpend += parseNum(row.spend);
+        totalClicks += parseNum(row.inline_link_clicks);
+      }
+
+      after = res.paging?.cursors?.after;
+      if (!res.paging?.next || !after) break;
+    }
+
+    return {
+      ok: true,
+      days: [
+        {
+          day: todayDate,
+          spend: totalSpend,
+          linkClicks: totalClicks,
+        },
+      ],
+      campaignNames: [...matchedCampaigns].sort(),
+    };
+  } catch (err) {
+    return handleMetaError(err);
+  }
+}
+
 function handleMetaError(err: unknown): { ok: false; error: InsightsError } {
   // Reduce-data check first, BEFORE the generic MetaApiError branch:
   // a reduce-data error is a code 1 / 2 with a specific message, so

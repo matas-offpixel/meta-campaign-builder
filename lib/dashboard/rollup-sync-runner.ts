@@ -3,7 +3,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { fetchEventDailyMetaMetrics } from "@/lib/insights/meta";
+import {
+  fetchEventDailyMetaMetrics,
+  fetchEventTodayMetaSnapshot,
+} from "@/lib/insights/meta";
 import {
   getConnectionWithDecryptedCredentials,
   listLinksForEvent,
@@ -105,6 +108,58 @@ export interface SyncDiagnostics {
   windowUntil: string;
   /** Resolved event reporting timezone (or null when unset). */
   eventTimezone: string | null;
+  /**
+   * Server-local YYYY-MM-DD treated as "today" by both this runner
+   * and the Daily Tracker UI's synthetic placeholder. The two MUST
+   * agree or the placeholder won't be replaced by the real row.
+   */
+  todayDate: string;
+  /**
+   * `true` when the historical Meta `time_increment=1` call returned
+   * a row keyed on `todayDate`. `false` triggers the live snapshot
+   * fall-forward (date_preset=today) and ultimately the zero-pad.
+   */
+  metaTodayInWindow: boolean;
+  /**
+   * `true` when today's row was sourced from the `date_preset=today`
+   * fall-forward (i.e. window missed it but live snapshot returned).
+   */
+  metaTodayFromSnapshot: boolean;
+  /**
+   * `true` when neither path returned today, so we wrote a (0, 0)
+   * placeholder for today purely to make the daily-tracker row exist.
+   * Subsequent syncs overwrite with real numbers as they materialise.
+   */
+  metaTodayPadded: boolean;
+  /**
+   * `true` when the Eventbrite orders leg's daily aggregate already
+   * had a row for today.
+   */
+  eventbriteTodayInWindow: boolean;
+  /**
+   * `true` when we wrote a zero-row for today because no Eventbrite
+   * orders bucketed under today (no orders yet, or all in non-paid
+   * status).
+   */
+  eventbriteTodayPadded: boolean;
+  /**
+   * Post-upsert sanity probe — `null` when the assertion was skipped
+   * (read-back failed, or both legs were skipped). Otherwise reports
+   * whether today's row exists and which `source_*_at` fields
+   * landed. A warning log is emitted alongside.
+   */
+  todayRowAfterSync: TodayRowProbe | null;
+}
+
+export interface TodayRowProbe {
+  /** True iff a row exists for `(event_id, todayDate)`. */
+  exists: boolean;
+  hasMetaTimestamp: boolean;
+  hasEventbriteTimestamp: boolean;
+  /** `event_daily_rollups.ad_spend` for today, or null. */
+  ad_spend: number | null;
+  /** `event_daily_rollups.tickets_sold` for today, or null. */
+  tickets_sold: number | null;
 }
 
 export interface SyncSummary {
@@ -176,6 +231,13 @@ export async function runRollupSyncForEvent(
   const sinceStr = ymd(since);
   const untilStr = ymd(until);
 
+  // `todayStr` MUST match what the Daily Tracker UI uses when it
+  // builds its synthetic placeholder row (see
+  // `components/dashboard/events/daily-tracker.tsx → buildDisplayRows`).
+  // Both this runner and the share-page server render in UTC, so
+  // local-tz `ymd()` is correct on both sides.
+  const todayStr = untilStr;
+
   const diagnostics: SyncDiagnostics = {
     metaAdAccountId: adAccountId,
     metaCodeBracketed: eventCode ? `[${eventCode}]` : null,
@@ -189,6 +251,13 @@ export async function runRollupSyncForEvent(
     windowSince: sinceStr,
     windowUntil: untilStr,
     eventTimezone,
+    todayDate: todayStr,
+    metaTodayInWindow: false,
+    metaTodayFromSnapshot: false,
+    metaTodayPadded: false,
+    eventbriteTodayInWindow: false,
+    eventbriteTodayPadded: false,
+    todayRowAfterSync: null,
   };
 
   console.log(
@@ -230,7 +299,6 @@ export async function runRollupSyncForEvent(
       } else {
         diagnostics.metaCampaignsMatched = metaFetch.campaignNames;
         diagnostics.metaDaysReturned = metaFetch.days.length;
-        diagnostics.metaRowsAttempted = metaFetch.days.length;
         console.log(
           `[rollup-sync] meta fetch ok campaigns=${
             metaFetch.campaignNames.length
@@ -240,20 +308,92 @@ export async function runRollupSyncForEvent(
               : ""
           }`,
         );
+
+        // ── Today's row guarantee ──────────────────────────────────
+        //
+        // The historical `time_increment=1` call may not include today
+        // when Meta's daily breakdown hasn't been materialised yet
+        // (typical lag is the first 4-8 hours of the day). When that
+        // happens the daily-tracker UI synthesises an all-null
+        // placeholder row, which renders as dashes and freezes the
+        // running totals at yesterday — exactly the bug we're fixing.
+        //
+        // We attempt three fall-forwards in order:
+        //
+        //   1. If today's date is already in `metaFetch.days`, do nothing.
+        //   2. Else hit `date_preset=today` (Meta's live counter — same
+        //      source as Ads Manager's top bar, materialises within
+        //      minutes of an impression). When this returns ANY value
+        //      (including a legit zero) we use it.
+        //   3. Else write a (0, 0) padding row so the row exists. The
+        //      next sync (manual Refresh or 6-hourly cron) replaces it
+        //      with real numbers as soon as Meta has them.
+        //
+        // The padding write still sets `source_meta_at = now()`, so
+        // the dev-mode assertion can confirm the row landed even when
+        // the underlying numbers are pending.
+        const metaRows: Array<{ date: string; ad_spend: number; link_clicks: number }> =
+          metaFetch.days.map((d) => ({
+            date: d.day,
+            ad_spend: d.spend,
+            link_clicks: d.linkClicks,
+          }));
+        const hasToday = metaRows.some((r) => r.date === todayStr);
+        diagnostics.metaTodayInWindow = hasToday;
+        if (!hasToday) {
+          let snapshotSpend = 0;
+          let snapshotClicks = 0;
+          let snapshotOk = false;
+          try {
+            const snap = await fetchEventTodayMetaSnapshot({
+              eventCode,
+              adAccountId,
+              token,
+              todayDate: todayStr,
+            });
+            if (snap.ok && snap.days.length > 0) {
+              snapshotSpend = snap.days[0]?.spend ?? 0;
+              snapshotClicks = snap.days[0]?.linkClicks ?? 0;
+              snapshotOk = true;
+              diagnostics.metaTodayFromSnapshot = true;
+              console.log(
+                `[rollup-sync] meta today snapshot ok spend=${snapshotSpend} clicks=${snapshotClicks}`,
+              );
+            } else if (!snap.ok) {
+              console.warn(
+                `[rollup-sync] meta today snapshot failed reason=${snap.error.reason} msg=${snap.error.message}`,
+              );
+            }
+          } catch (err) {
+            console.warn(
+              `[rollup-sync] meta today snapshot threw: ${
+                err instanceof Error ? err.message : "Unknown error"
+              }`,
+            );
+          }
+          if (!snapshotOk) {
+            diagnostics.metaTodayPadded = true;
+            console.warn(
+              `[rollup-sync] meta today padded with zeros date=${todayStr}`,
+            );
+          }
+          metaRows.push({
+            date: todayStr,
+            ad_spend: snapshotSpend,
+            link_clicks: snapshotClicks,
+          });
+        }
+        diagnostics.metaRowsAttempted = metaRows.length;
         try {
           await upsertMetaRollups(supabase, {
             userId,
             eventId,
-            rows: metaFetch.days.map((d) => ({
-              date: d.day,
-              ad_spend: d.spend,
-              link_clicks: d.linkClicks,
-            })),
+            rows: metaRows,
           });
           metaResult.ok = true;
-          metaResult.rowsWritten = metaFetch.days.length;
+          metaResult.rowsWritten = metaRows.length;
           console.log(
-            `[rollup-sync] meta upsert ok rows_written=${metaFetch.days.length}`,
+            `[rollup-sync] meta upsert ok rows_written=${metaRows.length} today_in_window=${hasToday} today_from_snapshot=${diagnostics.metaTodayFromSnapshot} today_padded=${diagnostics.metaTodayPadded}`,
           );
         } catch (err) {
           metaResult.error =
@@ -311,23 +451,60 @@ export async function runRollupSyncForEvent(
             externalEventId: link.external_event_id,
             eventTimezone,
           });
-          diagnostics.eventbriteRowsAttempted += rows.length;
           console.log(
             `[rollup-sync] eventbrite link=${link.external_event_id} fetched_rows=${rows.length}`,
           );
+
+          // ── Today's row guarantee (Eventbrite) ─────────────────
+          //
+          // The orders aggregator returns one entry per date that had
+          // at least one paid (`placed` / `complete`) order. New
+          // events on the day of release commonly have no paid
+          // orders early in the morning (or all today's orders are
+          // mid-checkout in `started`/`pending` state) — both of
+          // which leave today out of the result entirely.
+          //
+          // We pad a (0, 0) row for today when missing, so:
+          //   - the Daily Tracker UI stops drawing the synthetic
+          //     placeholder (it now sees a real row with explicit
+          //     zeros instead of nulls), and
+          //   - the dev-mode assertion can confirm
+          //     `source_eventbrite_at` landed.
+          //
+          // We only pad on the FIRST link of an event (multi-link
+          // setups are rare; padding once per link would write the
+          // same key but each upsert overwrites the prior, so the
+          // visible behaviour is identical — keeping the flag is
+          // purely so the diagnostics field reads true once).
+          const ebUpsertRows = rows.map((r) => ({
+            date: r.date,
+            tickets_sold: r.ticketsSold,
+            revenue: r.revenue,
+          }));
+          const hasToday = ebUpsertRows.some((r) => r.date === todayStr);
+          if (hasToday) {
+            diagnostics.eventbriteTodayInWindow = true;
+          } else {
+            ebUpsertRows.push({
+              date: todayStr,
+              tickets_sold: 0,
+              revenue: 0,
+            });
+            diagnostics.eventbriteTodayPadded = true;
+            console.warn(
+              `[rollup-sync] eventbrite today padded with zeros date=${todayStr} link=${link.external_event_id}`,
+            );
+          }
+          diagnostics.eventbriteRowsAttempted += ebUpsertRows.length;
           await upsertEventbriteRollups(supabase, {
             userId,
             eventId,
-            rows: rows.map((r) => ({
-              date: r.date,
-              tickets_sold: r.ticketsSold,
-              revenue: r.revenue,
-            })),
+            rows: ebUpsertRows,
           });
           await recordConnectionSync(supabase, connection.id, { ok: true });
-          totalRows += rows.length;
+          totalRows += ebUpsertRows.length;
           console.log(
-            `[rollup-sync] eventbrite link=${link.external_event_id} upsert ok rows_written=${rows.length}`,
+            `[rollup-sync] eventbrite link=${link.external_event_id} upsert ok rows_written=${ebUpsertRows.length} today_in_window=${hasToday} today_padded=${!hasToday}`,
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : "Unknown error";
@@ -357,6 +534,49 @@ export async function runRollupSyncForEvent(
     eventbriteResult.error =
       err instanceof Error ? err.message : "Unknown error";
     console.error(`[rollup-sync] eventbrite leg threw: ${eventbriteResult.error}`);
+  }
+
+  // ── Today-row probe ────────────────────────────────────────────────
+  //
+  // Read back the (event_id, todayDate) row to confirm the upserts
+  // landed end-to-end. Always runs — cost is a single indexed select;
+  // the diagnostic value (catching the "today missing" regression
+  // before a client notices) is worth it. The result is also surfaced
+  // in the JSON response so a manual Refresh failure surfaces next to
+  // the leg results without grepping logs.
+  //
+  // Warning policy:
+  //   - Missing row entirely → console.warn (something's wrong even if
+  //     both legs reported ok).
+  //   - Missing source_meta_at when meta leg succeeded → console.warn.
+  //   - Missing source_eventbrite_at when eb leg succeeded → console.warn.
+  //   - Otherwise → console.log with the row contents.
+  diagnostics.todayRowAfterSync = await probeTodayRow(
+    supabase,
+    eventId,
+    todayStr,
+  );
+  const probe = diagnostics.todayRowAfterSync;
+  if (probe) {
+    const missing: string[] = [];
+    if (!probe.exists) missing.push("row");
+    if (probe.exists && !probe.hasMetaTimestamp && metaResult.ok) {
+      missing.push("source_meta_at");
+    }
+    if (probe.exists && !probe.hasEventbriteTimestamp && eventbriteResult.ok) {
+      missing.push("source_eventbrite_at");
+    }
+    if (missing.length > 0) {
+      console.warn(
+        `[rollup-sync] today-row probe MISSING fields=${JSON.stringify(
+          missing,
+        )} event_id=${eventId} date=${todayStr}`,
+      );
+    } else {
+      console.log(
+        `[rollup-sync] today-row probe ok event_id=${eventId} date=${todayStr} ad_spend=${probe.ad_spend} tickets_sold=${probe.tickets_sold}`,
+      );
+    }
   }
 
   const allOk = metaResult.ok && eventbriteResult.ok;
@@ -404,4 +624,66 @@ function ymd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * Fetch the post-sync state of the (event_id, todayDate) row from
+ * `event_daily_rollups`. Used by the runner's end-to-end assertion to
+ * confirm both legs landed their writes.
+ *
+ * Returns `null` only when the read itself errored (the assertion is
+ * skipped in that case rather than masking the upstream sync result).
+ * Returns `{exists: false, ...}` when no row exists for today —
+ * callers treat this as a sync miss.
+ *
+ * Why a fresh select rather than trusting the upsert return value:
+ *   `upsertMetaRollups` and `upsertEventbriteRollups` don't return the
+ *   resulting rows. RLS, mid-flight migrations, or a concurrent write
+ *   can all produce divergent state. The probe is cheap and gives us
+ *   ground truth.
+ */
+async function probeTodayRow(
+  supabase: SupabaseClient,
+  eventId: string,
+  todayDate: string,
+): Promise<TodayRowProbe | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = supabase as any;
+  try {
+    const { data, error } = await client
+      .from("event_daily_rollups")
+      .select("ad_spend, tickets_sold, source_meta_at, source_eventbrite_at")
+      .eq("event_id", eventId)
+      .eq("date", todayDate)
+      .maybeSingle();
+    if (error) {
+      console.warn(
+        `[rollup-sync] today-row probe read error: ${error.message}`,
+      );
+      return null;
+    }
+    if (!data) {
+      return {
+        exists: false,
+        hasMetaTimestamp: false,
+        hasEventbriteTimestamp: false,
+        ad_spend: null,
+        tickets_sold: null,
+      };
+    }
+    return {
+      exists: true,
+      hasMetaTimestamp: data.source_meta_at != null,
+      hasEventbriteTimestamp: data.source_eventbrite_at != null,
+      ad_spend: data.ad_spend != null ? Number(data.ad_spend) : null,
+      tickets_sold: data.tickets_sold ?? null,
+    };
+  } catch (err) {
+    console.warn(
+      `[rollup-sync] today-row probe threw: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`,
+    );
+    return null;
+  }
 }
