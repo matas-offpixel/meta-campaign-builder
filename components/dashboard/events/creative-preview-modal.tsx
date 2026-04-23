@@ -358,30 +358,42 @@ function AssetBlock({
     );
   }
 
-  if (preview.image_url) {
+  if (preview.image_url || fallbackImage) {
+    // Mirror PR #84's share-side widening so internal viewers get
+    // the same upscaled-thumbnail treatment for Advantage+ /
+    // dynamic creatives whose only `image_url` is Meta's 64×64
+    // fallback. Without `is_low_res_fallback` the original branch
+    // rendered the postage-stamp at native size with `w-auto`.
+    const isThumbOnly =
+      (!preview.image_url || preview.is_low_res_fallback === true) &&
+      !!fallbackImage;
+    const src = preview.image_url ?? fallbackImage!;
     return (
-      <div className="flex justify-center bg-muted">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={preview.image_url}
-          alt={altText}
-          className="max-h-[60vh] w-auto object-contain"
-          loading="lazy"
-        />
-      </div>
-    );
-  }
-
-  if (fallbackImage) {
-    return (
-      <div className="flex justify-center bg-muted">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={fallbackImage}
-          alt={altText}
-          className="max-h-[60vh] w-auto object-contain"
-          loading="lazy"
-        />
+      <div className="space-y-2">
+        <div
+          className={
+            isThumbOnly
+              ? "flex items-center justify-center rounded-md bg-muted p-8"
+              : "flex justify-center bg-muted"
+          }
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={altText}
+            className={
+              isThumbOnly
+                ? "max-h-[40vh] w-full max-w-md rounded-md object-contain"
+                : "max-h-[60vh] w-auto object-contain"
+            }
+            loading="lazy"
+          />
+        </div>
+        {isThumbOnly && (
+          <div className="text-center text-xs text-muted-foreground">
+            Dynamic / Advantage+ creative — thumbnail preview only
+          </div>
+        )}
       </div>
     );
   }
