@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 
 import { NoPreviewModalPlaceholder } from "@/components/report/no-preview-placeholder";
@@ -235,6 +235,43 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
   );
 }
 
+/**
+ * Low-res-only modal preview: try PR #89 CDN upscale first; on 403
+ * (signed URL tied to stp) fall back to the raw image URL once.
+ */
+function ShareThumbOnlyCdnImage({
+  rawSrc,
+  altText,
+  className,
+}: {
+  rawSrc: string;
+  altText: string;
+  className: string;
+}) {
+  const [currentSrc, setCurrentSrc] = useState(() =>
+    upscaleMetaCdnUrl(rawSrc, 640),
+  );
+  const [didFallback, setDidFallback] = useState(false);
+  // `key={rawSrc}` on the parent re-mounts this block when a different
+  // concept is selected — no useEffect (forbidden with setState in this
+  // repo's eslint) and no stale 403 state across selection changes.
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={currentSrc}
+      alt={altText}
+      onError={() => {
+        if (!didFallback && currentSrc !== rawSrc) {
+          setDidFallback(true);
+          setCurrentSrc(rawSrc);
+        }
+      }}
+      className={className}
+      loading="lazy"
+    />
+  );
+}
+
 function ShareAssetBlock({
   preview,
   fallbackImage,
@@ -303,9 +340,6 @@ function ShareAssetBlock({
     // _s640x640_) only here so 160px video posters are not upscaled
     // ~2.8× in the layout.
     const rawSrc = preview.image_url ?? fallbackImage!;
-    const src = isThumbOnly
-      ? upscaleMetaCdnUrl(rawSrc, 640)
-      : rawSrc;
     return (
       <div className="space-y-2">
         <div
@@ -315,17 +349,22 @@ function ShareAssetBlock({
               : "flex justify-center bg-muted"
           }
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt={altText}
-            className={
-              isThumbOnly
-                ? "max-h-[40vh] w-full max-w-md rounded-md object-contain"
-                : "max-h-[60vh] w-auto object-contain"
-            }
-            loading="lazy"
-          />
+          {isThumbOnly ? (
+            <ShareThumbOnlyCdnImage
+              key={rawSrc}
+              rawSrc={rawSrc}
+              altText={altText}
+              className="max-h-[40vh] w-full max-w-md rounded-md object-contain"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={rawSrc}
+              alt={altText}
+              className="max-h-[60vh] w-auto object-contain"
+              loading="lazy"
+            />
+          )}
         </div>
         {isThumbOnly && (
           <div className="text-center text-xs text-muted-foreground">

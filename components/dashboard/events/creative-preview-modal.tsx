@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 
 import { NoPreviewModalPlaceholder } from "@/components/report/no-preview-placeholder";
@@ -294,6 +294,36 @@ function ModalFooter({
   );
 }
 
+function AssetThumbOnlyCdnImage({
+  rawSrc,
+  altText,
+  className,
+}: {
+  rawSrc: string;
+  altText: string;
+  className: string;
+}) {
+  const [currentSrc, setCurrentSrc] = useState(() =>
+    upscaleMetaCdnUrl(rawSrc, 640),
+  );
+  const [didFallback, setDidFallback] = useState(false);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={currentSrc}
+      alt={altText}
+      onError={() => {
+        if (!didFallback && currentSrc !== rawSrc) {
+          setDidFallback(true);
+          setCurrentSrc(rawSrc);
+        }
+      }}
+      className={className}
+      loading="lazy"
+    />
+  );
+}
+
 function AssetBlock({
   preview,
   fallbackImage,
@@ -371,9 +401,6 @@ function AssetBlock({
       (!preview.image_url || preview.is_low_res_fallback === true) &&
       !!fallbackImage;
     const rawSrc = preview.image_url ?? fallbackImage!;
-    const src = isThumbOnly
-      ? upscaleMetaCdnUrl(rawSrc, 640)
-      : rawSrc;
     return (
       <div className="space-y-2">
         <div
@@ -383,17 +410,22 @@ function AssetBlock({
               : "flex justify-center bg-muted"
           }
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt={altText}
-            className={
-              isThumbOnly
-                ? "max-h-[40vh] w-full max-w-md rounded-md object-contain"
-                : "max-h-[60vh] w-auto object-contain"
-            }
-            loading="lazy"
-          />
+          {isThumbOnly ? (
+            <AssetThumbOnlyCdnImage
+              key={rawSrc}
+              rawSrc={rawSrc}
+              altText={altText}
+              className="max-h-[40vh] w-full max-w-md rounded-md object-contain"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={rawSrc}
+              alt={altText}
+              className="max-h-[60vh] w-auto object-contain"
+              loading="lazy"
+            />
+          )}
         </div>
         {isThumbOnly && (
           <div className="text-center text-xs text-muted-foreground">
