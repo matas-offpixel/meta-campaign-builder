@@ -469,6 +469,19 @@ type PreviewTier =
   | "video_id_graph_fallback"
   | "none";
 
+/**
+ * Subset of {@link PreviewTier} that produces a low-resolution
+ * stand-in rather than a full-size marketer asset. Surfaced on the
+ * preview as `is_low_res_fallback` so the share / dashboard modal
+ * can render the upscaled "thumbnail-only" layout instead of
+ * displaying a 64×64 image at native size.
+ */
+const LOW_RES_PREVIEW_TIERS: ReadonlySet<PreviewTier> = new Set([
+  "top_thumbnail_url",
+  "afs_video_thumb",
+  "video_id_graph_fallback",
+]);
+
 function extractPreview(
   creative: RawCreative | undefined,
 ): CreativePreview & { tier: PreviewTier } {
@@ -563,6 +576,17 @@ function extractPreview(
     creative.call_to_action_type?.trim() ||
     null;
   const link_url = ld?.link?.trim() || creative.link_url?.trim() || null;
+  // Tiers that resolve to a low-resolution stand-in rather than a
+  // marketer-supplied asset: Meta's 64×64 top-level `thumbnail_url`,
+  // the Advantage+ video poster, and the `video_id` Graph endpoint.
+  // The modal uses this flag to switch its image render to the
+  // padded / upscaled "thumbnail-only" layout — without it, PR #83's
+  // isThumbOnly branch never fires for Advantage+ creatives because
+  // `image_url` is non-null (it's the low-res URL itself). Set lookup
+  // (rather than `tier === "..." || ...`) sidesteps TS narrowing
+  // `tier` to its initial `"none"` literal via the closure inside
+  // `set()` not deopting the control-flow analysis.
+  const is_low_res_fallback = LOW_RES_PREVIEW_TIERS.has(tier);
   return {
     image_url,
     video_id,
@@ -572,6 +596,7 @@ function extractPreview(
     call_to_action_type,
     link_url,
     tier,
+    is_low_res_fallback,
   };
 }
 

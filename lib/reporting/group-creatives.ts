@@ -45,6 +45,15 @@ export interface ConceptInputPreview {
   body: string | null;
   call_to_action_type: string | null;
   link_url: string | null;
+  /**
+   * Mirror of `CreativePreview.is_low_res_fallback` (see
+   * `lib/reporting/active-creatives-group.ts`). Set when `image_url`
+   * is a 64×64 thumbnail / Advantage+ poster / `video_id` Graph
+   * fallback rather than a full-size asset, so the share modal can
+   * upscale + caption the preview instead of rendering it at native
+   * size. Optional for backward-compat with grouping-test fixtures.
+   */
+  is_low_res_fallback?: boolean;
 }
 
 export interface ConceptInputRow {

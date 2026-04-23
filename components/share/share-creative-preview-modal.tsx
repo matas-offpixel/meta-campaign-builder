@@ -281,13 +281,22 @@ function ShareAssetBlock({
   // falls back to thumbnail_url which the dashboard fetcher already
   // collapsed into representative_thumbnail.
   if (preview.image_url || fallbackImage) {
+    // Distinguish full-size assets (marketer-supplied image_url,
+    // usually 1080px+) from low-resolution fallbacks (Meta's 64×64
+    // top-level thumbnail_url, Advantage+ video poster, or the
+    // video_id Graph endpoint). The fetcher tags the latter with
+    // `is_low_res_fallback` so we can detect them even when they
+    // populate `preview.image_url` directly. Rendered at native
+    // size they look broken; upscale to fill the modal's preview
+    // slot and add a subtle caption so the viewer understands why
+    // there's no embed / video.
+    const isThumbOnly =
+      (!preview.image_url || preview.is_low_res_fallback === true) &&
+      !!fallbackImage;
+    // For the upscaled branch prefer preview.image_url when present
+    // — that IS the low-res asset Meta resolved — and fall back to
+    // representative_thumbnail when preview.image_url is null.
     const src = preview.image_url ?? fallbackImage!;
-    // Distinguish full-size assets (image_url — marketer-supplied,
-    // usually 1080px+) from Meta's 64x64 thumbnail_url fallback.
-    // The thumbnail alone rendered at native size looks broken;
-    // upscale it to fill the modal's preview slot and add a subtle
-    // label so the viewer understands why there's no embed / video.
-    const isThumbOnly = !preview.image_url && !!fallbackImage;
     return (
       <div className="space-y-2">
         <div

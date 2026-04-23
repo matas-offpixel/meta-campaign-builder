@@ -62,6 +62,16 @@ export interface CreativePreview {
   body: string | null;
   call_to_action_type: string | null;
   link_url: string | null;
+  /**
+   * `true` when the only `image_url` we could resolve is a low-
+   * resolution fallback (Meta's 64×64 `thumbnail_url`, Advantage+
+   * video poster, or `video_id` Graph endpoint) rather than a
+   * marketer-supplied full-size asset. The share / dashboard modal
+   * uses this flag to upscale + caption the preview instead of
+   * rendering a tiny postage-stamp at native size. Optional for
+   * backward-compat with fixtures that pre-date PR #84.
+   */
+  is_low_res_fallback?: boolean;
 }
 
 export interface AdInput {
