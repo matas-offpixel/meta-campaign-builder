@@ -164,13 +164,36 @@ export async function fetchShareActiveCreatives(
       customRange: input.customRange,
     });
   } catch (err) {
+    // Surface BOTH error branches in Vercel — the discriminated-
+    // union return swallows the throw silently otherwise, which
+    // is exactly how the production "Creative breakdown
+    // unavailable" state went undiagnosed for hours after the
+    // PR #68 / #69 deploys.
+    const errPayload =
+      err instanceof Error
+        ? { message: err.message, stack: err.stack }
+        : String(err);
     if (err instanceof FacebookAuthExpiredError) {
+      console.error("[share/active-creatives] fetch failed", {
+        token: input.share.token,
+        reason: "auth_expired",
+        adAccountId: input.adAccountId,
+        eventCode: input.eventCode,
+        error: errPayload,
+      });
       return {
         kind: "error",
         reason: "auth_expired",
         message: "Owner's Facebook session expired.",
       };
     }
+    console.error("[share/active-creatives] fetch failed", {
+      token: input.share.token,
+      reason: "meta_failed",
+      adAccountId: input.adAccountId,
+      eventCode: input.eventCode,
+      error: errPayload,
+    });
     return {
       kind: "error",
       reason: "meta_failed",
