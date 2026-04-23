@@ -675,6 +675,12 @@ export function EventDetail({
                       event.client?.meta_ad_account_id,
                   )}
                   hasEventbriteLink={Boolean(ticketingSummary.link)}
+                  // Internal dashboard render — operators own this
+                  // event, so the per-row edit pencil + manual-entry
+                  // dialog is enabled. Public share renders never
+                  // get this block at all (different file path), so
+                  // this is the single opt-in.
+                  isEditable
                 />
               )}
 
