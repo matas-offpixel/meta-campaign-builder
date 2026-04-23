@@ -96,6 +96,13 @@ interface RawCreative {
       picture?: string;
       link?: string;
       call_to_action?: { type?: string };
+      // Carousel sub-shape — each card carries its own picture
+      // + image_hash. extractPreview probes [0].picture as a
+      // cover thumbnail when the parent link_data has none.
+      child_attachments?: Array<{
+        picture?: string;
+        image_hash?: string;
+      }>;
     };
     video_data?: {
       title?: string;
@@ -106,7 +113,15 @@ interface RawCreative {
   };
   asset_feed_spec?: {
     images?: Array<{ hash?: string; url?: string }>;
-    videos?: Array<{ video_id?: string }>;
+    // Advantage+ video assets — `thumbnail_url` is Meta's already-
+    // resolved poster frame, far more reliable than reconstructing
+    // it from `video_id`. `url_tags` requested for parity with the
+    // image side; not currently consumed but cheap to carry.
+    videos?: Array<{
+      video_id?: string;
+      thumbnail_url?: string;
+      url_tags?: string;
+    }>;
     titles?: Array<{ text?: string }>;
     bodies?: Array<{ text?: string }>;
     call_to_action_types?: string[];
@@ -449,14 +464,50 @@ function extractPreview(creative: RawCreative | undefined): CreativePreview {
   const oss = creative.object_story_spec;
   const ld = oss?.link_data;
   const vd = oss?.video_data;
+  const afs = creative.asset_feed_spec;
+  // Order matters — first non-null wins. The original waterfall
+  // (link_data.picture → video_data.image_url → top-level image_url
+  // → thumbnail_url) is preserved as the primary path because it
+  // covers single-asset link / video creatives. PR #71 appends
+  // probes for shapes the original waterfall missed:
+  //
+  //   - Carousel covers: object_story_spec.link_data
+  //     .child_attachments[0].picture (the cover card's marketer-
+  //     supplied image; Meta does not lift this onto the parent
+  //     link_data.picture).
+  //   - Advantage+ image: asset_feed_spec.images[0].url (Meta
+  //     supplies the resolved URL alongside the hash).
+  //   - Advantage+ video: asset_feed_spec.videos[0].thumbnail_url
+  //     (Meta-resolved poster frame, more reliable than
+  //     reconstructing it from video_id).
+  //   - Final fallback: deterministic Graph endpoint for the
+  //     video_id (no extra API call, just a URL we hand to <img>;
+  //     served by Meta's CDN with a 302 to the actual poster).
+  //     Only used when every other tier was empty AND we know
+  //     there's a video to render.
+  const childAttachments = ld?.child_attachments;
+  const childCover = childAttachments?.[0]?.picture?.trim() || null;
+  const afsImage = afs?.images?.[0]?.url?.trim() || null;
+  const afsVideoThumb = afs?.videos?.[0]?.thumbnail_url?.trim() || null;
+  const video_id =
+    vd?.video_id?.trim() ||
+    creative.video_id?.trim() ||
+    afs?.videos?.[0]?.video_id?.trim() ||
+    null;
+  const graphApiVersion = process.env.META_API_VERSION || "v21.0";
+  const videoIdFallback = video_id
+    ? `https://graph.facebook.com/${graphApiVersion}/${video_id}/picture?type=normal`
+    : null;
   const image_url =
     ld?.picture?.trim() ||
     vd?.image_url?.trim() ||
     creative.image_url?.trim() ||
     creative.thumbnail_url?.trim() ||
+    childCover ||
+    afsImage ||
+    afsVideoThumb ||
+    videoIdFallback ||
     null;
-  const video_id =
-    vd?.video_id?.trim() || creative.video_id?.trim() || null;
   const instagram_permalink_url =
     creative.instagram_permalink_url?.trim() || null;
   const headline =
@@ -824,6 +875,15 @@ const CREATIVE_BATCH_FIELDS = [
   "link_url",
   "object_story_spec",
   "asset_feed_spec",
+  // PR #71 — explicit nested expansion for the shapes the flat
+  // request was failing to surface in production. Meta unions
+  // these with the flat parent requests above (no duplicate-
+  // field error) and `extractPreview` now probes each in order
+  // after the existing waterfall. Listed additively so a future
+  // regression on the flat-expansion behaviour can't silently
+  // drop these fields.
+  "asset_feed_spec{videos{video_id,thumbnail_url,url_tags},images{hash,url}}",
+  "object_story_spec{link_data{child_attachments{picture,image_hash}}}",
 ].join(",");
 
 /**
@@ -1400,8 +1460,16 @@ export async function fetchActiveCreativesForEvent(
         noThumbnailWarned.size < NO_THUMB_WARN_CAP
       ) {
         noThumbnailWarned.add(ad.creative_id);
+        const childAttachments =
+          creative.object_story_spec?.link_data?.child_attachments;
+        const has_child_attachments =
+          Array.isArray(childAttachments) && childAttachments.length > 0;
+        const afs_images_len =
+          creative.asset_feed_spec?.images?.length ?? 0;
+        const afs_videos_len =
+          creative.asset_feed_spec?.videos?.length ?? 0;
         console.warn(
-          `[active-creatives] hydration_no_thumbnail creative_id=${ad.creative_id} creative_name=${JSON.stringify(creative.name ?? null)} has_oss=${!!creative.object_story_spec} has_afs=${!!creative.asset_feed_spec} top_video_id=${creative.video_id ?? null} top_image_url=${creative.image_url ?? null}`,
+          `[active-creatives] hydration_no_thumbnail creative_id=${ad.creative_id} creative_name=${JSON.stringify(creative.name ?? null)} has_oss=${!!creative.object_story_spec} has_afs=${!!creative.asset_feed_spec} has_child_attachments=${has_child_attachments} afs_images_len=${afs_images_len} afs_videos_len=${afs_videos_len} top_video_id=${creative.video_id ?? null} top_image_url=${creative.image_url ?? null}`,
         );
       }
     }
