@@ -1435,7 +1435,17 @@ export async function fetchActiveCreativesForEvent(
     ad.creative_name = creative.name ?? null;
     ad.headline = headline;
     ad.body = body;
-    ad.thumbnail_url = creative.thumbnail_url ?? null;
+    // PR #72 — fall back through the extractPreview waterfall when
+    // Meta's top-level thumbnail_url is null. Without this, the
+    // hydrated URL stops at preview.image_url and never reaches
+    // group-creatives's `representative_thumbnail` (which reads
+    // ad.thumbnail_url directly), so Advantage+ Asset Feed and
+    // carousel creatives keep rendering ImageOff in the share
+    // report despite PR #71 successfully resolving a usable URL.
+    // Top-level wins when present (cheapest path); preview is
+    // already computed two lines above so this is zero extra cost.
+    ad.thumbnail_url =
+      creative.thumbnail_url?.trim() || preview.image_url || null;
     ad.effective_object_story_id =
       creative.effective_object_story_id?.trim() || null;
     ad.object_story_id = creative.object_story_id?.trim() || null;
@@ -1449,11 +1459,14 @@ export async function fetchActiveCreativesForEvent(
     // which sub-shape we're failing to read. Counted into
     // `creative_batch_done` so cache-write reconciliation can spot
     // a regression even if logs are filtered.
-    if (
-      !ad.thumbnail_url &&
-      !preview.image_url &&
-      !preview.video_id
-    ) {
+    // ad.thumbnail_url and preview.image_url move in lockstep
+    // after the PR #72 plumbing above (top-level || preview), so
+    // checking both is redundant. We still gate on
+    // `!preview.video_id` because extractPreview's video_id
+    // fallback resolves a Graph CDN URL that sometimes 302s to a
+    // generic placeholder — a creative shape that has ONLY
+    // video_id and nothing else is still worth warning on.
+    if (!ad.thumbnail_url && !preview.video_id) {
       creativesNoThumbnail += 1;
       if (
         !noThumbnailWarned.has(ad.creative_id) &&
