@@ -10,6 +10,15 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import type {
   TimelineRow,
@@ -152,15 +161,26 @@ interface Props {
     error?: string | null;
     legErrors?: { meta?: string; eventbrite?: string } | null;
     onSync?: () => void | Promise<void>;
+    /** Re-fetch the canonical timeline from the orchestrator. The
+     *  manual-entry editor calls this after a successful PATCH so the
+     *  running totals + per-row source badges reflect the new value. */
+    onRefresh?: () => void | Promise<void>;
     /** Suppresses notes editing + the per-table Refresh button.
      *  Used on the public share page where the token is read-only. */
     readOnly?: boolean;
+    /** Whether the per-row edit pencil + manual-entry editor are
+     *  available. Defaults to false. Forced false on share. */
+    isEditable?: boolean;
     /** First-paint cadence default — comes from `events.report_cadence`
      *  (migration 040). Per-session sessionStorage override on the
      *  client wins on subsequent paints; this only seeds initial render
      *  + acts as the SSR-safe value. Falls back to 'daily'. */
     defaultCadence?: TrackerCadence;
   };
+  /** Top-level fallback for callers that don't go through the
+   *  controlled orchestrator. Default false. Controlled value wins
+   *  when both are set. */
+  isEditable?: boolean;
 }
 
 interface DisplayRow {
@@ -195,6 +215,7 @@ export function DailyTracker({
   hasMetaScope,
   hasEventbriteLink,
   controlled,
+  isEditable: isEditableProp,
 }: Props) {
   const isControlled = controlled !== undefined;
 
@@ -224,6 +245,14 @@ export function DailyTracker({
     ? (controlled.legErrors ?? null)
     : internalLegErrors;
   const readOnly = isControlled ? !!controlled.readOnly : false;
+  // Editable mode requires both: the prop opt-in AND not-readOnly. The
+  // controlled value wins when both are set (orchestrator owns the
+  // dashboard-vs-share discriminator).
+  const isEditable =
+    !readOnly &&
+    (isControlled
+      ? !!controlled.isEditable
+      : isEditableProp === true);
   const defaultCadence: TrackerCadence =
     (isControlled && controlled.defaultCadence) || "daily";
 
@@ -352,12 +381,118 @@ export function DailyTracker({
     void internalSyncNow();
   }, [isControlled, controlled, internalSyncNow]);
 
+  // Pending optimistic overrides keyed by ISO date. Each entry holds
+  // whichever subset of the editable columns the operator just saved
+  // through the manual-entry editor — applied on top of the canonical
+  // timeline so the UI updates the moment the dialog closes, well
+  // before the orchestrator's `onRefresh()` round-trip lands. Cleared
+  // per-key when refresh completes (the canonical row now matches).
+  // The value type mirrors the editor's payload.
+  const [pendingOverrides, setPendingOverrides] = useState<
+    Record<
+      string,
+      {
+        tickets_sold?: number | null;
+        revenue?: number | null;
+        notes?: string | null;
+      }
+    >
+  >({});
+
+  const effectiveTimeline = useMemo<TimelineRow[]>(() => {
+    if (Object.keys(pendingOverrides).length === 0) return timeline;
+    // Merge per-date. Rows present in the timeline get the override
+    // applied as a partial; dates that only exist in the override map
+    // (operator wrote a value for a Monday with no sync row yet) get
+    // a synthetic `manual`-tagged row so they're visible immediately.
+    const byDate = new Map<string, TimelineRow>();
+    for (const r of timeline) byDate.set(r.date, r);
+    for (const [date, patch] of Object.entries(pendingOverrides)) {
+      const existing = byDate.get(date);
+      if (existing) {
+        byDate.set(date, {
+          ...existing,
+          tickets_sold:
+            patch.tickets_sold !== undefined
+              ? patch.tickets_sold
+              : existing.tickets_sold,
+          revenue:
+            patch.revenue !== undefined ? patch.revenue : existing.revenue,
+          notes: patch.notes !== undefined ? patch.notes : existing.notes,
+        });
+      } else {
+        // Synthetic insert. Marked `manual` because operator-typed
+        // entries are conceptually manual, even though the PATCH
+        // route writes to `event_daily_rollups` (not the legacy
+        // `daily_tracking_entries` table the live merge tags as
+        // manual). Cleared on refresh, so any drift between the two
+        // sources self-corrects within the round-trip window.
+        byDate.set(date, {
+          date,
+          source: "manual",
+          ad_spend: null,
+          link_clicks: null,
+          tickets_sold: patch.tickets_sold ?? null,
+          revenue: patch.revenue ?? null,
+          notes: patch.notes ?? null,
+          freshness_at: null,
+        });
+      }
+    }
+    return [...byDate.values()].sort((a, b) =>
+      a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
+    );
+  }, [timeline, pendingOverrides]);
+
   const display = useMemo(
     () =>
       cadence === "weekly"
-        ? buildWeeklyDisplayRows({ timeline, presale })
-        : buildDisplayRows({ timeline, presale }),
-    [timeline, presale, cadence],
+        ? buildWeeklyDisplayRows({
+            timeline: effectiveTimeline,
+            presale,
+          })
+        : buildDisplayRows({ timeline: effectiveTimeline, presale }),
+    [effectiveTimeline, presale, cadence],
+  );
+
+  // Editor open / target state. Single editor shared by every row to
+  // avoid mounting one dialog per visible row.
+  const [editTarget, setEditTarget] = useState<DisplayRow | null>(null);
+
+  const onRowSaved = useCallback(
+    async (
+      isoDate: string,
+      patch: {
+        tickets_sold?: number | null;
+        revenue?: number | null;
+        notes?: string | null;
+      },
+    ) => {
+      // Apply the override immediately so the row re-renders with
+      // the new values; close the editor; fire refresh in the
+      // background. On refresh completion, drop the override so the
+      // canonical row takes over.
+      setPendingOverrides((prev) => ({ ...prev, [isoDate]: patch }));
+      setEditTarget(null);
+      try {
+        if (isControlled) {
+          if (controlled?.onRefresh) await controlled.onRefresh();
+        } else {
+          await refresh();
+        }
+      } catch {
+        // Swallow — the override stays so the operator's edit is
+        // still visible. Next manual sync click will reconcile.
+      } finally {
+        setPendingOverrides((prev) => {
+          if (!(isoDate in prev)) return prev;
+          const next = { ...prev };
+          delete next[isoDate];
+          return next;
+        });
+      }
+    },
+    [isControlled, controlled, refresh],
   );
 
   // Header copy + first column label switch with cadence. "Last 60
@@ -474,13 +609,18 @@ export function DailyTracker({
               <Th>Running revenue</Th>
               <Th>Running ROAS</Th>
               <Th align="left">Notes</Th>
+              {isEditable ? (
+                <Th>
+                  <span className="sr-only">Edit row</span>
+                </Th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
                 <td
-                  colSpan={14}
+                  colSpan={isEditable ? 15 : 14}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   <Loader2 className="inline h-3.5 w-3.5 animate-spin" />{" "}
@@ -490,7 +630,7 @@ export function DailyTracker({
             ) : display.length === 0 ? (
               <tr>
                 <td
-                  colSpan={14}
+                  colSpan={isEditable ? 15 : 14}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   No data yet — click Refresh to pull the latest.
@@ -502,12 +642,21 @@ export function DailyTracker({
                   key={row.key}
                   row={row}
                   eventId={eventId}
-                  // In weekly mode the row spans seven days, so the
-                  // PATCH endpoint (`?date=YYYY-MM-DD`) has no single
-                  // target and a save would silently no-op. Lock the
-                  // notes column to read-only for the whole table.
-                  readOnly={readOnly || cadence === "weekly"}
                   cadence={cadence}
+                  // In weekly mode the row spans seven days, so the
+                  // legacy NotesCell PATCH endpoint
+                  // (`?date=YYYY-MM-DD`) has no single target and a
+                  // save would silently no-op. Lock the notes column
+                  // to read-only for the whole table. The new
+                  // editor dialog handles weekly correctly by
+                  // writing to the W/C Monday explicitly.
+                  readOnly={readOnly || cadence === "weekly"}
+                  // Edit-pencil column: present iff `isEditable`.
+                  // Suppressed on the presale rolled-up bucket — its
+                  // value is the sum of many dates and there's no
+                  // single PATCH target.
+                  isEditable={isEditable}
+                  onEditClick={(target) => setEditTarget(target)}
                   onNotesSaved={(date, notes) => {
                     // Note edits are only supported in uncontrolled
                     // mode (the orchestrator owns the timeline state
@@ -525,6 +674,15 @@ export function DailyTracker({
           </tbody>
         </table>
       </div>
+      {editTarget ? (
+        <RowEditDialog
+          eventId={eventId}
+          row={editTarget}
+          cadence={cadence}
+          onClose={() => setEditTarget(null)}
+          onSaved={(date, patch) => onRowSaved(date, patch)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -536,6 +694,8 @@ function RowEl({
   eventId,
   readOnly,
   cadence,
+  isEditable,
+  onEditClick,
   onNotesSaved,
 }: {
   row: DisplayRow;
@@ -545,6 +705,11 @@ function RowEl({
    *  potentially mixed sources (manual + live) so the badge is
    *  suppressed entirely. */
   cadence: TrackerCadence;
+  /** Whether to render the trailing edit-pencil column. Suppressed
+   *  entirely when false (no extra cell) so the colSpan math in the
+   *  loading / empty rows in the parent stays in sync. */
+  isEditable: boolean;
+  onEditClick: (row: DisplayRow) => void;
   onNotesSaved: (date: string, notes: string | null) => void;
 }) {
   const cpt = derive(row.ad_spend, row.tickets_sold);
@@ -601,7 +766,11 @@ function RowEl({
       <Td>{fmtRoas(runRoas)}</Td>
       <Td align="left" wide>
         {row.date ? (
-          notesReadOnly ? (
+          // When the dialog editor is on (`isEditable`), notes are
+          // edited from there alongside tickets / revenue. The
+          // inline NotesCell would compete with the dialog and only
+          // updates one column, so collapse to a read-only display.
+          isEditable || notesReadOnly ? (
             <span
               className={row.notes ? "text-foreground" : "text-muted-foreground"}
             >
@@ -619,6 +788,23 @@ function RowEl({
           <span className="text-muted-foreground">—</span>
         )}
       </Td>
+      {isEditable ? (
+        <Td>
+          {row.date && !row.isPresale ? (
+            <button
+              type="button"
+              onClick={() => onEditClick(row)}
+              className="inline-flex items-center justify-center rounded-md border border-border-strong bg-background px-1.5 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              aria-label={`Edit ${row.label}`}
+              title="Edit tickets / revenue / notes"
+            >
+              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </Td>
+      ) : null}
     </tr>
   );
 }
@@ -1247,4 +1433,239 @@ function ymd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// ─── Manual-entry editor dialog ──────────────────────────────────────
+//
+// Operator-facing modal for the per-row edit pencil. Three inputs:
+// Tickets, Revenue, Notes. Save → PATCH /api/ticketing/rollup with
+// only the columns that actually changed (so an untouched field
+// preserves whatever the sync wrote vs. blanking it).
+//
+// Weekly mode: the row's `date` already points at the W/C Monday
+// (set by `buildWeeklyDisplayRows`), so the PATCH lands on the
+// Monday row. The aggregation logic re-runs on refresh and the
+// week's totals reflect the new value. No spreading across days —
+// per the spec "Write the value onto that Monday row".
+//
+// Validation matches the API:
+//   - Tickets: empty -> null, else non-negative integer.
+//   - Revenue: empty -> null, else non-negative number (£).
+//   - Notes:   trimmed; empty -> null.
+
+interface RowEditDialogProps {
+  eventId: string;
+  row: DisplayRow;
+  cadence: TrackerCadence;
+  onClose: () => void;
+  /** Called after a successful PATCH with the patch the API
+   *  accepted. Parent applies it as an optimistic override + fires
+   *  the orchestrator's refresh. */
+  onSaved: (
+    isoDate: string,
+    patch: {
+      tickets_sold?: number | null;
+      revenue?: number | null;
+      notes?: string | null;
+    },
+  ) => void;
+}
+
+function RowEditDialog({
+  eventId,
+  row,
+  cadence,
+  onClose,
+  onSaved,
+}: RowEditDialogProps) {
+  // Pre-fill from current row values. Empty string sentinel means
+  // "operator hasn't entered a value" — the same input renders both
+  // "user typed blank to clear" (saved as null) and "field was null
+  // when the editor opened" (no change). We disambiguate at save
+  // time by comparing the trimmed value to the initial.
+  const [tickets, setTickets] = useState<string>(
+    row.tickets_sold == null ? "" : String(row.tickets_sold),
+  );
+  const [revenue, setRevenue] = useState<string>(
+    row.revenue == null ? "" : String(row.revenue),
+  );
+  const [notes, setNotes] = useState<string>(row.notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isoDate = row.date;
+  if (!isoDate) {
+    // Defensive — RowEl already guards against opening the editor on
+    // a presale / synthetic row, but render nothing in case the
+    // guard slipped (e.g. a future caller).
+    return null;
+  }
+
+  const handleSave = async () => {
+    setError(null);
+
+    // Build the partial body: include only the keys whose input
+    // value differs from the row's initial value. `null` is
+    // explicit "clear"; omitted is "leave alone".
+    const patch: {
+      tickets_sold?: number | null;
+      revenue?: number | null;
+      notes?: string | null;
+    } = {};
+
+    const ticketsTrim = tickets.trim();
+    const initTickets = row.tickets_sold == null ? "" : String(row.tickets_sold);
+    if (ticketsTrim !== initTickets) {
+      if (ticketsTrim === "") {
+        patch.tickets_sold = null;
+      } else {
+        const n = Number(ticketsTrim);
+        if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+          setError("Tickets must be a whole non-negative number.");
+          return;
+        }
+        patch.tickets_sold = n;
+      }
+    }
+
+    const revenueTrim = revenue.trim();
+    const initRevenue = row.revenue == null ? "" : String(row.revenue);
+    if (revenueTrim !== initRevenue) {
+      if (revenueTrim === "") {
+        patch.revenue = null;
+      } else {
+        const n = Number(revenueTrim);
+        if (!Number.isFinite(n) || n < 0) {
+          setError("Revenue must be a non-negative number.");
+          return;
+        }
+        // Round to 2dp — the column is numeric(12,2). Avoids the
+        // float-tail problem on Excel pastes (e.g. 12.005).
+        patch.revenue = Math.round(n * 100) / 100;
+      }
+    }
+
+    const notesTrim = notes.trim();
+    const initNotes = row.notes ?? "";
+    if (notesTrim !== initNotes) {
+      patch.notes = notesTrim === "" ? null : notesTrim;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      // Nothing changed — just close.
+      onClose();
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `/api/ticketing/rollup?eventId=${encodeURIComponent(
+          eventId,
+        )}&date=${encodeURIComponent(isoDate)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+      );
+      const json = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "Save failed.");
+      }
+      onSaved(isoDate, patch);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={saving ? () => {} : onClose}>
+      <DialogContent>
+        <DialogHeader onClose={saving ? undefined : onClose}>
+          <DialogTitle>Edit {cadence === "weekly" ? "week" : "day"}</DialogTitle>
+          <DialogDescription>
+            {cadence === "weekly"
+              ? `Editing W/C ${row.label}. Saved values land on the Monday row and the week aggregates around them.`
+              : `Editing ${row.label}.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <Input
+            id="row-edit-tickets"
+            label="Tickets"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            value={tickets}
+            placeholder="—"
+            onChange={(e) => setTickets(e.target.value)}
+            disabled={saving}
+          />
+          <Input
+            id="row-edit-revenue"
+            label="Revenue (£)"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="0.01"
+            value={revenue}
+            placeholder="—"
+            onChange={(e) => setRevenue(e.target.value)}
+            disabled={saving}
+          />
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="row-edit-notes"
+              className="text-sm font-medium text-foreground"
+            >
+              Notes
+            </label>
+            <textarea
+              id="row-edit-notes"
+              value={notes}
+              placeholder="Optional context for this row"
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={saving}
+              rows={3}
+              className="w-full rounded-md border border-border-strong bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+            />
+          </div>
+          {error ? (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="button" onClick={handleSave} disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              "Save"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

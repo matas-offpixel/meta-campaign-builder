@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import {
-  updateRollupNotes,
+  upsertRollupManualEntry,
   type EventDailyRollup,
 } from "@/lib/db/event-daily-rollups";
 import {
@@ -21,9 +21,22 @@ import {
  *   semantics — it just renders the bucket when it's non-null.
  *
  * PATCH /api/ticketing/rollup?eventId=X&date=YYYY-MM-DD
- *   Updates the `notes` field on a single (event, date) row. Body:
- *   `{ notes: string | null }`. 404 when the row doesn't exist (run
- *   the sync first); 400 when body shape is wrong.
+ *   Operator-driven partial upsert of the manual-editable columns on
+ *   a single (event, date) row. Body:
+ *     `{ tickets_sold?: number | null, revenue?: number | null, notes?: string | null }`
+ *   Each key is independent: omit to leave the column untouched,
+ *   pass `null` to clear, pass a value to set. At least one key must
+ *   be present.
+ *
+ *   Upserts via `event_daily_rollups (event_id, date)` so the
+ *   operator can write a value for a date the sync hasn't reached
+ *   (e.g. weekly W/C Mondays on Junction 2 / Bridge events whose
+ *   ticketing data lands by email rather than via Eventbrite).
+ *
+ *   Never touches `ad_spend` / `link_clicks` / `source_meta_at` /
+ *   `source_eventbrite_at` — those columns belong to the sync
+ *   pipeline. 400 on bad body shape; 401 / 403 / 404 on auth /
+ *   ownership / missing event.
  */
 
 /**
@@ -160,20 +173,88 @@ export async function PATCH(req: NextRequest) {
       { status: 400 },
     );
   }
-  const notesRaw = (body as { notes?: unknown }).notes;
-  if (notesRaw !== null && typeof notesRaw !== "string") {
+
+  // Build the partial-upsert args from whichever keys the body sets.
+  // `hasOwnProperty` is the discriminator: `undefined` means "leave
+  // the column alone", `null` means "clear it", a value means "set
+  // it". Reads cleanly downstream because the helper inspects the
+  // same predicate when deciding what to merge into the payload.
+  const upsertArgs: {
+    userId: string;
+    eventId: string;
+    date: string;
+    tickets_sold?: number | null;
+    revenue?: number | null;
+    notes?: string | null;
+  } = { userId: user.id, eventId, date };
+  let touchedFields = 0;
+
+  if (Object.prototype.hasOwnProperty.call(body, "tickets_sold")) {
+    const raw = (body as { tickets_sold?: unknown }).tickets_sold;
+    if (raw === null) {
+      upsertArgs.tickets_sold = null;
+    } else if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+      // Tickets is a discrete count — round defensively so a stray
+      // float from the client (e.g. an Excel paste) doesn't end up
+      // in the integer-shaped column.
+      upsertArgs.tickets_sold = Math.round(raw);
+    } else {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "tickets_sold must be a non-negative number or null",
+        },
+        { status: 400 },
+      );
+    }
+    touchedFields += 1;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "revenue")) {
+    const raw = (body as { revenue?: unknown }).revenue;
+    if (raw === null) {
+      upsertArgs.revenue = null;
+    } else if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+      upsertArgs.revenue = raw;
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "revenue must be a non-negative number or null" },
+        { status: 400 },
+      );
+    }
+    touchedFields += 1;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "notes")) {
+    const raw = (body as { notes?: unknown }).notes;
+    if (raw === null) {
+      upsertArgs.notes = null;
+    } else if (typeof raw === "string") {
+      // Trim + normalise empty string -> null so the DB doesn't
+      // carry " " or "" forever. Matches the pre-existing notes-only
+      // PATCH behaviour so the inline NotesCell legacy callers still
+      // round-trip correctly.
+      const trimmed = raw.trim();
+      upsertArgs.notes = trimmed === "" ? null : trimmed;
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "notes must be a string or null" },
+        { status: 400 },
+      );
+    }
+    touchedFields += 1;
+  }
+
+  if (touchedFields === 0) {
     return NextResponse.json(
-      { ok: false, error: "notes must be a string or null" },
+      {
+        ok: false,
+        error:
+          "Body must set at least one of tickets_sold, revenue, or notes.",
+      },
       { status: 400 },
     );
   }
-  // Trim + normalise empty -> null so the DB doesn't carry " " forever.
-  const notes =
-    notesRaw === null
-      ? null
-      : notesRaw.trim() === ""
-        ? null
-        : notesRaw.trim();
 
   // Ownership check — RLS would also block but we 404/403 explicitly
   // for nicer UX in the dev console.
@@ -196,21 +277,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    const updated = await updateRollupNotes(supabase, {
-      eventId,
-      date,
-      notes,
-    });
-    if (!updated) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "No rollup row for that date yet — run a sync first, then add notes.",
-        },
-        { status: 404 },
-      );
-    }
+    const updated = await upsertRollupManualEntry(supabase, upsertArgs);
     return NextResponse.json({ ok: true, row: updated });
   } catch (err) {
     return NextResponse.json(

@@ -141,6 +141,11 @@ interface DashboardProps {
    *  loads on mount. */
   initialTimeline?: TimelineRow[];
   initialPresale?: PresaleBucketShape | null;
+  /** When true, the embedded DailyTracker shows the per-row edit
+   *  pencil + opens the manual-entry editor. Defaults to true on
+   *  dashboard mode (operators are signed in and own the data) and
+   *  is forced false on share mode. */
+  isEditable?: boolean;
 }
 
 interface ShareProps {
@@ -151,6 +156,9 @@ interface ShareProps {
   /** Required on share: the public page server-loads everything. */
   initialTimeline: TimelineRow[];
   initialPresale: PresaleBucketShape | null;
+  /** Share renders are never editable — accepted on the prop type
+   *  for shape uniformity but ignored. */
+  isEditable?: false;
 }
 
 type Props = DashboardProps | ShareProps;
@@ -315,6 +323,12 @@ export function EventDailyReportBlock(props: Props) {
     isShare,
   ]);
 
+  // Edit pencil + manual-entry dialog are dashboard-only by default.
+  // Share mode hard-disables it; dashboard callers can opt out via
+  // an explicit `isEditable={false}` (no current call site does, but
+  // the prop is there for symmetry).
+  const isEditable = isShare ? false : props.isEditable !== false;
+
   const controlled = useMemo(
     () => ({
       timeline,
@@ -323,7 +337,13 @@ export function EventDailyReportBlock(props: Props) {
       error,
       legErrors,
       onSync: syncNow,
+      // Refresh is wired to the same `refresh()` the Sync button
+      // calls — the manual-entry editor uses it to reload the
+      // canonical timeline after a successful PATCH so the running
+      // totals + per-row source badges resettle.
+      onRefresh: refresh,
       readOnly: isShare,
+      isEditable,
       defaultCadence: event.report_cadence ?? "daily",
     }),
     [
@@ -333,7 +353,9 @@ export function EventDailyReportBlock(props: Props) {
       error,
       legErrors,
       syncNow,
+      refresh,
       isShare,
+      isEditable,
       event.report_cadence,
     ],
   );

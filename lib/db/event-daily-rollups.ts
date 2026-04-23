@@ -66,6 +66,11 @@ export async function listRollupsForEvent(
  * updated row on success; null when no row exists (the UI should treat
  * this as "the sync hasn't created the row yet — sync first").
  *
+ * Kept for back-compat — the PATCH route now uses
+ * `upsertRollupManualEntry` so an operator can write notes for a date
+ * the sync has never reached. Re-exported for any caller that still
+ * wants the strict update-or-404 semantics.
+ *
  * RLS handles the user-id scoping, so we don't double-check ownership
  * here. The PATCH route does the auth + event ownership check
  * upstream so a 404 here is a real "no row" signal.
@@ -86,6 +91,87 @@ export async function updateRollupNotes(
     throw new Error(error.message);
   }
   return (data as unknown as EventDailyRollup) ?? null;
+}
+
+/**
+ * Operator-driven partial upsert of the manual-editable columns on a
+ * single `(event_id, date)` row: `tickets_sold`, `revenue`, `notes`.
+ *
+ * Why upsert (not update):
+ *   In weekly cadence mode (see migration 040 + the
+ *   `buildWeeklyDisplayRows` helper), operators write tickets/revenue
+ *   to the W/C Monday — which may have no `event_daily_rollups` row
+ *   yet because the Eventbrite sync never produced one (Junction 2 /
+ *   Bridge get a weekly W/C report by email; Eventbrite isn't
+ *   wired). Upsert means the popover writes the row on first save
+ *   and updates it thereafter. Same applies in daily mode for any
+ *   date with no Meta spend or Eventbrite sale.
+ *
+ * Why partial:
+ *   This endpoint is the operator-edit lane only. `ad_spend`,
+ *   `link_clicks`, and the `source_*_at` timestamps are owned by the
+ *   sync pipeline; we never touch them here. Each input field is
+ *   independent — passing `tickets_sold: 5` and leaving `revenue`
+ *   undefined writes only `tickets_sold` and leaves any existing
+ *   `revenue` untouched. Passing `null` explicitly clears the column.
+ *
+ *   On insert (the row didn't exist), the `user_id` column is
+ *   required by the table's RLS policy + the unique-key composite is
+ *   `(event_id, date)`. Caller passes both.
+ *
+ * Returns the upserted row.
+ */
+export async function upsertRollupManualEntry(
+  supabase: AnySupabaseClient,
+  args: {
+    userId: string;
+    eventId: string;
+    date: string;
+    /** Omit to leave existing column untouched. Pass `null` to clear. */
+    tickets_sold?: number | null;
+    /** Omit to leave existing column untouched. Pass `null` to clear. */
+    revenue?: number | null;
+    /** Omit to leave existing column untouched. Pass `null` to clear. */
+    notes?: string | null;
+  },
+): Promise<EventDailyRollup> {
+  // Build a payload containing only the columns the operator actually
+  // submitted. Supabase's upsert overwrites every column in the
+  // payload, so omitting a key is what preserves the current value
+  // (vs. blanking it). The `user_id` + `event_id` + `date` triple is
+  // always present so the insert path satisfies RLS + the unique
+  // constraint.
+  const payload: Record<string, unknown> = {
+    user_id: args.userId,
+    event_id: args.eventId,
+    date: args.date,
+  };
+  if (Object.prototype.hasOwnProperty.call(args, "tickets_sold")) {
+    payload.tickets_sold = args.tickets_sold;
+  }
+  if (Object.prototype.hasOwnProperty.call(args, "revenue")) {
+    payload.revenue = args.revenue;
+  }
+  if (Object.prototype.hasOwnProperty.call(args, "notes")) {
+    payload.notes = args.notes;
+  }
+
+  const { data, error } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .upsert(payload, { onConflict: "event_id,date" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[event-daily-rollups upsertManual]", error.message);
+    throw new Error(error.message);
+  }
+  if (!data) {
+    // Defensive: a successful upsert with `select().maybeSingle()`
+    // should always return the row. If it doesn't, surface the issue
+    // rather than silently returning a fake row.
+    throw new Error("Upsert returned no row");
+  }
+  return data as unknown as EventDailyRollup;
 }
 
 /**
