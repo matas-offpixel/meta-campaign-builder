@@ -568,6 +568,7 @@ export type Database = {
       }
       clients: {
         Row: {
+          bannerbear_enabled: boolean
           billing_model: string
           created_at: string
           custom_minimum_fee: number | null
@@ -599,6 +600,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          bannerbear_enabled?: boolean
           billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
@@ -630,6 +632,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          bannerbear_enabled?: boolean
           billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
@@ -918,39 +921,48 @@ export type Database = {
       }
       d2c_connections: {
         Row: {
+          approved_by_matas: boolean
           client_id: string
           created_at: string
           credentials: Json
+          credentials_encrypted: string | null
           external_account_id: string | null
           id: string
           last_error: string | null
           last_synced_at: string | null
+          live_enabled: boolean
           provider: string
           status: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          approved_by_matas?: boolean
           client_id: string
           created_at?: string
           credentials?: Json
+          credentials_encrypted?: string | null
           external_account_id?: string | null
           id?: string
           last_error?: string | null
           last_synced_at?: string | null
+          live_enabled?: boolean
           provider: string
           status?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          approved_by_matas?: boolean
           client_id?: string
           created_at?: string
           credentials?: Json
+          credentials_encrypted?: string | null
           external_account_id?: string | null
           id?: string
           last_error?: string | null
           last_synced_at?: string | null
+          live_enabled?: boolean
           provider?: string
           status?: string
           updated_at?: string
@@ -968,6 +980,9 @@ export type Database = {
       }
       d2c_scheduled_sends: {
         Row: {
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
           audience: Json
           channel: string
           connection_id: string
@@ -984,6 +999,9 @@ export type Database = {
           variables: Json
         }
         Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           audience?: Json
           channel: string
           connection_id: string
@@ -1000,6 +1018,9 @@ export type Database = {
           variables?: Json
         }
         Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           audience?: Json
           channel?: string
           connection_id?: string
@@ -2184,9 +2205,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_d2c_credentials: {
+        Args: { p_id: string; p_key: string }
+        Returns: Json
+      }
       get_ticketing_credentials: {
         Args: { p_connection_id: string; p_key: string }
         Returns: string
+      }
+      set_d2c_credentials: {
+        Args: { p_credentials: Json; p_id: string; p_key: string }
+        Returns: undefined
       }
       set_ticketing_credentials: {
         Args: { p_connection_id: string; p_key: string; p_plaintext: string }

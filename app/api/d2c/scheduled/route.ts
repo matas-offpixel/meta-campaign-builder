@@ -5,33 +5,16 @@ import {
   getD2CConnectionById,
   insertScheduledSend,
   listScheduledSendsForEvent,
-  updateScheduledSendStatus,
 } from "@/lib/db/d2c";
 import { listD2CTemplatesForUser } from "@/lib/db/d2c";
-import { getD2CProvider } from "@/lib/d2c/registry";
-import {
-  isD2CLiveEnabled,
-  type D2CChannel,
-  type D2CMessage,
-} from "@/lib/d2c/types";
-
 /**
  * /api/d2c/scheduled
  *
  * GET ?eventId=X    → list scheduled / sent rows for an event.
- * POST { eventId, templateId, connectionId, scheduledFor, audience?, variables?, sendNow? }
- *                    → create a row. If `sendNow=true` (or
- *                       `scheduledFor` is in the past) the provider's
- *                       `send` is invoked immediately; with
- *                       FEATURE_D2C_LIVE off this is the dry-run path
- *                       and the row is persisted with dry_run=true,
- *                       status='scheduled', and the dry-run summary in
- *                       result_jsonb.
- *
- * Live status='sent' is gated: even if the provider somehow returned
- * { dryRun:false } with the flag off, this route forces dry_run=true
- * and status='scheduled' so a misbehaving provider cannot mark a send
- * as live without the env-flag ceremony.
+ * POST { eventId, templateId, connectionId, scheduledFor, audience?, variables? }
+ *                    → create a row with approval_status=pending_approval.
+ *                       Live delivery is handled by /api/cron/d2c-send after
+ *                       an operator approves the row.
  */
 
 interface PostBody {
@@ -41,7 +24,6 @@ interface PostBody {
   scheduledFor?: unknown;
   audience?: unknown;
   variables?: unknown;
-  sendNow?: unknown;
 }
 
 export async function GET(req: NextRequest) {
@@ -98,7 +80,6 @@ export async function POST(req: NextRequest) {
     typeof body.scheduledFor === "string"
       ? body.scheduledFor
       : new Date().toISOString();
-  const sendNow = body.sendNow === true;
   const audience =
     body.audience && typeof body.audience === "object"
       ? (body.audience as Record<string, unknown>)
@@ -128,7 +109,7 @@ export async function POST(req: NextRequest) {
   // Ownership: event + connection + template.
   const { data: event } = await supabase
     .from("events")
-    .select("id, user_id")
+    .select("id, user_id, client_id")
     .eq("id", eventId)
     .maybeSingle();
   if (!event || event.user_id !== user.id) {
@@ -144,7 +125,12 @@ export async function POST(req: NextRequest) {
       { status: 404 },
     );
   }
-  // Single-template lookup via the list helper (avoids another file).
+  if (connection.client_id !== event.client_id) {
+    return NextResponse.json(
+      { ok: false, error: "Connection does not belong to this event's client." },
+      { status: 400 },
+    );
+  }
   const allTemplates = await listD2CTemplatesForUser(supabase);
   const template = allTemplates.find((t) => t.id === templateId);
   if (!template) {
@@ -153,8 +139,11 @@ export async function POST(req: NextRequest) {
       { status: 404 },
     );
   }
-  if (template.channel !== ((): D2CChannel => template.channel)()) {
-    // exhaustive shape check — defensive
+  if (template.client_id != null && template.client_id !== event.client_id) {
+    return NextResponse.json(
+      { ok: false, error: "Template is scoped to a different client." },
+      { status: 400 },
+    );
   }
 
   const created = await insertScheduledSend(supabase, {
@@ -168,6 +157,7 @@ export async function POST(req: NextRequest) {
     scheduledFor: scheduledForDate.toISOString(),
     status: "scheduled",
     dryRun: true,
+    approvalStatus: "pending_approval",
   });
   if (!created) {
     return NextResponse.json(
@@ -176,58 +166,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Send-now / past-due path: invoke the provider. With FEATURE_D2C_LIVE
-  // off, this hits the dry-run logger and we persist the result. With
-  // the flag on (future), this is the live send.
-  const fireNow = sendNow || scheduledForDate.getTime() <= Date.now();
-  if (!fireNow) {
-    return NextResponse.json({ ok: true, send: created }, { status: 201 });
-  }
-
-  const provider = getD2CProvider(connection.provider);
-  const message: D2CMessage = {
-    channel: template.channel,
-    subject: template.subject,
-    bodyMarkdown: template.body_markdown,
-    audience,
-    variables,
-    correlationId: created.id,
-  };
-
-  let providerResult;
-  try {
-    providerResult = await provider.send(connection, message);
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : "Unknown error";
-    const updated = await updateScheduledSendStatus(supabase, created.id, {
-      status: "failed",
-      resultJsonb: { error: errorMsg },
-      dryRun: !isD2CLiveEnabled(),
-    });
-    return NextResponse.json(
-      { ok: false, error: errorMsg, send: updated ?? created },
-      { status: 207 },
-    );
-  }
-
-  // Defence-in-depth: never mark status='sent' while the live flag is
-  // off, even if the provider says ok:true. The dry-run path runs
-  // entirely without external side-effects.
-  const flagLive = isD2CLiveEnabled();
-  const finalStatus = flagLive && !providerResult.dryRun ? "sent" : "scheduled";
-  const finalDryRun = !flagLive || providerResult.dryRun;
-
-  const updated = await updateScheduledSendStatus(supabase, created.id, {
-    status: finalStatus,
-    resultJsonb: providerResult,
-    dryRun: finalDryRun,
-  });
   return NextResponse.json(
-    {
-      ok: providerResult.ok,
-      send: updated ?? created,
-      dryRun: finalDryRun,
-    },
+    { ok: true, send: created, dryRun: true },
     { status: 201 },
   );
 }

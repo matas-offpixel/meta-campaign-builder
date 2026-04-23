@@ -6,6 +6,7 @@ import {
   upsertD2CConnection,
 } from "@/lib/db/d2c";
 import { getD2CProvider, listD2CProviderNames } from "@/lib/d2c/registry";
+import { MissingD2CTokenKeyError } from "@/lib/d2c/secrets";
 import type { D2CProviderName } from "@/lib/d2c/types";
 
 /**
@@ -138,13 +139,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const connection = await upsertD2CConnection(supabase, {
-    userId: user.id,
-    clientId,
-    provider,
-    credentials,
-    externalAccountId: validation.externalAccountId ?? null,
-  });
+  let connection;
+  try {
+    connection = await upsertD2CConnection(supabase, {
+      userId: user.id,
+      clientId,
+      provider,
+      credentials,
+      externalAccountId: validation.externalAccountId ?? null,
+    });
+  } catch (e) {
+    if (e instanceof MissingD2CTokenKeyError) {
+      return NextResponse.json(
+        { ok: false, error: e.message },
+        { status: 500 },
+      );
+    }
+    throw e;
+  }
   if (!connection) {
     return NextResponse.json(
       { ok: false, error: "Failed to persist the connection." },

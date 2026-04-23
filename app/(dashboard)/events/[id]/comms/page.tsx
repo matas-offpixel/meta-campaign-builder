@@ -11,6 +11,7 @@ import {
   listD2CTemplatesForUser,
   listScheduledSendsForEvent,
 } from "@/lib/db/d2c";
+import { isD2CApprover } from "@/lib/auth/operator-allowlist";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -38,9 +39,13 @@ export default async function EventCommsPage({ params }: Props) {
 
   const [connections, templates, sends] = await Promise.all([
     listD2CConnectionsForUser(supabase, { clientId: event.client_id }),
-    listD2CTemplatesForUser(supabase, { clientId: event.client_id }),
+    listD2CTemplatesForUser(supabase, {
+      clientId: event.client_id,
+    }),
     listScheduledSendsForEvent(supabase, id),
   ]);
+
+  const canApproveD2C = isD2CApprover(user.id);
 
   const safeConnections = connections.map((c) => ({
     ...c,
@@ -68,6 +73,7 @@ export default async function EventCommsPage({ params }: Props) {
             connections={safeConnections}
             templates={templates}
             initialSends={sends}
+            canApproveD2C={canApproveD2C}
           />
         </div>
       </main>

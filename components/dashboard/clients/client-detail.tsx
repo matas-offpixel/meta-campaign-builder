@@ -23,6 +23,7 @@ import { NewEventKindModal } from "./new-event-kind-modal";
 import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
 import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticketing-connections-panel";
 import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
+import { D2CTemplateEditor } from "@/components/dashboard/clients/d2c-template-editor";
 import {
   CreativeTemplatesPanel,
   type ProviderStatus,
@@ -39,7 +40,7 @@ import type {
 import type { SettlementTiming } from "@/lib/pricing/calculator";
 import type { LatestSnapshot } from "@/lib/db/client-snapshots-server";
 import type { TicketingConnection } from "@/lib/ticketing/types";
-import type { D2CConnection } from "@/lib/d2c/types";
+import type { D2CConnection, D2CTemplate } from "@/lib/d2c/types";
 import type { CreativeTemplate } from "@/lib/creatives/types";
 
 type ClientTab =
@@ -98,6 +99,10 @@ interface Props {
    */
   d2cConnections: SafeD2CConnection[];
   /**
+   * D2C message templates scoped to this client (email / SMS / WA).
+   */
+  d2cTemplates: D2CTemplate[];
+  /**
    * All creative templates owned by the user. Templates are not yet
    * client-scoped (migration 031 doesn't carry a client_id column),
    * so the list is rendered verbatim per the standalone /creatives
@@ -135,6 +140,7 @@ export function ClientDetail({
   latestSnapshots,
   ticketingConnections,
   d2cConnections,
+  d2cTemplates,
   creativeTemplates,
   creativeProviderStatus,
   initialTab = "overview",
@@ -475,10 +481,17 @@ export function ClientDetail({
           </TabPanel>
 
           <TabPanel active={activeTab === "d2c"}>
-            <D2CConnectionsPanel
-              clientId={client.id}
-              initial={d2cConnections}
-            />
+            <div className="space-y-6">
+              <D2CTemplateEditor
+                clientId={client.id}
+                initialTemplates={d2cTemplates}
+                events={events.map((e) => ({ id: e.id, name: e.name }))}
+              />
+              <D2CConnectionsPanel
+                clientId={client.id}
+                initial={d2cConnections}
+              />
+            </div>
           </TabPanel>
 
           <TabPanel active={activeTab === "creatives"}>

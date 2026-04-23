@@ -28,6 +28,11 @@ export type D2CScheduledSendStatus =
   | "failed"
   | "cancelled";
 
+export type D2CScheduledSendApprovalStatus =
+  | "pending_approval"
+  | "approved"
+  | "rejected";
+
 export interface D2CConnection {
   id: string;
   user_id: string;
@@ -38,6 +43,8 @@ export interface D2CConnection {
   status: D2CConnectionStatus;
   last_synced_at: string | null;
   last_error: string | null;
+  live_enabled: boolean;
+  approved_by_matas: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -68,6 +75,9 @@ export interface D2CScheduledSend {
   status: D2CScheduledSendStatus;
   result_jsonb: unknown;
   dry_run: boolean;
+  approval_status: D2CScheduledSendApprovalStatus;
+  approved_by: string | null;
+  approved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -145,9 +155,7 @@ export interface D2CProvider {
   /**
    * Validate the credentials blob against the provider's identity
    * endpoint. Used by the connections route before storing the row.
-   * In dry-run mode (flag off), returns `{ ok: false, error: "..." }`
-   * with a clear "live mode disabled" message — there is no point
-   * pretending bad credentials are good.
+   * (Non-Mailchimp stubs may still return a live-flag gate until implemented.)
    */
   validateCredentials(
     credentials: Record<string, unknown>,
