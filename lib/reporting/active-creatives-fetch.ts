@@ -1463,6 +1463,9 @@ export async function fetchActiveCreativesForEvent(
     }
   }
 
+  console.info(
+    `[active-creatives] enrichment_gate event=${eventCode} flag=${enrichVideoThumbnails} deduped_ads=${dedupedAds.length}`,
+  );
   if (enrichVideoThumbnails) {
     const videoIdsToUpgrade = new Set<string>();
     for (const ad of dedupedAds) {
@@ -1474,7 +1477,28 @@ export async function fetchActiveCreativesForEvent(
         videoIdsToUpgrade.add(ad.preview.video_id);
       }
     }
-    if (videoIdsToUpgrade.size > 0) {
+    // Per-gate breakdown: how many ads match each condition independently, plus the intersection
+    const gateStats = {
+      with_preview: 0,
+      is_low_res: 0,
+      tier_afs_video: 0,
+      has_video_id: 0,
+      all_conditions: videoIdsToUpgrade.size,
+    };
+    for (const ad of dedupedAds) {
+      if (ad.preview) gateStats.with_preview += 1;
+      if (ad.preview?.is_low_res_fallback === true) gateStats.is_low_res += 1;
+      if (ad.preview?.tier === "afs_video_thumb") gateStats.tier_afs_video += 1;
+      if (ad.preview?.video_id) gateStats.has_video_id += 1;
+    }
+    console.info(
+      `[active-creatives] enrichment_gate_stats event=${eventCode} ${JSON.stringify(gateStats)}`,
+    );
+    if (videoIdsToUpgrade.size === 0) {
+      console.info(
+        `[active-creatives] enrichment_skip_empty event=${eventCode}`,
+      );
+    } else {
       console.log(
         `[active-creatives] video_thumbnail_enrichment start video_ids=${videoIdsToUpgrade.size} event=${eventCode}`,
       );
@@ -1483,6 +1507,12 @@ export async function fetchActiveCreativesForEvent(
           Array.from(videoIdsToUpgrade),
           token,
         );
+        const sampleUpgrade = Array.from(thumbnailsMap.entries())[0];
+        if (sampleUpgrade) {
+          console.info(
+            `[active-creatives] enrichment_sample event=${eventCode} video_id=${sampleUpgrade[0]} uri_prefix=${JSON.stringify(sampleUpgrade[1].uri.slice(0, 100))} dims=${sampleUpgrade[1].width}x${sampleUpgrade[1].height}`,
+          );
+        }
         console.log(
           `[active-creatives] video_thumbnail_enrichment done upgraded=${thumbnailsMap.size}/${videoIdsToUpgrade.size} event=${eventCode}`,
         );
