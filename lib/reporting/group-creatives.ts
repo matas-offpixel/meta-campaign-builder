@@ -308,7 +308,7 @@ export function normaliseAdName(raw: string | null | undefined): string {
  */
 const ANY_ISO_DATE_RE = /\d{4}-\d{2}-\d{2}[-_T]?[\d:.]*/g;
 
-function sanitiseCreativeName(raw: string | null | undefined): string | null {
+export function sanitiseCreativeName(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let s = raw.trim();
   // Template tokens come out first so any date / UUID tails they

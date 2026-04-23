@@ -6,7 +6,10 @@ import { ExternalLink, ImageOff, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmtCurrency } from "@/lib/dashboard/format";
-import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
+import {
+  sanitiseCreativeName,
+  type ConceptGroupRow,
+} from "@/lib/reporting/group-creatives";
 
 /**
  * components/share/share-creative-preview-modal.tsx
@@ -108,7 +111,7 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
   // the often-template-polluted creative.name). Headline copy from
   // the preview is rendered separately as a body block.
   const title = group.display_name || "Creative";
-  const headlineCopy = preview.headline;
+  const headlineCopy = sanitiseCreativeName(preview.headline) || null;
   const body = preview.body || group.representative_body_preview;
   const altText = headlineCopy || title;
   const showVariants = group.ad_names.length > 1;
@@ -279,15 +282,38 @@ function ShareAssetBlock({
   // collapsed into representative_thumbnail.
   if (preview.image_url || fallbackImage) {
     const src = preview.image_url ?? fallbackImage!;
+    // Distinguish full-size assets (image_url — marketer-supplied,
+    // usually 1080px+) from Meta's 64x64 thumbnail_url fallback.
+    // The thumbnail alone rendered at native size looks broken;
+    // upscale it to fill the modal's preview slot and add a subtle
+    // label so the viewer understands why there's no embed / video.
+    const isThumbOnly = !preview.image_url && !!fallbackImage;
     return (
-      <div className="flex justify-center bg-muted">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={altText}
-          className="max-h-[60vh] w-auto object-contain"
-          loading="lazy"
-        />
+      <div className="space-y-2">
+        <div
+          className={
+            isThumbOnly
+              ? "flex items-center justify-center rounded-md bg-muted p-8"
+              : "flex justify-center bg-muted"
+          }
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={altText}
+            className={
+              isThumbOnly
+                ? "max-h-[40vh] w-full max-w-md rounded-md object-contain"
+                : "max-h-[60vh] w-auto object-contain"
+            }
+            loading="lazy"
+          />
+        </div>
+        {isThumbOnly && (
+          <div className="text-center text-xs text-muted-foreground">
+            Dynamic / Advantage+ creative — thumbnail preview only
+          </div>
+        )}
       </div>
     );
   }
