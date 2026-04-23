@@ -25,9 +25,10 @@ Bootstrap the 4-thread parallel Cowork workflow: add session log template and Cu
 
 ## Post-merge verification
 - N/A — docs and Cursor rules only; no deploy-time behaviour change
+- After merge: confirm `.cursor/rules/thread-boundaries.mdc` is present on `main` for all four Cowork threads
 
 ## Surprising findings (out of scope, worth a follow-up)
-- N/A
+- `gh pr merge --auto --squash` failed: GitHub reports auto-merge is not allowed for this repository (`enablePullRequestAutoMerge` / “Allow auto-merge” off in repo settings). Enable **Settings → General → Pull requests → Allow auto-merge** (or merge PR #94 manually with squash). Re-run: `gh pr merge 94 --auto --squash` once enabled.
 
 ## Type signatures of new public exports
 - N/A
