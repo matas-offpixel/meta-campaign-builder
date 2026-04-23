@@ -211,12 +211,22 @@ create table if not exists events (
   budget_marketing   numeric(12, 2),
   notes              text,
   favourite          boolean     not null default false,
+  -- Default cadence the public share / internal report tracker opens
+  -- on. Per-session client-side toggle (keyed by event id) overrides
+  -- this; the column only controls the first-paint default. Migrated
+  -- in 040 — events whose ticketing data lands weekly (e.g. Junction 2
+  -- / Bridge promoter reports) flip to 'weekly' so six-of-seven daily
+  -- rows of em-dashes don't drown out the signal.
+  report_cadence     text        not null default 'daily',
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now(),
 
   constraint events_slug_unique_per_user unique (user_id, slug),
   constraint events_status_check check (
     status in ('upcoming', 'announced', 'on_sale', 'sold_out', 'completed', 'cancelled')
+  ),
+  constraint events_report_cadence_check check (
+    report_cadence in ('daily', 'weekly')
   )
 );
 

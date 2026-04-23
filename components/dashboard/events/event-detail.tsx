@@ -662,6 +662,13 @@ export function EventDetail({
                     general_sale_at:
                       (event as unknown as { general_sale_at: string | null })
                         .general_sale_at ?? null,
+                    // Per migration 040 — `EventRow` already carries
+                    // `report_cadence` via the bridge type, so no
+                    // unknown-cast needed once that surfaces. Falls
+                    // back to 'daily' for safety against rows that
+                    // pre-date the backfill.
+                    report_cadence:
+                      event.report_cadence === "weekly" ? "weekly" : "daily",
                   }}
                   hasMetaScope={Boolean(
                     event.event_code &&

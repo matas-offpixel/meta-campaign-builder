@@ -125,6 +125,10 @@ interface EventLike {
   meta_spend_cached: number | null;
   prereg_spend: number | null;
   general_sale_at: string | null;
+  /** First-paint cadence for the embedded DailyTracker — comes from
+   *  `events.report_cadence` (migration 040). Optional so legacy
+   *  callers that haven't been re-wired keep defaulting to 'daily'. */
+  report_cadence?: "daily" | "weekly";
 }
 
 interface DashboardProps {
@@ -320,8 +324,18 @@ export function EventDailyReportBlock(props: Props) {
       legErrors,
       onSync: syncNow,
       readOnly: isShare,
+      defaultCadence: event.report_cadence ?? "daily",
     }),
-    [timeline, presale, syncing, error, legErrors, syncNow, isShare],
+    [
+      timeline,
+      presale,
+      syncing,
+      error,
+      legErrors,
+      syncNow,
+      isShare,
+      event.report_cadence,
+    ],
   );
 
   // Empty-state shortcut — same gating as the original DailyTracker.
