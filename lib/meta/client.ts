@@ -90,7 +90,8 @@ export async function graphGet<T>(
  * Use when you want to call as the user (OAuth token) rather than the app token.
  *
  * Includes a small internal retry loop for transient failures — see
- * {@link RETRYABLE_META_CODES} and {@link executeGetWithRetry} below.
+ * {@link TRANSIENT_META_CODES} / {@link RATE_LIMIT_META_CODES} and
+ * {@link executeGetWithRetry} below.
  * Read paths only: POST helpers do NOT retry (single-shot to avoid
  * double-creating campaigns / ad sets / audiences).
  */
@@ -115,14 +116,18 @@ export async function graphGetWithToken<T>(
 // temporarily unavailable")` straight up to the route, killing the
 // whole load even though the next call would have succeeded.
 //
-// Retry policy:
-//   - 5 attempts total (initial + 4 retries).
-//   - Backoff schedule (ms, ±25% jitter): 500 → 1500 → 4000 → 8000 →
-//     12000. Cumulative ceiling ~26s, comfortably under a serverless
-//     function's default timeout while giving a wide-event share page
-//     enough headroom to ride out a Meta hiccup on a 7d insights query.
-//   - Triggers: thrown fetch (network error), HTTP 429, HTTP 5xx, or a
-//     parsed Meta error code in RETRYABLE_META_CODES.
+// Retry policy (split, per `getRetryBudget`):
+//   - Genuine transient errors (network, HTTP 5xx, meta_code in
+//     TRANSIENT_META_CODES — currently just 1): up to 4 retries.
+//     Backoff schedule (ms, ±25% jitter): 500 → 1500 → 4000 → 8000 →
+//     12000. Cumulative ceiling ~26s.
+//   - Rate-limit / back-pressure (HTTP 429, meta_code in
+//     RATE_LIMIT_META_CODES — 2/4/17/32/341/613): one retry only,
+//     after a fixed 10s delay. More than that risks turning a soft
+//     code=2 into a hard code=80004 hourly lockout when parallel
+//     callers all retry against the same account budget.
+//   - Everything else (auth, validation, permissions): single-shot,
+//     surfaced as MetaApiError.
 //   - `Retry-After` header (when present) overrides the computed
 //     backoff for that attempt, capped at 10s so a misbehaving server
 //     can't pin a request open for a minute.
@@ -133,9 +138,7 @@ const BASE_BACKOFFS_MS = [500, 1500, 4000, 8000, 12000];
 const RETRY_AFTER_CAP_MS = 10_000;
 
 /**
- * Meta error codes that are safe to retry: transient backend hiccups
- * and rate-limiting. Outside this set (auth, permissions, validation,
- * etc.) retrying is pointless and will just waste time + budget.
+ * Meta error codes that are safe to retry, split by retry policy.
  *
  *   1   — Unknown / transient API error
  *   2   — "Service temporarily unavailable"
@@ -144,8 +147,23 @@ const RETRY_AFTER_CAP_MS = 10_000;
  *   32  — Page request limit reached
  *   341 — Application request limit reached (alt code surfaced on some edges)
  *   613 — Custom audiences / ads rate limit
+ *
+ * Outside both sets (auth, permissions, validation, etc.) retrying is
+ * pointless and will just waste time + budget.
  */
-const RETRYABLE_META_CODES = new Set<number>([1, 2, 4, 17, 32, 341, 613]);
+// Genuine transient errors — worth retrying with the full backoff
+// schedule. Server blips, unknown failures, network-level issues.
+const TRANSIENT_META_CODES = new Set<number>([1]);
+// Rate-limit / back-pressure codes — Meta is explicitly telling us
+// to slow down. Retrying more than once burns more of the account's
+// hourly request budget and can escalate a soft meta_code=2/4/17
+// to a hard code=80004 lockout (~60 min recovery). Allow a single
+// retry with a long delay so we still recover from brief spikes,
+// but fail fast if the back-pressure persists. Code 2 ("service
+// temporarily unavailable") is included here rather than in the
+// transient set because in practice we see it in rate-limit
+// cascades, not one-off server blips.
+const RATE_LIMIT_META_CODES = new Set<number>([2, 4, 17, 32, 341, 613]);
 
 interface ParsedMetaError {
   message: string;
@@ -212,20 +230,24 @@ async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
     }
 
     const parsed = parseMetaError(json, response.status);
-    const transient = isTransientFailure(response.status, parsed.code);
+    const budget = getRetryBudget(response.status, parsed.code);
     const remaining = MAX_GET_ATTEMPTS - attempt - 1;
+    const isRateLimit =
+      parsed.code != null && RATE_LIMIT_META_CODES.has(parsed.code);
+    // Respect whichever budget runs out first. Rate-limit errors cap
+    // at `budget` (1) regardless of remaining; transient errors use
+    // the full `remaining` (up to MAX_GET_ATTEMPTS-1).
+    const willRetry = budget > 0 && remaining > 0 && attempt < budget;
 
-    if (!transient || remaining <= 0) {
-      // Either non-retryable (auth / validation / 4xx) or out of
-      // attempts. Surface as MetaApiError with the same shape the
-      // single-shot version returned, so route-level
-      // `instanceof MetaApiError` checks keep working. Propagate
-      // subcode + userMsg + rawErrorData so downstream classifiers
-      // (notably `isReduceDataError`) can match the actionable text
-      // — Meta sometimes hides the real reason in error_user_msg
-      // while leaving `message` as a generic "An unknown error
-      // occurred". Pre-fix this stripped those fields and the
-      // day-chunked fallback could never trigger.
+    if (!willRetry) {
+      // Either non-retryable, budget exhausted, or out of attempts.
+      // Surface as MetaApiError with the same shape the single-shot
+      // version returned, so route-level `instanceof MetaApiError`
+      // checks keep working. Propagate subcode + userMsg +
+      // rawErrorData so downstream classifiers (notably
+      // `isReduceDataError`) can match the actionable text — Meta
+      // sometimes hides the real reason in error_user_msg while
+      // leaving `message` as a generic "An unknown error occurred".
       throw new MetaApiError(
         parsed.message,
         parsed.code,
@@ -238,9 +260,15 @@ async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
     }
 
     const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
-    const delay = retryAfter ?? jitter(BASE_BACKOFFS_MS[attempt] ?? 4000);
+    // Rate-limit retries use a fixed long delay (10s) to give Meta's
+    // counter time to decay; transient errors follow the standard
+    // backoff schedule. Retry-After header always wins when present.
+    const baseDelay = isRateLimit
+      ? 10_000
+      : (BASE_BACKOFFS_MS[attempt] ?? 4000);
+    const delay = retryAfter ?? jitter(baseDelay);
     console.warn(
-      `[graphGetWithToken] retry ${attempt + 1}/${MAX_GET_ATTEMPTS - 1} after ${delay}ms: ${path} (reason: ${reasonLabel(response.status, parsed.code)})`,
+      `[graphGetWithToken] retry ${attempt + 1}/${budget} after ${delay}ms: ${path} (reason: ${reasonLabel(response.status, parsed.code)})`,
     );
     await sleep(delay);
     lastError = parsed;
@@ -279,14 +307,27 @@ function parseMetaError(
   };
 }
 
-function isTransientFailure(
+// Returns the remaining retry budget for this error. 0 = don't
+// retry. > 0 = retry up to that many more times. Separating
+// rate-limit back-pressure from genuine transient errors prevents
+// the retry cascade that turns a soft code=2 into a hard
+// code=80004 lockout.
+function getRetryBudget(
   httpStatus: number,
   metaCode: number | undefined,
-): boolean {
-  if (httpStatus === 429) return true;
-  if (httpStatus >= 500 && httpStatus <= 599) return true;
-  if (metaCode != null && RETRYABLE_META_CODES.has(metaCode)) return true;
-  return false;
+): number {
+  // HTTP 429 is a rate-limit signal from the edge — treat like
+  // the Meta rate-limit codes.
+  if (httpStatus === 429) return 1;
+  // Genuine server errors — full budget.
+  if (httpStatus >= 500 && httpStatus <= 599) return MAX_GET_ATTEMPTS - 1;
+  if (metaCode != null && TRANSIENT_META_CODES.has(metaCode)) {
+    return MAX_GET_ATTEMPTS - 1;
+  }
+  if (metaCode != null && RATE_LIMIT_META_CODES.has(metaCode)) {
+    return 1;
+  }
+  return 0;
 }
 
 // `isReduceDataError` lives in a separate, dependency-free module so
@@ -297,7 +338,10 @@ function isTransientFailure(
 export { isReduceDataError } from "./error-classify";
 
 function reasonLabel(httpStatus: number, metaCode: number | undefined): string {
-  if (metaCode != null && RETRYABLE_META_CODES.has(metaCode)) {
+  if (
+    metaCode != null &&
+    (TRANSIENT_META_CODES.has(metaCode) || RATE_LIMIT_META_CODES.has(metaCode))
+  ) {
     return `meta_code_${metaCode}`;
   }
   if (httpStatus === 429) return "http_429";
