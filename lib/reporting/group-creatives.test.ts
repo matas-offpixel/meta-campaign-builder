@@ -130,6 +130,30 @@ test("normaliseAdName strips copy / version / ISO date suffixes", () => {
   assert.equal(normaliseAdName(undefined), "");
 });
 
+// Meta's Ads Manager UI duplicates ads with " – Copy" using en-dash
+// (U+2013), not the ASCII hyphen (U+002D) the original regex matched.
+// Without these the two cards rendered as separate concepts on the
+// share report (observed: "LINEUP PROMO EDIT" + "LINEUP PROMO EDIT –
+// Copy" both surfacing on the Innervisions share).
+test("normaliseAdName strips en-dash copy suffix", () => {
+  assert.equal(
+    normaliseAdName("LINEUP PROMO EDIT \u2013 Copy"),
+    "lineup promo edit",
+  );
+  assert.equal(
+    normaliseAdName("LINEUP PROMO EDIT \u2013 Copy 2"),
+    "lineup promo edit",
+  );
+});
+
+test("normaliseAdName strips hyphen copy suffix (regression)", () => {
+  assert.equal(normaliseAdName("Motion V2 - Copy"), "motion v2");
+});
+
+test("normaliseAdName strips en-dash v-version suffix", () => {
+  assert.equal(normaliseAdName("UGC \u2013 v2"), "ugc");
+});
+
 test("name-tier collapse: 3 rows share one concept via dominant ad.name", () => {
   // No post id, no asset sig, no thumbnail — waterfall falls to tier
   // 5 (name) and collapses on `normaliseAdName(ad_names[0])`.

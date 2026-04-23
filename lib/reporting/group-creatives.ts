@@ -236,8 +236,20 @@ export interface ConceptGroupRow {
 // case-insensitive (matching " - Copy" with a /i flag) without
 // having to handle every casing variant up front.
 
-const COPY_SUFFIX_RE = /\s+-\s+copy(\s+\d+)?\s*$/i;
-const VERSION_SUFFIX_RE = /\s+(?:\(\s*\d+\s*\)|-\s+v\s*\d+)\s*$/i;
+// Meta's Ads Manager duplicates ads with " – Copy" using en-dash
+// (U+2013) not ASCII hyphen-minus (U+002D). Accept both plus em-dash
+// (U+2014) defensively so "LINEUP PROMO EDIT – Copy" collapses into
+// the same concept as "LINEUP PROMO EDIT" regardless of which dash
+// Meta, a freelancer, or a clipboard paste introduced.
+const DASH_CLASS = "[-–—]";
+const COPY_SUFFIX_RE = new RegExp(
+  `\\s+${DASH_CLASS}\\s+copy(\\s+\\d+)?\\s*$`,
+  "i",
+);
+const VERSION_SUFFIX_RE = new RegExp(
+  `\\s+(?:\\(\\s*\\d+\\s*\\)|${DASH_CLASS}\\s+v\\s*\\d+)\\s*$`,
+  "i",
+);
 const TRAILING_ISO_DATE_RE = /\s+\d{4}-\d{2}-\d{2}.*$/;
 /** Mustache-style placeholder left by Meta's product feed templates. */
 const TEMPLATE_TOKEN_RE = /\{\{[^{}]*\}\}/;
