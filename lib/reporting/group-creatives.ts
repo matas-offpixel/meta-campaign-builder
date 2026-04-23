@@ -29,13 +29,17 @@
  * routes, server components, AND client components.
  */
 
+import type { PreviewTier } from "@/lib/reporting/preview-tier";
+
 // ─── Input + output shapes ──────────────────────────────────────────────────
 //
 // Re-declared structurally (rather than `import type` from
 // active-creatives-group.ts) so this helper can run in environments
 // where the active-creatives-group module's `server-only`-adjacent
 // siblings would pull in dead deps. The exported `CreativeRow` from
-// that module satisfies this shape by structural typing.
+// that module satisfies this shape by structural typing. `PreviewTier`
+// is imported from a tiny leaf file for parity with
+// `CreativePreview.tier`.
 
 export interface ConceptInputPreview {
   image_url: string | null;
@@ -54,6 +58,8 @@ export interface ConceptInputPreview {
    * size. Optional for backward-compat with grouping-test fixtures.
    */
   is_low_res_fallback?: boolean;
+  /** @see `CreativePreview.tier` (optional for fixture compatibility). */
+  tier?: PreviewTier;
 }
 
 export interface ConceptInputRow {
