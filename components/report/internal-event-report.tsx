@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import type {
@@ -14,7 +14,10 @@ import {
   EventReportView,
   type EventReportViewEvent,
 } from "./event-report-view";
-import { InternalActiveCreativesSection } from "./internal-active-creatives-section";
+import {
+  InternalActiveCreativesSection,
+  type InternalActiveCreativesHandle,
+} from "./internal-active-creatives-section";
 import { ReportUnavailable } from "./report-unavailable";
 
 interface Props {
@@ -146,31 +149,71 @@ export function InternalEventReport({ eventId, event }: Props) {
     };
   }, [eventId, datePreset, since, until]);
 
+  // Imperative handle on the active creatives section so the manual
+  // refresh below can ALSO bust that endpoint — not just the headline
+  // insights cache. Pre-PR #63 the Refresh button only re-fetched the
+  // headline payload, leaving the already-loaded creative cards on
+  // the previous (cached) data. A Meta-side rename of "Loading Bars
+  // - Copy" → "Loading Bars" never propagated until the staffer
+  // bounced the timeframe pill.
+  const creativesRef = useRef<InternalActiveCreativesHandle>(null);
+
   /**
    * Manual refresh — wired to the Refresh button in the live
    * report footer. Re-runs the insights fetch with `?force=1` so
    * the route bypasses the 5-minute server-side cache for the
    * current (event, timeframe) bucket only. Other buckets keep
    * their TTL — switching back to a freshly-warmed preset still
-   * hits the cache. Throws on failure so `<RefreshReportButton>`
-   * can render its inline error line.
+   * hits the cache.
+   *
+   * PR #63 — also calls into the active-creatives section's imperative
+   * `refresh()` so both endpoints' caches get busted in lockstep.
+   * Both run in parallel via `Promise.allSettled` so the spinner
+   * stays on until the slower of the two returns. On error, the
+   * combined message names which side failed so a partial outage
+   * (e.g. headline OK, creatives 502) is still actionable from the
+   * inline "Refresh failed: …" line.
    */
   const handleManualRefresh = useCallback(async () => {
-    const res = await fetch(
-      buildInsightsUrl(eventId, datePreset, customRange, true),
-      { cache: "no-store" },
-    );
-    if (res.status === 401) {
-      throw new Error("Session expired");
+    const insightsTask = (async () => {
+      const res = await fetch(
+        buildInsightsUrl(eventId, datePreset, customRange, true),
+        { cache: "no-store" },
+      );
+      if (res.status === 401) {
+        throw new Error("Session expired");
+      }
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const json = (await res.json()) as InsightsResult;
+      if (!json.ok) {
+        throw new Error(json.error.message ?? json.error.reason);
+      }
+      setState({ kind: "ok", data: json.data });
+    })();
+
+    // No-op when the creatives section hasn't been opened — the
+    // imperative handle short-circuits in that case so we don't pay
+    // the Meta fan-out for a section the user hasn't expanded.
+    const creativesTask =
+      creativesRef.current?.refresh() ?? Promise.resolve();
+
+    const results = await Promise.allSettled([insightsTask, creativesTask]);
+    const failures: string[] = [];
+    if (results[0].status === "rejected") {
+      const reason = results[0].reason;
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      failures.push(`Insights: ${msg}`);
     }
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+    if (results[1].status === "rejected") {
+      const reason = results[1].reason;
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      failures.push(`Creatives: ${msg}`);
     }
-    const json = (await res.json()) as InsightsResult;
-    if (!json.ok) {
-      throw new Error(json.error.message ?? json.error.reason);
+    if (failures.length > 0) {
+      throw new Error(failures.join(" · "));
     }
-    setState({ kind: "ok", data: json.data });
   }, [eventId, datePreset, customRange]);
 
   if (state.kind === "loading") {
@@ -224,6 +267,7 @@ export function InternalEventReport({ eventId, event }: Props) {
       // Meta fan-out stays off the critical path of opening the tab.
       creativesSlot={
         <InternalActiveCreativesSection
+          ref={creativesRef}
           eventId={eventId}
           datePreset={datePreset}
           customRange={customRange}
