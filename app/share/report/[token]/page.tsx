@@ -580,9 +580,19 @@ async function resolveReportData(
       metaPayload = insights.data;
     } else {
       metaErrorReason = insights.error.reason;
-      console.warn(
-        `[share/report] meta insights failed token=${shareToken} reason=${insights.error.reason} msg=${insights.error.message}`,
-      );
+      // Structured error log so Vercel surfaces the upstream
+      // failure — the `meta insights failed` warn alone wasn't
+      // matched by our log filters and the discriminated-union
+      // return swallowed everything else.
+      console.error("[share/insights] fetch failed", {
+        token: shareToken,
+        reason: insights.error.reason,
+        adAccountId: event.adAccountId,
+        eventCode: event.eventCode,
+        datePreset,
+        customRange,
+        error: { message: insights.error.message },
+      });
     }
   }
 
@@ -614,10 +624,23 @@ async function resolveReportData(
     customRange,
   })
     .catch((err): ShareActiveCreativesResult => {
-      console.warn(
-        `[share/report] active-creatives fetch crashed for token=${shareToken}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      // console.error (not warn) + full error envelope so Vercel
+      // log filters keyed on "error" surface this. Anything that
+      // makes it to this outer catch escaped both the inner
+      // try/catch in fetchActiveCreativesForEvent AND the
+      // structured error in fetchShareActiveCreatives, so it's
+      // worth the loudest possible signal.
+      console.error("[share/report] active-creatives fetch crashed", {
+        token: shareToken,
+        adAccountId: adAccountIdForFetch,
+        eventCode: eventCodeForFetch,
+        datePreset,
+        customRange,
+        error:
+          err instanceof Error
+            ? { message: err.message, stack: err.stack }
+            : String(err),
+      });
       return {
         kind: "error",
         reason: "meta_failed",
