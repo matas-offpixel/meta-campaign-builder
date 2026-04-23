@@ -51,7 +51,7 @@ export interface AdInsightAction {
  *
  * Fields are independent of the grouping layer — they're surfaced
  * exactly as Meta returned them (already normalised to first-non-
- * empty by `extractPreview` in active-creatives-fetch.ts) so the
+ * empty by `extractPreview` in creative-preview-extract.ts) so the
  * modal can pick which ones to show based on what's present.
  */
 export interface CreativePreview {

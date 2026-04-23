@@ -17,6 +17,10 @@ import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
 import { buildTimeParams } from "@/lib/insights/meta";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
+import {
+  extractPreview,
+  type RawCreative,
+} from "@/lib/reporting/creative-preview-extract";
 
 /**
  * lib/reporting/active-creatives-fetch.ts
@@ -72,61 +76,6 @@ interface RawCampaignRow {
   id: string;
   name?: string;
   effective_status?: string;
-}
-
-interface RawCreative {
-  id?: string;
-  name?: string;
-  title?: string;
-  body?: string;
-  thumbnail_url?: string;
-  image_url?: string;
-  video_id?: string;
-  object_story_id?: string;
-  effective_object_story_id?: string;
-  instagram_permalink_url?: string;
-  call_to_action_type?: string;
-  link_url?: string;
-  object_story_spec?: {
-    link_data?: {
-      name?: string;
-      message?: string;
-      description?: string;
-      image_hash?: string;
-      picture?: string;
-      link?: string;
-      call_to_action?: { type?: string };
-      // Carousel sub-shape — each card carries its own picture
-      // + image_hash. extractPreview probes [0].picture as a
-      // cover thumbnail when the parent link_data has none.
-      child_attachments?: Array<{
-        picture?: string;
-        image_hash?: string;
-      }>;
-    };
-    video_data?: {
-      title?: string;
-      message?: string;
-      video_id?: string;
-      image_url?: string;
-    };
-  };
-  asset_feed_spec?: {
-    images?: Array<{ hash?: string; url?: string }>;
-    // Advantage+ video assets — `thumbnail_url` is Meta's already-
-    // resolved poster frame, far more reliable than reconstructing
-    // it from `video_id`. `url_tags` requested for parity with the
-    // image side; not currently consumed but cheap to carry.
-    videos?: Array<{
-      video_id?: string;
-      thumbnail_url?: string;
-      url_tags?: string;
-    }>;
-    titles?: Array<{ text?: string }>;
-    bodies?: Array<{ text?: string }>;
-    call_to_action_types?: string[];
-    link_urls?: Array<{ website_url?: string }>;
-  };
 }
 
 interface RawAdRow {
@@ -418,19 +367,6 @@ export function deriveAssetSignature(
 }
 
 /**
- * Build the modal preview payload from a raw Meta creative. Each
- * field falls through the same probe order as the existing
- * `extractCopy` (object_story_spec → top-level), so the modal can
- * render across single-image, video, link, and Advantage+ creatives
- * without per-type branching.
- *
- * `image_url` priority: link_data.picture > top-level image_url >
- * thumbnail_url. The first two are the marketer-supplied source;
- * thumbnail_url is Meta's auto-generated 64×64 cropped version,
- * fine for the card but ugly when blown up in the modal — only used
- * as a final fallback.
- */
-/**
  * All-null `CreativePreview` factory. Used as the placeholder on
  * AdInput rows between phase 1 (the slim `/ads` enumerate) and
  * phase 2 (`fetchCreativeBatch` stitch). Kept as a function rather
@@ -446,157 +382,6 @@ function emptyPreview(): CreativePreview {
     body: null,
     call_to_action_type: null,
     link_url: null,
-  };
-}
-
-/**
- * Internal tag identifying which tier of `extractPreview`'s
- * waterfall resolved `image_url`. Carried back on the returned
- * preview as `tier` (intersection-typed onto `CreativePreview`)
- * purely for diagnostic logging in the hydration loop — group-
- * creatives.ts and the share UI never read it. Not exported: a
- * downstream consumer relying on this would couple to an internal
- * decision we may rebalance.
- */
-type PreviewTier =
-  | "link_data_picture"
-  | "video_data_image_url"
-  | "top_image_url"
-  | "top_thumbnail_url"
-  | "child_attachment_cover"
-  | "afs_image_url"
-  | "afs_video_thumb"
-  | "video_id_graph_fallback"
-  | "none";
-
-/**
- * Subset of {@link PreviewTier} that produces a low-resolution
- * stand-in rather than a full-size marketer asset. Surfaced on the
- * preview as `is_low_res_fallback` so the share / dashboard modal
- * can render the upscaled "thumbnail-only" layout instead of
- * displaying a 64×64 image at native size.
- */
-const LOW_RES_PREVIEW_TIERS: ReadonlySet<PreviewTier> = new Set([
-  "top_thumbnail_url",
-  "afs_video_thumb",
-  "video_id_graph_fallback",
-]);
-
-function extractPreview(
-  creative: RawCreative | undefined,
-): CreativePreview & { tier: PreviewTier } {
-  if (!creative) {
-    return {
-      image_url: null,
-      video_id: null,
-      instagram_permalink_url: null,
-      headline: null,
-      body: null,
-      call_to_action_type: null,
-      link_url: null,
-      tier: "none",
-    };
-  }
-  const oss = creative.object_story_spec;
-  const ld = oss?.link_data;
-  const vd = oss?.video_data;
-  const afs = creative.asset_feed_spec;
-  // Order matters — first non-null wins. The original waterfall
-  // (link_data.picture → video_data.image_url → top-level image_url
-  // → thumbnail_url) is preserved as the primary path because it
-  // covers single-asset link / video creatives. PR #71 appends
-  // probes for shapes the original waterfall missed:
-  //
-  //   - Carousel covers: object_story_spec.link_data
-  //     .child_attachments[0].picture (the cover card's marketer-
-  //     supplied image; Meta does not lift this onto the parent
-  //     link_data.picture).
-  //   - Advantage+ image: asset_feed_spec.images[0].url (Meta
-  //     supplies the resolved URL alongside the hash).
-  //   - Advantage+ video: asset_feed_spec.videos[0].thumbnail_url
-  //     (Meta-resolved poster frame, more reliable than
-  //     reconstructing it from video_id).
-  //   - Final fallback: deterministic Graph endpoint for the
-  //     video_id (no extra API call, just a URL we hand to <img>;
-  //     served by Meta's CDN with a 302 to the actual poster).
-  //     Only used when every other tier was empty AND we know
-  //     there's a video to render.
-  const childAttachments = ld?.child_attachments;
-  const childCover = childAttachments?.[0]?.picture?.trim() || null;
-  const afsImage = afs?.images?.[0]?.url?.trim() || null;
-  const afsVideoThumb = afs?.videos?.[0]?.thumbnail_url?.trim() || null;
-  const video_id =
-    vd?.video_id?.trim() ||
-    creative.video_id?.trim() ||
-    afs?.videos?.[0]?.video_id?.trim() ||
-    null;
-  const graphApiVersion = process.env.META_API_VERSION || "v21.0";
-  const videoIdFallback = video_id
-    ? `https://graph.facebook.com/${graphApiVersion}/${video_id}/picture?type=normal`
-    : null;
-
-  // Same waterfall semantics as the prior `||` chain but tracks
-  // which tier won so the caller can log it. PR #73 — needed
-  // because PR #72's plumbing renders a URL for 100% of
-  // Innervisions creatives (no_thumbnail=0) yet the browser shows
-  // ImageOff on every card, so the resolved URL must be from a
-  // tier producing an unrenderable string (likely the
-  // video_id_graph_fallback Graph endpoint, which requires an
-  // access_token for public clients).
-  let image_url: string | null = null;
-  let tier: PreviewTier = "none";
-  const set = (v: string | null | undefined, t: PreviewTier) => {
-    if (!image_url && v?.trim()) {
-      image_url = v.trim();
-      tier = t;
-    }
-  };
-  set(ld?.picture, "link_data_picture");
-  set(vd?.image_url, "video_data_image_url");
-  set(creative.image_url, "top_image_url");
-  set(creative.thumbnail_url, "top_thumbnail_url");
-  set(childCover, "child_attachment_cover");
-  set(afsImage, "afs_image_url");
-  set(afsVideoThumb, "afs_video_thumb");
-  set(videoIdFallback, "video_id_graph_fallback");
-
-  const instagram_permalink_url =
-    creative.instagram_permalink_url?.trim() || null;
-  const headline =
-    ld?.name?.trim() ||
-    creative.title?.trim() ||
-    creative.name?.trim() ||
-    null;
-  const body =
-    ld?.message?.trim() ||
-    creative.body?.trim() ||
-    null;
-  const call_to_action_type =
-    ld?.call_to_action?.type?.trim() ||
-    creative.call_to_action_type?.trim() ||
-    null;
-  const link_url = ld?.link?.trim() || creative.link_url?.trim() || null;
-  // Tiers that resolve to a low-resolution stand-in rather than a
-  // marketer-supplied asset: Meta's 64×64 top-level `thumbnail_url`,
-  // the Advantage+ video poster, and the `video_id` Graph endpoint.
-  // The modal uses this flag to switch its image render to the
-  // padded / upscaled "thumbnail-only" layout — without it, PR #83's
-  // isThumbOnly branch never fires for Advantage+ creatives because
-  // `image_url` is non-null (it's the low-res URL itself). Set lookup
-  // (rather than `tier === "..." || ...`) sidesteps TS narrowing
-  // `tier` to its initial `"none"` literal via the closure inside
-  // `set()` not deopting the control-flow analysis.
-  const is_low_res_fallback = LOW_RES_PREVIEW_TIERS.has(tier);
-  return {
-    image_url,
-    video_id,
-    instagram_permalink_url,
-    headline,
-    body,
-    call_to_action_type,
-    link_url,
-    tier,
-    is_low_res_fallback,
   };
 }
 
