@@ -249,6 +249,50 @@ export type Database = {
           },
         ]
       }
+      brief_intake_tokens: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          event_id: string
+          expires_at: string | null
+          last_viewed_at: string | null
+          submitted_at: string | null
+          token: string
+          user_id: string
+          view_count: number
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          event_id: string
+          expires_at?: string | null
+          last_viewed_at?: string | null
+          submitted_at?: string | null
+          token: string
+          user_id: string
+          view_count?: number
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          event_id?: string
+          expires_at?: string | null
+          last_viewed_at?: string | null
+          submitted_at?: string | null
+          token?: string
+          user_id?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brief_intake_tokens_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       artists: {
         Row: {
           bandcamp_url: string | null
@@ -1181,6 +1225,87 @@ export type Database = {
           },
         ]
       }
+      event_briefs: {
+        Row: {
+          ads_channels: string[]
+          brand_kit_url: string | null
+          brand_voice_notes: string | null
+          created_at: string
+          creative_brief_notes: string | null
+          d2c_channels: string[]
+          event_id: string
+          expected_budget_gbp: number | null
+          footage_drive_url: string | null
+          id: string
+          notes_for_offpixel: string | null
+          presale_signup_url: string | null
+          raw_answers: Json
+          submitted_at: string | null
+          submitted_by_email: string | null
+          target_audience_notes: string | null
+          tier_key: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ads_channels?: string[]
+          brand_kit_url?: string | null
+          brand_voice_notes?: string | null
+          created_at?: string
+          creative_brief_notes?: string | null
+          d2c_channels?: string[]
+          event_id: string
+          expected_budget_gbp?: number | null
+          footage_drive_url?: string | null
+          id?: string
+          notes_for_offpixel?: string | null
+          presale_signup_url?: string | null
+          raw_answers?: Json
+          submitted_at?: string | null
+          submitted_by_email?: string | null
+          target_audience_notes?: string | null
+          tier_key?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ads_channels?: string[]
+          brand_kit_url?: string | null
+          brand_voice_notes?: string | null
+          created_at?: string
+          creative_brief_notes?: string | null
+          d2c_channels?: string[]
+          event_id?: string
+          expected_budget_gbp?: number | null
+          footage_drive_url?: string | null
+          id?: string
+          notes_for_offpixel?: string | null
+          presale_signup_url?: string | null
+          raw_answers?: Json
+          submitted_at?: string | null
+          submitted_by_email?: string | null
+          target_audience_notes?: string | null
+          tier_key?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_briefs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_briefs_tier_key_fkey"
+            columns: ["tier_key"]
+            isOneToOne: false
+            referencedRelation: "service_tiers"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
       event_artists: {
         Row: {
           artist_id: string
@@ -1883,6 +2008,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      service_tiers: {
+        Row: {
+          cap_max: number | null
+          cap_min: number | null
+          default_ads_creatives_min: number
+          default_ads_refresh_weeks: number
+          description: string | null
+          focus_variables_max: number
+          key: string
+          label: string
+          price_cap_gbp: number | null
+          price_min_gbp: number | null
+        }
+        Insert: {
+          cap_max?: number | null
+          cap_min?: number | null
+          default_ads_creatives_min?: number
+          default_ads_refresh_weeks?: number
+          description?: string | null
+          focus_variables_max: number
+          key: string
+          label: string
+          price_cap_gbp?: number | null
+          price_min_gbp?: number | null
+        }
+        Update: {
+          cap_max?: number | null
+          cap_min?: number | null
+          default_ads_creatives_min?: number
+          default_ads_refresh_weeks?: number
+          description?: string | null
+          focus_variables_max?: number
+          key?: string
+          label?: string
+          price_cap_gbp?: number | null
+          price_min_gbp?: number | null
+        }
+        Relationships: []
       }
       share_insight_snapshots: {
         Row: {
