@@ -47,6 +47,11 @@ export interface TimelineRow {
   source: TimelineSource;
   ad_spend: number | null;
   link_clicks: number | null;
+  /**
+   * Meta complete_registration actions for the day (rollup-sync).
+   * Preserved when a manual row overrides spend/tickets for the same date.
+   */
+  meta_regs: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   notes: string | null;
@@ -116,6 +121,7 @@ export function mergeTimeline(
       source: "live",
       ad_spend: r.ad_spend != null ? Number(r.ad_spend) : null,
       link_clicks: r.link_clicks ?? null,
+      meta_regs: r.meta_regs ?? null,
       tickets_sold: r.tickets_sold ?? null,
       revenue: r.revenue != null ? Number(r.revenue) : null,
       notes: r.notes ?? null,
@@ -124,11 +130,13 @@ export function mergeTimeline(
   }
 
   for (const m of manual) {
+    const prev = byDate.get(m.date);
     byDate.set(m.date, {
       date: m.date,
       source: "manual",
       ad_spend: m.day_spend != null ? Number(m.day_spend) : null,
       link_clicks: m.link_clicks ?? null,
+      meta_regs: prev?.meta_regs ?? null,
       tickets_sold: m.tickets ?? null,
       revenue: m.revenue != null ? Number(m.revenue) : null,
       notes: m.notes ?? null,

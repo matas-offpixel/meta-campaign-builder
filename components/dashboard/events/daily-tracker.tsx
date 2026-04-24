@@ -86,6 +86,8 @@ import type {
 
 const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 
+const EMPTY_OTHER_SPEND_MAP = new Map<string, number>();
+
 interface DailyRollup {
   id: string;
   user_id: string;
@@ -176,6 +178,8 @@ interface Props {
      *  client wins on subsequent paints; this only seeds initial render
      *  + acts as the SSR-safe value. Falls back to 'daily'. */
     defaultCadence?: TrackerCadence;
+    /** Off-Meta additional spend per day (Performance Summary / migration 044). */
+    otherSpendByDate?: ReadonlyMap<string, number>;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -199,7 +203,11 @@ interface DisplayRow {
    *  Drives the "Manual" / "Live" badge in the Date column. */
   source: TimelineSource | null;
   ad_spend: number | null;
+  /** Off-Meta spend attributed to this calendar day. */
+  other_spend: number | null;
   link_clicks: number | null;
+  /** Meta complete_registration count for the day (rollup-sync). */
+  meta_regs: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   notes: string | null;
@@ -432,6 +440,7 @@ export function DailyTracker({
           source: "manual",
           ad_spend: null,
           link_clicks: null,
+          meta_regs: null,
           tickets_sold: patch.tickets_sold ?? null,
           revenue: patch.revenue ?? null,
           notes: patch.notes ?? null,
@@ -444,15 +453,24 @@ export function DailyTracker({
     );
   }, [timeline, pendingOverrides]);
 
+  const otherSpendMap = isControlled
+    ? (controlled?.otherSpendByDate ?? EMPTY_OTHER_SPEND_MAP)
+    : EMPTY_OTHER_SPEND_MAP;
+
   const display = useMemo(
     () =>
       cadence === "weekly"
         ? buildWeeklyDisplayRows({
             timeline: effectiveTimeline,
             presale,
+            otherSpendByDate: otherSpendMap,
           })
-        : buildDisplayRows({ timeline: effectiveTimeline, presale }),
-    [effectiveTimeline, presale, cadence],
+        : buildDisplayRows({
+            timeline: effectiveTimeline,
+            presale,
+            otherSpendByDate: otherSpendMap,
+          }),
+    [effectiveTimeline, presale, cadence, otherSpendMap],
   );
 
   // Editor open / target state. Single editor shared by every row to
@@ -597,12 +615,15 @@ export function DailyTracker({
             <tr>
               <Th align="left">{dateColLabel}</Th>
               <Th>Day spend</Th>
+              <Th>Day other</Th>
               <Th>Tickets</Th>
               <Th>Revenue</Th>
               <Th>CPT</Th>
               <Th>ROAS</Th>
               <Th>Link clicks</Th>
               <Th>CPL</Th>
+              <Th>Regs</Th>
+              <Th>CPR</Th>
               <Th>Running spend</Th>
               <Th>Running tickets</Th>
               <Th>Running avg CPT</Th>
@@ -620,7 +641,7 @@ export function DailyTracker({
             {loading ? (
               <tr>
                 <td
-                  colSpan={isEditable ? 15 : 14}
+                  colSpan={isEditable ? 18 : 17}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   <Loader2 className="inline h-3.5 w-3.5 animate-spin" />{" "}
@@ -630,7 +651,7 @@ export function DailyTracker({
             ) : display.length === 0 ? (
               <tr>
                 <td
-                  colSpan={isEditable ? 15 : 14}
+                  colSpan={isEditable ? 18 : 17}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   No data yet — click Refresh to pull the latest.
@@ -714,6 +735,7 @@ function RowEl({
 }) {
   const cpt = derive(row.ad_spend, row.tickets_sold);
   const cpl = derive(row.ad_spend, row.link_clicks);
+  const cprRegs = derive(row.ad_spend, row.meta_regs);
   const roas = row.ad_spend != null && row.ad_spend > 0 && row.revenue != null
     ? row.revenue / row.ad_spend
     : null;
@@ -753,12 +775,15 @@ function RowEl({
         </div>
       </Td>
       <Td>{fmtMoney(row.ad_spend)}</Td>
+      <Td>{fmtMoney(row.other_spend)}</Td>
       <Td>{fmtInt(row.tickets_sold)}</Td>
       <Td>{fmtMoney(row.revenue)}</Td>
       <Td>{fmtMoney(cpt)}</Td>
       <Td>{fmtRoas(roas)}</Td>
       <Td>{fmtInt(row.link_clicks)}</Td>
       <Td>{fmtMoney(cpl)}</Td>
+      <Td>{fmtInt(row.meta_regs)}</Td>
+      <Td>{fmtMoney(cprRegs)}</Td>
       <Td>{fmtMoney(row.running_spend)}</Td>
       <Td>{fmtInt(row.running_tickets)}</Td>
       <Td>{fmtMoney(runCpt)}</Td>
@@ -969,9 +994,11 @@ function Td({
 function buildDisplayRows({
   timeline,
   presale,
+  otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
+  otherSpendByDate?: ReadonlyMap<string, number>;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -983,7 +1010,9 @@ function buildDisplayRows({
     source: TimelineSource;
     isSynthetic: boolean;
     ad_spend: number | null;
+    other_spend: number | null;
     link_clicks: number | null;
+    meta_regs: number | null;
     tickets_sold: number | null;
     revenue: number | null;
     notes: string | null;
@@ -1002,7 +1031,9 @@ function buildDisplayRows({
       source: r.source,
       isSynthetic: false,
       ad_spend: r.ad_spend,
+      other_spend: otherSpendByDate.get(r.date) ?? null,
       link_clicks: r.link_clicks,
+      meta_regs: r.meta_regs,
       tickets_sold: r.tickets_sold,
       revenue: r.revenue,
       notes: r.notes,
@@ -1020,7 +1051,9 @@ function buildDisplayRows({
       source: "live",
       isSynthetic: true,
       ad_spend: null,
+      other_spend: otherSpendByDate.get(todayStr) ?? null,
       link_clicks: null,
+      meta_regs: null,
       tickets_sold: null,
       revenue: null,
       notes: null,
@@ -1049,7 +1082,9 @@ function buildDisplayRows({
       date: r.date,
       source: r.source,
       ad_spend: r.ad_spend,
+      other_spend: r.other_spend,
       link_clicks: r.link_clicks,
+      meta_regs: r.meta_regs,
       tickets_sold: r.tickets_sold,
       revenue: r.revenue,
       notes: r.notes,
@@ -1078,7 +1113,9 @@ function buildDisplayRows({
       // value is just shape-completeness.
       source: null,
       ad_spend: presale.ad_spend,
+      other_spend: null,
       link_clicks: presale.link_clicks,
+      meta_regs: null,
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
@@ -1184,9 +1221,11 @@ function CadenceToggle({
 function buildWeeklyDisplayRows({
   timeline,
   presale,
+  otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
+  otherSpendByDate?: ReadonlyMap<string, number>;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
@@ -1204,7 +1243,9 @@ function buildWeeklyDisplayRows({
   type WeekAgg = {
     weekStart: string; // YYYY-MM-DD of Mon W/C (UTC)
     spend: number | null;
+    otherSpend: number | null;
     clicks: number | null;
+    regs: number | null;
     tickets: number | null;
     revenue: number | null;
     /** True when at least one daily row in the week was synthesised
@@ -1224,15 +1265,22 @@ function buildWeeklyDisplayRows({
       ({
         weekStart: wk,
         spend: null,
+        otherSpend: null,
         clicks: null,
+        regs: null,
         tickets: null,
         revenue: null,
         hasManualSource: false,
       } satisfies WeekAgg);
     if (r.ad_spend !== null)
       cur.spend = (cur.spend ?? 0) + Number(r.ad_spend);
+    const od = otherSpendByDate.get(r.date);
+    if (od != null)
+      cur.otherSpend = (cur.otherSpend ?? 0) + od;
     if (r.link_clicks !== null)
       cur.clicks = (cur.clicks ?? 0) + Number(r.link_clicks);
+    if (r.meta_regs != null)
+      cur.regs = (cur.regs ?? 0) + Number(r.meta_regs);
     if (r.tickets_sold !== null)
       cur.tickets = (cur.tickets ?? 0) + Number(r.tickets_sold);
     if (r.revenue !== null)
@@ -1259,7 +1307,9 @@ function buildWeeklyDisplayRows({
   const weeklyDisplay: DisplayRow[] = allWeeks.map((wk) => {
     const agg = weekMap.get(wk) ?? null;
     const spend = agg?.spend ?? null;
+    const otherSp = agg?.otherSpend ?? null;
     const clicks = agg?.clicks ?? null;
+    const regs = agg?.regs ?? null;
     const tickets = agg?.tickets ?? null;
     const revenue = agg?.revenue ?? null;
     runSpend += num(spend);
@@ -1284,7 +1334,9 @@ function buildWeeklyDisplayRows({
       date: wk,
       source: agg?.hasManualSource ? "manual" : "live",
       ad_spend: spend,
+      other_spend: otherSp,
       link_clicks: clicks,
+      meta_regs: regs,
       tickets_sold: tickets,
       revenue,
       notes: null,
@@ -1313,7 +1365,9 @@ function buildWeeklyDisplayRows({
       date: null,
       source: null,
       ad_spend: presale.ad_spend,
+      other_spend: null,
       link_clicks: presale.link_clicks,
+      meta_regs: null,
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,

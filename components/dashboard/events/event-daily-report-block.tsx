@@ -12,7 +12,12 @@ import {
 
 import { Button } from "@/components/ui/button";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
-import { EventSummaryHeader } from "@/components/dashboard/events/event-summary-header";
+import { additionalSpendTotalsByDate } from "@/lib/db/additional-spend-sum";
+import { ADDITIONAL_SPEND_CHANGED } from "@/components/dashboard/events/additional-spend-card";
+import {
+  EventSummaryHeader,
+  type PerformanceSummaryTimeframe,
+} from "@/components/dashboard/events/event-summary-header";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 
@@ -125,17 +130,27 @@ interface EventLike {
   meta_spend_cached: number | null;
   prereg_spend: number | null;
   general_sale_at: string | null;
+  capacity?: number | null;
+  event_date?: string | null;
   /** First-paint cadence for the embedded DailyTracker — comes from
    *  `events.report_cadence` (migration 040). Optional so legacy
    *  callers that haven't been re-wired keep defaulting to 'daily'. */
   report_cadence?: "daily" | "weekly";
 }
 
+const DEFAULT_PERF_SUMMARY: PerformanceSummaryTimeframe = {
+  datePreset: "maximum",
+  metaSpend: null,
+  ticketsInWindow: null,
+};
+
 interface DashboardProps {
   mode?: "dashboard";
   event: EventLike;
   hasMetaScope: boolean;
   hasEventbriteLink: boolean;
+  /** Mirrors Meta timeframe pill + windowed tickets/spend for Performance summary. */
+  performanceSummary?: PerformanceSummaryTimeframe;
   /** Optional pre-loaded data for first paint (avoids the fetch
    *  flicker on the dashboard event page). When omitted, the block
    *  loads on mount. */
@@ -153,6 +168,8 @@ interface ShareProps {
   event: EventLike;
   hasMetaScope: boolean;
   hasEventbriteLink: boolean;
+  performanceSummary: PerformanceSummaryTimeframe;
+  additionalSpendEntries: ReadonlyArray<{ date: string; amount: number }>;
   /** Required on share: the public page server-loads everything. */
   initialTimeline: TimelineRow[];
   initialPresale: PresaleBucketShape | null;
@@ -168,6 +185,16 @@ const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 export function EventDailyReportBlock(props: Props) {
   const { event, hasMetaScope, hasEventbriteLink } = props;
   const isShare = props.mode === "share";
+
+  const performanceSummary: PerformanceSummaryTimeframe = isShare
+    ? props.performanceSummary
+    : (props.performanceSummary ?? DEFAULT_PERF_SUMMARY);
+
+  const [additionalSpendRows, setAdditionalSpendRows] = useState<
+    ReadonlyArray<{ date: string; amount: number }>
+  >(() =>
+    props.mode === "share" ? props.additionalSpendEntries : [],
+  );
 
   const [timeline, setTimeline] = useState<TimelineRow[]>(
     () => props.initialTimeline ?? [],
@@ -190,6 +217,27 @@ export function EventDailyReportBlock(props: Props) {
   const [lastSync, setLastSync] = useState<LastSync | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
+  const loadAdditionalSpend = useCallback(async () => {
+    if (isShare) return;
+    try {
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(event.id)}/additional-spend`,
+        { cache: "no-store" },
+      );
+      const json = (await res.json()) as {
+        ok?: boolean;
+        entries?: ReadonlyArray<{ date: string; amount: number }>;
+      };
+      if (res.ok && json.ok && json.entries) {
+        setAdditionalSpendRows(
+          json.entries.map((e) => ({ date: e.date, amount: Number(e.amount) })),
+        );
+      }
+    } catch {
+      // Non-fatal — summary degrades to Meta + pre-reg only.
+    }
+  }, [event.id, isShare]);
+
   const refresh = useCallback(async () => {
     if (isShare) return; // share never refetches; token is the credential
     const res = await fetch(
@@ -202,7 +250,8 @@ export function EventDailyReportBlock(props: Props) {
     }
     setTimeline(json.timeline ?? []);
     setPresale(json.presale ?? null);
-  }, [event.id, isShare]);
+    await loadAdditionalSpend();
+  }, [event.id, isShare, loadAdditionalSpend]);
 
   const syncNow = useCallback(async () => {
     if (isShare) return;
@@ -304,6 +353,29 @@ export function EventDailyReportBlock(props: Props) {
     };
   }, [refresh, isShare, props.initialTimeline]);
 
+  useEffect(() => {
+    if (!isShare) {
+      void loadAdditionalSpend();
+    }
+  }, [isShare, loadAdditionalSpend]);
+
+  useEffect(() => {
+    if (props.mode === "share") {
+      setAdditionalSpendRows(props.additionalSpendEntries);
+    }
+  }, [props]);
+
+  useEffect(() => {
+    if (isShare) return;
+    const onChanged = (ev: Event) => {
+      const d = (ev as CustomEvent<{ eventId: string }>).detail;
+      if (d?.eventId === event.id) void loadAdditionalSpend();
+    };
+    window.addEventListener(ADDITIONAL_SPEND_CHANGED, onChanged);
+    return () =>
+      window.removeEventListener(ADDITIONAL_SPEND_CHANGED, onChanged);
+  }, [event.id, isShare, loadAdditionalSpend]);
+
   // Auto-sync on mount when stale or empty (dashboard only).
   useEffect(() => {
     if (isShare) return;
@@ -329,6 +401,11 @@ export function EventDailyReportBlock(props: Props) {
   // the prop is there for symmetry).
   const isEditable = isShare ? false : props.isEditable !== false;
 
+  const otherSpendByDate = useMemo(
+    () => additionalSpendTotalsByDate(additionalSpendRows),
+    [additionalSpendRows],
+  );
+
   const controlled = useMemo(
     () => ({
       timeline,
@@ -345,6 +422,7 @@ export function EventDailyReportBlock(props: Props) {
       readOnly: isShare,
       isEditable,
       defaultCadence: event.report_cadence ?? "daily",
+      otherSpendByDate,
     }),
     [
       timeline,
@@ -357,6 +435,7 @@ export function EventDailyReportBlock(props: Props) {
       isShare,
       isEditable,
       event.report_cadence,
+      otherSpendByDate,
     ],
   );
 
@@ -418,7 +497,12 @@ export function EventDailyReportBlock(props: Props) {
         />
       ) : null}
 
-      <EventSummaryHeader event={event} timeline={timeline} />
+      <EventSummaryHeader
+        event={event}
+        timeline={timeline}
+        timeframe={performanceSummary}
+        additionalSpendEntries={additionalSpendRows}
+      />
       <EventTrendChart timeline={timeline} />
       <DailyTracker
         eventId={event.id}

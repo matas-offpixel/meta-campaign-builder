@@ -26,6 +26,8 @@ export interface EventDailyRollup {
   link_clicks: number | null;
   tickets_sold: number | null;
   revenue: number | null;
+  /** Per-day Meta complete_registration actions (rollup-sync). */
+  meta_regs: number | null;
   source_meta_at: string | null;
   source_eventbrite_at: string | null;
   notes: string | null;
@@ -191,6 +193,7 @@ export interface MetaUpsertRow {
   date: string;
   ad_spend: number;
   link_clicks: number;
+  meta_regs: number;
 }
 
 export async function upsertMetaRollups(
@@ -205,6 +208,7 @@ export async function upsertMetaRollups(
     date: r.date,
     ad_spend: r.ad_spend,
     link_clicks: r.link_clicks,
+    meta_regs: r.meta_regs,
     source_meta_at: now,
   }));
   // Note: `onConflict: "event_id,date"` — the unique constraint name

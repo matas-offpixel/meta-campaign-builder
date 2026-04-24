@@ -301,21 +301,25 @@ export function EventReportView({
         ) : null}
 
         {/* Top row — event-level facts */}
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <section
+          className={`grid grid-cols-1 gap-3 ${!meta ? "sm:grid-cols-2" : ""}`}
+        >
           <StatCard
             label="Days until event"
             value={daysUntil != null ? daysUntilLabel(daysUntil) : "—"}
             sub={event.eventDate ? fmtDate(event.eventDate) : null}
           />
-          <StatCard
-            label="Paid media budget"
-            value={budget > 0 ? fmtCurrency(budget) : "—"}
-            sub={
-              budgetUsedPct != null
-                ? `${budgetUsedPct.toFixed(0)}% used`
-                : null
-            }
-          />
+          {!meta ? (
+            <StatCard
+              label="Paid media budget"
+              value={budget > 0 ? fmtCurrency(budget) : "—"}
+              sub={
+                budgetUsedPct != null
+                  ? `${budgetUsedPct.toFixed(0)}% used`
+                  : null
+              }
+            />
+          ) : null}
         </section>
 
         {/* Timeframe selector — Meta-only (drives Meta insights window).
@@ -449,10 +453,28 @@ function MetaReportBlock({
     <>
       <Section title="Campaign performance">
         <div
-          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 ${
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 ${
             isRefreshing ? "opacity-60 transition-opacity" : ""
           }`}
         >
+          <StatCard
+            label="Paid media budget"
+            value={budget > 0 ? fmtCurrency(budget) : "—"}
+            sub={
+              budget > 0 && spend > 0
+                ? `${Math.min(100, (spend / budget) * 100).toFixed(0)}% used`
+                : null
+            }
+          />
+          <StatCard
+            label="Daily budget set"
+            value={
+              meta.dailyBudgetSet != null && meta.dailyBudgetSet > 0
+                ? fmtCurrency(meta.dailyBudgetSet)
+                : "—"
+            }
+            sub="Active Meta ad sets (sum)"
+          />
           <StatCard label="Total spend" value={fmtCurrency(meta.totalSpend)} />
           <StatCard label="Meta spend" value={fmtCurrency(meta.totals.spend)} />
           <StatCard
@@ -569,7 +591,7 @@ function MetaReportBlock({
           <EmptyHint>No matched Meta campaigns yet.</EmptyHint>
         ) : (
           <div className="overflow-x-auto rounded-md border border-border">
-            <table className="w-full min-w-[720px] border-collapse text-xs">
+            <table className="w-full min-w-[780px] border-collapse text-xs">
               <thead className="bg-card text-[10px] uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <Th align="left">Campaign</Th>
@@ -581,6 +603,7 @@ function MetaReportBlock({
                   <Th align="right">Reach</Th>
                   <Th align="right">Impr</Th>
                   <Th align="right">CPR</Th>
+                  <Th align="right">CPA</Th>
                   <Th align="right">CPLPV</Th>
                   <Th align="right">ROAS</Th>
                 </tr>
@@ -614,6 +637,9 @@ function MetaReportBlock({
                     <Td align="right">{fmtInt(c.impressions)}</Td>
                     <Td align="right">
                       {c.cpr > 0 ? fmtCurrency(c.cpr) : "—"}
+                    </Td>
+                    <Td align="right">
+                      {c.purchases > 0 ? fmtCurrency(c.cpp) : "—"}
                     </Td>
                     <Td align="right">
                       {c.cplpv > 0 ? fmtCurrency(c.cplpv) : "—"}

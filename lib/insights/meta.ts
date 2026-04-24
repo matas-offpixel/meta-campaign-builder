@@ -160,16 +160,28 @@ export async function fetchEventInsights(
       );
     }
 
-    const campaignRows = await Promise.all(
-      matchedCampaigns.map((c) =>
-        fetchCampaignInsights({
-          campaignId: c.id,
-          token,
-          datePreset,
-          customRange,
-        }).then((insights) => mapCampaignRow(c, insights)),
+    const [campaignRows, dailyBudgetSet] = await Promise.all([
+      Promise.all(
+        matchedCampaigns.map((c) =>
+          fetchCampaignInsights({
+            campaignId: c.id,
+            token,
+            datePreset,
+            customRange,
+          }).then((insights) => mapCampaignRow(c, insights)),
+        ),
       ),
-    );
+      sumActiveAdsetDailyBudgetsForCampaigns({
+        campaigns: matchedCampaigns,
+        token,
+      }).catch((err) => {
+        console.warn(
+          "[insights/meta] daily budget sum failed:",
+          err instanceof Error ? err.message : err,
+        );
+        return null;
+      }),
+    ]);
 
     const filteredRows = campaignRows
       .filter((r): r is MetaCampaignRow => r != null)
@@ -202,6 +214,7 @@ export async function fetchEventInsights(
       ...(customRange ? { customRange } : {}),
       totals,
       totalSpend: totals.spend,
+      dailyBudgetSet,
       channelBreakdown: {
         meta: totals.spend,
         tiktok: null,
@@ -272,6 +285,69 @@ async function listCampaignsForEvent(args: {
     if (!res.paging?.next || !after) break;
   }
   return matched;
+}
+
+const ADSETS_PAGE_LIMIT = 50;
+
+interface RawAdset {
+  daily_budget?: string;
+  effective_status?: string;
+  status?: string;
+}
+
+async function listAdsetsForCampaign(args: {
+  campaignId: string;
+  token: string;
+}): Promise<RawAdset[]> {
+  const out: RawAdset[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 15; page++) {
+    const params: Record<string, string> = {
+      fields: "daily_budget,effective_status,status",
+      limit: String(ADSETS_PAGE_LIMIT),
+    };
+    if (after) params.after = after;
+    const res = await graphGetWithToken<GraphPaged<RawAdset>>(
+      `/${args.campaignId}/adsets`,
+      params,
+      args.token,
+    );
+    out.push(...(res.data ?? []));
+    after = res.paging?.cursors?.after;
+    if (!res.paging?.next || !after) break;
+  }
+  return out;
+}
+
+/**
+ * Sum `daily_budget` for ACTIVE ad sets (Meta minor units → major
+ * currency) under campaigns matched for the event. Returns null when
+ * no active daily-budget ad sets exist.
+ */
+async function sumActiveAdsetDailyBudgetsForCampaigns(args: {
+  campaigns: RawCampaign[];
+  token: string;
+}): Promise<number | null> {
+  let totalMinor = 0;
+  let counted = false;
+  for (const c of args.campaigns) {
+    const adsets = await listAdsetsForCampaign({
+      campaignId: c.id,
+      token: args.token,
+    });
+    for (const a of adsets) {
+      const st = (a.effective_status ?? a.status ?? "").toUpperCase();
+      if (st !== "ACTIVE") continue;
+      const db = a.daily_budget;
+      if (db === undefined || db === null || db === "") continue;
+      const minor = parseNum(String(db));
+      if (!Number.isFinite(minor) || minor <= 0) continue;
+      totalMinor += minor;
+      counted = true;
+    }
+  }
+  if (!counted) return null;
+  return totalMinor / 100;
 }
 
 // ─── Insights per campaign ────────────────────────────────────────────────
@@ -642,6 +718,7 @@ function mapCampaignRow(
     roas: spend > 0 ? purchaseValue / spend : 0,
     cpr: regs > 0 ? spend / regs : 0,
     cplpv: lpv > 0 ? spend / lpv : 0,
+    cpp: purchases > 0 ? spend / purchases : 0,
   };
 }
 
@@ -1382,18 +1459,24 @@ export async function fetchEventDailyMetaMetrics(
     // by day so the caller gets a single number per calendar date.
     const totalsSpend = new Map<string, number>();
     const totalsClicks = new Map<string, number>();
+    const totalsRegs = new Map<string, number>();
     // Track which distinct campaigns survived the case-sensitive
     // post-filter — surfaced in the result for diagnostic logging
     // (rollup-sync prints these so we can confirm at a glance the
     // sync saw the same campaigns the live block sees).
     const matchedCampaigns = new Set<string>();
 
+    const regActionTypes = [
+      "complete_registration",
+      "offsite_conversion.fb_pixel_complete_registration",
+    ];
+
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
         // campaign_name comes back so we can re-filter case-sensitively
         // before aggregating (Meta's CONTAIN is case-INsensitive).
-        fields: "spend,inline_link_clicks,date_start,campaign_name",
+        fields: "spend,inline_link_clicks,date_start,campaign_name,actions",
         level: "campaign",
         time_increment: "1",
         time_range: timeRange,
@@ -1409,6 +1492,7 @@ export async function fetchEventDailyMetaMetrics(
           inline_link_clicks?: string;
           date_start?: string;
           campaign_name?: string;
+          actions?: ActionRow[];
         }>
       >(`/${account}/insights`, params, token);
 
@@ -1431,18 +1515,28 @@ export async function fetchEventDailyMetaMetrics(
           day,
           (totalsClicks.get(day) ?? 0) + parseNum(row.inline_link_clicks),
         );
+        const regs = sumActions(row.actions, regActionTypes);
+        if (regs > 0) {
+          totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
+        }
       }
 
       after = res.paging?.cursors?.after;
       if (!res.paging?.next || !after) break;
     }
 
-    const days: DailyMetaMetricsRow[] = [...totalsSpend.keys()]
+    const allDays = new Set<string>([
+      ...totalsSpend.keys(),
+      ...totalsClicks.keys(),
+      ...totalsRegs.keys(),
+    ]);
+    const days: DailyMetaMetricsRow[] = [...allDays]
       .sort()
       .map((day) => ({
         day,
         spend: totalsSpend.get(day) ?? 0,
         linkClicks: totalsClicks.get(day) ?? 0,
+        metaRegs: totalsRegs.get(day) ?? 0,
       }));
 
     return {
@@ -1522,14 +1616,19 @@ export async function fetchEventTodayMetaSnapshot(
   try {
     let totalSpend = 0;
     let totalClicks = 0;
+    let totalRegs = 0;
     const matchedCampaigns = new Set<string>();
+    const regActionTypes = [
+      "complete_registration",
+      "offsite_conversion.fb_pixel_complete_registration",
+    ];
 
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
         // campaign_name comes back so we can re-filter case-sensitively
         // before aggregating (Meta's CONTAIN is case-INsensitive).
-        fields: "spend,inline_link_clicks,campaign_name",
+        fields: "spend,inline_link_clicks,campaign_name,actions",
         level: "campaign",
         date_preset: "today",
         filtering,
@@ -1543,6 +1642,7 @@ export async function fetchEventTodayMetaSnapshot(
           spend?: string;
           inline_link_clicks?: string;
           campaign_name?: string;
+          actions?: ActionRow[];
         }>
       >(`/${account}/insights`, params, token);
 
@@ -1552,6 +1652,7 @@ export async function fetchEventTodayMetaSnapshot(
         matchedCampaigns.add(name);
         totalSpend += parseNum(row.spend);
         totalClicks += parseNum(row.inline_link_clicks);
+        totalRegs += sumActions(row.actions, regActionTypes);
       }
 
       after = res.paging?.cursors?.after;
@@ -1565,6 +1666,7 @@ export async function fetchEventTodayMetaSnapshot(
           day: todayDate,
           spend: totalSpend,
           linkClicks: totalClicks,
+          metaRegs: totalRegs,
         },
       ],
       campaignNames: [...matchedCampaigns].sort(),
