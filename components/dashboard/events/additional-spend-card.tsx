@@ -58,6 +58,11 @@ interface Props {
   shareToken?: string;
   /** Share mode: e.g. `router.refresh()` so server props pick up new rows. */
   onAfterMutate?: () => void;
+  /**
+   * When true (e.g. share token has `can_edit=false`), list is read-only —
+   * no add row, no edit/delete controls.
+   */
+  readOnly?: boolean;
 }
 
 export function AdditionalSpendCard({
@@ -66,6 +71,7 @@ export function AdditionalSpendCard({
   mode = "dashboard",
   shareToken,
   onAfterMutate,
+  readOnly = false,
 }: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,6 +145,13 @@ export function AdditionalSpendCard({
       cancelled = true;
     };
   }, [load]);
+
+  useEffect(() => {
+    if (readOnly) {
+      setShowAdd(false);
+      setEditingId(null);
+    }
+  }, [readOnly]);
 
   const spentTotal = useMemo(
     () => entries.reduce((s, e) => s + e.amount, 0),
@@ -253,6 +266,7 @@ export function AdditionalSpendCard({
     <div className={className}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium tracking-wide">Additional spend</h3>
+        {!readOnly ? (
         <Button
           type="button"
           size="sm"
@@ -271,6 +285,7 @@ export function AdditionalSpendCard({
           <Plus className="mr-1 h-3.5 w-3.5" />
           Add entry
         </Button>
+        ) : null}
       </div>
       <p className="mb-2 text-xs tabular-nums text-foreground">
         Total: {GBP.format(spentTotal)} across {entries.length}{" "}
@@ -309,7 +324,7 @@ export function AdditionalSpendCard({
               </tr>
             </thead>
             <tbody>
-              {showAdd ? (
+              {!readOnly && showAdd ? (
                 <tr className="border-t border-border bg-muted/20">
                   <td className="px-2 py-2 align-top">
                     <Input
@@ -381,7 +396,7 @@ export function AdditionalSpendCard({
                 </tr>
               ) : null}
               {entries.map((e) =>
-                editingId === e.id ? (
+                !readOnly && editingId === e.id ? (
                   <tr key={e.id} className="border-t border-border bg-muted/20">
                     <td className="px-2 py-2 align-top">
                       <Input
@@ -469,28 +484,32 @@ export function AdditionalSpendCard({
                       {GBP.format(e.amount)}
                     </td>
                     <td className="px-2 py-2 text-right">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0"
-                        disabled={saving || showAdd}
-                        onClick={() => startEdit(e)}
-                        aria-label="Edit entry"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        disabled={saving || showAdd}
-                        onClick={() => void remove(e.id)}
-                        aria-label="Delete entry"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {readOnly ? null : (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0"
+                            disabled={saving || showAdd}
+                            onClick={() => startEdit(e)}
+                            aria-label="Edit entry"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            disabled={saving || showAdd}
+                            onClick={() => void remove(e.id)}
+                            aria-label="Delete entry"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ),

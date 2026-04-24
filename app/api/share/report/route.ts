@@ -6,6 +6,7 @@ import {
   deleteShare,
   getShareForEvent,
   regenerateShareToken,
+  setShareCanEdit,
   setShareEnabled,
   setShareExpiry,
 } from "@/lib/db/report-shares";
@@ -35,6 +36,7 @@ interface PatchBody {
   enabled?: unknown;
   expiresAt?: unknown;
   eventId?: unknown;
+  canEdit?: unknown;
 }
 
 function isUuid(v: unknown): v is string {
@@ -153,7 +155,7 @@ export async function PATCH(req: NextRequest) {
   // not found" — same outward 404 either way to avoid token enumeration.
   const { data: row, error: readErr } = await supabase
     .from("report_shares")
-    .select("token, event_id, user_id, expires_at")
+    .select("token, event_id, user_id, expires_at, can_edit")
     .eq("token", token)
     .maybeSingle();
   if (readErr || !row) {
@@ -179,6 +181,12 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       case "regenerate": {
+        if (!row.event_id) {
+          return NextResponse.json(
+            { error: "Cannot regenerate a client-scope share from this route" },
+            { status: 400 },
+          );
+        }
         const fresh = await regenerateShareToken({
           oldToken: token,
           eventId: row.event_id,
@@ -186,6 +194,27 @@ export async function PATCH(req: NextRequest) {
           expiresAt: row.expires_at,
         });
         return NextResponse.json({ share: fresh });
+      }
+      case "set_can_edit": {
+        if (typeof body.canEdit !== "boolean") {
+          return NextResponse.json(
+            { error: "canEdit must be a boolean" },
+            { status: 400 },
+          );
+        }
+        await setShareCanEdit(token, body.canEdit);
+        const { data: full, error: refetchErr } = await supabase
+          .from("report_shares")
+          .select("*")
+          .eq("token", token)
+          .maybeSingle();
+        if (refetchErr || !full) {
+          return NextResponse.json(
+            { error: refetchErr?.message ?? "Share row missing after update" },
+            { status: 500 },
+          );
+        }
+        return NextResponse.json({ share: full });
       }
       default:
         return NextResponse.json(

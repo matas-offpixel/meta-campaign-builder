@@ -17,14 +17,20 @@ export type ShareTokenEventWriteScope =
     };
 
 /**
- * Validates a public report share token for mutating event-scoped data
- * (additional spend, rollup-sync, etc.): enabled, unexpired, event scope,
- * and event owner still matches the share's user_id.
+ * Validates a public report share token for event-scoped access.
+ *
+ * When `requireCanEdit` is true (default), the share must also have
+ * `can_edit=true` or mutating routes return 403 — used for additional
+ * spend POST/PATCH/DELETE. Set `requireCanEdit: false` for read-only
+ * listing (GET) so view-only links still load entry rows.
  */
 export async function assertEventShareTokenWritable(
   token: string,
   supabase: SupabaseClient<Database>,
+  options?: { requireCanEdit?: boolean },
 ): Promise<ShareTokenEventWriteScope> {
+  const requireCanEdit = options?.requireCanEdit !== false;
+
   const resolved = await resolveShareByToken(token, supabase);
   if (!resolved.ok) {
     if (resolved.reason === "error") {
@@ -84,6 +90,17 @@ export async function assertEventShareTokenWritable(
       ok: false,
       status: 409,
       body: { ok: false, error: "Share owner does not match event owner" },
+    };
+  }
+
+  if (requireCanEdit && !resolved.share.can_edit) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        ok: false,
+        error: "Share link is view-only",
+      },
     };
   }
 

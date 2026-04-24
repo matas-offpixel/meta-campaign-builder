@@ -11,9 +11,12 @@ import { AdditionalSpendCard } from "@/components/dashboard/events/additional-sp
 export function ShareAdditionalSpendSection({
   shareToken,
   eventId,
+  readOnly = false,
 }: {
   shareToken: string;
   eventId: string;
+  /** When true, additional spend is list-only (share `can_edit=false`). */
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   return (
@@ -22,6 +25,7 @@ export function ShareAdditionalSpendSection({
         mode="share"
         shareToken={shareToken}
         eventId={eventId}
+        readOnly={readOnly}
         onAfterMutate={() => router.refresh()}
       />
     </section>
