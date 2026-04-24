@@ -6,6 +6,18 @@
 export const PAID_MEDIA_EXCEEDS_TOTAL_MARKETING =
   "Paid media budget cannot exceed total marketing budget.";
 
+/** Visitor-facing copy for share-token PATCH responses (includes paid figure). */
+export function paidMediaExceedsTotalMarketingUserMessage(
+  paidMedia: number,
+): string {
+  const gb = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    maximumFractionDigits: 0,
+  });
+  return `Paid media budget (${gb.format(paidMedia)}) cannot exceed total marketing budget`;
+}
+
 /**
  * @param paidMedia — canonical paid cap: `ad_plans.total_budget` when a
  *   plan exists, else `events.budget_marketing`.

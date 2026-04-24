@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Loader2 } from "lucide-react";
 
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
@@ -31,6 +38,8 @@ interface Props {
   onTimeframeChange: (preset: DatePreset, nextRange?: CustomDateRange) => void;
   /** Fired when a fetch starts (`null`), succeeds (`data`), or fails (`null`). */
   onInsightsPayload?: (payload: EventInsightsPayload | null) => void;
+  /** Additional spend editor — same placement as public share (below Campaign performance). */
+  additionalSpendSlot?: ReactNode;
 }
 
 type FetchState =
@@ -81,6 +90,7 @@ export function InternalEventReport({
   customRange,
   onTimeframeChange,
   onInsightsPayload,
+  additionalSpendSlot,
 }: Props) {
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [additionalSpendEntries, setAdditionalSpendEntries] = useState<
@@ -410,6 +420,7 @@ export function InternalEventReport({
       variant="embedded"
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
+      additionalSpendSlot={additionalSpendSlot}
     />
   );
 }

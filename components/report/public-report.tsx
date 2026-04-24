@@ -334,6 +334,7 @@ export function PublicReport({
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={additionalSpendSlot}
+      onShareReportDataMutated={() => router.refresh()}
     />
   );
 }

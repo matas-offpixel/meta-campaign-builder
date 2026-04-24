@@ -27,6 +27,7 @@ import {
   TikTokReportBlock,
   type TikTokReportBlockData,
 } from "./tiktok-report-block";
+import { ShareTotalMarketingBudgetLine } from "./share-total-marketing-budget-line";
 
 /**
  * components/report/event-report-view.tsx
@@ -226,6 +227,11 @@ interface Props {
    * public share page for token-scoped additional spend CRUD.
    */
   additionalSpendSlot?: ReactNode;
+  /**
+   * Share URL only: refresh the page after token-scoped PATCHes (total
+   * marketing budget, additional spend) so RSC props stay in sync.
+   */
+  onShareReportDataMutated?: () => void;
 }
 
 export function EventReportView({
@@ -245,6 +251,7 @@ export function EventReportView({
   additionalSpendEntries = NO_ADDITIONAL_SPEND,
   sellOutPacing = null,
   additionalSpendSlot,
+  onShareReportDataMutated,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -347,6 +354,9 @@ export function EventReportView({
   // doesn't see a stale Meta timestamp on a freshly-imported TikTok
   // snapshot, or vice versa.
   const lastUpdatedIso = pickLastUpdated(meta, tiktok);
+
+  const shareTokenForMutations =
+    creativesSource.kind === "share" ? creativesSource.token : null;
 
   // Embedded mode skips the standalone chrome (the dashboard's
   // PageHeader already shows event name + venue + date) and renders the
@@ -460,6 +470,10 @@ export function EventReportView({
             page can still render the creative breakdown below. */}
         {!meta && headlineUnavailable ? <HeadlineUnavailableBanner /> : null}
 
+        {!meta && additionalSpendSlot ? (
+          <div className="mt-6 space-y-4">{additionalSpendSlot}</div>
+        ) : null}
+
         {/* ─── Meta block ───────────────────────────────────────── */}
         {meta ? (
           <MetaReportBlock
@@ -493,6 +507,9 @@ export function EventReportView({
             creativesSlot={creativesSlot}
             lastUpdatedIso={lastUpdatedIso}
             onManualRefresh={onManualRefresh}
+            additionalSpendSlot={additionalSpendSlot}
+            shareToken={shareTokenForMutations}
+            onShareDataMutated={onShareReportDataMutated}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -506,8 +523,6 @@ export function EventReportView({
 
         {/* ─── TikTok block ─────────────────────────────────────── */}
         {tiktok ? <TikTokReportBlock data={tiktok} /> : null}
-
-        {additionalSpendSlot ?? null}
 
         {/* ─── Event daily report block ─────────────────────────── */
          /* Server-rendered from the unified timeline (live rollups +
@@ -590,6 +605,10 @@ interface MetaReportBlockProps {
    */
   lastUpdatedIso: string;
   onManualRefresh?: () => Promise<void>;
+  /** Below campaign performance cards, above Meta campaign stats. */
+  additionalSpendSlot?: React.ReactNode;
+  shareToken?: string | null;
+  onShareDataMutated?: () => void;
 }
 
 function MetaReportBlock({
@@ -621,6 +640,9 @@ function MetaReportBlock({
   creativesSlot,
   lastUpdatedIso,
   onManualRefresh,
+  additionalSpendSlot,
+  shareToken,
+  onShareDataMutated,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -651,14 +673,23 @@ function MetaReportBlock({
                 Total marketing
               </p>
               <div className="mt-3 space-y-2 text-foreground">
-                <p className="font-heading text-xl tracking-wide tabular-nums">
-                  <>
-                    {fmtCurrencyCompact(totalMarketingCap)}{" "}
-                    <span className="text-sm font-normal text-muted-foreground">
-                      Allocated (total marketing)
-                    </span>
-                  </>
-                </p>
+                {shareToken ? (
+                  <ShareTotalMarketingBudgetLine
+                    shareToken={shareToken}
+                    totalMarketing={totalMarketingCap}
+                    paidMediaCap={paidMediaCap}
+                    onMutated={onShareDataMutated ?? (() => undefined)}
+                  />
+                ) : (
+                  <p className="font-heading text-xl tracking-wide tabular-nums">
+                    <>
+                      {fmtCurrencyCompact(totalMarketingCap)}{" "}
+                      <span className="text-sm font-normal text-muted-foreground">
+                        Allocated (total marketing)
+                      </span>
+                    </>
+                  </p>
+                )}
                 <p className="text-sm tabular-nums text-muted-foreground">
                   {fmtCurrencyCompact(paidMediaCap)} Paid media
                 </p>
@@ -837,6 +868,9 @@ function MetaReportBlock({
             tiktok={meta.channelBreakdown.tiktok}
             google={meta.channelBreakdown.google}
           />
+        ) : null}
+        {additionalSpendSlot ? (
+          <div className="mt-6 space-y-4">{additionalSpendSlot}</div>
         ) : null}
       </Section>
 
