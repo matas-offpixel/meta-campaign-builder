@@ -6,6 +6,11 @@ import {
   listAdditionalSpendForEvent,
   type AdditionalSpendCategory,
 } from "@/lib/db/additional-spend";
+import {
+  logAdditionalSpendValidationFailure,
+  parseMoneyAmountInput,
+  parseSpendDateToIso,
+} from "@/lib/additional-spend-parse";
 
 const CATEGORIES: readonly AdditionalSpendCategory[] = [
   "PR",
@@ -76,20 +81,44 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
   const b = body as Record<string, unknown>;
-  const date = typeof b.date === "string" ? b.date : null;
-  const amount = typeof b.amount === "number" ? b.amount : Number(b.amount);
+  const dateResult = parseSpendDateToIso(b.date);
+  const amountResult = parseMoneyAmountInput(b.amount);
   const categoryRaw = typeof b.category === "string" ? b.category : "OTHER";
   const label = typeof b.label === "string" ? b.label : "";
   const notes =
     b.notes === null || b.notes === undefined
       ? null
       : String(b.notes);
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json({ ok: false, error: "Invalid date" }, { status: 400 });
+
+  if (!dateResult.ok) {
+    logAdditionalSpendValidationFailure("POST additional-spend: date", body, {
+      message: dateResult.message,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: dateResult.message,
+        fieldErrors: { date: dateResult.message },
+      },
+      { status: 400 },
+    );
   }
-  if (!Number.isFinite(amount) || amount < 0) {
-    return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 });
+  if (!amountResult.ok) {
+    logAdditionalSpendValidationFailure("POST additional-spend: amount", body, {
+      message: amountResult.message,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: amountResult.message,
+        fieldErrors: { amount: amountResult.message },
+      },
+      { status: 400 },
+    );
   }
+
+  const date = dateResult.isoDate;
+  const amount = amountResult.value;
   const category = isCategory(categoryRaw) ? categoryRaw : "OTHER";
 
   try {
