@@ -78,6 +78,8 @@ export interface MetaCampaignRow {
   roas: number;
   cpr: number;
   cplpv: number;
+  /** Cost per purchase — spend / purchases. 0 when purchases === 0. */
+  cpp: number;
 }
 
 /** Channel split — Meta in v1, others reserved. */
@@ -183,6 +185,12 @@ export interface EventInsightsPayload {
   totals: MetaTotals;
   /** Total spend across all wired channels. v1: equals totals.spend. */
   totalSpend: number;
+  /**
+   * Sum of ACTIVE ad set `daily_budget` values for campaigns matching
+   * `[event_code]`, in major units (GBP). Null when the ad-accounts
+   * query fails or no daily budgets are set.
+   */
+  dailyBudgetSet: number | null;
   /** Per-channel spend split. tiktok/google are null until wired. */
   channelBreakdown: ChannelBreakdown;
   /** Per-campaign rows, sorted by spend desc. */
@@ -384,6 +392,11 @@ export interface DailyMetaMetricsRow {
   spend: number;
   /** Inline link-clicks (the funnel-aligned click metric, not `clicks`). */
   linkClicks: number;
+  /**
+   * Sum of Meta `complete_registration` + `offsite_conversion.fb_pixel_complete_registration`
+   * actions for the day (Daily Tracker REGS column).
+   */
+  metaRegs: number;
 }
 
 export type DailyMetaMetricsResult =

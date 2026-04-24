@@ -38,10 +38,16 @@ import type { PacingSnapshot } from "@/components/dashboard/events/ticket-pacing
 import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
 import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
+import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
 import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
 import { ShareLinkStrip } from "@/components/dashboard/events/share-link-strip";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
+import type {
+  CustomDateRange,
+  DatePreset,
+  EventInsightsPayload,
+} from "@/lib/insights/types";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
@@ -194,6 +200,26 @@ export function EventDetail({
   // pill stable across re-renders + satisfy React 19 effect purity.
   const [now] = useState(() => new Date());
   const daysUntil = fmtDaysUntilEvent(event.event_date, now);
+
+  const [reportDatePreset, setReportDatePreset] =
+    useState<DatePreset>("maximum");
+  const [reportCustomRange, setReportCustomRange] = useState<
+    CustomDateRange | undefined
+  >(undefined);
+  const [reportInsights, setReportInsights] =
+    useState<EventInsightsPayload | null>(null);
+
+  const handleReportTimeframeChange = (
+    preset: DatePreset,
+    nextRange?: CustomDateRange,
+  ) => {
+    setReportDatePreset(preset);
+    if (preset === "custom") {
+      setReportCustomRange(nextRange);
+    } else {
+      setReportCustomRange(undefined);
+    }
+  };
 
   /**
    * Engagement type discriminator (migration 027). Brand campaigns hide
@@ -662,6 +688,8 @@ export function EventDetail({
                     general_sale_at:
                       (event as unknown as { general_sale_at: string | null })
                         .general_sale_at ?? null,
+                    capacity: event.capacity ?? null,
+                    event_date: event.event_date ?? null,
                     // Per migration 040 — `EventRow` already carries
                     // `report_cadence` via the bridge type, so no
                     // unknown-cast needed once that surfaces. Falls
@@ -669,6 +697,13 @@ export function EventDetail({
                     // pre-date the backfill.
                     report_cadence:
                       event.report_cadence === "weekly" ? "weekly" : "daily",
+                  }}
+                  performanceSummary={{
+                    datePreset: reportDatePreset,
+                    customRange: reportCustomRange,
+                    metaSpend: reportInsights?.totals.spend ?? null,
+                    ticketsInWindow:
+                      reportInsights?.ticketsSoldInWindow ?? null,
                   }}
                   hasMetaScope={Boolean(
                     event.event_code &&
@@ -741,6 +776,10 @@ export function EventDetail({
                           ticketsSoldSource: resolvedTicketsSource,
                           ticketsSoldAsOf: resolvedTicketsAsOf,
                         }}
+                        datePreset={reportDatePreset}
+                        customRange={reportCustomRange}
+                        onTimeframeChange={handleReportTimeframeChange}
+                        onInsightsPayload={setReportInsights}
                       />
                     </section>
                     {/*
@@ -864,6 +903,7 @@ function OverviewSection({ event }: { event: EventWithClient }) {
   return (
     <section className="rounded-md border border-border bg-card p-5">
       <h2 className="font-heading text-base tracking-wide mb-3">Overview</h2>
+      <AdditionalSpendCard eventId={event.id} className="mb-6" />
       <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
         <DetailRow
           label="Client"

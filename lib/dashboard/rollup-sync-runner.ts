@@ -341,12 +341,13 @@ export async function runRollupSyncForEvent(
         // the underlying numbers are pending.
         const metaByDate = new Map<
           string,
-          { ad_spend: number; link_clicks: number }
+          { ad_spend: number; link_clicks: number; meta_regs: number }
         >();
         for (const d of metaFetch.days) {
           metaByDate.set(d.day, {
             ad_spend: d.spend,
             link_clicks: d.linkClicks,
+            meta_regs: d.metaRegs,
           });
         }
         const hasToday = metaByDate.has(todayStr);
@@ -354,6 +355,7 @@ export async function runRollupSyncForEvent(
         if (!hasToday) {
           let snapshotSpend = 0;
           let snapshotClicks = 0;
+          let snapshotRegs = 0;
           let snapshotOk = false;
           try {
             const snap = await fetchEventTodayMetaSnapshot({
@@ -365,10 +367,11 @@ export async function runRollupSyncForEvent(
             if (snap.ok && snap.days.length > 0) {
               snapshotSpend = snap.days[0]?.spend ?? 0;
               snapshotClicks = snap.days[0]?.linkClicks ?? 0;
+              snapshotRegs = snap.days[0]?.metaRegs ?? 0;
               snapshotOk = true;
               diagnostics.metaTodayFromSnapshot = true;
               console.log(
-                `[rollup-sync] meta today snapshot ok spend=${snapshotSpend} clicks=${snapshotClicks}`,
+                `[rollup-sync] meta today snapshot ok spend=${snapshotSpend} clicks=${snapshotClicks} regs=${snapshotRegs}`,
               );
             } else if (!snap.ok) {
               console.warn(
@@ -391,6 +394,7 @@ export async function runRollupSyncForEvent(
           metaByDate.set(todayStr, {
             ad_spend: snapshotSpend,
             link_clicks: snapshotClicks,
+            meta_regs: snapshotRegs,
           });
         }
 
@@ -401,6 +405,7 @@ export async function runRollupSyncForEvent(
             metaByDate.set(d, {
               ad_spend: 0,
               link_clicks: 0,
+              meta_regs: 0,
             });
             metaPadded++;
           }
@@ -412,6 +417,7 @@ export async function runRollupSyncForEvent(
             date,
             ad_spend: v.ad_spend,
             link_clicks: v.link_clicks,
+            meta_regs: v.meta_regs,
           }));
         diagnostics.metaRowsAttempted = metaRows.length;
         console.log(

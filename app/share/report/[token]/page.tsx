@@ -39,6 +39,7 @@ import {
   type TimelineRow,
 } from "@/lib/db/event-daily-timeline";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
+import { listAdditionalSpendForEvent } from "@/lib/db/additional-spend";
 import {
   readShareSnapshot,
   writeShareSnapshot,
@@ -169,6 +170,7 @@ interface ResolvedEvent {
    *  from `events.report_cadence` (migration 040). Falls back to
    *  'daily' for any event that pre-dates the column. */
   reportCadence: "daily" | "weekly";
+  capacity: number | null;
 }
 
 export default async function PublicReportPage({ params, searchParams }: Props) {
@@ -216,7 +218,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     admin
       .from("events")
       .select(
-        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
+        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
       )
       .eq("id", event_id)
       .maybeSingle(),
@@ -291,6 +293,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       (eventRow.data.report_cadence as string | null) === "weekly"
         ? "weekly"
         : "daily",
+    capacity: (eventRow.data.capacity as number | null) ?? null,
   };
 
   // Bump the view counter best-effort — non-blocking.
@@ -391,7 +394,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // Defensive catches keep a missing migration / dropped row from
   // 500-ing the whole report; the block degrades gracefully when its
   // initial timeline is empty.
-  const [eventDailyData, eventLinks] = await Promise.all([
+  const [eventDailyData, eventLinks, additionalSpendList] = await Promise.all([
     loadEventDailyTimeline(admin, event_id).catch((err) => {
       console.warn(
         `[share/report] event-daily-timeline failed for token=${token}: ${
@@ -401,7 +404,12 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       return { timeline: [] as TimelineRow[], rollups: [], manualCount: 0 };
     }),
     listLinksForEvent(admin, event_id).catch(() => []),
+    listAdditionalSpendForEvent(admin, event_id).catch(() => []),
   ]);
+  const additionalSpendEntries = additionalSpendList.map((r) => ({
+    date: r.date,
+    amount: Number(r.amount),
+  }));
   const presale = computePresaleBucket(
     eventDailyData.rollups,
     event.generalSaleAt,
@@ -416,7 +424,16 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         prereg_spend: event.preregSpend,
         general_sale_at: event.generalSaleAt,
         report_cadence: event.reportCadence,
+        capacity: event.capacity,
+        event_date: event.eventDate,
       }}
+      performanceSummary={{
+        datePreset,
+        customRange,
+        metaSpend: metaPayload?.totals.spend ?? null,
+        ticketsInWindow: metaPayload?.ticketsSoldInWindow ?? null,
+      }}
+      additionalSpendEntries={additionalSpendEntries}
       hasMetaScope={Boolean(event.eventCode && event.adAccountId)}
       hasEventbriteLink={eventLinks.length > 0}
       initialTimeline={eventDailyData.timeline}

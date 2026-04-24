@@ -23,6 +23,12 @@ import { ReportUnavailable } from "./report-unavailable";
 interface Props {
   eventId: string;
   event: EventReportViewEvent;
+  /** Controlled timeframe — mirrors Performance summary + Meta insights window. */
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+  onTimeframeChange: (preset: DatePreset, nextRange?: CustomDateRange) => void;
+  /** Fired when a fetch starts (`null`), succeeds (`data`), or fails (`null`). */
+  onInsightsPayload?: (payload: EventInsightsPayload | null) => void;
 }
 
 type FetchState =
@@ -66,11 +72,14 @@ function buildInsightsUrl(
  * payload renders the same `ReportUnavailable` neutral state — never
  * stale numbers, never a half-rendered grid.
  */
-export function InternalEventReport({ eventId, event }: Props) {
-  const [datePreset, setDatePreset] = useState<DatePreset>("maximum");
-  const [customRange, setCustomRange] = useState<CustomDateRange | undefined>(
-    undefined,
-  );
+export function InternalEventReport({
+  eventId,
+  event,
+  datePreset,
+  customRange,
+  onTimeframeChange,
+  onInsightsPayload,
+}: Props) {
   const [state, setState] = useState<FetchState>({ kind: "loading" });
 
   // Reset to "loading" synchronously when any of (eventId, datePreset,
@@ -86,18 +95,6 @@ export function InternalEventReport({ eventId, event }: Props) {
     setState({ kind: "loading" });
   }
 
-  const handleTimeframeChange = (
-    preset: DatePreset,
-    nextRange?: CustomDateRange,
-  ) => {
-    setDatePreset(preset);
-    if (preset === "custom") {
-      setCustomRange(nextRange);
-    } else {
-      setCustomRange(undefined);
-    }
-  };
-
   // Deps below intentionally pin `customRange?.since/until` rather
   // than the whole `customRange` reference, so a fresh
   // `setCustomRange({since, until})` with the same dates doesn't
@@ -107,6 +104,7 @@ export function InternalEventReport({ eventId, event }: Props) {
   const until = customRange?.until;
   useEffect(() => {
     let cancelled = false;
+    onInsightsPayload?.(null);
     const activeRange =
       datePreset === "custom" && since && until ? { since, until } : undefined;
     fetch(buildInsightsUrl(eventId, datePreset, activeRange, false), {
@@ -122,6 +120,7 @@ export function InternalEventReport({ eventId, event }: Props) {
             kind: "unavailable",
             reason: "no_owner_token",
           });
+          onInsightsPayload?.(null);
           return;
         }
         if (!res.ok) {
@@ -129,25 +128,29 @@ export function InternalEventReport({ eventId, event }: Props) {
             kind: "unavailable",
             reason: "meta_api_error",
           });
+          onInsightsPayload?.(null);
           return;
         }
         const json = (await res.json()) as InsightsResult;
         if (!json.ok) {
           setState({ kind: "unavailable", reason: json.error.reason });
+          onInsightsPayload?.(null);
           return;
         }
         setState({ kind: "ok", data: json.data });
+        onInsightsPayload?.(json.data);
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[InternalEventReport] fetch failed:", err);
         setState({ kind: "unavailable", reason: "meta_api_error" });
+        onInsightsPayload?.(null);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [eventId, datePreset, since, until]);
+  }, [eventId, datePreset, since, until, onInsightsPayload]);
 
   // Imperative handle on the active creatives section so the manual
   // refresh below can ALSO bust that endpoint — not just the headline
@@ -262,7 +265,7 @@ export function InternalEventReport({ eventId, event }: Props) {
     if (failures.length > 0) {
       throw new Error(failures.join(" · "));
     }
-  }, [eventId, datePreset, customRange]);
+  }, [eventId, datePreset, customRange, onInsightsPayload]);
 
   if (state.kind === "loading") {
     return (
@@ -307,7 +310,7 @@ export function InternalEventReport({ eventId, event }: Props) {
       datePreset={datePreset}
       customRange={customRange}
       creativesSource={{ kind: "internal", eventId }}
-      onTimeframeChange={handleTimeframeChange}
+      onTimeframeChange={onTimeframeChange}
       onManualRefresh={handleManualRefresh}
       // PR #62 #1 — drop the per-placement preview tile row in favour
       // of the same concept-card summary the public share view renders.
