@@ -35,7 +35,8 @@ const INTEGER_INPUT_RE = /^\d*$/;
  *    to the parent (onApplyEvenSpread / onApplySmartSpread), since the
  *    parent owns the days mirror + the grid ref needed to flush pending
  *    per-cell saves first.
- *  - debounced inline edit of total_budget, ticket_target, landing_page_url.
+ *  - debounced inline edit of total_budget, ticket_target, landing_page_url
+ *    (plan) plus total_marketing_budget on the parent event.
  *    Local string state is the canonical UI value; we only reseed from
  *    the prop when no pending timer is in flight for that field, so a
  *    keystroke is never stomped by the persisted echo.
@@ -44,10 +45,12 @@ export function PlanHeader({
   plan,
   daysCount,
   eventBudget,
+  eventTotalMarketingBudget,
   onApplyEvenSpread,
   onApplySmartSpread,
   onResync,
   onPatch,
+  onPatchEvent,
 }: {
   plan: AdPlan;
   daysCount: number;
@@ -57,6 +60,8 @@ export function PlanHeader({
    * does — covers plans created before auto-populate was introduced.
    */
   eventBudget: number | null;
+  /** Parent event `total_marketing_budget` (all channels incl. PR). */
+  eventTotalMarketingBudget: number | null;
   /** Resolves once the bulk save (and any quiesce wait) has settled. */
   onApplyEvenSpread: () => Promise<void>;
   /**
@@ -80,6 +85,10 @@ export function PlanHeader({
   onResync: () => Promise<void>;
   /** Called by the inline-edit fields. Parent persists via updatePlan. */
   onPatch: (patch: AdPlanPatch) => Promise<void>;
+  /** Persists event-only fields (e.g. total marketing budget). */
+  onPatchEvent: (patch: {
+    total_marketing_budget: number | null;
+  }) => Promise<void>;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirming" | "working">("idle");
   const [smartPhase, setSmartPhase] = useState<
@@ -107,7 +116,7 @@ export function PlanHeader({
       : 0;
 
   const suggestTitle = !hasBudget
-    ? "Set a total budget first"
+    ? "Set a paid media budget first"
     : !hasDays
       ? "No days to populate"
       : undefined;
@@ -313,8 +322,8 @@ export function PlanHeader({
       {resyncPhase !== "idle" && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
           <span className="min-w-0 flex-1 text-muted-foreground">
-            This will overwrite plan-level values (total budget, ticket
-            target, phase markers) from the event. Per-day edits are
+            This will overwrite plan-level values (paid media budget,
+            ticket target, phase markers) from the event. Per-day edits are
             preserved. Continue?
           </span>
           <div className="flex shrink-0 items-center gap-2">
@@ -342,9 +351,9 @@ export function PlanHeader({
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+      <dl className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-6 gap-y-3 text-sm">
         <NumericField
-          label="Total budget"
+          label="Paid media budget"
           prefix="£"
           value={plan.total_budget}
           inputRe={MONEY_INPUT_RE}
@@ -357,6 +366,14 @@ export function PlanHeader({
           inputRe={MONEY_INPUT_RE}
           onCommit={(n) => onPatch({ legacy_spend: n })}
           help="Ad spend from before this plan's start date. Rolls into total spend for planned vs actual comparison."
+        />
+        <NumericField
+          label="Total marketing budget"
+          prefix="£"
+          value={eventTotalMarketingBudget}
+          inputRe={MONEY_INPUT_RE}
+          onCommit={(n) => onPatchEvent({ total_marketing_budget: n })}
+          help="All channels incl. PR / influencers. Leave blank to use paid media budget only."
         />
         <NumericField
           label="Ticket target"
