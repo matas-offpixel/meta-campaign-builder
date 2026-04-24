@@ -1,0 +1,26 @@
+---
+description: Thread ownership, shared files, branch hygiene, and session logs
+alwaysApply: true
+---
+
+# Thread boundaries
+
+Cross-thread coordination, git hygiene, and lightweight session records for PR-sized work.
+
+## Shared files
+
+These paths are commonly touched by more than one product area. Before editing them from a narrow thread, align with owners or split the change into a dedicated PR with a clear scope.
+
+- `components/ui/**`
+- `lib/supabase/**`
+- `app/layout.tsx`, `app/globals.css`
+- `package.json` and lockfiles
+- `.github/**` and repo-wide CI config
+
+## Every new PR gets a fresh branch off main
+
+Every Cursor prompt must begin with `git checkout main && git pull --ff-only && git checkout -b {thread}/{feature}`. Never push new commits to a branch whose PR has already been squash-merged — it produces duplicate commits and dirty merges (lesson from creator/reporting PRs #104→#107 on 2026-04-24). If the follow-up feels like a tight scope extension and the name feels silly, append a suffix (e.g. `creator/dashboard-cards-followup`). If the branch already exists locally, `git branch -D` and recreate, or pick a new name.
+
+## Always write a session log
+
+When work is intended to ship as a PR, write a session log under `docs/session-logs/` using `docs/SESSION_LOG_TEMPLATE.md`. While the PR number is unknown, name the file `pr-pending-{branch-slug}.md`. After `gh pr create`, rename to `pr-{number}-{branch-slug}.md`, fill in the PR URL and number in the body, then amend the commit and push with `--force-with-lease` if the log was already committed.
