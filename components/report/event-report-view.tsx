@@ -8,6 +8,10 @@ import {
   fmtCurrencyCompact,
   fmtDate,
 } from "@/lib/dashboard/format";
+import {
+  fullDaysUntilEventUtc,
+  type SellOutPacingResult,
+} from "@/lib/dashboard/report-pacing";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import {
   DATE_PRESETS,
@@ -69,6 +73,10 @@ export interface EventReportViewEvent {
   ticketsSoldAsOf?: string | null;
   /** Venue capacity — same field as Performance summary pacing row. */
   capacity?: number | null;
+  /** Lifetime pre-reg spend — feeds sell-out pacing CPT (internal + share). */
+  preregSpend?: number | null;
+  /** Cached Meta lifetime spend — pacing when timeline has no ad_spend rows. */
+  metaSpendCached?: number | null;
 }
 
 export type CreativesSource =
@@ -202,6 +210,12 @@ interface Props {
    * fetch supplies this for the Meta + other split line).
    */
   additionalSpendEntries?: ReadonlyArray<{ date: string; amount: number }>;
+  /**
+   * Sell-out pacing (tickets/day · spend/day) — computed from lifetime
+   * rollups + running CPT. Optional; when omitted the Tickets card omits
+   * the pacing line.
+   */
+  sellOutPacing?: SellOutPacingResult | null;
 }
 
 export function EventReportView({
@@ -219,6 +233,7 @@ export function EventReportView({
   headlineUnavailable = false,
   onManualRefresh,
   additionalSpendEntries = NO_ADDITIONAL_SPEND,
+  sellOutPacing = null,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -402,6 +417,7 @@ export function EventReportView({
             capacity={capacity}
             sellThroughPct={sellThroughPct}
             costPerTicket={costPerTicket}
+            sellOutPacing={sellOutPacing}
             channelMultiActive={channelMultiActive}
             isRefreshing={isRefreshing}
             datePreset={datePreset}
@@ -445,6 +461,21 @@ export function EventReportView({
 
 // ─── Meta report block ─────────────────────────────────────────────────────
 
+function formatSellOutPacingLine(p: SellOutPacingResult | null): string {
+  if (!p) return "—";
+  const { ticketsNeededPerDay, spendNeededPerDay } = p;
+  if (ticketsNeededPerDay == null && spendNeededPerDay == null) return "—";
+  const tPart =
+    ticketsNeededPerDay != null
+      ? `${fmtInt(ticketsNeededPerDay)} tickets/day`
+      : "—";
+  const sPart =
+    spendNeededPerDay != null
+      ? `${fmtCurrencyCompact(spendNeededPerDay)}/day to sell out`
+      : "—";
+  return `${tPart} · ${sPart}`;
+}
+
 interface MetaReportBlockProps {
   meta: EventInsightsPayload;
   event: EventReportViewEvent;
@@ -458,6 +489,7 @@ interface MetaReportBlockProps {
   capacity: number | null;
   sellThroughPct: number | null;
   costPerTicket: number | null;
+  sellOutPacing: SellOutPacingResult | null;
   channelMultiActive: boolean;
   isRefreshing: boolean;
   datePreset: DatePreset;
@@ -493,6 +525,7 @@ function MetaReportBlock({
   capacity,
   sellThroughPct,
   costPerTicket,
+  sellOutPacing,
   channelMultiActive,
   isRefreshing,
   datePreset,
@@ -504,6 +537,11 @@ function MetaReportBlock({
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
+  const daysUntilEventUtc = fullDaysUntilEventUtc(event.eventDate);
+  const avgBudgetRemainingPerDay =
+    daysUntilEventUtc != null && daysUntilEventUtc > 0
+      ? Math.round(remaining / daysUntilEventUtc)
+      : null;
 
   return (
     <>
@@ -561,23 +599,30 @@ function MetaReportBlock({
                   <span className="text-muted-foreground">—</span>
                 )}
               </p>
-              <p className="font-heading text-xl tracking-wide tabular-nums">
-                {dailyBudget != null && dailyBudget > 0 ? (
-                  <>
-                    <span className="text-sm font-normal text-muted-foreground">
-                      Daily budget:{" "}
-                    </span>
-                    {fmtCurrencyCompact(dailyBudget)}
-                  </>
-                ) : (
-                  <>
-                    <span className="text-sm font-normal text-muted-foreground">
-                      Daily budget:{" "}
-                    </span>
+              <div className="space-y-1">
+                <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 font-heading text-xl tracking-wide tabular-nums">
+                  <span className="text-sm font-normal text-muted-foreground">
+                    Daily budget:
+                  </span>
+                  {dailyBudget != null && dailyBudget > 0 ? (
+                    <>
+                      <span>{fmtCurrencyCompact(dailyBudget)}</span>
+                      <span className="text-[11px] font-normal text-muted-foreground sm:whitespace-nowrap">
+                        {avgBudgetRemainingPerDay != null ? (
+                          <>
+                            (avg {fmtCurrencyCompact(avgBudgetRemainingPerDay)}
+                            /day remaining)
+                          </>
+                        ) : (
+                          <> (avg —/day remaining)</>
+                        )}
+                      </span>
+                    </>
+                  ) : (
                     <span className="text-muted-foreground">—</span>
-                  </>
-                )}
-              </p>
+                  )}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -619,6 +664,10 @@ function MetaReportBlock({
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
+              </p>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                <span className="font-medium text-foreground">Pacing:</span>{" "}
+                {formatSellOutPacingLine(sellOutPacing)}
               </p>
             </div>
           </div>

@@ -776,6 +776,18 @@ export function EventDetail({
                           ticketsSoldSource: resolvedTicketsSource,
                           ticketsSoldAsOf: resolvedTicketsAsOf,
                           capacity: event.capacity ?? null,
+                          preregSpend:
+                            (
+                              event as unknown as {
+                                prereg_spend: number | null;
+                              }
+                            ).prereg_spend ?? null,
+                          metaSpendCached:
+                            (
+                              event as unknown as {
+                                meta_spend_cached: number | null;
+                              }
+                            ).meta_spend_cached ?? null,
                         }}
                         datePreset={reportDatePreset}
                         customRange={reportCustomRange}

@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import type { TimelineRow } from "@/lib/db/event-daily-timeline";
+import { computeSellOutPacing } from "@/lib/dashboard/report-pacing";
 import type {
   CustomDateRange,
   EventInsightsPayload,
@@ -84,6 +86,25 @@ export function InternalEventReport({
   const [additionalSpendEntries, setAdditionalSpendEntries] = useState<
     readonly { date: string; amount: number }[]
   >([]);
+  const [rollupTimeline, setRollupTimeline] = useState<TimelineRow[]>([]);
+
+  const loadRollupTimeline = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/ticketing/rollup?eventId=${encodeURIComponent(eventId)}`,
+        { cache: "no-store" },
+      );
+      const json = (await res.json()) as {
+        ok?: boolean;
+        timeline?: TimelineRow[];
+      };
+      if (res.ok && json.ok && Array.isArray(json.timeline)) {
+        setRollupTimeline(json.timeline);
+      }
+    } catch {
+      setRollupTimeline([]);
+    }
+  }, [eventId]);
 
   // Reset to "loading" synchronously when any of (eventId, datePreset,
   // customRange) changes, then let the effect kick off the fetch.
@@ -182,6 +203,30 @@ export function InternalEventReport({
       cancelled = true;
     };
   }, [eventId]);
+
+  useEffect(() => {
+    void loadRollupTimeline();
+  }, [loadRollupTimeline]);
+
+  const sellOutPacing = useMemo(
+    () =>
+      computeSellOutPacing({
+        capacity: event.capacity,
+        eventDate: event.eventDate,
+        preregSpend: event.preregSpend ?? null,
+        metaSpendCached: event.metaSpendCached ?? null,
+        timeline: rollupTimeline,
+        additionalSpendEntries,
+      }),
+    [
+      event.capacity,
+      event.eventDate,
+      event.preregSpend,
+      event.metaSpendCached,
+      rollupTimeline,
+      additionalSpendEntries,
+    ],
+  );
 
   // Imperative handle on the active creatives section so the manual
   // refresh below can ALSO bust that endpoint — not just the headline
@@ -296,7 +341,14 @@ export function InternalEventReport({
     if (failures.length > 0) {
       throw new Error(failures.join(" · "));
     }
-  }, [eventId, datePreset, customRange, onInsightsPayload]);
+    void loadRollupTimeline();
+  }, [
+    eventId,
+    datePreset,
+    customRange,
+    onInsightsPayload,
+    loadRollupTimeline,
+  ]);
 
   if (state.kind === "loading") {
     return (
@@ -357,6 +409,7 @@ export function InternalEventReport({
       }
       variant="embedded"
       additionalSpendEntries={additionalSpendEntries}
+      sellOutPacing={sellOutPacing}
     />
   );
 }
