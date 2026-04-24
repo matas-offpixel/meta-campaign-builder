@@ -81,6 +81,9 @@ export function InternalEventReport({
   onInsightsPayload,
 }: Props) {
   const [state, setState] = useState<FetchState>({ kind: "loading" });
+  const [additionalSpendEntries, setAdditionalSpendEntries] = useState<
+    readonly { date: string; amount: number }[]
+  >([]);
 
   // Reset to "loading" synchronously when any of (eventId, datePreset,
   // customRange) changes, then let the effect kick off the fetch.
@@ -151,6 +154,34 @@ export function InternalEventReport({
       cancelled = true;
     };
   }, [eventId, datePreset, since, until, onInsightsPayload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/events/${encodeURIComponent(eventId)}/additional-spend`, {
+      cache: "no-store",
+    })
+      .then((res) => res.json())
+      .then(
+        (json: {
+          ok?: boolean;
+          entries?: Array<{ date: string; amount: number | string }>;
+        }) => {
+          if (cancelled || !json.ok || !Array.isArray(json.entries)) return;
+          setAdditionalSpendEntries(
+            json.entries.map((e) => ({
+              date: e.date,
+              amount: Number(e.amount),
+            })),
+          );
+        },
+      )
+      .catch(() => {
+        if (!cancelled) setAdditionalSpendEntries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId]);
 
   // Imperative handle on the active creatives section so the manual
   // refresh below can ALSO bust that endpoint — not just the headline
@@ -325,6 +356,7 @@ export function InternalEventReport({
         />
       }
       variant="embedded"
+      additionalSpendEntries={additionalSpendEntries}
     />
   );
 }

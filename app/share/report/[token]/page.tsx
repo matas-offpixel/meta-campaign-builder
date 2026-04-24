@@ -507,6 +507,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       creativesSlot={creativesSlot}
       eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
+      additionalSpendEntries={additionalSpendEntries}
     />
   );
 }
