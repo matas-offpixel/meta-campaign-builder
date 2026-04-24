@@ -765,6 +765,18 @@ export function EventDetail({
                       </div>
                       <InternalEventReport
                         eventId={event.id}
+                        additionalSpendSlot={
+                          <section className="rounded-md border border-border bg-card p-4">
+                            <AdditionalSpendCard
+                              eventId={event.id}
+                              additionalMarketingAllocation={computeAdditionalMarketingAllocation(
+                                event.total_marketing_budget,
+                                plan,
+                                event.budget_marketing,
+                              )}
+                            />
+                          </section>
+                        }
                         event={{
                           name: event.name,
                           venueName: event.venue_name,
