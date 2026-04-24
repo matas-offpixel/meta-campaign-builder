@@ -40,6 +40,7 @@ import {
 } from "@/lib/db/event-daily-timeline";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import { listAdditionalSpendForEvent } from "@/lib/db/additional-spend";
+import { computeSellOutPacing } from "@/lib/dashboard/report-pacing";
 import {
   readShareSnapshot,
   writeShareSnapshot,
@@ -410,6 +411,14 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     date: r.date,
     amount: Number(r.amount),
   }));
+  const sellOutPacing = computeSellOutPacing({
+    capacity: event.capacity,
+    eventDate: event.eventDate,
+    preregSpend: event.preregSpend,
+    metaSpendCached: event.metaSpendCached,
+    timeline: eventDailyData.timeline,
+    additionalSpendEntries,
+  });
   const presale = computePresaleBucket(
     eventDailyData.rollups,
     event.generalSaleAt,
@@ -508,6 +517,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
       additionalSpendEntries={additionalSpendEntries}
+      sellOutPacing={sellOutPacing}
     />
   );
 }

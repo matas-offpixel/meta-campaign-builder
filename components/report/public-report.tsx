@@ -9,6 +9,8 @@ import type {
   EventInsightsPayload,
 } from "@/lib/insights/types";
 
+import type { SellOutPacingResult } from "@/lib/dashboard/report-pacing";
+
 import {
   EventReportView,
   type EventReportViewEvent,
@@ -82,6 +84,8 @@ interface Props {
   headlineUnavailable?: boolean;
   /** Additional spend rows for Campaign performance Meta / Other split. */
   additionalSpendEntries?: ReadonlyArray<{ date: string; amount: number }>;
+  /** Lifetime-rollups sell-out pacing for the Tickets card. */
+  sellOutPacing?: SellOutPacingResult | null;
 }
 
 /*
@@ -122,6 +126,7 @@ export function PublicReport({
   eventDailySlot,
   headlineUnavailable = false,
   additionalSpendEntries,
+  sellOutPacing = null,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -318,6 +323,7 @@ export function PublicReport({
       eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
       additionalSpendEntries={additionalSpendEntries}
+      sellOutPacing={sellOutPacing}
     />
   );
 }

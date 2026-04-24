@@ -142,7 +142,7 @@ function latestMetricValue(days: ChartDay[], key: MetricKey): number | null {
 export function EventTrendChart({ timeline, className }: Props) {
   const days = useMemo(() => timelineToChart(timeline), [timeline]);
   const [active, setActive] = useState<Set<MetricKey>>(
-    () => new Set<MetricKey>(["spend", "tickets"]),
+    () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
   );
   const [hover, setHover] = useState<{
     index: number;

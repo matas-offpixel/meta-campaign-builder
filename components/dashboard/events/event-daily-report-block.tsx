@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import { additionalSpendTotalsByDate } from "@/lib/db/additional-spend-sum";
+import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import { ADDITIONAL_SPEND_CHANGED } from "@/components/dashboard/events/additional-spend-card";
 import {
   EventSummaryHeader,
@@ -406,6 +407,16 @@ export function EventDailyReportBlock(props: Props) {
     [additionalSpendRows],
   );
 
+  /** Same trim as Daily Tracker — chart x-axis starts at first activity. */
+  const chartTimeline = useMemo(
+    () =>
+      trimTimelineForTrackerDisplay(timeline, {
+        generalSaleCutoff: presale?.cutoffDate ?? null,
+        otherSpendByDate,
+      }),
+    [timeline, presale?.cutoffDate, otherSpendByDate],
+  );
+
   const controlled = useMemo(
     () => ({
       timeline,
@@ -503,7 +514,7 @@ export function EventDailyReportBlock(props: Props) {
         timeframe={performanceSummary}
         additionalSpendEntries={additionalSpendRows}
       />
-      <EventTrendChart timeline={timeline} />
+      <EventTrendChart timeline={chartTimeline} />
       <DailyTracker
         eventId={event.id}
         hasMetaScope={hasMetaScope}
