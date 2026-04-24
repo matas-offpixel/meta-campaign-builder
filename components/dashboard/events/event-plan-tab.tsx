@@ -30,7 +30,7 @@ import {
   type AdPlanDayPatch,
   type AdPlanPatch,
 } from "@/lib/db/ad-plans";
-import type { EventRow } from "@/lib/db/events";
+import { updateEventRow, type EventRow } from "@/lib/db/events";
 import type { EventKeyMoment } from "@/lib/db/event-key-moments";
 import { computeSmartSpread } from "@/lib/dashboard/pacing";
 import {
@@ -224,6 +224,21 @@ export function EventPlanTab({
     [plan],
   );
 
+  const handleEventMarketingBudgetPatch = useCallback(
+    async (patch: { total_marketing_budget: number | null }) => {
+      setError(null);
+      try {
+        await updateEventRow(event.id, patch);
+        router.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to update event.",
+        );
+      }
+    },
+    [event.id, router],
+  );
+
   const saveDay = useCallback(
     async (dayId: string, patch: AdPlanDayPatch) => updatePlanDay(dayId, patch),
     [],
@@ -388,10 +403,12 @@ export function EventPlanTab({
         plan={plan}
         daysCount={days.length}
         eventBudget={event.budget_marketing}
+        eventTotalMarketingBudget={event.total_marketing_budget ?? null}
         onApplyEvenSpread={handleApplyEvenSpread}
         onApplySmartSpread={handleApplySmartSpread}
         onResync={handleResync}
         onPatch={handlePlanPatch}
+        onPatchEvent={handleEventMarketingBudgetPatch}
       />
 
       <PlanStatCards plan={plan} days={days} />

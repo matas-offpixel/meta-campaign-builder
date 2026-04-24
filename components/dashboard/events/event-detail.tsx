@@ -947,14 +947,29 @@ function OverviewSection({ event }: { event: EventWithClient }) {
           label="Genres"
           value={event.genres.length > 0 ? event.genres.join(", ") : "—"}
         />
-        <DetailRow
-          label="Marketing budget"
-          value={
-            event.budget_marketing != null
-              ? `£${event.budget_marketing.toLocaleString()}`
-              : "—"
-          }
-        />
+        <div>
+          <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Budget
+          </dt>
+          <dd className="mt-0.5 space-y-1 text-sm break-words">
+            <p>
+              <span className="text-muted-foreground">
+                MARKETING BUDGET (paid media):{" "}
+              </span>
+              {event.budget_marketing != null
+                ? BRAND_GBP_FMT.format(event.budget_marketing)
+                : "—"}
+            </p>
+            {event.total_marketing_budget != null ? (
+              <p>
+                <span className="text-muted-foreground">
+                  TOTAL MARKETING BUDGET:{" "}
+                </span>
+                {BRAND_GBP_FMT.format(event.total_marketing_budget)}
+              </p>
+            ) : null}
+          </dd>
+        </div>
       </dl>
     </section>
   );
