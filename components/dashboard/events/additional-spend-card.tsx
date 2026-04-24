@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,11 @@ interface Props {
   shareToken?: string;
   /** Share mode: e.g. `router.refresh()` so server props pick up new rows. */
   onAfterMutate?: () => void;
+  /**
+   * When set (total marketing cap mode), show header "Allocation · Spent · %".
+   * May be negative if data is inconsistent; display uses max(0, …) for the cap line.
+   */
+  additionalMarketingAllocation?: number | null;
 }
 
 export function AdditionalSpendCard({
@@ -66,6 +71,7 @@ export function AdditionalSpendCard({
   mode = "dashboard",
   shareToken,
   onAfterMutate,
+  additionalMarketingAllocation = null,
 }: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,6 +145,26 @@ export function AdditionalSpendCard({
       cancelled = true;
     };
   }, [load]);
+
+  const spentTotal = useMemo(
+    () => entries.reduce((s, e) => s + e.amount, 0),
+    [entries],
+  );
+
+  const allocationCap =
+    additionalMarketingAllocation != null
+      ? Math.max(0, additionalMarketingAllocation)
+      : null;
+  const spentOverAllocation =
+    allocationCap != null && allocationCap > 0 && spentTotal > allocationCap;
+  const spentPctOfAllocation =
+    allocationCap != null && allocationCap > 0
+      ? Math.round((spentTotal / allocationCap) * 100)
+      : null;
+  const allocationDisplay =
+    additionalMarketingAllocation != null
+      ? Math.max(0, additionalMarketingAllocation)
+      : 0;
 
   const resetDraft = () => {
     setDraftDate("");
@@ -267,6 +293,32 @@ export function AdditionalSpendCard({
           Add entry
         </Button>
       </div>
+      {additionalMarketingAllocation != null ? (
+        <p
+          className={`mb-2 text-xs tabular-nums ${
+            spentOverAllocation ? "text-destructive" : "text-foreground"
+          }`}
+        >
+          <span className="text-muted-foreground">Allocation:</span>{" "}
+          {GBP.format(allocationDisplay)}
+          {" · "}
+          <span className="text-muted-foreground">Spent:</span>{" "}
+          {GBP.format(spentTotal)}
+          {spentPctOfAllocation != null ? (
+            <span className="text-muted-foreground">
+              {" "}
+              ({spentPctOfAllocation}%)
+            </span>
+          ) : (
+            <span className="text-muted-foreground"> (—%)</span>
+          )}
+          {spentOverAllocation ? (
+            <span className="ml-2 rounded border border-destructive/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
+              Over allocation
+            </span>
+          ) : null}
+        </p>
+      ) : null}
       <p className="mb-3 text-xs text-muted-foreground">
         Off-Meta costs (PR, influencers, print, etc.) roll into the event
         Performance summary and Daily Tracker.

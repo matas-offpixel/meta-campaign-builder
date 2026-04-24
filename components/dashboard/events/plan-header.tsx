@@ -51,6 +51,8 @@ export function PlanHeader({
   onResync,
   onPatch,
   onPatchEvent,
+  paidBudgetError = null,
+  totalBudgetError = null,
 }: {
   plan: AdPlan;
   daysCount: number;
@@ -89,6 +91,9 @@ export function PlanHeader({
   onPatchEvent: (patch: {
     total_marketing_budget: number | null;
   }) => Promise<void>;
+  /** Inline validation — paid media vs total marketing cap. */
+  paidBudgetError?: string | null;
+  totalBudgetError?: string | null;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirming" | "working">("idle");
   const [smartPhase, setSmartPhase] = useState<
@@ -98,6 +103,29 @@ export function PlanHeader({
     "idle" | "confirming" | "working"
   >("idle");
   const [pulling, setPulling] = useState(false);
+  const [paidLive, setPaidLive] = useState<number | null | undefined>(
+    undefined,
+  );
+  const [totalLive, setTotalLive] = useState<number | null | undefined>(
+    undefined,
+  );
+
+  useEffect(() => {
+    setPaidLive(undefined);
+  }, [plan.total_budget]);
+  useEffect(() => {
+    setTotalLive(undefined);
+  }, [eventTotalMarketingBudget]);
+
+  const effectivePaidForAlloc =
+    paidLive !== undefined ? paidLive : (plan.total_budget ?? null);
+  const effectiveTotalForAlloc =
+    totalLive !== undefined ? totalLive : eventTotalMarketingBudget;
+  const showAllocationRow = effectiveTotalForAlloc != null;
+  const allocationAmount =
+    showAllocationRow && effectiveTotalForAlloc != null
+      ? effectiveTotalForAlloc - (effectivePaidForAlloc ?? 0)
+      : null;
 
   const hasBudget = plan.total_budget != null && plan.total_budget > 0;
   const hasDays = daysCount > 0;
@@ -358,6 +386,8 @@ export function PlanHeader({
           value={plan.total_budget}
           inputRe={MONEY_INPUT_RE}
           onCommit={(n) => onPatch({ total_budget: n })}
+          error={paidBudgetError}
+          onPreviewNumber={(n) => setPaidLive(n)}
         />
         <NumericField
           label="Pre-plan spend"
@@ -374,6 +404,8 @@ export function PlanHeader({
           inputRe={MONEY_INPUT_RE}
           onCommit={(n) => onPatchEvent({ total_marketing_budget: n })}
           help="All channels incl. PR / influencers. Leave blank to use paid media budget only."
+          error={totalBudgetError}
+          onPreviewNumber={(n) => setTotalLive(n)}
         />
         <NumericField
           label="Ticket target"
@@ -387,6 +419,17 @@ export function PlanHeader({
           onCommit={(v) => onPatch({ landing_page_url: v })}
         />
       </dl>
+      {showAllocationRow ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Additional marketing allocation:{" "}
+          <span className="font-medium text-foreground tabular-nums">
+            {fmtCurrency(Math.max(0, allocationAmount ?? 0))}
+          </span>{" "}
+          <span className="text-muted-foreground">
+            (PR, influencers, etc.)
+          </span>
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -475,6 +518,8 @@ function NumericField({
   inputRe,
   onCommit,
   help,
+  error,
+  onPreviewNumber,
 }: {
   label: string;
   prefix?: string;
@@ -488,6 +533,9 @@ function NumericField({
    * planned-vs-actual rollup). Omitted = no helper line.
    */
   help?: string;
+  error?: string | null;
+  /** Fired when the draft parses as a non-negative number or empty → null. */
+  onPreviewNumber?: (n: number | null) => void;
 }) {
   const serialise = useCallback(
     (v: number | null) => (v == null ? "" : String(v)),
@@ -527,6 +575,14 @@ function NumericField({
             // Silently drop invalid keystrokes — same UX as the grid cells.
             if (next !== "" && !inputRe.test(next)) return;
             onChange(next);
+            if (onPreviewNumber) {
+              const trimmed = next.trim();
+              if (trimmed === "") onPreviewNumber(null);
+              else {
+                const n = Number(trimmed);
+                if (Number.isFinite(n) && n >= 0) onPreviewNumber(n);
+              }
+            }
           }}
           onBlur={onBlur}
           className="w-full min-w-0 rounded-sm border border-transparent bg-transparent px-1 py-0.5 text-sm outline-none hover:border-border focus:border-foreground focus:bg-background"
@@ -537,6 +593,11 @@ function NumericField({
           {help}
         </p>
       )}
+      {error ? (
+        <p className="mt-0.5 text-[10px] leading-snug text-destructive">
+          {error}
+        </p>
+      ) : null}
     </Field>
   );
 }

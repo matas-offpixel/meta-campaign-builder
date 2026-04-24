@@ -11,9 +11,12 @@ import { AdditionalSpendCard } from "@/components/dashboard/events/additional-sp
 export function ShareAdditionalSpendSection({
   shareToken,
   eventId,
+  additionalMarketingAllocation = null,
 }: {
   shareToken: string;
   eventId: string;
+  /** Derived total marketing − paid media; null when no total marketing cap. */
+  additionalMarketingAllocation?: number | null;
 }) {
   const router = useRouter();
   return (
@@ -22,6 +25,7 @@ export function ShareAdditionalSpendSection({
         mode="share"
         shareToken={shareToken}
         eventId={eventId}
+        additionalMarketingAllocation={additionalMarketingAllocation}
         onAfterMutate={() => router.refresh()}
       />
     </section>

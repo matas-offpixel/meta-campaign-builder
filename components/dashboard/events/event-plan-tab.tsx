@@ -30,6 +30,7 @@ import {
   type AdPlanDayPatch,
   type AdPlanPatch,
 } from "@/lib/db/ad-plans";
+import { PAID_MEDIA_EXCEEDS_TOTAL_MARKETING } from "@/lib/db/marketing-budget-validation";
 import { updateEventRow, type EventRow } from "@/lib/db/events";
 import type { EventKeyMoment } from "@/lib/db/event-key-moments";
 import { computeSmartSpread } from "@/lib/dashboard/pacing";
@@ -87,6 +88,10 @@ export function EventPlanTab({
   const [days, setDays] = useState<AdPlanDay[]>(initialDays);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [paidBudgetError, setPaidBudgetError] = useState<string | null>(null);
+  const [totalBudgetError, setTotalBudgetError] = useState<string | null>(
+    null,
+  );
   const [actuals, setActuals] = useState<ActualsState>({ kind: "loading" });
   const gridRef = useRef<PlanGridHandle>(null);
   const router = useRouter();
@@ -211,32 +216,63 @@ export function EventPlanTab({
   const handlePlanPatch = useCallback(
     async (patch: AdPlanPatch) => {
       if (!plan) return;
+      if (patch.total_budget !== undefined) {
+        const cap = event.total_marketing_budget;
+        const nextPaid = patch.total_budget;
+        if (
+          cap != null &&
+          cap > 0 &&
+          nextPaid != null &&
+          nextPaid > cap
+        ) {
+          setPaidBudgetError(PAID_MEDIA_EXCEEDS_TOTAL_MARKETING);
+          return;
+        }
+      }
       setError(null);
       try {
         const saved = await updatePlan(plan.id, patch);
         setPlan(saved);
+        setPaidBudgetError(null);
+        setTotalBudgetError(null);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to update plan.",
-        );
+        const msg =
+          err instanceof Error ? err.message : "Failed to update plan.";
+        if (msg === PAID_MEDIA_EXCEEDS_TOTAL_MARKETING) {
+          setPaidBudgetError(msg);
+        } else {
+          setError(msg);
+        }
       }
     },
-    [plan],
+    [plan, event.total_marketing_budget],
   );
 
   const handleEventMarketingBudgetPatch = useCallback(
     async (patch: { total_marketing_budget: number | null }) => {
+      const nextTotal = patch.total_marketing_budget;
+      const paid = plan?.total_budget;
+      if (nextTotal != null && paid != null && paid > nextTotal) {
+        setTotalBudgetError(PAID_MEDIA_EXCEEDS_TOTAL_MARKETING);
+        return;
+      }
       setError(null);
       try {
         await updateEventRow(event.id, patch);
         router.refresh();
+        setPaidBudgetError(null);
+        setTotalBudgetError(null);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to update event.",
-        );
+        const msg =
+          err instanceof Error ? err.message : "Failed to update event.";
+        if (msg === PAID_MEDIA_EXCEEDS_TOTAL_MARKETING) {
+          setTotalBudgetError(msg);
+        } else {
+          setError(msg);
+        }
       }
     },
-    [event.id, router],
+    [event.id, plan?.total_budget, router],
   );
 
   const saveDay = useCallback(
@@ -409,6 +445,8 @@ export function EventPlanTab({
         onResync={handleResync}
         onPatch={handlePlanPatch}
         onPatchEvent={handleEventMarketingBudgetPatch}
+        paidBudgetError={paidBudgetError}
+        totalBudgetError={totalBudgetError}
       />
 
       <PlanStatCards plan={plan} days={days} />
