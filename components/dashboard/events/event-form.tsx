@@ -116,11 +116,6 @@ export function EventForm({
   const [budgetMarketing, setBudgetMarketing] = useState(
     initial?.budget_marketing != null ? String(initial.budget_marketing) : "",
   );
-  const [totalMarketingBudget, setTotalMarketingBudget] = useState(
-    initial?.total_marketing_budget != null
-      ? String(initial.total_marketing_budget)
-      : "",
-  );
   const [notes, setNotes] = useState(initial?.notes ?? "");
 
   // ── Meta spend cache (migration 023) ────────────────────────────────────
@@ -196,9 +191,6 @@ export function EventForm({
       status,
       budget_marketing: budgetMarketing
         ? Number.parseFloat(budgetMarketing)
-        : null,
-      total_marketing_budget: totalMarketingBudget
-        ? Number.parseFloat(totalMarketingBudget)
         : null,
       notes: notes || null,
     } as const;
@@ -499,19 +491,6 @@ export function EventForm({
           value={budgetMarketing}
           onChange={(e) => setBudgetMarketing(e.target.value)}
         />
-        <Input
-          id="event-total-marketing-budget"
-          label="Total marketing budget (GBP, optional)"
-          type="number"
-          step="0.01"
-          value={totalMarketingBudget}
-          onChange={(e) => setTotalMarketingBudget(e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground -mt-2">
-          When set, the live report shows a separate total across paid media
-          plus PR, influencers, and other off-Meta spend. Leave empty to use
-          only the paid media budget above.
-        </p>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="event-notes" className="text-sm font-medium">
             Description
