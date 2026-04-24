@@ -42,6 +42,7 @@ import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily
 import { ShareAdditionalSpendSection } from "@/components/report/share-additional-spend-section";
 import { listAdditionalSpendForEvent } from "@/lib/db/additional-spend";
 import { computeSellOutPacing } from "@/lib/dashboard/report-pacing";
+import { computeAdditionalMarketingAllocation } from "@/lib/db/marketing-budget-validation";
 import {
   readShareSnapshot,
   writeShareSnapshot,
@@ -217,18 +218,27 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // same admin client so no extra Supabase connection is opened. The
   // TikTok read returns null on any failure so a missing snapshot never
   // poisons the Meta path — TikTok is purely additive here.
-  const [eventRow, providerToken, planTickets, tiktokRow] = await Promise.all([
-    admin
-      .from("events")
-      .select(
-        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, total_marketing_budget, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
-      )
-      .eq("id", event_id)
-      .maybeSingle(),
-    getOwnerFacebookToken(user_id, admin),
-    getLatestTicketsSoldForEventAdmin(admin, event_id),
-    fetchLatestTikTokSnapshot(admin, event_id, token).catch(() => null),
-  ]);
+  const [eventRow, providerToken, planTickets, tiktokRow, planBudgetRow] =
+    await Promise.all([
+      admin
+        .from("events")
+        .select(
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, total_marketing_budget, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
+        )
+        .eq("id", event_id)
+        .maybeSingle(),
+      getOwnerFacebookToken(user_id, admin),
+      getLatestTicketsSoldForEventAdmin(admin, event_id),
+      fetchLatestTikTokSnapshot(admin, event_id, token).catch(() => null),
+      admin
+        .from("ad_plans")
+        .select("total_budget")
+        .eq("event_id", event_id)
+        .neq("status", "archived")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   if (eventRow.error || !eventRow.data) {
     console.error(
@@ -269,6 +279,14 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     ticketsSoldAsOf = null;
   }
 
+  const planTotalBudget =
+    (planBudgetRow.data?.total_budget as number | null) ?? null;
+  const budgetMarketing =
+    (eventRow.data.budget_marketing as number | null) ?? null;
+  const paidMediaBudget = planBudgetRow.data
+    ? (planTotalBudget ?? budgetMarketing ?? null)
+    : budgetMarketing;
+
   const event: ResolvedEvent = {
     name: eventRow.data.name as string,
     venueName: (eventRow.data.venue_name as string | null) ?? null,
@@ -277,8 +295,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     eventDate: (eventRow.data.event_date as string | null) ?? null,
     eventStartAt: (eventRow.data.event_start_at as string | null) ?? null,
     eventCode: (eventRow.data.event_code as string | null) ?? null,
-    paidMediaBudget:
-      (eventRow.data.budget_marketing as number | null) ?? null,
+    paidMediaBudget,
     totalMarketingBudget:
       (eventRow.data.total_marketing_budget as number | null) ?? null,
     ticketsSold: resolvedTicketsSold,
@@ -525,7 +542,17 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={
-        <ShareAdditionalSpendSection shareToken={token} eventId={event_id} />
+        <ShareAdditionalSpendSection
+          shareToken={token}
+          eventId={event_id}
+          additionalMarketingAllocation={computeAdditionalMarketingAllocation(
+            event.totalMarketingBudget,
+            planBudgetRow.data != null
+              ? { total_budget: planTotalBudget }
+              : null,
+            budgetMarketing,
+          )}
+        />
       }
     />
   );

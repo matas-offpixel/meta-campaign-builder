@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { EventRow } from "@/lib/db/events";
+import { assertPaidMediaWithinTotalMarketing } from "@/lib/db/marketing-budget-validation";
 import type { ObjectiveBudgets } from "@/lib/dashboard/objectives";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -316,6 +317,12 @@ export async function createPlanForEvent(event: EventRow): Promise<{
   // so the DB constraint passes; user can edit later.
   const effectiveStart = startDate <= endDate ? startDate : endDate;
 
+  const initialTotalBudget = event.budget_marketing ?? null;
+  assertPaidMediaWithinTotalMarketing(
+    initialTotalBudget,
+    event.total_marketing_budget,
+  );
+
   const { data: planRow, error: planErr } = await supabase
     .from("ad_plans")
     .insert({
@@ -328,7 +335,7 @@ export async function createPlanForEvent(event: EventRow): Promise<{
       // Inherit the event's marketing budget so the plan opens with a
       // working total instead of "—". Null when the event leaves it blank;
       // the user can set/override it directly on the plan header.
-      total_budget: event.budget_marketing ?? null,
+      total_budget: initialTotalBudget,
     })
     .select("*")
     .single();
@@ -385,6 +392,29 @@ export async function updatePlan(
   patch: AdPlanPatch,
 ): Promise<AdPlan> {
   const supabase = createClient();
+
+  if ("total_budget" in patch) {
+    const { data: planRow, error: planReadErr } = await supabase
+      .from("ad_plans")
+      .select("event_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (planReadErr) {
+      throw new Error(planReadErr.message);
+    }
+    if (planRow?.event_id) {
+      const { data: ev } = await supabase
+        .from("events")
+        .select("total_marketing_budget")
+        .eq("id", planRow.event_id as string)
+        .maybeSingle();
+      assertPaidMediaWithinTotalMarketing(
+        patch.total_budget as number | null,
+        ev?.total_marketing_budget as number | null,
+      );
+    }
+  }
+
   const { data, error } = await supabase
     .from("ad_plans")
     .update(patch)
@@ -499,7 +529,7 @@ export async function resyncPlanFromEvent(
   const { data: eventRow, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, event_date, announcement_at, presale_at, general_sale_at, budget_marketing, capacity",
+      "id, event_date, announcement_at, presale_at, general_sale_at, budget_marketing, total_marketing_budget, capacity",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -525,6 +555,7 @@ export async function resyncPlanFromEvent(
     | "presale_at"
     | "general_sale_at"
     | "budget_marketing"
+    | "total_marketing_budget"
     | "capacity"
   >;
 
@@ -533,6 +564,10 @@ export async function resyncPlanFromEvent(
   // leaves the field blank — matches the spec's "(if set)" guard.
   const planPatch: AdPlanPatch = {};
   if (event.budget_marketing != null) {
+    assertPaidMediaWithinTotalMarketing(
+      event.budget_marketing,
+      event.total_marketing_budget,
+    );
     planPatch.total_budget = event.budget_marketing;
   }
   if (event.capacity != null) {
