@@ -497,6 +497,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         ticketsSold: event.ticketsSold,
         ticketsSoldSource: event.ticketsSoldSource,
         ticketsSoldAsOf: event.ticketsSoldAsOf,
+        capacity: event.capacity,
       }}
       meta={metaPayload}
       tiktok={tiktokRow}
