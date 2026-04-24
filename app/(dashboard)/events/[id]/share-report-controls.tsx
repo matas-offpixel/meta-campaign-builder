@@ -14,17 +14,21 @@ interface ShareRow {
   // match the regenerated Database row type.
   event_id: string | null;
   enabled: boolean;
+  /** When false, public `/share/report/[token]` is view-only for spend + budget writes. */
+  can_edit: boolean;
   expires_at: string | null;
   view_count: number;
   last_viewed_at: string | null;
   created_at: string;
 }
 
+type ShareSeed = Omit<ShareRow, "can_edit"> & { can_edit?: boolean };
+
 interface Props {
   eventId: string;
   /** Pre-fetched share row (or null when none exists). Server-rendered so
    * the toggle has the correct initial state with no client round-trip. */
-  initialShare: ShareRow | null;
+  initialShare: ShareSeed | null;
 }
 
 /**
@@ -35,10 +39,17 @@ interface Props {
  * components/dashboard/* tree because it's exclusive to the event detail
  * Reporting tab.
  */
+function toShareRow(seed: ShareSeed | null): ShareRow | null {
+  if (seed == null) return null;
+  return { ...seed, can_edit: seed.can_edit !== false };
+}
+
 export function ShareReportControls({ eventId, initialShare }: Props) {
-  const [share, setShare] = useState<ShareRow | null>(initialShare);
+  const [share, setShare] = useState<ShareRow | null>(() =>
+    toShareRow(initialShare),
+  );
   const [working, setWorking] = useState<
-    null | "toggle" | "regen" | "expiry"
+    null | "toggle" | "regen" | "expiry" | "can_edit"
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -51,6 +62,33 @@ export function ShareReportControls({ eventId, initialShare }: Props) {
       setOrigin(window.location.origin);
     }
   }, []);
+
+  useEffect(() => {
+    const next = toShareRow(initialShare);
+    setShare((prev) => {
+      if (next == null) return null;
+      if (
+        prev &&
+        prev.token === next.token &&
+        prev.enabled === next.enabled &&
+        prev.can_edit === next.can_edit &&
+        prev.expires_at === next.expires_at &&
+        prev.view_count === next.view_count &&
+        prev.last_viewed_at === next.last_viewed_at
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [
+    initialShare,
+    initialShare?.token,
+    initialShare?.enabled,
+    initialShare?.can_edit,
+    initialShare?.expires_at,
+    initialShare?.view_count,
+    initialShare?.last_viewed_at,
+  ]);
 
   const enabled = share?.enabled ?? false;
   const url = share
@@ -68,12 +106,12 @@ export function ShareReportControls({ eventId, initialShare }: Props) {
           body: JSON.stringify({ eventId }),
         });
         const json = (await res.json()) as
-          | { share: ShareRow }
+          | { share: ShareSeed }
           | { error: string };
         if (!res.ok || "error" in json) {
           throw new Error("error" in json ? json.error : "Failed");
         }
-        setShare(json.share);
+        setShare(toShareRow(json.share));
         return;
       }
 
@@ -127,12 +165,40 @@ export function ShareReportControls({ eventId, initialShare }: Props) {
         body: JSON.stringify({ token: share.token, action: "regenerate" }),
       });
       const json = (await res.json()) as
-        | { share: ShareRow }
+        | { share: ShareSeed }
         | { error: string };
       if (!res.ok || "error" in json) {
         throw new Error("error" in json ? json.error : "Failed");
       }
-      setShare(json.share);
+      setShare(toShareRow(json.share));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  const handleCanEditChange = async (next: boolean) => {
+    if (!share) return;
+    setWorking("can_edit");
+    setError(null);
+    try {
+      const res = await fetch("/api/share/report", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: share.token,
+          action: "set_can_edit",
+          canEdit: next,
+        }),
+      });
+      const json = (await res.json()) as
+        | { share: ShareSeed }
+        | { error: string };
+      if (!res.ok || "error" in json) {
+        throw new Error("error" in json ? json.error : "Failed");
+      }
+      setShare(toShareRow(json.share));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -178,8 +244,8 @@ export function ShareReportControls({ eventId, initialShare }: Props) {
             </span>
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Generate a read-only report URL you can send to clients. No login
-            required to view.
+            Generate a client-facing report URL. No login required to view;
+            optional write access for additional spend is controlled below.
           </p>
         </div>
         <Toggle
@@ -197,6 +263,26 @@ export function ShareReportControls({ eventId, initialShare }: Props) {
 
       {share && enabled && (
         <div className="mt-5 space-y-4">
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-muted/20 px-3 py-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-border"
+              checked={share.can_edit}
+              disabled={working === "can_edit"}
+              onChange={(e) => void handleCanEditChange(e.target.checked)}
+            />
+            <span className="min-w-0">
+              <span className="font-medium text-foreground">
+                Allow edits (spend + budget)
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                When on, visitors with the link can add or change additional
+                spend on the public report. When off, the link is view-only for
+                those actions.
+              </span>
+            </span>
+          </label>
+
           <div className="flex items-center gap-2">
             <Input
               readOnly

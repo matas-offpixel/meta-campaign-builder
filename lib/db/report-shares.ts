@@ -71,9 +71,15 @@ export async function createShare(input: {
   eventId: string;
   userId: string;
   expiresAt?: string | null;
+  /**
+   * When false, the share URL is view-only (no additional spend CRUD etc.).
+   * Defaults true so client-facing event links match PR #104/#108 intent.
+   */
+  canEdit?: boolean;
 }): Promise<ReportShareRow> {
   const supabase = await createClient();
   const token = generateShareToken();
+  const canEdit = input.canEdit !== false;
 
   const { data, error } = await supabase
     .from("report_shares")
@@ -83,6 +89,7 @@ export async function createShare(input: {
       user_id: input.userId,
       enabled: true,
       expires_at: input.expiresAt ?? null,
+      can_edit: canEdit,
     })
     .select("*")
     .single();
@@ -199,6 +206,26 @@ export async function setShareExpiry(
 }
 
 /**
+ * Toggle whether the share token allows mutating event-scoped data from
+ * the public URL (additional spend, etc.). Viewing the report stays
+ * allowed when `can_edit` is false.
+ */
+export async function setShareCanEdit(
+  token: string,
+  canEdit: boolean,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("report_shares")
+    .update({ can_edit: canEdit })
+    .eq("token", token);
+  if (error) {
+    console.warn("[report-shares setShareCanEdit] error:", error.message);
+    throw error;
+  }
+}
+
+/**
  * Rotate a share's token. Implemented as delete + create so the previous
  * token returns 404 immediately (the dashboard explicitly warns this
  * invalidates any link already in circulation).
@@ -213,6 +240,23 @@ export async function regenerateShareToken(input: {
   expiresAt?: string | null;
 }): Promise<ReportShareRow> {
   const supabase = await createClient();
+  const { data: prior, error: readErr } = await supabase
+    .from("report_shares")
+    .select("can_edit")
+    .eq("token", input.oldToken)
+    .maybeSingle();
+  if (readErr) {
+    console.warn(
+      "[report-shares regenerateShareToken] read error:",
+      readErr.message,
+    );
+    throw readErr;
+  }
+  if (!prior) {
+    throw new Error("Share row not found for regenerate");
+  }
+  const preserveCanEdit = prior.can_edit !== false;
+
   const { error: delErr } = await supabase
     .from("report_shares")
     .delete()
@@ -228,6 +272,7 @@ export async function regenerateShareToken(input: {
     eventId: input.eventId,
     userId: input.userId,
     expiresAt: input.expiresAt,
+    canEdit: preserveCanEdit,
   });
 }
 

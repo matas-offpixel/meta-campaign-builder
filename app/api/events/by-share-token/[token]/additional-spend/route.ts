@@ -47,7 +47,9 @@ export async function GET(
     );
   }
 
-  const scope = await assertEventShareTokenWritable(token, supabase);
+  const scope = await assertEventShareTokenWritable(token, supabase, {
+    requireCanEdit: false,
+  });
   if (!scope.ok) {
     return NextResponse.json(scope.body, { status: scope.status });
   }

@@ -105,6 +105,7 @@ interface Props {
     // the row type from the regenerated database.types.ts allows null.
     event_id: string | null;
     enabled: boolean;
+    can_edit: boolean;
     expires_at: string | null;
     view_count: number;
     last_viewed_at: string | null;

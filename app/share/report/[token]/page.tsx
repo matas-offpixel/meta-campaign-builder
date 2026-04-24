@@ -209,7 +209,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   if (resolved.share.scope !== "event") {
     notFound();
   }
-  const { event_id, user_id } = resolved.share;
+  const { event_id, user_id, can_edit: shareCanEdit } = resolved.share;
 
   // Fan-out: event lookup + owner token + plan-side tickets cumulative
   // + latest TikTok manual report in parallel. Plan-tickets reuses the
@@ -537,7 +537,11 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={
-        <ShareAdditionalSpendSection shareToken={token} eventId={event_id} />
+        <ShareAdditionalSpendSection
+          shareToken={token}
+          eventId={event_id}
+          readOnly={!shareCanEdit}
+        />
       }
     />
   );
