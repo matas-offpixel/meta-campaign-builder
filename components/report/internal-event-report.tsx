@@ -19,6 +19,7 @@ import type {
   DatePreset,
 } from "@/lib/insights/types";
 
+import { ADDITIONAL_SPEND_CHANGED } from "@/components/dashboard/events/additional-spend-card";
 import {
   EventReportView,
   type EventReportViewEvent,
@@ -186,33 +187,40 @@ export function InternalEventReport({
     };
   }, [eventId, datePreset, since, until, onInsightsPayload]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/events/${encodeURIComponent(eventId)}/additional-spend`, {
-      cache: "no-store",
-    })
-      .then((res) => res.json())
-      .then(
-        (json: {
-          ok?: boolean;
-          entries?: Array<{ date: string; amount: number | string }>;
-        }) => {
-          if (cancelled || !json.ok || !Array.isArray(json.entries)) return;
-          setAdditionalSpendEntries(
-            json.entries.map((e) => ({
-              date: e.date,
-              amount: Number(e.amount),
-            })),
-          );
-        },
-      )
-      .catch(() => {
-        if (!cancelled) setAdditionalSpendEntries([]);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const loadAdditionalSpendEntries = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(eventId)}/additional-spend`,
+        { cache: "no-store" },
+      );
+      const json = (await res.json()) as {
+        ok?: boolean;
+        entries?: Array<{ date: string; amount: number | string }>;
+      };
+      if (!json.ok || !Array.isArray(json.entries)) return;
+      setAdditionalSpendEntries(
+        json.entries.map((e) => ({
+          date: e.date,
+          amount: Number(e.amount),
+        })),
+      );
+    } catch {
+      setAdditionalSpendEntries([]);
+    }
   }, [eventId]);
+
+  useEffect(() => {
+    void loadAdditionalSpendEntries();
+  }, [loadAdditionalSpendEntries]);
+
+  useEffect(() => {
+    const onChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ eventId?: string }>).detail;
+      if (detail?.eventId === eventId) void loadAdditionalSpendEntries();
+    };
+    window.addEventListener(ADDITIONAL_SPEND_CHANGED, onChanged);
+    return () => window.removeEventListener(ADDITIONAL_SPEND_CHANGED, onChanged);
+  }, [eventId, loadAdditionalSpendEntries]);
 
   useEffect(() => {
     void loadRollupTimeline();

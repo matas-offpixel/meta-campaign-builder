@@ -27,8 +27,6 @@ import {
   TikTokReportBlock,
   type TikTokReportBlockData,
 } from "./tiktok-report-block";
-import { ShareTotalMarketingBudgetLine } from "./share-total-marketing-budget-line";
-
 /**
  * components/report/event-report-view.tsx
  *
@@ -56,11 +54,6 @@ export interface EventReportViewEvent {
   eventDate: string | null;
   eventStartAt: string | null;
   paidMediaBudget: number | null;
-  /**
-   * Optional cap across paid media + additional spend. When null/omitted,
-   * reporting uses paid media budget only (single card).
-   */
-  totalMarketingBudget?: number | null;
   ticketsSold: number | null;
   /**
    * Where `ticketsSold` came from:
@@ -227,11 +220,6 @@ interface Props {
    * public share page for token-scoped additional spend CRUD.
    */
   additionalSpendSlot?: ReactNode;
-  /**
-   * Share URL only: refresh the page after token-scoped PATCHes (total
-   * marketing budget, additional spend) so RSC props stay in sync.
-   */
-  onShareReportDataMutated?: () => void;
 }
 
 export function EventReportView({
@@ -251,7 +239,6 @@ export function EventReportView({
   additionalSpendEntries = NO_ADDITIONAL_SPEND,
   sellOutPacing = null,
   additionalSpendSlot,
-  onShareReportDataMutated,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -261,11 +248,6 @@ export function EventReportView({
 
   const daysUntil = computeDaysUntil(event.eventDate);
   const paidMediaCap = event.paidMediaBudget ?? 0;
-  const totalMarketingCapRaw = event.totalMarketingBudget ?? null;
-  const totalMarketingCapEffective =
-    totalMarketingCapRaw != null && totalMarketingCapRaw > 0
-      ? totalMarketingCapRaw
-      : null;
   const windowDays = resolvePresetToDays(datePreset, customRange);
   const windowDaySet = windowDays === null ? null : new Set(windowDays);
   const otherSpendWindow = sumAdditionalSpendAmounts(
@@ -277,36 +259,17 @@ export function EventReportView({
     meta != null ? metaSpend + otherSpendWindow : metaSpend;
   /** Burn against paid media budget only (Meta in-window). */
   const paidMediaSpent = metaSpend;
-  const singleBudgetCardMode = totalMarketingCapEffective === null;
-  const spentForPaidCard = singleBudgetCardMode
-    ? spentTotalAll
-    : paidMediaSpent;
-  const remainingPaidMedia = Math.max(0, paidMediaCap - spentForPaidCard);
+  const remainingPaidMedia = Math.max(0, paidMediaCap - paidMediaSpent);
   const paidMediaBudgetUsedPct =
     paidMediaCap > 0 && meta
-      ? Math.min(100, (spentForPaidCard / paidMediaCap) * 100)
-      : null;
-  const remainingTotalMarketing =
-    totalMarketingCapEffective != null
-      ? Math.max(0, totalMarketingCapEffective - spentTotalAll)
-      : null;
-  const totalMarketingUsedPct =
-    totalMarketingCapEffective != null && totalMarketingCapEffective > 0 && meta
-      ? Math.min(100, (spentTotalAll / totalMarketingCapEffective) * 100)
+      ? Math.min(100, (paidMediaSpent / paidMediaCap) * 100)
       : null;
 
-  const additionalMarketingAllocationAmount =
-    totalMarketingCapEffective != null
-      ? totalMarketingCapEffective - paidMediaCap
-      : null;
   const otherSpendLifetime = sumAdditionalSpendAmounts(
     additionalSpendEntries,
     null,
   );
-  const additionalSpendOverAllocation =
-    additionalMarketingAllocationAmount != null &&
-    additionalMarketingAllocationAmount >= 0 &&
-    otherSpendLifetime > additionalMarketingAllocationAmount + 1e-6;
+  const totalMarketingAllocated = paidMediaCap + otherSpendLifetime;
 
   // Tickets sold + cost per ticket. Three-way resolution:
   //
@@ -354,9 +317,6 @@ export function EventReportView({
   // doesn't see a stale Meta timestamp on a freshly-imported TikTok
   // snapshot, or vice versa.
   const lastUpdatedIso = pickLastUpdated(meta, tiktok);
-
-  const shareTokenForMutations =
-    creativesSource.kind === "share" ? creativesSource.token : null;
 
   // Embedded mode skips the standalone chrome (the dashboard's
   // PageHeader already shows event name + venue + date) and renders the
@@ -410,28 +370,26 @@ export function EventReportView({
 
         {/* Top row — event-level facts */}
         <section
-          className={`grid grid-cols-1 gap-3 ${
-            !meta
-              ? totalMarketingCapEffective != null
-                ? "sm:grid-cols-3"
-                : "sm:grid-cols-2"
-              : ""
-          }`}
+          className={`grid grid-cols-1 gap-3 ${!meta ? "sm:grid-cols-3" : ""}`}
         >
           <StatCard
             label="Days until event"
             value={daysUntil != null ? daysUntilLabel(daysUntil) : "—"}
             sub={event.eventDate ? fmtDate(event.eventDate) : null}
           />
-          {!meta && totalMarketingCapEffective != null ? (
+          {!meta ? (
             <StatCard
               label="Total marketing budget"
               value={
-                totalMarketingCapEffective > 0
-                  ? fmtCurrency(totalMarketingCapEffective)
+                totalMarketingAllocated > 0
+                  ? fmtCurrency(totalMarketingAllocated)
                   : "—"
               }
-              sub={null}
+              sub={
+                paidMediaCap > 0 || otherSpendLifetime > 0
+                  ? `${fmtCurrency(paidMediaCap)} Paid media + ${fmtCurrency(otherSpendLifetime)} Additional`
+                  : null
+              }
             />
           ) : null}
           {!meta ? (
@@ -480,20 +438,12 @@ export function EventReportView({
             meta={meta}
             event={event}
             paidMediaCap={paidMediaCap}
-            totalMarketingCap={totalMarketingCapEffective}
-            singleBudgetCardMode={singleBudgetCardMode}
             metaSpend={metaSpend}
-            otherSpendWindow={otherSpendWindow}
-            spentTotalAll={spentTotalAll}
             paidMediaSpent={paidMediaSpent}
             remainingPaidMedia={remainingPaidMedia}
-            remainingTotalMarketing={remainingTotalMarketing}
             paidMediaBudgetUsedPct={paidMediaBudgetUsedPct}
-            totalMarketingUsedPct={totalMarketingUsedPct}
-            additionalMarketingAllocationAmount={
-              additionalMarketingAllocationAmount
-            }
-            additionalSpendOverAllocation={additionalSpendOverAllocation}
+            totalMarketingAllocated={totalMarketingAllocated}
+            otherSpendLifetime={otherSpendLifetime}
             ticketsSold={ticketsSold}
             capacity={capacity}
             sellThroughPct={sellThroughPct}
@@ -508,8 +458,6 @@ export function EventReportView({
             lastUpdatedIso={lastUpdatedIso}
             onManualRefresh={onManualRefresh}
             additionalSpendSlot={additionalSpendSlot}
-            shareToken={shareTokenForMutations}
-            onShareDataMutated={onShareReportDataMutated}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -564,22 +512,13 @@ interface MetaReportBlockProps {
   meta: EventInsightsPayload;
   event: EventReportViewEvent;
   paidMediaCap: number;
-  /** When non-null, first card is total marketing (Meta + other vs this cap). */
-  totalMarketingCap: number | null;
-  /** True when totalMarketingCap is null — paid media card includes other spend in "Spent". */
-  singleBudgetCardMode: boolean;
   metaSpend: number;
-  otherSpendWindow: number;
-  spentTotalAll: number;
   paidMediaSpent: number;
   remainingPaidMedia: number;
-  remainingTotalMarketing: number | null;
   paidMediaBudgetUsedPct: number | null;
-  totalMarketingUsedPct: number | null;
-  /** total marketing cap − paid media cap; null in single-card mode. */
-  additionalMarketingAllocationAmount: number | null;
-  /** Lifetime additional spend exceeds derived allocation bucket. */
-  additionalSpendOverAllocation: boolean;
+  /** Paid media budget + lifetime sum of additional spend entry amounts (not stored). */
+  totalMarketingAllocated: number;
+  otherSpendLifetime: number;
   ticketsSold: number | null;
   capacity: number | null;
   sellThroughPct: number | null;
@@ -607,26 +546,18 @@ interface MetaReportBlockProps {
   onManualRefresh?: () => Promise<void>;
   /** Below campaign performance cards, above Meta campaign stats. */
   additionalSpendSlot?: React.ReactNode;
-  shareToken?: string | null;
-  onShareDataMutated?: () => void;
 }
 
 function MetaReportBlock({
   meta,
   event,
   paidMediaCap,
-  totalMarketingCap,
-  singleBudgetCardMode,
   metaSpend,
-  otherSpendWindow,
-  spentTotalAll,
   paidMediaSpent,
   remainingPaidMedia,
-  remainingTotalMarketing,
   paidMediaBudgetUsedPct,
-  totalMarketingUsedPct,
-  additionalMarketingAllocationAmount,
-  additionalSpendOverAllocation,
+  totalMarketingAllocated,
+  otherSpendLifetime,
   ticketsSold,
   capacity,
   sellThroughPct,
@@ -641,8 +572,6 @@ function MetaReportBlock({
   lastUpdatedIso,
   onManualRefresh,
   additionalSpendSlot,
-  shareToken,
-  onShareDataMutated,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -652,90 +581,37 @@ function MetaReportBlock({
       ? Math.round(remainingPaidMedia / daysUntilEventUtc)
       : null;
 
-  const showTotalMarketingCard =
-    totalMarketingCap != null && totalMarketingCap > 0;
-
-  const paidSpentDisplay = singleBudgetCardMode ? spentTotalAll : paidMediaSpent;
+  const paidSpentDisplay = paidMediaSpent;
 
   return (
     <>
       <Section title="Campaign performance">
         <div
-          className={`grid grid-cols-1 gap-3 ${
-            showTotalMarketingCard
-              ? "lg:grid-cols-3"
-              : "sm:grid-cols-2"
-          } ${isRefreshing ? "opacity-60 transition-opacity" : ""}`}
+          className={`grid grid-cols-1 gap-3 lg:grid-cols-3 ${
+            isRefreshing ? "opacity-60 transition-opacity" : ""
+          }`}
         >
-          {showTotalMarketingCard ? (
-            <div className="rounded-md border border-border bg-card p-4">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Total marketing
-              </p>
-              <div className="mt-3 space-y-2 text-foreground">
-                {shareToken ? (
-                  <ShareTotalMarketingBudgetLine
-                    shareToken={shareToken}
-                    totalMarketing={totalMarketingCap}
-                    paidMediaCap={paidMediaCap}
-                    onMutated={onShareDataMutated ?? (() => undefined)}
-                  />
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Total marketing
+            </p>
+            <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {paidMediaCap > 0 || otherSpendLifetime > 0 ? (
+                  <>
+                    {fmtCurrencyCompact(totalMarketingAllocated)}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {" "}
+                      · {fmtCurrencyCompact(paidMediaCap)} Paid media +{" "}
+                      {fmtCurrencyCompact(otherSpendLifetime)} Additional
+                    </span>
+                  </>
                 ) : (
-                  <p className="font-heading text-xl tracking-wide tabular-nums">
-                    <>
-                      {fmtCurrencyCompact(totalMarketingCap)}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        Allocated (total marketing)
-                      </span>
-                    </>
-                  </p>
+                  <span className="text-muted-foreground">—</span>
                 )}
-                <p className="text-sm tabular-nums text-muted-foreground">
-                  {fmtCurrencyCompact(paidMediaCap)} Paid media
-                </p>
-                <p className="text-sm tabular-nums text-muted-foreground">
-                  {fmtCurrencyCompact(
-                    Math.max(0, additionalMarketingAllocationAmount ?? 0),
-                  )}{" "}
-                  Additional marketing (allocation)
-                </p>
-                <p
-                  className={`font-heading text-xl tracking-wide tabular-nums ${
-                    additionalSpendOverAllocation ? "text-destructive" : ""
-                  }`}
-                >
-                  {spentTotalAll > 0 || totalMarketingCap > 0 ? (
-                    <>
-                      {fmtCurrencyCompact(spentTotalAll)} Spent (Meta{" "}
-                      {fmtCurrencyCompact(metaSpend)} + Other{" "}
-                      {fmtCurrencyCompact(otherSpendWindow)})
-                      {remainingTotalMarketing != null ? (
-                        <span className="text-sm font-normal text-muted-foreground">
-                          {" "}
-                          ({fmtCurrencyCompact(remainingTotalMarketing)}{" "}
-                          remaining)
-                        </span>
-                      ) : null}
-                      {additionalSpendOverAllocation ? (
-                        <span className="ml-2 inline-block rounded border border-destructive/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
-                          Over allocation
-                        </span>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </p>
-                <p className="font-heading text-xl tracking-wide tabular-nums">
-                  {totalMarketingUsedPct != null ? (
-                    <>{totalMarketingUsedPct.toFixed(0)}% used</>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </p>
-              </div>
+              </p>
             </div>
-          ) : null}
+          </div>
 
           <div className="rounded-md border border-border bg-card p-4">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -772,12 +648,7 @@ function MetaReportBlock({
                   <span className="text-muted-foreground">—</span>
                 )}
               </p>
-              {singleBudgetCardMode && otherSpendWindow > 0 ? (
-                <p className="text-[11px] text-muted-foreground tabular-nums">
-                  Meta {fmtCurrencyCompact(metaSpend)} · Other{" "}
-                  {fmtCurrencyCompact(otherSpendWindow)}
-                </p>
-              ) : !singleBudgetCardMode && metaSpend > 0 ? (
+              {metaSpend > 0 ? (
                 <p className="text-[11px] text-muted-foreground tabular-nums">
                   Meta spend (this window)
                 </p>

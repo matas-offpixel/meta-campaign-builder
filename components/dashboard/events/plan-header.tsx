@@ -36,23 +36,19 @@ const INTEGER_INPUT_RE = /^\d*$/;
  *    parent owns the days mirror + the grid ref needed to flush pending
  *    per-cell saves first.
  *  - debounced inline edit of total_budget, ticket_target, landing_page_url
- *    (plan) plus total_marketing_budget on the parent event.
- *    Local string state is the canonical UI value; we only reseed from
- *    the prop when no pending timer is in flight for that field, so a
+ *    (plan). Local string state is the canonical UI value; we only reseed
+ *    from the prop when no pending timer is in flight for that field, so a
  *    keystroke is never stomped by the persisted echo.
  */
 export function PlanHeader({
   plan,
   daysCount,
   eventBudget,
-  eventTotalMarketingBudget,
+  additionalSpendTotal,
   onApplyEvenSpread,
   onApplySmartSpread,
   onResync,
   onPatch,
-  onPatchEvent,
-  paidBudgetError = null,
-  totalBudgetError = null,
 }: {
   plan: AdPlan;
   daysCount: number;
@@ -62,8 +58,8 @@ export function PlanHeader({
    * does — covers plans created before auto-populate was introduced.
    */
   eventBudget: number | null;
-  /** Parent event `total_marketing_budget` (all channels incl. PR). */
-  eventTotalMarketingBudget: number | null;
+  /** Sum of additional spend entry amounts (off-Meta actuals). */
+  additionalSpendTotal: number;
   /** Resolves once the bulk save (and any quiesce wait) has settled. */
   onApplyEvenSpread: () => Promise<void>;
   /**
@@ -87,13 +83,6 @@ export function PlanHeader({
   onResync: () => Promise<void>;
   /** Called by the inline-edit fields. Parent persists via updatePlan. */
   onPatch: (patch: AdPlanPatch) => Promise<void>;
-  /** Persists event-only fields (e.g. total marketing budget). */
-  onPatchEvent: (patch: {
-    total_marketing_budget: number | null;
-  }) => Promise<void>;
-  /** Inline validation — paid media vs total marketing cap. */
-  paidBudgetError?: string | null;
-  totalBudgetError?: string | null;
 }) {
   const [phase, setPhase] = useState<"idle" | "confirming" | "working">("idle");
   const [smartPhase, setSmartPhase] = useState<
@@ -103,29 +92,9 @@ export function PlanHeader({
     "idle" | "confirming" | "working"
   >("idle");
   const [pulling, setPulling] = useState(false);
-  const [paidLive, setPaidLive] = useState<number | null | undefined>(
-    undefined,
-  );
-  const [totalLive, setTotalLive] = useState<number | null | undefined>(
-    undefined,
-  );
 
-  useEffect(() => {
-    setPaidLive(undefined);
-  }, [plan.total_budget]);
-  useEffect(() => {
-    setTotalLive(undefined);
-  }, [eventTotalMarketingBudget]);
-
-  const effectivePaidForAlloc =
-    paidLive !== undefined ? paidLive : (plan.total_budget ?? null);
-  const effectiveTotalForAlloc =
-    totalLive !== undefined ? totalLive : eventTotalMarketingBudget;
-  const showAllocationRow = effectiveTotalForAlloc != null;
-  const allocationAmount =
-    showAllocationRow && effectiveTotalForAlloc != null
-      ? effectiveTotalForAlloc - (effectivePaidForAlloc ?? 0)
-      : null;
+  const paidMediaNum = plan.total_budget ?? 0;
+  const computedTotalMarketing = paidMediaNum + additionalSpendTotal;
 
   const hasBudget = plan.total_budget != null && plan.total_budget > 0;
   const hasDays = daysCount > 0;
@@ -379,15 +348,13 @@ export function PlanHeader({
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-x-6 gap-y-3 text-sm">
+      <dl className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-3 text-sm">
         <NumericField
           label="Paid media budget"
           prefix="£"
           value={plan.total_budget}
           inputRe={MONEY_INPUT_RE}
           onCommit={(n) => onPatch({ total_budget: n })}
-          error={paidBudgetError}
-          onPreviewNumber={(n) => setPaidLive(n)}
         />
         <NumericField
           label="Pre-plan spend"
@@ -396,16 +363,6 @@ export function PlanHeader({
           inputRe={MONEY_INPUT_RE}
           onCommit={(n) => onPatch({ legacy_spend: n })}
           help="Ad spend from before this plan's start date. Rolls into total spend for planned vs actual comparison."
-        />
-        <NumericField
-          label="Total marketing budget"
-          prefix="£"
-          value={eventTotalMarketingBudget}
-          inputRe={MONEY_INPUT_RE}
-          onCommit={(n) => onPatchEvent({ total_marketing_budget: n })}
-          help="All channels incl. PR / influencers. Leave blank to use paid media budget only."
-          error={totalBudgetError}
-          onPreviewNumber={(n) => setTotalLive(n)}
         />
         <NumericField
           label="Ticket target"
@@ -419,17 +376,19 @@ export function PlanHeader({
           onCommit={(v) => onPatch({ landing_page_url: v })}
         />
       </dl>
-      {showAllocationRow ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          Additional marketing allocation:{" "}
-          <span className="font-medium text-foreground tabular-nums">
-            {fmtCurrency(Math.max(0, allocationAmount ?? 0))}
-          </span>{" "}
-          <span className="text-muted-foreground">
-            (PR, influencers, etc.)
-          </span>
-        </p>
-      ) : null}
+      <p className="mt-3 text-sm text-muted-foreground">
+        Total marketing budget:{" "}
+        <span className="font-medium text-foreground tabular-nums">
+          {fmtCurrency(computedTotalMarketing)}
+        </span>{" "}
+        <span className="text-muted-foreground">
+          (Paid media{" "}
+          {plan.total_budget != null
+            ? fmtCurrency(plan.total_budget)
+            : "—"}{" "}
+          + Additional spend {fmtCurrency(additionalSpendTotal)})
+        </span>
+      </p>
     </section>
   );
 }

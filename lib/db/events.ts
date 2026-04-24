@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
 import { regenerateAutoMoments } from "@/lib/db/event-key-moments";
-import { assertPaidMediaWithinTotalMarketing } from "@/lib/db/marketing-budget-validation";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -317,35 +316,6 @@ export async function updateEventRow(
       .eq("id", id)
       .maybeSingle();
     prevEventDate = (prev?.event_date as string | null) ?? null;
-  }
-
-  const { data: budgetRow } = await supabase
-    .from("events")
-    .select("budget_marketing, total_marketing_budget")
-    .eq("id", id)
-    .maybeSingle();
-  if (budgetRow) {
-    const mergedTotal =
-      "total_marketing_budget" in patch
-        ? (patch.total_marketing_budget as number | null)
-        : (budgetRow.total_marketing_budget as number | null);
-    const mergedBudgetM =
-      "budget_marketing" in patch
-        ? (patch.budget_marketing as number | null)
-        : (budgetRow.budget_marketing as number | null);
-    const { data: planR } = await supabase
-      .from("ad_plans")
-      .select("total_budget")
-      .eq("event_id", id)
-      .neq("status", "archived")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const paidCanonical =
-      planR != null
-        ? ((planR.total_budget as number | null) ?? mergedBudgetM)
-        : mergedBudgetM;
-    assertPaidMediaWithinTotalMarketing(paidCanonical, mergedTotal);
   }
 
   const { data, error } = await supabase
