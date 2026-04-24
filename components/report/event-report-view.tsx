@@ -288,6 +288,19 @@ export function EventReportView({
       ? Math.min(100, (spentTotalAll / totalMarketingCapEffective) * 100)
       : null;
 
+  const additionalMarketingAllocationAmount =
+    totalMarketingCapEffective != null
+      ? totalMarketingCapEffective - paidMediaCap
+      : null;
+  const otherSpendLifetime = sumAdditionalSpendAmounts(
+    additionalSpendEntries,
+    null,
+  );
+  const additionalSpendOverAllocation =
+    additionalMarketingAllocationAmount != null &&
+    additionalMarketingAllocationAmount >= 0 &&
+    otherSpendLifetime > additionalMarketingAllocationAmount + 1e-6;
+
   // Tickets sold + cost per ticket. Three-way resolution:
   //
   //   1. `meta.ticketsSoldInWindow` (PR #56 #3) — the rollup-summed
@@ -463,6 +476,10 @@ export function EventReportView({
             remainingTotalMarketing={remainingTotalMarketing}
             paidMediaBudgetUsedPct={paidMediaBudgetUsedPct}
             totalMarketingUsedPct={totalMarketingUsedPct}
+            additionalMarketingAllocationAmount={
+              additionalMarketingAllocationAmount
+            }
+            additionalSpendOverAllocation={additionalSpendOverAllocation}
             ticketsSold={ticketsSold}
             capacity={capacity}
             sellThroughPct={sellThroughPct}
@@ -544,6 +561,10 @@ interface MetaReportBlockProps {
   remainingTotalMarketing: number | null;
   paidMediaBudgetUsedPct: number | null;
   totalMarketingUsedPct: number | null;
+  /** total marketing cap − paid media cap; null in single-card mode. */
+  additionalMarketingAllocationAmount: number | null;
+  /** Lifetime additional spend exceeds derived allocation bucket. */
+  additionalSpendOverAllocation: boolean;
   ticketsSold: number | null;
   capacity: number | null;
   sellThroughPct: number | null;
@@ -585,6 +606,8 @@ function MetaReportBlock({
   remainingTotalMarketing,
   paidMediaBudgetUsedPct,
   totalMarketingUsedPct,
+  additionalMarketingAllocationAmount,
+  additionalSpendOverAllocation,
   ticketsSold,
   capacity,
   sellThroughPct,
@@ -636,13 +659,25 @@ function MetaReportBlock({
                     </span>
                   </>
                 </p>
-                <p className="font-heading text-xl tracking-wide tabular-nums">
+                <p className="text-sm tabular-nums text-muted-foreground">
+                  {fmtCurrencyCompact(paidMediaCap)} Paid media
+                </p>
+                <p className="text-sm tabular-nums text-muted-foreground">
+                  {fmtCurrencyCompact(
+                    Math.max(0, additionalMarketingAllocationAmount ?? 0),
+                  )}{" "}
+                  Additional marketing (allocation)
+                </p>
+                <p
+                  className={`font-heading text-xl tracking-wide tabular-nums ${
+                    additionalSpendOverAllocation ? "text-destructive" : ""
+                  }`}
+                >
                   {spentTotalAll > 0 || totalMarketingCap > 0 ? (
                     <>
-                      {fmtCurrencyCompact(spentTotalAll)}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        Spent
-                      </span>
+                      {fmtCurrencyCompact(spentTotalAll)} Spent (Meta{" "}
+                      {fmtCurrencyCompact(metaSpend)} + Other{" "}
+                      {fmtCurrencyCompact(otherSpendWindow)})
                       {remainingTotalMarketing != null ? (
                         <span className="text-sm font-normal text-muted-foreground">
                           {" "}
@@ -650,17 +685,16 @@ function MetaReportBlock({
                           remaining)
                         </span>
                       ) : null}
+                      {additionalSpendOverAllocation ? (
+                        <span className="ml-2 inline-block rounded border border-destructive/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
+                          Over allocation
+                        </span>
+                      ) : null}
                     </>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
                 </p>
-                {metaSpend > 0 || otherSpendWindow > 0 ? (
-                  <p className="text-[11px] text-muted-foreground tabular-nums">
-                    Meta {fmtCurrencyCompact(metaSpend)} · Other{" "}
-                    {fmtCurrencyCompact(otherSpendWindow)}
-                  </p>
-                ) : null}
                 <p className="font-heading text-xl tracking-wide tabular-nums">
                   {totalMarketingUsedPct != null ? (
                     <>{totalMarketingUsedPct.toFixed(0)}% used</>

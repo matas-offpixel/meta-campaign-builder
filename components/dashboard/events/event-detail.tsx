@@ -57,6 +57,7 @@ import {
   type EventLinkedDraft,
   type EventWithClient,
 } from "@/lib/db/events";
+import { computeAdditionalMarketingAllocation } from "@/lib/db/marketing-budget-validation";
 import type { AdPlan, AdPlanDay } from "@/lib/db/ad-plans";
 import type { EventKeyMoment } from "@/lib/db/event-key-moments";
 import type { InvoiceRow, QuoteRow } from "@/lib/types/invoicing";
@@ -475,7 +476,7 @@ export function EventDetail({
               ) : (
                 <MilestoneTimeline event={event} />
               )}
-              <OverviewSection event={event} />
+              <OverviewSection event={event} plan={plan} />
               {!isBrand && (
                 <>
                   <VenueSection event={event} />
@@ -771,7 +772,12 @@ export function EventDetail({
                           venueCountry: event.venue_country,
                           eventDate: event.event_date,
                           eventStartAt: event.event_start_at,
-                          paidMediaBudget: event.budget_marketing,
+                          paidMediaBudget:
+                            plan != null
+                              ? (plan.total_budget ??
+                                event.budget_marketing ??
+                                null)
+                              : (event.budget_marketing ?? null),
                           totalMarketingBudget:
                             event.total_marketing_budget ?? null,
                           ticketsSold: resolvedTicketsSold,
@@ -914,11 +920,25 @@ function BrandCampaignSummary({ event }: { event: EventWithClient }) {
   );
 }
 
-function OverviewSection({ event }: { event: EventWithClient }) {
+function OverviewSection({
+  event,
+  plan,
+}: {
+  event: EventWithClient;
+  plan: AdPlan | null;
+}) {
   return (
     <section className="rounded-md border border-border bg-card p-5">
       <h2 className="font-heading text-base tracking-wide mb-3">Overview</h2>
-      <AdditionalSpendCard eventId={event.id} className="mb-6" />
+      <AdditionalSpendCard
+        eventId={event.id}
+        className="mb-6"
+        additionalMarketingAllocation={computeAdditionalMarketingAllocation(
+          event.total_marketing_budget,
+          plan,
+          event.budget_marketing,
+        )}
+      />
       <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
         <DetailRow
           label="Client"
