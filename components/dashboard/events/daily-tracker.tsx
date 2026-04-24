@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { fmtCurrency } from "@/lib/dashboard/format";
+import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import type {
   TimelineRow,
   TimelineSource,
@@ -457,20 +458,30 @@ export function DailyTracker({
     ? (controlled?.otherSpendByDate ?? EMPTY_OTHER_SPEND_MAP)
     : EMPTY_OTHER_SPEND_MAP;
 
+  /** Hide leading zero-pad days (PR #99 sync window) — display-only; API + DB unchanged. */
+  const trackerDisplayTimeline = useMemo(
+    () =>
+      trimTimelineForTrackerDisplay(effectiveTimeline, {
+        generalSaleCutoff: presale?.cutoffDate ?? null,
+        otherSpendByDate: otherSpendMap,
+      }),
+    [effectiveTimeline, presale?.cutoffDate, otherSpendMap],
+  );
+
   const display = useMemo(
     () =>
       cadence === "weekly"
         ? buildWeeklyDisplayRows({
-            timeline: effectiveTimeline,
+            timeline: trackerDisplayTimeline,
             presale,
             otherSpendByDate: otherSpendMap,
           })
         : buildDisplayRows({
-            timeline: effectiveTimeline,
+            timeline: trackerDisplayTimeline,
             presale,
             otherSpendByDate: otherSpendMap,
           }),
-    [effectiveTimeline, presale, cadence, otherSpendMap],
+    [trackerDisplayTimeline, presale, cadence, otherSpendMap],
   );
 
   // Editor open / target state. Single editor shared by every row to
