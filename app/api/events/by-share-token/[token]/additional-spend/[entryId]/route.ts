@@ -7,6 +7,11 @@ import {
   updateAdditionalSpendEntry,
   type AdditionalSpendCategory,
 } from "@/lib/db/additional-spend";
+import {
+  logAdditionalSpendValidationFailure,
+  parseMoneyAmountInput,
+  parseSpendDateToIso,
+} from "@/lib/additional-spend-parse";
 import { assertEventShareTokenWritable } from "@/lib/db/share-token-event-write-scope";
 
 const CATEGORIES: readonly AdditionalSpendCategory[] = [
@@ -66,13 +71,43 @@ export async function PATCH(
     id: entryId,
     userId: scope.ownerUserId,
   };
-  if ("date" in b && typeof b.date === "string") patch.date = b.date;
-  if ("amount" in b) {
-    const amount = typeof b.amount === "number" ? b.amount : Number(b.amount);
-    if (!Number.isFinite(amount) || amount < 0) {
-      return NextResponse.json({ ok: false, error: "Invalid amount" }, { status: 400 });
+  if ("date" in b && typeof b.date === "string") {
+    const dr = parseSpendDateToIso(b.date);
+    if (!dr.ok) {
+      logAdditionalSpendValidationFailure(
+        "PATCH by-share-token: date",
+        body,
+        { message: dr.message },
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: dr.message,
+          fieldErrors: { date: dr.message },
+        },
+        { status: 400 },
+      );
     }
-    patch.amount = amount;
+    patch.date = dr.isoDate;
+  }
+  if ("amount" in b) {
+    const ar = parseMoneyAmountInput(b.amount);
+    if (!ar.ok) {
+      logAdditionalSpendValidationFailure(
+        "PATCH by-share-token: amount",
+        body,
+        { message: ar.message },
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: ar.message,
+          fieldErrors: { amount: ar.message },
+        },
+        { status: 400 },
+      );
+    }
+    patch.amount = ar.value;
   }
   if ("category" in b && typeof b.category === "string") {
     patch.category = isCategory(b.category) ? b.category : "OTHER";

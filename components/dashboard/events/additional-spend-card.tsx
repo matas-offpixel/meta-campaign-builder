@@ -5,6 +5,11 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AMOUNT_PARSE_HINT,
+  parseMoneyAmountInput,
+  parseSpendDateToIso,
+} from "@/lib/additional-spend-parse";
 
 type AdditionalSpendCategory =
   | "PR"
@@ -86,6 +91,10 @@ export function AdditionalSpendCard({
   const [draftLabel, setDraftLabel] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    date?: string;
+    amount?: string;
+  }>({});
 
   const spendListUrl =
     mode === "share" && shareToken
@@ -166,9 +175,11 @@ export function AdditionalSpendCard({
     setDraftNotes("");
     setShowAdd(false);
     setEditingId(null);
+    setFieldErrors({});
   };
 
   const startEdit = (e: Entry) => {
+    setFieldErrors({});
     setEditingId(e.id);
     setDraftDate(e.date);
     setDraftAmount(String(e.amount));
@@ -179,24 +190,39 @@ export function AdditionalSpendCard({
   };
 
   const submitCreate = async () => {
-    const amount = Number(draftAmount);
-    if (!draftDate || !Number.isFinite(amount) || amount < 0) return;
-    setSaving(true);
+    setFieldErrors({});
     setError(null);
+
+    const dateResult = parseSpendDateToIso(draftDate);
+    const amountResult = parseMoneyAmountInput(draftAmount);
+    if (!dateResult.ok || !amountResult.ok) {
+      setFieldErrors({
+        ...(!dateResult.ok ? { date: dateResult.message } : {}),
+        ...(!amountResult.ok ? { amount: amountResult.message } : {}),
+      });
+      return;
+    }
+
+    setSaving(true);
     try {
       const res = await fetch(spendListUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          date: draftDate,
-          amount,
+          date: dateResult.isoDate,
+          amount: amountResult.value,
           category: draftCategory,
           label: draftLabel,
           notes: draftNotes || null,
         }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        fieldErrors?: { date?: string; amount?: string };
+      };
       if (!res.ok || !json.ok) {
+        if (json.fieldErrors) setFieldErrors(json.fieldErrors);
         throw new Error(json.error ?? "Save failed.");
       }
       await load();
@@ -210,24 +236,39 @@ export function AdditionalSpendCard({
   };
 
   const submitEdit = async (id: string) => {
-    const amount = Number(draftAmount);
-    if (!draftDate || !Number.isFinite(amount) || amount < 0) return;
-    setSaving(true);
+    setFieldErrors({});
     setError(null);
+
+    const dateResult = parseSpendDateToIso(draftDate);
+    const amountResult = parseMoneyAmountInput(draftAmount);
+    if (!dateResult.ok || !amountResult.ok) {
+      setFieldErrors({
+        ...(!dateResult.ok ? { date: dateResult.message } : {}),
+        ...(!amountResult.ok ? { amount: amountResult.message } : {}),
+      });
+      return;
+    }
+
+    setSaving(true);
     try {
       const res = await fetch(`${spendListUrl}/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          date: draftDate,
-          amount,
+          date: dateResult.isoDate,
+          amount: amountResult.value,
           category: draftCategory,
           label: draftLabel,
           notes: draftNotes || null,
         }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        fieldErrors?: { date?: string; amount?: string };
+      };
       if (!res.ok || !json.ok) {
+        if (json.fieldErrors) setFieldErrors(json.fieldErrors);
         throw new Error(json.error ?? "Update failed.");
       }
       await load();
@@ -273,6 +314,7 @@ export function AdditionalSpendCard({
           variant="outline"
           disabled={saving || !!editingId}
           onClick={() => {
+            setFieldErrors({});
             setShowAdd(true);
             setEditingId(null);
             setDraftDate(new Date().toISOString().slice(0, 10));
@@ -330,7 +372,11 @@ export function AdditionalSpendCard({
                     <Input
                       type="date"
                       value={draftDate}
-                      onChange={(ev) => setDraftDate(ev.target.value)}
+                      error={fieldErrors.date}
+                      onChange={(ev) => {
+                        setDraftDate(ev.target.value);
+                        setFieldErrors((fe) => ({ ...fe, date: undefined }));
+                      }}
                       className="h-8 text-xs"
                     />
                   </td>
@@ -365,14 +411,21 @@ export function AdditionalSpendCard({
                   </td>
                   <td className="px-2 py-2 align-top">
                     <Input
-                      type="number"
-                      min={0}
-                      step={0.01}
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
                       value={draftAmount}
-                      onChange={(ev) => setDraftAmount(ev.target.value)}
-                      placeholder="0"
+                      error={fieldErrors.amount}
+                      onChange={(ev) => {
+                        setDraftAmount(ev.target.value);
+                        setFieldErrors((fe) => ({ ...fe, amount: undefined }));
+                      }}
+                      placeholder="e.g. 1800 or £1,800"
                       className="h-8 text-xs"
                     />
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      {AMOUNT_PARSE_HINT}
+                    </p>
                   </td>
                   <td className="px-2 py-2 text-right align-top">
                     <Button
@@ -402,7 +455,11 @@ export function AdditionalSpendCard({
                       <Input
                         type="date"
                         value={draftDate}
-                        onChange={(ev) => setDraftDate(ev.target.value)}
+                        error={fieldErrors.date}
+                        onChange={(ev) => {
+                          setDraftDate(ev.target.value);
+                          setFieldErrors((fe) => ({ ...fe, date: undefined }));
+                        }}
                         className="h-8 text-xs"
                       />
                     </td>
@@ -436,13 +493,21 @@ export function AdditionalSpendCard({
                     </td>
                     <td className="px-2 py-2 align-top">
                       <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         value={draftAmount}
-                        onChange={(ev) => setDraftAmount(ev.target.value)}
+                        error={fieldErrors.amount}
+                        onChange={(ev) => {
+                          setDraftAmount(ev.target.value);
+                          setFieldErrors((fe) => ({ ...fe, amount: undefined }));
+                        }}
+                        placeholder="e.g. 1800 or £1,800"
                         className="h-8 text-xs"
                       />
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {AMOUNT_PARSE_HINT}
+                      </p>
                     </td>
                     <td className="px-2 py-2 text-right align-top">
                       <Button
