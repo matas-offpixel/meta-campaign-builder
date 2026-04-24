@@ -772,6 +772,8 @@ export function EventDetail({
                           eventDate: event.event_date,
                           eventStartAt: event.event_start_at,
                           paidMediaBudget: event.budget_marketing,
+                          totalMarketingBudget:
+                            event.total_marketing_budget ?? null,
                           ticketsSold: resolvedTicketsSold,
                           ticketsSoldSource: resolvedTicketsSource,
                           ticketsSoldAsOf: resolvedTicketsAsOf,

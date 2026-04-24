@@ -50,9 +50,23 @@ function notifyAdditionalSpendChanged(eventId: string) {
 interface Props {
   eventId: string;
   className?: string;
+  /**
+   * `dashboard` — cookie auth (`/api/events/[id]/additional-spend`).
+   * `share` — report share token (`/api/events/by-share-token/...`).
+   */
+  mode?: "dashboard" | "share";
+  shareToken?: string;
+  /** Share mode: e.g. `router.refresh()` so server props pick up new rows. */
+  onAfterMutate?: () => void;
 }
 
-export function AdditionalSpendCard({ eventId, className }: Props) {
+export function AdditionalSpendCard({
+  eventId,
+  className,
+  mode = "dashboard",
+  shareToken,
+  onAfterMutate,
+}: Props) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,18 +81,45 @@ export function AdditionalSpendCard({ eventId, className }: Props) {
   const [draftNotes, setDraftNotes] = useState("");
   const [showAdd, setShowAdd] = useState(false);
 
+  const spendListUrl =
+    mode === "share" && shareToken
+      ? `/api/events/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`
+      : `/api/events/${encodeURIComponent(eventId)}/additional-spend`;
+
+  const normalizeEntries = (raw: unknown[]): Entry[] =>
+    raw.map((r) => {
+      const o = r as Record<string, unknown>;
+      return {
+        id: String(o.id),
+        date: String(o.date),
+        amount: Number(o.amount),
+        category: (o.category as AdditionalSpendCategory) ?? "OTHER",
+        label: typeof o.label === "string" ? o.label : "",
+        notes:
+          o.notes === null || o.notes === undefined
+            ? null
+            : String(o.notes),
+      };
+    });
+
   const load = useCallback(async () => {
     setError(null);
-    const res = await fetch(
-      `/api/events/${encodeURIComponent(eventId)}/additional-spend`,
-      { cache: "no-store" },
-    );
-    const json = (await res.json()) as { ok?: boolean; entries?: Entry[] };
+    const res = await fetch(spendListUrl, { cache: "no-store" });
+    const json = (await res.json()) as {
+      ok?: boolean;
+      entries?: unknown[];
+      error?: string;
+    };
     if (!res.ok || !json.ok || !json.entries) {
-      throw new Error("Could not load additional spend.");
+      throw new Error(json.error ?? "Could not load additional spend.");
     }
-    setEntries(json.entries);
-  }, [eventId]);
+    setEntries(normalizeEntries(json.entries));
+  }, [spendListUrl]);
+
+  const afterMutate = () => {
+    onAfterMutate?.();
+    notifyAdditionalSpendChanged(eventId);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -125,26 +166,23 @@ export function AdditionalSpendCard({ eventId, className }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/events/${encodeURIComponent(eventId)}/additional-spend`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            date: draftDate,
-            amount,
-            category: draftCategory,
-            label: draftLabel,
-            notes: draftNotes || null,
-          }),
-        },
-      );
+      const res = await fetch(spendListUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: draftDate,
+          amount,
+          category: draftCategory,
+          label: draftLabel,
+          notes: draftNotes || null,
+        }),
+      });
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? "Save failed.");
       }
       await load();
-      notifyAdditionalSpendChanged(eventId);
+      afterMutate();
       resetDraft();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed.");
@@ -159,26 +197,23 @@ export function AdditionalSpendCard({ eventId, className }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/events/${encodeURIComponent(eventId)}/additional-spend/${encodeURIComponent(id)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            date: draftDate,
-            amount,
-            category: draftCategory,
-            label: draftLabel,
-            notes: draftNotes || null,
-          }),
-        },
-      );
+      const res = await fetch(`${spendListUrl}/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: draftDate,
+          amount,
+          category: draftCategory,
+          label: draftLabel,
+          notes: draftNotes || null,
+        }),
+      });
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? "Update failed.");
       }
       await load();
-      notifyAdditionalSpendChanged(eventId);
+      afterMutate();
       resetDraft();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed.");
@@ -192,16 +227,15 @@ export function AdditionalSpendCard({ eventId, className }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/events/${encodeURIComponent(eventId)}/additional-spend/${encodeURIComponent(id)}`,
-        { method: "DELETE" },
-      );
+      const res = await fetch(`${spendListUrl}/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
       const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? "Delete failed.");
       }
       await load();
-      notifyAdditionalSpendChanged(eventId);
+      afterMutate();
       if (editingId === id) resetDraft();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed.");
@@ -236,6 +270,12 @@ export function AdditionalSpendCard({ eventId, className }: Props) {
       <p className="mb-3 text-xs text-muted-foreground">
         Off-Meta costs (PR, influencers, print, etc.) roll into the event
         Performance summary and Daily Tracker.
+        {mode === "share" ? (
+          <>
+            {" "}
+            Entries you add here are visible to anyone with this report link.
+          </>
+        ) : null}
       </p>
       {error ? (
         <p className="mb-2 text-xs text-destructive">{error}</p>

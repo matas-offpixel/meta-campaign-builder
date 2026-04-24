@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type {
@@ -86,6 +92,8 @@ interface Props {
   additionalSpendEntries?: ReadonlyArray<{ date: string; amount: number }>;
   /** Lifetime-rollups sell-out pacing for the Tickets card. */
   sellOutPacing?: SellOutPacingResult | null;
+  /** Token-scoped additional spend editor (share page only). */
+  additionalSpendSlot?: ReactNode;
 }
 
 /*
@@ -127,6 +135,7 @@ export function PublicReport({
   headlineUnavailable = false,
   additionalSpendEntries,
   sellOutPacing = null,
+  additionalSpendSlot,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -324,6 +333,7 @@ export function PublicReport({
       headlineUnavailable={headlineUnavailable}
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
+      additionalSpendSlot={additionalSpendSlot}
     />
   );
 }

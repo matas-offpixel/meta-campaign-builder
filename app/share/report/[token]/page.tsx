@@ -39,6 +39,7 @@ import {
   type TimelineRow,
 } from "@/lib/db/event-daily-timeline";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
+import { ShareAdditionalSpendSection } from "@/components/report/share-additional-spend-section";
 import { listAdditionalSpendForEvent } from "@/lib/db/additional-spend";
 import { computeSellOutPacing } from "@/lib/dashboard/report-pacing";
 import {
@@ -151,6 +152,7 @@ interface ResolvedEvent {
   eventStartAt: string | null;
   eventCode: string | null;
   paidMediaBudget: number | null;
+  totalMarketingBudget: number | null;
   ticketsSold: number | null;
   ticketsSoldSource: "plan" | "manual" | null;
   ticketsSoldAsOf: string | null;
@@ -219,7 +221,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     admin
       .from("events")
       .select(
-        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
+        "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, total_marketing_budget, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
       )
       .eq("id", event_id)
       .maybeSingle(),
@@ -277,6 +279,8 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     eventCode: (eventRow.data.event_code as string | null) ?? null,
     paidMediaBudget:
       (eventRow.data.budget_marketing as number | null) ?? null,
+    totalMarketingBudget:
+      (eventRow.data.total_marketing_budget as number | null) ?? null,
     ticketsSold: resolvedTicketsSold,
     ticketsSoldSource,
     ticketsSoldAsOf,
@@ -410,6 +414,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   const additionalSpendEntries = additionalSpendList.map((r) => ({
     date: r.date,
     amount: Number(r.amount),
+    category: r.category,
   }));
   const sellOutPacing = computeSellOutPacing({
     capacity: event.capacity,
@@ -503,6 +508,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         eventDate: event.eventDate,
         eventStartAt: event.eventStartAt,
         paidMediaBudget: event.paidMediaBudget,
+        totalMarketingBudget: event.totalMarketingBudget,
         ticketsSold: event.ticketsSold,
         ticketsSoldSource: event.ticketsSoldSource,
         ticketsSoldAsOf: event.ticketsSoldAsOf,
@@ -518,6 +524,9 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       headlineUnavailable={headlineUnavailable}
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
+      additionalSpendSlot={
+        <ShareAdditionalSpendSection shareToken={token} eventId={event_id} />
+      }
     />
   );
 }

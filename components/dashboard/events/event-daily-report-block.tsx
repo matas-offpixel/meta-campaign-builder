@@ -12,7 +12,10 @@ import {
 
 import { Button } from "@/components/ui/button";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
-import { additionalSpendTotalsByDate } from "@/lib/db/additional-spend-sum";
+import {
+  additionalSpendBreakdownLinesByDate,
+  additionalSpendTotalsByDate,
+} from "@/lib/db/additional-spend-sum";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import { ADDITIONAL_SPEND_CHANGED } from "@/components/dashboard/events/additional-spend-card";
 import {
@@ -170,7 +173,11 @@ interface ShareProps {
   hasMetaScope: boolean;
   hasEventbriteLink: boolean;
   performanceSummary: PerformanceSummaryTimeframe;
-  additionalSpendEntries: ReadonlyArray<{ date: string; amount: number }>;
+  additionalSpendEntries: ReadonlyArray<{
+    date: string;
+    amount: number;
+    category: string;
+  }>;
   /** Required on share: the public page server-loads everything. */
   initialTimeline: TimelineRow[];
   initialPresale: PresaleBucketShape | null;
@@ -192,10 +199,8 @@ export function EventDailyReportBlock(props: Props) {
     : (props.performanceSummary ?? DEFAULT_PERF_SUMMARY);
 
   const [additionalSpendRows, setAdditionalSpendRows] = useState<
-    ReadonlyArray<{ date: string; amount: number }>
-  >(() =>
-    props.mode === "share" ? props.additionalSpendEntries : [],
-  );
+    ReadonlyArray<{ date: string; amount: number; category: string }>
+  >(() => (props.mode === "share" ? props.additionalSpendEntries : []));
 
   const [timeline, setTimeline] = useState<TimelineRow[]>(
     () => props.initialTimeline ?? [],
@@ -227,11 +232,20 @@ export function EventDailyReportBlock(props: Props) {
       );
       const json = (await res.json()) as {
         ok?: boolean;
-        entries?: ReadonlyArray<{ date: string; amount: number }>;
+        entries?: ReadonlyArray<{
+          date: string;
+          amount: number;
+          category?: string;
+        }>;
       };
       if (res.ok && json.ok && json.entries) {
         setAdditionalSpendRows(
-          json.entries.map((e) => ({ date: e.date, amount: Number(e.amount) })),
+          json.entries.map((e) => ({
+            date: e.date,
+            amount: Number(e.amount),
+            category:
+              typeof e.category === "string" ? e.category : "OTHER",
+          })),
         );
       }
     } catch {
@@ -406,6 +420,10 @@ export function EventDailyReportBlock(props: Props) {
     () => additionalSpendTotalsByDate(additionalSpendRows),
     [additionalSpendRows],
   );
+  const otherSpendBreakdownByDate = useMemo(
+    () => additionalSpendBreakdownLinesByDate(additionalSpendRows),
+    [additionalSpendRows],
+  );
 
   /** Same trim as Daily Tracker — chart x-axis starts at first activity. */
   const chartTimeline = useMemo(
@@ -434,6 +452,7 @@ export function EventDailyReportBlock(props: Props) {
       isEditable,
       defaultCadence: event.report_cadence ?? "daily",
       otherSpendByDate,
+      otherSpendBreakdownByDate,
     }),
     [
       timeline,
@@ -447,6 +466,7 @@ export function EventDailyReportBlock(props: Props) {
       isEditable,
       event.report_cadence,
       otherSpendByDate,
+      otherSpendBreakdownByDate,
     ],
   );
 

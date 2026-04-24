@@ -21,6 +21,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
+import type { SpendCategoryLine } from "@/lib/db/additional-spend-sum";
+import { sortSpendCategoryLines } from "@/lib/db/additional-spend-sum";
 import type {
   TimelineRow,
   TimelineSource,
@@ -181,6 +183,8 @@ interface Props {
     defaultCadence?: TrackerCadence;
     /** Off-Meta additional spend per day (Performance Summary / migration 044). */
     otherSpendByDate?: ReadonlyMap<string, number>;
+    /** Category breakdown per day for Day other tooltips. */
+    otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -206,6 +210,8 @@ interface DisplayRow {
   ad_spend: number | null;
   /** Off-Meta spend attributed to this calendar day. */
   other_spend: number | null;
+  /** Native title tooltip: "PR £100, Influencer £50" */
+  other_spend_tooltip: string | null;
   link_clicks: number | null;
   /** Meta complete_registration count for the day (rollup-sync). */
   meta_regs: number | null;
@@ -457,6 +463,9 @@ export function DailyTracker({
   const otherSpendMap = isControlled
     ? (controlled?.otherSpendByDate ?? EMPTY_OTHER_SPEND_MAP)
     : EMPTY_OTHER_SPEND_MAP;
+  const otherBreakdownMap = isControlled
+    ? controlled?.otherSpendBreakdownByDate
+    : undefined;
 
   /** Hide leading zero-pad days (PR #99 sync window) — display-only; API + DB unchanged. */
   const trackerDisplayTimeline = useMemo(
@@ -475,13 +484,21 @@ export function DailyTracker({
             timeline: trackerDisplayTimeline,
             presale,
             otherSpendByDate: otherSpendMap,
+            otherSpendBreakdownByDate: otherBreakdownMap,
           })
         : buildDisplayRows({
             timeline: trackerDisplayTimeline,
             presale,
             otherSpendByDate: otherSpendMap,
+            otherSpendBreakdownByDate: otherBreakdownMap,
           }),
-    [trackerDisplayTimeline, presale, cadence, otherSpendMap],
+    [
+      trackerDisplayTimeline,
+      presale,
+      cadence,
+      otherSpendMap,
+      otherBreakdownMap,
+    ],
   );
 
   // Editor open / target state. Single editor shared by every row to
@@ -721,6 +738,27 @@ export function DailyTracker({
 
 // ─── Row ──────────────────────────────────────────────────────────────
 
+function OtherSpendCell({
+  amount,
+  tooltip,
+}: {
+  amount: number | null;
+  tooltip: string | null;
+}) {
+  const shown = fmtMoney(amount);
+  if (!tooltip) return <Td>{shown}</Td>;
+  return (
+    <Td>
+      <span
+        title={tooltip}
+        className="cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-2"
+      >
+        {shown}
+      </span>
+    </Td>
+  );
+}
+
 function RowEl({
   row,
   eventId,
@@ -786,7 +824,10 @@ function RowEl({
         </div>
       </Td>
       <Td>{fmtMoney(row.ad_spend)}</Td>
-      <Td>{fmtMoney(row.other_spend)}</Td>
+      <OtherSpendCell
+        amount={row.other_spend}
+        tooltip={row.other_spend_tooltip}
+      />
       <Td>{fmtInt(row.tickets_sold)}</Td>
       <Td>{fmtMoney(row.revenue)}</Td>
       <Td>{fmtMoney(cpt)}</Td>
@@ -1002,14 +1043,45 @@ function Td({
 
 // ─── Display-row builder ─────────────────────────────────────────────
 
+function categoryLabelForTooltip(cat: string): string {
+  switch (cat) {
+    case "INFLUENCER":
+      return "Influencer";
+    case "PRINT":
+      return "Print";
+    case "RADIO":
+      return "Radio";
+    case "OTHER":
+      return "Other";
+    case "PR":
+      return "PR";
+    default:
+      return cat;
+  }
+}
+
+function fmtOtherSpendTooltipLines(
+  lines: SpendCategoryLine[] | undefined,
+): string | null {
+  if (!lines?.length) return null;
+  return lines
+    .map(
+      (l) =>
+        `${categoryLabelForTooltip(l.category)} ${fmtCurrency(l.amount)}`,
+    )
+    .join(", ");
+}
+
 function buildDisplayRows({
   timeline,
   presale,
   otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
+  otherSpendBreakdownByDate,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   otherSpendByDate?: ReadonlyMap<string, number>;
+  otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -1022,6 +1094,7 @@ function buildDisplayRows({
     isSynthetic: boolean;
     ad_spend: number | null;
     other_spend: number | null;
+    other_spend_tooltip: string | null;
     link_clicks: number | null;
     meta_regs: number | null;
     tickets_sold: number | null;
@@ -1043,6 +1116,9 @@ function buildDisplayRows({
       isSynthetic: false,
       ad_spend: r.ad_spend,
       other_spend: otherSpendByDate.get(r.date) ?? null,
+      other_spend_tooltip: fmtOtherSpendTooltipLines(
+        otherSpendBreakdownByDate?.get(r.date),
+      ),
       link_clicks: r.link_clicks,
       meta_regs: r.meta_regs,
       tickets_sold: r.tickets_sold,
@@ -1063,6 +1139,9 @@ function buildDisplayRows({
       isSynthetic: true,
       ad_spend: null,
       other_spend: otherSpendByDate.get(todayStr) ?? null,
+      other_spend_tooltip: fmtOtherSpendTooltipLines(
+        otherSpendBreakdownByDate?.get(todayStr),
+      ),
       link_clicks: null,
       meta_regs: null,
       tickets_sold: null,
@@ -1094,6 +1173,7 @@ function buildDisplayRows({
       source: r.source,
       ad_spend: r.ad_spend,
       other_spend: r.other_spend,
+      other_spend_tooltip: r.other_spend_tooltip,
       link_clicks: r.link_clicks,
       meta_regs: r.meta_regs,
       tickets_sold: r.tickets_sold,
@@ -1125,6 +1205,7 @@ function buildDisplayRows({
       source: null,
       ad_spend: presale.ad_spend,
       other_spend: null,
+      other_spend_tooltip: null,
       link_clicks: presale.link_clicks,
       meta_regs: null,
       tickets_sold: presale.tickets_sold,
@@ -1233,10 +1314,12 @@ function buildWeeklyDisplayRows({
   timeline,
   presale,
   otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
+  otherSpendBreakdownByDate,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   otherSpendByDate?: ReadonlyMap<string, number>;
+  otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
@@ -1255,6 +1338,8 @@ function buildWeeklyDisplayRows({
     weekStart: string; // YYYY-MM-DD of Mon W/C (UTC)
     spend: number | null;
     otherSpend: number | null;
+    /** Merged additional-spend categories for the week (tooltip). */
+    otherCategoryTotals: Map<string, number> | null;
     clicks: number | null;
     regs: number | null;
     tickets: number | null;
@@ -1277,6 +1362,7 @@ function buildWeeklyDisplayRows({
         weekStart: wk,
         spend: null,
         otherSpend: null,
+        otherCategoryTotals: null,
         clicks: null,
         regs: null,
         tickets: null,
@@ -1288,6 +1374,16 @@ function buildWeeklyDisplayRows({
     const od = otherSpendByDate.get(r.date);
     if (od != null)
       cur.otherSpend = (cur.otherSpend ?? 0) + od;
+    const br = otherSpendBreakdownByDate?.get(r.date);
+    if (br && br.length > 0) {
+      if (!cur.otherCategoryTotals) cur.otherCategoryTotals = new Map();
+      for (const line of br) {
+        cur.otherCategoryTotals.set(
+          line.category,
+          (cur.otherCategoryTotals.get(line.category) ?? 0) + line.amount,
+        );
+      }
+    }
     if (r.link_clicks !== null)
       cur.clicks = (cur.clicks ?? 0) + Number(r.link_clicks);
     if (r.meta_regs != null)
@@ -1323,6 +1419,14 @@ function buildWeeklyDisplayRows({
     const regs = agg?.regs ?? null;
     const tickets = agg?.tickets ?? null;
     const revenue = agg?.revenue ?? null;
+    const otherTooltipLines =
+      agg?.otherCategoryTotals && agg.otherCategoryTotals.size > 0
+        ? sortSpendCategoryLines(
+            [...agg.otherCategoryTotals.entries()].map(
+              ([category, amount]) => ({ category, amount }),
+            ),
+          )
+        : undefined;
     runSpend += num(spend);
     runClicks += num(clicks);
     runTickets += num(tickets);
@@ -1346,6 +1450,7 @@ function buildWeeklyDisplayRows({
       source: agg?.hasManualSource ? "manual" : "live",
       ad_spend: spend,
       other_spend: otherSp,
+      other_spend_tooltip: fmtOtherSpendTooltipLines(otherTooltipLines),
       link_clicks: clicks,
       meta_regs: regs,
       tickets_sold: tickets,
@@ -1377,6 +1482,7 @@ function buildWeeklyDisplayRows({
       source: null,
       ad_spend: presale.ad_spend,
       other_spend: null,
+      other_spend_tooltip: null,
       link_clicks: presale.link_clicks,
       meta_regs: null,
       tickets_sold: presale.tickets_sold,
