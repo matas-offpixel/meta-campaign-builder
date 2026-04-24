@@ -39,6 +39,22 @@ function asAny(s: AnySupabase): AnySupabase {
   return s;
 }
 
+export async function getAdditionalSpendEntryById(
+  supabase: AnySupabase,
+  id: string,
+): Promise<AdditionalSpendEntry | null> {
+  const { data, error } = await asAny(supabase)
+    .from("additional_spend_entries")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.warn("[additional-spend get]", error.message);
+    return null;
+  }
+  return (data as unknown as AdditionalSpendEntry) ?? null;
+}
+
 export async function listAdditionalSpendForEvent(
   supabase: AnySupabase,
   eventId: string,
