@@ -16,6 +16,7 @@ import {
   upsertEventbriteRollups,
   upsertMetaRollups,
 } from "@/lib/db/event-daily-rollups";
+import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
 
@@ -142,6 +143,10 @@ export interface SyncDiagnostics {
    * status).
    */
   eventbriteTodayPadded: boolean;
+  /** Calendar days in the sync window that received Meta zero-padding. */
+  metaWindowDaysPadded: number;
+  /** Calendar days in the sync window that received Eventbrite zero-padding. */
+  eventbriteWindowDaysPadded: number;
   /**
    * Post-upsert sanity probe — `null` when the assertion was skipped
    * (read-back failed, or both legs were skipped). Otherwise reports
@@ -257,6 +262,8 @@ export async function runRollupSyncForEvent(
     metaTodayPadded: false,
     eventbriteTodayInWindow: false,
     eventbriteTodayPadded: false,
+    metaWindowDaysPadded: 0,
+    eventbriteWindowDaysPadded: 0,
     todayRowAfterSync: null,
   };
 
@@ -332,13 +339,17 @@ export async function runRollupSyncForEvent(
         // The padding write still sets `source_meta_at = now()`, so
         // the dev-mode assertion can confirm the row landed even when
         // the underlying numbers are pending.
-        const metaRows: Array<{ date: string; ad_spend: number; link_clicks: number }> =
-          metaFetch.days.map((d) => ({
-            date: d.day,
+        const metaByDate = new Map<
+          string,
+          { ad_spend: number; link_clicks: number }
+        >();
+        for (const d of metaFetch.days) {
+          metaByDate.set(d.day, {
             ad_spend: d.spend,
             link_clicks: d.linkClicks,
-          }));
-        const hasToday = metaRows.some((r) => r.date === todayStr);
+          });
+        }
+        const hasToday = metaByDate.has(todayStr);
         diagnostics.metaTodayInWindow = hasToday;
         if (!hasToday) {
           let snapshotSpend = 0;
@@ -377,13 +388,35 @@ export async function runRollupSyncForEvent(
               `[rollup-sync] meta today padded with zeros date=${todayStr}`,
             );
           }
-          metaRows.push({
-            date: todayStr,
+          metaByDate.set(todayStr, {
             ad_spend: snapshotSpend,
             link_clicks: snapshotClicks,
           });
         }
+
+        const metaDaysBeforeWindowPad = metaByDate.size;
+        let metaPadded = 0;
+        for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
+          if (!metaByDate.has(d)) {
+            metaByDate.set(d, {
+              ad_spend: 0,
+              link_clicks: 0,
+            });
+            metaPadded++;
+          }
+        }
+        diagnostics.metaWindowDaysPadded = metaPadded;
+        const metaRows = Array.from(metaByDate.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, v]) => ({
+            date,
+            ad_spend: v.ad_spend,
+            link_clicks: v.link_clicks,
+          }));
         diagnostics.metaRowsAttempted = metaRows.length;
+        console.log(
+          `[rollup-sync] meta window zero-pad added=${metaPadded} dates (map before pad=${metaDaysBeforeWindowPad})`,
+        );
         try {
           await upsertMetaRollups(supabase, {
             userId,
@@ -455,47 +488,56 @@ export async function runRollupSyncForEvent(
             `[rollup-sync] eventbrite link=${link.external_event_id} fetched_rows=${rows.length}`,
           );
 
-          // ── Today's row guarantee (Eventbrite) ─────────────────
+          // ── Full-window zero-pad (Eventbrite) ───────────────────
           //
-          // The orders aggregator returns one entry per date that had
-          // at least one paid (`placed` / `complete`) order. New
-          // events on the day of release commonly have no paid
-          // orders early in the morning (or all today's orders are
-          // mid-checkout in `started`/`pending` state) — both of
-          // which leave today out of the result entirely.
+          // The orders helper emits one row per calendar date that had
+          // ≥1 paid order. Dates with zero sales are omitted, which
+          // used to make the Daily Tracker show "—" (unknown) instead
+          // of 0 (sync ran, no orders). After a successful sync, every
+          // date from windowSince..windowUntil gets explicit
+          // tickets_sold=0 / revenue=0 with source_eventbrite_at set.
           //
-          // We pad a (0, 0) row for today when missing, so:
-          //   - the Daily Tracker UI stops drawing the synthetic
-          //     placeholder (it now sees a real row with explicit
-          //     zeros instead of nulls), and
-          //   - the dev-mode assertion can confirm
-          //     `source_eventbrite_at` landed.
-          //
-          // We only pad on the FIRST link of an event (multi-link
-          // setups are rare; padding once per link would write the
-          // same key but each upsert overwrites the prior, so the
-          // visible behaviour is identical — keeping the flag is
-          // purely so the diagnostics field reads true once).
-          const ebUpsertRows = rows.map((r) => ({
-            date: r.date,
-            tickets_sold: r.ticketsSold,
-            revenue: r.revenue,
-          }));
-          const hasToday = ebUpsertRows.some((r) => r.date === todayStr);
-          if (hasToday) {
-            diagnostics.eventbriteTodayInWindow = true;
-          } else {
-            ebUpsertRows.push({
-              date: todayStr,
-              tickets_sold: 0,
-              revenue: 0,
+          // Dates use the same YYYY-MM-DD axis as the Meta leg's
+          // rolling window (see eachInclusiveYmd). Order bucketing
+          // inside fetchDailyOrdersForEvent remains event-timezone
+          // aware; the padding range matches the sync window endpoints.
+          const ebByDate = new Map<string, { tickets_sold: number; revenue: number }>();
+          for (const r of rows) {
+            ebByDate.set(r.date, {
+              tickets_sold: r.ticketsSold,
+              revenue: r.revenue,
             });
+          }
+          const hadOrdersToday = ebByDate.has(todayStr);
+          diagnostics.eventbriteTodayInWindow = diagnostics.eventbriteTodayInWindow || hadOrdersToday;
+          if (!hadOrdersToday) {
             diagnostics.eventbriteTodayPadded = true;
             console.warn(
-              `[rollup-sync] eventbrite today padded with zeros date=${todayStr} link=${link.external_event_id}`,
+              `[rollup-sync] eventbrite today has no paid orders; will zero-pad in window link=${link.external_event_id}`,
             );
           }
+          const ebBeforePad = ebByDate.size;
+          let ebPadded = 0;
+          for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
+            if (!ebByDate.has(d)) {
+              ebByDate.set(d, { tickets_sold: 0, revenue: 0 });
+              ebPadded++;
+            }
+          }
+          if (totalRows === 0) {
+            diagnostics.eventbriteWindowDaysPadded = ebPadded;
+          }
+          const ebUpsertRows = Array.from(ebByDate.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([date, v]) => ({
+              date,
+              tickets_sold: v.tickets_sold,
+              revenue: v.revenue,
+            }));
           diagnostics.eventbriteRowsAttempted += ebUpsertRows.length;
+          console.log(
+            `[rollup-sync] eventbrite window zero-pad added=${ebPadded} dates (with orders before pad=${ebBeforePad}) link=${link.external_event_id}`,
+          );
           await upsertEventbriteRollups(supabase, {
             userId,
             eventId,
@@ -504,7 +546,7 @@ export async function runRollupSyncForEvent(
           await recordConnectionSync(supabase, connection.id, { ok: true });
           totalRows += ebUpsertRows.length;
           console.log(
-            `[rollup-sync] eventbrite link=${link.external_event_id} upsert ok rows_written=${ebUpsertRows.length} today_in_window=${hasToday} today_padded=${!hasToday}`,
+            `[rollup-sync] eventbrite link=${link.external_event_id} upsert ok rows_written=${ebUpsertRows.length} today_in_window=${hadOrdersToday} today_padded=${!hadOrdersToday}`,
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : "Unknown error";
