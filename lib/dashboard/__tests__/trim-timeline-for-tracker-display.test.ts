@@ -5,10 +5,9 @@ import type { TimelineRow } from "../../db/event-daily-timeline.ts";
 
 import { trimTimelineForTrackerDisplay } from "../trim-timeline-for-tracker-display.ts";
 
-function live(
-  date: string,
-  overrides: Partial<TimelineRow> = {},
-): TimelineRow {
+type Row = TimelineRow & { meta_regs?: number | null };
+
+function live(date: string, overrides: Partial<Row> = {}): TimelineRow {
   return {
     date,
     source: "live",
@@ -20,7 +19,7 @@ function live(
     notes: null,
     freshness_at: null,
     ...overrides,
-  };
+  } as TimelineRow;
 }
 
 describe("trimTimelineForTrackerDisplay", () => {

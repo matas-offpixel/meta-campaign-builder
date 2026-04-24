@@ -1,16 +1,19 @@
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 
+/** Optional `meta_regs` exists after PR #98; mainline `TimelineRow` omits it. */
+type TimelineRowForTrim = TimelineRow & { meta_regs?: number | null };
+
 /**
  * True when a numeric rollup field counts as "activity" for the
  * first-visible-day heuristic. Zero-padded sync rows use 0, not null;
  * those must not anchor the visible window.
  */
-function isPositiveMetric(n: number | null): boolean {
+function isPositiveMetric(n: number | null | undefined): boolean {
   return n != null && n > 0;
 }
 
 function rowHasTrackerActivity(
-  r: TimelineRow,
+  r: TimelineRowForTrim,
   otherSpendForDate: number | undefined,
 ): boolean {
   if (r.source === "manual") return true;
@@ -48,11 +51,12 @@ export function trimTimelineForTrackerDisplay(
   opts: TrimTimelineForTrackerOptions,
 ): TimelineRow[] {
   const { generalSaleCutoff, otherSpendByDate } = opts;
+  const rows = timeline as TimelineRowForTrim[];
 
   const candidates =
     generalSaleCutoff !== null
-      ? timeline.filter((r) => r.date >= generalSaleCutoff)
-      : timeline.slice();
+      ? rows.filter((r) => r.date >= generalSaleCutoff)
+      : rows.slice();
 
   let firstActivity: string | null = null;
   for (const r of candidates) {
@@ -66,5 +70,5 @@ export function trimTimelineForTrackerDisplay(
     return [];
   }
 
-  return timeline.filter((r) => r.date >= firstActivity);
+  return rows.filter((r) => r.date >= firstActivity) as TimelineRow[];
 }
