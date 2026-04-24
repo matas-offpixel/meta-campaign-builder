@@ -775,6 +775,7 @@ export function EventDetail({
                           ticketsSold: resolvedTicketsSold,
                           ticketsSoldSource: resolvedTicketsSource,
                           ticketsSoldAsOf: resolvedTicketsAsOf,
+                          capacity: event.capacity ?? null,
                         }}
                         datePreset={reportDatePreset}
                         customRange={reportCustomRange}

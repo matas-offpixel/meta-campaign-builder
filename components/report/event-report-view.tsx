@@ -61,6 +61,8 @@ export interface EventReportViewEvent {
    * {date}". Null for manual / not-yet-recorded.
    */
   ticketsSoldAsOf?: string | null;
+  /** Venue capacity — same field as Performance summary pacing row. */
+  capacity?: number | null;
 }
 
 export type CreativesSource =
@@ -242,6 +244,16 @@ export function EventReportView({
       ? totalSpend / ticketsSold
       : null;
 
+  // Capacity + sell-through — same rule as EventSummaryHeader.computeMetrics:
+  // tickets numerator follows the timeframe pill via ticketsSold
+  // (meta.ticketsSoldInWindow when present).
+  const capacity =
+    event.capacity != null && event.capacity > 0 ? event.capacity : null;
+  const sellThroughPct =
+    capacity != null && ticketsSold != null && ticketsSold >= 0
+      ? (ticketsSold / capacity) * 100
+      : null;
+
   const channelMultiActive = meta ? isMultiChannelActive(meta) : false;
   // "Last updated" footer prefers whichever data source was refreshed
   // most recently. When both are present (a client running Meta + manual
@@ -358,6 +370,8 @@ export function EventReportView({
             spend={spend}
             remaining={remaining}
             ticketsSold={ticketsSold}
+            capacity={capacity}
+            sellThroughPct={sellThroughPct}
             costPerTicket={costPerTicket}
             channelMultiActive={channelMultiActive}
             isRefreshing={isRefreshing}
@@ -409,6 +423,8 @@ interface MetaReportBlockProps {
   spend: number;
   remaining: number;
   ticketsSold: number | null;
+  capacity: number | null;
+  sellThroughPct: number | null;
   costPerTicket: number | null;
   channelMultiActive: boolean;
   isRefreshing: boolean;
@@ -439,6 +455,8 @@ function MetaReportBlock({
   spend,
   remaining,
   ticketsSold,
+  capacity,
+  sellThroughPct,
   costPerTicket,
   channelMultiActive,
   isRefreshing,
@@ -453,7 +471,7 @@ function MetaReportBlock({
     <>
       <Section title="Campaign performance">
         <div
-          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 ${
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 ${
             isRefreshing ? "opacity-60 transition-opacity" : ""
           }`}
         >
@@ -494,6 +512,21 @@ function MetaReportBlock({
             label="Tickets sold"
             value={ticketsSold != null ? fmtInt(ticketsSold) : "—"}
             sub={resolveTicketsSoldSub(event)}
+          />
+          <StatCard
+            label="Capacity"
+            value={capacity != null ? fmtInt(capacity) : "—"}
+          />
+          <StatCard
+            label="Sell-through"
+            value={
+              sellThroughPct != null ? `${sellThroughPct.toFixed(1)}%` : "—"
+            }
+            sub={
+              capacity != null && ticketsSold != null
+                ? `${fmtInt(ticketsSold)} / ${fmtInt(capacity)} tickets`
+                : null
+            }
           />
           <StatCard
             label="Cost per ticket"
