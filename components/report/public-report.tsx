@@ -80,6 +80,8 @@ interface Props {
    * still-live creative breakdown.
    */
   headlineUnavailable?: boolean;
+  /** Additional spend rows for Campaign performance Meta / Other split. */
+  additionalSpendEntries?: ReadonlyArray<{ date: string; amount: number }>;
 }
 
 /*
@@ -119,6 +121,7 @@ export function PublicReport({
   creativesSlot,
   eventDailySlot,
   headlineUnavailable = false,
+  additionalSpendEntries,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -314,6 +317,7 @@ export function PublicReport({
       creativesSlot={creativesSlot}
       eventDailySlot={eventDailySlot}
       headlineUnavailable={headlineUnavailable}
+      additionalSpendEntries={additionalSpendEntries}
     />
   );
 }

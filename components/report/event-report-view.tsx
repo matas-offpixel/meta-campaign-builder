@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 
-import { fmtCurrency, fmtDate } from "@/lib/dashboard/format";
+import { sumAdditionalSpendAmounts } from "@/lib/db/additional-spend-sum";
+import {
+  fmtCurrency,
+  fmtCurrencyCompact,
+  fmtDate,
+} from "@/lib/dashboard/format";
+import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import {
   DATE_PRESETS,
   DATE_PRESET_LABELS,
@@ -68,6 +74,8 @@ export interface EventReportViewEvent {
 export type CreativesSource =
   | { kind: "share"; token: string }
   | { kind: "internal"; eventId: string };
+
+const NO_ADDITIONAL_SPEND: readonly { date: string; amount: number }[] = [];
 
 interface Props {
   event: EventReportViewEvent;
@@ -187,6 +195,13 @@ interface Props {
    * with no Meta payload) the button is hidden.
    */
   onManualRefresh?: () => Promise<void>;
+  /**
+   * Off-Meta additional spend rows — summed into Campaign performance
+   * "Spent" for the active timeframe (same window as Meta insights).
+   * Optional; omit or pass [] when unavailable (share RSC / internal
+   * fetch supplies this for the Meta + other split line).
+   */
+  additionalSpendEntries?: ReadonlyArray<{ date: string; amount: number }>;
 }
 
 export function EventReportView({
@@ -203,6 +218,7 @@ export function EventReportView({
   eventDailySlot,
   headlineUnavailable = false,
   onManualRefresh,
+  additionalSpendEntries = NO_ADDITIONAL_SPEND,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -212,10 +228,18 @@ export function EventReportView({
 
   const daysUntil = computeDaysUntil(event.eventDate);
   const budget = event.paidMediaBudget ?? 0;
-  const spend = meta?.totals.spend ?? 0;
-  const remaining = Math.max(0, budget - spend);
+  const windowDays = resolvePresetToDays(datePreset, customRange);
+  const windowDaySet = windowDays === null ? null : new Set(windowDays);
+  const otherSpendWindow = sumAdditionalSpendAmounts(
+    additionalSpendEntries,
+    windowDaySet,
+  );
+  const metaSpend = meta?.totals.spend ?? 0;
+  const spentTotal =
+    meta != null ? metaSpend + otherSpendWindow : metaSpend;
+  const remaining = Math.max(0, budget - spentTotal);
   const budgetUsedPct =
-    budget > 0 && meta ? Math.min(100, (spend / budget) * 100) : null;
+    budget > 0 && meta ? Math.min(100, (spentTotal / budget) * 100) : null;
 
   // Tickets sold + cost per ticket. Three-way resolution:
   //
@@ -238,10 +262,12 @@ export function EventReportView({
   const windowedTickets = meta?.ticketsSoldInWindow;
   const ticketsSold =
     windowedTickets != null ? windowedTickets : event.ticketsSold;
-  const totalSpend = meta?.totalSpend ?? 0;
   const costPerTicket =
-    meta && ticketsSold != null && ticketsSold > 0 && totalSpend > 0
-      ? totalSpend / ticketsSold
+    meta &&
+    ticketsSold != null &&
+    ticketsSold > 0 &&
+    spentTotal > 0
+      ? spentTotal / ticketsSold
       : null;
 
   // Capacity + sell-through — same rule as EventSummaryHeader.computeMetrics:
@@ -367,8 +393,11 @@ export function EventReportView({
             meta={meta}
             event={event}
             budget={budget}
-            spend={spend}
+            metaSpend={metaSpend}
+            otherSpendWindow={otherSpendWindow}
+            spentTotal={spentTotal}
             remaining={remaining}
+            budgetUsedPct={budgetUsedPct}
             ticketsSold={ticketsSold}
             capacity={capacity}
             sellThroughPct={sellThroughPct}
@@ -420,8 +449,11 @@ interface MetaReportBlockProps {
   meta: EventInsightsPayload;
   event: EventReportViewEvent;
   budget: number;
-  spend: number;
+  metaSpend: number;
+  otherSpendWindow: number;
+  spentTotal: number;
   remaining: number;
+  budgetUsedPct: number | null;
   ticketsSold: number | null;
   capacity: number | null;
   sellThroughPct: number | null;
@@ -452,8 +484,11 @@ function MetaReportBlock({
   meta,
   event,
   budget,
-  spend,
+  metaSpend,
+  otherSpendWindow,
+  spentTotal,
   remaining,
+  budgetUsedPct,
   ticketsSold,
   capacity,
   sellThroughPct,
@@ -467,78 +502,126 @@ function MetaReportBlock({
   lastUpdatedIso,
   onManualRefresh,
 }: MetaReportBlockProps) {
+  const dailyBudget = meta.dailyBudgetSet;
+  const ticketsSub = resolveTicketsSoldSub(event);
+
   return (
     <>
       <Section title="Campaign performance">
         <div
-          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 ${
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${
             isRefreshing ? "opacity-60 transition-opacity" : ""
           }`}
         >
-          <StatCard
-            label="Paid media budget"
-            value={budget > 0 ? fmtCurrency(budget) : "—"}
-            sub={
-              budget > 0 && spend > 0
-                ? `${Math.min(100, (spend / budget) * 100).toFixed(0)}% used`
-                : null
-            }
-          />
-          <StatCard
-            label="Daily budget set"
-            value={
-              meta.dailyBudgetSet != null && meta.dailyBudgetSet > 0
-                ? fmtCurrency(meta.dailyBudgetSet)
-                : "—"
-            }
-            sub="Active Meta ad sets (sum)"
-          />
-          <StatCard label="Total spend" value={fmtCurrency(meta.totalSpend)} />
-          <StatCard label="Meta spend" value={fmtCurrency(meta.totals.spend)} />
-          <StatCard
-            label="Budget used"
-            value={
-              budget > 0
-                ? `${((spend / budget) * 100).toFixed(0)}%`
-                : "—"
-            }
-            sub={budget > 0 ? fmtCurrency(spend) : null}
-          />
-          <StatCard
-            label="Budget remaining"
-            value={budget > 0 ? fmtCurrency(remaining) : "—"}
-          />
-          <StatCard
-            label="Tickets sold"
-            value={ticketsSold != null ? fmtInt(ticketsSold) : "—"}
-            sub={resolveTicketsSoldSub(event)}
-          />
-          <StatCard
-            label="Capacity"
-            value={capacity != null ? fmtInt(capacity) : "—"}
-          />
-          <StatCard
-            label="Sell-through"
-            value={
-              sellThroughPct != null ? `${sellThroughPct.toFixed(1)}%` : "—"
-            }
-            sub={
-              capacity != null && ticketsSold != null
-                ? `${fmtInt(ticketsSold)} / ${fmtInt(capacity)} tickets`
-                : null
-            }
-          />
-          <StatCard
-            label="Cost per ticket"
-            value={costPerTicket != null ? fmtCurrency(costPerTicket) : "—"}
-            sub={
-              costPerTicket != null
-                ? `${fmtInt(ticketsSold!)} tickets`
-                : ticketsSold === 0
-                  ? "0 tickets sold"
-                  : null
-            }
-          />
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Paid media
+            </p>
+            <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {budget > 0 ? (
+                  <>
+                    {fmtCurrencyCompact(budget)}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      Allocated
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {spentTotal > 0 || budget > 0 ? (
+                  <>
+                    {fmtCurrencyCompact(spentTotal)}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      Spent
+                    </span>
+                    {budget > 0 ? (
+                      <span className="text-sm font-normal text-muted-foreground">
+                        {" "}
+                        ({fmtCurrencyCompact(remaining)} remaining)
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+              {otherSpendWindow > 0 ? (
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  Meta {fmtCurrencyCompact(metaSpend)} · Other{" "}
+                  {fmtCurrencyCompact(otherSpendWindow)}
+                </p>
+              ) : null}
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {budgetUsedPct != null ? (
+                  <>{budgetUsedPct.toFixed(0)}% used</>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {dailyBudget != null && dailyBudget > 0 ? (
+                  <>
+                    <span className="text-sm font-normal text-muted-foreground">
+                      Daily budget:{" "}
+                    </span>
+                    {fmtCurrencyCompact(dailyBudget)}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm font-normal text-muted-foreground">
+                      Daily budget:{" "}
+                    </span>
+                    <span className="text-muted-foreground">—</span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Tickets
+            </p>
+            <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {ticketsSold != null ? (
+                  capacity != null ? (
+                    <>
+                      {fmtInt(ticketsSold)} / {fmtInt(capacity)} sold
+                      {sellThroughPct != null ? (
+                        <span className="text-sm font-normal text-muted-foreground">
+                          {" "}
+                          ({sellThroughPct.toFixed(1)}%)
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>{fmtInt(ticketsSold)} sold</>
+                  )
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+              {ticketsSub ? (
+                <p className="text-[11px] text-muted-foreground">{ticketsSub}</p>
+              ) : null}
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {costPerTicket != null ? (
+                  <>
+                    {fmtCurrencyCompact(costPerTicket)}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      cost per ticket
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+            </div>
+          </div>
         </div>
         {channelMultiActive ? (
           <ChannelBreakdownStrip
@@ -1088,8 +1171,7 @@ function Metric({
  * card (LPV, Clicks). Returns null when the denominator is missing or
  * zero so the caller can render an em-dash / nothing instead of
  * "£NaN per click". Currency-formatted via en-GB locale to keep two
- * decimals — `fmtCurrency` rounds to whole pounds for sums, which
- * collapses cost-per values that are typically <£1.
+ * decimals.
  */
 function formatCostPerSub(
   numerator: number | null | undefined,

@@ -84,6 +84,30 @@ export function fmtCurrency(n: number): string {
   });
 }
 
+/**
+ * GBP for compact headline cards: values with absolute magnitude ≥ 100
+ * round to the nearest whole pound (no pence); smaller values keep two
+ * decimals (e.g. £1.52, £0.06).
+ */
+export function fmtCurrencyCompact(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 100) {
+    return Math.round(n).toLocaleString("en-GB", {
+      style: "currency",
+      currency: "GBP",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+  }
+  return n.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 /** Long date from an in-memory Date instance. */
 export function fmtDay(d: Date): string {
   return d.toLocaleDateString("en-GB", {
