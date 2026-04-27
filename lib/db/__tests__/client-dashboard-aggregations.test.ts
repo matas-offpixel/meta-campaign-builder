@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  aggregateAllocationByEvent,
   aggregateClientWideTotals,
   aggregateVenueGroupTotals,
   isKnockoutStage,
@@ -28,8 +29,19 @@ function ev(
 function rollup(
   event_id: string,
   ad_spend: number | null,
+  allocation?: {
+    ad_spend_allocated?: number | null;
+    ad_spend_specific?: number | null;
+    ad_spend_generic_share?: number | null;
+  },
 ): DailyRollupRow {
-  return { event_id, ad_spend };
+  return {
+    event_id,
+    ad_spend,
+    ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
+    ad_spend_specific: allocation?.ad_spend_specific ?? null,
+    ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
+  };
 }
 
 function addl(event_id: string, amount: number | null): AdditionalSpendRow {
@@ -367,5 +379,76 @@ describe("sortEventsGroupStageFirst", () => {
       sorted.map((e) => e.id),
       ["cro", "ghana", "pan", "l32", "l16"],
     );
+  });
+});
+
+describe("aggregateAllocationByEvent", () => {
+  it("returns an empty map when no rows have allocation populated", () => {
+    const rows = [
+      rollup("a", 100),
+      rollup("b", 200),
+    ];
+    const map = aggregateAllocationByEvent(rows);
+    assert.equal(map.size, 0);
+  });
+
+  it("sums specific / generic / allocated per event across days", () => {
+    const rows: DailyRollupRow[] = [
+      // Event A: two allocated days, one with specific.
+      rollup("a", 100, {
+        ad_spend_allocated: 100,
+        ad_spend_specific: 50,
+        ad_spend_generic_share: 50,
+      }),
+      rollup("a", 80, {
+        ad_spend_allocated: 80,
+        ad_spend_specific: 30,
+        ad_spend_generic_share: 50,
+      }),
+      // Event B: single allocated day.
+      rollup("b", 60, {
+        ad_spend_allocated: 60,
+        ad_spend_specific: 0,
+        ad_spend_generic_share: 60,
+      }),
+    ];
+    const map = aggregateAllocationByEvent(rows);
+    assert.equal(map.size, 2);
+    const a = map.get("a")!;
+    assert.equal(a.allocated, 180);
+    assert.equal(a.specific, 80);
+    assert.equal(a.genericShare, 100);
+    assert.equal(a.daysCovered, 2);
+
+    const b = map.get("b")!;
+    assert.equal(b.allocated, 60);
+    assert.equal(b.specific, 0);
+    assert.equal(b.genericShare, 60);
+    assert.equal(b.daysCovered, 1);
+  });
+
+  it("skips days with null ad_spend_allocated even if other columns are non-null", () => {
+    const rows: DailyRollupRow[] = [
+      // Degenerate row — defensive — allocator should never write
+      // only specific without also writing allocated, but if the
+      // table gets partially populated by a historical cleanup we
+      // don't want to count it.
+      rollup("a", 100, {
+        ad_spend_allocated: null,
+        ad_spend_specific: 10,
+        ad_spend_generic_share: 10,
+      }),
+      rollup("a", 50, {
+        ad_spend_allocated: 50,
+        ad_spend_specific: 20,
+        ad_spend_generic_share: 30,
+      }),
+    ];
+    const map = aggregateAllocationByEvent(rows);
+    const a = map.get("a")!;
+    assert.equal(a.allocated, 50);
+    assert.equal(a.specific, 20);
+    assert.equal(a.genericShare, 30);
+    assert.equal(a.daysCovered, 1);
   });
 });

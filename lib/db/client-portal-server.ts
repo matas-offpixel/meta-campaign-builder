@@ -106,10 +106,27 @@ export interface DailyEntry {
  * needs cross the server→client boundary so the payload stays
  * small on clients with dozens of events × hundreds of rollup
  * days (64 × 180 ≈ 11k rows for 4theFans).
+ *
+ * The three `ad_spend_*` allocation columns (migration 046) are
+ * the PR D2 per-event split. When `ad_spend_allocated` is non-
+ * null the venue table uses it directly; when all three are null
+ * the reporting layer falls back to the raw `ad_spend` and the
+ * pre-D2 split model.
  */
 export interface DailyRollupRow {
   event_id: string;
+  /** Raw per-event per-day Meta spend (venue-total for multi-
+   *  match venues — every event in the venue sees the same
+   *  `ad_spend` value for a given day). */
   ad_spend: number | null;
+  /** Per-event allocated spend (specific + generic share).
+   *  NULL when allocation hasn't run yet. */
+  ad_spend_allocated: number | null;
+  /** Opponent-matched portion of the allocation. NULL when
+   *  allocation hasn't run. */
+  ad_spend_specific: number | null;
+  /** This event's share of the venue-wide generic pool. */
+  ad_spend_generic_share: number | null;
 }
 
 /**
@@ -355,12 +372,18 @@ async function loadPortalForClientId(
   if (eventIds.length > 0) {
     const { data: rows } = await admin
       .from("event_daily_rollups")
-      .select("event_id, ad_spend")
+      .select(
+        "event_id, ad_spend, ad_spend_allocated, ad_spend_specific, ad_spend_generic_share",
+      )
       .in("event_id", eventIds);
     if (rows) {
       dailyRollups = rows.map((r) => ({
         event_id: r.event_id as string,
         ad_spend: (r.ad_spend as number | null) ?? null,
+        ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
+        ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
+        ad_spend_generic_share:
+          (r.ad_spend_generic_share as number | null) ?? null,
       }));
     }
   }

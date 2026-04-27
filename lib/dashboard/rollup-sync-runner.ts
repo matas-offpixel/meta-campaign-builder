@@ -19,6 +19,10 @@ import {
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
+import {
+  allocateVenueSpendForCode,
+  type VenueAllocatorResult,
+} from "@/lib/dashboard/venue-spend-allocator";
 
 /**
  * lib/dashboard/rollup-sync-runner.ts
@@ -69,6 +73,16 @@ export interface RollupSyncInput {
   /** Resolved Meta ad account id (e.g. "act_123456"). Null short-
    *  circuits the Meta leg with reason="no_ad_account". */
   adAccountId: string | null;
+  /** Owning client_id — needed by the per-event spend allocator
+   *  (PR D2) to scope the venue sibling lookup so we don't match
+   *  another client that happens to share an event_code.
+   *  Null short-circuits the allocator leg without failing the
+   *  sync (old callers pre-D2 keep working). */
+  clientId?: string | null;
+  /** Event's `event_date` — part of the venue key (event_code +
+   *  date) the allocator uses to find siblings. Null short-
+   *  circuits the allocator leg. */
+  eventDate?: string | null;
 }
 
 export interface SyncLegResult {
@@ -154,6 +168,17 @@ export interface SyncDiagnostics {
    * landed. A warning log is emitted alongside.
    */
   todayRowAfterSync: TodayRowProbe | null;
+  /**
+   * Summary of the per-event spend allocator leg (PR D2). `null`
+   * when the allocator didn't run (no event_code, no event_date,
+   * no client_id — old callers that haven't opted in, or solo-
+   * event venues where allocation is a no-op). When present, it
+   * reports the sibling count, distinct ad names seen, rows
+   * written, and the per-event lifetime breakdown — the last is
+   * what the post-deploy verification step prints to confirm
+   * Brighton's Croatia allocation exceeds the others.
+   */
+  allocatorResult: VenueAllocatorResult | null;
 }
 
 export interface TodayRowProbe {
@@ -224,6 +249,8 @@ export async function runRollupSyncForEvent(
     eventCode,
     eventTimezone,
     adAccountId,
+    clientId,
+    eventDate,
   } = input;
 
   // Window: last 60 days (inclusive of today) in account local time.
@@ -265,6 +292,7 @@ export async function runRollupSyncForEvent(
     metaWindowDaysPadded: 0,
     eventbriteWindowDaysPadded: 0,
     todayRowAfterSync: null,
+    allocatorResult: null,
   };
 
   console.log(
@@ -444,6 +472,74 @@ export async function runRollupSyncForEvent(
       metaResult.error = err instanceof Error ? err.message : "Unknown error";
       console.error(`[rollup-sync] meta leg threw: ${metaResult.error}`);
     }
+  }
+
+  // ── Per-event spend allocator (PR D2) ─────────────────────────────
+  //
+  // Runs after the Meta leg wrote `ad_spend` to every event in the
+  // venue window. The allocator fetches ad-level daily insights
+  // ONCE per venue, classifies each ad against the venue's opponent
+  // set, and writes per-event allocation columns for every sibling.
+  //
+  // Short-circuits cleanly when the caller didn't supply the extra
+  // scope (pre-D2 callers) or when the Meta leg itself didn't run —
+  // no point fetching ad-level insights when the campaign-level
+  // fetch just failed with `owner_token_expired` or similar.
+  //
+  // Failure policy: a failed allocator DOES NOT flip metaResult.ok.
+  // The existing `ad_spend` column stays valid and the reporting
+  // layer falls back to it when `ad_spend_allocated` is null.
+  if (
+    metaResult.ok &&
+    eventCode &&
+    adAccountId &&
+    clientId &&
+    eventDate
+  ) {
+    try {
+      const { token } = await resolveServerMetaToken(supabase, userId);
+      const allocator = await allocateVenueSpendForCode({
+        supabase,
+        userId,
+        clientId,
+        eventCode,
+        eventDate,
+        adAccountId,
+        token,
+        since: sinceStr,
+        until: untilStr,
+      });
+      diagnostics.allocatorResult = allocator;
+      if (allocator.ok) {
+        const lifetime = allocator.perEventLifetime
+          .map(
+            (r) =>
+              `${r.eventId}:${r.allocated.toFixed(2)}(s=${r.specific.toFixed(
+                2,
+              )},g=${r.genericShare.toFixed(2)})`,
+          )
+          .join(" ");
+        console.log(
+          `[rollup-sync] allocator ok siblings=${allocator.venueEventIds.length} ads=${allocator.adNames.length} rows_written=${allocator.rowsWritten} reason=${allocator.reason ?? "ran"} lifetime=${lifetime}`,
+        );
+      } else {
+        console.warn(
+          `[rollup-sync] allocator skip reason=${allocator.reason ?? "unknown"} msg=${allocator.error ?? "<none>"}`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[rollup-sync] allocator threw: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`,
+      );
+    }
+  } else if (metaResult.ok) {
+    console.log(
+      `[rollup-sync] allocator not invoked (clientId=${
+        clientId ?? "<null>"
+      } eventDate=${eventDate ?? "<null>"})`,
+    );
   }
 
   // ── Eventbrite leg ────────────────────────────────────────────────

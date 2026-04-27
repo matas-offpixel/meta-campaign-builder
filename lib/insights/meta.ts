@@ -1714,3 +1714,166 @@ function handleMetaError(err: unknown): { ok: false; error: InsightsError } {
     err instanceof Error ? err.message : "Unknown error",
   );
 }
+
+// ─── Ad-level daily spend (per-event spend attribution) ───────────────────
+
+export interface FetchVenueDailyAdMetricsArgs {
+  /** Bracket-naked event code shared by every match at the venue, e.g.
+   *  "WC26-BRIGHTON". The matcher wraps it in brackets and requires a
+   *  case-sensitive match client-side. */
+  eventCode: string;
+  /** "act_…" prefixed ad account id. */
+  adAccountId: string;
+  /** OAuth token of the event owner. */
+  token: string;
+  /** YYYY-MM-DD inclusive lower bound. */
+  since: string;
+  /** YYYY-MM-DD inclusive upper bound. */
+  until: string;
+}
+
+export interface VenueDailyAdMetricsRow {
+  /** `YYYY-MM-DD`. Aligns with `event_daily_rollups.date`. */
+  day: string;
+  /** Meta ad id — unique within the account. */
+  adId: string;
+  /** Ad display name; fed into
+   *  `classifyAdAgainstOpponents` to pick the opponent attribution. */
+  adName: string;
+  /** Parent campaign name (for diagnostics only — the venue filter
+   *  already restricted us to the matching campaigns). */
+  campaignName: string;
+  /** Ad spend for this (ad, day). Non-null, ≥ 0. */
+  spend: number;
+}
+
+export type VenueDailyAdMetricsResult =
+  | {
+      ok: true;
+      rows: VenueDailyAdMetricsRow[];
+      /** Distinct ad names that survived the case-sensitive
+       *  bracket match — surfaced for diagnostic logging. */
+      adNames: string[];
+      /** Distinct campaign names that contributed — empty array
+       *  doesn't mean "broken", it means no live ads in the
+       *  campaign yet for this window. */
+      campaignNames: string[];
+    }
+  | { ok: false; error: InsightsError };
+
+/**
+ * Per-day, per-ad spend for every ad under the campaigns whose name
+ * contains `[eventCode]`. Feeds the PR D2 allocator (per-event
+ * spend attribution) — fetches at `level=ad` so the downstream
+ * classifier can bucket each ad as "opponent-specific" or
+ * "venue-generic" from the ad name.
+ *
+ * Sibling to `fetchEventDailyMetaMetrics`:
+ *   That helper aggregates to `level=campaign` because the original
+ *   single-event rollup only needed a single per-day number. The
+ *   attribution work can't collapse ads — it needs per-ad granularity
+ *   to classify and redistribute spend. Both helpers share the same
+ *   bracket-wrap matching convention + case-sensitive post-filter so
+ *   a campaign that shows up in one tracker shows up in the other.
+ *
+ * Pagination + caps:
+ *   The `/insights` call is capped at 500 rows per page × 20 pages
+ *   (10k rows) — comfortable for even the busiest venue (a 60-day
+ *   window with 50 ads at one spend row per day per ad is 3k). The
+ *   loop breaks on the first missing cursor so under-populated
+ *   venues return quickly.
+ */
+export async function fetchVenueDailyAdMetrics(
+  args: FetchVenueDailyAdMetricsArgs,
+): Promise<VenueDailyAdMetricsResult> {
+  const { eventCode, adAccountId, token, since, until } = args;
+  if (!eventCode.trim()) {
+    return errorResult("no_event_code", "Venue has no event_code set.");
+  }
+  if (!adAccountId.trim()) {
+    return errorResult(
+      "no_ad_account",
+      "Client has no Meta ad account linked.",
+    );
+  }
+
+  const validation = resolveCustomRange("custom", { since, until });
+  if (!validation.ok) return validation;
+
+  const account = ensureActPrefix(adAccountId);
+  const codeBracketed = `[${eventCode}]`;
+  const filtering = JSON.stringify([
+    { field: "campaign.name", operator: "CONTAIN", value: codeBracketed },
+  ]);
+  const timeRange = JSON.stringify({ since, until });
+
+  try {
+    const rows: VenueDailyAdMetricsRow[] = [];
+    const adNames = new Set<string>();
+    const campaignNames = new Set<string>();
+
+    let after: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = {
+        // level=ad returns one row per (ad, day). ad_id + ad_name
+        // survive the level shift; campaign_name comes back too so
+        // we can re-filter case-sensitively before accepting rows.
+        fields:
+          "spend,date_start,ad_id,ad_name,campaign_name,inline_link_clicks",
+        level: "ad",
+        time_increment: "1",
+        time_range: timeRange,
+        filtering,
+        action_attribution_windows: ATTRIBUTION_WINDOWS,
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<
+        GraphPaged<{
+          spend?: string;
+          date_start?: string;
+          ad_id?: string;
+          ad_name?: string;
+          campaign_name?: string;
+          inline_link_clicks?: string;
+        }>
+      >(`/${account}/insights`, params, token);
+
+      for (const row of res.data ?? []) {
+        const day = row.date_start;
+        if (!day) continue;
+        const campaignName = row.campaign_name ?? "";
+        // Case-sensitive bracket post-filter, same as the campaign-
+        // level daily helper. Meta's CONTAIN is case-insensitive at
+        // the API layer.
+        if (!campaignName.includes(codeBracketed)) continue;
+        const adId = row.ad_id ?? "";
+        const adName = row.ad_name ?? "";
+        if (!adId || !adName) continue;
+        const spend = parseNum(row.spend);
+        campaignNames.add(campaignName);
+        adNames.add(adName);
+        rows.push({
+          day,
+          adId,
+          adName,
+          campaignName,
+          spend,
+        });
+      }
+
+      after = res.paging?.cursors?.after;
+      if (!res.paging?.next || !after) break;
+    }
+
+    return {
+      ok: true,
+      rows,
+      adNames: [...adNames].sort(),
+      campaignNames: [...campaignNames].sort(),
+    };
+  } catch (err) {
+    return handleMetaError(err);
+  }
+}

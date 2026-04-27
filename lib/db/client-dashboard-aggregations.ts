@@ -43,6 +43,54 @@ export interface AdditionalSpendRow {
   amount: number | null;
 }
 
+/**
+ * Lifetime allocation totals for one event — sum of the three
+ * allocation columns across every rollup day. Populated when at
+ * least one rollup row for the event has `ad_spend_allocated`
+ * non-null (i.e. the allocator has run for this venue).
+ */
+export interface EventAllocationLifetime {
+  /** Opponent-matched spend for this event, lifetime. */
+  specific: number;
+  /** This event's share of the venue-wide generic pool, lifetime. */
+  genericShare: number;
+  /** specific + genericShare — what the venue card's Ad Spend
+   *  column renders when allocation is available. */
+  allocated: number;
+  /** Number of rollup days that contributed non-null allocation.
+   *  Used as a "has any allocation" flag by the venue table. */
+  daysCovered: number;
+}
+
+/**
+ * Aggregate the per-event allocated spend columns out of the slim
+ * rollup rows the portal loader exposes. Returns one entry per
+ * event that has ANY non-null allocation row — events with only
+ * null columns (either unallocated venues or pre-PR-D2 rows)
+ * don't show up so callers can treat an absent key as "fall back
+ * to the pre-allocation split model".
+ */
+export function aggregateAllocationByEvent(
+  dailyRollups: DailyRollupRow[],
+): Map<string, EventAllocationLifetime> {
+  const out = new Map<string, EventAllocationLifetime>();
+  for (const r of dailyRollups) {
+    if (r.ad_spend_allocated == null) continue;
+    const existing = out.get(r.event_id) ?? {
+      specific: 0,
+      genericShare: 0,
+      allocated: 0,
+      daysCovered: 0,
+    };
+    existing.allocated += r.ad_spend_allocated;
+    existing.specific += r.ad_spend_specific ?? 0;
+    existing.genericShare += r.ad_spend_generic_share ?? 0;
+    existing.daysCovered += 1;
+    out.set(r.event_id, existing);
+  }
+  return out;
+}
+
 export interface ClientWideTotals {
   /** Distinct venue groups after (event_code, event_date) grouping. */
   venueGroups: number;

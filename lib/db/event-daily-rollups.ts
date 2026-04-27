@@ -28,6 +28,17 @@ export interface EventDailyRollup {
   revenue: number | null;
   /** Per-day Meta complete_registration actions (rollup-sync). */
   meta_regs: number | null;
+  /**
+   * Per-event allocated spend (migration 046). Specific-opponent
+   * spend + this event's share of the venue-wide generic pool.
+   * NULL when allocation has not run for this (event, date);
+   * reporting falls back to `ad_spend` in that case.
+   */
+  ad_spend_allocated: number | null;
+  /** Spend from ads that whole-word matched this event's opponent. */
+  ad_spend_specific: number | null;
+  /** This event's share of the venue-generic ad pool. */
+  ad_spend_generic_share: number | null;
   source_meta_at: string | null;
   source_eventbrite_at: string | null;
   notes: string | null;
@@ -247,6 +258,67 @@ export async function upsertEventbriteRollups(
     .upsert(payload, { onConflict: "event_id,date" });
   if (error) {
     console.warn("[event-daily-rollups upsertEventbrite]", error.message);
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Row written by the per-event spend allocator (PR D2). One row per
+ * (event_id, date) carries the allocator's per-event breakdown so
+ * reporting can show the specific / generic split in a tooltip
+ * without re-doing the classification work.
+ *
+ * All three columns are the sum for that single day — the UI
+ * re-aggregates across the event's lifetime (or a timeframe
+ * window) when rendering the venue card.
+ */
+export interface AllocatedSpendUpsertRow {
+  date: string;
+  /** Total allocated: specific + generic_share. */
+  ad_spend_allocated: number;
+  /** Opponent-matched spend for this event. */
+  ad_spend_specific: number;
+  /** This event's slice of the venue-wide generic pool. */
+  ad_spend_generic_share: number;
+}
+
+/**
+ * Bulk upsert allocated-spend columns on `event_daily_rollups` for
+ * one event. Touches ONLY the three allocation columns introduced
+ * in migration 046 — the existing `ad_spend` / `link_clicks` /
+ * `source_meta_at` etc. are written by the Meta rollup pass and
+ * must never be blanked out by the allocator. That isolation is
+ * why the allocator is a separate upsert rather than folded into
+ * `upsertMetaRollups`.
+ *
+ * The `user_id` + `event_id` + `date` triple is always present so
+ * the INSERT path satisfies the table's RLS + unique constraint.
+ * Existing rows keep their operator-entered `notes` because
+ * Supabase's upsert only overwrites columns present in the
+ * payload (Postgres's `ON CONFLICT ... DO UPDATE SET …` semantics).
+ */
+export async function upsertAllocatedSpendRollups(
+  supabase: AnySupabaseClient,
+  args: {
+    userId: string;
+    eventId: string;
+    rows: AllocatedSpendUpsertRow[];
+  },
+): Promise<void> {
+  if (args.rows.length === 0) return;
+  const payload = args.rows.map((r) => ({
+    user_id: args.userId,
+    event_id: args.eventId,
+    date: r.date,
+    ad_spend_allocated: r.ad_spend_allocated,
+    ad_spend_specific: r.ad_spend_specific,
+    ad_spend_generic_share: r.ad_spend_generic_share,
+  }));
+  const { error } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .upsert(payload, { onConflict: "event_id,date" });
+  if (error) {
+    console.warn("[event-daily-rollups upsertAllocated]", error.message);
     throw new Error(error.message);
   }
 }

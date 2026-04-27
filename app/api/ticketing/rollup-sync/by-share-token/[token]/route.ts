@@ -100,7 +100,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, client:clients ( meta_ad_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, client:clients ( meta_ad_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -133,6 +133,8 @@ export async function POST(
 
   const eventCode = (event.event_code as string | null) ?? null;
   const eventTimezone = (event.event_timezone as string | null) ?? null;
+  const eventDate = (event.event_date as string | null) ?? null;
+  const clientId = (event.client_id as string | null) ?? null;
   const clientRel = event.client as
     | { meta_ad_account_id: string | null }
     | { meta_ad_account_id: string | null }[]
@@ -148,6 +150,8 @@ export async function POST(
     eventCode,
     eventTimezone,
     adAccountId,
+    clientId,
+    eventDate,
   });
 
   return NextResponse.json(
