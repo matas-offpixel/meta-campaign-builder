@@ -368,6 +368,139 @@ function daysBetween(a: string, b: string): number {
   return (da - db) / 86_400_000;
 }
 
+// ─── Week-over-week deltas ─────────────────────────────────────────────────
+
+/**
+ * One half of the WoW pair — either Tickets or CPT. Values are null
+ * when the underlying window had no qualifying data (either no
+ * rollup rows or zero tickets / spend, per the column's semantics).
+ * The venue header renders "—" for any null half rather than
+ * pretending the comparison is meaningful.
+ */
+export interface WoWDelta {
+  /** Current 7-day total (last 7 days ending on `todayIso`). */
+  current: number | null;
+  /** Prior 7-day total (the 7 days before the current window). */
+  previous: number | null;
+  /** `current - previous`; null when either side is null. */
+  delta: number | null;
+  /** `delta / previous * 100`; null when previous is 0 / null. */
+  deltaPct: number | null;
+}
+
+export interface VenueWoWTotals {
+  tickets: WoWDelta;
+  /**
+   * Cost-per-ticket — (ad_spend in the window) / (tickets_sold in
+   * the window). Nullable halves when either side is zero / missing,
+   * so a window with spend but no tickets shows "—" rather than ∞.
+   *
+   * Intentionally ignores `additional_spend_entries` because the
+   * additional-spend table isn't date-bucketed (it carries only an
+   * event_id + amount today). Per-day CPT uses the rollup ad_spend
+   * column alone — a reasonable approximation since additional spend
+   * at 4theFans is typically lifetime sponsorship, not per-week.
+   */
+  cpt: WoWDelta;
+}
+
+const ZERO_DELTA: WoWDelta = {
+  current: null,
+  previous: null,
+  delta: null,
+  deltaPct: null,
+};
+
+/**
+ * Deterministic WoW (current 7 days vs prior 7 days) for a single
+ * venue group. Pulls from `event_daily_rollups` alone — per the
+ * PR D3 brief the field is "summed across all events in the venue
+ * group" and the rollup table is the only date-axis source of
+ * truth we have today.
+ *
+ * `todayIso` is injected so SSR renders and tests don't drift with
+ * wall-clock time. The current window is inclusive of `todayIso`
+ * (i.e. last 7 days ending today); the prior window is the 7 days
+ * before that.
+ *
+ * Returns `ZERO_DELTA` halves when a window has no qualifying
+ * rollup rows — callers surface "—" for those, matching the brief's
+ * "Show — when one of the two periods has zero data" rule.
+ */
+export function aggregateVenueWoW(
+  events: AggregatableEvent[],
+  dailyRollups: DailyRollupRow[],
+  todayIso: string,
+): VenueWoWTotals {
+  const eventIds = new Set(events.map((e) => e.id));
+  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
+  if (!Number.isFinite(todayMs) || eventIds.size === 0) {
+    return { tickets: ZERO_DELTA, cpt: ZERO_DELTA };
+  }
+  const currStart = todayMs - 6 * 86_400_000;
+  const prevStart = todayMs - 13 * 86_400_000;
+  const prevEnd = todayMs - 7 * 86_400_000;
+
+  let currTickets = 0;
+  let prevTickets = 0;
+  let currSpend = 0;
+  let prevSpend = 0;
+  let currRows = 0;
+  let prevRows = 0;
+
+  for (const r of dailyRollups) {
+    if (!eventIds.has(r.event_id)) continue;
+    const ms = Date.parse(`${r.date}T00:00:00Z`);
+    if (!Number.isFinite(ms)) continue;
+    if (ms >= currStart && ms <= todayMs) {
+      currRows += 1;
+      if (r.tickets_sold != null) currTickets += r.tickets_sold;
+      if (r.ad_spend != null) currSpend += r.ad_spend;
+    } else if (ms >= prevStart && ms <= prevEnd) {
+      prevRows += 1;
+      if (r.tickets_sold != null) prevTickets += r.tickets_sold;
+      if (r.ad_spend != null) prevSpend += r.ad_spend;
+    }
+  }
+
+  // Separate concerns: `current` / `previous` describe the windows
+  // independently (so the header can still render a plain CPT value
+  // when only one side has data); `delta` / `deltaPct` are set only
+  // when both sides are meaningful. The brief's "— when one period
+  // has zero data" rule applies to the delta parenthetical, not to
+  // the primary number.
+  const bothWindowsPresent = currRows > 0 && prevRows > 0;
+
+  const tickets: WoWDelta = buildHalf(
+    currRows > 0 ? currTickets : null,
+    prevRows > 0 ? prevTickets : null,
+    bothWindowsPresent,
+  );
+
+  const currCpt = currTickets > 0 && currSpend > 0 ? currSpend / currTickets : null;
+  const prevCpt = prevTickets > 0 && prevSpend > 0 ? prevSpend / prevTickets : null;
+  const cpt: WoWDelta = buildHalf(
+    currCpt,
+    prevCpt,
+    bothWindowsPresent && currCpt != null && prevCpt != null,
+  );
+
+  return { tickets, cpt };
+}
+
+function buildHalf(
+  current: number | null,
+  previous: number | null,
+  canCompare: boolean,
+): WoWDelta {
+  if (!canCompare || current == null || previous == null) {
+    return { current, previous, delta: null, deltaPct: null };
+  }
+  const delta = current - previous;
+  const deltaPct = previous !== 0 ? (delta / previous) * 100 : null;
+  return { current, previous, delta, deltaPct };
+}
+
 // ─── Event ordering ────────────────────────────────────────────────────────
 
 /**

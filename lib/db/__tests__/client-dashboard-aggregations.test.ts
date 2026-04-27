@@ -5,6 +5,7 @@ import {
   aggregateAllocationByEvent,
   aggregateClientWideTotals,
   aggregateVenueGroupTotals,
+  aggregateVenueWoW,
   isKnockoutStage,
   sortEventsGroupStageFirst,
   type AdditionalSpendRow,
@@ -33,10 +34,17 @@ function rollup(
     ad_spend_allocated?: number | null;
     ad_spend_specific?: number | null;
     ad_spend_generic_share?: number | null;
+    /** Optional date for the WoW aggregator tests. Aggregators that
+     *  don't care about the day axis (e.g. the lifetime topline) leave
+     *  this at the sentinel `2020-01-01`. */
+    date?: string;
+    tickets_sold?: number | null;
   },
 ): DailyRollupRow {
   return {
     event_id,
+    date: allocation?.date ?? "2020-01-01",
+    tickets_sold: allocation?.tickets_sold ?? null,
     ad_spend,
     ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
@@ -450,5 +458,106 @@ describe("aggregateAllocationByEvent", () => {
     assert.equal(a.specific, 20);
     assert.equal(a.genericShare, 30);
     assert.equal(a.daysCovered, 1);
+  });
+});
+
+describe("aggregateVenueWoW", () => {
+  // Anchor every test to 2026-04-27 so the WoW windows are:
+  //   current:  2026-04-21 .. 2026-04-27 (7 days, inclusive)
+  //   previous: 2026-04-14 .. 2026-04-20 (7 days, inclusive)
+  const TODAY = "2026-04-27";
+  const events = [ev({ id: "a" }), ev({ id: "b" })];
+
+  it("computes tickets + CPT delta from rollups inside each window", () => {
+    const rollups: DailyRollupRow[] = [
+      // Current window — 300 tickets, £300 spend across two events
+      rollup("a", 100, { date: "2026-04-22", tickets_sold: 150 }),
+      rollup("b", 200, { date: "2026-04-25", tickets_sold: 150 }),
+      // Previous window — 200 tickets, £400 spend
+      rollup("a", 300, { date: "2026-04-14", tickets_sold: 100 }),
+      rollup("b", 100, { date: "2026-04-20", tickets_sold: 100 }),
+    ];
+
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+
+    assert.equal(result.tickets.current, 300);
+    assert.equal(result.tickets.previous, 200);
+    assert.equal(result.tickets.delta, 100);
+    assert.equal(result.tickets.deltaPct, 50);
+
+    // CPT: curr = 300/300 = 1.00, prev = 400/200 = 2.00 → delta -1.00, -50%
+    assert.equal(result.cpt.current, 1);
+    assert.equal(result.cpt.previous, 2);
+    assert.equal(result.cpt.delta, -1);
+    assert.equal(result.cpt.deltaPct, -50);
+  });
+
+  it("surfaces current-window data but nulls the delta when previous window is empty", () => {
+    const rollups: DailyRollupRow[] = [
+      // Current only — previous window is empty.
+      rollup("a", 50, { date: "2026-04-23", tickets_sold: 100 }),
+    ];
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+    // The current half is non-null so the header can still render a
+    // plain "Tickets: 100" / "CPT: £0.50" — only the parenthetical
+    // delta gets hidden.
+    assert.equal(result.tickets.current, 100);
+    assert.equal(result.tickets.previous, null);
+    assert.equal(result.tickets.delta, null);
+    assert.equal(result.tickets.deltaPct, null);
+    assert.equal(result.cpt.current, 0.5);
+    assert.equal(result.cpt.previous, null);
+    assert.equal(result.cpt.delta, null);
+  });
+
+  it("ignores rollup rows outside either window", () => {
+    const rollups: DailyRollupRow[] = [
+      // Inside windows
+      rollup("a", 100, { date: "2026-04-25", tickets_sold: 10 }),
+      rollup("a", 100, { date: "2026-04-15", tickets_sold: 10 }),
+      // Too old — more than 13 days back.
+      rollup("a", 9999, { date: "2026-04-01", tickets_sold: 9999 }),
+      // Future — future-dated test data.
+      rollup("a", 9999, { date: "2026-05-10", tickets_sold: 9999 }),
+    ];
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+    assert.equal(result.tickets.current, 10);
+    assert.equal(result.tickets.previous, 10);
+    assert.equal(result.tickets.delta, 0);
+  });
+
+  it("nulls CPT when spend or tickets is zero in a window", () => {
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 100, { date: "2026-04-23", tickets_sold: 50 }),
+      // Previous window had spend but zero tickets → previous CPT = null
+      rollup("a", 50, { date: "2026-04-18", tickets_sold: 0 }),
+    ];
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+    assert.notEqual(result.cpt.current, null);
+    assert.equal(result.cpt.previous, null);
+    assert.equal(result.cpt.delta, null);
+    assert.equal(result.cpt.deltaPct, null);
+    // Tickets delta still renders — one window with zero tickets is
+    // legitimate data, not missing data.
+    assert.equal(result.tickets.current, 50);
+    assert.equal(result.tickets.previous, 0);
+  });
+
+  it("ignores rollup rows for events outside the group", () => {
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 100, { date: "2026-04-22", tickets_sold: 100 }),
+      rollup("a", 100, { date: "2026-04-17", tickets_sold: 80 }),
+      // Different event id — not in `events` list.
+      rollup("outsider", 9999, { date: "2026-04-23", tickets_sold: 9999 }),
+    ];
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+    assert.equal(result.tickets.current, 100);
+    assert.equal(result.tickets.previous, 80);
+  });
+
+  it("returns null halves for an empty event list", () => {
+    const result = aggregateVenueWoW([], [], TODAY);
+    assert.equal(result.tickets.delta, null);
+    assert.equal(result.cpt.delta, null);
   });
 });
