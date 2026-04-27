@@ -101,6 +101,29 @@ export interface DailyEntry {
 }
 
 /**
+ * Slim `event_daily_rollups` row surfaced to the client dashboard
+ * topline aggregator. Only the columns the aggregator actually
+ * needs cross the server→client boundary so the payload stays
+ * small on clients with dozens of events × hundreds of rollup
+ * days (64 × 180 ≈ 11k rows for 4theFans).
+ */
+export interface DailyRollupRow {
+  event_id: string;
+  ad_spend: number | null;
+}
+
+/**
+ * Slim `additional_spend_entries` row for the same reason. The
+ * topline sums amounts across the client; category / date / label
+ * are only relevant per-event where the share-report page already
+ * owns that data.
+ */
+export interface AdditionalSpendRow {
+  event_id: string;
+  amount: number;
+}
+
+/**
  * Synthetic event_codes used to model London-wide shared campaigns.
  * The rows live in the events table (migration 024) so the existing
  * "Refresh all spend" flow picks them up automatically — but they are
@@ -145,6 +168,20 @@ export type ClientPortalData =
        * affordance.
        */
       dailyEntries: DailyEntry[];
+      /**
+       * Daily rollup rows across every event under the client.
+       * Drives the client-wide topline aggregator (sum of ad_spend)
+       * — the per-card venue tables keep using meta_spend_cached as
+       * today. Empty when the rollup table is empty for this client
+       * (migration 039 not backfilled, or no events yet).
+       */
+      dailyRollups: DailyRollupRow[];
+      /**
+       * Additional (off-Meta) spend entries across every event under
+       * the client. Drives the topline "Total Spend" stat. Empty when
+       * no additional spend has been logged yet.
+       */
+      additionalSpend: AdditionalSpendRow[];
     }
   | {
       ok: false;
@@ -184,10 +221,32 @@ export async function loadClientPortalData(
     void bumpShareView(token, admin);
   }
 
+  return loadPortalForClientId(share.client_id);
+}
+
+/**
+ * Internal counterpart used by `/clients/[id]/dashboard`. Skips the
+ * token validation path — the caller is expected to have already
+ * proved ownership (e.g. the page enforces `client.user_id ===
+ * auth.uid`). Returns the same payload shape as the token-driven
+ * loader so the same `ClientPortal` component renders both.
+ */
+export async function loadClientPortalByClientId(
+  clientId: string,
+): Promise<ClientPortalData> {
+  if (!clientId) return { ok: false, reason: "not_found" };
+  return loadPortalForClientId(clientId);
+}
+
+async function loadPortalForClientId(
+  clientId: string,
+): Promise<ClientPortalData> {
+  const admin = createServiceRoleClient();
+
   const { data: client, error: clientErr } = await admin
     .from("clients")
     .select("id, name, slug, primary_type")
-    .eq("id", share.client_id)
+    .eq("id", clientId)
     .maybeSingle();
   if (clientErr || !client) {
     return { ok: false, reason: "client_load_failed" };
@@ -198,7 +257,7 @@ export async function loadClientPortalData(
     .select(
       "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached",
     )
-    .eq("client_id", share.client_id)
+    .eq("client_id", clientId)
     .order("event_date", { ascending: true, nullsFirst: false });
 
   if (eventsErr) {
@@ -267,7 +326,7 @@ export async function loadClientPortalData(
     const { data: rows, error: dailyErr } = await admin
       .from("daily_tracking_entries")
       .select("id, event_id, date, day_spend, tickets, revenue, link_clicks, notes")
-      .eq("client_id", share.client_id)
+      .eq("client_id", clientId)
       .order("event_id", { ascending: true })
       .order("date", { ascending: true });
     // Soft-fail: if the table doesn't exist yet (migration 025 not
@@ -287,6 +346,45 @@ export async function loadClientPortalData(
     }
   }
 
+  // Event daily rollups (`event_daily_rollups`) — the source of truth
+  // for paid-media spend across events. Filtered by event_ids rather
+  // than client_id because the rollup table doesn't carry client_id;
+  // the events already are scoped to the token's client so this is
+  // safe and also RLS-safe under service-role.
+  let dailyRollups: DailyRollupRow[] = [];
+  if (eventIds.length > 0) {
+    const { data: rows } = await admin
+      .from("event_daily_rollups")
+      .select("event_id, ad_spend")
+      .in("event_id", eventIds);
+    if (rows) {
+      dailyRollups = rows.map((r) => ({
+        event_id: r.event_id as string,
+        ad_spend: (r.ad_spend as number | null) ?? null,
+      }));
+    }
+  }
+
+  // Additional (off-Meta) spend for the same events. The entries
+  // table is user-scoped, not client-scoped, so we filter by
+  // event_ids under service role; service role bypasses RLS which
+  // is the correct behavior for a token-resolved portal read.
+  let additionalSpend: AdditionalSpendRow[] = [];
+  if (eventIds.length > 0) {
+    const { data: rows } = await admin
+      .from("additional_spend_entries")
+      .select("event_id, amount")
+      .in("event_id", eventIds);
+    if (rows) {
+      additionalSpend = rows
+        .map((r) => ({
+          event_id: r.event_id as string,
+          amount: typeof r.amount === "number" ? r.amount : Number(r.amount ?? 0),
+        }))
+        .filter((r) => Number.isFinite(r.amount));
+    }
+  }
+
   return {
     ok: true,
     client: {
@@ -298,6 +396,8 @@ export async function loadClientPortalData(
     londonOnsaleSpend,
     londonPresaleSpend,
     dailyEntries,
+    dailyRollups,
+    additionalSpend,
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       return {
