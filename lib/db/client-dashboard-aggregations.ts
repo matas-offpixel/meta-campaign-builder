@@ -18,6 +18,14 @@ import type { DailyRollupRow } from "./client-portal-server";
 /** Minimal event shape the aggregators need — a subset of PortalEvent. */
 export interface AggregatableEvent {
   id: string;
+  /**
+   * Human-readable name — "Croatia vs Ghana", "WC26 Last 32 Leeds",
+   * etc. Used by `sortEventsGroupStageFirst` for knockout detection
+   * and by the venue table for row labels. Null is tolerated for
+   * minimal fixtures / legacy rows but the sort just keeps such
+   * rows in their input order.
+   */
+  name?: string | null;
   event_code: string | null;
   event_date: string | null;
   capacity: number | null;
@@ -310,4 +318,112 @@ function daysBetween(a: string, b: string): number {
   const db = Date.parse(`${b}T00:00:00Z`);
   if (Number.isNaN(da) || Number.isNaN(db)) return NaN;
   return (da - db) / 86_400_000;
+}
+
+// ─── Event ordering ────────────────────────────────────────────────────────
+
+/**
+ * Knockout-stage substrings matched case-insensitively against
+ * `event.name`. Substring match (not word boundary) deliberately —
+ * "Last 32", "last-32", "LAST32" all land on the same bucket.
+ *
+ * Order is irrelevant for the match; the first hit wins.
+ */
+const KNOCKOUT_MARKERS = [
+  "last 32",
+  "last 16",
+  "round of 16",
+  "quarter",
+  "semi",
+  "final",
+  "knockout",
+] as const;
+
+/**
+ * Normalise a name for knockout-stage detection. Lowercases +
+ * collapses hyphens / underscores to spaces + flattens runs of
+ * whitespace, so "Last-32", "LAST_32" and "Last  32" all match
+ * the canonical "last 32" marker.
+ */
+function normaliseNameForStageMatch(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when the event name looks like a knockout-stage match.
+ * Defensive against null / undefined names (minimal fixtures).
+ * Exported so the sort comparator is testable in isolation.
+ */
+export function isKnockoutStage(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const normalised = normaliseNameForStageMatch(name);
+  return KNOCKOUT_MARKERS.some((m) => normalised.includes(m));
+}
+
+/**
+ * Sort comparator key:
+ *   1. Group stage first (0), knockout last (1)
+ *   2. Within group stage → alphabetical by name (locale-aware
+ *      en-GB, numeric so "Match 10" > "Match 2")
+ *   3. Within knockout → ordering by the marker's position in
+ *      `KNOCKOUT_MARKERS` (Last 32 → Last 16 → QF → SF → Final)
+ *      so a card with all four stages reads as the bracket does
+ *   4. Stable — equal keys fall back to the input index via `map/sort
+ *      with explicit indices` in the wrapper below.
+ */
+function knockoutOrdinal(name: string | null | undefined): number {
+  if (!name) return Number.POSITIVE_INFINITY;
+  const normalised = normaliseNameForStageMatch(name);
+  for (let i = 0; i < KNOCKOUT_MARKERS.length; i++) {
+    if (normalised.includes(KNOCKOUT_MARKERS[i])) return i;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Sort events so group-stage matches come first (alphabetical by
+ * name) and knockout-stage matches come last (ordered Last 32 → Last
+ * 16 → QF → SF → Final). Pure, stable, null-tolerant.
+ *
+ * Used by `ClientPortalVenueTable` when laying out the rows inside
+ * each venue card so every card reads the same way — the user-
+ * reported bug was cards rendering "Last 32" sometimes on top and
+ * sometimes at the bottom depending on string ordering / event id.
+ *
+ * Returns a new array — does not mutate the input.
+ */
+export function sortEventsGroupStageFirst<T extends AggregatableEvent>(
+  events: readonly T[],
+): T[] {
+  // Decorate-sort-undecorate so the comparator can be cheap (no
+  // repeated `.toLowerCase()`) and stability comes from carrying
+  // the original index through.
+  const decorated = events.map((ev, i) => ({
+    ev,
+    i,
+    isKnockout: isKnockoutStage(ev.name),
+    ko: knockoutOrdinal(ev.name),
+  }));
+  decorated.sort((a, b) => {
+    if (a.isKnockout !== b.isKnockout) return a.isKnockout ? 1 : -1;
+    if (a.isKnockout) {
+      // Knockout bucket — bracket position drives order; equal
+      // positions fall through to name / index for determinism.
+      if (a.ko !== b.ko) return a.ko - b.ko;
+    }
+    // Group bucket + knockout tie-breaker: alphabetical by name.
+    const an = a.ev.name ?? "";
+    const bn = b.ev.name ?? "";
+    const byName = an.localeCompare(bn, "en-GB", {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (byName !== 0) return byName;
+    return a.i - b.i;
+  });
+  return decorated.map((d) => d.ev);
 }

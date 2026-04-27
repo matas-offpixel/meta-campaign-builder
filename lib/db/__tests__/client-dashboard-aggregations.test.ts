@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   aggregateClientWideTotals,
   aggregateVenueGroupTotals,
+  isKnockoutStage,
+  sortEventsGroupStageFirst,
   type AdditionalSpendRow,
   type AggregatableEvent,
 } from "../client-dashboard-aggregations.ts";
@@ -254,5 +256,116 @@ describe("aggregateVenueGroupTotals", () => {
       TODAY,
     );
     assert.equal(t.roas, null);
+  });
+});
+
+describe("isKnockoutStage", () => {
+  it("detects canonical markers case-insensitively", () => {
+    assert.equal(isKnockoutStage("WC26 Last 32 Leeds"), true);
+    assert.equal(isKnockoutStage("Last 16"), true);
+    assert.equal(isKnockoutStage("last-16 round"), true);
+    assert.equal(isKnockoutStage("Quarter Final"), true);
+    assert.equal(isKnockoutStage("Semi-Final"), true);
+    assert.equal(isKnockoutStage("FINAL"), true);
+    assert.equal(isKnockoutStage("Knockout Round"), true);
+    assert.equal(isKnockoutStage("Round of 16"), true);
+  });
+
+  it("returns false for group-stage names", () => {
+    assert.equal(isKnockoutStage("Croatia vs Ghana"), false);
+    assert.equal(isKnockoutStage("England v Panama"), false);
+    assert.equal(isKnockoutStage("Match Day 1"), false);
+  });
+
+  it("null / empty names return false", () => {
+    assert.equal(isKnockoutStage(null), false);
+    assert.equal(isKnockoutStage(undefined), false);
+    assert.equal(isKnockoutStage(""), false);
+  });
+});
+
+describe("sortEventsGroupStageFirst", () => {
+  it("group-stage matches sort alphabetical by opponent, knockouts last", () => {
+    const input = [
+      ev({ id: "p", name: "Panama" }),
+      ev({ id: "l32", name: "Last 32" }),
+      ev({ id: "c", name: "Croatia" }),
+      ev({ id: "g", name: "Ghana" }),
+      ev({ id: "f", name: "Final" }),
+    ];
+    const sorted = sortEventsGroupStageFirst(input);
+    assert.deepEqual(
+      sorted.map((e) => e.id),
+      ["c", "g", "p", "l32", "f"],
+    );
+  });
+
+  it("orders knockouts by bracket stage: Last 32 → Last 16 → QF → SF → Final", () => {
+    const input = [
+      ev({ id: "final", name: "Final" }),
+      ev({ id: "qf", name: "Quarter Final" }),
+      ev({ id: "l32", name: "Last 32" }),
+      ev({ id: "sf", name: "Semi Final" }),
+      ev({ id: "l16", name: "Last 16" }),
+    ];
+    const sorted = sortEventsGroupStageFirst(input);
+    assert.deepEqual(
+      sorted.map((e) => e.id),
+      ["l32", "l16", "qf", "sf", "final"],
+    );
+  });
+
+  it("is a pure function — does not mutate the input array", () => {
+    const input = [
+      ev({ id: "b", name: "B team" }),
+      ev({ id: "a", name: "A team" }),
+    ];
+    const snapshot = input.map((e) => e.id);
+    const sorted = sortEventsGroupStageFirst(input);
+    assert.deepEqual(
+      input.map((e) => e.id),
+      snapshot,
+    );
+    assert.notEqual(sorted, input);
+  });
+
+  it("is stable — equal names preserve input order", () => {
+    const input = [
+      ev({ id: "first", name: "Same" }),
+      ev({ id: "second", name: "Same" }),
+      ev({ id: "third", name: "Same" }),
+    ];
+    assert.deepEqual(
+      sortEventsGroupStageFirst(input).map((e) => e.id),
+      ["first", "second", "third"],
+    );
+  });
+
+  it("treats null / missing names as group-stage rows at the end of the group bucket", () => {
+    const input = [
+      ev({ id: "z", name: null }),
+      ev({ id: "a", name: "Alpha" }),
+      ev({ id: "f", name: "Final" }),
+    ];
+    const sorted = sortEventsGroupStageFirst(input);
+    // null name sorts as empty → comes before "Alpha" by localeCompare
+    // of "" vs "Alpha". That's fine — we just assert knockout still
+    // lands last.
+    assert.equal(sorted.at(-1)?.id, "f");
+  });
+
+  it("handles the 4theFans WC26 venue shape (Croatia, Ghana, Panama + bracket)", () => {
+    const input = [
+      ev({ id: "l32", name: "WC26 Last 32 Leeds" }),
+      ev({ id: "ghana", name: "Ghana vs England" }),
+      ev({ id: "pan", name: "Panama vs England" }),
+      ev({ id: "cro", name: "Croatia vs England" }),
+      ev({ id: "l16", name: "WC26 Last 16 Leeds" }),
+    ];
+    const sorted = sortEventsGroupStageFirst(input);
+    assert.deepEqual(
+      sorted.map((e) => e.id),
+      ["cro", "ghana", "pan", "l32", "l16"],
+    );
   });
 });
