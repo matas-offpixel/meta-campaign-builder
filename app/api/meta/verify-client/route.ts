@@ -31,6 +31,7 @@ import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 
 // ── Result types ─────────────────────────────────────────────────────────────
 
@@ -108,11 +109,15 @@ async function verifyAdAccount(
   token: string,
 ): Promise<ResourceResult> {
   try {
+    // DB may store the ad account id as raw digits (`10151014…`) or
+    // already-prefixed (`act_10151014…`). Normalise both to the Graph
+    // API's required `act_<digits>` form before interpolating.
+    const normalized = normalizeAdAccountId(adAccountId) ?? `act_${adAccountId}`;
     const res = await graphGetWithToken<{
       id: string;
       name?: string;
       business?: { id: string; name?: string };
-    }>(`/act_${adAccountId}`, { fields: "id,name,business" }, token);
+    }>(`/${normalized}`, { fields: "id,name,business" }, token);
 
     const ownerBusinessId = res.business?.id;
     if (

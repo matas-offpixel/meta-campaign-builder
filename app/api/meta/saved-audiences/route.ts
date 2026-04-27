@@ -18,6 +18,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -52,18 +53,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  const adAccountId = req.nextUrl.searchParams.get("adAccountId");
+  const adAccountRaw = req.nextUrl.searchParams.get("adAccountId");
 
-  if (!adAccountId) {
+  if (!adAccountRaw) {
     return NextResponse.json(
       { error: "adAccountId query param is required" },
       { status: 400 },
     );
   }
 
-  if (!adAccountId.startsWith("act_")) {
+  const adAccountId = normalizeAdAccountId(adAccountRaw);
+  if (!adAccountId) {
     return NextResponse.json(
-      { error: 'adAccountId must start with "act_" (e.g. act_1234567890)' },
+      { error: 'adAccountId must be numeric (optionally prefixed "act_")' },
       { status: 400 },
     );
   }

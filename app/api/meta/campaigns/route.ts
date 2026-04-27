@@ -38,6 +38,7 @@ import {
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { mapMetaObjectiveToInternal } from "@/lib/meta/campaign";
+import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import type {
   MetaCampaignSummary,
   MetaCampaignsResponse,
@@ -103,16 +104,17 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  const adAccountId = req.nextUrl.searchParams.get("adAccountId")?.trim();
-  if (!adAccountId) {
+  const adAccountRaw = req.nextUrl.searchParams.get("adAccountId")?.trim();
+  if (!adAccountRaw) {
     return Response.json(
       { error: "Query parameter 'adAccountId' is required" },
       { status: 400 },
     );
   }
-  if (!adAccountId.startsWith("act_")) {
+  const adAccountId = normalizeAdAccountId(adAccountRaw);
+  if (!adAccountId) {
     return Response.json(
-      { error: 'Ad account id must start with "act_"' },
+      { error: "Ad account id must be numeric (optionally prefixed act_)" },
       { status: 400 },
     );
   }
