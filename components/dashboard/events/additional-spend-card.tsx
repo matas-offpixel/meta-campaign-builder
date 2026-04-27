@@ -18,6 +18,25 @@ type AdditionalSpendCategory =
   | "RADIO"
   | "OTHER";
 
+/**
+ * Reads the response body safely: tries JSON first; on parse failure
+ * (empty body, HTML redirect page, etc.) throws a descriptive error so
+ * callers always see a message instead of a raw SyntaxError.
+ */
+async function safeJson<T = unknown>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`HTTP ${res.status}: empty response body`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `HTTP ${res.status}: non-JSON response — ${text.slice(0, 120)}`,
+    );
+  }
+}
+
 /** Dispatched after mutating additional spend so reporting block can refetch. */
 export const ADDITIONAL_SPEND_CHANGED = "opx-additional-spend-changed";
 
@@ -120,11 +139,11 @@ export function AdditionalSpendCard({
   const load = useCallback(async () => {
     setError(null);
     const res = await fetch(spendListUrl, { cache: "no-store" });
-    const json = (await res.json()) as {
+    const json = await safeJson<{
       ok?: boolean;
       entries?: unknown[];
       error?: string;
-    };
+    }>(res);
     if (!res.ok || !json.ok || !json.entries) {
       throw new Error(json.error ?? "Could not load additional spend.");
     }
@@ -216,11 +235,11 @@ export function AdditionalSpendCard({
           notes: draftNotes || null,
         }),
       });
-      const json = (await res.json()) as {
+      const json = await safeJson<{
         ok?: boolean;
         error?: string;
         fieldErrors?: { date?: string; amount?: string };
-      };
+      }>(res);
       if (!res.ok || !json.ok) {
         if (json.fieldErrors) setFieldErrors(json.fieldErrors);
         throw new Error(json.error ?? "Save failed.");
@@ -262,11 +281,11 @@ export function AdditionalSpendCard({
           notes: draftNotes || null,
         }),
       });
-      const json = (await res.json()) as {
+      const json = await safeJson<{
         ok?: boolean;
         error?: string;
         fieldErrors?: { date?: string; amount?: string };
-      };
+      }>(res);
       if (!res.ok || !json.ok) {
         if (json.fieldErrors) setFieldErrors(json.fieldErrors);
         throw new Error(json.error ?? "Update failed.");
@@ -289,7 +308,7 @@ export function AdditionalSpendCard({
       const res = await fetch(`${spendListUrl}/${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = await safeJson<{ ok?: boolean; error?: string }>(res);
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? "Delete failed.");
       }

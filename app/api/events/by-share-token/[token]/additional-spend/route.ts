@@ -60,6 +60,9 @@ export async function GET(
   }
 
   const entries = await listAdditionalSpendForEvent(supabase, scope.eventId);
+  console.log(
+    `[share-spend GET] event_id=${scope.eventId} token=${token.slice(0, 8)}… entriesReturned=${entries.length}`,
+  );
   return NextResponse.json({ ok: true, entries });
 }
 
@@ -146,8 +149,15 @@ export async function POST(
       label,
       notes,
     });
+    console.log(
+      `[share-spend POST] event_id=${scope.eventId} token=${token.slice(0, 8)}… inserted id=${row?.id} amount=${amount} date=${date}`,
+    );
     return NextResponse.json({ ok: true, entry: row });
   } catch (err) {
+    console.error(
+      `[share-spend POST] event_id=${scope.eventId} token=${token.slice(0, 8)}… insert failed:`,
+      err instanceof Error ? err.stack : err,
+    );
     const msg = err instanceof Error ? err.message : "Insert failed";
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
