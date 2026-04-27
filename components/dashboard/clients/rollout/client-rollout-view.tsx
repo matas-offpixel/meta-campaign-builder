@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronRight,
   Copy,
   ExternalLink,
   Loader2,
@@ -18,19 +26,28 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { normalizeAdAccountId } from "@/lib/meta/ad-account";
+import {
+  buildRolloutGroups,
+  parseExpandedHash,
+  serializeExpandedHash,
+  type RolloutGroupAggregate,
+} from "@/lib/dashboard/rollout-grouping";
 import type {
   ReadinessStatus,
   ReadinessTicketingMode,
 } from "@/lib/db/event-readiness";
 
 /**
- * Rollout audit view — a flat table of every event for a client with:
- *   - checkboxes to select rows for bulk actions
- *   - per-row pill indicating readiness (ready / partial / blocked)
- *   - hover tooltip listing the missing requirements
- *   - bulk actions: generate share links, run rollup-sync, audit Meta
- *   - individual row actions: copy share link, sync now, edit, report
- *   - "Copy table for client comms" → markdown snippet of share URLs
+ * Rollout audit view — a table of every event for a client with:
+ *   - group rows (when 2+ events share the same event_code AND event_date)
+ *     rendering aggregate capacity / ticketing / share-link counts and the
+ *     worst readiness status across children.
+ *   - expandable sub-rows (persisted in `#expanded=CODE1,CODE2` URL hash).
+ *   - checkboxes for bulk selection; parent checkbox cascades to children.
+ *   - bulk actions: generate share links, run rollup-sync, audit Meta.
+ *   - individual row actions: copy share link, sync now, edit, view report.
+ *   - "Copy table for client comms" → markdown snippet of share URLs.
  *
  * Component receives a flattened row shape prebuilt by the SSR page so
  * the DB types / table joins don't leak into the client bundle.
@@ -110,6 +127,23 @@ function shareUrl(origin: string, token: string): string {
   return `${origin}/share/report/${token}`;
 }
 
+type RolloutGroup = RolloutGroupAggregate<RolloutRowProps>;
+
+/** Read / write the `#expanded=…` URL fragment without reloading the route. */
+function readExpandedFromHash(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  return parseExpandedHash(window.location.hash);
+}
+
+function writeExpandedToHash(codes: Set<string>): void {
+  if (typeof window === "undefined") return;
+  const serialized = serializeExpandedHash(codes);
+  const url = `${window.location.pathname}${window.location.search}${
+    serialized ? `#${serialized}` : ""
+  }`;
+  window.history.replaceState(null, "", url);
+}
+
 export function ClientRolloutView({
   clientId,
   clientName,
@@ -130,12 +164,30 @@ export function ClientRolloutView({
     opened: boolean;
   }>({ running: false, message: null, orphans: [], matched: 0, opened: false });
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const hashSyncRef = useRef(false);
+
+  // Hydrate expand/collapse state from the URL hash on mount so a
+  // refresh / shared link keeps the same parent rows open.
+  useEffect(() => {
+    setExpanded(readExpandedFromHash());
+    hashSyncRef.current = true;
+  }, []);
+
+  // Persist expand/collapse back to the URL hash whenever it changes.
+  useEffect(() => {
+    if (!hashSyncRef.current) return;
+    writeExpandedToHash(expanded);
+  }, [expanded]);
 
   const origin =
     typeof window === "undefined" ? "" : window.location.origin;
 
+  const nodes = useMemo(() => buildRolloutGroups(rows), [rows]);
+
+  const allEventIds = useMemo(() => rows.map((r) => r.eventId), [rows]);
   const allSelected =
-    rows.length > 0 && rows.every((r) => selection.has(r.eventId));
+    allEventIds.length > 0 && allEventIds.every((id) => selection.has(id));
   const noneSelected = selection.size === 0;
 
   const toggleRow = (eventId: string) => {
@@ -151,9 +203,31 @@ export function ClientRolloutView({
     if (allSelected) {
       setSelection(new Set());
     } else {
-      setSelection(new Set(rows.map((r) => r.eventId)));
+      setSelection(new Set(allEventIds));
     }
   };
+
+  const toggleGroupSelection = (group: RolloutGroup) => {
+    setSelection((prev) => {
+      const next = new Set(prev);
+      const allSelected = group.childIds.every((id) => next.has(id));
+      if (allSelected) {
+        for (const id of group.childIds) next.delete(id);
+      } else {
+        for (const id of group.childIds) next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleGroupExpand = useCallback((code: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  }, []);
 
   const markOp = (eventId: string, op: RowOp | undefined) => {
     setRowOps((prev) => ({ ...prev, [eventId]: op }));
@@ -281,12 +355,18 @@ export function ClientRolloutView({
   }, [rows, selection, runSyncFor, rowOps]);
 
   const auditMetaCampaigns = useCallback(async () => {
-    if (!metaAdAccountId) {
+    // DB may store `meta_ad_account_id` as raw digits (`10151014…`) or
+    // already-prefixed (`act_10151014…`). Normalise before calling
+    // /api/meta/campaigns — the endpoint itself also normalises, but
+    // doing it here keeps the network call clean and cacheable.
+    const normalizedAdAccountId = normalizeAdAccountId(metaAdAccountId);
+    if (!normalizedAdAccountId) {
       setAuditState({
         running: false,
         opened: true,
-        message:
-          "Client has no meta_ad_account_id — set one on /clients/[id]/edit first.",
+        message: metaAdAccountId
+          ? `Client meta_ad_account_id "${metaAdAccountId}" is not a valid Meta ad account id.`
+          : "Client has no meta_ad_account_id — set one on /clients/[id]/edit first.",
         orphans: [],
         matched: 0,
       });
@@ -300,7 +380,7 @@ export function ClientRolloutView({
     }));
     try {
       const res = await fetch(
-        `/api/meta/campaigns?adAccountId=${encodeURIComponent(metaAdAccountId)}&filter=all&limit=50`,
+        `/api/meta/campaigns?adAccountId=${encodeURIComponent(normalizedAdAccountId)}&filter=all&limit=50`,
       );
       const text = await res.text();
       const json = text ? (JSON.parse(text) as {
@@ -539,7 +619,7 @@ export function ClientRolloutView({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {nodes.length === 0 ? (
               <tr>
                 <td
                   colSpan={10}
@@ -549,168 +629,48 @@ export function ClientRolloutView({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => {
-                const op = rowOps[r.eventId];
-                const selected = selection.has(r.eventId);
-                const tooltipLines = [
-                  ...r.missing.map((m) => `✖ ${m}`),
-                  ...r.warnings.map((w) => `⚠ ${w}`),
+              nodes.flatMap((node) => {
+                if (node.kind === "single") {
+                  return [
+                    renderRow({
+                      row: node.row,
+                      rowOps,
+                      selection,
+                      toggleRow,
+                      origin,
+                      createShareFor,
+                      runSyncFor,
+                      handleCopyShareUrl,
+                      indented: false,
+                    }),
+                  ];
+                }
+                const { group } = node;
+                const isExpanded = expanded.has(group.eventCode);
+                return [
+                  renderGroupRow({
+                    group,
+                    isExpanded,
+                    selection,
+                    toggleGroupExpand,
+                    toggleGroupSelection,
+                  }),
+                  ...(isExpanded
+                    ? group.children.map((child) =>
+                        renderRow({
+                          row: child,
+                          rowOps,
+                          selection,
+                          toggleRow,
+                          origin,
+                          createShareFor,
+                          runSyncFor,
+                          handleCopyShareUrl,
+                          indented: true,
+                        }),
+                      )
+                    : []),
                 ];
-                const tooltip = tooltipLines.length
-                  ? tooltipLines.join("\n")
-                  : "All checks passing.";
-                return (
-                  <tr
-                    key={r.eventId}
-                    className={`border-t border-border ${selected ? "bg-primary/5" : "odd:bg-background even:bg-card/40"}`}
-                  >
-                    <td className="px-2 py-2 align-top">
-                      <Checkbox
-                        id={`row-${r.eventId}`}
-                        checked={selected}
-                        onChange={() => toggleRow(r.eventId)}
-                        aria-label={`Select ${r.name ?? r.eventId}`}
-                      />
-                    </td>
-                    <td className="px-2 py-2 align-top">
-                      <Link
-                        href={`/events/${r.eventId}`}
-                        className="font-medium text-foreground hover:underline"
-                      >
-                        {r.name ?? "(untitled)"}
-                      </Link>
-                    </td>
-                    <td className="px-2 py-2 align-top tabular-nums text-muted-foreground">
-                      {formatDate(r.eventDate)}
-                    </td>
-                    <td className="px-2 py-2 align-top text-muted-foreground">
-                      {r.venueName ?? "—"}
-                    </td>
-                    <td className="px-2 py-2 align-top text-right tabular-nums">
-                      {r.capacity != null
-                        ? r.capacity.toLocaleString("en-GB")
-                        : "—"}
-                    </td>
-                    <td className="px-2 py-2 align-top font-mono text-[10px]">
-                      {r.eventCode ?? "—"}
-                    </td>
-                    <td className="px-2 py-2 align-top">
-                      <Badge
-                        variant={
-                          r.ticketingMode === "none" ? "outline" : "default"
-                        }
-                      >
-                        {TICKETING_LABEL[r.ticketingMode]}
-                      </Badge>
-                      {r.externalEventId ? (
-                        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                          ext: {r.externalEventId}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-2 py-2 align-top">
-                      {r.hasShare && r.shareToken ? (
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href={`/share/report/${r.shareToken}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                            <span className="font-mono text-[10px]">
-                              {r.shareToken.slice(0, 6)}…
-                            </span>
-                          </Link>
-                          <button
-                            type="button"
-                            aria-label="Copy share link"
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={() => handleCopyShareUrl(r.eventId)}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                          {!r.shareCanEdit ? (
-                            <Badge variant="outline" className="text-[10px]">
-                              view-only
-                            </Badge>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-[11px]"
-                          onClick={() => void createShareFor(r.eventId)}
-                          disabled={op?.kind === "share" && op.status === "running"}
-                        >
-                          {op?.kind === "share" && op.status === "running" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Share2 className="h-3 w-3" />
-                          )}
-                          Generate
-                        </Button>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 align-top">
-                      <span
-                        title={tooltip}
-                        className="inline-flex items-center gap-1"
-                      >
-                        <Badge variant={STATUS_VARIANT[r.status]}>
-                          {STATUS_LABEL[r.status]}
-                        </Badge>
-                        {r.missing.length > 0 || r.warnings.length > 0 ? (
-                          <AlertTriangle
-                            className="h-3 w-3 text-muted-foreground"
-                            aria-label="hover for details"
-                          />
-                        ) : null}
-                      </span>
-                      {op?.status === "error" ? (
-                        <p className="mt-0.5 text-[10px] text-destructive">
-                          {op.message}
-                        </p>
-                      ) : null}
-                    </td>
-                    <td className="px-2 py-2 text-right align-top">
-                      <div className="inline-flex items-center gap-0.5">
-                        <Link
-                          href={`/events/${r.eventId}/edit`}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label="Edit event"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Link>
-                        <button
-                          type="button"
-                          aria-label="Run rollup sync"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                          disabled={op?.kind === "sync" && op.status === "running"}
-                          onClick={() => void runSyncFor(r.eventId)}
-                        >
-                          {op?.kind === "sync" && op.status === "running" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <RefreshCw className="h-3 w-3" />
-                          )}
-                        </button>
-                        <Link
-                          href={`/events/${r.eventId}?tab=reporting`}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label="View report"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                );
               })
             )}
           </tbody>
@@ -736,5 +696,312 @@ export function ClientRolloutView({
         ) : null}
       </p>
     </div>
+  );
+}
+
+/** Render a single (ungrouped) or child event row. */
+function renderRow({
+  row,
+  rowOps,
+  selection,
+  toggleRow,
+  origin,
+  createShareFor,
+  runSyncFor,
+  handleCopyShareUrl,
+  indented,
+}: {
+  row: RolloutRowProps;
+  rowOps: Record<string, RowOp | undefined>;
+  selection: Set<string>;
+  toggleRow: (eventId: string) => void;
+  origin: string;
+  createShareFor: (eventId: string) => Promise<RolloutRowProps | null>;
+  runSyncFor: (eventId: string) => Promise<void>;
+  handleCopyShareUrl: (eventId: string) => Promise<void>;
+  indented: boolean;
+}) {
+  const op = rowOps[row.eventId];
+  const selected = selection.has(row.eventId);
+  const tooltipLines = [
+    ...row.missing.map((m) => `✖ ${m}`),
+    ...row.warnings.map((w) => `⚠ ${w}`),
+  ];
+  const tooltip = tooltipLines.length
+    ? tooltipLines.join("\n")
+    : "All checks passing.";
+  return (
+    <tr
+      key={row.eventId}
+      className={`border-t border-border ${
+        selected ? "bg-primary/5" : "odd:bg-background even:bg-card/40"
+      } ${indented ? "border-l-2 border-l-muted" : ""}`}
+    >
+      <td className="px-2 py-2 align-top">
+        <Checkbox
+          id={`row-${row.eventId}`}
+          checked={selected}
+          onChange={() => toggleRow(row.eventId)}
+          aria-label={`Select ${row.name ?? row.eventId}`}
+        />
+      </td>
+      <td className={`px-2 py-2 align-top ${indented ? "pl-6" : ""}`}>
+        <Link
+          href={`/events/${row.eventId}`}
+          className="font-medium text-foreground hover:underline"
+        >
+          {row.name ?? "(untitled)"}
+        </Link>
+      </td>
+      <td className="px-2 py-2 align-top tabular-nums text-muted-foreground">
+        {formatDate(row.eventDate)}
+      </td>
+      <td className="px-2 py-2 align-top text-muted-foreground">
+        {row.venueName ?? "—"}
+      </td>
+      <td className="px-2 py-2 align-top text-right tabular-nums">
+        {row.capacity != null
+          ? row.capacity.toLocaleString("en-GB")
+          : "—"}
+      </td>
+      <td className="px-2 py-2 align-top font-mono text-[10px]">
+        {row.eventCode ?? "—"}
+      </td>
+      <td className="px-2 py-2 align-top">
+        <Badge
+          variant={row.ticketingMode === "none" ? "outline" : "default"}
+        >
+          {TICKETING_LABEL[row.ticketingMode]}
+        </Badge>
+        {row.externalEventId ? (
+          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            ext: {row.externalEventId}
+          </div>
+        ) : null}
+      </td>
+      <td className="px-2 py-2 align-top">
+        {row.hasShare && row.shareToken ? (
+          <div className="flex items-center gap-1">
+            <Link
+              href={`/share/report/${row.shareToken}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="h-3 w-3" />
+              <span className="font-mono text-[10px]">
+                {row.shareToken.slice(0, 6)}…
+              </span>
+            </Link>
+            <button
+              type="button"
+              aria-label="Copy share link"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => handleCopyShareUrl(row.eventId)}
+            >
+              <Copy className="h-3 w-3" />
+            </button>
+            {!row.shareCanEdit ? (
+              <Badge variant="outline" className="text-[10px]">
+                view-only
+              </Badge>
+            ) : null}
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => void createShareFor(row.eventId)}
+            disabled={op?.kind === "share" && op.status === "running"}
+          >
+            {op?.kind === "share" && op.status === "running" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Share2 className="h-3 w-3" />
+            )}
+            Generate
+          </Button>
+        )}
+      </td>
+      <td className="px-2 py-2 align-top">
+        <span
+          title={tooltip}
+          className="inline-flex items-center gap-1"
+        >
+          <Badge variant={STATUS_VARIANT[row.status]}>
+            {STATUS_LABEL[row.status]}
+          </Badge>
+          {row.missing.length > 0 || row.warnings.length > 0 ? (
+            <AlertTriangle
+              className="h-3 w-3 text-muted-foreground"
+              aria-label="hover for details"
+            />
+          ) : null}
+        </span>
+        {op?.status === "error" ? (
+          <p className="mt-0.5 text-[10px] text-destructive">
+            {op.message}
+          </p>
+        ) : null}
+      </td>
+      <td className="px-2 py-2 text-right align-top">
+        <div className="inline-flex items-center gap-0.5">
+          <Link
+            href={`/events/${row.eventId}/edit`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Edit event"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="h-3 w-3" />
+          </Link>
+          <button
+            type="button"
+            aria-label="Run rollup sync"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            disabled={op?.kind === "sync" && op.status === "running"}
+            onClick={() => void runSyncFor(row.eventId)}
+          >
+            {op?.kind === "sync" && op.status === "running" ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+          </button>
+          <Link
+            href={`/events/${row.eventId}?tab=reporting`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="View report"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** Render the parent row for a multi-event group (same event_code + date). */
+function renderGroupRow({
+  group,
+  isExpanded,
+  selection,
+  toggleGroupExpand,
+  toggleGroupSelection,
+}: {
+  group: RolloutGroup;
+  isExpanded: boolean;
+  selection: Set<string>;
+  toggleGroupExpand: (code: string) => void;
+  toggleGroupSelection: (group: RolloutGroup) => void;
+}) {
+  const selectedCount = group.childIds.filter((id) => selection.has(id)).length;
+  const allSelected = selectedCount === group.childIds.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+  const capacity = group.capacityAllNull ? null : group.capacity;
+  const tooltipLines = [
+    ...group.aggregateMissing.map((m) => `✖ ${m}`),
+    ...group.aggregateWarnings.map((w) => `⚠ ${w}`),
+  ];
+  const tooltip = tooltipLines.length
+    ? tooltipLines.join("\n")
+    : `All ${group.children.length} matches passing their checks.`;
+  return (
+    <tr
+      key={`group-${group.key}`}
+      className={`cursor-pointer border-t-2 border-border bg-muted/20 hover:bg-muted/30 ${
+        someSelected || allSelected ? "bg-primary/5" : ""
+      }`}
+      onClick={() => toggleGroupExpand(group.eventCode)}
+    >
+      <td
+        className="px-2 py-2 align-top"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox
+          id={`group-${group.key}`}
+          checked={allSelected}
+          onChange={() => toggleGroupSelection(group)}
+          aria-label={
+            someSelected
+              ? `Select remaining matches in ${group.eventCode} (${selectedCount}/${group.children.length} already selected)`
+              : `Select all ${group.children.length} matches in ${group.eventCode}`
+          }
+        />
+      </td>
+      <td className="px-2 py-2 align-top" colSpan={2}>
+        <div className="flex items-center gap-1">
+          {isExpanded ? (
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
+          <span className="font-mono text-[11px] font-medium text-foreground">
+            {group.eventCode}
+          </span>
+        </div>
+        <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
+          {[
+            group.venueName,
+            formatDate(group.eventDate),
+            `${group.children.length} matches`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+      </td>
+      <td className="px-2 py-2 align-top text-muted-foreground">—</td>
+      <td className="px-2 py-2 align-top text-right tabular-nums">
+        {capacity != null ? capacity.toLocaleString("en-GB") : "—"}
+      </td>
+      <td className="px-2 py-2 align-top font-mono text-[10px] text-muted-foreground">
+        —
+      </td>
+      <td className="px-2 py-2 align-top">
+        <Badge variant="outline">{group.ticketingLabel}</Badge>
+      </td>
+      <td className="px-2 py-2 align-top">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleGroupExpand(group.eventCode);
+          }}
+        >
+          {isExpanded ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+          <span>
+            {group.shareCount}/{group.children.length} links
+          </span>
+        </button>
+      </td>
+      <td className="px-2 py-2 align-top">
+        <span
+          title={tooltip}
+          className="inline-flex items-center gap-1"
+        >
+          <Badge variant={STATUS_VARIANT[group.status]}>
+            {STATUS_LABEL[group.status]} (worst of {group.children.length})
+          </Badge>
+          {group.aggregateMissing.length > 0 ||
+          group.aggregateWarnings.length > 0 ? (
+            <AlertTriangle
+              className="h-3 w-3 text-muted-foreground"
+              aria-label="hover for details"
+            />
+          ) : null}
+        </span>
+      </td>
+      <td className="px-2 py-2 text-right align-top text-[10px] text-muted-foreground">
+        {isExpanded ? "collapse" : "expand"}
+      </td>
+    </tr>
   );
 }

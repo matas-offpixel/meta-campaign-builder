@@ -9,6 +9,7 @@ import {
 import { fetchCreativeInsights } from "@/lib/meta/creative-insights";
 import { MetaApiError } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import type {
   CreativeDatePreset,
   CreativeInsightRow,
@@ -90,16 +91,20 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const adAccountId = req.nextUrl.searchParams.get("adAccountId")?.trim();
-  if (!adAccountId) {
+  const adAccountRaw = req.nextUrl.searchParams.get("adAccountId")?.trim();
+  if (!adAccountRaw) {
     return NextResponse.json(
       { ok: false, error: "Query parameter 'adAccountId' is required" },
       { status: 400 },
     );
   }
-  if (!adAccountId.startsWith("act_")) {
+  const adAccountId = normalizeAdAccountId(adAccountRaw);
+  if (!adAccountId) {
     return NextResponse.json(
-      { ok: false, error: 'Ad account id must start with "act_"' },
+      {
+        ok: false,
+        error: "Ad account id must be numeric (optionally prefixed act_)",
+      },
       { status: 400 },
     );
   }

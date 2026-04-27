@@ -21,6 +21,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import type { CustomAudience } from "@/lib/types";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
@@ -72,15 +73,16 @@ export async function GET(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const adAccountId = searchParams.get("adAccountId");
+  const adAccountRaw = searchParams.get("adAccountId");
 
-  if (!adAccountId) {
+  if (!adAccountRaw) {
     return Response.json({ error: "adAccountId query param is required" }, { status: 400 });
   }
 
-  if (!adAccountId.startsWith("act_")) {
+  const adAccountId = normalizeAdAccountId(adAccountRaw);
+  if (!adAccountId) {
     return Response.json(
-      { error: "adAccountId must start with act_ (e.g. act_1234567890)" },
+      { error: "adAccountId must be numeric (optionally prefixed act_)" },
       { status: 400 },
     );
   }
