@@ -10,8 +10,10 @@ import type {
   PortalEvent,
 } from "@/lib/db/client-portal-server";
 import {
+  aggregateAllocationByEvent,
   aggregateVenueGroupTotals,
   sortEventsGroupStageFirst,
+  type EventAllocationLifetime,
 } from "@/lib/db/client-dashboard-aggregations";
 import {
   parseExpandedHash,
@@ -382,19 +384,89 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
 }
 
 /**
- * Per-venue spend model. `split` is the legacy shape (campaign total
- * is one number, prereg is carved out of it). `add` is the WC26 London
- * shape (prereg and on-sale spend live in different Meta campaigns and
- * are *added* to produce the per-event total).
+ * Per-venue spend model. Three variants picked in priority order:
+ *
+ *   - `allocated` (PR D2) — every event in the group has a non-null
+ *     `ad_spend_allocated` sum in `event_daily_rollups`. Each event
+ *     carries its own attributed spend (specific + venue-generic
+ *     share) rather than taking an equal 1/N slice of the campaign
+ *     total. When this kind fires, the UI also shows the venue
+ *     header footnote + per-row tooltip with the specific / generic
+ *     breakdown.
+ *   - `split` (legacy, non-London, pre-allocation) — the campaign
+ *     total is one number baked into `meta_spend_cached`; prereg is
+ *     carved out of the per-event slice.
+ *   - `add` (WC26 London) — prereg and on-sale spend live in
+ *     different Meta campaigns and are *added* to produce the per-
+ *     event total.
+ *
+ * When a group straddles the rollout (some events allocated,
+ * others not) we hold the line on the old model — mixing the two
+ * kinds would produce a Total row that double-counts the venue
+ * generic pool for unallocated events.
  */
 type GroupSpend =
+  | {
+      kind: "allocated";
+      /** Per-event lifetime allocation, keyed by event id. The
+       *  map is guaranteed to have one entry per event in the
+       *  group when this variant is returned. */
+      byEventId: Map<string, EventAllocationLifetime>;
+      /** Sum across all events of `specific` — the
+       *  game-specific slice of the venue's total ad spend. */
+      venueSpecific: number;
+      /** Sum across all events of `genericShare` — equals the
+       *  venue-wide generic pool the allocator split evenly. */
+      venueGenericPool: number;
+      /** `venueSpecific + venueGenericPool` — the raw venue
+       *  total the operator sees in Ads Manager. */
+      venueTotal: number;
+      /** `venueGenericPool / eventCount` — matches
+       *  `byEventId.get(*).genericShare` within rounding. */
+      genericSharePerEvent: number;
+      /** Number of events covered by this allocation. */
+      eventCount: number;
+    }
   | { kind: "split"; perEventTotal: number | null }
   | { kind: "add"; perEventAd: number | null };
 
 function venueSpend(
   group: VenueGroup,
   londonOnsaleSpend: number | null,
+  allocationByEvent: Map<string, EventAllocationLifetime>,
 ): GroupSpend {
+  // Prefer the allocation model when every event in the group has
+  // allocation data. We fall through to split/add when the
+  // allocator hasn't populated every event yet (half-rollout,
+  // post-migration catch-up, …) so the Total row stays consistent.
+  if (
+    group.events.length > 0 &&
+    group.events.every((ev) => allocationByEvent.has(ev.id))
+  ) {
+    const byEventId = new Map<string, EventAllocationLifetime>();
+    let venueSpecific = 0;
+    let venueGenericPool = 0;
+    for (const ev of group.events) {
+      const alloc = allocationByEvent.get(ev.id)!;
+      byEventId.set(ev.id, alloc);
+      venueSpecific += alloc.specific;
+      venueGenericPool += alloc.genericShare;
+    }
+    const venueTotal = venueSpecific + venueGenericPool;
+    const eventCount = group.events.length;
+    const genericSharePerEvent =
+      eventCount > 0 ? venueGenericPool / eventCount : 0;
+    return {
+      kind: "allocated",
+      byEventId,
+      venueSpecific,
+      venueGenericPool,
+      venueTotal,
+      genericSharePerEvent,
+      eventCount,
+    };
+  }
+
   if (isLondonCity(group.city) && londonOnsaleSpend !== null) {
     // London additive model. Either input may be null in transitional
     // states (e.g. admin has refreshed onsale but not yet the venue
@@ -437,13 +509,23 @@ function computeEventMetrics(
 ): EventMetrics {
   const prereg = ev.prereg_spend;
 
-  // Resolve perEventAd / perEventTotal pair from the two spend models.
-  // The "ad / total / prereg" triangle is consistent in both: total =
-  // prereg + ad. The models differ only in *which* of (ad, total) is the
-  // independent input the venue carries.
+  // Resolve perEventAd / perEventTotal pair from the spend model.
+  // Across all three models the triangle stays consistent — total =
+  // prereg + ad. Models differ only in WHICH of (ad, total) is the
+  // independent input the venue carries:
+  //   - allocated: per-event `ad` is sourced from the allocator's
+  //     daily sums (PR D2 columns). Total = prereg + allocated.
+  //   - split:    total is the campaign-total divided evenly;
+  //     ad = total − prereg.
+  //   - add:      ad is the sum of two independent campaigns
+  //     (London shared + venue-local); total = prereg + ad.
   let perEventAd: number | null;
   let perEventTotal: number | null;
-  if (spend.kind === "split") {
+  if (spend.kind === "allocated") {
+    const alloc = spend.byEventId.get(ev.id);
+    perEventAd = alloc?.allocated ?? null;
+    perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
+  } else if (spend.kind === "split") {
     perEventTotal = spend.perEventTotal;
     perEventAd =
       perEventTotal !== null ? perEventTotal - (prereg ?? 0) : null;
@@ -523,7 +605,15 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
 
   let total: number | null;
   let ad: number | null;
-  if (spend.kind === "split") {
+  if (spend.kind === "allocated") {
+    // Venue total ad spend = sum of per-event allocations — by
+    // construction of the allocator, this exactly equals
+    // `spend.venueTotal` (specific + generic pool). Total = prereg
+    // + venueAd keeps the Total row numerically consistent with
+    // the visible sum of per-event rows.
+    ad = spend.venueTotal;
+    total = prereg + spend.venueTotal;
+  } else if (spend.kind === "split") {
     // Legacy: campaign value already includes prereg, so ad = total − prereg.
     total = group.campaignSpend;
     ad = total !== null ? total - prereg : null;
@@ -587,6 +677,14 @@ export function ClientPortalVenueTable({
 }: Props) {
   const venues = useMemo(() => groupByEventCodeAndDate(events), [events]);
   const regions = useMemo(() => partitionByRegion(venues), [venues]);
+  // Lifetime per-event allocation map — built from the PR D2
+  // columns on every rollup row. Events without any non-null
+  // allocation day don't appear in the map, which is exactly the
+  // "fall back to the split model" signal `venueSpend` reads.
+  const allocationByEvent = useMemo(
+    () => aggregateAllocationByEvent(dailyRollups),
+    [dailyRollups],
+  );
 
   // Score each group by recent-ad-spend + recency so the top 3-4
   // most active groups auto-expand. Computed via the shared
@@ -708,7 +806,7 @@ export function ClientPortalVenueTable({
                 token={token}
                 clientId={clientId}
                 group={group}
-                spend={venueSpend(group, londonOnsaleSpend)}
+                spend={venueSpend(group, londonOnsaleSpend, allocationByEvent)}
                 dailyEntries={dailyEntries}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
@@ -1624,6 +1722,30 @@ function VenueSection({
         )}
       </header>
 
+      {/* PR D2 footnote — shown only when the venue's spend is driven
+          by the per-event allocator AND the venue has > 1 event
+          (single-event cards have nothing to average). Reads the
+          three derived numbers directly off the discriminated union
+          so the arithmetic lives in one place (`venueSpend`). */}
+      {isExpanded &&
+        spend.kind === "allocated" &&
+        spend.eventCount > 1 && (
+          <p
+            className="border-b border-border px-4 py-2 text-[11px] italic text-muted-foreground"
+            aria-live="polite"
+          >
+            Spend split:{" "}
+            <span className="font-medium text-foreground">
+              {formatGBP(spend.venueSpecific)}
+            </span>{" "}
+            game-specific +{" "}
+            <span className="font-medium text-foreground">
+              {formatGBP(spend.venueGenericPool)}
+            </span>{" "}
+            averaged across {spend.eventCount} games
+          </p>
+        )}
+
       {!isExpanded ? null : (
       <div id={bodyId} className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-sm">
@@ -1779,6 +1901,17 @@ function EventRow({
   const m = computeEventMetrics(event, spend);
   const rowBg = striped ? "bg-muted" : "bg-card";
 
+  // PR D2 breakdown for the Ad Spend tooltip. Only non-null when
+  // this row is driven by the allocator — otherwise the tooltip is
+  // skipped and the cell renders plain as before.
+  const allocationRow =
+    spend.kind === "allocated"
+      ? spend.byEventId.get(event.id) ?? null
+      : null;
+  const adSpendTitle = allocationRow
+    ? `Includes ${formatGBP(allocationRow.specific)} specific to this game + ${formatGBP(allocationRow.genericShare)} share of venue-generic spend`
+    : undefined;
+
   return (
     <tr className={`border-t border-border ${rowBg} hover:bg-muted/50`}>
       <td className="px-3 py-2.5 align-top">
@@ -1792,8 +1925,17 @@ function EventRow({
       <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.prereg)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+      <td
+        className="px-3 py-2.5 text-right tabular-nums text-foreground"
+        title={adSpendTitle}
+      >
         {formatGBP(m.perEventAd)}
+        {allocationRow && (
+          // Subtle dotted underline nudges users to hover the cell
+          // for the breakdown. Screen-reader text mirrors the title
+          // attribute so the info is still reachable non-visually.
+          <span className="sr-only"> {adSpendTitle}</span>
+        )}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums font-medium text-foreground">
         {formatGBP(m.perEventTotal)}

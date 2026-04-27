@@ -49,8 +49,10 @@ export const maxDuration = 800;
 interface EventToSync {
   id: string;
   user_id: string;
+  client_id: string | null;
   event_code: string | null;
   event_timezone: string | null;
+  event_date: string | null;
   general_sale_at: string | null;
   client: { meta_ad_account_id: string | null } | null;
 }
@@ -192,7 +194,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, general_sale_at, client:clients ( meta_ad_account_id )",
+      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, client:clients ( meta_ad_account_id )",
     )
     .in("id", eligibleIds);
   if (eventErr) {
@@ -228,6 +230,8 @@ export async function GET(req: NextRequest) {
         eventCode: event.event_code,
         eventTimezone: event.event_timezone,
         adAccountId,
+        clientId: event.client_id,
+        eventDate: event.event_date,
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;

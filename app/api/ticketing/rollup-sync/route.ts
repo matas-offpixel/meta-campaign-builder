@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, client:clients ( meta_ad_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, client:clients ( meta_ad_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -88,6 +88,8 @@ export async function POST(req: NextRequest) {
 
   const eventCode = (event.event_code as string | null) ?? null;
   const eventTimezone = (event.event_timezone as string | null) ?? null;
+  const eventDate = (event.event_date as string | null) ?? null;
+  const clientId = (event.client_id as string | null) ?? null;
   // Same single-vs-array unwrap as /spend-by-day; Supabase returns the
   // join as either depending on schema definition.
   const clientRel = event.client as
@@ -105,6 +107,8 @@ export async function POST(req: NextRequest) {
     eventCode,
     eventTimezone,
     adAccountId,
+    clientId,
+    eventDate,
   });
 
   return NextResponse.json(
