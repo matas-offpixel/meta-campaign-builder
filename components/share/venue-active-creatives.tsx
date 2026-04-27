@@ -42,6 +42,11 @@ import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
  */
 
 interface Props {
+  /**
+   * Share token for external portal (`/share/client/[token]`). Empty
+   * string when the strip is rendered inside the internal dashboard —
+   * `isInternal` takes precedence in that case.
+   */
   token: string;
   eventCode: string;
   /**
@@ -51,6 +56,22 @@ interface Props {
    * it from the event_code.
    */
   venueLabel: string;
+  /**
+   * When true, fetch from the session-authenticated internal route
+   * (`/api/internal/clients/[clientId]/venue-creatives/[event_code]`)
+   * instead of the share-token route. Required because internal
+   * dashboards don't carry a token — passing an empty token to the
+   * share route produced a malformed URL that Next served as an HTML
+   * 404, which the operator then saw as "Creative breakdown
+   * unavailable" with a raw DOCTYPE in the error message.
+   */
+  isInternal?: boolean;
+  /**
+   * Client UUID. Only consulted when `isInternal` is true — gates the
+   * ownership check on the internal route so the operator can't probe
+   * creatives under a client they don't own.
+   */
+  clientId?: string;
 }
 
 type ApiResponse =
@@ -83,7 +104,42 @@ type State =
 
 const TOP_N = 4;
 
-export function VenueActiveCreatives({ token, eventCode, venueLabel }: Props) {
+/**
+ * Robust JSON parser for fetch responses. Distinguishes three failure
+ * modes that the naive `res.json()` collapses:
+ *
+ *   1. Empty body (HEAD redirects, misrouted 200s) — surfaces the
+ *      HTTP status so the caller isn't left with a mysterious
+ *      `SyntaxError: Unexpected end of JSON input`.
+ *   2. HTML body (Next.js default 404 page, auth redirect to /login,
+ *      WAF blocks) — clips the first 200 chars into the error so the
+ *      operator can see "Not Found" or "<!DOCTYPE html>" inline and
+ *      diagnose the routing problem without reaching for devtools.
+ *   3. Valid JSON — returned as-is.
+ *
+ * The shared pattern from PR #113 (`components/dashboard/events/additional-spend-card.tsx`).
+ */
+async function safeJson<T = unknown>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`HTTP ${res.status}: empty response body`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `HTTP ${res.status}: non-JSON response — ${text.slice(0, 200)}`,
+    );
+  }
+}
+
+export function VenueActiveCreatives({
+  token,
+  eventCode,
+  venueLabel,
+  isInternal,
+  clientId,
+}: Props) {
   const [state, setState] = useState<State>({ status: "idle" });
   const [showAll, setShowAll] = useState(false);
 
@@ -98,8 +154,36 @@ export function VenueActiveCreatives({ token, eventCode, venueLabel }: Props) {
 
     async function run() {
       setState({ status: "loading" });
+      // Route selection — internal dashboard uses session auth, the
+      // external share portal uses the token. Bail early with a
+      // helpful error rather than firing a malformed URL when the
+      // caller hands us nothing to route with.
+      let url: string;
+      if (isInternal) {
+        if (!clientId) {
+          if (!cancelled) {
+            setState({
+              status: "error",
+              message: "Missing clientId for internal creatives fetch",
+            });
+          }
+          return;
+        }
+        url = `/api/internal/clients/${encodeURIComponent(clientId)}/venue-creatives/${encodeURIComponent(eventCode)}`;
+      } else {
+        if (!token) {
+          if (!cancelled) {
+            setState({
+              status: "error",
+              message: "Missing share token for creatives fetch",
+            });
+          }
+          return;
+        }
+        url = `/api/share/client/${encodeURIComponent(token)}/venue-creatives/${encodeURIComponent(eventCode)}`;
+      }
+
       try {
-        const url = `/api/share/client/${encodeURIComponent(token)}/venue-creatives/${encodeURIComponent(eventCode)}`;
         const res = await fetch(url, {
           signal: ctrl.signal,
           // The underlying fetcher already busts its own cache; we
@@ -108,24 +192,28 @@ export function VenueActiveCreatives({ token, eventCode, venueLabel }: Props) {
           // actively delivering fresh spend.
           cache: "no-store",
         });
-        if (!res.ok) {
-          const text = await res.text();
-          let message = `HTTP ${res.status}`;
-          try {
-            const parsed = JSON.parse(text) as { error?: unknown };
-            if (typeof parsed.error === "string") message = parsed.error;
-          } catch {
-            // Non-JSON error body — carry the raw text so the
-            // inline error surface has something diagnostic.
-            if (text) message = text.slice(0, 200);
-          }
-          if (!cancelled) setState({ status: "error", message });
+        let payload: ApiResponse;
+        try {
+          payload = await safeJson<ApiResponse>(res);
+        } catch (parseErr) {
+          if (cancelled) return;
+          // `safeJson` already prefixed the HTTP status + clipped the
+          // body; nothing to add here. The inline error surface
+          // shows the full message so the operator can tell
+          // "403 Forbidden" from "404 Not Found" from a raw HTML
+          // auth redirect.
+          const message =
+            parseErr instanceof Error ? parseErr.message : String(parseErr);
+          setState({ status: "error", message });
           return;
         }
-        const payload = (await res.json()) as ApiResponse;
         if (cancelled) return;
-        if (!payload.ok) {
-          setState({ status: "error", message: payload.error });
+        if (!res.ok || !payload.ok) {
+          const message =
+            !payload.ok && payload.error
+              ? payload.error
+              : `HTTP ${res.status}`;
+          setState({ status: "error", message });
           return;
         }
         if (payload.groups.length === 0) {
@@ -155,7 +243,7 @@ export function VenueActiveCreatives({ token, eventCode, venueLabel }: Props) {
       cancelled = true;
       ctrl.abort();
     };
-  }, [token, eventCode]);
+  }, [token, eventCode, isInternal, clientId]);
 
   return (
     <section className="border-t border-border bg-card px-4 py-4">

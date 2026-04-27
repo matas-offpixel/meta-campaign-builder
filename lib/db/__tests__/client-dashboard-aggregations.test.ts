@@ -34,6 +34,7 @@ function rollup(
     ad_spend_allocated?: number | null;
     ad_spend_specific?: number | null;
     ad_spend_generic_share?: number | null;
+    ad_spend_presale?: number | null;
     /** Optional date for the WoW aggregator tests. Aggregators that
      *  don't care about the day axis (e.g. the lifetime topline) leave
      *  this at the sentinel `2020-01-01`. */
@@ -49,6 +50,7 @@ function rollup(
     ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
     ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
+    ad_spend_presale: allocation?.ad_spend_presale ?? null,
   };
 }
 
