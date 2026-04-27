@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Pencil, Archive, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Archive, Trash2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
@@ -232,6 +232,13 @@ export function ClientDetail({
         }`}
         actions={
           <>
+            <Button
+              variant="outline"
+              onClick={() => router.push(`/clients/${client.id}/rollout`)}
+            >
+              <Rocket className="h-3.5 w-3.5" />
+              Rollout
+            </Button>
             <Button
               variant="outline"
               onClick={() => router.push(`/clients/${client.id}/edit`)}
