@@ -34,6 +34,11 @@ const PUBLIC_PREFIXES: readonly string[] = [
   // the token is the only identifier exposed.
   "/share/",
   "/api/share/",
+  // Event-level share-token CRUD (additional spend GET/POST/PATCH/DELETE).
+  // These routes resolve a long, unguessable share token via service-role
+  // before serving any data; they must be reachable by unauthenticated
+  // visitors (e.g. incognito) who hold a valid report share link.
+  "/api/events/by-share-token/",
   // Vercel Cron entry points. The proxy's default-deny would 302 the
   // scheduled invocations to /login before each route's own
   // CRON_SECRET bearer-token check ever runs, which is how the
