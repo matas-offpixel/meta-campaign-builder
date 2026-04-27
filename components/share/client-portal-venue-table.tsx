@@ -9,12 +9,16 @@ import type {
   DailyRollupRow,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
-import { aggregateVenueGroupTotals } from "@/lib/db/client-dashboard-aggregations";
+import {
+  aggregateVenueGroupTotals,
+  sortEventsGroupStageFirst,
+} from "@/lib/db/client-dashboard-aggregations";
 import {
   parseExpandedHash,
   serializeExpandedHash,
 } from "@/lib/dashboard/rollout-grouping";
 import { DailyTracker } from "./daily-tracker";
+import { VenueActiveCreatives } from "./venue-active-creatives";
 
 interface SavedSnapshot {
   tickets_sold: number;
@@ -25,6 +29,15 @@ interface SavedSnapshot {
 
 interface Props {
   token: string;
+  /**
+   * UUID of the client the portal is scoped to. Used by each
+   * `VenueSection` to build the "View full venue report" CTA's href
+   * (`/clients/[id]/venues/[event_code]` on the internal surface).
+   * Threaded through props rather than a React context because the
+   * file is the only consumer and the prop keeps the data flow
+   * readable at a glance.
+   */
+  clientId: string;
   events: PortalEvent[];
   /**
    * Lifetime spend of the shared WC26-LONDON-ONSALE campaign. When non-null,
@@ -209,10 +222,10 @@ function formatRoas(n: number | null): string {
 }
 
 function roasClass(n: number | null): string {
-  if (n === null) return "text-zinc-500";
+  if (n === null) return "text-muted-foreground";
   if (n >= 3) return "text-emerald-600 font-semibold";
   if (n < 1) return "text-red-600 font-semibold";
-  return "text-zinc-700";
+  return "text-foreground";
 }
 
 /**
@@ -234,10 +247,10 @@ function formatCptChange(n: number | null): string {
 }
 
 function cptChangeClass(n: number | null): string {
-  if (n === null) return "text-zinc-500";
+  if (n === null) return "text-muted-foreground";
   if (n < 0) return "text-emerald-600 font-semibold";
   if (n > 0) return "text-amber-600 font-semibold";
-  return "text-zinc-700";
+  return "text-foreground";
 }
 
 interface VenueGroup {
@@ -249,6 +262,15 @@ interface VenueGroup {
    * the event id so every group has a deterministic anchor.
    */
   expandKey: string;
+  /**
+   * Shared event_code for grouped cards. `null` for solo groups that
+   * happened to have no event_code on the underlying event (rare —
+   * most events set this at creation). When populated, downstream
+   * components (`VenueActiveCreatives`, "View full venue report"
+   * CTA) use it to join Meta Graph `/ads` results via the bracket
+   * pattern `[event_code]` carried in the campaign name.
+   */
+  eventCode: string | null;
   displayName: string;
   city: string | null;
   budget: number | null;
@@ -281,6 +303,7 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
 
   const groupsByKey = new Map<string, VenueGroup>();
   const out: VenueGroup[] = [];
+  const sortedGroups = new Set<VenueGroup>();
 
   for (const ev of events) {
     const codedKey = ev.event_code
@@ -306,6 +329,7 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
         // event_code is a stable, user-visible handle the operator
         // recognises in the URL hash — beats a UUID every time.
         expandKey: ev.event_code as string,
+        eventCode: ev.event_code,
         displayName: ev.venue_name ?? (ev.event_code as string),
         city: ev.venue_city,
         budget: ev.budget_marketing,
@@ -326,6 +350,11 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
     out.push({
       key: soloKey,
       expandKey: ev.id,
+      // Solo groups still carry a real event_code when the event has
+      // one — lets single-event venues render active creatives via
+      // the same `[event_code]` bracket join as grouped ones. Falls
+      // through as null when the event legitimately has no code.
+      eventCode: ev.event_code,
       displayName: ev.venue_name ?? ev.name,
       city: ev.venue_city,
       budget: ev.budget_marketing,
@@ -333,6 +362,20 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
       eventCount: 1,
       events: [ev],
     });
+  }
+
+  // Standardise per-card event order: group-stage matches first
+  // (alphabetical by opponent), knockouts last in bracket order. The
+  // raw SSR loader sorts by `event_date DESC`, which put "Last 32"
+  // at the top of some venues and the bottom of others depending on
+  // how the dates landed. `sortEventsGroupStageFirst` is stable and
+  // null-tolerant, and only mutates the already-built arrays inside
+  // each group (the group ORDER — which card appears first on the
+  // page — stays driven by the SSR ordering).
+  for (const g of out) {
+    if (sortedGroups.has(g)) continue;
+    g.events = sortEventsGroupStageFirst(g.events);
+    sortedGroups.add(g);
   }
 
   return out;
@@ -532,6 +575,7 @@ const AUTO_EXPAND_COUNT = 4;
 
 export function ClientPortalVenueTable({
   token,
+  clientId,
   events,
   londonOnsaleSpend,
   londonPresaleSpend,
@@ -629,8 +673,8 @@ export function ClientPortalVenueTable({
 
   if (venues.length === 0) {
     return (
-      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-8 text-center">
-        <p className="text-sm text-zinc-600">
+      <div className="rounded-md border border-border bg-muted p-8 text-center">
+        <p className="text-sm text-muted-foreground">
           No events to report on yet.
         </p>
       </div>
@@ -644,7 +688,7 @@ export function ClientPortalVenueTable({
         if (groups.length === 0) return null;
         return (
           <div key={region} className="space-y-6">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
               {REGION_LABEL[region]}
             </h2>
             {/* Overall London aggregate sits at the top of the London
@@ -662,6 +706,7 @@ export function ClientPortalVenueTable({
               <VenueSection
                 key={group.key}
                 token={token}
+                clientId={clientId}
                 group={group}
                 spend={venueSpend(group, londonOnsaleSpend)}
                 dailyEntries={dailyEntries}
@@ -798,9 +843,9 @@ function OverallLondonSection({
   );
 
   return (
-    <section className="rounded-md border-2 border-zinc-900 bg-white shadow-sm">
-      <header className="flex flex-wrap items-baseline gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
-        <h2 className="font-heading text-lg tracking-wide text-zinc-900">
+    <section className="rounded-md border-2 border-foreground bg-card shadow-sm">
+      <header className="flex flex-wrap items-baseline gap-3 border-b border-border bg-muted px-4 py-3">
+        <h2 className="font-heading text-lg tracking-wide text-foreground">
           Overall London
         </h2>
         {/* Header badges intentionally surface the *source* shared-
@@ -810,22 +855,22 @@ function OverallLondonSection({
             admin reconcile at a glance. Hidden when null so an
             unrefreshed state doesn't render "Pre-reg: —". */}
         {presaleSpend !== null && (
-          <p className="text-xs text-zinc-600">
+          <p className="text-xs text-muted-foreground">
             Pre-reg:{" "}
-            <span className="font-semibold text-zinc-900">
+            <span className="font-semibold text-foreground">
               {formatGBP(presaleSpend, 2)}
             </span>
           </p>
         )}
         {presaleSpend !== null && onsaleSpend !== null && (
-          <span className="text-xs text-zinc-400" aria-hidden="true">
+          <span className="text-xs text-muted-foreground/60" aria-hidden="true">
             ·
           </span>
         )}
         {onsaleSpend !== null && (
-          <p className="text-xs text-zinc-600">
+          <p className="text-xs text-muted-foreground">
             On-sale:{" "}
-            <span className="font-semibold text-zinc-900">
+            <span className="font-semibold text-foreground">
               {formatGBP(onsaleSpend, 2)}
             </span>
           </p>
@@ -835,7 +880,7 @@ function OverallLondonSection({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-zinc-900 text-left text-xs font-medium uppercase tracking-wide text-white">
+            <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
               <th className="px-3 py-2.5">Event</th>
               <th className="px-3 py-2.5 text-right">Pre-reg</th>
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
@@ -847,7 +892,7 @@ function OverallLondonSection({
             </tr>
           </thead>
           <tbody>
-            <tr className="bg-zinc-100 text-zinc-900">
+            <tr className="bg-muted text-foreground">
               <td className="px-3 py-2.5 font-semibold">All London</td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.prereg)}
@@ -882,6 +927,9 @@ function OverallLondonSection({
 
 interface VenueSectionProps {
   token: string;
+  /** Forwarded from `ClientPortalVenueTable`; used to build the
+   *  "View full venue report" CTA href. */
+  clientId: string;
   group: VenueGroup;
   /**
    * Spend model for this venue. Computed once by the parent via
@@ -1064,8 +1112,13 @@ function latestMetricValue(days: ChartDay[], key: MetricKey): number | null {
  */
 function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
   const days = useMemo(() => aggregateEntriesByDate(entries), [entries]);
+  // Default pill set aligned with the per-event report chart
+  // (components/dashboard/events/event-trend-chart.tsx from PR #103
+  // era). Operators kept asking "why does my per-event view show
+  // three lines but the client portal shows one" — it was an
+  // oversight that the portal chart defaulted to CPT only.
   const [active, setActive] = useState<Set<MetricKey>>(
-    () => new Set<MetricKey>(["cpt"]),
+    () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
   );
   // Hover state lives at the chart level so the tooltip + hairline can
   // share a single source of truth. `chartWidth` is captured at hover
@@ -1202,12 +1255,12 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
   );
 
   return (
-    <div className="border-t border-zinc-200 px-4 py-4">
+    <div className="border-t border-border px-4 py-4">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Daily trend
         </p>
-        <p className="text-[10px] text-zinc-400">
+        <p className="text-[10px] text-muted-foreground/60">
           {days.length} day{days.length === 1 ? "" : "s"} · click pills to
           toggle
         </p>
@@ -1227,8 +1280,8 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
               aria-pressed={isActive}
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                 isActive
-                  ? "border-zinc-900 bg-zinc-900 text-white"
-                  : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-500"
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border-strong bg-card text-muted-foreground hover:border-border-strong"
               }`}
             >
               <span
@@ -1239,7 +1292,7 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
               {m.label}
               {latest !== null && (
                 <span
-                  className={`tabular-nums ${isActive ? "text-zinc-300" : "text-zinc-500"}`}
+                  className={`tabular-nums ${isActive ? "text-background/70" : "text-muted-foreground"}`}
                 >
                   {m.format(latest)}
                 </span>
@@ -1264,7 +1317,7 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
             yTicks.map((t) => (
               <span
                 key={t.value}
-                className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-zinc-500"
+                className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
                 style={{ top: `${t.yPx}px` }}
               >
                 {primary.metric.format(t.value)}
@@ -1345,12 +1398,12 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
                 return (
                   <>
                     <div
-                      className="pointer-events-none absolute bottom-0 top-0 w-px bg-zinc-400/70"
+                      className="pointer-events-none absolute bottom-0 top-0 w-px bg-foreground/30"
                       style={{ left: `${pixelX}px` }}
                       aria-hidden="true"
                     />
                     <div
-                      className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-[11px] shadow-md"
+                      className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] shadow-md"
                       style={
                         flipLeft
                           ? {
@@ -1360,7 +1413,7 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
                           : { left: `${pixelX + 8}px`, top: 4 }
                       }
                     >
-                      <p className="mb-1 font-medium text-zinc-900">
+                      <p className="mb-1 font-medium text-foreground">
                         {chartTooltipDate(day.date)}
                       </p>
                       <ul className="space-y-0.5">
@@ -1376,10 +1429,10 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
                                 style={{ backgroundColor: s.metric.colour }}
                                 aria-hidden="true"
                               />
-                              <span className="text-zinc-600">
+                              <span className="text-muted-foreground">
                                 {s.metric.label}
                               </span>
-                              <span className="ml-auto tabular-nums text-zinc-900">
+                              <span className="ml-auto tabular-nums text-foreground">
                                 {v !== null && Number.isFinite(v)
                                   ? s.metric.format(v)
                                   : "—"}
@@ -1395,7 +1448,7 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
           </div>
           {/* HTML date labels overlaid below — kept out of SVG so the
               stretched viewport doesn't squish the text horizontally. */}
-          <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-zinc-500">
+          <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
             {labelDays.map((d) => (
               <span key={d.date}>{chartShortDate(d.date)}</span>
             ))}
@@ -1410,6 +1463,7 @@ const COL_COUNT = 12;
 
 function VenueSection({
   token,
+  clientId,
   group,
   spend,
   dailyEntries,
@@ -1444,8 +1498,8 @@ function VenueSection({
   );
 
   return (
-    <section className="rounded-md border border-zinc-200 bg-white shadow-sm">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+    <section className="rounded-md border border-border bg-card shadow-sm">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
@@ -1454,7 +1508,7 @@ function VenueSection({
           className="flex flex-1 flex-wrap items-baseline gap-3 text-left"
         >
           <span
-            className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center self-center rounded text-zinc-600 transition-transform hover:bg-zinc-100 hover:text-zinc-900"
+            className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center self-center rounded text-muted-foreground transition-transform hover:bg-muted hover:text-foreground"
             aria-hidden="true"
           >
             {isExpanded ? (
@@ -1463,31 +1517,31 @@ function VenueSection({
               <ChevronRight className="h-4 w-4" />
             )}
           </span>
-          <h2 className="font-heading text-lg tracking-wide text-zinc-900">
+          <h2 className="font-heading text-lg tracking-wide text-foreground">
             {headerLabel}
           </h2>
           {group.eventCount > 1 && (
-            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
               {group.eventCount} events
             </span>
           )}
           {group.budget !== null && (
-            <p className="text-xs text-zinc-600">
+            <p className="text-xs text-muted-foreground">
               Ad Budget:{" "}
-              <span className="font-semibold text-zinc-900">
+              <span className="font-semibold text-foreground">
                 {formatGBP(group.budget)}
               </span>
             </p>
           )}
           {group.budget !== null && group.campaignSpend !== null && (
-            <span className="text-xs text-zinc-400" aria-hidden="true">
+            <span className="text-xs text-muted-foreground/60" aria-hidden="true">
               ·
             </span>
           )}
           {group.campaignSpend !== null && (
-            <p className="text-xs text-zinc-600">
+            <p className="text-xs text-muted-foreground">
               Meta Spend:{" "}
-              <span className="font-semibold text-zinc-900">
+              <span className="font-semibold text-foreground">
                 {formatGBP(group.campaignSpend)}
               </span>
             </p>
@@ -1497,21 +1551,21 @@ function VenueSection({
               the card is closed so the expanded layout doesn't
               duplicate the info. */}
           {!isExpanded && (
-            <span className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-zinc-600">
+            <span className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-muted-foreground">
               <span className="tabular-nums">
                 Tickets:{" "}
-                <span className="font-semibold text-zinc-900">
+                <span className="font-semibold text-foreground">
                   {formatNumber(totals.tickets)}
                 </span>
               </span>
-              <span className="text-zinc-400" aria-hidden="true">·</span>
+              <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <span className="tabular-nums">
                 CPT:{" "}
-                <span className="font-semibold text-zinc-900">
+                <span className="font-semibold text-foreground">
                   {formatGBP(totals.cpt, 2)}
                 </span>
               </span>
-              <span className="text-zinc-400" aria-hidden="true">·</span>
+              <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <span
                 className={`tabular-nums ${roasClass(totals.roas)}`}
               >
@@ -1531,8 +1585,8 @@ function VenueSection({
             onClick={() => setEditMode((v) => !v)}
             className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
               editMode
-                ? "bg-zinc-900 text-white hover:bg-zinc-800"
-                : "border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+                ? "bg-foreground text-background hover:bg-foreground/90"
+                : "border border-border-strong text-foreground hover:bg-muted"
             }`}
             aria-pressed={editMode}
           >
@@ -1546,13 +1600,35 @@ function VenueSection({
             )}
           </button>
         )}
+        {/* "View full venue report" CTA — placeholder link to a
+            dedicated per-venue page planned in a follow-up PR. The
+            href carries the venue's event_code so the target page
+            can look it up directly. Hidden for solo venues without
+            an event_code (nothing to link to) and always hidden when
+            the card is collapsed (no visual room next to the
+            collapsed-state quick stats). */}
+        {isExpanded && group.eventCode && (
+          <a
+            href={
+              isInternal
+                ? `/clients/${clientId}/venues/${encodeURIComponent(group.eventCode)}`
+                : `/coming-soon?from=venue-report&event_code=${encodeURIComponent(group.eventCode)}`
+            }
+            target={isInternal ? undefined : "_blank"}
+            rel={isInternal ? undefined : "noopener noreferrer"}
+            className="inline-flex items-center gap-1 rounded border border-border-strong px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+          >
+            View full venue report
+            <ChevronRight className="h-3 w-3" aria-hidden="true" />
+          </a>
+        )}
       </header>
 
       {!isExpanded ? null : (
       <div id={bodyId} className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-sm">
           <thead>
-            <tr className="bg-zinc-900 text-left text-xs font-medium uppercase tracking-wide text-white">
+            <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
               <th className="px-3 py-2.5">Event</th>
               <th className="px-3 py-2.5 text-right">Pre-reg</th>
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
@@ -1579,7 +1655,7 @@ function VenueSection({
                 onSnapshotSaved={onSnapshotSaved}
               />
             ))}
-            <tr className="border-t border-zinc-300 bg-zinc-100 text-zinc-900">
+            <tr className="border-t border-border-strong bg-muted text-foreground">
               <td className="px-3 py-2.5 font-semibold">Total</td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.prereg)}
@@ -1593,7 +1669,7 @@ function VenueSection({
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatNumber(totals.tickets)}
               </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-zinc-500">
+              <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-muted-foreground">
                 {formatNumber(totals.prevTickets)}
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
@@ -1642,22 +1718,35 @@ function VenueSection({
           entries={venueEntries}
         />
       )}
+      {/* Active creatives strip — lazy-fetched the first time the card
+          is opened. Suppressed when the venue has no event_code to
+          join Meta's `[event_code]` bracket pattern against (nothing
+          to query for). Internal admin users see the same strip; the
+          downstream API guards access via the share resolver, so
+          there's no ACL divergence. */}
+      {isExpanded && group.eventCode && (
+        <VenueActiveCreatives
+          token={token}
+          eventCode={group.eventCode}
+          venueLabel={headerLabel}
+        />
+      )}
       {/* Internal admin surface — the per-row Edit links are only
           rendered when rendered inside `/clients/[id]/dashboard`.
           Keeps the external `/share/client/[token]` surface clean
           and read-only. */}
       {isExpanded && isInternal && (
-        <div className="border-t border-zinc-200 bg-zinc-50 px-4 py-2 text-xs">
-          <p className="text-zinc-600">
+        <div className="border-t border-border bg-muted px-4 py-2 text-xs">
+          <p className="text-muted-foreground">
             Admin:{" "}
             {group.events.map((ev, i) => (
               <span key={ev.id}>
-                {i > 0 && <span className="text-zinc-400"> · </span>}
+                {i > 0 && <span className="text-muted-foreground/60"> · </span>}
                 <a
                   href={`/events/${ev.id}?tab=reporting`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-zinc-900 underline hover:text-black"
+                  className="font-medium text-foreground underline hover:text-foreground"
                 >
                   {ev.name}
                 </a>
@@ -1688,25 +1777,25 @@ function EventRow({
   onSnapshotSaved,
 }: EventRowProps) {
   const m = computeEventMetrics(event, spend);
-  const rowBg = striped ? "bg-zinc-50" : "bg-white";
+  const rowBg = striped ? "bg-muted" : "bg-card";
 
   return (
-    <tr className={`border-t border-zinc-200 ${rowBg} hover:bg-zinc-100/50`}>
+    <tr className={`border-t border-border ${rowBg} hover:bg-muted/50`}>
       <td className="px-3 py-2.5 align-top">
-        <span className="block font-medium text-zinc-900">{event.name}</span>
+        <span className="block font-medium text-foreground">{event.name}</span>
         {event.event_code && (
-          <span className="block text-[11px] text-zinc-500">
+          <span className="block text-[11px] text-muted-foreground">
             {event.event_code}
           </span>
         )}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-700">
+      <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.prereg)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-700">
+      <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.perEventAd)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-zinc-900">
+      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-foreground">
         {formatGBP(m.perEventTotal)}
       </td>
       <td className="px-3 py-2.5 text-right">
@@ -1722,18 +1811,18 @@ function EventRow({
           onSnapshotSaved={onSnapshotSaved}
         />
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-500">
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
         {event.tickets_sold_previous === null
           ? "—"
           : formatNumber(m.prevTickets)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-700">
+      <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {event.tickets_sold_previous === null ? "—" : formatChange(m.change)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-900">
+      <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.cpt, 2)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-700">
+      <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.cptPrevious, 2)}
       </td>
       <td
@@ -1902,7 +1991,7 @@ function NumericCell({
     return (
       <div className="flex items-center justify-end gap-1.5">
         {isCurrency && (
-          <span className="text-xs text-zinc-500" aria-hidden="true">
+          <span className="text-xs text-muted-foreground" aria-hidden="true">
             £
           </span>
         )}
@@ -1935,10 +2024,10 @@ function NumericCell({
               ? `Tickets sold for ${event.name}`
               : `Revenue for ${event.name}`
           }
-          className={`h-7 ${isCurrency ? "w-24" : "w-20"} rounded border border-zinc-300 bg-white px-2 text-right text-sm tabular-nums text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 disabled:bg-zinc-50`}
+          className={`h-7 ${isCurrency ? "w-24" : "w-20"} rounded border border-border-strong bg-card px-2 text-right text-sm tabular-nums text-foreground focus:border-foreground focus:outline-none focus:ring-1 focus:ring-foreground disabled:bg-muted`}
         />
         {save.kind === "saving" && (
-          <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
         )}
         {save.kind === "saved" && (
           <span className="text-[11px] font-medium text-emerald-600">✓</span>
@@ -1951,7 +2040,7 @@ function NumericCell({
   }
 
   return (
-    <div className="inline-flex items-center justify-end gap-1.5 tabular-nums text-zinc-900">
+    <div className="inline-flex items-center justify-end gap-1.5 tabular-nums text-foreground">
       <span className="font-medium">
         {currentValue === null
           ? "—"

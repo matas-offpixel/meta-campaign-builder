@@ -208,20 +208,20 @@ export function ClientPortal({
   // surface keeps the branded chrome below.
   const Wrapper = isInternal ? "div" : "main";
   const wrapperClass = isInternal
-    ? "bg-white text-zinc-900"
-    : "min-h-screen bg-white text-zinc-900";
+    ? "bg-background text-foreground"
+    : "min-h-screen bg-background text-foreground";
 
   return (
     <Wrapper className={wrapperClass}>
       {/* Header — only on the public share surface. The internal
           dashboard route owns its own PageHeader. */}
       {!isInternal && (
-        <header className="border-b border-zinc-200">
+        <header className="border-b border-border">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
-            <p className="font-heading text-base tracking-[0.2em] text-zinc-900">
+            <p className="font-heading text-base tracking-[0.2em] text-foreground">
               OFF / PIXEL
             </p>
-            <p className="text-xs text-zinc-500 truncate max-w-[40ch]">
+            <p className="text-xs text-muted-foreground truncate max-w-[40ch]">
               {client.name}
             </p>
           </div>
@@ -230,10 +230,10 @@ export function ClientPortal({
 
       <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
         <div>
-          <h1 className="font-heading text-2xl tracking-wide">
+          <h1 className="font-heading text-2xl tracking-wide text-foreground">
             Campaign performance
           </h1>
-          <p className="mt-1 text-sm text-zinc-600">
+          <p className="mt-1 text-sm text-muted-foreground">
             Tickets sold and ad spend breakdown by venue. Click any tickets
             figure to update it.
           </p>
@@ -252,8 +252,8 @@ export function ClientPortal({
         )}
 
         {visibleTabs.length === 0 ? (
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-8 text-center">
-            <p className="text-sm text-zinc-600">
+          <div className="rounded-md border border-border bg-card p-8 text-center">
+            <p className="text-sm text-muted-foreground">
               No events linked to this client yet. Get in touch if you
               were expecting to see shows here.
             </p>
@@ -265,7 +265,7 @@ export function ClientPortal({
               <div
                 role="tablist"
                 aria-label="Region"
-                className="flex flex-wrap gap-1 border-b border-zinc-200"
+                className="flex flex-wrap gap-1 border-b border-border"
               >
                 {visibleTabs.map((t) => {
                   const isActive = t === tabKey;
@@ -278,12 +278,12 @@ export function ClientPortal({
                       onClick={() => setActiveTab(t)}
                       className={`relative -mb-px inline-flex items-center gap-2 px-4 py-2.5 text-sm transition-colors ${
                         isActive
-                          ? "border-b-2 border-zinc-900 font-medium text-zinc-900"
-                          : "border-b-2 border-transparent text-zinc-500 hover:text-zinc-900"
+                          ? "border-b-2 border-foreground font-medium text-foreground"
+                          : "border-b-2 border-transparent text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       {TAB_LABELS[t]}
-                      <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                         {count}
                       </span>
                     </button>
@@ -293,13 +293,13 @@ export function ClientPortal({
             )}
 
             {/* Summary bar */}
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
-              <p className="text-sm text-zinc-700">
-                <span className="font-semibold text-zinc-900">
+            <div className="rounded-md border border-border bg-card px-4 py-3">
+              <p className="text-sm text-foreground">
+                <span className="font-semibold text-foreground">
                   {formatNumber(summary.sold)}
                 </span>{" "}
                 /{" "}
-                <span className="font-semibold text-zinc-900">
+                <span className="font-semibold text-foreground">
                   {formatNumber(summary.cap)}
                 </span>{" "}
                 sold across {summary.venues} venue
@@ -311,9 +311,9 @@ export function ClientPortal({
                 )}
               </p>
               {summary.cap > 0 && (
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200">
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full bg-zinc-900 transition-all"
+                    className="h-full bg-primary transition-all"
                     style={{
                       width: `${Math.min(100, Math.max(0, summary.pct))}%`,
                     }}
@@ -325,6 +325,7 @@ export function ClientPortal({
             {/* Venue-grouped reporting table */}
             <ClientPortalVenueTable
               token={token}
+              clientId={client.id}
               events={tabEvents}
               londonOnsaleSpend={londonOnsaleSpend}
               londonPresaleSpend={londonPresaleSpend}
@@ -339,8 +340,8 @@ export function ClientPortal({
       </div>
 
       {!isInternal && (
-        <footer className="border-t border-zinc-200 mt-12">
-          <div className="mx-auto max-w-7xl px-6 py-4 text-[11px] text-zinc-400">
+        <footer className="border-t border-border mt-12">
+          <div className="mx-auto max-w-7xl px-6 py-4 text-[11px] text-muted-foreground">
             Off Pixel · campaign analytics for {client.name}
           </div>
         </footer>

@@ -237,21 +237,21 @@ export function DailyTracker({ events, entries }: Props) {
   const eventCount = events.length;
 
   return (
-    <div className="border-t border-zinc-200">
+    <div className="border-t border-border">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-zinc-600 transition-colors hover:bg-zinc-50"
+        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted"
       >
         <span className="flex items-center gap-2">
           Daily Tracker
           {!hasEntries ? (
-            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal normal-case text-zinc-500">
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal normal-case text-muted-foreground">
               no entries yet
             </span>
           ) : (
-            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal normal-case text-zinc-500">
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal normal-case text-muted-foreground">
               {entries.length} entr{entries.length === 1 ? "y" : "ies"} across{" "}
               {eventCount} event{eventCount === 1 ? "" : "s"}
             </span>
@@ -264,31 +264,31 @@ export function DailyTracker({ events, entries }: Props) {
         )}
       </button>
       {open && (
-        <div className="border-t border-zinc-200 bg-zinc-50/50 px-4 py-4">
+        <div className="border-t border-border bg-muted/50 px-4 py-4">
           {rows.length === 0 ? (
-            <p className="px-1 py-2 text-xs text-zinc-500">
+            <p className="px-1 py-2 text-xs text-muted-foreground">
               No daily entries recorded for this venue yet.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded border border-zinc-200 bg-white">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full min-w-[1100px] border-collapse text-xs">
                 <thead>
                   {/* Two-row header so the [Daily | Running] grouping
                       is visually unambiguous. The tall divider on the
                       Running cells carries through every row below via
                       `border-l-2`. */}
-                  <tr className="bg-zinc-100 text-[10px] uppercase tracking-wider text-zinc-500">
+                  <tr className="bg-muted text-[10px] uppercase tracking-wider text-muted-foreground">
                     <th className="px-2 py-1.5 text-left font-medium" colSpan={8}>
                       Daily
                     </th>
                     <th
-                      className="border-l-2 border-zinc-300 px-2 py-1.5 text-left font-medium"
+                      className="border-l-2 border-border-strong px-2 py-1.5 text-left font-medium"
                       colSpan={5}
                     >
                       Running
                     </th>
                   </tr>
-                  <tr className="bg-zinc-900 text-left text-[10px] font-medium uppercase tracking-wide text-white">
+                  <tr className="bg-foreground text-left text-[10px] font-medium uppercase tracking-wide text-background">
                     <th className="px-2 py-2">Date</th>
                     <th className="px-2 py-2 text-right">Day Spend</th>
                     <th className="px-2 py-2 text-right">Tickets</th>
@@ -297,7 +297,7 @@ export function DailyTracker({ events, entries }: Props) {
                     <th className="px-2 py-2 text-right">ROAS</th>
                     <th className="px-2 py-2 text-right">Link Clicks</th>
                     <th className="px-2 py-2 text-left">Notes</th>
-                    <th className="border-l-2 border-zinc-700 px-2 py-2 text-right">
+                    <th className="border-l-2 border-background/30 px-2 py-2 text-right">
                       Spend
                     </th>
                     <th className="px-2 py-2 text-right">Tickets</th>
@@ -310,50 +310,50 @@ export function DailyTracker({ events, entries }: Props) {
                   {rows.map((r, i) => (
                     <tr
                       key={r.date}
-                      className={`border-t border-zinc-200 ${
-                        i % 2 === 1 ? "bg-zinc-50" : "bg-white"
+                      className={`border-t border-border ${
+                        i % 2 === 1 ? "bg-muted/40" : "bg-card"
                       }`}
                     >
-                      <td className="px-2 py-1.5 whitespace-nowrap text-zinc-700">
+                      <td className="px-2 py-1.5 whitespace-nowrap text-foreground">
                         {formatDate(r.date)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
                         {formatGBP2(r.daySpend)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
                         {formatNumber(r.tickets)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
                         {formatGBP2(r.revenue)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
                         {formatGBP2(r.cpt)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
                         {formatRoas(r.roas)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">
+                      <td className="px-2 py-1.5 text-right tabular-nums text-foreground">
                         {formatNumber(r.linkClicks)}
                       </td>
                       <td
-                        className="max-w-[24ch] truncate px-2 py-1.5 text-zinc-600"
+                        className="max-w-[24ch] truncate px-2 py-1.5 text-muted-foreground"
                         title={r.notes ?? ""}
                       >
                         {r.notes ?? "—"}
                       </td>
-                      <td className="border-l-2 border-zinc-300 px-2 py-1.5 text-right tabular-nums font-medium text-zinc-900">
+                      <td className="border-l-2 border-border-strong px-2 py-1.5 text-right tabular-nums font-medium text-foreground">
                         {formatGBP2(r.runSpend)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-zinc-900">
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">
                         {formatNumber(r.runTickets)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-zinc-900">
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">
                         {formatGBP2(r.runCpt)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-zinc-900">
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">
                         {formatGBP2(r.runRevenue)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-zinc-900">
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium text-foreground">
                         {formatRoas(r.runRoas)}
                       </td>
                     </tr>
