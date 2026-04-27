@@ -31,6 +31,14 @@ import { ClientInvoiceTab } from "@/components/invoicing/client-invoice-tab";
 import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticketing-connections-panel";
 import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
 import { D2CTemplateEditor } from "@/components/dashboard/clients/d2c-template-editor";
+import { ClientPortal } from "@/components/share/client-portal";
+import type {
+  AdditionalSpendRow,
+  DailyEntry,
+  DailyRollupRow,
+  PortalClient,
+  PortalEvent,
+} from "@/lib/db/client-portal-server";
 import {
   CreativeTemplatesPanel,
   type ProviderStatus,
@@ -129,6 +137,24 @@ interface Props {
    * (no query) still land sensibly.
    */
   initialTab?: ClientTab;
+  /**
+   * Client-portal payload — drives the Events tab's venue-grouped
+   * rendering via `<ClientPortal isInternal />`. Null when the
+   * server loader failed (no events, or transient Supabase error);
+   * the Events tab falls back to the legacy flat table in that
+   * case so admins always have a path to the New event button.
+   */
+  portal:
+    | {
+        client: PortalClient;
+        events: PortalEvent[];
+        londonOnsaleSpend: number | null;
+        londonPresaleSpend: number | null;
+        dailyEntries: DailyEntry[];
+        dailyRollups: DailyRollupRow[];
+        additionalSpend: AdditionalSpendRow[];
+      }
+    | null;
 }
 
 /**
@@ -151,6 +177,7 @@ export function ClientDetail({
   creativeTemplates,
   creativeProviderStatus,
   initialTab = "overview",
+  portal,
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -459,12 +486,27 @@ export function ClientDetail({
           </TabPanel>
 
           <TabPanel active={activeTab === "events"}>
+            {/* Events tab renders the same venue-grouped layout as
+                `/clients/[id]/dashboard` (via `<ClientPortal isInternal />`)
+                so operators see one source of truth for per-event
+                performance rather than two diverging tables. Top
+                controls (Refresh all spend, New event, View dashboard)
+                stay above the venue cards. Falls back to the legacy
+                flat `ClientEventsTable` when the portal loader failed
+                or the client has zero events. */}
             <section className="rounded-md border border-border bg-card p-5">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <h2 className="font-heading text-base tracking-wide">
                   Events ({events.length})
                 </h2>
                 <div className="flex flex-wrap items-start gap-2">
+                  <Link
+                    href={`/clients/${client.id}/dashboard`}
+                    className="inline-flex items-center gap-1 rounded border border-border-strong bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />
+                    View dashboard
+                  </Link>
                   <RefreshAllSpendButton
                     events={events.map((e) => ({
                       id: e.id,
@@ -485,7 +527,21 @@ export function ClientDetail({
                 <p className="text-xs text-muted-foreground">
                   No events yet for this client.
                 </p>
+              ) : portal ? (
+                <ClientPortal
+                  token=""
+                  client={portal.client}
+                  events={portal.events}
+                  londonOnsaleSpend={portal.londonOnsaleSpend}
+                  londonPresaleSpend={portal.londonPresaleSpend}
+                  dailyEntries={portal.dailyEntries}
+                  dailyRollups={portal.dailyRollups}
+                  additionalSpend={portal.additionalSpend}
+                  isInternal
+                />
               ) : (
+                // Portal loader failed — fall back to the legacy flat
+                // table so the Events tab never renders blank.
                 <ClientEventsTable
                   events={events}
                   latestSnapshots={latestSnapshots}

@@ -4,23 +4,42 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil } from "lucide-react";
 
 import type {
-  AdditionalSpendRow,
   DailyEntry,
   DailyRollupRow,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
 import {
   aggregateAllocationByEvent,
-  aggregateVenueGroupTotals,
+  aggregateVenueWoW,
   sortEventsGroupStageFirst,
   type EventAllocationLifetime,
+  type VenueWoWTotals,
 } from "@/lib/db/client-dashboard-aggregations";
 import {
   parseExpandedHash,
   serializeExpandedHash,
 } from "@/lib/dashboard/rollout-grouping";
+
+/**
+ * Sentinel for "no expanded cards" — re-used every render so the
+ * `expanded` Set identity is stable for memoised children. Never
+ * mutated (`new Set(base)` in the toggle path always forks).
+ */
+const EMPTY_EXPAND_SET: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Fallback WoW shape passed to a venue when its rollups have not
+ * produced any week-over-week data yet (freshly-linked client, or
+ * both windows were empty). Null halves render as "—" in the
+ * header's parenthetical deltas.
+ */
+const EMPTY_WOW: VenueWoWTotals = {
+  tickets: { current: null, previous: null, delta: null, deltaPct: null },
+  cpt: { current: null, previous: null, delta: null, deltaPct: null },
+};
 import { DailyTracker } from "./daily-tracker";
 import { VenueActiveCreatives } from "./venue-active-creatives";
+import { VenueSyncButton } from "./venue-sync-button";
 
 interface SavedSnapshot {
   tickets_sold: number;
@@ -67,11 +86,6 @@ interface Props {
    * per-event arithmetic, which stays on meta_spend_cached.
    */
   dailyRollups: DailyRollupRow[];
-  /**
-   * Additional (off-Meta) spend entries — also used only for the
-   * activity score so cards with recent PR spend surface by default.
-   */
-  additionalSpend: AdditionalSpendRow[];
   /** Exposes admin-only controls per row when true. */
   isInternal: boolean;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
@@ -216,6 +230,65 @@ function formatNumber(n: number | null): string {
 function formatChange(n: number): string {
   if (n === 0) return "0";
   return `${n > 0 ? "+" : ""}${NUM.format(n)}`;
+}
+
+/**
+ * Signed integer-ish number — "+22", "-15", "0". Used by the WoW
+ * deltas on the venue header; dedicated helper rather than reusing
+ * `formatChange` because we always want the `+` for zero-delta's
+ * absent-so-we-render-nothing case to be explicit at the call site.
+ */
+function formatSignedNumber(n: number): string {
+  if (n === 0) return "0";
+  const abs = NUM.format(Math.abs(n));
+  return `${n > 0 ? "+" : "-"}${abs}`;
+}
+
+/**
+ * Signed GBP — "+£0.45", "-£1.20". `dp` drives the precision so the
+ * WoW CPT delta reads with pence (`2`) while whole-pound totals can
+ * re-use the helper at `0`. Symbol always leads the digits so the
+ * sign + currency reads "-£1" not "£-1".
+ */
+function formatSignedGBP(n: number, dp: 0 | 2 = 2): string {
+  if (n === 0) return "£0";
+  const abs = (dp === 2 ? GBP2 : GBP).format(Math.abs(n));
+  return `${n > 0 ? "+" : "-"}${abs}`;
+}
+
+/**
+ * Inline renderer for a week-over-week parenthetical on the venue
+ * header. Hides completely when either side of the comparison is
+ * null (the aggregator signal for "one period had zero data").
+ * `positiveIsGood` flips the colour palette for CPT (where falling
+ * costs are good).
+ */
+function WoWDeltaInline({
+  delta,
+  formatAbs,
+  positiveIsGood,
+}: {
+  delta: { delta: number | null; deltaPct: number | null };
+  formatAbs: (n: number) => string;
+  positiveIsGood: boolean;
+}) {
+  if (delta.delta == null) return null;
+  // A zero delta is legitimate data (nothing changed) but rendering
+  // "(+0, 0%)" is noise — swallow the parenthetical instead so the
+  // header stays clean on flat weeks.
+  if (delta.delta === 0) return null;
+  const up = delta.delta > 0;
+  const good = positiveIsGood ? up : !up;
+  const colour = good ? "text-emerald-600" : "text-red-600";
+  const pct =
+    delta.deltaPct != null && Number.isFinite(delta.deltaPct)
+      ? ` (${delta.deltaPct > 0 ? "+" : ""}${delta.deltaPct.toFixed(1)}%)`
+      : "";
+  return (
+    <span className={`ml-1 text-[11px] ${colour}`}>
+      {`(${formatAbs(delta.delta)}${pct})`}
+    </span>
+  );
 }
 
 function formatRoas(n: number | null): string {
@@ -655,14 +728,6 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   };
 }
 
-/**
- * Number of venue groups auto-expanded on first mount when the URL
- * hash doesn't specify a preference. Picked so a typical 16-venue
- * client (4theFans WC26) lands on a readable ~4-card first screen
- * rather than an intimidating 16-card wall.
- */
-const AUTO_EXPAND_COUNT = 4;
-
 export function ClientPortalVenueTable({
   token,
   clientId,
@@ -671,7 +736,6 @@ export function ClientPortalVenueTable({
   londonPresaleSpend,
   dailyEntries,
   dailyRollups,
-  additionalSpend,
   isInternal,
   onSnapshotSaved,
 }: Props) {
@@ -686,51 +750,38 @@ export function ClientPortalVenueTable({
     [dailyRollups],
   );
 
-  // Score each group by recent-ad-spend + recency so the top 3-4
-  // most active groups auto-expand. Computed via the shared
-  // aggregator so the same arithmetic that drives the topline picks
-  // which cards the operator sees first — keeps reconciliation
-  // mental-model simple ("if it's big in the topline it's open
-  // below").
-  const today = useMemo(() => {
-    const d = new Date();
-    const iso = d.toISOString().slice(0, 10);
-    return iso;
-  }, []);
-  const scoreByGroup = useMemo(() => {
-    const m = new Map<string, number>();
+  // WoW per venue group, computed once at the parent so the header
+  // render isn't triggering a per-row scan of `dailyRollups`. Anchored
+  // to the browser's `today` (ISO date) — stable across renders of
+  // the same calendar day so the values don't flicker as React
+  // re-renders.
+  const todayIso = useMemo(
+    () => new Date().toISOString().slice(0, 10),
+    [],
+  );
+  const wowByVenue = useMemo(() => {
+    const map = new Map<string, VenueWoWTotals>();
     for (const g of venues) {
-      const totals = aggregateVenueGroupTotals(
-        g.events,
-        dailyRollups,
-        additionalSpend,
-        today,
-      );
-      m.set(g.expandKey, totals.activityScore);
+      map.set(g.key, aggregateVenueWoW(g.events, dailyRollups, todayIso));
     }
-    return m;
-  }, [venues, dailyRollups, additionalSpend, today]);
+    return map;
+  }, [venues, dailyRollups, todayIso]);
 
-  const defaultExpanded = useMemo(() => {
-    const sorted = [...venues].sort(
-      (a, b) =>
-        (scoreByGroup.get(b.expandKey) ?? 0) -
-        (scoreByGroup.get(a.expandKey) ?? 0),
-    );
-    return new Set(sorted.slice(0, AUTO_EXPAND_COUNT).map((g) => g.expandKey));
-  }, [venues, scoreByGroup]);
-
-  // Expand/collapse state — URL hash is the source of truth when
-  // present so the browser back/forward + share-link-with-open-cards
-  // flow just works. `hashOverride` holds the user's explicit choice
-  // (read on mount + every `hashchange` event); when absent we
-  // derive state from `defaultExpanded` on each render so updates
-  // to the auto-expand heuristic flow through without an extra
-  // useEffect reconciliation pass.
+  // Expand/collapse state — every card defaults to collapsed so a
+  // 16-venue roster reads as a clean topline. The URL hash is the
+  // source of truth once the operator starts interacting, so
+  // link-with-open-cards + browser back/forward still work. We
+  // track three states:
+  //   null           — no interaction yet; show the default
+  //                    (everything collapsed).
+  //   new Set()      — operator explicitly closed the last open
+  //                    card. Distinct from `null` so the next
+  //                    render doesn't silently re-apply a default.
+  //   new Set([...]) — operator's explicit open-set.
   //
   // Lazy-initialised from `window.location.hash` so the first render
-  // already has the correct set when the browser has one — no flash
-  // of "auto-expanded 4" before the hash takes over on mount.
+  // already has the correct set when the browser has one — no
+  // frame-one flicker of collapsed → hash-target.
   const [hashOverride, setHashOverride] = useState<Set<string> | null>(() => {
     if (typeof window === "undefined") return null;
     const fromHash = parseExpandedHash(window.location.hash);
@@ -747,11 +798,15 @@ export function ClientPortalVenueTable({
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
 
-  const expanded = hashOverride ?? defaultExpanded;
+  // Default to an empty set when no hash is present — explicit opt-in
+  // to expansion is the new contract. An empty default collection is
+  // intentionally re-used rather than a fresh `new Set()` per render
+  // so the `expanded` identity is stable for memoised children.
+  const expanded = hashOverride ?? EMPTY_EXPAND_SET;
 
   const toggleGroup = useCallback(
     (expandKey: string) => {
-      const base = hashOverride ?? defaultExpanded;
+      const base = hashOverride ?? EMPTY_EXPAND_SET;
       const next = new Set(base);
       if (next.has(expandKey)) next.delete(expandKey);
       else next.add(expandKey);
@@ -762,11 +817,11 @@ export function ClientPortalVenueTable({
         window.history.replaceState(null, "", url.toString());
       }
       // Always mark as overridden once the user interacts — even an
-      // empty set ("collapsed everything") is a meaningful intent
-      // that shouldn't be clobbered by the default.
+      // empty set ("closed everything I had open") is a meaningful
+      // intent that shouldn't flip back to the default next render.
       setHashOverride(next);
     },
-    [hashOverride, defaultExpanded],
+    [hashOverride],
   );
 
   if (venues.length === 0) {
@@ -807,6 +862,7 @@ export function ClientPortalVenueTable({
                 clientId={clientId}
                 group={group}
                 spend={venueSpend(group, londonOnsaleSpend, allocationByEvent)}
+                wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
                 dailyEntries={dailyEntries}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
@@ -1047,6 +1103,13 @@ interface VenueSectionProps {
   onToggle: () => void;
   /** Internal admin surface — surfaces per-row actions when true. */
   isInternal: boolean;
+  /**
+   * Pre-computed week-over-week deltas for the venue's event set.
+   * Rendered in the collapsed-state quick stats next to Tickets + CPT.
+   * Always provided — an "all null" shape is the "no data yet" state
+   * and the header hides the parenthetical.
+   */
+  wow: VenueWoWTotals;
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
@@ -1564,6 +1627,7 @@ function VenueSection({
   clientId,
   group,
   spend,
+  wow,
   dailyEntries,
   isExpanded,
   onToggle,
@@ -1647,7 +1711,10 @@ function VenueSection({
           {/* Collapsed-state quick stats — surfaces the headline
               numbers without expanding the card. Only appears when
               the card is closed so the expanded layout doesn't
-              duplicate the info. */}
+              duplicate the info. WoW deltas (Tickets + CPT) are
+              rendered inline when both windows have data; hidden
+              when either side is missing so we never render
+              misleading deltas on fresh syncs. */}
           {!isExpanded && (
             <span className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-muted-foreground">
               <span className="tabular-nums">
@@ -1655,6 +1722,12 @@ function VenueSection({
                 <span className="font-semibold text-foreground">
                   {formatNumber(totals.tickets)}
                 </span>
+                <WoWDeltaInline
+                  delta={wow.tickets}
+                  formatAbs={(v) => formatSignedNumber(v)}
+                  // Tickets moving up is good news; colour that green.
+                  positiveIsGood
+                />
               </span>
               <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <span className="tabular-nums">
@@ -1662,6 +1735,13 @@ function VenueSection({
                 <span className="font-semibold text-foreground">
                   {formatGBP(totals.cpt, 2)}
                 </span>
+                <WoWDeltaInline
+                  delta={wow.cpt}
+                  formatAbs={(v) => formatSignedGBP(v, 2)}
+                  // CPT moving down (cheaper) is good news; invert
+                  // the colour so negative-delta reads green.
+                  positiveIsGood={false}
+                />
               </span>
               <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <span
@@ -1697,6 +1777,15 @@ function VenueSection({
               </>
             )}
           </button>
+        )}
+        {/* Per-venue Sync Now — internal surface only. External
+            share tokens are event-scoped so there's no single token
+            that can fan out to a venue's children; the POST this
+            button fires requires a signed-in session. Visible in
+            both collapsed + expanded states so the operator can
+            trigger a sweep without first expanding every card. */}
+        {isInternal && (
+          <VenueSyncButton eventIds={group.events.map((e) => e.id)} />
         )}
         {/* "View full venue report" CTA — placeholder link to a
             dedicated per-venue page planned in a follow-up PR. The

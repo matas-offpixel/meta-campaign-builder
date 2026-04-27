@@ -115,6 +115,13 @@ export interface DailyEntry {
  */
 export interface DailyRollupRow {
   event_id: string;
+  /** Calendar day the row covers — `YYYY-MM-DD` in UTC.
+   *  Required by the WoW aggregator (`aggregateVenueWoW`); the
+   *  lifetime topline aggregator ignores it. */
+  date: string;
+  /** Tickets sold for this (event, day). NULL when the provider
+   *  side hadn't yielded data for the day yet. */
+  tickets_sold: number | null;
   /** Raw per-event per-day Meta spend (venue-total for multi-
    *  match venues — every event in the venue sees the same
    *  `ad_spend` value for a given day). */
@@ -373,12 +380,14 @@ async function loadPortalForClientId(
     const { data: rows } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, ad_spend, ad_spend_allocated, ad_spend_specific, ad_spend_generic_share",
+        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, ad_spend_specific, ad_spend_generic_share",
       )
       .in("event_id", eventIds);
     if (rows) {
       dailyRollups = rows.map((r) => ({
         event_id: r.event_id as string,
+        date: r.date as string,
+        tickets_sold: (r.tickets_sold as number | null) ?? null,
         ad_spend: (r.ad_spend as number | null) ?? null,
         ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,

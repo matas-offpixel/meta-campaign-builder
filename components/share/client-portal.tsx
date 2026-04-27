@@ -331,7 +331,6 @@ export function ClientPortal({
               londonPresaleSpend={londonPresaleSpend}
               dailyEntries={dailyEntries}
               dailyRollups={dailyRollups}
-              additionalSpend={additionalSpend}
               isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}
             />

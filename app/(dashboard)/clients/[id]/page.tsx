@@ -15,6 +15,7 @@ import {
   listD2CTemplatesForUser,
 } from "@/lib/db/d2c";
 import { listCreativeTemplatesForUser } from "@/lib/db/creative-templates";
+import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import {
   isBannerbearEnabled,
   isCanvaEnabled,
@@ -72,6 +73,12 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     d2c,
     d2cTemplates,
     creativeTemplates,
+    // PR D3 — fetch the client-portal payload alongside the other
+    // loads so the Events tab can render the same venue-grouped
+    // layout as `/clients/[id]/dashboard`. Fails soft (returns
+    // `{ ok: false }`) when the client has no events, and the
+    // Events tab renders the legacy flat table in that case.
+    portal,
   ] = await Promise.all([
     getClientByIdServer(id),
     listEventsServer(user.id, { clientId: id }),
@@ -83,6 +90,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listD2CConnectionsForUser(supabase, { clientId: id }),
     listD2CTemplatesForUser(supabase, { clientId: id }),
     listCreativeTemplatesForUser(supabase),
+    loadClientPortalByClientId(id),
   ]);
 
   if (!client) notFound();
@@ -154,6 +162,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       creativeTemplates={creativeTemplates}
       creativeProviderStatus={creativeProviderStatus}
       initialTab={initialTab}
+      portal={portal.ok ? portal : null}
     />
   );
 }
