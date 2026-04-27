@@ -3,11 +3,15 @@
 import { useMemo, useState } from "react";
 
 import type {
+  AdditionalSpendRow,
   DailyEntry,
+  DailyRollupRow,
   PortalClient,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
+import { aggregateClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
 import { ClientPortalVenueTable } from "./client-portal-venue-table";
+import { ClientWideTopline } from "./client-wide-topline";
 
 interface Props {
   token: string;
@@ -31,6 +35,24 @@ interface Props {
    * table filters them per-venue at render time.
    */
   dailyEntries: DailyEntry[];
+  /**
+   * Event daily rollup rows — drives the client-wide topline block
+   * (sum of ad_spend across all events). Per-venue cards continue
+   * to use meta_spend_cached so the intra-card math is unchanged.
+   */
+  dailyRollups: DailyRollupRow[];
+  /**
+   * Additional (off-Meta) spend entries across every event under
+   * the client. Summed into the topline "Total spend" stat.
+   */
+  additionalSpend: AdditionalSpendRow[];
+  /**
+   * True when rendered inside `/clients/[id]/dashboard` (the
+   * internal admin counterpart). Unlocks per-row admin actions on
+   * the venue cards. External `/share/client/[token]` usage passes
+   * the default (false) and gets the read-only surface.
+   */
+  isInternal?: boolean;
 }
 
 type TabKey = "scotland" | "england_london" | "england_uk";
@@ -79,10 +101,28 @@ export function ClientPortal({
   londonOnsaleSpend,
   londonPresaleSpend,
   dailyEntries,
+  dailyRollups,
+  additionalSpend,
+  isInternal = false,
 }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
   const [events, setEvents] = useState<PortalEvent[]>(initial);
+
+  // Client-wide totals — always lifetime, regardless of the per-card
+  // timeframe pills. Folds the WC26 on-sale shared-campaign spend
+  // (when present) into the topline's adSpend / totalSpend so the
+  // topline reconciles with the venue table's Overall London row.
+  const clientWideTotals = useMemo(
+    () =>
+      aggregateClientWideTotals(
+        events,
+        dailyRollups,
+        additionalSpend,
+        londonOnsaleSpend ?? 0,
+      ),
+    [events, dailyRollups, additionalSpend, londonOnsaleSpend],
+  );
 
   const grouped = useMemo(() => {
     const map = new Map<TabKey, PortalEvent[]>();
@@ -162,19 +202,31 @@ export function ClientPortal({
     );
   };
 
+  // When rendered inside the authenticated dashboard layout, swap
+  // the public `<main>` chrome for a simple wrapper so the page
+  // inherits the dashboard nav + background. The external share
+  // surface keeps the branded chrome below.
+  const Wrapper = isInternal ? "div" : "main";
+  const wrapperClass = isInternal
+    ? "bg-white text-zinc-900"
+    : "min-h-screen bg-white text-zinc-900";
+
   return (
-    <main className="min-h-screen bg-white text-zinc-900">
-      {/* Header */}
-      <header className="border-b border-zinc-200">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
-          <p className="font-heading text-base tracking-[0.2em] text-zinc-900">
-            OFF / PIXEL
-          </p>
-          <p className="text-xs text-zinc-500 truncate max-w-[40ch]">
-            {client.name}
-          </p>
-        </div>
-      </header>
+    <Wrapper className={wrapperClass}>
+      {/* Header — only on the public share surface. The internal
+          dashboard route owns its own PageHeader. */}
+      {!isInternal && (
+        <header className="border-b border-zinc-200">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
+            <p className="font-heading text-base tracking-[0.2em] text-zinc-900">
+              OFF / PIXEL
+            </p>
+            <p className="text-xs text-zinc-500 truncate max-w-[40ch]">
+              {client.name}
+            </p>
+          </div>
+        </header>
+      )}
 
       <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
         <div>
@@ -186,6 +238,18 @@ export function ClientPortal({
             figure to update it.
           </p>
         </div>
+
+        {/* Client-wide topline — only shown when the client spans
+            2+ venue groups. A single-group client already has its
+            numbers on the one card below; the topline would be a
+            duplicate that adds noise. Computed in the loader once and
+            passed down so SSR + CSR draw the same numbers. */}
+        {clientWideTotals.venueGroups >= 2 && (
+          <ClientWideTopline
+            clientName={client.name}
+            totals={clientWideTotals}
+          />
+        )}
 
         {visibleTabs.length === 0 ? (
           <div className="rounded-md border border-zinc-200 bg-zinc-50 p-8 text-center">
@@ -265,17 +329,22 @@ export function ClientPortal({
               londonOnsaleSpend={londonOnsaleSpend}
               londonPresaleSpend={londonPresaleSpend}
               dailyEntries={dailyEntries}
+              dailyRollups={dailyRollups}
+              additionalSpend={additionalSpend}
+              isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}
             />
           </>
         )}
       </div>
 
-      <footer className="border-t border-zinc-200 mt-12">
-        <div className="mx-auto max-w-7xl px-6 py-4 text-[11px] text-zinc-400">
-          Off Pixel · campaign analytics for {client.name}
-        </div>
-      </footer>
-    </main>
+      {!isInternal && (
+        <footer className="border-t border-zinc-200 mt-12">
+          <div className="mx-auto max-w-7xl px-6 py-4 text-[11px] text-zinc-400">
+            Off Pixel · campaign analytics for {client.name}
+          </div>
+        </footer>
+      )}
+    </Wrapper>
   );
 }

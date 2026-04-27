@@ -1,9 +1,19 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Loader2, Pencil } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Loader2, Pencil } from "lucide-react";
 
-import type { DailyEntry, PortalEvent } from "@/lib/db/client-portal-server";
+import type {
+  AdditionalSpendRow,
+  DailyEntry,
+  DailyRollupRow,
+  PortalEvent,
+} from "@/lib/db/client-portal-server";
+import { aggregateVenueGroupTotals } from "@/lib/db/client-dashboard-aggregations";
+import {
+  parseExpandedHash,
+  serializeExpandedHash,
+} from "@/lib/dashboard/rollout-grouping";
 import { DailyTracker } from "./daily-tracker";
 
 interface SavedSnapshot {
@@ -35,6 +45,20 @@ interface Props {
    * venue's events inside each VenueSection's <DailyTracker />.
    */
   dailyEntries: DailyEntry[];
+  /**
+   * Event daily rollups across the client. Only used by this
+   * component to score "activity" per venue group — picking which
+   * cards to auto-expand on first mount. Not used in the existing
+   * per-event arithmetic, which stays on meta_spend_cached.
+   */
+  dailyRollups: DailyRollupRow[];
+  /**
+   * Additional (off-Meta) spend entries — also used only for the
+   * activity score so cards with recent PR spend surface by default.
+   */
+  additionalSpend: AdditionalSpendRow[];
+  /** Exposes admin-only controls per row when true. */
+  isInternal: boolean;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
 }
 
@@ -218,6 +242,13 @@ function cptChangeClass(n: number | null): string {
 
 interface VenueGroup {
   key: string;
+  /**
+   * Stable identifier suitable for the URL hash. Events sharing an
+   * event_code + event_date collapse to their event_code; solo
+   * events (no event_code or only one row for the key) fall back to
+   * the event id so every group has a deterministic anchor.
+   */
+  expandKey: string;
   displayName: string;
   city: string | null;
   budget: number | null;
@@ -228,37 +259,83 @@ interface VenueGroup {
   events: PortalEvent[];
 }
 
-function groupByVenue(events: PortalEvent[]): VenueGroup[] {
-  const map = new Map<string, VenueGroup>();
+/**
+ * Group events by shared `(event_code, event_date)` — the same
+ * grouping rule PR #115's rollout audit uses. Events without a
+ * shared code (or with `event_code = null`) each become their own
+ * standalone group so the user's "render as today" expectation
+ * holds for single-event venues.
+ *
+ * Preserves input order: the SSR loader already sorts by event_date,
+ * so rendering stays predictable across refreshes without an extra
+ * `localeCompare` sort (which previously reordered by venue name
+ * and masked the "most recent match" signal operators care about).
+ */
+function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
+  const counts = new Map<string, number>();
   for (const ev of events) {
-    const name = ev.venue_name ?? "Unknown venue";
-    const city = ev.venue_city ?? "";
-    const key = `${name}||${city}`;
-    const existing = map.get(key);
-    if (existing) {
-      existing.events.push(ev);
-      existing.eventCount += 1;
-      if (existing.budget === null && ev.budget_marketing !== null) {
-        existing.budget = ev.budget_marketing;
+    if (!ev.event_code) continue;
+    const key = `${ev.event_code}::${ev.event_date ?? ""}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const groupsByKey = new Map<string, VenueGroup>();
+  const out: VenueGroup[] = [];
+
+  for (const ev of events) {
+    const codedKey = ev.event_code
+      ? `${ev.event_code}::${ev.event_date ?? ""}`
+      : null;
+    const shouldGroup = codedKey !== null && (counts.get(codedKey) ?? 0) >= 2;
+
+    if (shouldGroup) {
+      const existing = groupsByKey.get(codedKey!);
+      if (existing) {
+        existing.events.push(ev);
+        existing.eventCount += 1;
+        if (existing.budget === null && ev.budget_marketing !== null) {
+          existing.budget = ev.budget_marketing;
+        }
+        if (existing.campaignSpend === null && ev.meta_spend_cached !== null) {
+          existing.campaignSpend = ev.meta_spend_cached;
+        }
+        continue;
       }
-      if (existing.campaignSpend === null && ev.meta_spend_cached !== null) {
-        existing.campaignSpend = ev.meta_spend_cached;
-      }
-    } else {
-      map.set(key, {
-        key,
-        displayName: name,
+      const group: VenueGroup = {
+        key: codedKey!,
+        // event_code is a stable, user-visible handle the operator
+        // recognises in the URL hash — beats a UUID every time.
+        expandKey: ev.event_code as string,
+        displayName: ev.venue_name ?? (ev.event_code as string),
         city: ev.venue_city,
         budget: ev.budget_marketing,
         campaignSpend: ev.meta_spend_cached,
         eventCount: 1,
         events: [ev],
-      });
+      };
+      groupsByKey.set(codedKey!, group);
+      out.push(group);
+      continue;
     }
+
+    // Solo group — each event stands alone. Key off the event id so
+    // the URL hash is still stable across refreshes; display name
+    // falls back to the venue to keep the visual layout familiar
+    // for clients used to the "per-venue" layout.
+    const soloKey = `solo::${ev.id}`;
+    out.push({
+      key: soloKey,
+      expandKey: ev.id,
+      displayName: ev.venue_name ?? ev.name,
+      city: ev.venue_city,
+      budget: ev.budget_marketing,
+      campaignSpend: ev.meta_spend_cached,
+      eventCount: 1,
+      events: [ev],
+    });
   }
-  return [...map.values()].sort((a, b) =>
-    a.displayName.localeCompare(b.displayName),
-  );
+
+  return out;
 }
 
 /**
@@ -445,16 +522,110 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   };
 }
 
+/**
+ * Number of venue groups auto-expanded on first mount when the URL
+ * hash doesn't specify a preference. Picked so a typical 16-venue
+ * client (4theFans WC26) lands on a readable ~4-card first screen
+ * rather than an intimidating 16-card wall.
+ */
+const AUTO_EXPAND_COUNT = 4;
+
 export function ClientPortalVenueTable({
   token,
   events,
   londonOnsaleSpend,
   londonPresaleSpend,
   dailyEntries,
+  dailyRollups,
+  additionalSpend,
+  isInternal,
   onSnapshotSaved,
 }: Props) {
-  const venues = useMemo(() => groupByVenue(events), [events]);
+  const venues = useMemo(() => groupByEventCodeAndDate(events), [events]);
   const regions = useMemo(() => partitionByRegion(venues), [venues]);
+
+  // Score each group by recent-ad-spend + recency so the top 3-4
+  // most active groups auto-expand. Computed via the shared
+  // aggregator so the same arithmetic that drives the topline picks
+  // which cards the operator sees first — keeps reconciliation
+  // mental-model simple ("if it's big in the topline it's open
+  // below").
+  const today = useMemo(() => {
+    const d = new Date();
+    const iso = d.toISOString().slice(0, 10);
+    return iso;
+  }, []);
+  const scoreByGroup = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const g of venues) {
+      const totals = aggregateVenueGroupTotals(
+        g.events,
+        dailyRollups,
+        additionalSpend,
+        today,
+      );
+      m.set(g.expandKey, totals.activityScore);
+    }
+    return m;
+  }, [venues, dailyRollups, additionalSpend, today]);
+
+  const defaultExpanded = useMemo(() => {
+    const sorted = [...venues].sort(
+      (a, b) =>
+        (scoreByGroup.get(b.expandKey) ?? 0) -
+        (scoreByGroup.get(a.expandKey) ?? 0),
+    );
+    return new Set(sorted.slice(0, AUTO_EXPAND_COUNT).map((g) => g.expandKey));
+  }, [venues, scoreByGroup]);
+
+  // Expand/collapse state — URL hash is the source of truth when
+  // present so the browser back/forward + share-link-with-open-cards
+  // flow just works. `hashOverride` holds the user's explicit choice
+  // (read on mount + every `hashchange` event); when absent we
+  // derive state from `defaultExpanded` on each render so updates
+  // to the auto-expand heuristic flow through without an extra
+  // useEffect reconciliation pass.
+  //
+  // Lazy-initialised from `window.location.hash` so the first render
+  // already has the correct set when the browser has one — no flash
+  // of "auto-expanded 4" before the hash takes over on mount.
+  const [hashOverride, setHashOverride] = useState<Set<string> | null>(() => {
+    if (typeof window === "undefined") return null;
+    const fromHash = parseExpandedHash(window.location.hash);
+    return fromHash.size > 0 ? fromHash : null;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChange = () => {
+      const next = parseExpandedHash(window.location.hash);
+      setHashOverride(next.size > 0 ? next : null);
+    };
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+
+  const expanded = hashOverride ?? defaultExpanded;
+
+  const toggleGroup = useCallback(
+    (expandKey: string) => {
+      const base = hashOverride ?? defaultExpanded;
+      const next = new Set(base);
+      if (next.has(expandKey)) next.delete(expandKey);
+      else next.add(expandKey);
+      if (typeof window !== "undefined") {
+        const hash = serializeExpandedHash(next);
+        const url = new URL(window.location.href);
+        url.hash = hash ? `#${hash}` : "";
+        window.history.replaceState(null, "", url.toString());
+      }
+      // Always mark as overridden once the user interacts — even an
+      // empty set ("collapsed everything") is a meaningful intent
+      // that shouldn't be clobbered by the default.
+      setHashOverride(next);
+    },
+    [hashOverride, defaultExpanded],
+  );
 
   if (venues.length === 0) {
     return (
@@ -494,6 +665,9 @@ export function ClientPortalVenueTable({
                 group={group}
                 spend={venueSpend(group, londonOnsaleSpend)}
                 dailyEntries={dailyEntries}
+                isExpanded={expanded.has(group.expandKey)}
+                onToggle={() => toggleGroup(group.expandKey)}
+                isInternal={isInternal}
                 onSnapshotSaved={onSnapshotSaved}
               />
             ))}
@@ -718,6 +892,15 @@ interface VenueSectionProps {
   /** All daily tracker rows for the client. Filtered to this venue's
    *  events by the embedded <DailyTracker />. */
   dailyEntries: DailyEntry[];
+  /**
+   * Collapsed-by-default layout surfaces 16+ venue groups in a
+   * readable first paint. Header click toggles; state lives on the
+   * parent so URL-hash sync lives in one place.
+   */
+  isExpanded: boolean;
+  onToggle: () => void;
+  /** Internal admin surface — surfaces per-row actions when true. */
+  isInternal: boolean;
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
@@ -1230,6 +1413,9 @@ function VenueSection({
   group,
   spend,
   dailyEntries,
+  isExpanded,
+  onToggle,
+  isInternal,
   onSnapshotSaved,
 }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
@@ -1237,6 +1423,13 @@ function VenueSection({
   const headerLabel = group.city
     ? `${group.displayName}, ${group.city}`
     : group.displayName;
+  const bodyId = `venue-${group.expandKey}`;
+  // Derive rather than store — when the user collapses a card mid-
+  // edit, the inline inputs disappear under the header and the Edit
+  // toggle hides until they re-open. Keeping edit mode as an
+  // internal flag means "still editing when you come back" works
+  // without an explicit reset.
+  const effectiveEditMode = editMode && isExpanded;
   // Pre-filter the client-wide tracker rows down to this venue's
   // events. Done here (cheap) rather than passing the full set into
   // every DailyTracker so the per-event grouping inside the tracker
@@ -1252,11 +1445,32 @@ function VenueSection({
 
   return (
     <section className="rounded-md border border-zinc-200 bg-white shadow-sm">
-      <header className="flex flex-wrap items-baseline justify-between gap-3 border-b border-zinc-200 px-4 py-3">
-        <div className="flex flex-wrap items-baseline gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isExpanded}
+          aria-controls={bodyId}
+          className="flex flex-1 flex-wrap items-baseline gap-3 text-left"
+        >
+          <span
+            className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center self-center rounded text-zinc-600 transition-transform hover:bg-zinc-100 hover:text-zinc-900"
+            aria-hidden="true"
+          >
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </span>
           <h2 className="font-heading text-lg tracking-wide text-zinc-900">
             {headerLabel}
           </h2>
+          {group.eventCount > 1 && (
+            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+              {group.eventCount} events
+            </span>
+          )}
           {group.budget !== null && (
             <p className="text-xs text-zinc-600">
               Ad Budget:{" "}
@@ -1278,29 +1492,64 @@ function VenueSection({
               </span>
             </p>
           )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setEditMode((v) => !v)}
-          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-            editMode
-              ? "bg-zinc-900 text-white hover:bg-zinc-800"
-              : "border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
-          }`}
-          aria-pressed={editMode}
-        >
-          {editMode ? (
-            "Done"
-          ) : (
-            <>
-              <Pencil className="h-3 w-3" />
-              Edit
-            </>
+          {/* Collapsed-state quick stats — surfaces the headline
+              numbers without expanding the card. Only appears when
+              the card is closed so the expanded layout doesn't
+              duplicate the info. */}
+          {!isExpanded && (
+            <span className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-zinc-600">
+              <span className="tabular-nums">
+                Tickets:{" "}
+                <span className="font-semibold text-zinc-900">
+                  {formatNumber(totals.tickets)}
+                </span>
+              </span>
+              <span className="text-zinc-400" aria-hidden="true">·</span>
+              <span className="tabular-nums">
+                CPT:{" "}
+                <span className="font-semibold text-zinc-900">
+                  {formatGBP(totals.cpt, 2)}
+                </span>
+              </span>
+              <span className="text-zinc-400" aria-hidden="true">·</span>
+              <span
+                className={`tabular-nums ${roasClass(totals.roas)}`}
+              >
+                ROAS: {formatRoas(totals.roas)}
+              </span>
+            </span>
           )}
         </button>
+        {/* Inline edit only makes sense on the public share surface
+            where the NumericCell POST hits `/api/share/client/[token]/tickets`
+            with a real token. Internal admin route skips the Edit
+            control; admins jump into the per-event page to edit
+            numbers (linked in the admin row below the tracker). */}
+        {isExpanded && !isInternal && (
+          <button
+            type="button"
+            onClick={() => setEditMode((v) => !v)}
+            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              editMode
+                ? "bg-zinc-900 text-white hover:bg-zinc-800"
+                : "border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            }`}
+            aria-pressed={editMode}
+          >
+            {editMode ? (
+              "Done"
+            ) : (
+              <>
+                <Pencil className="h-3 w-3" />
+                Edit
+              </>
+            )}
+          </button>
+        )}
       </header>
 
-      <div className="overflow-x-auto">
+      {!isExpanded ? null : (
+      <div id={bodyId} className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-sm">
           <thead>
             <tr className="bg-zinc-900 text-left text-xs font-medium uppercase tracking-wide text-white">
@@ -1325,7 +1574,7 @@ function VenueSection({
                 token={token}
                 event={ev}
                 striped={i % 2 === 1}
-                editMode={editMode}
+                editMode={effectiveEditMode}
                 spend={spend}
                 onSnapshotSaved={onSnapshotSaved}
               />
@@ -1376,20 +1625,47 @@ function VenueSection({
             future edit doesn't silently desync the grid. */}
         <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
       </div>
+      )}
       {/* Multi-metric time-series fed by the venue's daily tracker
           rows. Self-hides when fewer than two distinct days exist —
           new venues without a tracker history won't render anything,
           which is the correct empty state. */}
-      <CptTrendChart entries={venueEntries} />
+      {isExpanded && <CptTrendChart entries={venueEntries} />}
       {/* Collapsed-by-default daily tracker mirrors the Excel sheet
           the client team currently keeps by hand. Read-only on the
           public portal; the underlying /daily POST route exists for a
           future internal admin UI. */}
-      <DailyTracker
-        token={token}
-        events={group.events}
-        entries={venueEntries}
-      />
+      {isExpanded && (
+        <DailyTracker
+          token={token}
+          events={group.events}
+          entries={venueEntries}
+        />
+      )}
+      {/* Internal admin surface — the per-row Edit links are only
+          rendered when rendered inside `/clients/[id]/dashboard`.
+          Keeps the external `/share/client/[token]` surface clean
+          and read-only. */}
+      {isExpanded && isInternal && (
+        <div className="border-t border-zinc-200 bg-zinc-50 px-4 py-2 text-xs">
+          <p className="text-zinc-600">
+            Admin:{" "}
+            {group.events.map((ev, i) => (
+              <span key={ev.id}>
+                {i > 0 && <span className="text-zinc-400"> · </span>}
+                <a
+                  href={`/events/${ev.id}?tab=reporting`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-zinc-900 underline hover:text-black"
+                >
+                  {ev.name}
+                </a>
+              </span>
+            ))}
+          </p>
+        </div>
+      )}
     </section>
   );
 }

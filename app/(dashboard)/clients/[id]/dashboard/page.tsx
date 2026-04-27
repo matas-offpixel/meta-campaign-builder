@@ -1,0 +1,97 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
+
+import { PageHeader } from "@/components/dashboard/page-header";
+import { ClientPortal } from "@/components/share/client-portal";
+import { createClient } from "@/lib/supabase/server";
+import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
+
+/**
+ * /clients/[id]/dashboard — internal counterpart to the public
+ * `/share/client/[token]` portal. Renders the same `ClientPortal`
+ * component tree, but:
+ *
+ *   - no token required (page is auth-gated like the rest of the
+ *     dashboard routes; loader asserts ownership via RLS).
+ *   - `isInternal={true}` surfaces per-row admin links (open in
+ *     `/events/[id]?tab=reporting` for deep-dive).
+ *   - dashboard chrome (PageHeader + breadcrumb) replaces the
+ *     public-surface OFF/PIXEL banner.
+ *
+ * Uses a synthetic empty token (the portal's NumericCell save path
+ * is disabled under internal use — admins edit numbers on the
+ * per-event page, not this overview).
+ */
+interface Props {
+  params: Promise<{ id: string }>;
+}
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function ClientDashboardPage({ params }: Props) {
+  const { id } = await params;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // RLS-scoped ownership check: if the caller doesn't own the
+  // client row, the loader returns `ok: false` rather than leaking
+  // the dashboard.
+  const scope = await supabase
+    .from("clients")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!scope.data) notFound();
+
+  const result = await loadClientPortalByClientId(id);
+  if (!result.ok) notFound();
+
+  return (
+    <>
+      <PageHeader
+        title={`${result.client.name} · Client dashboard`}
+        description="Cross-event performance rollup for every venue under this client."
+        actions={
+          <Link
+            href={`/clients/${id}`}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Back to client
+          </Link>
+        }
+      />
+      <nav
+        aria-label="Breadcrumb"
+        className="mx-auto max-w-7xl px-6 pt-4 text-xs text-muted-foreground"
+      >
+        <Link href="/clients" className="hover:text-foreground">
+          Clients
+        </Link>
+        <span className="mx-1">›</span>
+        <Link href={`/clients/${id}`} className="hover:text-foreground">
+          {result.client.name}
+        </Link>
+        <span className="mx-1">›</span>
+        <span className="text-foreground">Dashboard</span>
+      </nav>
+      <ClientPortal
+        token=""
+        client={result.client}
+        events={result.events}
+        londonOnsaleSpend={result.londonOnsaleSpend}
+        londonPresaleSpend={result.londonPresaleSpend}
+        dailyEntries={result.dailyEntries}
+        dailyRollups={result.dailyRollups}
+        additionalSpend={result.additionalSpend}
+        isInternal
+      />
+    </>
+  );
+}
