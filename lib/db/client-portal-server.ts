@@ -134,6 +134,15 @@ export interface DailyRollupRow {
   ad_spend_specific: number | null;
   /** This event's share of the venue-wide generic pool. */
   ad_spend_generic_share: number | null;
+  /**
+   * This event's share of the venue's presale-campaign spend
+   * (migration 048). Presale campaigns no longer flow through the
+   * opponent allocator — their spend is split evenly across every
+   * event at the venue and surfaced in the PRE-REG column. NULL
+   * when the allocator hasn't run for this row; reporting falls
+   * back to `events.prereg_spend` in that case.
+   */
+  ad_spend_presale: number | null;
 }
 
 /**
@@ -380,7 +389,7 @@ async function loadPortalForClientId(
     const { data: rows } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, ad_spend_specific, ad_spend_generic_share",
+        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds);
     if (rows) {
@@ -393,6 +402,7 @@ async function loadPortalForClientId(
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:
           (r.ad_spend_generic_share as number | null) ?? null,
+        ad_spend_presale: (r.ad_spend_presale as number | null) ?? null,
       }));
     }
   }

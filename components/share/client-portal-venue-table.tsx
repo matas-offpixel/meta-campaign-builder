@@ -580,7 +580,25 @@ function computeEventMetrics(
   ev: PortalEvent,
   spend: GroupSpend,
 ): EventMetrics {
-  const prereg = ev.prereg_spend;
+  // Prereg source-of-truth precedence (PR #120 fix):
+  //   1. Allocator-written `ad_spend_presale` when the allocator
+  //      has covered this event (distinguished from "allocator
+  //      ran but no presale activity" by `daysCoveredPresale > 0`;
+  //      the latter legitimately returns 0 and we trust it).
+  //   2. Legacy `events.prereg_spend` column for events the
+  //      allocator hasn't yet touched (pre-PR-#120 rows or
+  //      venues that haven't run a presale through Meta).
+  // The spend model below (allocated / split / add) stays the same
+  // — only the source of `prereg` changes depending on which one
+  // fires.
+  const allocPresale =
+    spend.kind === "allocated"
+      ? spend.byEventId.get(ev.id)
+      : undefined;
+  const prereg =
+    allocPresale && allocPresale.daysCoveredPresale > 0
+      ? allocPresale.presale
+      : ev.prereg_spend;
 
   // Resolve perEventAd / perEventTotal pair from the spend model.
   // Across all three models the triangle stays consistent — total =
@@ -665,7 +683,18 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   let revenue = 0;
   let hasRevenue = false;
   for (const ev of group.events) {
-    prereg += ev.prereg_spend ?? 0;
+    // Match `computeEventMetrics`'s prereg source precedence so the
+    // Total row sums to the visible per-row values (PR #120 fix).
+    // Allocator-written `ad_spend_presale` wins over the legacy
+    // `events.prereg_spend` column whenever this event has been
+    // touched by the allocator's presale pass.
+    const allocPresale =
+      spend.kind === "allocated" ? spend.byEventId.get(ev.id) : undefined;
+    const rowPrereg =
+      allocPresale && allocPresale.daysCoveredPresale > 0
+        ? allocPresale.presale
+        : ev.prereg_spend ?? 0;
+    prereg += rowPrereg;
     const sold = ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
     tickets += sold;
     prevTickets += ev.tickets_sold_previous ?? 0;
@@ -1938,6 +1967,8 @@ function VenueSection({
       {isExpanded && group.eventCode && (
         <VenueActiveCreatives
           token={token}
+          clientId={clientId}
+          isInternal={isInternal}
           eventCode={group.eventCode}
           venueLabel={headerLabel}
         />

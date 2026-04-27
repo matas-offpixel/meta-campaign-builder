@@ -39,6 +39,14 @@ export interface EventDailyRollup {
   ad_spend_specific: number | null;
   /** This event's share of the venue-generic ad pool. */
   ad_spend_generic_share: number | null;
+  /**
+   * Per-event share of the venue's presale-campaign spend (migration
+   * 048). Presale-marked campaigns no longer enter the ad_spend_*
+   * allocator — their spend is split evenly across every event at the
+   * venue and written here. Powers the PRE-REG column on the dashboard;
+   * reporting falls back to `events.prereg_spend` when null.
+   */
+  ad_spend_presale: number | null;
   source_meta_at: string | null;
   source_eventbrite_at: string | null;
   notes: string | null;
@@ -274,12 +282,20 @@ export async function upsertEventbriteRollups(
  */
 export interface AllocatedSpendUpsertRow {
   date: string;
-  /** Total allocated: specific + generic_share. */
+  /** Total allocated: specific + generic_share. Non-presale spend only. */
   ad_spend_allocated: number;
   /** Opponent-matched spend for this event. */
   ad_spend_specific: number;
   /** This event's slice of the venue-wide generic pool. */
   ad_spend_generic_share: number;
+  /**
+   * This event's slice of the venue's presale-campaign spend (evenly
+   * split across every event at the venue). Migration 048. Zero when
+   * the venue ran no presale campaigns on this day — still written so
+   * the column's NULL distinguishes "allocator hasn't touched this row"
+   * from "allocator ran, no presale activity".
+   */
+  ad_spend_presale: number;
 }
 
 /**
@@ -313,6 +329,7 @@ export async function upsertAllocatedSpendRollups(
     ad_spend_allocated: r.ad_spend_allocated,
     ad_spend_specific: r.ad_spend_specific,
     ad_spend_generic_share: r.ad_spend_generic_share,
+    ad_spend_presale: r.ad_spend_presale,
   }));
   const { error } = await asAny(supabase)
     .from("event_daily_rollups")

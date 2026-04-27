@@ -516,18 +516,25 @@ export async function runRollupSyncForEvent(
             (r) =>
               `${r.eventId}:${r.allocated.toFixed(2)}(s=${r.specific.toFixed(
                 2,
-              )},g=${r.genericShare.toFixed(2)})`,
+              )},g=${r.genericShare.toFixed(2)},p=${r.presale.toFixed(2)})`,
           )
           .join(" ");
         console.log(
-          `[rollup-sync] allocator ok siblings=${allocator.venueEventIds.length} ads=${allocator.adNames.length} rows_written=${allocator.rowsWritten} reason=${allocator.reason ?? "ran"} lifetime=${lifetime}`,
+          `[rollup-sync] allocator ok siblings=${allocator.venueEventIds.length} ads=${allocator.adNames.length} rows_written=${allocator.rowsWritten} reason=${allocator.reason ?? "ran"} class_errors=${allocator.classificationErrors.length} lifetime=${lifetime}`,
         );
       } else {
         console.warn(
-          `[rollup-sync] allocator skip reason=${allocator.reason ?? "unknown"} msg=${allocator.error ?? "<none>"}`,
+          `[rollup-sync] allocator skip reason=${allocator.reason ?? "unknown"} msg=${allocator.error ?? "<none>"} class_errors=${allocator.classificationErrors.length}`,
         );
       }
     } catch (err) {
+      // Hard belt-and-braces: the allocator itself wraps per-ad
+      // failures + always returns a result object, but a future
+      // change could still throw before that guard runs. This
+      // catch intentionally does NOT flip `metaResult.ok` — the
+      // raw `ad_spend` column is already persisted and the
+      // reporting layer falls back to it when the allocation
+      // columns are null. See the leg's docstring above.
       console.error(
         `[rollup-sync] allocator threw: ${
           err instanceof Error ? err.message : "Unknown error"

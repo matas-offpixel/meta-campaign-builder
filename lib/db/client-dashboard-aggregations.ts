@@ -57,9 +57,24 @@ export interface EventAllocationLifetime {
   /** specific + genericShare — what the venue card's Ad Spend
    *  column renders when allocation is available. */
   allocated: number;
+  /**
+   * This event's share of the venue's presale-campaign spend,
+   * lifetime. Powers the PRE-REG column when the allocator has
+   * run for this (event, day). Zero when the venue ran no
+   * presale campaigns — distinct from NULL in the underlying
+   * column, which means "allocator hasn't touched this row
+   * yet". Callers treat zero the same as "no presale"; they use
+   * the `daysCoveredPresale` flag below if they need to tell the
+   * two apart.
+   */
+  presale: number;
   /** Number of rollup days that contributed non-null allocation.
    *  Used as a "has any allocation" flag by the venue table. */
   daysCovered: number;
+  /** Number of rollup days that contributed a non-null presale
+   *  value — lets callers tell "allocator ran, no presale" from
+   *  "allocator hasn't run yet" at the event granularity. */
+  daysCoveredPresale: number;
 }
 
 /**
@@ -75,17 +90,34 @@ export function aggregateAllocationByEvent(
 ): Map<string, EventAllocationLifetime> {
   const out = new Map<string, EventAllocationLifetime>();
   for (const r of dailyRollups) {
-    if (r.ad_spend_allocated == null) continue;
+    // Include rows where EITHER `ad_spend_allocated` OR
+    // `ad_spend_presale` is non-null. Pre-PR-#120 rows only carried
+    // the former; post-#120 a day with ONLY presale activity (no
+    // on-sale ads live yet) still writes `ad_spend_presale` and
+    // leaves `ad_spend_allocated` at zero. The aggregator needs
+    // both branches so the PRE-REG column gets surfaced even for
+    // pre-ticket-launch days.
+    if (r.ad_spend_allocated == null && r.ad_spend_presale == null) {
+      continue;
+    }
     const existing = out.get(r.event_id) ?? {
       specific: 0,
       genericShare: 0,
       allocated: 0,
+      presale: 0,
       daysCovered: 0,
+      daysCoveredPresale: 0,
     };
-    existing.allocated += r.ad_spend_allocated;
-    existing.specific += r.ad_spend_specific ?? 0;
-    existing.genericShare += r.ad_spend_generic_share ?? 0;
-    existing.daysCovered += 1;
+    if (r.ad_spend_allocated != null) {
+      existing.allocated += r.ad_spend_allocated;
+      existing.specific += r.ad_spend_specific ?? 0;
+      existing.genericShare += r.ad_spend_generic_share ?? 0;
+      existing.daysCovered += 1;
+    }
+    if (r.ad_spend_presale != null) {
+      existing.presale += r.ad_spend_presale;
+      existing.daysCoveredPresale += 1;
+    }
     out.set(r.event_id, existing);
   }
   return out;

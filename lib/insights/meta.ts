@@ -1740,12 +1740,49 @@ export interface VenueDailyAdMetricsRow {
   /** Ad display name; fed into
    *  `classifyAdAgainstOpponents` to pick the opponent attribution. */
   adName: string;
+  /** Parent campaign id — diagnostics only, surfaced in allocator logs
+   *  so a presale/on-sale double-count bug is traceable back to a
+   *  specific campaign without cross-referencing Ads Manager. */
+  campaignId: string;
   /** Parent campaign name (for diagnostics only — the venue filter
    *  already restricted us to the matching campaigns). */
   campaignName: string;
+  /**
+   * Coarse campaign-phase classification used to split presale from
+   * on-sale at the allocator boundary (Fix #1 in PR #120, see
+   * `lib/dashboard/venue-spend-allocator.ts`):
+   *
+   *   - `"presale"`: campaign name contains "PRESALE" as a whole
+   *     word (case-insensitive). These rows bypass the opponent-
+   *     matching allocator and contribute to `ad_spend_presale`
+   *     (evenly split across events) instead.
+   *   - `"onsale"`: everything else. These rows go through the
+   *     opponent allocator and land in `ad_spend_allocated`.
+   *
+   * Derived server-side from `campaign_name` so the caller can't
+   * accidentally forget the split — the fetcher is the single point
+   * where the regex lives.
+   */
+  campaignPhase: "presale" | "onsale";
   /** Ad spend for this (ad, day). Non-null, ≥ 0. */
   spend: number;
 }
+
+/**
+ * Whole-word case-insensitive test for "PRESALE" in a campaign name.
+ * Exported so the allocator's diagnostic log can quote the same
+ * source-of-truth regex rather than re-implementing it and drifting.
+ *
+ * Matches on word boundaries so "PRESALE Relaunch", "presale",
+ * "Pre-sale" (with hyphen → separator → boundary) and "[WC26-
+ * BRIGHTON] PRESALE" all get tagged as presale. Does NOT match
+ * "PRE-REG", "PRESS", or "PREORDER".
+ */
+export function isPresaleCampaignName(name: string): boolean {
+  return PRESALE_RE.test(name);
+}
+
+const PRESALE_RE = /\bpresale\b/i;
 
 export type VenueDailyAdMetricsResult =
   | {
@@ -1818,8 +1855,11 @@ export async function fetchVenueDailyAdMetrics(
         // level=ad returns one row per (ad, day). ad_id + ad_name
         // survive the level shift; campaign_name comes back too so
         // we can re-filter case-sensitively before accepting rows.
+        // campaign_id is included so the allocator's diagnostic log
+        // can print the Meta campaign id alongside the name (Fix #1
+        // in PR #120 — traceability for presale misclassification).
         fields:
-          "spend,date_start,ad_id,ad_name,campaign_name,inline_link_clicks",
+          "spend,date_start,ad_id,ad_name,campaign_id,campaign_name,inline_link_clicks",
         level: "ad",
         time_increment: "1",
         time_range: timeRange,
@@ -1835,6 +1875,7 @@ export async function fetchVenueDailyAdMetrics(
           date_start?: string;
           ad_id?: string;
           ad_name?: string;
+          campaign_id?: string;
           campaign_name?: string;
           inline_link_clicks?: string;
         }>
@@ -1858,7 +1899,11 @@ export async function fetchVenueDailyAdMetrics(
           day,
           adId,
           adName,
+          campaignId: row.campaign_id ?? "",
           campaignName,
+          campaignPhase: isPresaleCampaignName(campaignName)
+            ? "presale"
+            : "onsale",
           spend,
         });
       }
