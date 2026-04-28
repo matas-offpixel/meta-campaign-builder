@@ -14,7 +14,11 @@
  * types are produced separately by the schema-types tool.
  */
 
-export type TicketingProviderName = "eventbrite" | "fourthefans";
+export type TicketingProviderName =
+  | "eventbrite"
+  | "fourthefans"
+  | "foursomething_internal"
+  | "manual";
 
 export type TicketingConnectionStatus = "active" | "paused" | "error";
 

@@ -26,6 +26,12 @@ import type { TicketingProviderName } from "@/lib/ticketing/types";
 const ALLOWED_PROVIDERS: TicketingProviderName[] = [
   "eventbrite",
   "fourthefans",
+  // PR 3: 'manual' bypasses the credential-validation path below —
+  // there's no upstream API to talk to, and `validateCredentials` is
+  // a no-op for the manual provider. Keeping the allow-list inclusive
+  // lets the ticketing panel POST here for every provider; the
+  // branching below drops the validation step when appropriate.
+  "manual",
 ];
 
 interface PostBody {

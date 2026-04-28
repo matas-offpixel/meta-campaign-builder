@@ -39,6 +39,7 @@ interface Props {
 
 const PROVIDERS: Array<{ value: TicketingProviderName; label: string }> = [
   { value: "eventbrite", label: "Eventbrite (paste personal token)" },
+  { value: "manual", label: "Manual entry (no upstream API)" },
   { value: "fourthefans", label: "4TheFans (pending — flag-gated)" },
 ];
 
@@ -76,10 +77,15 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
 
     setSubmitting(true);
     try {
+      // Manual is a "null provider" — no upstream to authenticate
+      // against. Ship an empty credentials blob; the server-side
+      // `validateCredentials` for the manual provider always returns
+      // ok. 4TheFans sends a placeholder that the pending-provider
+      // path would reject anyway (feature-flag gate in registry).
       const credentials =
         provider === "eventbrite"
           ? { personal_token: token.trim() }
-          : { /* placeholder; 4TheFans path returns 400 anyway */ };
+          : {};
 
       const res = await fetch("/api/ticketing/connections", {
         method: "POST",
@@ -237,6 +243,11 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
                   onChange={(e) => setToken(e.target.value)}
                 />
               </label>
+            ) : provider === "manual" ? (
+              <p className="text-xs text-muted-foreground sm:col-span-1">
+                No credentials needed. Ticket counts are entered by hand
+                on each event&rsquo;s manual-tickets page.
+              </p>
             ) : (
               <p className="text-xs text-muted-foreground sm:col-span-1">
                 The 4TheFans native API is pending. Save will be enabled once
