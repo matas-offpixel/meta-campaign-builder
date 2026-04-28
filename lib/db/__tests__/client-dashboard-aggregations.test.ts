@@ -211,17 +211,19 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.marketingSpend, 0);
   });
 
-  it("marketingBudget sums event-level budget_marketing across the client", () => {
+  it("marketingBudget dedupes shared venue budget_marketing by event_code", () => {
     const events = [
-      ev({ id: "a", budget_marketing: 1000 }),
-      ev({ id: "b", budget_marketing: 2500 }),
-      ev({ id: "c", budget_marketing: null }),
+      ev({ id: "a", event_code: "VENUE-A", budget_marketing: 1000 }),
+      ev({ id: "b", event_code: "VENUE-A", budget_marketing: 1000 }),
+      ev({ id: "c", event_code: "VENUE-B", budget_marketing: 2500 }),
+      ev({ id: "solo", budget_marketing: 750 }),
+      ev({ id: "empty", budget_marketing: null }),
     ];
     const rollups = [rollup("a", 200), rollup("b", 100)];
     const additional = [addl("a", 50)];
 
     const t = aggregateClientWideTotals(events, rollups, additional);
-    assert.equal(t.marketingBudget, 3500);
+    assert.equal(t.marketingBudget, 4250);
     // marketingSpend == adSpend + additionalSpend + preregSpend (totalSpend
     // without the extra shared-campaign bucket — none supplied here).
     assert.equal(t.marketingSpend, t.totalSpend);
@@ -357,12 +359,12 @@ describe("aggregateVenueCampaignPerformance", () => {
       TODAY,
     );
 
-    assert.equal(t.paidMediaBudget, 5500);
+    assert.equal(t.paidMediaBudget, 3000);
     assert.equal(t.additionalSpend, 200);
-    assert.equal(t.totalMarketingBudget, 5700);
+    assert.equal(t.totalMarketingBudget, 3200);
     assert.equal(t.paidMediaSpent, 300);
-    assert.equal(t.paidMediaRemaining, 5200);
-    assert.equal(t.paidMediaUsedPct, (300 / 5500) * 100);
+    assert.equal(t.paidMediaRemaining, 2700);
+    assert.equal(t.paidMediaUsedPct, (300 / 3000) * 100);
     assert.equal(t.ticketsSold, 500);
     assert.equal(t.capacity, 1800);
     assert.equal(t.sellThroughPct, (500 / 1800) * 100);

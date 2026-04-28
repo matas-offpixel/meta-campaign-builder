@@ -236,8 +236,6 @@ export function aggregateClientWideTotals(
   let capacityAnyNonNull = false;
   let revenue = 0;
   let hasRevenue = false;
-  let budgetMarketing = 0;
-  let budgetAnyNonNull = false;
   const groupKeys = new Set<string>();
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
@@ -246,10 +244,6 @@ export function aggregateClientWideTotals(
     if (ev.capacity != null) {
       capacity += ev.capacity;
       capacityAnyNonNull = true;
-    }
-    if (ev.budget_marketing != null) {
-      budgetMarketing += ev.budget_marketing;
-      budgetAnyNonNull = true;
     }
     const r = ev.latest_snapshot?.revenue;
     if (r != null) {
@@ -262,7 +256,7 @@ export function aggregateClientWideTotals(
 
   const totalSpend = adSpend + additional + prereg;
   const marketingSpend = totalSpend;
-  const marketingBudget = budgetAnyNonNull ? budgetMarketing : null;
+  const marketingBudget = aggregateSharedVenueBudget(events);
   const ticketRevenue = hasRevenue ? revenue : null;
   const roas =
     ticketRevenue != null && adSpend > 0 ? ticketRevenue / adSpend : null;
@@ -341,6 +335,26 @@ export interface VenueCampaignPerformance {
   earliestEventDate: string | null;
 }
 
+/**
+ * WC26 venue budget rows are stored redundantly on every child match.
+ * Treat `budget_marketing` as a venue-shared cap: one budget per
+ * `event_code`, with solo/no-code events falling back to their own id.
+ */
+export function aggregateSharedVenueBudget(
+  events: AggregatableEvent[],
+): number | null {
+  const byVenue = new Map<string, number>();
+  for (const ev of events) {
+    if (ev.budget_marketing == null) continue;
+    const key = ev.event_code ? `code:${ev.event_code}` : `event:${ev.id}`;
+    byVenue.set(key, Math.max(byVenue.get(key) ?? 0, ev.budget_marketing));
+  }
+  if (byVenue.size === 0) return null;
+  let total = 0;
+  for (const budget of byVenue.values()) total += budget;
+  return total;
+}
+
 export function aggregateVenueCampaignPerformance(
   events: AggregatableEvent[],
   additionalSpend: AdditionalSpendRow[],
@@ -353,18 +367,12 @@ export function aggregateVenueCampaignPerformance(
     events.map((e) => e.event_code).filter((c): c is string => Boolean(c)),
   );
 
-  let paidBudget = 0;
-  let hasPaidBudget = false;
   let tickets = 0;
   let capacity = 0;
   let hasCapacity = false;
   let earliestEventDate: string | null = null;
 
   for (const ev of events) {
-    if (ev.budget_marketing != null) {
-      paidBudget += ev.budget_marketing;
-      hasPaidBudget = true;
-    }
     tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
     if (ev.capacity != null) {
       capacity += ev.capacity;
@@ -398,7 +406,7 @@ export function aggregateVenueCampaignPerformance(
     }
   }
 
-  const paidMediaBudget = hasPaidBudget ? paidBudget : null;
+  const paidMediaBudget = aggregateSharedVenueBudget(events);
   const totalMarketingBudget =
     paidMediaBudget != null || additional > 0
       ? (paidMediaBudget ?? 0) + additional
