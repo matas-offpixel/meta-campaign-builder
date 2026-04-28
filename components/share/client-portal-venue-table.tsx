@@ -1812,13 +1812,13 @@ function VenueSection({
 
   return (
     <section className="rounded-md border border-border bg-card shadow-sm">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <header className="flex min-h-[56px] flex-nowrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={isExpanded}
           aria-controls={bodyId}
-          className="flex flex-1 flex-wrap items-baseline gap-3 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <span
             className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center self-center rounded text-muted-foreground transition-transform hover:bg-muted hover:text-foreground"
@@ -1830,7 +1830,7 @@ function VenueSection({
               <ChevronRight className="h-4 w-4" />
             )}
           </span>
-          <h2 className="font-heading text-lg tracking-wide text-foreground">
+          <h2 className="min-w-0 truncate font-heading text-lg tracking-wide text-foreground">
             {headerLabel}
           </h2>
           {subtitle && (
@@ -1845,7 +1845,7 @@ function VenueSection({
             </span>
           )}
           {campaignPerformance.totalMarketingBudget !== null && (
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden flex-shrink-0 text-xs text-muted-foreground md:block">
               Total Mkt:{" "}
               <span className="font-semibold text-foreground">
                 {formatGBP(campaignPerformance.totalMarketingBudget)}
@@ -1854,18 +1854,18 @@ function VenueSection({
           )}
           {campaignPerformance.totalMarketingBudget !== null &&
             campaignPerformance.paidMediaBudget !== null && (
-            <span className="text-xs text-muted-foreground/60" aria-hidden="true">
+            <span className="hidden text-xs text-muted-foreground/60 md:inline" aria-hidden="true">
               ·
             </span>
           )}
           {campaignPerformance.paidMediaBudget !== null && (
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden flex-shrink-0 text-xs text-muted-foreground lg:block">
               Paid:{" "}
               <span className="font-semibold text-foreground">
                 {formatGBP(campaignPerformance.paidMediaBudget)}
               </span>
               {campaignPerformance.paidMediaUsedPct !== null ? (
-                <span className="tabular-nums">
+                <span className="hidden tabular-nums xl:inline">
                   {" "}
                   ({formatPct(campaignPerformance.paidMediaUsedPct)} used)
                 </span>
@@ -1886,7 +1886,7 @@ function VenueSection({
               // any click on the tickets pill or the operator taps
               // the figure and the card collapses out from under
               // the picker / inline input.
-              className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-muted-foreground"
+              className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
               onClick={(e) => e.stopPropagation()}
             >
               <span className="tabular-nums">
@@ -1906,7 +1906,7 @@ function VenueSection({
                   positiveIsGood
                 />
                 {campaignPerformance.capacity !== null ? (
-                  <span className="text-muted-foreground">
+                  <span className="hidden text-muted-foreground 2xl:inline">
                     {" "}
                     ({formatNumber(campaignPerformance.ticketsSold)}/
                     {formatNumber(campaignPerformance.capacity)},{" "}
