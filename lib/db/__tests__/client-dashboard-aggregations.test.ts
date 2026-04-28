@@ -48,6 +48,7 @@ function rollup(
     tickets_sold: allocation?.tickets_sold ?? null,
     ad_spend,
     ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
+    revenue: null,
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
     ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
     ad_spend_presale: allocation?.ad_spend_presale ?? null,

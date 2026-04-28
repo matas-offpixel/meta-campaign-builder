@@ -74,6 +74,7 @@ const EVENT_COLOURS = [
   "#06b6d4", // cyan
   "#ec4899", // pink
 ];
+const TOTAL_COLOUR = "#18181b";
 
 function colourFor(index: number): string {
   return EVENT_COLOURS[index % EVENT_COLOURS.length]!;
@@ -101,6 +102,8 @@ interface EventSeries {
   eventId: string;
   name: string;
   colour: string;
+  isTotal?: boolean;
+  strokeWidth?: number;
   points: SeriesPoint[];
 }
 
@@ -134,6 +137,7 @@ export function VenueHistorySection({
     : "weekly";
 
   const [metric, setMetric] = useState<MetricKey>("tickets");
+  const [showTotal, setShowTotal] = useState(true);
   const [showDetail, setShowDetail] = useState(false);
 
   const series: EventSeries[] = useMemo(() => {
@@ -145,6 +149,7 @@ export function VenueHistorySection({
         const dailyForEvent = daily
           .filter((r) => r.event_id === ev.id)
           .sort((a, b) => a.date.localeCompare(b.date));
+        let cumRevenue = 0;
         const points: SeriesPoint[] = rows.map((r) => {
           const tickets = r.tickets_sold;
           // Cumulative spend + revenue up to (and including) this
@@ -156,7 +161,10 @@ export function VenueHistorySection({
             (acc, d) => acc + (d.ad_spend_allocated ?? d.ad_spend ?? 0),
             0,
           );
-          const cumRevenue = 0;
+          cumRevenue = upTo.reduce(
+            (acc, d) => acc + (d.revenue ?? 0),
+            0,
+          );
           const cpt =
             tickets > 0 && cumSpend > 0 ? cumSpend / tickets : null;
           const roas = cumSpend > 0 ? cumRevenue / cumSpend : null;
@@ -178,12 +186,14 @@ export function VenueHistorySection({
         .sort((a, b) => a.date.localeCompare(b.date));
       let cumTickets = 0;
       let cumSpend = 0;
+      let cumRevenue = 0;
       const points: SeriesPoint[] = rows.map((r) => {
         if (r.tickets_sold !== null) cumTickets = r.tickets_sold;
         cumSpend += r.ad_spend_allocated ?? r.ad_spend ?? 0;
+        cumRevenue += r.revenue ?? 0;
         const cpt =
           cumTickets > 0 && cumSpend > 0 ? cumSpend / cumTickets : null;
-        const roas = null; // rollup table has no revenue column
+        const roas = cumSpend > 0 ? cumRevenue / cumSpend : null;
         const value =
           metric === "tickets" ? cumTickets : metric === "cpt" ? cpt : roas;
         return {
@@ -208,6 +218,145 @@ export function VenueHistorySection({
     for (const s of series) for (const p of s.points) set.add(p.date);
     return [...set].sort();
   }, [series]);
+
+  const totalSeries: EventSeries | null = useMemo(() => {
+    if (xDates.length === 0 || events.length === 0) return null;
+    if (effectiveGranularity === "weekly") {
+      const dailyByEvent = new Map<string, DailyRollupRow[]>();
+      for (const ev of events) {
+        dailyByEvent.set(
+          ev.id,
+          daily
+            .filter((r) => r.event_id === ev.id)
+            .sort((a, b) => a.date.localeCompare(b.date)),
+        );
+      }
+      const weeklyByEvent = new Map<string, WeeklyTicketSnapshotRow[]>();
+      for (const ev of events) {
+        weeklyByEvent.set(
+          ev.id,
+          weekly
+            .filter((r) => r.event_id === ev.id)
+            .sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at)),
+        );
+      }
+      const points = xDates.map((date): SeriesPoint => {
+        let totalTickets = 0;
+        let hasTickets = false;
+        let totalSpend = 0;
+        let totalRevenue = 0;
+        for (const ev of events) {
+          const latestTickets = latestTicketsAtOrBefore(
+            weeklyByEvent.get(ev.id) ?? [],
+            date,
+          );
+          if (latestTickets !== null) {
+            totalTickets += latestTickets;
+            hasTickets = true;
+          }
+          const dailyUpTo = (dailyByEvent.get(ev.id) ?? []).filter(
+            (r) => r.date <= date,
+          );
+          totalSpend += dailyUpTo.reduce(
+            (acc, r) => acc + (r.ad_spend_allocated ?? r.ad_spend ?? 0),
+            0,
+          );
+          totalRevenue += dailyUpTo.reduce((acc, r) => acc + (r.revenue ?? 0), 0);
+        }
+        const tickets = hasTickets ? totalTickets : null;
+        const cpt =
+          tickets !== null && tickets > 0 && totalSpend > 0
+            ? totalSpend / tickets
+            : null;
+        const roas = totalSpend > 0 ? totalRevenue / totalSpend : null;
+        const value =
+          metric === "tickets" ? tickets : metric === "cpt" ? cpt : roas;
+        return { date, value, tickets };
+      });
+      return {
+        eventId: "__total__",
+        name: "TOTAL",
+        colour: TOTAL_COLOUR,
+        isTotal: true,
+        strokeWidth: 2.5,
+        points,
+      };
+    }
+
+    const rowsByDate = new Map<
+      string,
+      { tickets: number; hasTickets: boolean; spend: number; revenue: number }
+    >();
+    for (const date of xDates) {
+      rowsByDate.set(date, {
+        tickets: 0,
+        hasTickets: false,
+        spend: 0,
+        revenue: 0,
+      });
+    }
+    const rowsByEvent = new Map<string, DailyRollupRow[]>();
+    for (const ev of events) {
+      rowsByEvent.set(
+        ev.id,
+        daily
+          .filter((r) => r.event_id === ev.id)
+          .sort((a, b) => a.date.localeCompare(b.date)),
+      );
+    }
+    for (const ev of events) {
+      let cumTickets = 0;
+      let hasTickets = false;
+      let cumSpend = 0;
+      let cumRevenue = 0;
+      const rows = rowsByEvent.get(ev.id) ?? [];
+      let cursor = 0;
+      for (const date of xDates) {
+        while (cursor < rows.length && rows[cursor]!.date <= date) {
+          const row = rows[cursor]!;
+          if (row.tickets_sold !== null) {
+            cumTickets = row.tickets_sold;
+            hasTickets = true;
+          }
+          cumSpend += row.ad_spend_allocated ?? row.ad_spend ?? 0;
+          cumRevenue += row.revenue ?? 0;
+          cursor++;
+        }
+        const acc = rowsByDate.get(date)!;
+        if (hasTickets) {
+          acc.tickets += cumTickets;
+          acc.hasTickets = true;
+        }
+        acc.spend += cumSpend;
+        acc.revenue += cumRevenue;
+      }
+    }
+    const points = xDates.map((date): SeriesPoint => {
+      const acc = rowsByDate.get(date)!;
+      const tickets = acc.hasTickets ? acc.tickets : null;
+      const cpt =
+        tickets !== null && tickets > 0 && acc.spend > 0
+          ? acc.spend / tickets
+          : null;
+      const roas = acc.spend > 0 ? acc.revenue / acc.spend : null;
+      const value =
+        metric === "tickets" ? tickets : metric === "cpt" ? cpt : roas;
+      return { date, value, tickets };
+    });
+    return {
+      eventId: "__total__",
+      name: "TOTAL",
+      colour: TOTAL_COLOUR,
+      isTotal: true,
+      strokeWidth: 2.5,
+      points,
+    };
+  }, [xDates, events, effectiveGranularity, weekly, daily, metric]);
+
+  const displaySeries = useMemo(
+    () => (showTotal && totalSeries ? [totalSeries, ...series] : series),
+    [series, showTotal, totalSeries],
+  );
 
   if (xDates.length === 0) {
     return null; // no history yet → hide the section rather than render a blank chart
@@ -274,7 +423,7 @@ export function VenueHistorySection({
         </div>
       </div>
 
-      <Chart series={series} xDates={xDates} metric={metric} />
+      <Chart series={displaySeries} xDates={xDates} metric={metric} />
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
@@ -286,6 +435,25 @@ export function VenueHistorySection({
           {showDetail ? "Hide detailed history" : "Show detailed history"}
         </button>
         <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+          {totalSeries && (
+            <button
+              type="button"
+              onClick={() => setShowTotal((v) => !v)}
+              aria-pressed={showTotal}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-medium transition-colors ${
+                showTotal
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border-strong bg-card text-muted-foreground hover:border-foreground/60"
+              }`}
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: showTotal ? "#ffffff" : TOTAL_COLOUR }}
+                aria-hidden="true"
+              />
+              Total
+            </button>
+          )}
           {series.map((s) => (
             <span key={s.eventId} className="inline-flex items-center gap-1.5">
               <span
@@ -299,7 +467,7 @@ export function VenueHistorySection({
         </div>
       </div>
 
-      {showDetail && <DetailTable series={series} xDates={xDates} />}
+      {showDetail && <DetailTable series={displaySeries} xDates={xDates} />}
     </div>
   );
 }
@@ -410,7 +578,7 @@ function Chart({ series, xDates, metric }: ChartProps) {
                     points={seg.map((p) => `${p.x},${p.y}`).join(" ")}
                     fill="none"
                     stroke={s.colour}
-                    strokeWidth={2}
+                    strokeWidth={s.strokeWidth ?? 1.5}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     vectorEffect="non-scaling-stroke"
@@ -421,7 +589,7 @@ function Chart({ series, xDates, metric }: ChartProps) {
                     key={`pt-${i}`}
                     cx={p.x}
                     cy={p.y}
-                    r={2.5}
+                    r={s.isTotal ? 3 : 2.5}
                     fill={s.colour}
                     stroke="#ffffff"
                     strokeWidth={1}
@@ -471,7 +639,9 @@ function DetailTable({ series, xDates }: DetailTableProps) {
             return (
               <tr
                 key={s.eventId}
-                className="border-t border-border hover:bg-muted/50"
+                className={`border-t border-border hover:bg-muted/50 ${
+                  s.isTotal ? "bg-muted/30 font-semibold" : ""
+                }`}
               >
                 <td className="px-2 py-1.5 align-top">
                   <span className="inline-flex items-center gap-1.5">
@@ -536,6 +706,18 @@ function DetailTable({ series, xDates }: DetailTableProps) {
       </table>
     </div>
   );
+}
+
+function latestTicketsAtOrBefore(
+  rows: readonly WeeklyTicketSnapshotRow[],
+  date: string,
+): number | null {
+  let out: number | null = null;
+  for (const row of rows) {
+    if (row.snapshot_at > date) break;
+    out = row.tickets_sold;
+  }
+  return out;
 }
 
 /**
