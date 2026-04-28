@@ -20,6 +20,10 @@ import {
   type VenueWoWTotals,
 } from "@/lib/db/client-dashboard-aggregations";
 import {
+  DAILY_BUDGET_UPDATED_EVENT,
+  type DailyBudgetUpdateDetail,
+} from "./client-refresh-daily-budgets-button";
+import {
   parseExpandedHash,
   serializeExpandedHash,
 } from "@/lib/dashboard/rollout-grouping";
@@ -2463,6 +2467,27 @@ function LazyVenueDailyBudget({
       }
     | { kind: "error"; reason: string | null }
   >({ kind: "loading" });
+  const hydratedFromBroadcastRef = useRef(false);
+
+  useEffect(() => {
+    if (!eventCode) return;
+    const onBudgetUpdated = (event: Event) => {
+      const custom = event as CustomEvent<DailyBudgetUpdateDetail>;
+      const detail = custom.detail;
+      if (detail.clientId !== clientId || detail.eventCode !== eventCode) return;
+      hydratedFromBroadcastRef.current = true;
+      setState({
+        kind: "ready",
+        dailyBudget: detail.dailyBudget,
+        label: detail.label,
+        reason: detail.reasonLabel,
+      });
+    };
+    window.addEventListener(DAILY_BUDGET_UPDATED_EVENT, onBudgetUpdated);
+    return () => {
+      window.removeEventListener(DAILY_BUDGET_UPDATED_EVENT, onBudgetUpdated);
+    };
+  }, [clientId, eventCode]);
 
   useEffect(() => {
     if (!eventCode) {
@@ -2476,6 +2501,7 @@ function LazyVenueDailyBudget({
     }
     let cancelled = false;
     const load = async () => {
+      if (hydratedFromBroadcastRef.current) return;
       setState({ kind: "loading" });
       try {
         const qs = new URLSearchParams();

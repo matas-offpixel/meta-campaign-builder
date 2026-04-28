@@ -4,6 +4,7 @@ import { ArrowLeft, LinkIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientPortal } from "@/components/share/client-portal";
+import { ClientRefreshDailyBudgetsButton } from "@/components/share/client-refresh-daily-budgets-button";
 import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
@@ -54,6 +55,13 @@ export default async function ClientDashboardPage({ params }: Props) {
   if (!result.ok) notFound();
 
   const allEventIds = result.events.map((e) => e.id);
+  const venueEventCodes = Array.from(
+    new Set(
+      result.events
+        .map((e) => e.event_code)
+        .filter((code): code is string => Boolean(code)),
+    ),
+  );
 
   return (
     <>
@@ -63,6 +71,10 @@ export default async function ClientDashboardPage({ params }: Props) {
         actions={
           <div className="flex items-center gap-4">
             <ClientSyncAllButton eventIds={allEventIds} />
+            <ClientRefreshDailyBudgetsButton
+              clientId={id}
+              eventCodes={venueEventCodes}
+            />
             <Link
               href={`/clients/${id}/ticketing-link-discovery`}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"

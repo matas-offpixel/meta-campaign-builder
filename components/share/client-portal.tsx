@@ -11,6 +11,7 @@ import type {
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import { aggregateClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
+import { ClientRefreshDailyBudgetsButton } from "./client-refresh-daily-budgets-button";
 import { ClientPortalVenueTable } from "./client-portal-venue-table";
 import { ClientWideTopline } from "./client-wide-topline";
 
@@ -142,6 +143,17 @@ export function ClientPortal({
     }
     return map;
   }, [events]);
+  const venueEventCodes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          events
+            .map((e) => e.event_code)
+            .filter((code): code is string => Boolean(code)),
+        ),
+      ),
+    [events],
+  );
 
   const visibleTabs = TAB_ORDER.filter((k) => (grouped.get(k)?.length ?? 0) > 0);
 
@@ -240,14 +252,23 @@ export function ClientPortal({
       )}
 
       <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
-        <div>
-          <h1 className="font-heading text-2xl tracking-wide text-foreground">
-            Campaign performance
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Tickets sold and ad spend breakdown by venue. Click any tickets
-            figure to update it.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="font-heading text-2xl tracking-wide text-foreground">
+              Campaign performance
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Tickets sold and ad spend breakdown by venue. Click any tickets
+              figure to update it.
+            </p>
+          </div>
+          {!isInternal ? (
+            <ClientRefreshDailyBudgetsButton
+              clientId={client.id}
+              eventCodes={venueEventCodes}
+              shareToken={token}
+            />
+          ) : null}
         </div>
 
         {/* Client-wide topline — only shown when the client spans
