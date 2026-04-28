@@ -1,7 +1,13 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { after } from "next/server";
+import { headers } from "next/headers";
 import type { Metadata } from "next";
+
+import {
+  buildRateLimitKey,
+  checkForceRefreshRateLimit,
+} from "@/lib/share/force-refresh-rate-limit";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -190,9 +196,30 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // the live report footer; ops can also paste the URL with the
   // param into Slack/dashboards. Any truthy string ("1" / "true")
   // activates it; "" / missing leaves the cache enabled.
-  const forceRefresh =
+  const requestedForceRefresh =
     isTruthyParam(pickQueryParam(sp.refresh)) ||
     isTruthyParam(pickQueryParam(sp.force));
+
+  // Rate-limit the force path per (token, caller IP). A share link
+  // in the wild is a public URL — anyone with it can loop `?force=1`
+  // and DDOS Meta + Eventbrite on our dime. We cap forced calls to
+  // one per 60s per (token, IP). Over-limit calls silently downgrade
+  // to the cached path; the end client sees a slightly stale page
+  // rather than a 429, which is the correct UX for a client-facing
+  // report URL. See `lib/share/force-refresh-rate-limit.ts`.
+  let forceRefresh = requestedForceRefresh;
+  if (requestedForceRefresh) {
+    const h = await headers();
+    const key = buildRateLimitKey(token, h.get("x-forwarded-for"));
+    const decision = checkForceRefreshRateLimit(key);
+    if (!decision.allowed) {
+      forceRefresh = false;
+      console.warn(
+        `[share-report] force-refresh throttled for token=${token.slice(0, 6)} ` +
+          `retry-after-ms=${decision.retryAfterMs}`,
+      );
+    }
+  }
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);

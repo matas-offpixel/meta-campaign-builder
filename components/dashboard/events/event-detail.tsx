@@ -34,7 +34,6 @@ import { EventReportingTabs } from "@/components/dashboard/events/event-reportin
 import { EventActivityPanel } from "@/components/dashboard/events/event-activity-panel";
 import { EventActiveCreativesPanel } from "@/components/dashboard/events/event-active-creatives-panel";
 import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked-campaigns-performance";
-import type { PacingSnapshot } from "@/components/dashboard/events/ticket-pacing-card";
 import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
 import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
@@ -135,16 +134,6 @@ interface Props {
    */
   linkedInvoices: InvoiceRow[];
   /**
-   * Kept on the props surface for compatibility with the parent
-   * page's prefetch fan-out, but no longer consumed: the
-   * `<TicketPacingCard>` it fed was removed from the Reporting
-   * tab in PR #57 #2 because the Daily Tracker + Daily Trend
-   * chart already cover the same shape with real per-day data.
-   * Treated as opaque so the page server doesn't have to drop
-   * its query in lock-step with the UI change.
-   */
-  ticketSnapshots?: PacingSnapshot[];
-  /**
    * Pre-fetched Eventbrite link + connection + latest snapshot
    * summary for the live block at the top of the page. Server-built
    * via `getEventTicketingSummary`. Empty/null fields mean "render
@@ -172,8 +161,6 @@ export function EventDetail({
   planTickets,
   linkedQuote,
   linkedInvoices,
-  // ticketSnapshots: see Props JSDoc — accepted but no longer
-  // rendered. The pacing card it powered moved out in PR #57 #2.
   ticketingSummary,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
