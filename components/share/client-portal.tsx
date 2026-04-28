@@ -164,7 +164,10 @@ export function ClientPortal({
   const [activeTab, setActiveTab] = useState<TabKey | null>(defaultTab);
   const tabKey = activeTab && visibleTabs.includes(activeTab) ? activeTab : defaultTab;
 
-  const tabEvents = tabKey ? grouped.get(tabKey) ?? [] : [];
+  const tabEvents = useMemo(
+    () => (tabKey ? grouped.get(tabKey) ?? [] : []),
+    [grouped, tabKey],
+  );
 
   // Summary bar rolls up the resolved tickets_sold (snapshot first,
   // then events.tickets_sold legacy column, then 0) vs total capacity.
@@ -339,6 +342,7 @@ export function ClientPortal({
               londonPresaleSpend={londonPresaleSpend}
               dailyEntries={dailyEntries}
               dailyRollups={dailyRollups}
+              additionalSpend={additionalSpend}
               weeklyTicketSnapshots={weeklyTicketSnapshots}
               isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}

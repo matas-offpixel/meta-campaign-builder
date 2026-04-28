@@ -49,6 +49,8 @@ export interface AggregatableEvent {
 export interface AdditionalSpendRow {
   event_id: string;
   amount: number | null;
+  scope?: "event" | "venue";
+  venue_event_code?: string | null;
 }
 
 /**
@@ -322,6 +324,125 @@ export interface VenueGroupTotals {
   activityScore: number;
 }
 
+export interface VenueCampaignPerformance {
+  paidMediaBudget: number | null;
+  additionalSpend: number;
+  totalMarketingBudget: number | null;
+  paidMediaSpent: number;
+  paidMediaRemaining: number | null;
+  paidMediaUsedPct: number | null;
+  dailyBudget: number | null;
+  ticketsSold: number;
+  capacity: number | null;
+  sellThroughPct: number | null;
+  costPerTicket: number | null;
+  pacingTicketsPerDay: number | null;
+  pacingSpendPerDay: number | null;
+  earliestEventDate: string | null;
+}
+
+export function aggregateVenueCampaignPerformance(
+  events: AggregatableEvent[],
+  additionalSpend: AdditionalSpendRow[],
+  dailyRollups: DailyRollupRow[],
+  todayIso = new Date().toISOString().slice(0, 10),
+  paidMediaSpentOverride?: number | null,
+): VenueCampaignPerformance {
+  const eventIds = new Set(events.map((e) => e.id));
+  const eventCodes = new Set(
+    events.map((e) => e.event_code).filter((c): c is string => Boolean(c)),
+  );
+
+  let paidBudget = 0;
+  let hasPaidBudget = false;
+  let tickets = 0;
+  let capacity = 0;
+  let hasCapacity = false;
+  let earliestEventDate: string | null = null;
+
+  for (const ev of events) {
+    if (ev.budget_marketing != null) {
+      paidBudget += ev.budget_marketing;
+      hasPaidBudget = true;
+    }
+    tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+    if (ev.capacity != null) {
+      capacity += ev.capacity;
+      hasCapacity = true;
+    }
+    if (ev.event_date && (!earliestEventDate || ev.event_date < earliestEventDate)) {
+      earliestEventDate = ev.event_date;
+    }
+  }
+
+  let additional = 0;
+  for (const row of additionalSpend) {
+    if (row.amount == null) continue;
+    const scope = row.scope ?? "event";
+    if (scope === "venue") {
+      if (row.venue_event_code && eventCodes.has(row.venue_event_code)) {
+        additional += row.amount;
+      }
+    } else if (eventIds.has(row.event_id)) {
+      additional += row.amount;
+    }
+  }
+
+  let paidSpent = paidMediaSpentOverride ?? null;
+  if (paidSpent == null) {
+    paidSpent = 0;
+    for (const row of dailyRollups) {
+      if (!eventIds.has(row.event_id)) continue;
+      const spend = row.ad_spend_allocated ?? row.ad_spend;
+      if (spend != null) paidSpent += spend;
+    }
+  }
+
+  const paidMediaBudget = hasPaidBudget ? paidBudget : null;
+  const totalMarketingBudget =
+    paidMediaBudget != null || additional > 0
+      ? (paidMediaBudget ?? 0) + additional
+      : null;
+  const paidMediaRemaining =
+    paidMediaBudget != null ? Math.max(0, paidMediaBudget - paidSpent) : null;
+  const paidMediaUsedPct =
+    paidMediaBudget != null && paidMediaBudget > 0
+      ? (paidSpent / paidMediaBudget) * 100
+      : null;
+  const capacityOut = hasCapacity ? capacity : null;
+  const sellThroughPct =
+    capacityOut != null && capacityOut > 0 ? (tickets / capacityOut) * 100 : null;
+  const costPerTicket = tickets > 0 && paidSpent > 0 ? paidSpent / tickets : null;
+  const remainingTickets =
+    capacityOut != null ? Math.max(0, capacityOut - tickets) : null;
+  const daysUntil = daysUntilDate(earliestEventDate, todayIso);
+  const pacingTicketsPerDay =
+    remainingTickets != null && remainingTickets > 0
+      ? Math.ceil(remainingTickets / Math.max(daysUntil ?? 1, 1))
+      : null;
+  const pacingSpendPerDay =
+    pacingTicketsPerDay != null && costPerTicket != null
+      ? Math.round(pacingTicketsPerDay * costPerTicket)
+      : null;
+
+  return {
+    paidMediaBudget,
+    additionalSpend: additional,
+    totalMarketingBudget,
+    paidMediaSpent: paidSpent,
+    paidMediaRemaining,
+    paidMediaUsedPct,
+    dailyBudget: null,
+    ticketsSold: tickets,
+    capacity: capacityOut,
+    sellThroughPct,
+    costPerTicket,
+    pacingTicketsPerDay,
+    pacingSpendPerDay,
+    earliestEventDate,
+  };
+}
+
 /**
  * Per-venue-group aggregation. Expects `events` to be the children
  * of one group (shared event_code + event_date), already filtered by
@@ -428,6 +549,15 @@ function firstEventDate(events: AggregatableEvent[]): string | null {
     if (ev.event_date) return ev.event_date;
   }
   return null;
+}
+
+function daysUntilDate(dateIso: string | null, todayIso: string): number | null {
+  if (!dateIso) return null;
+  const eventMs = Date.parse(`${dateIso}T00:00:00Z`);
+  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
+  if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return null;
+  const days = Math.ceil((eventMs - todayMs) / 86_400_000);
+  return days > 0 ? days : 1;
 }
 
 function daysBetween(a: string, b: string): number {

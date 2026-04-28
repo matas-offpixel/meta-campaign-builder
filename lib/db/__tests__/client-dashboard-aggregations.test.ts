@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   aggregateAllocationByEvent,
   aggregateClientWideTotals,
+  aggregateVenueCampaignPerformance,
   aggregateVenueGroupTotals,
   aggregateVenueWoW,
   isKnockoutStage,
@@ -58,6 +59,14 @@ function rollup(
 
 function addl(event_id: string, amount: number | null): AdditionalSpendRow {
   return { event_id, amount };
+}
+
+function venueAddl(
+  event_id: string,
+  amount: number | null,
+  venue_event_code: string,
+): AdditionalSpendRow {
+  return { event_id, amount, scope: "venue", venue_event_code };
 }
 
 describe("aggregateClientWideTotals", () => {
@@ -307,6 +316,87 @@ describe("aggregateVenueGroupTotals", () => {
       TODAY,
     );
     assert.equal(t.roas, null);
+  });
+});
+
+describe("aggregateVenueCampaignPerformance", () => {
+  const TODAY = "2026-04-28";
+
+  it("aggregates budgets, additional spend, tickets, sell-through, CPT, and pacing", () => {
+    const events = [
+      ev({
+        id: "a",
+        event_code: "WC26-BOURNEMOUTH",
+        event_date: "2026-06-01",
+        budget_marketing: 2500,
+        capacity: 1000,
+        latest_snapshot: { tickets_sold: 300, revenue: 3000 },
+      }),
+      ev({
+        id: "b",
+        event_code: "WC26-BOURNEMOUTH",
+        event_date: "2026-06-15",
+        budget_marketing: 3000,
+        capacity: 800,
+        tickets_sold: 200,
+        latest_snapshot: null,
+      }),
+    ];
+    const additional = [
+      addl("a", 125),
+      venueAddl("a", 75, "WC26-BOURNEMOUTH"),
+      venueAddl("a", 999, "WC26-OTHER"),
+      addl("outside", 999),
+    ];
+    const rollups = [rollup("a", 100), rollup("b", 200)];
+
+    const t = aggregateVenueCampaignPerformance(
+      events,
+      additional,
+      rollups,
+      TODAY,
+    );
+
+    assert.equal(t.paidMediaBudget, 5500);
+    assert.equal(t.additionalSpend, 200);
+    assert.equal(t.totalMarketingBudget, 5700);
+    assert.equal(t.paidMediaSpent, 300);
+    assert.equal(t.paidMediaRemaining, 5200);
+    assert.equal(t.paidMediaUsedPct, (300 / 5500) * 100);
+    assert.equal(t.ticketsSold, 500);
+    assert.equal(t.capacity, 1800);
+    assert.equal(t.sellThroughPct, (500 / 1800) * 100);
+    assert.equal(t.costPerTicket, 300 / 500);
+    assert.equal(t.earliestEventDate, "2026-06-01");
+    assert.equal(t.pacingTicketsPerDay, Math.ceil(1300 / 34));
+    assert.equal(t.pacingSpendPerDay, Math.round(t.pacingTicketsPerDay! * 0.6));
+    assert.equal(t.dailyBudget, null);
+  });
+
+  it("uses an allocator-aware paid-spend override when supplied", () => {
+    const events = [
+      ev({
+        id: "a",
+        event_code: "WC26-BOURNEMOUTH",
+        event_date: "2026-06-01",
+        budget_marketing: 10125,
+        capacity: 1000,
+        latest_snapshot: { tickets_sold: 568, revenue: null },
+      }),
+    ];
+
+    const t = aggregateVenueCampaignPerformance(
+      events,
+      [],
+      [rollup("a", 9999)],
+      TODAY,
+      931,
+    );
+
+    assert.equal(t.paidMediaBudget, 10125);
+    assert.equal(t.paidMediaSpent, 931);
+    assert.equal(t.paidMediaUsedPct, (931 / 10125) * 100);
+    assert.equal(t.costPerTicket, 931 / 568);
   });
 });
 

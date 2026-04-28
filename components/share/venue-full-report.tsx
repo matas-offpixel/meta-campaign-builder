@@ -88,11 +88,10 @@ export function VenueFullReport({
   token = "",
   clientId,
   eventCode,
-  client: _client,
   events: initialEvents,
   dailyEntries,
   dailyRollups,
-  additionalSpend: _additionalSpend,
+  additionalSpend,
   weeklyTicketSnapshots,
   londonOnsaleSpend,
   londonPresaleSpend,
@@ -144,6 +143,7 @@ export function VenueFullReport({
         londonPresaleSpend={londonPresaleSpend}
         dailyEntries={dailyEntries}
         dailyRollups={dailyRollups}
+        additionalSpend={additionalSpend}
         weeklyTicketSnapshots={weeklyTicketSnapshots}
         isInternal={isInternal}
         onSnapshotSaved={handleSnapshotSaved}
