@@ -3,6 +3,14 @@
 import { useMemo, useState } from "react";
 
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
+import {
+  aggregateTrendChartPoints,
+  hasCumulativeTicketPoints,
+  summarizeTrendChartPoints,
+  type TrendChartPoint,
+  type TrendGranularity,
+  type TrendSummary,
+} from "@/lib/dashboard/trend-chart-data";
 
 /**
  * components/dashboard/events/event-trend-chart.tsx
@@ -20,22 +28,6 @@ import type { TimelineRow } from "@/lib/db/event-daily-timeline";
  * component is a pure presentation layer; the orchestrator does the
  * fetch + sync.
  */
-
-export type TrendGranularity = "daily" | "weekly";
-
-export interface TrendChartPoint {
-  date: string;
-  spend: number | null;
-  tickets: number | null;
-  revenue: number | null;
-  linkClicks: number | null;
-}
-
-export interface TrendChartDay extends TrendChartPoint {
-  cpt: number | null;
-  roas: number | null;
-  cpc: number | null;
-}
 
 type MetricKey = "spend" | "tickets" | "cpt" | "roas" | "linkClicks" | "cpc";
 
@@ -85,78 +77,6 @@ function timelineToPoints(timeline: TimelineRow[]): TrendChartPoint[] {
   }));
 }
 
-interface PointAccumulator {
-  spend: number | null;
-  tickets: number | null;
-  revenue: number | null;
-  linkClicks: number | null;
-}
-
-function addNullable(
-  current: number | null,
-  value: number | null,
-): number | null {
-  return value != null ? (current ?? 0) + value : current;
-}
-
-function isoWeekStart(isoDate: string): string {
-  const d = new Date(`${isoDate}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return isoDate;
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() - day + 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function deriveMetrics(date: string, v: PointAccumulator): TrendChartDay {
-  const cpt =
-    v.spend !== null && v.spend > 0 && v.tickets !== null && v.tickets > 0
-      ? v.spend / v.tickets
-      : null;
-  const roas =
-    v.revenue !== null && v.revenue > 0 && v.spend !== null && v.spend > 0
-      ? v.revenue / v.spend
-      : null;
-  const cpc =
-    v.spend !== null &&
-    v.spend > 0 &&
-    v.linkClicks !== null &&
-    v.linkClicks > 0
-      ? v.spend / v.linkClicks
-      : null;
-  return {
-    date,
-    spend: v.spend,
-    tickets: v.tickets,
-    revenue: v.revenue,
-    linkClicks: v.linkClicks,
-    cpt,
-    roas,
-    cpc,
-  };
-}
-
-export function aggregateTrendChartPoints(
-  points: TrendChartPoint[],
-  granularity: TrendGranularity,
-): TrendChartDay[] {
-  const map = new Map<string, PointAccumulator>();
-  for (const point of points) {
-    const key = granularity === "weekly" ? isoWeekStart(point.date) : point.date;
-    const cur =
-      map.get(key) ??
-      ({ spend: null, tickets: null, revenue: null, linkClicks: null } as PointAccumulator);
-    cur.spend = addNullable(cur.spend, point.spend);
-    cur.tickets = addNullable(cur.tickets, point.tickets);
-    cur.revenue = addNullable(cur.revenue, point.revenue);
-    cur.linkClicks = addNullable(cur.linkClicks, point.linkClicks);
-    map.set(key, cur);
-  }
-
-  return [...map.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([date, v]) => deriveMetrics(date, v));
-}
-
 function chartShortDate(iso: string, granularity: TrendGranularity): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
@@ -180,12 +100,8 @@ function chartTooltipDate(iso: string, granularity: TrendGranularity): string {
   return granularity === "weekly" ? `Week commencing ${label}` : label;
 }
 
-function latestMetricValue(days: TrendChartDay[], key: MetricKey): number | null {
-  for (let i = days.length - 1; i >= 0; i--) {
-    const v = days[i][key];
-    if (v !== null && Number.isFinite(v)) return v;
-  }
-  return null;
+function pillMetricValue(summary: TrendSummary, key: MetricKey): number | null {
+  return summary[key];
 }
 
 export function EventTrendChart({
@@ -206,9 +122,17 @@ export function EventTrendChart({
     () => new Set(sourcePoints.map((point) => point.date)).size,
     [sourcePoints],
   );
+  const hasCumulativeTickets = useMemo(
+    () => hasCumulativeTicketPoints(sourcePoints),
+    [sourcePoints],
+  );
   const days = useMemo(
     () => aggregateTrendChartPoints(sourcePoints, granularity),
     [sourcePoints, granularity],
+  );
+  const summary = useMemo(
+    () => summarizeTrendChartPoints(days, hasCumulativeTickets),
+    [days, hasCumulativeTickets],
   );
   const [active, setActive] = useState<Set<MetricKey>>(
     () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
@@ -362,7 +286,7 @@ export function EventTrendChart({
         <div className="mt-2 flex flex-wrap gap-1.5">
           {METRICS.map((m) => {
             const isActive = active.has(m.key);
-            const latest = latestMetricValue(days, m.key);
+            const latest = pillMetricValue(summary, m.key);
             return (
               <button
                 key={m.key}

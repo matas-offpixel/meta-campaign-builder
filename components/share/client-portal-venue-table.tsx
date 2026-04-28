@@ -28,10 +28,8 @@ import {
   parseExpandedHash,
   serializeExpandedHash,
 } from "@/lib/dashboard/rollout-grouping";
-import {
-  EventTrendChart,
-  type TrendChartPoint,
-} from "@/components/dashboard/events/event-trend-chart";
+import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
+import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueSyncButton } from "./venue-sync-button";
 import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
@@ -1289,51 +1287,57 @@ function buildVenueTrendPoints(
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
   const hasRollupTickets = rows.some((row) => row.tickets_sold != null);
-  const snapshotsByEvent = hasRollupTickets
-    ? new Map<string, WeeklyTicketSnapshotRow[]>()
-    : buildSnapshotsByEvent(weeklyTicketSnapshots, venueEventIds);
-
-  return rows.map((row) => ({
+  const points: TrendChartPoint[] = rows.map((row) => ({
     date: row.date,
     spend: dailyRollupSpend(row),
-    tickets: hasRollupTickets
-      ? row.tickets_sold
-      : latestSnapshotTicketsAtOrBefore(
-          snapshotsByEvent.get(row.event_id) ?? [],
-          row.date,
-        ),
+    tickets: hasRollupTickets ? row.tickets_sold : null,
     revenue: row.revenue,
     linkClicks: row.link_clicks ?? null,
   }));
+  if (!hasRollupTickets) {
+    points.push(...buildVenueTicketSnapshotPoints(weeklyTicketSnapshots, venueEventIds));
+  }
+  return points;
 }
 
-function buildSnapshotsByEvent(
+function buildVenueTicketSnapshotPoints(
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
   venueEventIds: Set<string>,
-): Map<string, WeeklyTicketSnapshotRow[]> {
-  const out = new Map<string, WeeklyTicketSnapshotRow[]>();
+): TrendChartPoint[] {
+  const byEvent = new Map<string, WeeklyTicketSnapshotRow[]>();
   for (const row of weeklyTicketSnapshots) {
     if (!venueEventIds.has(row.event_id)) continue;
-    const rows = out.get(row.event_id) ?? [];
+    const rows = byEvent.get(row.event_id) ?? [];
     rows.push(row);
-    out.set(row.event_id, rows);
+    byEvent.set(row.event_id, rows);
   }
-  for (const rows of out.values()) {
+  const dates = new Set<string>();
+  for (const rows of byEvent.values()) {
     rows.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
+    for (const row of rows) dates.add(row.snapshot_at);
   }
-  return out;
-}
-
-function latestSnapshotTicketsAtOrBefore(
-  snapshots: WeeklyTicketSnapshotRow[],
-  date: string,
-): number | null {
-  let latest: number | null = null;
-  for (const snapshot of snapshots) {
-    if (snapshot.snapshot_at > date) break;
-    latest = snapshot.tickets_sold;
-  }
-  return latest;
+  return [...dates].sort().map((date) => {
+    let total = 0;
+    let hasTickets = false;
+    for (const rows of byEvent.values()) {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i]!;
+        if (row.snapshot_at <= date) {
+          total += row.tickets_sold;
+          hasTickets = true;
+          break;
+        }
+      }
+    }
+    return {
+      date,
+      spend: null,
+      tickets: hasTickets ? total : null,
+      revenue: null,
+      linkClicks: null,
+      ticketsKind: "cumulative_snapshot",
+    };
+  });
 }
 
 function VenueReportLink({
