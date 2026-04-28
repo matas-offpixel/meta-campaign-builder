@@ -50,36 +50,49 @@ export function ClientRefreshDailyBudgetsButton({
       venues,
       CONCURRENCY,
       async (eventCode) => {
-        const qs = new URLSearchParams();
-        if (shareToken) qs.set("client_token", shareToken);
-        const res = await fetch(
-          `/api/clients/${encodeURIComponent(clientId)}/venues/${encodeURIComponent(eventCode)}/daily-budget${
-            qs.size > 0 ? `?${qs.toString()}` : ""
-          }`,
-          { cache: "no-store" },
-        );
-        const json = (await res.json()) as {
-          dailyBudget?: number | null;
-          label?: "daily" | "effective_daily";
-          reasonLabel?: string | null;
-          error?: string;
-        };
-        if (!res.ok) throw new Error(json.error ?? "Daily budget unavailable");
-
-        const detail: DailyBudgetUpdateDetail = {
-          clientId,
-          eventCode,
-          dailyBudget: json.dailyBudget ?? null,
-          label: json.label ?? "daily",
-          reasonLabel: json.reasonLabel ?? json.error ?? null,
-        };
-        window.dispatchEvent(
-          new CustomEvent<DailyBudgetUpdateDetail>(
-            DAILY_BUDGET_UPDATED_EVENT,
-            { detail },
-          ),
-        );
-        return detail;
+        let dispatched = false;
+        try {
+          const qs = new URLSearchParams();
+          if (shareToken) qs.set("client_token", shareToken);
+          const res = await fetch(
+            `/api/clients/${encodeURIComponent(clientId)}/venues/${encodeURIComponent(eventCode)}/daily-budget${
+              qs.size > 0 ? `?${qs.toString()}` : ""
+            }`,
+            { cache: "no-store" },
+          );
+          const json = (await res.json()) as {
+            dailyBudget?: number | null;
+            label?: "daily" | "effective_daily";
+            reasonLabel?: string | null;
+            error?: string;
+          };
+          const reason =
+            json.reasonLabel ?? json.error ?? "Daily budget unavailable";
+          const detail: DailyBudgetUpdateDetail = {
+            clientId,
+            eventCode,
+            dailyBudget: json.dailyBudget ?? null,
+            label: json.label ?? "daily",
+            reasonLabel: reason,
+          };
+          dispatchDailyBudgetUpdate(detail);
+          dispatched = true;
+          if (!res.ok) throw new Error(reason);
+          return detail;
+        } catch (err) {
+          const reason =
+            err instanceof Error ? err.message : "Daily budget unavailable";
+          if (!dispatched) {
+            dispatchDailyBudgetUpdate({
+              clientId,
+              eventCode,
+              dailyBudget: null,
+              label: "daily",
+              reasonLabel: reason,
+            });
+          }
+          throw err;
+        }
       },
       (completed, totalSoFar) => {
         setStatus({ kind: "pending", completed, total: totalSoFar });
@@ -129,5 +142,13 @@ export function ClientRefreshDailyBudgetsButton({
         </span>
       ) : null}
     </div>
+  );
+}
+
+function dispatchDailyBudgetUpdate(detail: DailyBudgetUpdateDetail) {
+  window.dispatchEvent(
+    new CustomEvent<DailyBudgetUpdateDetail>(DAILY_BUDGET_UPDATED_EVENT, {
+      detail,
+    }),
   );
 }
