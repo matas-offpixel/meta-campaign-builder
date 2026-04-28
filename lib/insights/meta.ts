@@ -290,7 +290,11 @@ async function listCampaignsForEvent(args: {
 const ADSETS_PAGE_LIMIT = 50;
 
 interface RawAdset {
+  id?: string;
+  name?: string;
   daily_budget?: string;
+  lifetime_budget?: string;
+  end_time?: string;
   effective_status?: string;
   status?: string;
 }
@@ -303,7 +307,7 @@ async function listAdsetsForCampaign(args: {
   let after: string | undefined;
   for (let page = 0; page < 15; page++) {
     const params: Record<string, string> = {
-      fields: "daily_budget,effective_status,status",
+      fields: "id,name,daily_budget,lifetime_budget,end_time,effective_status,status",
       limit: String(ADSETS_PAGE_LIMIT),
     };
     if (after) params.after = after;
@@ -350,57 +354,232 @@ async function sumActiveAdsetDailyBudgetsForCampaigns(args: {
   return totalMinor / 100;
 }
 
+export type VenueDailyBudgetLabel = "daily" | "effective_daily";
+
+export type VenueDailyBudgetReason =
+  | "no_event_code"
+  | "no_ad_account"
+  | "no_campaigns"
+  | "no_active_adsets"
+  | "no_budget_fields"
+  | "fetch_error";
+
+export interface VenueDailyBudgetCampaignDiagnostics {
+  campaignId: string;
+  campaignName: string;
+  activeAdsets: number;
+  dailyBudgetAdsets: number;
+  lifetimeBudgetAdsets: number;
+  neitherBudgetAdsets: number;
+  derivedLifetimeAdsets: number;
+}
+
+export interface VenueDailyBudgetDiagnostics {
+  eventCode: string;
+  adAccountId: string;
+  campaignCount: number;
+  campaigns: VenueDailyBudgetCampaignDiagnostics[];
+  finalDailyBudget: number | null;
+  label: VenueDailyBudgetLabel;
+  reason: VenueDailyBudgetReason | null;
+}
+
+export interface VenueDailyBudgetResult {
+  dailyBudget: number | null;
+  label: VenueDailyBudgetLabel;
+  reason: VenueDailyBudgetReason | null;
+  reasonLabel: string | null;
+  diagnostics?: VenueDailyBudgetDiagnostics;
+}
+
+function isActiveAdset(adset: RawAdset): boolean {
+  return (adset.effective_status ?? adset.status ?? "").toUpperCase() === "ACTIVE";
+}
+
+function parseBudgetMinor(value: string | undefined): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const minor = parseNum(String(value));
+  return Number.isFinite(minor) && minor > 0 ? minor : null;
+}
+
+function startOfUtcDayMs(date: Date): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function remainingDaysUntil(endTime: string | undefined, todayMs: number): number | null {
+  if (!endTime) return null;
+  const endMs = Date.parse(endTime);
+  if (!Number.isFinite(endMs)) return null;
+  const days = Math.ceil((endMs - todayMs) / 86_400_000);
+  return Math.max(days, 1);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function dailyBudgetReasonLabel(
+  reason: VenueDailyBudgetReason,
+  eventCode: string,
+): string {
+  switch (reason) {
+    case "no_event_code":
+      return "No event code";
+    case "no_ad_account":
+      return "No Meta ad account";
+    case "no_campaigns":
+      return `No campaigns matched [${eventCode}]`;
+    case "no_active_adsets":
+      return "No active ad sets in matched campaigns";
+    case "no_budget_fields":
+      return "Matched active ad sets have no daily or usable lifetime budget";
+    case "fetch_error":
+      return "Meta daily budget fetch failed";
+  }
+}
+
+function logVenueDailyBudgetDiagnostics(
+  diagnostics: VenueDailyBudgetDiagnostics,
+): void {
+  console.info("[venue-daily-budget] diagnostics", diagnostics);
+}
+
 export async function fetchVenueDailyBudget(args: {
   eventCode: string;
   adAccountId: string;
   token: string;
-}): Promise<number | null> {
+}): Promise<VenueDailyBudgetResult> {
   const eventCode = args.eventCode.trim();
-  const adAccountId = args.adAccountId.trim();
-  const devLog = process.env.NODE_ENV !== "production";
+  const adAccountId = ensureActPrefix(args.adAccountId.trim());
   if (!eventCode) {
-    if (devLog) console.info("[venue-daily-budget] skipped: no event_code");
-    return null;
+    return {
+      dailyBudget: null,
+      label: "daily",
+      reason: "no_event_code",
+      reasonLabel: "No event code",
+    };
   }
-  if (!adAccountId) {
-    if (devLog) {
-      console.info("[venue-daily-budget] skipped:", eventCode, "no ad account");
-    }
-    return null;
+  if (!args.adAccountId.trim()) {
+    return {
+      dailyBudget: null,
+      label: "daily",
+      reason: "no_ad_account",
+      reasonLabel: "No Meta ad account",
+    };
   }
   try {
     const campaigns = await listCampaignsForEvent({
-      adAccountId: ensureActPrefix(adAccountId),
+      adAccountId,
       eventCode,
       token: args.token,
     });
-    if (devLog) {
-      console.info(
-        "[venue-daily-budget] campaigns",
-        eventCode,
-        campaigns.map((c) => c.name),
-      );
+    const diagnostics: VenueDailyBudgetDiagnostics = {
+      eventCode,
+      adAccountId,
+      campaignCount: campaigns.length,
+      campaigns: [],
+      finalDailyBudget: null,
+      label: "daily",
+      reason: null,
+    };
+    if (campaigns.length === 0) {
+      diagnostics.reason = "no_campaigns";
+      logVenueDailyBudgetDiagnostics(diagnostics);
+      return {
+        dailyBudget: null,
+        label: "daily",
+        reason: "no_campaigns",
+        reasonLabel: `No campaigns matched [${eventCode}]`,
+        diagnostics,
+      };
     }
-    if (campaigns.length === 0) return null;
-    const total = await sumActiveAdsetDailyBudgetsForCampaigns({
-      campaigns,
-      token: args.token,
-    });
-    if (devLog) {
-      console.info(
-        "[venue-daily-budget] result",
-        eventCode,
-        total ?? "no active adset daily_budget",
-      );
+
+    let totalMajor = 0;
+    let usedDaily = false;
+    let usedLifetime = false;
+    let activeAdsetsTotal = 0;
+    const todayMs = startOfUtcDayMs(new Date());
+
+    for (const campaign of campaigns) {
+      const adsets = await listAdsetsForCampaign({
+        campaignId: campaign.id,
+        token: args.token,
+      });
+      const activeAdsets = adsets.filter(isActiveAdset);
+      activeAdsetsTotal += activeAdsets.length;
+      const campaignDiag: VenueDailyBudgetCampaignDiagnostics = {
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        activeAdsets: activeAdsets.length,
+        dailyBudgetAdsets: 0,
+        lifetimeBudgetAdsets: 0,
+        neitherBudgetAdsets: 0,
+        derivedLifetimeAdsets: 0,
+      };
+
+      for (const adset of activeAdsets) {
+        const dailyMinor = parseBudgetMinor(adset.daily_budget);
+        const lifetimeMinor = parseBudgetMinor(adset.lifetime_budget);
+        if (dailyMinor != null) campaignDiag.dailyBudgetAdsets += 1;
+        if (lifetimeMinor != null) campaignDiag.lifetimeBudgetAdsets += 1;
+        if (dailyMinor == null && lifetimeMinor == null) {
+          campaignDiag.neitherBudgetAdsets += 1;
+        }
+        if (dailyMinor != null) {
+          totalMajor += dailyMinor / 100;
+          usedDaily = true;
+          continue;
+        }
+
+        if (lifetimeMinor != null) {
+          const days = remainingDaysUntil(adset.end_time, todayMs);
+          if (days != null) {
+            totalMajor += lifetimeMinor / 100 / days;
+            campaignDiag.derivedLifetimeAdsets += 1;
+            usedLifetime = true;
+          }
+          continue;
+        }
+      }
+      diagnostics.campaigns.push(campaignDiag);
     }
-    return total;
+
+    diagnostics.finalDailyBudget = totalMajor > 0 ? round2(totalMajor) : null;
+    diagnostics.label = usedLifetime ? "effective_daily" : "daily";
+    if (activeAdsetsTotal === 0) diagnostics.reason = "no_active_adsets";
+    else if (diagnostics.finalDailyBudget == null) diagnostics.reason = "no_budget_fields";
+    logVenueDailyBudgetDiagnostics(diagnostics);
+
+    if (diagnostics.finalDailyBudget == null) {
+      const reason = diagnostics.reason ?? "no_budget_fields";
+      return {
+        dailyBudget: null,
+        label: diagnostics.label,
+        reason,
+        reasonLabel: dailyBudgetReasonLabel(reason, eventCode),
+        diagnostics,
+      };
+    }
+
+    return {
+      dailyBudget: diagnostics.finalDailyBudget,
+      label: diagnostics.label,
+      reason: null,
+      reasonLabel: null,
+      diagnostics,
+    };
   } catch (err) {
     console.warn(
       "[venue-daily-budget] fetch failed",
       eventCode,
       err instanceof Error ? err.message : err,
     );
-    return null;
+    return {
+      dailyBudget: null,
+      label: "daily",
+      reason: "fetch_error",
+      reasonLabel: "Meta daily budget fetch failed",
+    };
   }
 }
 

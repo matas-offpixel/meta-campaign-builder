@@ -1,14 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { resolveShareByToken } from "@/lib/db/report-shares";
-import { fetchVenueDailyBudget } from "@/lib/insights/meta";
+import {
+  fetchVenueDailyBudget,
+  type VenueDailyBudgetResult,
+} from "@/lib/insights/meta";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 interface CacheEntry {
-  value: number | null;
+  value: VenueDailyBudgetResult;
   expiresAt: number;
   refreshing?: Promise<void>;
 }
@@ -72,7 +75,7 @@ async function loadFreshDailyBudget(args: {
   clientId: string;
   eventCode: string;
   userId: string;
-}): Promise<number | null> {
+}): Promise<VenueDailyBudgetResult> {
   const admin = createServiceRoleClient();
   const { data: client } = await admin
     .from("clients")
@@ -87,7 +90,7 @@ async function loadFreshDailyBudget(args: {
       clientId: args.clientId,
       eventCode: args.eventCode,
     });
-    return null;
+    return emptyBudgetResult("No Meta ad account");
   }
 
   const { data: event } = await admin
@@ -102,7 +105,7 @@ async function loadFreshDailyBudget(args: {
       clientId: args.clientId,
       eventCode: args.eventCode,
     });
-    return null;
+    return emptyBudgetResult("No matching venue");
   }
 
   let metaToken: string;
@@ -114,7 +117,7 @@ async function loadFreshDailyBudget(args: {
       args.eventCode,
       err instanceof Error ? err.message : err,
     );
-    return null;
+    return emptyBudgetResult("Meta token unavailable");
   }
 
   return fetchVenueDailyBudget({
@@ -122,6 +125,15 @@ async function loadFreshDailyBudget(args: {
     adAccountId,
     token: metaToken,
   });
+}
+
+function emptyBudgetResult(reasonLabel: string): VenueDailyBudgetResult {
+  return {
+    dailyBudget: null,
+    label: "daily",
+    reason: "fetch_error",
+    reasonLabel,
+  };
 }
 
 function refreshCache(args: {
@@ -148,7 +160,7 @@ function refreshCache(args: {
       );
       if (!dailyBudgetCache.has(args.key)) {
         dailyBudgetCache.set(args.key, {
-          value: null,
+          value: emptyBudgetResult("Meta daily budget refresh failed"),
           expiresAt: Date.now() + CACHE_TTL_MS,
         });
       }
@@ -159,7 +171,7 @@ function refreshCache(args: {
     });
 
   dailyBudgetCache.set(args.key, {
-    value: current?.value ?? null,
+    value: current?.value ?? emptyBudgetResult("Loading daily budget"),
     expiresAt: current?.expiresAt ?? 0,
     refreshing,
   });
@@ -175,7 +187,12 @@ export async function GET(
   const eventCode = decodeURIComponent(p.event_code).trim();
   if (!isUuid(clientId) || !eventCode) {
     return NextResponse.json(
-      { dailyBudget: null, error: "Invalid venue" },
+      {
+        dailyBudget: null,
+        label: "daily",
+        reason: "Invalid venue",
+        error: "Invalid venue",
+      },
       { status: 400 },
     );
   }
@@ -183,7 +200,12 @@ export async function GET(
   const auth = await authorizeRequest({ req, clientId, eventCode });
   if (!auth.ok) {
     return NextResponse.json(
-      { dailyBudget: null, error: auth.error },
+      {
+        dailyBudget: null,
+        label: "daily",
+        reason: auth.error,
+        error: auth.error,
+      },
       { status: auth.status },
     );
   }
@@ -192,13 +214,13 @@ export async function GET(
   const cached = dailyBudgetCache.get(key);
   const now = Date.now();
   if (cached && cached.expiresAt > now) {
-    return NextResponse.json({ dailyBudget: cached.value, cached: true });
+    return NextResponse.json({ ...cached.value, cached: true });
   }
 
   if (cached) {
     void refreshCache({ key, clientId, eventCode, userId: auth.userId });
     return NextResponse.json({
-      dailyBudget: cached.value,
+      ...cached.value,
       cached: true,
       stale: true,
     });
@@ -207,7 +229,7 @@ export async function GET(
   await refreshCache({ key, clientId, eventCode, userId: auth.userId });
   const fresh = dailyBudgetCache.get(key);
   return NextResponse.json({
-    dailyBudget: fresh?.value ?? null,
+    ...(fresh?.value ?? emptyBudgetResult("Daily budget unavailable")),
     cached: false,
   });
 }
