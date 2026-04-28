@@ -251,13 +251,12 @@ function formatNumber(n: number | null): string {
   return NUM.format(n);
 }
 
-function formatShortDate(raw: string): string {
+function formatCompactDate(raw: string): string {
   const d = new Date(`${raw}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return raw;
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
-    year: "numeric",
     timeZone: "UTC",
   }).format(d);
 }
@@ -1760,11 +1759,10 @@ function VenueSection({
   const subtitle = soloEvent
     ? [
         soloEvent.venue_name,
-        group.city,
-        soloEvent.event_date ? formatShortDate(soloEvent.event_date) : null,
+        soloEvent.event_date ? formatCompactDate(soloEvent.event_date) : null,
       ]
         .filter(Boolean)
-        .join(" · ")
+        .join(", ")
     : `${group.eventCount} events`;
   const bodyId = `venue-${group.expandKey}`;
   // Derive rather than store — when the user collapses a card mid-
@@ -1814,7 +1812,7 @@ function VenueSection({
               className={
                 group.eventCount > 1
                   ? "rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                  : "text-xs text-muted-foreground"
+                  : "whitespace-nowrap text-xs text-muted-foreground"
               }
             >
               {subtitle}
