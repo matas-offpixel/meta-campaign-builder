@@ -465,11 +465,19 @@ export function EventDetail({
                 section when ticketing is API-driven.
               */}
               {!isBrand && !ticketingSummary.link && (
-                <TicketsSoldPanel
-                  eventId={event.id}
-                  initialTicketsSold={initialTicketsSold}
-                  planTickets={planTickets}
-                />
+                <div className="space-y-2">
+                  <TicketsSoldPanel
+                    eventId={event.id}
+                    initialTicketsSold={initialTicketsSold}
+                    planTickets={planTickets}
+                  />
+                  <a
+                    href={`/events/${event.id}/manual-tickets`}
+                    className="inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Or bulk-enter historical ticket counts →
+                  </a>
+                </div>
               )}
               {isBrand ? (
                 <BrandCampaignSummary event={event} />

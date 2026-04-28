@@ -13,10 +13,17 @@ import type {
 } from "@/lib/ticketing/types";
 import { eventbriteProvider } from "@/lib/ticketing/eventbrite/provider";
 import { fourthefansProvider } from "@/lib/ticketing/fourthefans/provider";
+import { manualProvider } from "@/lib/ticketing/manual/provider";
 
 const providers: Record<TicketingProviderName, TicketingProvider> = {
   eventbrite: eventbriteProvider,
   fourthefans: fourthefansProvider,
+  // PR 3: 4theFans-internal uses the same null-provider semantics as
+  // `manual` until the upstream API ships (at which point we swap in
+  // the real adapter). Aliasing here means the rest of the stack
+  // picks up 'foursomething_internal' with no other code changes.
+  foursomething_internal: manualProvider,
+  manual: manualProvider,
 };
 
 export function getProvider(name: TicketingProviderName): TicketingProvider {
