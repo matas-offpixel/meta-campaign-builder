@@ -534,28 +534,14 @@ async function loadPortalForClientId(
   // than client_id because the rollup table doesn't carry client_id;
   // the events already are scoped to the token's client so this is
   // safe and also RLS-safe under service-role.
+  //
+  // Important: PostgREST caps unpaginated selects at 1,000 rows. Larger
+  // client dashboards exceed that quickly, which can silently truncate
+  // later venue allocations. Page explicitly so lifetime venue totals
+  // include every rollup row.
   let dailyRollups: DailyRollupRow[] = [];
   if (eventIds.length > 0) {
-    const { data: rows } = await admin
-      .from("event_daily_rollups")
-      .select(
-        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, revenue, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
-      )
-      .in("event_id", eventIds);
-    if (rows) {
-      dailyRollups = rows.map((r) => ({
-        event_id: r.event_id as string,
-        date: r.date as string,
-        tickets_sold: (r.tickets_sold as number | null) ?? null,
-        ad_spend: (r.ad_spend as number | null) ?? null,
-        ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
-        revenue: (r.revenue as number | null) ?? null,
-        ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
-        ad_spend_generic_share:
-          (r.ad_spend_generic_share as number | null) ?? null,
-        ad_spend_presale: (r.ad_spend_presale as number | null) ?? null,
-      }));
-    }
+    dailyRollups = await fetchAllDailyRollups(admin, eventIds);
   }
 
   // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
@@ -749,4 +735,53 @@ function sourcePriority(source: string): number {
   if (source === "xlsx_import") return 3;
   if (source === "foursomething") return 2;
   return 1;
+}
+
+const ROLLUP_PAGE_SIZE = 1000;
+
+async function fetchAllDailyRollups(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  eventIds: string[],
+): Promise<DailyRollupRow[]> {
+  const rows: DailyRollupRow[] = [];
+  for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
+    const to = from + ROLLUP_PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("event_daily_rollups")
+      .select(
+        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, revenue, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+      )
+      .in("event_id", eventIds)
+      .order("event_id", { ascending: true })
+      .order("date", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      console.warn("[client-portal-server] daily rollups load failed", {
+        from,
+        to,
+        message: error.message,
+      });
+      return rows;
+    }
+    if (!data || data.length === 0) break;
+
+    rows.push(
+      ...data.map((r) => ({
+        event_id: r.event_id as string,
+        date: r.date as string,
+        tickets_sold: (r.tickets_sold as number | null) ?? null,
+        ad_spend: (r.ad_spend as number | null) ?? null,
+        ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
+        revenue: (r.revenue as number | null) ?? null,
+        ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
+        ad_spend_generic_share:
+          (r.ad_spend_generic_share as number | null) ?? null,
+        ad_spend_presale: (r.ad_spend_presale as number | null) ?? null,
+      })),
+    );
+
+    if (data.length < ROLLUP_PAGE_SIZE) break;
+  }
+  return rows;
 }
