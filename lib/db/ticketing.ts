@@ -411,7 +411,15 @@ export async function insertSnapshot(
     console.warn("[ticketing insertSnapshot]", error.message);
     return null;
   }
-  return (data as unknown as TicketSalesSnapshot) ?? null;
+  const snapshot = (data as unknown as TicketSalesSnapshot) ?? null;
+  if (snapshot) {
+    await mirrorEventTicketsSold(supabase, {
+      eventId: input.eventId,
+      userId: input.userId,
+      ticketsSold: input.ticketsSold,
+    });
+  }
+  return snapshot;
 }
 
 export async function listRecentSnapshotsForEvent(
@@ -450,4 +458,19 @@ export async function getLatestSnapshotForEvent(
     return null;
   }
   return (data as unknown as TicketSalesSnapshot) ?? null;
+}
+
+export async function mirrorEventTicketsSold(
+  supabase: AnySupabaseClient,
+  input: { eventId: string; userId: string; ticketsSold: number },
+): Promise<void> {
+  const sb = asAnyTable(supabase);
+  const { error } = await sb
+    .from("events")
+    .update({ tickets_sold: input.ticketsSold })
+    .eq("id", input.eventId)
+    .eq("user_id", input.userId);
+  if (error) {
+    console.warn("[ticketing mirrorEventTicketsSold]", error.message);
+  }
 }

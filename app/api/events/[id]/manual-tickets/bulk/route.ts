@@ -25,6 +25,7 @@ export const runtime = "nodejs";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { mirrorEventTicketsSold } from "@/lib/db/ticketing";
 
 interface BulkRow {
   snapshotAt: string;
@@ -213,6 +214,15 @@ export async function POST(
       { status: 500 },
     );
   }
+
+  const latest = cleaned.reduce((best, row) =>
+    row.snapshotAt > best.snapshotAt ? row : best,
+  );
+  await mirrorEventTicketsSold(supabase, {
+    eventId,
+    userId: user.id,
+    ticketsSold: latest.ticketsSold,
+  });
 
   const response: BulkResponse = {
     ok: true,

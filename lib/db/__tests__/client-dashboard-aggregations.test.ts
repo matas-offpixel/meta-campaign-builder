@@ -525,6 +525,8 @@ describe("aggregateVenueWoW", () => {
       // window opens. Sum = 200 → prev cumulative.
       { event_id: "a", snapshot_at: "2026-04-20", tickets_sold: 140, source: "eventbrite" },
       { event_id: "b", snapshot_at: "2026-04-20", tickets_sold: 60, source: "eventbrite" },
+      { event_id: "a", snapshot_at: "2026-04-27", tickets_sold: 200, source: "eventbrite" },
+      { event_id: "b", snapshot_at: "2026-04-27", tickets_sold: 100, source: "eventbrite" },
     ];
 
     const result = aggregateVenueWoW(events, rollups, TODAY, snapshots);
@@ -535,11 +537,10 @@ describe("aggregateVenueWoW", () => {
     assert.equal(result.tickets.delta, 100);
     assert.equal(result.tickets.deltaPct, 50);
 
-    // CPT: current denom = (300 − 200) = 100 → 300/100 = 3.00.
-    // Prev denom = rollup window sum (80+40) = 120 → 400/120 ≈ 3.333.
-    assert.equal(result.cpt.current, 3);
-    assert.ok(result.cpt.previous !== null);
-    assert.ok(Math.abs(result.cpt.previous! - 400 / 120) < 1e-9);
+    // CPT compares cumulative spend/tickets now vs 7 days ago.
+    assert.ok(result.cpt.current !== null);
+    assert.ok(Math.abs(result.cpt.current! - 700 / 300) < 1e-9);
+    assert.equal(result.cpt.previous, 400 / 200);
   });
 
   it("falls back to (current − last-7-day rollup sum) when no snapshot before the window edge", () => {
@@ -573,6 +574,12 @@ describe("aggregateVenueWoW", () => {
         snapshot_at: "2026-04-20",
         tickets_sold: 1783,
         source: "xlsx_import",
+      },
+      {
+        event_id: "leeds",
+        snapshot_at: "2026-04-27",
+        tickets_sold: 1091,
+        source: "eventbrite",
       },
     ];
     const result = aggregateVenueWoW(events, [], TODAY, snapshots);
@@ -639,6 +646,7 @@ describe("aggregateVenueWoW", () => {
     ];
     const snapshots = [
       { event_id: "a", snapshot_at: "2026-04-20", tickets_sold: 80, source: "eventbrite" },
+      { event_id: "a", snapshot_at: "2026-04-27", tickets_sold: 100, source: "eventbrite" },
       { event_id: "outsider", snapshot_at: "2026-04-20", tickets_sold: 9999, source: "eventbrite" },
     ];
     const result = aggregateVenueWoW(events, rollups, TODAY, snapshots);
@@ -660,9 +668,39 @@ describe("aggregateVenueWoW", () => {
       { event_id: "a", snapshot_at: "2026-04-19", tickets_sold: 75, source: "eventbrite" },
       // After the window edge — must be ignored.
       { event_id: "a", snapshot_at: "2026-04-22", tickets_sold: 90, source: "eventbrite" },
+      // Latest current edge — drives current tickets.
+      { event_id: "a", snapshot_at: "2026-04-27", tickets_sold: 100, source: "eventbrite" },
     ];
     const result = aggregateVenueWoW(events, [], TODAY, snapshots);
     assert.equal(result.tickets.previous, 75);
     assert.equal(result.tickets.delta, 25);
+  });
+
+  it("prefers the latest ticket_sales_snapshots row over a stale event value for current tickets", () => {
+    const events = [
+      ev({
+        id: "leeds",
+        tickets_sold: 1091,
+        latest_snapshot: { tickets_sold: 1091, revenue: null },
+      }),
+    ];
+    const snapshots = [
+      {
+        event_id: "leeds",
+        snapshot_at: "2026-04-20",
+        tickets_sold: 1142,
+        source: "eventbrite",
+      },
+      {
+        event_id: "leeds",
+        snapshot_at: "2026-04-27",
+        tickets_sold: 1219,
+        source: "eventbrite",
+      },
+    ];
+    const result = aggregateVenueWoW(events, [], TODAY, snapshots);
+    assert.equal(result.tickets.current, 1219);
+    assert.equal(result.tickets.previous, 1142);
+    assert.equal(result.tickets.delta, 77);
   });
 });

@@ -171,9 +171,11 @@ export interface ClientWideTotals {
    */
   marketingSpend: number;
   /**
-   * Tickets sold — prefers `latest_snapshot.tickets_sold` then
-   * `events.tickets_sold` then 0 per event. Matches the per-card
-   * rollup the portal already shows.
+   * Tickets sold — caller should pass events with
+   * `ticket_sales_snapshots` already resolved into
+   * `latest_snapshot.tickets_sold` / `tickets_sold`, then this sums
+   * that display value. `events.tickets_sold` is only a fallback for
+   * no-snapshot/manual-provider rows.
    */
   ticketsSold: number;
   /**
@@ -512,9 +514,9 @@ export interface WeeklyTicketSnapshotLite {
  * was the real bug.
  *
  * The aggregator now compares:
- *   - `current`  = sum of each event's `latest_snapshot.tickets_sold`
- *                  (cumulative count today, same source the header
- *                  main number uses)
+ *   - `current`  = sum of the latest ticket_sales_snapshots row in
+ *                  the current window, falling back to the event's
+ *                  resolved display tickets
  *   - `previous` = sum of each event's cumulative count 7 days ago,
  *                  preferring the weekly snapshot with
  *                  `snapshot_at` closest to and ≤ today-7, and
@@ -528,19 +530,11 @@ export interface WeeklyTicketSnapshotLite {
  *
  * ## CPT
  *
- * CPT is intrinsically window-over-window — "cost per ticket this
- * week vs last week". Still sourced from `event_daily_rollups`:
- *
- *   - `currCpt` = (ad_spend summed over last 7 days) / (tickets
- *                 gained over last 7 days, from the cumulative
- *                 delta).
- *   - `prevCpt` = the same shape for days 8-14.
- *
- * Using the cumulative delta for the denominator here (instead of a
- * direct sum of rollup.tickets_sold) makes CPT resilient to the
- * same kind of source contamination that broke the tickets half —
- * a cumulative write into a single rollup row won't inflate the
- * denominator into the thousands.
+ * CPT compares cumulative spend-per-ticket now vs seven days ago:
+ * current cumulative spend / current cumulative tickets, versus
+ * (current spend minus last-7-day spend) / previous cumulative
+ * tickets. Ticket edges use the same snapshot-first waterfall as
+ * the Tickets half.
  *
  * ## Windowing
  *
@@ -567,45 +561,59 @@ export function aggregateVenueWoW(
     return { tickets: ZERO_DELTA, cpt: ZERO_DELTA };
   }
   const currStart = todayMs - 6 * 86_400_000;
-  const prevStart = todayMs - 13 * 86_400_000;
-  const prevEnd = todayMs - 7 * 86_400_000;
   const windowEdgeMs = todayMs - 7 * 86_400_000;
 
   // ── Current cumulative tickets (main number source of truth). ──
   let currentCumulativeTickets = 0;
   let hasAnyCumulative = false;
+  const currentTicketsByEvent = new Map<string, number>();
+  const currentWindowTicketsByEvent = new Map<string, number>();
   for (const e of events) {
-    const v = e.latest_snapshot?.tickets_sold ?? e.tickets_sold ?? null;
+    const v =
+      findLatestSnapshotInWindow(
+        weeklyTicketSnapshots ?? [],
+        e.id,
+        windowEdgeMs,
+        todayMs,
+      ) ??
+      e.latest_snapshot?.tickets_sold ??
+      e.tickets_sold ??
+      null;
     if (v != null) {
       currentCumulativeTickets += v;
+      currentTicketsByEvent.set(e.id, v);
       hasAnyCumulative = true;
     }
   }
 
   // ── Daily rollup windows (spend + per-day tickets). ──
   let currSpend = 0;
-  let prevSpend = 0;
-  let currTicketsWindow = 0;
-  let prevTicketsWindow = 0;
   let currRows = 0;
-  let prevRows = 0;
+  let cumulativeSpend = 0;
+  let cumulativeSpendRows = 0;
 
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
     const ms = Date.parse(`${r.date}T00:00:00Z`);
     if (!Number.isFinite(ms)) continue;
+    if (ms <= todayMs && r.ad_spend != null) {
+      cumulativeSpend += r.ad_spend;
+      cumulativeSpendRows += 1;
+    }
     if (ms >= currStart && ms <= todayMs) {
       currRows += 1;
       // Clamp negative rollup values — a legitimate per-day
       // increment is ≥0. A negative here means the rollup row
       // was written with contaminated data; summing it would
       // inflate the previous-cumulative estimate.
-      if (r.tickets_sold != null) currTicketsWindow += Math.max(0, r.tickets_sold);
+      if (r.tickets_sold != null) {
+        const tickets = Math.max(0, r.tickets_sold);
+        currentWindowTicketsByEvent.set(
+          r.event_id,
+          (currentWindowTicketsByEvent.get(r.event_id) ?? 0) + tickets,
+        );
+      }
       if (r.ad_spend != null) currSpend += r.ad_spend;
-    } else if (ms >= prevStart && ms <= prevEnd) {
-      prevRows += 1;
-      if (r.tickets_sold != null) prevTicketsWindow += Math.max(0, r.tickets_sold);
-      if (r.ad_spend != null) prevSpend += r.ad_spend;
     }
   }
 
@@ -621,29 +629,28 @@ export function aggregateVenueWoW(
   // source is usable so the parenthetical hides rather than
   // misleading.
   let previousCumulativeTickets: number | null = null;
-  if (weeklyTicketSnapshots && weeklyTicketSnapshots.length > 0) {
+  if (hasAnyCumulative) {
     let sum = 0;
-    let foundForAnyEvent = false;
+    let allResolved = true;
     for (const e of events) {
-      const latestBefore = findLatestSnapshotAtOrBefore(
-        weeklyTicketSnapshots,
-        e.id,
-        windowEdgeMs,
-      );
-      if (latestBefore != null) {
-        sum += latestBefore;
-        foundForAnyEvent = true;
+      const current = currentTicketsByEvent.get(e.id);
+      if (current == null) continue;
+      const latestBefore =
+        weeklyTicketSnapshots && weeklyTicketSnapshots.length > 0
+          ? findLatestSnapshotAtOrBefore(weeklyTicketSnapshots, e.id, windowEdgeMs)
+          : null;
+      const fromRollups =
+        latestBefore == null && currentWindowTicketsByEvent.has(e.id)
+          ? Math.max(0, current - (currentWindowTicketsByEvent.get(e.id) ?? 0))
+          : null;
+      const previous = latestBefore ?? fromRollups ?? (current === 0 ? 0 : null);
+      if (previous == null) {
+        allResolved = false;
+        break;
       }
+      sum += previous;
     }
-    if (foundForAnyEvent) {
-      previousCumulativeTickets = sum;
-    }
-  }
-  if (previousCumulativeTickets == null && hasAnyCumulative && currRows > 0) {
-    previousCumulativeTickets = Math.max(
-      0,
-      currentCumulativeTickets - currTicketsWindow,
-    );
+    if (allResolved) previousCumulativeTickets = sum;
   }
 
   // Monotonic guard: cumulative tickets don't regress in the real
@@ -676,31 +683,30 @@ export function aggregateVenueWoW(
 
   // ── CPT window-over-window. ──
   //
-  // Denominator precedence:
-  //   1. Cumulative delta — current − previous when both present.
-  //      Resilient to a contaminated rollup column since the edge
-  //      values come from cumulative snapshots, not a sum.
-  //   2. Raw rollup window sum — when no cumulative baseline is
-  //      available (e.g. event with no snapshot + no tickets).
-  //
-  // Same precedence applied to the prior window, using the prior
-  // cumulative window's delta where available.
-  const currCptTickets =
-    previousCumulativeTickets != null
-      ? Math.max(0, currentCumulativeTickets - previousCumulativeTickets)
-      : currTicketsWindow;
+  // Compare the venue's current cumulative CPT with the same shape
+  // seven days ago. Ticket edges use the same snapshot-first
+  // waterfall as the Tickets delta above; spend edges are derived
+  // from daily rollups by subtracting the last-7-days spend from the
+  // currently loaded cumulative spend.
+  const previousSpend =
+    cumulativeSpendRows > 0 && currRows > 0
+      ? Math.max(0, cumulativeSpend - currSpend)
+      : null;
   const currCpt =
-    currCptTickets > 0 && currSpend > 0 ? currSpend / currCptTickets : null;
-  // For the prior half we don't generally have the cumulative 14
-  // days ago — fall back to the rollup window's sum. This keeps
-  // the CPT comparison at least directionally meaningful even when
-  // only the current half has a cumulative baseline.
+    currentCumulativeTickets > 0 && cumulativeSpend > 0
+      ? cumulativeSpend / currentCumulativeTickets
+      : null;
   const prevCpt =
-    prevTicketsWindow > 0 && prevSpend > 0 ? prevSpend / prevTicketsWindow : null;
+    previousCumulativeTickets != null &&
+    previousCumulativeTickets > 0 &&
+    previousSpend != null &&
+    previousSpend > 0
+      ? previousSpend / previousCumulativeTickets
+      : null;
   const cpt: WoWDelta = buildHalf(
     currCpt,
     prevCpt,
-    currCpt != null && prevCpt != null && currRows > 0 && prevRows > 0,
+    currCpt != null && prevCpt != null,
   );
 
   return { tickets, cpt };
@@ -730,6 +736,27 @@ function findLatestSnapshotAtOrBefore(
     const ms = Date.parse(`${r.snapshot_at}T00:00:00Z`);
     if (!Number.isFinite(ms)) continue;
     if (ms > windowEdgeMs) continue;
+    if (ms > bestMs) {
+      bestMs = ms;
+      bestTickets = r.tickets_sold;
+    }
+  }
+  return bestTickets;
+}
+
+function findLatestSnapshotInWindow(
+  rows: readonly WeeklyTicketSnapshotLite[],
+  eventId: string,
+  startExclusiveMs: number,
+  endInclusiveMs: number,
+): number | null {
+  let bestMs = -Infinity;
+  let bestTickets: number | null = null;
+  for (const r of rows) {
+    if (r.event_id !== eventId) continue;
+    const ms = Date.parse(`${r.snapshot_at}T00:00:00Z`);
+    if (!Number.isFinite(ms)) continue;
+    if (ms <= startExclusiveMs || ms > endInclusiveMs) continue;
     if (ms > bestMs) {
       bestMs = ms;
       bestTickets = r.tickets_sold;

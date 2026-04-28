@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { resolveShareByToken } from "@/lib/db/report-shares";
+import { mirrorEventTicketsSold } from "@/lib/db/ticketing";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -219,6 +220,79 @@ export async function POST(
       { status: 500 },
     );
   }
+
+  // Keep the API/manual ticketing history aligned with the client
+  // edit. The dashboard now resolves tickets from
+  // `ticket_sales_snapshots` first; writing only the
+  // client-report snapshot would leave a newer manual edit hidden
+  // behind an older Eventbrite row.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sbAny = admin as any;
+  const { data: existingConnection } = await sbAny
+    .from("client_ticketing_connections")
+    .select("id")
+    .eq("client_id", share.client_id)
+    .eq("provider", "manual")
+    .eq("user_id", share.user_id)
+    .maybeSingle();
+  let connectionId: string | null = existingConnection?.id ?? null;
+  if (!connectionId) {
+    const { data: created, error: createErr } = await sbAny
+      .from("client_ticketing_connections")
+      .insert({
+        user_id: share.user_id,
+        client_id: share.client_id,
+        provider: "manual",
+        credentials: {},
+        external_account_id: null,
+        status: "active",
+      })
+      .select("id")
+      .maybeSingle();
+    if (createErr || !created) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            createErr?.message ??
+            "Saved client snapshot, but failed to create manual ticketing connection",
+        },
+        { status: 500 },
+      );
+    }
+    connectionId = created.id as string;
+  }
+  const { error: manualSnapshotErr } = await sbAny
+    .from("ticket_sales_snapshots")
+    .upsert(
+      {
+        user_id: share.user_id,
+        event_id: eventId,
+        connection_id: connectionId,
+        snapshot_at: nowIso,
+        tickets_sold: ticketsSold,
+        tickets_available: null,
+        gross_revenue_cents: null,
+        currency: null,
+        raw_payload: { source: "manual", entered_by: "share", token_scope: share.scope },
+        source: "manual",
+      },
+      { onConflict: "event_id,snapshot_at,source" },
+    );
+  if (manualSnapshotErr) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Saved client snapshot, but failed to write manual ticket snapshot: ${manualSnapshotErr.message}`,
+      },
+      { status: 500 },
+    );
+  }
+  await mirrorEventTicketsSold(admin, {
+    eventId,
+    userId: share.user_id,
+    ticketsSold,
+  });
 
   return NextResponse.json({ ok: true, snapshot: upserted });
 }
