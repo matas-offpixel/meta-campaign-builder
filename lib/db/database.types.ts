@@ -1854,6 +1854,7 @@ export type Database = {
           client_id: string | null
           created_at: string
           enabled: boolean
+          event_code: string | null
           event_id: string | null
           expires_at: string | null
           last_viewed_at: string | null
@@ -1867,6 +1868,7 @@ export type Database = {
           client_id?: string | null
           created_at?: string
           enabled?: boolean
+          event_code?: string | null
           event_id?: string | null
           expires_at?: string | null
           last_viewed_at?: string | null
@@ -1880,6 +1882,7 @@ export type Database = {
           client_id?: string | null
           created_at?: string
           enabled?: boolean
+          event_code?: string | null
           event_id?: string | null
           expires_at?: string | null
           last_viewed_at?: string | null
