@@ -77,3 +77,44 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ### Database
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
+
+**Latest migration:** `051_drop_deprecated_columns.sql`.
+
+Notable recently-added tables / columns (dashboard-era, April 2026):
+
+- `event_daily_rollups` — per-event per-day spend + tickets rollup,
+  with three separate spend columns:
+  - `ad_spend` (raw Meta total, including presale)
+  - `ad_spend_allocated` (non-presale, post-opponent-attribution split)
+  - `ad_spend_presale` (presale-only, split evenly across events at
+    the same venue)
+  Also: `meta_regs` (on-meta conversions used for presale bucket).
+- `additional_spend_entries` — per-event ad-hoc spend rows (e.g.
+  influencer fees, OOH boards) that add into the total-marketing
+  calculation without touching `event_ad_plans.budget_paid_media`.
+- `ticket_sales_snapshots.source` — distinguishes `eventbrite`,
+  `manual`, `xlsx_import`, `foursomething`. Priority resolution
+  (manual > xlsx_import > eventbrite) lives in
+  `lib/db/event-history-collapse.ts`.
+- `client_ticketing_connections.provider` — CHECK-constrained to
+  `eventbrite` / `fourthefans` / `manual` / `foursomething_internal`.
+  Manual + foursomething_internal are null-provider implementations
+  (see `lib/ticketing/manual/provider.ts`).
+- `events.total_marketing_budget` was DROPPED in 051 — the total is
+  computed live from plan paid media + additional spend entries.
+
+### Canonical spec
+
+`docs/CLIENT_DASHBOARD_BRIEF_2026-04-27.md` is the active reference
+for the 4theFans dashboard rollout. It covers readiness rules, venue
+grouping, spend attribution, and the weekly-snapshot history flow.
+
+### PUBLIC_PREFIXES
+
+The proxy's `PUBLIC_PREFIXES` list (see `lib/auth/public-routes.ts`)
+now includes the share surfaces introduced in PR #113 / #120. New
+internal surfaces added by the April 2026 session
+(`/api/internal/clients/*`, `/api/events/*/manual-tickets/bulk`,
+`/api/clients/*/ticketing-import/*`) are **intentionally** NOT in
+the allow-list — they require a cookie-bound session and run
+ownership checks server-side.

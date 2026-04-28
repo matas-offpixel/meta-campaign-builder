@@ -8,6 +8,15 @@
  * The wrapper deliberately exposes only `get` — Eventbrite reads are the
  * only operation the dashboard performs in v1 (no event creation, no
  * order updates). When write paths arrive, add them here.
+ *
+ * TODO (Apr 2026): the 4theFans Eventbrite personal token was
+ * generated in a chat transcript during the session that built out
+ * the manual connection. Rotate it via eventbrite.com → account →
+ * developer → API user keys → rotate, then re-save through
+ * `/clients/[id]/ticketing-connections` so the new token is
+ * encrypted via `set_ticketing_credentials`. The stored token is
+ * at-rest-encrypted (migration 038) but anything that ever lived in
+ * a plaintext transcript should be considered compromised.
  */
 
 const EVENTBRITE_API_BASE = "https://www.eventbriteapi.com/v3";

@@ -1574,14 +1574,16 @@ export async function fetchActiveCreativesForEvent(
     } as UnattributedBucket,
   );
 
-  // Dev-mode reconciliation: warn if the unattributed bucket is more
-  // than a rounding error so a regression in the widen / stitch path
-  // shows up immediately in `npm run dev` rather than silently
-  // dropping spend on the cards. Production stays quiet — Meta's
-  // `effective_status` filter and our archive boundary mean a
-  // long-running event will always carry SOME unattributed spend
-  // from genuinely deleted ads.
-  if (process.env.NODE_ENV !== "production" && unattributed.ads_count > 0) {
+  // Reconciliation: warn when the unattributed bucket is more than a
+  // rounding error so a regression in the widen / stitch path shows
+  // up immediately. Originally dev-only (PR #58) but PR 4/4 of the
+  // Apr 2026 bundle flipped it to server-log everywhere — the warn
+  // line is the canary for stitch-path regressions that otherwise go
+  // unnoticed once they hit production. `console.warn` keeps it as
+  // non-PagerDuty noise in Vercel logs. Still requires a meaningful
+  // orphan share (> 5%) so the baseline noise from genuinely deleted
+  // ads doesn't spam the logs.
+  if (unattributed.ads_count > 0) {
     const stitchedSpend = creatives.reduce(
       (acc, c) => acc + (c.spend ?? 0),
       0,

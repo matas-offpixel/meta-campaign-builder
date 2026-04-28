@@ -1404,7 +1404,6 @@ export type Database = {
           announcement_at: string | null
           budget_marketing: number | null
           campaign_end_at: string | null
-          total_marketing_budget: number | null
           capacity: number | null
           client_id: string
           created_at: string
@@ -1447,7 +1446,6 @@ export type Database = {
           announcement_at?: string | null
           budget_marketing?: number | null
           campaign_end_at?: string | null
-          total_marketing_budget?: number | null
           capacity?: number | null
           client_id: string
           created_at?: string
@@ -1490,7 +1488,6 @@ export type Database = {
           announcement_at?: string | null
           budget_marketing?: number | null
           campaign_end_at?: string | null
-          total_marketing_budget?: number | null
           capacity?: number | null
           client_id?: string
           created_at?: string
