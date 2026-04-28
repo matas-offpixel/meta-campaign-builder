@@ -20,6 +20,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { fmtCurrency } from "@/lib/dashboard/format";
+import {
+  paidLinkClicksOf,
+  paidSpendOf,
+} from "@/lib/dashboard/paid-spend";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import type { SpendCategoryLine } from "@/lib/db/additional-spend-sum";
 import { sortSpendCategoryLines } from "@/lib/db/additional-spend-sum";
@@ -98,6 +102,8 @@ interface DailyRollup {
   date: string;
   ad_spend: number | null;
   link_clicks: number | null;
+  tiktok_spend: number | null;
+  tiktok_clicks: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   source_meta_at: string | null;
@@ -111,6 +117,8 @@ interface PresaleBucket {
   cutoffDate: string;
   ad_spend: number | null;
   link_clicks: number | null;
+  tiktok_spend: number | null;
+  tiktok_clicks: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   daysCount: number;
@@ -208,6 +216,8 @@ interface DisplayRow {
    *  Drives the "Manual" / "Live" badge in the Date column. */
   source: TimelineSource | null;
   ad_spend: number | null;
+  /** Meta-only spend, used for Meta registration CPR. */
+  meta_ad_spend: number | null;
   /** Off-Meta spend attributed to this calendar day. */
   other_spend: number | null;
   /** Native title tooltip: "PR £100, Influencer £50" */
@@ -789,7 +799,7 @@ function RowEl({
 }) {
   const cpt = derive(row.ad_spend, row.tickets_sold);
   const cpl = derive(row.ad_spend, row.link_clicks);
-  const cprRegs = derive(row.ad_spend, row.meta_regs);
+  const cprRegs = derive(row.meta_ad_spend, row.meta_regs);
   const roas = row.ad_spend != null && row.ad_spend > 0 && row.revenue != null
     ? row.revenue / row.ad_spend
     : null;
@@ -1098,6 +1108,7 @@ function buildDisplayRows({
     source: TimelineSource;
     isSynthetic: boolean;
     ad_spend: number | null;
+    meta_ad_spend: number | null;
     other_spend: number | null;
     other_spend_tooltip: string | null;
     link_clicks: number | null;
@@ -1119,12 +1130,13 @@ function buildDisplayRows({
       date: r.date,
       source: r.source,
       isSynthetic: false,
-      ad_spend: r.ad_spend,
+      ad_spend: paidSpendOf(r),
+      meta_ad_spend: r.ad_spend,
       other_spend: otherSpendByDate.get(r.date) ?? null,
       other_spend_tooltip: fmtOtherSpendTooltipLines(
         otherSpendBreakdownByDate?.get(r.date),
       ),
-      link_clicks: r.link_clicks,
+      link_clicks: paidLinkClicksOf(r),
       meta_regs: r.meta_regs,
       tickets_sold: r.tickets_sold,
       revenue: r.revenue,
@@ -1143,6 +1155,7 @@ function buildDisplayRows({
       source: "live",
       isSynthetic: true,
       ad_spend: null,
+      meta_ad_spend: null,
       other_spend: otherSpendByDate.get(todayStr) ?? null,
       other_spend_tooltip: fmtOtherSpendTooltipLines(
         otherSpendBreakdownByDate?.get(todayStr),
@@ -1158,8 +1171,8 @@ function buildDisplayRows({
 
   // Running totals start from the presale bucket (if any) so the
   // first daily row already includes pre-launch contribution.
-  let runSpend = num(presale?.ad_spend);
-  let runClicks = num(presale?.link_clicks);
+  let runSpend = presale ? paidSpendOf(presale) : 0;
+  let runClicks = presale ? paidLinkClicksOf(presale) : 0;
   let runTickets = num(presale?.tickets_sold);
   let runRevenue = num(presale?.revenue);
 
@@ -1177,6 +1190,7 @@ function buildDisplayRows({
       date: r.date,
       source: r.source,
       ad_spend: r.ad_spend,
+      meta_ad_spend: r.meta_ad_spend,
       other_spend: r.other_spend,
       other_spend_tooltip: r.other_spend_tooltip,
       link_clicks: r.link_clicks,
@@ -1208,10 +1222,11 @@ function buildDisplayRows({
       // suppresses the badge for `isPresale` rows anyway, so this
       // value is just shape-completeness.
       source: null,
-      ad_spend: presale.ad_spend,
+      ad_spend: paidSpendOf(presale),
+      meta_ad_spend: presale.ad_spend,
       other_spend: null,
       other_spend_tooltip: null,
-      link_clicks: presale.link_clicks,
+      link_clicks: paidLinkClicksOf(presale),
       meta_regs: null,
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
@@ -1221,8 +1236,8 @@ function buildDisplayRows({
       // end-of-presale is just the bucket sum. Reading the table
       // bottom-up (oldest → newest) the daily running totals already
       // start FROM these values, so the sequence stays monotonic.
-      running_spend: round2(num(presale.ad_spend)),
-      running_clicks: num(presale.link_clicks),
+      running_spend: round2(paidSpendOf(presale)),
+      running_clicks: paidLinkClicksOf(presale),
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
     };
@@ -1342,6 +1357,7 @@ function buildWeeklyDisplayRows({
   type WeekAgg = {
     weekStart: string; // YYYY-MM-DD of Mon W/C (UTC)
     spend: number | null;
+    metaSpend: number | null;
     otherSpend: number | null;
     /** Merged additional-spend categories for the week (tooltip). */
     otherCategoryTotals: Map<string, number> | null;
@@ -1366,6 +1382,7 @@ function buildWeeklyDisplayRows({
       ({
         weekStart: wk,
         spend: null,
+        metaSpend: null,
         otherSpend: null,
         otherCategoryTotals: null,
         clicks: null,
@@ -1374,8 +1391,11 @@ function buildWeeklyDisplayRows({
         revenue: null,
         hasManualSource: false,
       } satisfies WeekAgg);
+    const spend = paidSpendOf(r);
+    if (spend > 0 || r.ad_spend !== null || r.tiktok_spend !== null)
+      cur.spend = (cur.spend ?? 0) + spend;
     if (r.ad_spend !== null)
-      cur.spend = (cur.spend ?? 0) + Number(r.ad_spend);
+      cur.metaSpend = (cur.metaSpend ?? 0) + Number(r.ad_spend);
     const od = otherSpendByDate.get(r.date);
     if (od != null)
       cur.otherSpend = (cur.otherSpend ?? 0) + od;
@@ -1389,8 +1409,9 @@ function buildWeeklyDisplayRows({
         );
       }
     }
-    if (r.link_clicks !== null)
-      cur.clicks = (cur.clicks ?? 0) + Number(r.link_clicks);
+    const clicks = paidLinkClicksOf(r);
+    if (clicks > 0 || r.link_clicks !== null || r.tiktok_clicks !== null)
+      cur.clicks = (cur.clicks ?? 0) + clicks;
     if (r.meta_regs != null)
       cur.regs = (cur.regs ?? 0) + Number(r.meta_regs);
     if (r.tickets_sold !== null)
@@ -1411,14 +1432,15 @@ function buildWeeklyDisplayRows({
 
   // Running totals seeded from presale, identical seeding to the
   // daily builder so the two cadences agree on the running spine.
-  let runSpend = num(presale?.ad_spend);
-  let runClicks = num(presale?.link_clicks);
+  let runSpend = presale ? paidSpendOf(presale) : 0;
+  let runClicks = presale ? paidLinkClicksOf(presale) : 0;
   let runTickets = num(presale?.tickets_sold);
   let runRevenue = num(presale?.revenue);
 
   const weeklyDisplay: DisplayRow[] = allWeeks.map((wk) => {
     const agg = weekMap.get(wk) ?? null;
     const spend = agg?.spend ?? null;
+    const metaSpend = agg?.metaSpend ?? null;
     const otherSp = agg?.otherSpend ?? null;
     const clicks = agg?.clicks ?? null;
     const regs = agg?.regs ?? null;
@@ -1454,6 +1476,7 @@ function buildWeeklyDisplayRows({
       date: wk,
       source: agg?.hasManualSource ? "manual" : "live",
       ad_spend: spend,
+      meta_ad_spend: metaSpend,
       other_spend: otherSp,
       other_spend_tooltip: fmtOtherSpendTooltipLines(otherTooltipLines),
       link_clicks: clicks,
@@ -1485,16 +1508,17 @@ function buildWeeklyDisplayRows({
       isSynthetic: false,
       date: null,
       source: null,
-      ad_spend: presale.ad_spend,
+      ad_spend: paidSpendOf(presale),
+      meta_ad_spend: presale.ad_spend,
       other_spend: null,
       other_spend_tooltip: null,
-      link_clicks: presale.link_clicks,
+      link_clicks: paidLinkClicksOf(presale),
       meta_regs: null,
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
-      running_spend: round2(num(presale.ad_spend)),
-      running_clicks: num(presale.link_clicks),
+      running_spend: round2(paidSpendOf(presale)),
+      running_clicks: paidLinkClicksOf(presale),
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
     };

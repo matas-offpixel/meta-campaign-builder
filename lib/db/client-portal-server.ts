@@ -144,13 +144,17 @@ export interface DailyRollupRow {
    *  match venues — every event in the venue sees the same
    *  `ad_spend` value for a given day). */
   ad_spend: number | null;
+  /** Raw per-event per-day TikTok spend. */
+  tiktok_spend: number | null;
   /** Per-event allocated spend (specific + generic share).
    *  NULL when allocation hasn't run yet. */
   ad_spend_allocated: number | null;
   /** Ticket revenue for this event/day from the ticketing provider. */
   revenue: number | null;
   /** Meta link clicks for this event/day. */
-  link_clicks?: number | null;
+  link_clicks: number | null;
+  /** TikTok clicks for this event/day. */
+  tiktok_clicks: number | null;
   /** Opponent-matched portion of the allocation. NULL when
    *  allocation hasn't run. */
   ad_spend_specific: number | null;
@@ -237,7 +241,7 @@ export type ClientPortalData =
       dailyEntries: DailyEntry[];
       /**
        * Daily rollup rows across every event under the client.
-       * Drives the client-wide topline aggregator (sum of ad_spend)
+       * Drives the client-wide topline aggregator (sum of paid-media spend)
        * — the per-card venue tables keep using meta_spend_cached as
        * today. Empty when the rollup table is empty for this client
        * (migration 039 not backfilled, or no events yet).
@@ -752,7 +756,7 @@ async function fetchAllDailyRollups(
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, revenue, link_clicks, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, tiktok_spend, ad_spend_allocated, revenue, link_clicks, tiktok_clicks, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
@@ -775,9 +779,11 @@ async function fetchAllDailyRollups(
         date: r.date as string,
         tickets_sold: (r.tickets_sold as number | null) ?? null,
         ad_spend: (r.ad_spend as number | null) ?? null,
+        tiktok_spend: (r.tiktok_spend as number | null) ?? null,
         ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
         revenue: (r.revenue as number | null) ?? null,
         link_clicks: (r.link_clicks as number | null) ?? null,
+        tiktok_clicks: (r.tiktok_clicks as number | null) ?? null,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:
           (r.ad_spend_generic_share as number | null) ?? null,

@@ -70,6 +70,19 @@ describe("trimTimelineForTrackerDisplay", () => {
     assert.equal(out[0]?.date, "2026-04-08");
   });
 
+  it("uses TikTok spend for first-activity detection", () => {
+    const timeline: TimelineRow[] = [
+      live("2026-04-07", { ad_spend: 0, tiktok_spend: 0 }),
+      live("2026-04-08", { ad_spend: 0, tiktok_spend: 160 }),
+    ];
+    const out = trimTimelineForTrackerDisplay(timeline, {
+      generalSaleCutoff: null,
+      otherSpendByDate: new Map(),
+    });
+    assert.equal(out.length, 1);
+    assert.equal(out[0]?.date, "2026-04-08");
+  });
+
   it("returns empty timeline when only zero-pad rows exist", () => {
     const timeline: TimelineRow[] = [
       live("2026-04-07", { ad_spend: 0, tickets_sold: 0 }),

@@ -1,4 +1,5 @@
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
+import { paidSpendOf } from "./paid-spend.ts";
 
 /**
  * True when a numeric rollup field counts as "activity" for the
@@ -17,7 +18,7 @@ function rowHasTrackerActivity(
   const note = r.notes?.trim();
   if (note) return true;
   if (otherSpendForDate != null && otherSpendForDate > 0) return true;
-  if (isPositiveMetric(r.ad_spend)) return true;
+  if (isPositiveMetric(paidSpendOf(r))) return true;
   if (isPositiveMetric(r.link_clicks)) return true;
   if (isPositiveMetric(r.meta_regs)) return true;
   if (isPositiveMetric(r.tickets_sold)) return true;

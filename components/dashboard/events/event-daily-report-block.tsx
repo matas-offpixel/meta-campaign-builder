@@ -58,6 +58,8 @@ interface PresaleBucketShape {
   cutoffDate: string;
   ad_spend: number | null;
   link_clicks: number | null;
+  tiktok_spend: number | null;
+  tiktok_clicks: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   daysCount: number;

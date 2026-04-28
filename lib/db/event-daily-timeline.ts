@@ -213,6 +213,8 @@ export interface PresaleBucket {
   cutoffDate: string;
   ad_spend: number | null;
   link_clicks: number | null;
+  tiktok_spend: number | null;
+  tiktok_clicks: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   /** Number of rollup rows folded into the bucket. */
@@ -235,6 +237,8 @@ export function computePresaleBucket(
 
   let ad_spend: number | null = null;
   let link_clicks: number | null = null;
+  let tiktok_spend: number | null = null;
+  let tiktok_clicks: number | null = null;
   let tickets_sold: number | null = null;
   let revenue: number | null = null;
   let earliestDate: string | null = null;
@@ -242,6 +246,10 @@ export function computePresaleBucket(
   for (const r of presaleRows) {
     if (r.ad_spend != null) ad_spend = (ad_spend ?? 0) + Number(r.ad_spend);
     if (r.link_clicks != null) link_clicks = (link_clicks ?? 0) + r.link_clicks;
+    if (r.tiktok_spend != null)
+      tiktok_spend = (tiktok_spend ?? 0) + Number(r.tiktok_spend);
+    if (r.tiktok_clicks != null)
+      tiktok_clicks = (tiktok_clicks ?? 0) + r.tiktok_clicks;
     if (r.tickets_sold != null)
       tickets_sold = (tickets_sold ?? 0) + r.tickets_sold;
     if (r.revenue != null) revenue = (revenue ?? 0) + Number(r.revenue);
@@ -252,6 +260,8 @@ export function computePresaleBucket(
     cutoffDate,
     ad_spend: ad_spend != null ? round2(ad_spend) : null,
     link_clicks,
+    tiktok_spend: tiktok_spend != null ? round2(tiktok_spend) : null,
+    tiktok_clicks,
     tickets_sold,
     revenue: revenue != null ? round2(revenue) : null,
     daysCount: presaleRows.length,
