@@ -7,6 +7,7 @@ import type {
   DailyEntry,
   DailyRollupRow,
   PortalEvent,
+  WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import {
   aggregateAllocationByEvent,
@@ -39,6 +40,7 @@ const EMPTY_WOW: VenueWoWTotals = {
 };
 import { DailyTracker } from "./daily-tracker";
 import { VenueActiveCreatives } from "./venue-active-creatives";
+import { VenueHistorySection } from "./venue-history-section";
 import { VenueSyncButton } from "./venue-sync-button";
 
 interface SavedSnapshot {
@@ -86,6 +88,15 @@ interface Props {
    * per-event arithmetic, which stays on meta_spend_cached.
    */
   dailyRollups: DailyRollupRow[];
+  /**
+   * Weekly ticket snapshots across every event under the client.
+   * Pre-collapsed on the server (manual > xlsx_import > eventbrite)
+   * to one row per (event, week). The venue-expansion history
+   * section filters them down to the card's event set at render
+   * time. Empty when no snapshots exist yet — the section hides
+   * itself in that case rather than rendering a blank chart.
+   */
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Exposes admin-only controls per row when true. */
   isInternal: boolean;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
@@ -765,6 +776,7 @@ export function ClientPortalVenueTable({
   londonPresaleSpend,
   dailyEntries,
   dailyRollups,
+  weeklyTicketSnapshots,
   isInternal,
   onSnapshotSaved,
 }: Props) {
@@ -893,6 +905,8 @@ export function ClientPortalVenueTable({
                 spend={venueSpend(group, londonOnsaleSpend, allocationByEvent)}
                 wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
                 dailyEntries={dailyEntries}
+                weeklyTicketSnapshots={weeklyTicketSnapshots}
+                dailyRollups={dailyRollups}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
                 isInternal={isInternal}
@@ -1123,6 +1137,19 @@ interface VenueSectionProps {
   /** All daily tracker rows for the client. Filtered to this venue's
    *  events by the embedded <DailyTracker />. */
   dailyEntries: DailyEntry[];
+  /**
+   * Pre-collapsed weekly ticket snapshots for every event under the
+   * client. The VenueHistorySection filters them down to this
+   * venue's event set. Empty arrays render nothing — operators
+   * upload an xlsx via /clients/[id]/ticketing-import to populate.
+   */
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /**
+   * Event daily rollups across the client. Forwarded so the
+   * history section can compute "≥7 days" per-event to decide
+   * whether the Daily granularity toggle is enabled.
+   */
+  dailyRollups: DailyRollupRow[];
   /**
    * Collapsed-by-default layout surfaces 16+ venue groups in a
    * readable first paint. Header click toggles; state lives on the
@@ -1658,6 +1685,8 @@ function VenueSection({
   spend,
   wow,
   dailyEntries,
+  weeklyTicketSnapshots,
+  dailyRollups,
   isExpanded,
   onToggle,
   isInternal,
@@ -1864,6 +1893,13 @@ function VenueSection({
           </p>
         )}
 
+      {isExpanded && (
+        <VenueHistorySection
+          events={group.events}
+          weeklyTicketSnapshots={weeklyTicketSnapshots}
+          dailyRollups={dailyRollups}
+        />
+      )}
       {!isExpanded ? null : (
       <div id={bodyId} className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-sm">

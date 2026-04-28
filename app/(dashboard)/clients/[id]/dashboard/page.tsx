@@ -90,6 +90,7 @@ export default async function ClientDashboardPage({ params }: Props) {
         dailyEntries={result.dailyEntries}
         dailyRollups={result.dailyRollups}
         additionalSpend={result.additionalSpend}
+        weeklyTicketSnapshots={result.weeklyTicketSnapshots}
         isInternal
       />
     </>

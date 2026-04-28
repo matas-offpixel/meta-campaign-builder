@@ -113,6 +113,24 @@ export interface DailyEntry {
  * the reporting layer falls back to the raw `ad_spend` and the
  * pre-D2 split model.
  */
+/**
+ * One weekly ticket snapshot for the venue-expansion trends chart.
+ * Rows come from `ticket_sales_snapshots`; the server-side loader
+ * collapses multiple sources down to one row per (event, week)
+ * before shipping — see `collapseWeekly` in
+ * `lib/db/event-history-resolver.ts`. PR #122.
+ */
+export interface WeeklyTicketSnapshotRow {
+  event_id: string;
+  /** Canonical YYYY-MM-DD of the week-ending snapshot (UTC). */
+  snapshot_at: string;
+  tickets_sold: number;
+  /** Provenance — `eventbrite` for cron-backed rows, `xlsx_import`
+   *  for historical catch-up, `manual` once PR 3 lands, and
+   *  `foursomething` once the 4theFans API is wired. */
+  source: "eventbrite" | "manual" | "xlsx_import" | "foursomething";
+}
+
 export interface DailyRollupRow {
   event_id: string;
   /** Calendar day the row covers — `YYYY-MM-DD` in UTC.
@@ -215,6 +233,22 @@ export type ClientPortalData =
        * no additional spend has been logged yet.
        */
       additionalSpend: AdditionalSpendRow[];
+      /**
+       * Weekly ticket-sales snapshots across every event under the
+       * client, collapsed to one row per (event, week) with source
+       * priority manual > xlsx_import > eventbrite. Drives the
+       * venue-expansion weekly trends chart (PR #122).
+       *
+       * Kept as a flat array keyed by event_id rather than a
+       * Map<eventId, Snapshot[]> because the public share JSON
+       * endpoint ships the payload over the wire — a flat array
+       * serialises cleanly without a Map → object transform.
+       *
+       * Empty when no snapshots have been written yet. For the
+       * 4theFans roster this is ~60 events × 8 weeks ≈ 480 rows;
+       * well under any payload concern.
+       */
+      weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
     }
   | {
       ok: false;
@@ -407,6 +441,59 @@ async function loadPortalForClientId(
     }
   }
 
+  // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
+  // every event in one shot so the venue-expansion chart doesn't
+  // fan out a per-event fetch on open. The query already selects
+  // only the fields the chart uses — keeping the payload trim.
+  //
+  // Collapse rules (manual > xlsx_import > eventbrite for same
+  // week) live in `collapseWeekly`; we run that post-select to
+  // keep the DB query simple rather than doing it in SQL.
+  const weeklyTicketSnapshots: WeeklyTicketSnapshotRow[] = [];
+  if (eventIds.length > 0) {
+    const { data: rows } = await admin
+      .from("ticket_sales_snapshots")
+      .select("event_id, snapshot_at, tickets_sold, source")
+      .in("event_id", eventIds)
+      .order("snapshot_at", { ascending: true });
+    if (rows) {
+      const byEvent = new Map<
+        string,
+        Array<{ snapshot_at: string; tickets_sold: number; source: string }>
+      >();
+      for (const r of rows) {
+        const eid = r.event_id as string;
+        const list = byEvent.get(eid) ?? [];
+        list.push({
+          snapshot_at: String(r.snapshot_at),
+          tickets_sold: Number(r.tickets_sold ?? 0),
+          source: String(r.source ?? "eventbrite"),
+        });
+        byEvent.set(eid, list);
+      }
+      // Pulled from the thread-neutral collapse module — the
+      // server-side resolver re-exports this same helper. Using the
+      // pure module keeps the import tree free of `server-only`
+      // transitive deps for anything that might one day bundle this
+      // file into a client boundary (it shouldn't, but the guard
+      // costs nothing).
+      const { collapseWeekly } = await import(
+        "@/lib/db/event-history-collapse"
+      );
+      for (const [eid, rowsForEvent] of byEvent) {
+        const collapsed = collapseWeekly(rowsForEvent);
+        for (const c of collapsed) {
+          weeklyTicketSnapshots.push({
+            event_id: eid,
+            snapshot_at: c.snapshot_at,
+            tickets_sold: c.tickets_sold,
+            source: c.source,
+          });
+        }
+      }
+    }
+  }
+
   // Additional (off-Meta) spend for the same events. The entries
   // table is user-scoped, not client-scoped, so we filter by
   // event_ids under service role; service role bypasses RLS which
@@ -440,6 +527,7 @@ async function loadPortalForClientId(
     dailyEntries,
     dailyRollups,
     additionalSpend,
+    weeklyTicketSnapshots,
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       return {
