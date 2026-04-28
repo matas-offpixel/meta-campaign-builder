@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil } from "lucide-react";
 
 import type {
+  AdditionalSpendRow,
   DailyEntry,
   DailyRollupRow,
   PortalEvent,
@@ -11,9 +12,11 @@ import type {
 } from "@/lib/db/client-portal-server";
 import {
   aggregateAllocationByEvent,
+  aggregateVenueCampaignPerformance,
   aggregateVenueWoW,
   sortEventsGroupStageFirst,
   type EventAllocationLifetime,
+  type VenueCampaignPerformance,
   type VenueWoWTotals,
 } from "@/lib/db/client-dashboard-aggregations";
 import {
@@ -90,6 +93,8 @@ interface Props {
    * per-event arithmetic, which stays on meta_spend_cached.
    */
   dailyRollups: DailyRollupRow[];
+  /** Additional spend rows across the client, filtered per venue card. */
+  additionalSpend: AdditionalSpendRow[];
   /**
    * Weekly ticket snapshots across every event under the client.
    * Pre-collapsed on the server (manual > xlsx_import > eventbrite)
@@ -249,6 +254,11 @@ function formatGBP(n: number | null, dp: 0 | 2 = 0): string {
 function formatNumber(n: number | null): string {
   if (n === null || !Number.isFinite(n)) return "—";
   return NUM.format(n);
+}
+
+function formatPct(n: number | null, dp: 0 | 1 = 0): string {
+  if (n === null || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(dp)}%`;
 }
 
 function formatCompactDate(raw: string): string {
@@ -808,6 +818,7 @@ export function ClientPortalVenueTable({
   londonPresaleSpend,
   dailyEntries,
   dailyRollups,
+  additionalSpend,
   weeklyTicketSnapshots,
   isInternal,
   onSnapshotSaved,
@@ -964,6 +975,7 @@ export function ClientPortalVenueTable({
                 dailyEntries={dailyEntries}
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
                 dailyRollups={dailyRollups}
+                additionalSpend={additionalSpend}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
                 isInternal={isInternal}
@@ -1207,6 +1219,8 @@ interface VenueSectionProps {
    * whether the Daily granularity toggle is enabled.
    */
   dailyRollups: DailyRollupRow[];
+  /** Client-wide additional spend rows; venue card filters by event ids/code. */
+  additionalSpend: AdditionalSpendRow[];
   /**
    * Collapsed-by-default layout surfaces 16+ venue groups in a
    * readable first paint. Header click toggles; state lives on the
@@ -1744,6 +1758,7 @@ function VenueSection({
   dailyEntries,
   weeklyTicketSnapshots,
   dailyRollups,
+  additionalSpend,
   isExpanded,
   onToggle,
   isInternal,
@@ -1751,6 +1766,17 @@ function VenueSection({
 }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
   const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
+  const campaignPerformance = useMemo(
+    () =>
+      aggregateVenueCampaignPerformance(
+        group.events,
+        additionalSpend,
+        dailyRollups,
+        undefined,
+        totals.total,
+      ),
+    [group.events, additionalSpend, dailyRollups, totals.total],
+  );
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
   const headerLabel =
     group.eventCount > 1 && group.city
@@ -1818,25 +1844,32 @@ function VenueSection({
               {subtitle}
             </span>
           )}
-          {group.budget !== null && (
+          {campaignPerformance.totalMarketingBudget !== null && (
             <p className="text-xs text-muted-foreground">
-              Ad Budget:{" "}
+              Total Mkt:{" "}
               <span className="font-semibold text-foreground">
-                {formatGBP(group.budget)}
+                {formatGBP(campaignPerformance.totalMarketingBudget)}
               </span>
             </p>
           )}
-          {group.budget !== null && group.campaignSpend !== null && (
+          {campaignPerformance.totalMarketingBudget !== null &&
+            campaignPerformance.paidMediaBudget !== null && (
             <span className="text-xs text-muted-foreground/60" aria-hidden="true">
               ·
             </span>
           )}
-          {group.campaignSpend !== null && (
+          {campaignPerformance.paidMediaBudget !== null && (
             <p className="text-xs text-muted-foreground">
-              Meta Spend:{" "}
+              Paid:{" "}
               <span className="font-semibold text-foreground">
-                {formatGBP(group.campaignSpend)}
+                {formatGBP(campaignPerformance.paidMediaBudget)}
               </span>
+              {campaignPerformance.paidMediaUsedPct !== null ? (
+                <span className="tabular-nums">
+                  {" "}
+                  ({formatPct(campaignPerformance.paidMediaUsedPct)} used)
+                </span>
+              ) : null}
             </p>
           )}
           {/* Collapsed-state quick stats — surfaces the headline
@@ -1872,6 +1905,14 @@ function VenueSection({
                   // Tickets moving up is good news; colour that green.
                   positiveIsGood
                 />
+                {campaignPerformance.capacity !== null ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    ({formatNumber(campaignPerformance.ticketsSold)}/
+                    {formatNumber(campaignPerformance.capacity)},{" "}
+                    {formatPct(campaignPerformance.sellThroughPct, 1)})
+                  </span>
+                ) : null}
               </span>
               <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <span className="tabular-nums">
@@ -1889,7 +1930,7 @@ function VenueSection({
               </span>
               <span className="text-muted-foreground/60" aria-hidden="true">·</span>
               <span
-                className={`tabular-nums ${roasClass(totals.roas)}`}
+                className={`hidden tabular-nums 2xl:inline ${roasClass(totals.roas)}`}
               >
                 ROAS: {formatRoas(totals.roas)}
                 <WoWDeltaInline
@@ -1897,6 +1938,15 @@ function VenueSection({
                   formatAbs={(v) => formatSignedRoas(v)}
                   positiveIsGood
                 />
+              </span>
+              <span className="hidden text-muted-foreground/60 2xl:inline" aria-hidden="true">·</span>
+              <span className="hidden tabular-nums xl:inline">
+                Pacing:{" "}
+                <span className="font-semibold text-foreground">
+                  {campaignPerformance.pacingTicketsPerDay !== null
+                    ? `${formatNumber(campaignPerformance.pacingTicketsPerDay)}/day`
+                    : "—"}
+                </span>
               </span>
             </span>
           )}
@@ -1983,6 +2033,10 @@ function VenueSection({
             averaged across {spend.eventCount} games
           </p>
         )}
+
+      {isExpanded && (
+        <VenueCampaignPerformanceCards performance={campaignPerformance} />
+      )}
 
       {isExpanded && (
         <VenueHistorySection
@@ -2143,6 +2197,154 @@ function VenueSection({
           </p>
         </div>
       )}
+    </section>
+  );
+}
+
+function VenueCampaignPerformanceCards({
+  performance,
+}: {
+  performance: VenueCampaignPerformance;
+}) {
+  return (
+    <section className="border-b border-border bg-background/60 px-4 py-4">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Campaign performance
+        </h3>
+      </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="rounded-md border border-border bg-card p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Total marketing
+          </p>
+          <div className="mt-3 space-y-2 text-foreground">
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.totalMarketingBudget !== null ? (
+                <>
+                  {formatGBP(performance.totalMarketingBudget)}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {" "}
+                    allocated
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            {performance.totalMarketingBudget !== null ? (
+              <p className="text-sm text-muted-foreground tabular-nums">
+                {formatGBP(performance.paidMediaBudget)} Paid media +{" "}
+                {formatGBP(performance.additionalSpend)} Additional
+              </p>
+            ) : null}
+            {performance.paidMediaSpent > 0 ? (
+              <p className="text-[11px] text-muted-foreground tabular-nums">
+                Total spend to date: {formatGBP(performance.paidMediaSpent)}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Paid media
+          </p>
+          <div className="mt-3 space-y-2 text-foreground">
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.paidMediaBudget !== null ? (
+                <>
+                  {formatGBP(performance.paidMediaBudget)}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    allocated
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.paidMediaSpent > 0 ||
+              performance.paidMediaBudget !== null ? (
+                <>
+                  {formatGBP(performance.paidMediaSpent)}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    spent
+                  </span>
+                  {performance.paidMediaRemaining !== null ? (
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {" "}
+                      ({formatGBP(performance.paidMediaRemaining)} remaining)
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.paidMediaUsedPct !== null ? (
+                <>{formatPct(performance.paidMediaUsedPct)} used</>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-muted-foreground">
+              <span>Daily budget:</span>
+              <span className="font-heading text-xl tracking-wide text-foreground tabular-nums">
+                {formatGBP(performance.dailyBudget)}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Tickets
+          </p>
+          <div className="mt-3 space-y-2 text-foreground">
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.capacity !== null ? (
+                <>
+                  {formatNumber(performance.ticketsSold)} /{" "}
+                  {formatNumber(performance.capacity)} sold
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {" "}
+                    ({formatPct(performance.sellThroughPct, 1)})
+                  </span>
+                </>
+              ) : (
+                <>{formatNumber(performance.ticketsSold)} sold</>
+              )}
+            </p>
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.costPerTicket !== null ? (
+                <>
+                  {formatGBP(performance.costPerTicket, 2)}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    cost per ticket
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              <span className="font-medium text-foreground">Pacing:</span>{" "}
+              {performance.pacingTicketsPerDay !== null ? (
+                <>
+                  {formatNumber(performance.pacingTicketsPerDay)} tickets/day
+                  {performance.pacingSpendPerDay !== null ? (
+                    <> · {formatGBP(performance.pacingSpendPerDay)}/day to sell out</>
+                  ) : null}
+                </>
+              ) : (
+                "—"
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
