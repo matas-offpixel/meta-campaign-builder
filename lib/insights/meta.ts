@@ -2044,6 +2044,8 @@ export interface VenueDailyAdMetricsRow {
   campaignPhase: "presale" | "onsale";
   /** Ad spend for this (ad, day). Non-null, ≥ 0. */
   spend: number;
+  /** Meta inline link clicks for this (ad, day). Non-null, ≥ 0. */
+  linkClicks: number;
 }
 
 export interface VenueDailyAdCampaignDiagnostics {
@@ -2052,6 +2054,9 @@ export interface VenueDailyAdCampaignDiagnostics {
   spend: number;
   adRowsSpend: number;
   syntheticRemainder: number;
+  linkClicks: number;
+  adRowsLinkClicks: number;
+  syntheticLinkClicks: number;
   isPresaleMatch: boolean;
   isAllocatedMatch: boolean;
 }
@@ -2130,6 +2135,7 @@ export async function fetchVenueDailyAdMetrics(
     const adNames = new Set<string>();
     const campaignNames = new Set<string>();
     const adSpendByCampaignDay = new Map<string, number>();
+    const adClicksByCampaignDay = new Map<string, number>();
 
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
@@ -2175,6 +2181,7 @@ export async function fetchVenueDailyAdMetrics(
         const adName = row.ad_name ?? "";
         if (!adId || !adName) continue;
         const spend = parseNum(row.spend);
+        const linkClicks = parseNum(row.inline_link_clicks);
         campaignNames.add(campaignName);
         adNames.add(adName);
         const campaignId = row.campaign_id ?? "";
@@ -2182,6 +2189,10 @@ export async function fetchVenueDailyAdMetrics(
         adSpendByCampaignDay.set(
           key,
           (adSpendByCampaignDay.get(key) ?? 0) + spend,
+        );
+        adClicksByCampaignDay.set(
+          key,
+          (adClicksByCampaignDay.get(key) ?? 0) + linkClicks,
         );
         rows.push({
           day,
@@ -2193,6 +2204,7 @@ export async function fetchVenueDailyAdMetrics(
             ? "presale"
             : "onsale",
           spend,
+          linkClicks,
         });
       }
 
@@ -2207,7 +2219,7 @@ export async function fetchVenueDailyAdMetrics(
     after = undefined;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
-        fields: "spend,date_start,campaign_id,campaign_name",
+        fields: "spend,inline_link_clicks,date_start,campaign_id,campaign_name",
         level: "campaign",
         time_increment: "1",
         time_range: timeRange,
@@ -2220,6 +2232,7 @@ export async function fetchVenueDailyAdMetrics(
       const res = await graphGetWithToken<
         GraphPaged<{
           spend?: string;
+          inline_link_clicks?: string;
           date_start?: string;
           campaign_id?: string;
           campaign_name?: string;
@@ -2233,10 +2246,16 @@ export async function fetchVenueDailyAdMetrics(
         if (!campaignName.includes(codeBracketed)) continue;
         const campaignId = row.campaign_id ?? "";
         const campaignSpend = parseNum(row.spend);
+        const campaignClicks = parseNum(row.inline_link_clicks);
         const dayKey = campaignDayKey(campaignId, campaignName, day);
         const diagKey = campaignDiagKey(campaignId, campaignName);
         const adRowsSpend = adSpendByCampaignDay.get(dayKey) ?? 0;
+        const adRowsLinkClicks = adClicksByCampaignDay.get(dayKey) ?? 0;
         const remainder = Math.max(0, round2(campaignSpend - adRowsSpend));
+        const linkClickRemainder = Math.max(
+          0,
+          Math.round(campaignClicks - adRowsLinkClicks),
+        );
         const isPresaleMatch = isPresaleCampaignName(campaignName);
         const existing =
           campaignDiagnostics.get(diagKey) ??
@@ -2246,6 +2265,9 @@ export async function fetchVenueDailyAdMetrics(
             spend: 0,
             adRowsSpend: 0,
             syntheticRemainder: 0,
+            linkClicks: 0,
+            adRowsLinkClicks: 0,
+            syntheticLinkClicks: 0,
             isPresaleMatch,
             isAllocatedMatch: !isPresaleMatch,
           } satisfies VenueDailyAdCampaignDiagnostics);
@@ -2254,10 +2276,13 @@ export async function fetchVenueDailyAdMetrics(
         existing.syntheticRemainder = round2(
           existing.syntheticRemainder + remainder,
         );
+        existing.linkClicks += campaignClicks;
+        existing.adRowsLinkClicks += adRowsLinkClicks;
+        existing.syntheticLinkClicks += linkClickRemainder;
         campaignDiagnostics.set(diagKey, existing);
         campaignNames.add(campaignName);
 
-        if (remainder > 0.01) {
+        if (remainder > 0.01 || linkClickRemainder > 0) {
           rows.push({
             day,
             adId: `campaign-remainder:${campaignId || campaignName}:${day}`,
@@ -2266,6 +2291,7 @@ export async function fetchVenueDailyAdMetrics(
             campaignName,
             campaignPhase: isPresaleMatch ? "presale" : "onsale",
             spend: remainder,
+            linkClicks: linkClickRemainder,
           });
         }
       }

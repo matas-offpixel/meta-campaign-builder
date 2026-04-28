@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   allocateVenueSpend,
+  integerAllocationsByEvent,
   type AllocatorAd,
   type AllocatorEvent,
 } from "../venue-spend-allocation.ts";
@@ -146,5 +147,41 @@ describe("allocateVenueSpend — edge cases", () => {
     const result = allocateVenueSpend(events, ads);
     const sum = result.perEvent.reduce((a, r) => a + r.allocated, 0);
     assert.ok(Math.abs(sum - 10) < 1e-9, `sum=${sum}`);
+  });
+});
+
+describe("integerAllocationsByEvent", () => {
+  it("rounds allocated click shares while preserving the venue total", () => {
+    const events: AllocatorEvent[] = [
+      { id: "e1", name: "England v A" },
+      { id: "e2", name: "England v B" },
+      { id: "e3", name: "England v C" },
+      { id: "e4", name: "Last 32" },
+    ];
+    const allocations = integerAllocationsByEvent(
+      events,
+      events.map((event) => ({ eventId: event.id, value: 0.75 })),
+      3,
+    );
+
+    assert.equal([...allocations.values()].reduce((sum, n) => sum + n, 0), 3);
+    assert.equal(allocations.get("e4"), 0);
+  });
+
+  it("assigns tiny generic click pools instead of dropping them", () => {
+    const events: AllocatorEvent[] = [
+      { id: "e1", name: "England v A" },
+      { id: "e2", name: "England v B" },
+      { id: "e3", name: "England v C" },
+      { id: "e4", name: "Last 32" },
+    ];
+    const allocations = integerAllocationsByEvent(
+      events,
+      events.map((event) => ({ eventId: event.id, value: 0.25 })),
+      1,
+    );
+
+    assert.equal([...allocations.values()].reduce((sum, n) => sum + n, 0), 1);
+    assert.equal(allocations.get("e4"), 1);
   });
 });

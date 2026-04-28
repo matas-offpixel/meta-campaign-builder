@@ -416,7 +416,7 @@ export function EventTrendChart({
                       aria-hidden="true"
                     />
                     <div
-                      className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-border bg-popover px-2.5 py-2 text-[11px] text-popover-foreground shadow-md"
+                      className="pointer-events-none absolute z-20 min-w-[150px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-card-foreground shadow-lg"
                       style={
                         flipLeft
                           ? {
