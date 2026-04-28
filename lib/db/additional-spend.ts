@@ -10,6 +10,14 @@ import {
 /**
  * CRUD for `additional_spend_entries` (migration 044). Off-Meta spend
  * tracked per event/day for Performance Summary + Daily Tracker.
+ *
+ * Scope (migration 053):
+ *   - `event` — default; pinned to a single `event_id`.
+ *   - `venue` — pivots on `venue_event_code`, rolls up across every
+ *     event under the client that shares the code. `event_id` stays
+ *     non-null (points at any event in the group) so RLS stays
+ *     unchanged; the reporting layer aggregates by
+ *     `(client_id, venue_event_code)` rather than `event_id`.
  */
 
 export type AdditionalSpendCategory =
@@ -18,6 +26,8 @@ export type AdditionalSpendCategory =
   | "PRINT"
   | "RADIO"
   | "OTHER";
+
+export type AdditionalSpendScope = "event" | "venue";
 
 export interface AdditionalSpendEntry {
   id: string;
@@ -30,6 +40,10 @@ export interface AdditionalSpendEntry {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Default `'event'` on rows written pre-migration-053. */
+  scope: AdditionalSpendScope;
+  /** Non-null only when `scope='venue'`. */
+  venue_event_code: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,10 +73,15 @@ export async function listAdditionalSpendForEvent(
   supabase: AnySupabase,
   eventId: string,
 ): Promise<AdditionalSpendEntry[]> {
+  // Per-event surface only shows scope='event' rows. Venue-scope
+  // rows surface on the venue report, not on the individual event
+  // card — filtering here keeps the per-event totals from double-
+  // counting a venue-scope row that also happens to FK to this event.
   const { data, error } = await asAny(supabase)
     .from("additional_spend_entries")
     .select("*")
     .eq("event_id", eventId)
+    .eq("scope", "event")
     .order("date", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) {
@@ -70,6 +89,43 @@ export async function listAdditionalSpendForEvent(
     return [];
   }
   return (data ?? []) as unknown as AdditionalSpendEntry[];
+}
+
+/**
+ * List venue-scope rows under a (client_id, venue_event_code) pair.
+ * Joins through `events` for RLS / ownership — we filter on
+ * `events.client_id` client-side after loading the candidate rows
+ * because Supabase doesn't expose cross-table filtering in one query
+ * without a view. The set is small (handful of rows per venue) so
+ * the extra round-trip is fine.
+ */
+export async function listAdditionalSpendForVenue(
+  supabase: AnySupabase,
+  clientId: string,
+  eventCode: string,
+): Promise<AdditionalSpendEntry[]> {
+  // Fetch every scope='venue' row for this code. `user_id` is enforced
+  // by RLS on the authenticated client; the service-role client will
+  // return everything, which is the correct behaviour for token-
+  // resolved reads.
+  const { data, error } = await asAny(supabase)
+    .from("additional_spend_entries")
+    .select("*, events!inner(client_id)")
+    .eq("scope", "venue")
+    .eq("venue_event_code", eventCode)
+    .eq("events.client_id", clientId)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.warn("[additional-spend list venue]", error.message);
+    return [];
+  }
+  // Strip the joined `events` column from the return shape so callers
+  // see a flat `AdditionalSpendEntry` the same as the per-event list.
+  return (data ?? []).map((r) => {
+    const { events: _events, ...rest } = r as Record<string, unknown>;
+    return rest as unknown as AdditionalSpendEntry;
+  });
 }
 
 /** @deprecated Use sumAdditionalSpendAmounts from additional-spend-sum.ts */
@@ -88,8 +144,17 @@ export async function insertAdditionalSpendEntry(
     category: AdditionalSpendCategory;
     label: string;
     notes: string | null;
+    /**
+     * Defaults to `'event'` when omitted so pre-migration-053 callers
+     * keep the legacy contract. Venue-scope rows must also pass
+     * `venueEventCode` — the DB check constraint enforces the pairing.
+     */
+    scope?: AdditionalSpendScope;
+    venueEventCode?: string | null;
   },
 ): Promise<AdditionalSpendEntry | null> {
+  const scope: AdditionalSpendScope = args.scope ?? "event";
+  const venueEventCode = scope === "venue" ? (args.venueEventCode ?? null) : null;
   const { data, error } = await asAny(supabase)
     .from("additional_spend_entries")
     .insert({
@@ -100,6 +165,8 @@ export async function insertAdditionalSpendEntry(
       category: args.category,
       label: args.label,
       notes: args.notes,
+      scope,
+      venue_event_code: venueEventCode,
     })
     .select("*")
     .single();

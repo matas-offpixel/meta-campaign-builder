@@ -168,10 +168,22 @@ export interface DailyRollupRow {
  * topline sums amounts across the client; category / date / label
  * are only relevant per-event where the share-report page already
  * owns that data.
+ *
+ * Scope (migration 053):
+ *   - `event` rows (the default pre-053) roll up under the `event_id`
+ *     they point to.
+ *   - `venue` rows roll up under `venue_event_code` across every
+ *     event sharing that code. `event_id` is still populated (points
+ *     at any event in the group, used for RLS/ownership) but the
+ *     reporting layer should pivot on `venue_event_code` for venue
+ *     aggregations so a venue row isn't double-counted under both
+ *     the pinned event AND the venue total.
  */
 export interface AdditionalSpendRow {
   event_id: string;
   amount: number;
+  scope: "event" | "venue";
+  venue_event_code: string | null;
 }
 
 /**
@@ -610,18 +622,43 @@ async function loadPortalForClientId(
   // table is user-scoped, not client-scoped, so we filter by
   // event_ids under service role; service role bypasses RLS which
   // is the correct behavior for a token-resolved portal read.
+  //
+  // Scope carried through so downstream aggregators can fork:
+  //   - Per-event total → scope='event' rows for this event_id.
+  //   - Per-venue total → scope='event' rows across the venue's
+  //     events PLUS scope='venue' rows keyed on venue_event_code.
+  //   - Client-wide total → every row (amount sums identically
+  //     regardless of scope; the `venue`-scope rows don't double-
+  //     count because they FK to exactly one event_id inside the
+  //     group, same as event-scope rows).
   let additionalSpend: AdditionalSpendRow[] = [];
   if (eventIds.length > 0) {
     const { data: rows } = await admin
       .from("additional_spend_entries")
-      .select("event_id, amount")
+      .select("event_id, amount, scope, venue_event_code")
       .in("event_id", eventIds);
     if (rows) {
       additionalSpend = rows
-        .map((r) => ({
-          event_id: r.event_id as string,
-          amount: typeof r.amount === "number" ? r.amount : Number(r.amount ?? 0),
-        }))
+        .map((r) => {
+          const row = r as unknown as {
+            event_id: string;
+            amount: number | string | null;
+            scope?: string | null;
+            venue_event_code?: string | null;
+          };
+          const rawScope = row.scope ?? "event";
+          const scope = rawScope === "venue" ? "venue" : "event";
+          return {
+            event_id: row.event_id,
+            amount:
+              typeof row.amount === "number"
+                ? row.amount
+                : Number(row.amount ?? 0),
+            scope,
+            venue_event_code:
+              scope === "venue" ? (row.venue_event_code ?? null) : null,
+          } as AdditionalSpendRow;
+        })
         .filter((r) => Number.isFinite(r.amount));
     }
   }

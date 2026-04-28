@@ -31,6 +31,14 @@ export interface AggregatableEvent {
   capacity: number | null;
   prereg_spend: number | null;
   tickets_sold: number | null;
+  /**
+   * Paid-media budget target for this event (events.budget_marketing).
+   * Optional on the interface so legacy callers that didn't pass it
+   * keep compiling; the aggregator treats absent as `null` (exclude
+   * from the sum). Feeds the client topline's "Total Marketing
+   * Budget" card.
+   */
+  budget_marketing?: number | null;
   latest_snapshot: {
     tickets_sold: number | null;
     revenue: number | null;
@@ -146,6 +154,23 @@ export interface ClientWideTotals {
    */
   totalSpend: number;
   /**
+   * Sum of `events.budget_marketing` across events with a non-null
+   * budget. `null` when every event leaves the column unset so the
+   * UI can render "—" instead of an implied £0 — distinguishes
+   * "budget not configured" from "budget set to £0". Drives the
+   * "Total Marketing Budget" topline card (PR 4).
+   */
+  marketingBudget: number | null;
+  /**
+   * Cumulative marketing cost to-date — paid media (adSpend +
+   * preregSpend) plus every additional-spend row (event- AND
+   * venue-scope). Differs from `totalSpend` only in naming today;
+   * kept as a distinct field so the "Total Marketing Spend" topline
+   * card reads from a clearly-named source even if `totalSpend`'s
+   * semantics later diverge (e.g. excluding prereg).
+   */
+  marketingSpend: number;
+  /**
    * Tickets sold — prefers `latest_snapshot.tickets_sold` then
    * `events.tickets_sold` then 0 per event. Matches the per-card
    * rollup the portal already shows.
@@ -207,6 +232,8 @@ export function aggregateClientWideTotals(
   let capacityAnyNonNull = false;
   let revenue = 0;
   let hasRevenue = false;
+  let budgetMarketing = 0;
+  let budgetAnyNonNull = false;
   const groupKeys = new Set<string>();
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
@@ -215,6 +242,10 @@ export function aggregateClientWideTotals(
     if (ev.capacity != null) {
       capacity += ev.capacity;
       capacityAnyNonNull = true;
+    }
+    if (ev.budget_marketing != null) {
+      budgetMarketing += ev.budget_marketing;
+      budgetAnyNonNull = true;
     }
     const r = ev.latest_snapshot?.revenue;
     if (r != null) {
@@ -226,6 +257,8 @@ export function aggregateClientWideTotals(
   }
 
   const totalSpend = adSpend + additional + prereg;
+  const marketingSpend = totalSpend;
+  const marketingBudget = budgetAnyNonNull ? budgetMarketing : null;
   const ticketRevenue = hasRevenue ? revenue : null;
   const roas =
     ticketRevenue != null && adSpend > 0 ? ticketRevenue / adSpend : null;
@@ -244,6 +277,8 @@ export function aggregateClientWideTotals(
     additionalSpend: additional,
     preregSpend: prereg,
     totalSpend,
+    marketingBudget,
+    marketingSpend,
     ticketsSold,
     ticketRevenue,
     roas,

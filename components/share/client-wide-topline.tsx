@@ -85,9 +85,21 @@ export function ClientWideTopline({ clientName, totals }: Props) {
           </p>
         </div>
       </header>
-      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-5">
-        <Stat label="Total spend" value={formatGBP(totals.totalSpend)} />
+      {/* Stat grid — 7 cards lifetime. Budget + Spend pair leads so
+          operators read "what was planned" before "what was spent".
+          Wraps to 2 rows on narrow viewports (sm:grid-cols-4 → 2×4
+          minus one empty cell, then a short 3-card row). */}
+      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-7">
+        <Stat
+          label="Marketing budget"
+          value={formatGBP(totals.marketingBudget)}
+        />
+        <Stat
+          label="Marketing spend"
+          value={formatGBP(totals.marketingSpend)}
+        />
         <Stat label="Ad spend" value={formatGBP(totals.adSpend)} />
+        <Stat label="Total spend" value={formatGBP(totals.totalSpend)} />
         <Stat label="Tickets sold" value={formatNumber(totals.ticketsSold)} />
         <Stat
           label="Ticket revenue"

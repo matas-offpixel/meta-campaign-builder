@@ -68,6 +68,7 @@ export default async function VenueSharePage({ params }: Props) {
         <VenueFullReport
           token={token}
           clientId={result.client_id}
+          eventCode={result.event_code}
           client={result.client}
           events={result.events}
           dailyEntries={result.dailyEntries}
@@ -76,6 +77,7 @@ export default async function VenueSharePage({ params }: Props) {
           weeklyTicketSnapshots={result.weeklyTicketSnapshots}
           londonOnsaleSpend={result.londonOnsaleSpend}
           londonPresaleSpend={result.londonPresaleSpend}
+          canEdit={result.can_edit}
         />
       </div>
     </main>
