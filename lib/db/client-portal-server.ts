@@ -469,6 +469,8 @@ async function loadPortalForClientId(
 
   const snapshotsByEvent = new Map<string, PortalSnapshot>();
   const historyByEvent = new Map<string, PortalSnapshot[]>();
+  const latestTicketSnapshotByEvent = new Map<string, number>();
+  const previousTicketSnapshotByEvent = new Map<string, number>();
 
   if (eventIds.length > 0) {
     const { data: snapshots } = await admin
@@ -583,6 +585,27 @@ async function loadPortalForClientId(
         });
         byEvent.set(eid, list);
       }
+
+      // Current ticket count source-of-truth: latest
+      // `ticket_sales_snapshots` cumulative value. The legacy
+      // `events.tickets_sold` column is now only a fallback/mirror for
+      // events without API/manual snapshot history. Compute this from
+      // the raw rows, not the dominant-source normalised set below, so
+      // a fresh Eventbrite sync can recover a stale manual/event column.
+      for (const [eid, rowsForEvent] of byEvent) {
+        const ordered = [...rowsForEvent].sort((a, b) => {
+          const byDate = b.snapshot_at.localeCompare(a.snapshot_at);
+          if (byDate !== 0) return byDate;
+          return sourcePriority(b.source) - sourcePriority(a.source);
+        });
+        if (ordered[0]) {
+          latestTicketSnapshotByEvent.set(eid, ordered[0].tickets_sold);
+        }
+        if (ordered[1]) {
+          previousTicketSnapshotByEvent.set(eid, ordered[1].tickets_sold);
+        }
+      }
+
       // Pulled from the thread-neutral collapse module — the
       // server-side resolver re-exports this same helper. Using the
       // pure module keeps the import tree free of `server-only`
@@ -679,6 +702,16 @@ async function loadPortalForClientId(
     weeklyTicketSnapshots,
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
+      const resolvedTicketsSold =
+        latestTicketSnapshotByEvent.get(e.id) ?? e.tickets_sold;
+      const latestClientSnapshot = snapshotsByEvent.get(e.id) ?? null;
+      const latestSnapshot =
+        latestClientSnapshot && latestTicketSnapshotByEvent.has(e.id)
+          ? {
+              ...latestClientSnapshot,
+              tickets_sold: latestTicketSnapshotByEvent.get(e.id) ?? null,
+            }
+          : latestClientSnapshot;
       return {
         id: e.id,
         name: e.name,
@@ -693,13 +726,24 @@ async function loadPortalForClientId(
         meta_campaign_id: e.meta_campaign_id,
         meta_spend_cached: e.meta_spend_cached,
         prereg_spend: e.prereg_spend,
-        tickets_sold: e.tickets_sold,
+        tickets_sold: resolvedTicketsSold,
         // history is newest-first, so index [1] is the previous week's
-        // entry. Null when the client only has one (or zero) updates.
-        tickets_sold_previous: history[1]?.tickets_sold ?? null,
-        latest_snapshot: snapshotsByEvent.get(e.id) ?? null,
+        // entry. Fall back to ticket_sales_snapshots history when the
+        // client-report table has never been used for this event.
+        tickets_sold_previous:
+          history[1]?.tickets_sold ??
+          previousTicketSnapshotByEvent.get(e.id) ??
+          null,
+        latest_snapshot: latestSnapshot,
         history,
       };
     }),
   };
+}
+
+function sourcePriority(source: string): number {
+  if (source === "manual") return 4;
+  if (source === "xlsx_import") return 3;
+  if (source === "foursomething") return 2;
+  return 1;
 }

@@ -71,7 +71,7 @@ export async function PATCH(
 
   const { data: existing, error: lookupErr } = await supabase
     .from("events")
-    .select("id, user_id")
+    .select("id, user_id, client_id")
     .eq("id", id)
     .maybeSingle();
   if (lookupErr) {
@@ -109,7 +109,27 @@ export async function PATCH(
     );
   }
 
-  const patch = buildPatch(body as Record<string, unknown>);
+  const bodyObj = body as Record<string, unknown>;
+  const shouldWriteManualTicketSnapshot =
+    Object.prototype.hasOwnProperty.call(bodyObj, "tickets_sold");
+  let manualTicketsSold: number | null = null;
+  if (shouldWriteManualTicketSnapshot) {
+    const raw = bodyObj.tickets_sold;
+    if (
+      typeof raw !== "number" ||
+      !Number.isFinite(raw) ||
+      raw < 0 ||
+      !Number.isInteger(raw)
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "tickets_sold must be a non-negative integer" },
+        { status: 400 },
+      );
+    }
+    manualTicketsSold = raw;
+  }
+
+  const patch = buildPatch(bodyObj);
   if (Object.keys(patch).length === 0) {
     return NextResponse.json(
       {
@@ -138,6 +158,73 @@ export async function PATCH(
       { ok: false, error: "Update returned no row" },
       { status: 500 },
     );
+  }
+
+  if (shouldWriteManualTicketSnapshot && manualTicketsSold !== null) {
+    const now = new Date();
+    const snapshotAt = now.toISOString().slice(0, 10);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbAny = supabase as any;
+    const { data: existingConnection } = await sbAny
+      .from("client_ticketing_connections")
+      .select("id")
+      .eq("client_id", existing.client_id)
+      .eq("provider", "manual")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    let connectionId: string | null = existingConnection?.id ?? null;
+    if (!connectionId) {
+      const { data: created, error: createErr } = await sbAny
+        .from("client_ticketing_connections")
+        .insert({
+          user_id: user.id,
+          client_id: existing.client_id,
+          provider: "manual",
+          credentials: {},
+          external_account_id: null,
+          status: "active",
+        })
+        .select("id")
+        .maybeSingle();
+      if (createErr || !created) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              createErr?.message ??
+              "Event updated, but failed to create manual ticketing connection",
+          },
+          { status: 500 },
+        );
+      }
+      connectionId = created.id as string;
+    }
+    const { error: snapshotErr } = await sbAny
+      .from("ticket_sales_snapshots")
+      .upsert(
+        {
+          user_id: user.id,
+          event_id: id,
+          connection_id: connectionId,
+          snapshot_at: snapshotAt,
+          tickets_sold: manualTicketsSold,
+          tickets_available: null,
+          gross_revenue_cents: null,
+          currency: null,
+          raw_payload: { source: "manual", entered_by: user.id },
+          source: "manual",
+        },
+        { onConflict: "event_id,snapshot_at,source" },
+      );
+    if (snapshotErr) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Event updated, but failed to write manual ticket snapshot: ${snapshotErr.message}`,
+        },
+        { status: 500 },
+      );
+    }
   }
 
   return NextResponse.json({ ok: true, event: data }, { status: 200 });

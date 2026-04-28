@@ -250,6 +250,17 @@ function formatNumber(n: number | null): string {
   return NUM.format(n);
 }
 
+function formatShortDate(raw: string): string {
+  const d = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return raw;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(d);
+}
+
 function formatChange(n: number): string {
   if (n === 0) return "0";
   return `${n > 0 ? "+" : ""}${NUM.format(n)}`;
@@ -295,11 +306,11 @@ function WoWDeltaInline({
   formatAbs: (n: number) => string;
   positiveIsGood: boolean;
 }) {
-  if (delta.delta == null) return null;
-  // A zero delta is legitimate data (nothing changed) but rendering
-  // "(+0, 0%)" is noise — swallow the parenthetical instead so the
-  // header stays clean on flat weeks.
-  if (delta.delta === 0) return null;
+  if (delta.delta == null) {
+    return (
+      <span className="ml-1 text-[11px] text-muted-foreground">(—)</span>
+    );
+  }
   const up = delta.delta > 0;
   const good = positiveIsGood ? up : !up;
   const colour = good ? "text-emerald-600" : "text-red-600";
@@ -445,20 +456,19 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
       continue;
     }
 
-    // Solo group — each event stands alone. Key off the event id so
-    // the URL hash is still stable across refreshes; display name
-    // falls back to the venue to keep the visual layout familiar
-    // for clients used to the "per-venue" layout.
+    // Solo group — each event stands alone visually, but keep the
+    // event_code as the hash key when present so deep-links remain
+    // stable even if the event's UUID is hidden from the operator.
     const soloKey = `solo::${ev.id}`;
     out.push({
       key: soloKey,
-      expandKey: ev.id,
+      expandKey: ev.event_code ?? ev.id,
       // Solo groups still carry a real event_code when the event has
       // one — lets single-event venues render active creatives via
       // the same `[event_code]` bracket join as grouped ones. Falls
       // through as null when the event legitimately has no code.
       eventCode: ev.event_code,
-      displayName: ev.venue_name ?? ev.name,
+      displayName: ev.name,
       city: ev.venue_city,
       budget: ev.budget_marketing,
       campaignSpend: ev.meta_spend_cached,
@@ -1736,9 +1746,17 @@ function VenueSection({
 }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
   const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
-  const headerLabel = group.city
-    ? `${group.displayName}, ${group.city}`
-    : group.displayName;
+  const soloEvent = group.eventCount === 1 ? group.events[0] : null;
+  const headerLabel = group.displayName;
+  const subtitle = soloEvent
+    ? [
+        soloEvent.venue_name,
+        group.city,
+        soloEvent.event_date ? formatShortDate(soloEvent.event_date) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : `${group.eventCount} events`;
   const bodyId = `venue-${group.expandKey}`;
   // Derive rather than store — when the user collapses a card mid-
   // edit, the inline inputs disappear under the header and the Edit
@@ -1782,9 +1800,15 @@ function VenueSection({
           <h2 className="font-heading text-lg tracking-wide text-foreground">
             {headerLabel}
           </h2>
-          {group.eventCount > 1 && (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {group.eventCount} events
+          {subtitle && (
+            <span
+              className={
+                group.eventCount > 1
+                  ? "rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  : "text-xs text-muted-foreground"
+              }
+            >
+              {subtitle}
             </span>
           )}
           {group.budget !== null && (
