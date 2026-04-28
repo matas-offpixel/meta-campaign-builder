@@ -8,7 +8,6 @@ import type {
   DailyEntry,
   DailyRollupRow,
   PortalEvent,
-  VenueDailyBudgetRow,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import {
@@ -96,8 +95,6 @@ interface Props {
   dailyRollups: DailyRollupRow[];
   /** Additional spend rows across the client, filtered per venue card. */
   additionalSpend: AdditionalSpendRow[];
-  /** Active Meta ad-set daily budgets keyed by venue event_code. */
-  venueDailyBudgets: VenueDailyBudgetRow[];
   /**
    * Weekly ticket snapshots across every event under the client.
    * Pre-collapsed on the server (manual > xlsx_import > eventbrite)
@@ -833,7 +830,6 @@ export function ClientPortalVenueTable({
   dailyEntries,
   dailyRollups,
   additionalSpend,
-  venueDailyBudgets,
   weeklyTicketSnapshots,
   isInternal,
   onSnapshotSaved,
@@ -991,7 +987,6 @@ export function ClientPortalVenueTable({
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
                 dailyRollups={dailyRollups}
                 additionalSpend={additionalSpend}
-                venueDailyBudgets={venueDailyBudgets}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
                 isInternal={isInternal}
@@ -1237,8 +1232,6 @@ interface VenueSectionProps {
   dailyRollups: DailyRollupRow[];
   /** Client-wide additional spend rows; venue card filters by event ids/code. */
   additionalSpend: AdditionalSpendRow[];
-  /** Active Meta ad-set daily budgets keyed by event_code. */
-  venueDailyBudgets: VenueDailyBudgetRow[];
   /**
    * Collapsed-by-default layout surfaces 16+ venue groups in a
    * readable first paint. Header click toggles; state lives on the
@@ -1856,7 +1849,6 @@ function VenueSection({
   weeklyTicketSnapshots,
   dailyRollups,
   additionalSpend,
-  venueDailyBudgets,
   isExpanded,
   onToggle,
   isInternal,
@@ -1868,11 +1860,6 @@ function VenueSection({
     () => displayVenueSpend(group, spend, totals),
     [group, spend, totals],
   );
-  const venueDailyBudget =
-    group.eventCode != null
-      ? (venueDailyBudgets.find((r) => r.event_code === group.eventCode)
-          ?.daily_budget ?? null)
-      : null;
   const campaignPerformance = useMemo(
     () =>
       aggregateVenueCampaignPerformance(
@@ -1881,15 +1868,8 @@ function VenueSection({
         dailyRollups,
         undefined,
         venueDisplaySpend,
-        venueDailyBudget,
       ),
-    [
-      group.events,
-      additionalSpend,
-      dailyRollups,
-      venueDisplaySpend,
-      venueDailyBudget,
-    ],
+    [group.events, additionalSpend, dailyRollups, venueDisplaySpend],
   );
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
   const headerLabel =
@@ -2138,7 +2118,12 @@ function VenueSection({
         )}
 
       {isExpanded && (
-        <VenueCampaignPerformanceCards performance={campaignPerformance} />
+        <VenueCampaignPerformanceCards
+          performance={campaignPerformance}
+          clientId={clientId}
+          eventCode={group.eventCode}
+          shareToken={isInternal ? "" : token}
+        />
       )}
 
       {isExpanded && (
@@ -2306,8 +2291,14 @@ function VenueSection({
 
 function VenueCampaignPerformanceCards({
   performance,
+  clientId,
+  eventCode,
+  shareToken,
 }: {
   performance: VenueCampaignPerformance;
+  clientId: string;
+  eventCode: string | null;
+  shareToken: string;
 }) {
   return (
     <section className="border-b border-border bg-background/60 px-4 py-4">
@@ -2394,9 +2385,11 @@ function VenueCampaignPerformanceCards({
             </p>
             <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-muted-foreground">
               <span>Daily budget:</span>
-              <span className="font-heading text-xl tracking-wide text-foreground tabular-nums">
-                {formatGBP(performance.dailyBudget)}
-              </span>
+              <LazyVenueDailyBudget
+                clientId={clientId}
+                eventCode={eventCode}
+                shareToken={shareToken}
+              />
             </p>
           </div>
         </div>
@@ -2450,6 +2443,84 @@ function VenueCampaignPerformanceCards({
       </div>
     </section>
   );
+}
+
+function LazyVenueDailyBudget({
+  clientId,
+  eventCode,
+  shareToken,
+}: {
+  clientId: string;
+  eventCode: string | null;
+  shareToken: string;
+}) {
+  const [state, setState] = useState<
+    | { kind: "loading" }
+    | { kind: "ready"; dailyBudget: number | null }
+    | { kind: "error" }
+  >({ kind: "loading" });
+
+  useEffect(() => {
+    if (!eventCode) {
+      setState({ kind: "ready", dailyBudget: null });
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setState({ kind: "loading" });
+      try {
+        const qs = new URLSearchParams();
+        if (shareToken) qs.set("client_token", shareToken);
+        const res = await fetch(
+          `/api/clients/${encodeURIComponent(clientId)}/venues/${encodeURIComponent(eventCode)}/daily-budget${
+            qs.size > 0 ? `?${qs.toString()}` : ""
+          }`,
+        );
+        const json = (await res.json()) as {
+          dailyBudget?: number | null;
+        };
+        if (!res.ok) throw new Error("Daily budget unavailable");
+        if (!cancelled) {
+          setState({ kind: "ready", dailyBudget: json.dailyBudget ?? null });
+        }
+      } catch {
+        if (!cancelled) setState({ kind: "error" });
+      }
+    };
+    const timer = window.setTimeout(() => {
+      void load();
+    }, dailyBudgetFetchDelayMs(eventCode));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [clientId, eventCode, shareToken]);
+
+  if (state.kind === "loading") {
+    return (
+      <span className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums">
+        ...
+      </span>
+    );
+  }
+  if (state.kind === "error") {
+    return (
+      <span className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums">
+        —
+      </span>
+    );
+  }
+  return (
+    <span className="font-heading text-xl tracking-wide text-foreground tabular-nums">
+      {formatGBP(state.dailyBudget)}
+    </span>
+  );
+}
+
+function dailyBudgetFetchDelayMs(eventCode: string): number {
+  let hash = 0;
+  for (const ch of eventCode) hash = (hash * 31 + ch.charCodeAt(0)) % 8000;
+  return hash;
 }
 
 interface EventRowProps {
