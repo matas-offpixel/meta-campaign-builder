@@ -1,7 +1,5 @@
-import "server-only";
-
-import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "@/lib/tiktok/client";
-import { campaignNameMatchesEventCode } from "@/lib/tiktok/matching";
+import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
+import { campaignNameMatchesEventCode } from "./matching.ts";
 
 interface TikTokIntegratedRow {
   dimensions?: Record<string, string | undefined>;
@@ -57,6 +55,7 @@ const METRICS = [
 const DIMENSIONS = ["campaign_id", "stat_time_day"];
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
+const MAX_WINDOW_DAYS = 30;
 
 /**
  * TikTok analogue of Meta's `fetchEventDailyMetaMetrics`: read daily
@@ -82,43 +81,45 @@ export async function fetchTikTokDailyRollupInsights(
   }> = [];
   const campaignIds = new Set<string>();
 
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const res = await request<TikTokIntegratedResponse>(
-      "/report/integrated/get/",
-      {
-        advertiser_id: input.advertiserId,
-        report_type: "BASIC",
-        data_level: "AUCTION_CAMPAIGN",
-        dimensions: DIMENSIONS,
-        metrics: METRICS,
-        start_date: input.since,
-        end_date: input.until,
-        page,
-        page_size: PAGE_SIZE,
-      },
-      input.token,
-    );
+  for (const window of buildDateWindows(input.since, input.until)) {
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const res = await request<TikTokIntegratedResponse>(
+        "/report/integrated/get/",
+        {
+          advertiser_id: input.advertiserId,
+          report_type: "BASIC",
+          data_level: "AUCTION_CAMPAIGN",
+          dimensions: DIMENSIONS,
+          metrics: METRICS,
+          start_date: window.since,
+          end_date: window.until,
+          page,
+          page_size: PAGE_SIZE,
+        },
+        input.token,
+      );
 
-    for (const row of res.list ?? []) {
-      const dims = row.dimensions ?? {};
-      const campaignId = dims.campaign_id;
-      const date = dims.stat_time_day;
-      if (!campaignId || !date) continue;
-      campaignIds.add(campaignId);
-      const metrics = row.metrics ?? {};
-      rawRows.push({
-        campaignId,
-        date: date.slice(0, 10),
-        spend: numberMetric(metrics.spend),
-        impressions: numberMetric(metrics.impressions),
-        clicks: numberMetric(metrics.clicks),
-        videoViews: numberMetric(metrics.video_views_p100),
-        results: numberMetric(metrics.video_play_actions),
-      });
+      for (const row of res.list ?? []) {
+        const dims = row.dimensions ?? {};
+        const campaignId = dims.campaign_id;
+        const date = dims.stat_time_day;
+        if (!campaignId || !date) continue;
+        campaignIds.add(campaignId);
+        const metrics = row.metrics ?? {};
+        rawRows.push({
+          campaignId,
+          date: date.slice(0, 10),
+          spend: numberMetric(metrics.spend),
+          impressions: numberMetric(metrics.impressions),
+          clicks: numberMetric(metrics.clicks),
+          videoViews: numberMetric(metrics.video_views_p100),
+          results: numberMetric(metrics.video_play_actions),
+        });
+      }
+
+      const pageInfo = res.page_info;
+      if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
     }
-
-    const pageInfo = res.page_info;
-    if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
   }
 
   if (rawRows.length === 0) return [];
@@ -196,6 +197,45 @@ function numberMetric(value: string | number | null | undefined): number {
   if (typeof value !== "string") return 0;
   const parsed = Number.parseFloat(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildDateWindows(
+  since: string,
+  until: string,
+): Array<{ since: string; until: string }> {
+  const windows: Array<{ since: string; until: string }> = [];
+  let cursor = parseYmdUtc(since);
+  const end = parseYmdUtc(until);
+
+  while (cursor.getTime() <= end.getTime()) {
+    const windowEnd = minDate(addDaysUtc(cursor, MAX_WINDOW_DAYS - 1), end);
+    windows.push({ since: formatYmdUtc(cursor), until: formatYmdUtc(windowEnd) });
+    cursor = addDaysUtc(windowEnd, 1);
+  }
+
+  return windows;
+}
+
+function parseYmdUtc(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    throw new Error(`Invalid YYYY-MM-DD date: ${value}`);
+  }
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function addDaysUtc(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function minDate(a: Date, b: Date): Date {
+  return a.getTime() <= b.getTime() ? a : b;
+}
+
+function formatYmdUtc(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 function round2(n: number): number {
