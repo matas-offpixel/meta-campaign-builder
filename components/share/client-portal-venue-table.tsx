@@ -1911,7 +1911,7 @@ function VenueSection({
 
   return (
     <section className="rounded-md border border-border bg-card shadow-sm">
-      <header className="flex min-h-[56px] flex-nowrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <header className="flex min-h-[56px] min-w-0 flex-nowrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
@@ -1920,7 +1920,7 @@ function VenueSection({
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <span
-            className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center self-center rounded text-muted-foreground transition-transform hover:bg-muted hover:text-foreground"
+            className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center self-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-hidden="true"
           >
             {isExpanded ? (
@@ -1988,7 +1988,7 @@ function VenueSection({
               className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
               onClick={(e) => e.stopPropagation()}
             >
-              <span className="tabular-nums">
+              <span className="flex-shrink-0 tabular-nums">
                 Tickets:{" "}
                 <VenueTicketsClickEdit
                   events={group.events}
@@ -1998,14 +1998,16 @@ function VenueSection({
                   onSnapshotSaved={onSnapshotSaved}
                   displayValue={formatNumber(totals.tickets)}
                 />
-                <WoWDeltaInline
-                  delta={wow.tickets}
-                  formatAbs={(v) => formatSignedNumber(v)}
-                  // Tickets moving up is good news; colour that green.
-                  positiveIsGood
-                />
+                <span className="hidden xl:inline">
+                  <WoWDeltaInline
+                    delta={wow.tickets}
+                    formatAbs={(v) => formatSignedNumber(v)}
+                    // Tickets moving up is good news; colour that green.
+                    positiveIsGood
+                  />
+                </span>
                 {campaignPerformance.capacity !== null ? (
-                  <span className="hidden text-muted-foreground 2xl:inline">
+                  <span className="hidden text-muted-foreground xl:inline">
                     {" "}
                     ({formatNumber(campaignPerformance.ticketsSold)}/
                     {formatNumber(campaignPerformance.capacity)},{" "}
@@ -2013,23 +2015,34 @@ function VenueSection({
                   </span>
                 ) : null}
               </span>
-              <span className="text-muted-foreground/60" aria-hidden="true">·</span>
-              <span className="tabular-nums">
+              <span className="flex-shrink-0 text-muted-foreground/60" aria-hidden="true">·</span>
+              <span className="flex-shrink-0 tabular-nums">
                 CPT:{" "}
                 <span className="font-semibold text-foreground">
                   {formatGBP(campaignPerformance.costPerTicket, 2)}
                 </span>
-                <WoWDeltaInline
-                  delta={wow.cpt}
-                  formatAbs={(v) => formatSignedGBP(v, 2)}
-                  // CPT moving down (cheaper) is good news; invert
-                  // the colour so negative-delta reads green.
-                  positiveIsGood={false}
-                />
+                <span className="hidden xl:inline">
+                  <WoWDeltaInline
+                    delta={wow.cpt}
+                    formatAbs={(v) => formatSignedGBP(v, 2)}
+                    // CPT moving down (cheaper) is good news; invert
+                    // the colour so negative-delta reads green.
+                    positiveIsGood={false}
+                  />
+                </span>
               </span>
-              <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+              <span className="flex-shrink-0 text-muted-foreground/60" aria-hidden="true">·</span>
+              <span className="flex-shrink-0 tabular-nums">
+                Pacing:{" "}
+                <span className="font-semibold text-foreground">
+                  {campaignPerformance.pacingTicketsPerDay !== null
+                    ? `${formatNumber(campaignPerformance.pacingTicketsPerDay)}/day`
+                    : "—"}
+                </span>
+              </span>
+              <span className="hidden flex-shrink-0 text-muted-foreground/60 2xl:inline" aria-hidden="true">·</span>
               <span
-                className={`hidden tabular-nums 2xl:inline ${roasClass(totals.roas)}`}
+                className={`hidden flex-shrink-0 tabular-nums 2xl:inline ${roasClass(totals.roas)}`}
               >
                 ROAS: {formatRoas(totals.roas)}
                 <WoWDeltaInline
@@ -2037,22 +2050,6 @@ function VenueSection({
                   formatAbs={(v) => formatSignedRoas(v)}
                   positiveIsGood
                 />
-              </span>
-              <span className="hidden text-muted-foreground/60 2xl:inline" aria-hidden="true">·</span>
-              <span
-                className="hidden max-w-[8rem] truncate tabular-nums xl:inline-block"
-                title={`Pacing: ${
-                  campaignPerformance.pacingTicketsPerDay !== null
-                    ? `${formatNumber(campaignPerformance.pacingTicketsPerDay)}/day`
-                    : "—"
-                }`}
-              >
-                Pacing:{" "}
-                <span className="font-semibold text-foreground">
-                  {campaignPerformance.pacingTicketsPerDay !== null
-                    ? `${formatNumber(campaignPerformance.pacingTicketsPerDay)}/day`
-                    : "—"}
-                </span>
               </span>
             </span>
           )}

@@ -409,6 +409,28 @@ describe("aggregateVenueCampaignPerformance", () => {
     assert.equal(t.pacingSpendPerDay, 250);
   });
 
+  it("normalizes timestamp-shaped event_date values before pacing comparison", () => {
+    const t = aggregateVenueCampaignPerformance(
+      [
+        ev({
+          id: "future-timestamp",
+          event_code: "WC26-MANCHESTER",
+          event_date: "2026-06-27T00:00:00+00:00",
+          budget_marketing: 16000,
+          capacity: 16000,
+          latest_snapshot: { tickets_sold: 878, revenue: null },
+        }),
+      ],
+      [],
+      [rollup("future-timestamp", 1000)],
+      TODAY,
+      1000,
+    );
+
+    assert.equal(t.earliestEventDate, "2026-06-27");
+    assert.equal(t.pacingTicketsPerDay, 252);
+  });
+
   it("returns null pacing when every venue event date is in the past", () => {
     const t = aggregateVenueCampaignPerformance(
       [
