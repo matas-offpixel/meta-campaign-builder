@@ -4,6 +4,13 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 
+import {
+  extractErrorMessage,
+  isSyncSuccessful,
+  safeJson,
+  type SyncResponseBody,
+} from "@/lib/dashboard/sync-button-helpers";
+
 /**
  * Per-venue Sync Now button rendered on the internal dashboard
  * surface (`/clients/[id]/dashboard`). Triggers a parallel
@@ -36,6 +43,13 @@ import { Loader2, RefreshCw } from "lucide-react";
  *   re-executes `loadClientPortalByClientId` and flows the fresh
  *   rollup rows back through props. No local cache invalidation
  *   needed — the server-side load is the source of truth.
+ *
+ * Compact variant (`size="compact"`):
+ *   Per-event sync button used inline in the expanded venue card's
+ *   Admin row. Same fan-out logic but with an icon-only trigger
+ *   (tooltip-labelled for accessibility) and no detached status
+ *   line — the status pill collapses into the button tail so the
+ *   button sits naturally inline with the event name.
  */
 interface Props {
   /** Every event in the venue group — the Sync Now button fires one
@@ -45,6 +59,20 @@ interface Props {
    *  "Syncing…". Kept as a prop so callers with space-constrained
    *  surfaces (small cards) can override with their own wording. */
   pendingLabel?: string;
+  /**
+   * `default` renders the standard venue button with an adjacent
+   * status line. `compact` renders an icon-only button sized for
+   * inline use next to an event name; the status collapses into
+   * the button tail ("✓" / "!") so it stays on a single line.
+   */
+  size?: "default" | "compact";
+  /**
+   * Optional override for the compact variant's ARIA label /
+   * tooltip. Useful when the button is embedded next to an event
+   * name so screen readers announce "Sync England v Croatia" rather
+   * than the generic "Sync now".
+   */
+  ariaLabel?: string;
 }
 
 type Status =
@@ -53,78 +81,12 @@ type Status =
   | { kind: "done"; total: number; ok: number; firstError: string | null }
   | { kind: "fatal"; message: string };
 
-/**
- * Subset of `SyncSummary` from the server — only the fields the
- * button needs to surface. Kept local rather than imported so the
- * client bundle stays free of the server types (SyncSummary carries
- * allocator shapes + diagnostics we don't want to ship to the
- * browser).
- */
-interface SyncResponseBody {
-  ok?: boolean;
-  error?: string;
-  summary?: {
-    synced?: boolean;
-    metaOk?: boolean;
-    metaError?: string | null;
-    metaReason?: string | null;
-    metaRowsUpserted?: number;
-    eventbriteOk?: boolean;
-    eventbriteError?: string | null;
-    eventbriteReason?: string | null;
-    eventbriteRowsUpserted?: number;
-    allocatorOk?: boolean | null;
-    allocatorError?: string | null;
-    allocatorReason?: string | null;
-    allocatorClassErrors?: number;
-    rowsUpserted?: number;
-  };
-}
-
-/**
- * Robust JSON parser — same pattern as PR #113's
- * `additional-spend-card.tsx` helper. Distinguishes empty bodies
- * (unexpected) and HTML auth redirects (middleware bounced us to
- * /login — surfaces the DOCTYPE clipping so operators can see
- * "session expired" without opening devtools) from real JSON.
- */
-async function safeJson<T = unknown>(res: Response): Promise<T> {
-  const text = await res.text();
-  if (!text.trim()) {
-    throw new Error(`HTTP ${res.status}: empty response body`);
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(
-      `HTTP ${res.status}: non-JSON response — ${text.slice(0, 160)}`,
-    );
-  }
-}
-
-/**
- * Pick the most actionable error string out of a rollup-sync
- * response body. Precedence walks from the primary leg (Meta)
- * outwards; allocator errors land last because they're never
- * fatal to the overall sync and would otherwise mask a real
- * leg failure.
- */
-function extractErrorMessage(body: SyncResponseBody): string {
-  const s = body.summary;
-  if (s) {
-    if (s.metaError) return `Meta: ${s.metaError}`;
-    if (s.eventbriteError && s.eventbriteReason !== "not_linked") {
-      return `Eventbrite: ${s.eventbriteError}`;
-    }
-    if (s.allocatorError) return `Allocator: ${s.allocatorError}`;
-  }
-  if (typeof body.error === "string" && body.error.length > 0) {
-    return body.error;
-  }
-  return "Sync failed (no error detail reported)";
-}
-
-export function VenueSyncButton({ eventIds, pendingLabel = "Syncing…" }: Props) {
+export function VenueSyncButton({
+  eventIds,
+  pendingLabel = "Syncing…",
+  size = "default",
+  ariaLabel,
+}: Props) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
@@ -138,10 +100,6 @@ export function VenueSyncButton({ eventIds, pendingLabel = "Syncing…" }: Props
     );
     const t0 = performance.now();
 
-    // Promise.allSettled so one failed event doesn't cancel the
-    // others — per-event POST failures are expected (rate-limited
-    // account, missing event_code, etc.) and we want the rest of the
-    // venue's events to still sync.
     const results = await Promise.allSettled(
       eventIds.map(async (id) => {
         const url = `/api/ticketing/rollup-sync?eventId=${encodeURIComponent(id)}`;
@@ -180,16 +138,7 @@ export function VenueSyncButton({ eventIds, pendingLabel = "Syncing…" }: Props
         if (!r.ok && r.status !== 207) {
           throw new Error(extractErrorMessage(body) + ` (HTTP ${r.status})`);
         }
-        // The runner now exposes `summary.synced` as the semantic
-        // success signal. Fall back to the legacy strict `ok`
-        // for servers running pre-#121 code — they'll report the
-        // old false-positive but at least the new chip still
-        // shows a meaningful error string.
-        const successful =
-          typeof body.summary?.synced === "boolean"
-            ? body.summary.synced
-            : body.ok !== false;
-        if (!successful) {
+        if (!isSyncSuccessful(body)) {
           throw new Error(extractErrorMessage(body));
         }
         return body;
@@ -225,6 +174,60 @@ export function VenueSyncButton({ eventIds, pendingLabel = "Syncing…" }: Props
   }, [eventIds, router, status.kind]);
 
   const disabled = status.kind === "pending" || eventIds.length === 0;
+
+  if (size === "compact") {
+    // Compact variant: icon-only, inline-friendly, status collapses
+    // into the button tail so the "Admin" row stays on one line.
+    const label = ariaLabel ?? "Sync this event";
+    const tail = (() => {
+      if (status.kind === "done") {
+        const failed = status.total - status.ok;
+        if (failed === 0) {
+          return (
+            <span
+              className="ml-1 text-emerald-600"
+              title={status.ok === 1 ? "Synced" : `${status.ok} synced`}
+            >
+              ✓
+            </span>
+          );
+        }
+        return (
+          <span
+            className="ml-1 text-amber-600"
+            title={status.firstError ?? `${failed} failed`}
+          >
+            !
+          </span>
+        );
+      }
+      if (status.kind === "fatal") {
+        return (
+          <span className="ml-1 text-red-600" title={status.message}>
+            !
+          </span>
+        );
+      }
+      return null;
+    })();
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        title={label}
+        className="inline-flex items-center rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {status.kind === "pending" ? (
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        ) : (
+          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+        )}
+        {tail}
+      </button>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2">

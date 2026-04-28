@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientPortal } from "@/components/share/client-portal";
+import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 
@@ -52,19 +53,24 @@ export default async function ClientDashboardPage({ params }: Props) {
   const result = await loadClientPortalByClientId(id);
   if (!result.ok) notFound();
 
+  const allEventIds = result.events.map((e) => e.id);
+
   return (
     <>
       <PageHeader
         title={`${result.client.name} · Client dashboard`}
         description="Cross-event performance rollup for every venue under this client."
         actions={
-          <Link
-            href={`/clients/${id}`}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="h-3 w-3" />
-            Back to client
-          </Link>
+          <div className="flex items-center gap-4">
+            <ClientSyncAllButton eventIds={allEventIds} />
+            <Link
+              href={`/clients/${id}`}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Back to client
+            </Link>
+          </div>
         }
       />
       <nav
