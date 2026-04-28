@@ -305,6 +305,106 @@ export async function loadClientPortalByClientId(
   return loadPortalForClientId(clientId);
 }
 
+/**
+ * Result type for `loadVenuePortalByToken`. Extends `ClientPortalData`'s
+ * success variant with the resolved `event_code` + `client_id` so the
+ * public venue page can thread them down into the share controls without
+ * re-parsing the token.
+ */
+export type VenuePortalData =
+  | ({
+      ok: true;
+      event_code: string;
+      client_id: string;
+      /** True when the resolved token grants additional-spend CRUD. */
+      can_edit: boolean;
+    } & Omit<
+      Extract<ClientPortalData, { ok: true }>,
+      "ok"
+    >)
+  | { ok: false; reason: "not_found" | "events_load_failed" };
+
+/**
+ * Resolve a `scope='venue'` share token and return the portal payload
+ * pre-filtered down to the single `event_code` the token pins. Used by
+ * `/share/venue/[token]` to render the public venue report without
+ * exposing sibling venues under the same client.
+ *
+ * Failure modes collapse to `not_found`:
+ *   - Token missing / disabled / expired / malformed.
+ *   - Token resolves but scope !== 'venue'.
+ *   - Token resolves but no events match (event_code renamed / deleted
+ *     after mint). Rare but worth the explicit guard.
+ *
+ * `bumpView=true` increments the share view counter best-effort — the
+ * counter write never blocks the render on failure.
+ */
+export async function loadVenuePortalByToken(
+  token: string,
+  options?: { bumpView?: boolean },
+): Promise<VenuePortalData> {
+  if (!token || token.length > 64) {
+    return { ok: false, reason: "not_found" };
+  }
+  const admin = createServiceRoleClient();
+
+  const resolved = await resolveShareByToken(token, admin);
+  if (!resolved.ok || resolved.share.scope !== "venue") {
+    return { ok: false, reason: "not_found" };
+  }
+  const share = resolved.share;
+
+  if (options?.bumpView) {
+    void bumpShareView(token, admin);
+  }
+
+  const portal = await loadPortalForClientId(share.client_id);
+  if (!portal.ok) {
+    return {
+      ok: false,
+      reason: portal.reason === "events_load_failed" ? "events_load_failed" : "not_found",
+    };
+  }
+
+  // Filter every array payload down to the venue scope. `event_code` is
+  // the canonical pivot; events, rollups, snapshots, tracker entries
+  // all FK through event_id so a single id-set narrows the rest.
+  const venueEvents = portal.events.filter(
+    (e) => e.event_code === share.event_code,
+  );
+  if (venueEvents.length === 0) {
+    return { ok: false, reason: "not_found" };
+  }
+  const eventIdSet = new Set(venueEvents.map((e) => e.id));
+  const venueDailyEntries = portal.dailyEntries.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
+  const venueDailyRollups = portal.dailyRollups.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
+  const venueAdditionalSpend = portal.additionalSpend.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
+  const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
+
+  return {
+    ok: true,
+    event_code: share.event_code,
+    client_id: share.client_id,
+    can_edit: share.can_edit,
+    client: portal.client,
+    events: venueEvents,
+    londonOnsaleSpend: portal.londonOnsaleSpend,
+    londonPresaleSpend: portal.londonPresaleSpend,
+    dailyEntries: venueDailyEntries,
+    dailyRollups: venueDailyRollups,
+    additionalSpend: venueAdditionalSpend,
+    weeklyTicketSnapshots: venueWeeklyTicketSnapshots,
+  };
+}
+
 async function loadPortalForClientId(
   clientId: string,
 ): Promise<ClientPortalData> {

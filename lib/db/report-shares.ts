@@ -130,6 +130,79 @@ export async function getShareForClient(
 }
 
 /**
+ * Fetch the venue-scoped share row for a (client_id, event_code) pair
+ * owned by the current user. Returns null when no share exists yet —
+ * the "Share venue" CTA on the internal venue report mints one on
+ * first click.
+ *
+ * Mirror of `getShareForEvent` / `getShareForClient` for the third
+ * scope introduced by migration 052.
+ */
+export async function getShareForVenue(
+  clientId: string,
+  eventCode: string,
+): Promise<ReportShareRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("report_shares")
+    .select("*")
+    .eq("scope", "venue")
+    .eq("client_id", clientId)
+    .eq("event_code", eventCode)
+    .eq("enabled", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[report-shares getShareForVenue] error:", error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+/**
+ * Mint a fresh venue-scoped share row. Defaults to can_edit=true so
+ * the public venue URL inherits the same "client-editable" posture
+ * as the per-event + client-wide shares — PR 4 builds on top of this
+ * to gate additional-spend mutations behind the flag.
+ */
+export async function mintVenueShare(input: {
+  clientId: string;
+  eventCode: string;
+  userId: string;
+  expiresAt?: string | null;
+  canEdit?: boolean;
+}): Promise<ReportShareRow> {
+  const supabase = await createClient();
+  const token = generateShareToken();
+  const canEdit = input.canEdit !== false;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = supabase as any;
+  const { data, error } = await admin
+    .from("report_shares")
+    .insert({
+      token,
+      scope: "venue",
+      client_id: input.clientId,
+      event_id: null,
+      event_code: input.eventCode,
+      can_edit: canEdit,
+      user_id: input.userId,
+      enabled: true,
+      expires_at: input.expiresAt ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("[report-shares mintVenueShare] error:", error.message);
+    throw error;
+  }
+  return data as ReportShareRow;
+}
+
+/**
  * Mint a fresh client-scoped share row. The token grants edit access
  * (can_edit=true) so the public portal can capture tickets-sold
  * snapshots back into client_report_weekly_snapshots.
@@ -336,13 +409,36 @@ export type ClientScopedShare = ResolvedShareBase & {
 };
 
 /**
+ * Venue-scoped share row (introduced by migration 052). Carries a
+ * `client_id` + `event_code` pair; resolves at render time to every
+ * event under `(client_id, event_code)`. Distinct from
+ * `scope='event'` (which targets one event) and `scope='client'`
+ * (which targets the whole client roll-up).
+ *
+ * The venue share page filters the underlying `client-portal-server`
+ * payload by `event_code`, so the arithmetic is identical to the
+ * expanded venue card on the client dashboard — same WoW deltas,
+ * same allocator columns, same creatives strip.
+ */
+export type VenueScopedShare = ResolvedShareBase & {
+  scope: "venue";
+  event_id: null;
+  client_id: string;
+  event_code: string;
+};
+
+/**
  * Discriminated union of every valid resolved share. Switch on
  * `share.scope` (or use the `isEventScopedShare` / `isClientScopedShare`
- * guards) to narrow to the right variant. Replaces the previous loose
- * shape that had `event_id: string | null` regardless of scope, which
- * required every call site to manually re-check for null.
+ * / `isVenueScopedShare` guards) to narrow to the right variant.
+ * Replaces the previous loose shape that had `event_id: string | null`
+ * regardless of scope, which required every call site to manually
+ * re-check for null.
  */
-export type ResolvedShare = EventScopedShare | ClientScopedShare;
+export type ResolvedShare =
+  | EventScopedShare
+  | ClientScopedShare
+  | VenueScopedShare;
 
 /**
  * Type guard for the event-scope variant. Use when a call site wants to
@@ -363,6 +459,17 @@ export function isClientScopedShare(
   share: ResolvedShare,
 ): share is ClientScopedShare {
   return share.scope === "client";
+}
+
+/**
+ * Type guard for the venue-scope variant. Used by
+ * `/share/venue/[token]` + its associated API routes to reject
+ * tokens that resolve to a non-venue scope.
+ */
+export function isVenueScopedShare(
+  share: ResolvedShare,
+): share is VenueScopedShare {
+  return share.scope === "venue";
 }
 
 /**
@@ -406,7 +513,10 @@ export async function resolveShareByToken(
   const { data, error } = await supabase
     .from("report_shares")
     .select(
-      "token, event_id, client_id, scope, can_edit, user_id, enabled, expires_at, view_count, last_viewed_at, created_at",
+      // `event_code` is populated only for scope='venue'; we still
+      // select it unconditionally so the discriminated union can be
+      // assembled without a second round-trip.
+      "token, event_id, client_id, event_code, scope, can_edit, user_id, enabled, expires_at, view_count, last_viewed_at, created_at",
     )
     .eq("token", token)
     .maybeSingle();
@@ -468,6 +578,28 @@ export async function resolveShareByToken(
       scope: "client",
       event_id: null,
       client_id: data.client_id,
+    };
+    return { ok: true, share };
+  }
+
+  if (data.scope === "venue") {
+    // `event_code` could be null if migration 052 didn't run or a
+    // manual SQL edit slipped a malformed row in; the DB's check
+    // constraint normally prevents this, but the guard is cheap.
+    const anyData = data as unknown as { event_code?: string | null };
+    const eventCode = anyData.event_code ?? null;
+    if (!data.client_id || !eventCode) {
+      console.warn(
+        `[report-shares resolveShareByToken] malformed venue-scope share (token=${token}): client_id=${data.client_id} event_code=${eventCode}`,
+      );
+      return { ok: false, reason: "malformed" };
+    }
+    const share: VenueScopedShare = {
+      ...base,
+      scope: "venue",
+      event_id: null,
+      client_id: data.client_id,
+      event_code: eventCode,
     };
     return { ok: true, share };
   }

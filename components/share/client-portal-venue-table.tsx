@@ -101,6 +101,17 @@ interface Props {
   /** Exposes admin-only controls per row when true. */
   isInternal: boolean;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
+  /**
+   * When true, every venue group renders as if the operator had
+   * opened its expand/collapse header — overrides both the default
+   * (collapsed) and any URL-hash state. Powers the "full venue
+   * report" surface at `/clients/[id]/venues/[event_code]` and
+   * `/share/venue/[token]` where the venue IS the page, so there's
+   * nothing to collapse to. Defaults to false; the client portal
+   * and the internal client dashboard continue to honour the hash-
+   * driven toggle the operator interacts with.
+   */
+  forceExpandAll?: boolean;
 }
 
 /**
@@ -785,6 +796,7 @@ export function ClientPortalVenueTable({
   weeklyTicketSnapshots,
   isInternal,
   onSnapshotSaved,
+  forceExpandAll = false,
 }: Props) {
   const venues = useMemo(() => groupByEventCodeAndDate(events), [events]);
   const regions = useMemo(() => partitionByRegion(venues), [venues]);
@@ -859,7 +871,21 @@ export function ClientPortalVenueTable({
   // to expansion is the new contract. An empty default collection is
   // intentionally re-used rather than a fresh `new Set()` per render
   // so the `expanded` identity is stable for memoised children.
-  const expanded = hashOverride ?? EMPTY_EXPAND_SET;
+  //
+  // When `forceExpandAll` is on (full-venue-report usage), the set
+  // is recomputed from the venue list rather than honoured from the
+  // hash — there's no collapse affordance on that surface, so any
+  // toggle attempt is absorbed by `toggleGroup` returning to the
+  // all-expanded set.
+  const forcedExpanded = useMemo(
+    () =>
+      forceExpandAll
+        ? new Set(venues.map((v) => v.expandKey))
+        : null,
+    [forceExpandAll, venues],
+  );
+  const expanded =
+    forcedExpanded ?? hashOverride ?? EMPTY_EXPAND_SET;
 
   const toggleGroup = useCallback(
     (expandKey: string) => {
