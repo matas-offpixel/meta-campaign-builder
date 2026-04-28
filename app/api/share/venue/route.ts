@@ -37,6 +37,10 @@ interface PatchBody {
   enabled?: unknown;
 }
 
+type VenueShareClient =
+  | Awaited<ReturnType<typeof createClient>>
+  | ReturnType<typeof createServiceRoleClient>;
+
 function isUuid(v: unknown): v is string {
   return (
     typeof v === "string" &&
@@ -90,6 +94,7 @@ export async function POST(req: NextRequest) {
   const eventCode = body.event_code.trim();
 
   let shareUserId: string;
+  let writeClient: VenueShareClient = supabase;
   if (!user && isToken(body.client_token)) {
     const admin = createServiceRoleClient();
     const resolved = await resolveShareByToken(body.client_token, admin);
@@ -104,6 +109,10 @@ export async function POST(req: NextRequest) {
       );
     }
     shareUserId = resolved.share.user_id;
+    // Public client-portal clicks are authorised by the client share
+    // token, not a browser session. Use service role after that token
+    // check so RLS does not block the venue lookup or insert.
+    writeClient = admin;
   } else {
     if (!user) {
       return NextResponse.json(
@@ -130,13 +139,24 @@ export async function POST(req: NextRequest) {
       );
     }
   }
-  const { data: anyEvent } = await supabase
+  const { data: anyEvent, error: eventErr } = await writeClient
     .from("events")
     .select("id")
     .eq("client_id", clientId)
     .eq("event_code", eventCode)
     .limit(1)
     .maybeSingle();
+  if (eventErr) {
+    console.warn("[share/venue POST] venue lookup failed", {
+      clientId,
+      eventCode,
+      message: eventErr.message,
+    });
+    return NextResponse.json(
+      { ok: false, error: "Could not verify venue events for this share." },
+      { status: 500 },
+    );
+  }
   if (!anyEvent) {
     return NextResponse.json(
       { ok: false, error: "No events match (client_id, event_code)" },
@@ -144,10 +164,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const existing = await getShareForVenue(clientId, eventCode);
+  const existing = await getShareForVenue(clientId, eventCode, writeClient);
   if (existing) {
     if (!existing.enabled) {
-      await setShareEnabled(existing.token, true);
+      await setShareEnabled(existing.token, true, writeClient);
     }
     return NextResponse.json({
       ok: true,
@@ -161,6 +181,7 @@ export async function POST(req: NextRequest) {
       clientId,
       eventCode,
       userId: shareUserId,
+      client: writeClient,
     });
     return NextResponse.json(
       {
@@ -173,7 +194,18 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to mint share";
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    console.error("[share/venue POST] mint failed", {
+      clientId,
+      eventCode,
+      message,
+    });
+    const userMessage = message.includes("report_shares_scope_check")
+      ? "Venue sharing is not enabled in the database yet. Apply the latest migration and try again."
+      : `Unable to create venue share for ${eventCode}: ${message}`;
+    return NextResponse.json(
+      { ok: false, error: userMessage },
+      { status: 500 },
+    );
   }
 }
 

@@ -21,7 +21,9 @@ import {
  *   1. Look up every event in the venue (same `event_code` + same
  *      `event_date`, under the same `client_id`).
  *   2. Pull ad-level daily insights from Meta for the bracketed
- *      `[event_code]`.
+ *      `[event_code]`, reconciled against campaign-level spend so
+ *      inactive/off campaigns and rows without ad granularity still
+ *      contribute.
  *   3. Split the ad rows by campaign phase — `presale` is aggregated
  *      into its own per-event share and persisted to
  *      `ad_spend_presale`; `onsale` flows through the opponent-
@@ -40,14 +42,13 @@ import {
  * (both are keyed by event_code) so the two can share a diagnostic
  * scope in logs without a bespoke cross-process contract.
  *
- * Why we refetch instead of reusing the campaign-level fetch:
+ * Why we refetch instead of reusing only the campaign-level fetch:
  *
- *   The campaign-level helper aggregates daily spend into one
- *   number per day per campaign. The allocator needs per-AD spend
- *   to classify by ad name — there's no way to back-derive it from
- *   the campaign-level aggregate. Both fetches hit the same
- *   endpoint with the same filter + similar fields; Meta returns
- *   both within a couple of seconds for a typical venue.
+ *   The allocator needs per-AD spend to classify by ad name, but
+ *   Meta can return campaign spend that does not appear in the
+ *   ad-level daily rows. The fetch helper therefore keeps ad-level
+ *   detail where available and injects the campaign-level remainder
+ *   as generic/presale spend keyed by campaign id.
  *
  * Why we run after the Meta leg rather than in parallel:
  *
@@ -147,6 +148,15 @@ export interface VenueAllocatorResult {
     adId: string;
     adName: string;
     message: string;
+  }>;
+  campaignDiagnostics?: Array<{
+    campaignId: string;
+    campaignName: string;
+    spend: number;
+    adRowsSpend: number;
+    syntheticRemainder: number;
+    isPresaleMatch: boolean;
+    isAllocatedMatch: boolean;
   }>;
 }
 
@@ -351,6 +361,20 @@ export async function allocateVenueSpendForCode(
   console.log(
     `[venue-spend-allocator] phase-split event_code=${eventCode} window=${since}..${until} siblings=${eventCount} ads_total=${adFetch.rows.length} campaigns_total=${campaignIdsAll.size} campaigns_onsale=${campaignIdsOnsale.size} campaigns_presale=${campaignIdsPresale.size} opponents=${opponentSummary}`,
   );
+  if (isBristolEventCode(eventCode)) {
+    console.info("[venue-spend-allocator] Bristol campaign diagnostics", {
+      eventCode,
+      campaigns: adFetch.campaignDiagnostics.map((c) => ({
+        campaign_id: c.campaignId,
+        name: c.campaignName,
+        spend: c.spend,
+        ad_rows_spend: c.adRowsSpend,
+        synthetic_remainder: c.syntheticRemainder,
+        isPresale_match_result: c.isPresaleMatch,
+        isAllocated_match_result: c.isAllocatedMatch,
+      })),
+    });
+  }
 
   // Per-event running totals for the lifetime diagnostic.
   const lifetimeSpecific = new Map<string, number>();
@@ -476,6 +500,7 @@ export async function allocateVenueSpendForCode(
         windowSince: since,
         windowUntil: until,
         classificationErrors,
+        campaignDiagnostics: adFetch.campaignDiagnostics,
       });
     }
   }
@@ -487,6 +512,35 @@ export async function allocateVenueSpendForCode(
     console.warn(
       `[venue-spend-allocator] classification_errors event_code=${eventCode} count=${classificationErrors.length} unique=${unique.size} sample=${[...unique].slice(0, 3).join(" | ")}`,
     );
+  }
+
+  if (isBristolEventCode(eventCode)) {
+    const rawAdSpend = round2(
+      adFetch.campaignDiagnostics.reduce((sum, c) => sum + c.spend, 0),
+    );
+    const allocated = sumMap(lifetimeAllocated);
+    const presale = sumMap(lifetimePresale);
+    const unattributedRemainder = round2(rawAdSpend - allocated - presale);
+    console.info("[venue-spend-allocator] Bristol attribution gap", {
+      eventCode,
+      rawAdSpend,
+      allocated,
+      presale,
+      unattributed_remainder: unattributedRemainder,
+      rowsWritten,
+      perEventLifetime: toLifetime(
+        allocatorEvents,
+        lifetimeSpecific,
+        lifetimeGenericShare,
+        lifetimeAllocated,
+        lifetimePresale,
+      ),
+    });
+    if (Math.abs(unattributedRemainder) > 0.01) {
+      console.warn(
+        `[venue-spend-allocator] Bristol unattributed spend event_code=${eventCode} raw=${rawAdSpend} allocated=${allocated} presale=${presale} remainder=${unattributedRemainder}`,
+      );
+    }
   }
 
   return {
@@ -504,6 +558,7 @@ export async function allocateVenueSpendForCode(
     windowSince: since,
     windowUntil: until,
     classificationErrors,
+    campaignDiagnostics: adFetch.campaignDiagnostics,
   };
 }
 
@@ -533,4 +588,14 @@ function round2(n: number): number {
 function sanitiseSpend(spend: number | null | undefined): number {
   if (spend == null || !Number.isFinite(spend) || spend < 0) return 0;
   return spend;
+}
+
+function sumMap(values: Map<string, number>): number {
+  let total = 0;
+  for (const value of values.values()) total += value;
+  return round2(total);
+}
+
+function isBristolEventCode(eventCode: string): boolean {
+  return eventCode.toUpperCase().includes("BRISTOL");
 }
