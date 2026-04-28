@@ -289,16 +289,30 @@ export async function allocateVenueSpendForCode(
     })
     .join(" ");
 
+  const effectiveSince = await resolveAllocatorSince(
+    client,
+    allocatorEvents.map((e) => e.id),
+    since,
+  );
+  if (effectiveSince !== since) {
+    console.info(
+      `[venue-spend-allocator] extended window event_code=${eventCode} requested=${since} effective=${effectiveSince} until=${until}`,
+    );
+  }
+
   // Pull ad-level daily insights for the bracketed event_code. The
-  // fetch spans the parent runner's window so the two writes cover
-  // the same date rows. Meta returns zero rows when no ads are live
-  // yet — the allocator handles that cleanly (returns empty
-  // perEvent allocations, which we then DON'T upsert).
+  // fetch starts at the earliest existing allocated/presale rollup row
+  // when that predates the parent runner's rolling window; this lets a
+  // normal re-sync backfill allocator-owned fields such as link_clicks
+  // for historical PRESALE periods without widening the main Meta leg.
+  // Meta returns zero rows when no ads are live yet — the allocator
+  // handles that cleanly (returns empty perEvent allocations, which we
+  // then DON'T upsert).
   const adFetch = await fetchVenueDailyAdMetrics({
     eventCode,
     adAccountId,
     token,
-    since,
+    since: effectiveSince,
     until,
   });
   if (!adFetch.ok) {
@@ -306,7 +320,7 @@ export async function allocateVenueSpendForCode(
       reason: "meta_fetch_failed",
       error: adFetch.error.message,
       venueEventIds: allocatorEvents.map((e) => e.id),
-      windowSince: since,
+      windowSince: effectiveSince,
       windowUntil: until,
     });
   }
@@ -561,7 +575,7 @@ export async function allocateVenueSpendForCode(
           lifetimeAllocated,
           lifetimePresale,
         ),
-        windowSince: since,
+        windowSince: effectiveSince,
         windowUntil: until,
         classificationErrors,
         campaignDiagnostics: adFetch.campaignDiagnostics,
@@ -621,7 +635,7 @@ export async function allocateVenueSpendForCode(
       lifetimeAllocated,
       lifetimePresale,
     ),
-    windowSince: since,
+    windowSince: effectiveSince,
     windowUntil: until,
     classificationErrors,
     campaignDiagnostics: adFetch.campaignDiagnostics,
@@ -642,6 +656,37 @@ function toLifetime(
     allocated: round2(allocated.get(e.id) ?? 0),
     presale: round2(presale.get(e.id) ?? 0),
   }));
+}
+
+async function resolveAllocatorSince(
+  client: SupabaseClient,
+  eventIds: string[],
+  requestedSince: string,
+): Promise<string> {
+  if (eventIds.length === 0) return requestedSince;
+  const { data, error } = await (client as SupabaseClient)
+    .from("event_daily_rollups")
+    .select("date, ad_spend_allocated, ad_spend_presale")
+    .in("event_id", eventIds)
+    .lt("date", requestedSince)
+    .order("date", { ascending: true })
+    .limit(1000);
+  if (error) {
+    console.warn(
+      `[venue-spend-allocator] existing allocation window lookup failed: ${error.message}`,
+    );
+    return requestedSince;
+  }
+  for (const row of (data ?? []) as Array<{
+    date: string | null;
+    ad_spend_allocated: number | null;
+    ad_spend_presale: number | null;
+  }>) {
+    if (!row.date) continue;
+    if (row.ad_spend_allocated == null && row.ad_spend_presale == null) continue;
+    return row.date < requestedSince ? row.date : requestedSince;
+  }
+  return requestedSince;
 }
 
 function round2(n: number): number {
