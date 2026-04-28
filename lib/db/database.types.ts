@@ -2003,6 +2003,8 @@ export type Database = {
           access_token_encrypted: string | null
           account_name: string
           created_at: string
+          credentials_encrypted: string | null
+          credentials_format: string
           id: string
           tiktok_advertiser_id: string | null
           updated_at: string
@@ -2012,6 +2014,8 @@ export type Database = {
           access_token_encrypted?: string | null
           account_name: string
           created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
           id?: string
           tiktok_advertiser_id?: string | null
           updated_at?: string
@@ -2021,6 +2025,8 @@ export type Database = {
           access_token_encrypted?: string | null
           account_name?: string
           created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
           id?: string
           tiktok_advertiser_id?: string | null
           updated_at?: string
@@ -2213,12 +2219,20 @@ export type Database = {
         Args: { p_connection_id: string; p_key: string }
         Returns: string
       }
+      get_tiktok_credentials: {
+        Args: { p_account_id: string; p_key: string }
+        Returns: string
+      }
       set_d2c_credentials: {
         Args: { p_credentials: Json; p_id: string; p_key: string }
         Returns: undefined
       }
       set_ticketing_credentials: {
         Args: { p_connection_id: string; p_key: string; p_plaintext: string }
+        Returns: undefined
+      }
+      set_tiktok_credentials: {
+        Args: { p_account_id: string; p_key: string; p_plaintext: string }
         Returns: undefined
       }
     }
