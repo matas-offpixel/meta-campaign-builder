@@ -47,8 +47,14 @@ export interface EventDailyRollup {
    * reporting falls back to `events.prereg_spend` when null.
    */
   ad_spend_presale: number | null;
+  tiktok_spend: number | null;
+  tiktok_impressions: number | null;
+  tiktok_clicks: number | null;
+  tiktok_video_views: number | null;
+  tiktok_results: number | null;
   source_meta_at: string | null;
   source_eventbrite_at: string | null;
+  source_tiktok_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -266,6 +272,49 @@ export async function upsertEventbriteRollups(
     .upsert(payload, { onConflict: "event_id,date" });
   if (error) {
     console.warn("[event-daily-rollups upsertEventbrite]", error.message);
+    throw new Error(error.message);
+  }
+}
+
+export interface TikTokUpsertRow {
+  date: string;
+  tiktok_spend: number;
+  tiktok_impressions: number;
+  tiktok_clicks: number;
+  tiktok_video_views: number;
+  tiktok_results: number;
+}
+
+/**
+ * Bulk upsert TikTok-owned columns on `event_daily_rollups`.
+ *
+ * Isolation invariant: this writes ONLY `tiktok_*` + `source_tiktok_at`.
+ * Meta budget columns (`ad_spend`, `link_clicks`, `meta_regs`,
+ * `ad_spend_*`) and Eventbrite ticket columns are deliberately omitted so a
+ * TikTok sync can never overwrite existing Meta / ticketing values.
+ */
+export async function upsertTikTokRollups(
+  supabase: AnySupabaseClient,
+  args: { userId: string; eventId: string; rows: TikTokUpsertRow[] },
+): Promise<void> {
+  if (args.rows.length === 0) return;
+  const now = new Date().toISOString();
+  const payload = args.rows.map((r) => ({
+    user_id: args.userId,
+    event_id: args.eventId,
+    date: r.date,
+    tiktok_spend: r.tiktok_spend,
+    tiktok_impressions: r.tiktok_impressions,
+    tiktok_clicks: r.tiktok_clicks,
+    tiktok_video_views: r.tiktok_video_views,
+    tiktok_results: r.tiktok_results,
+    source_tiktok_at: now,
+  }));
+  const { error } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .upsert(payload, { onConflict: "event_id,date" });
+  if (error) {
+    console.warn("[event-daily-rollups upsertTikTok]", error.message);
     throw new Error(error.message);
   }
 }

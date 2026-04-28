@@ -54,7 +54,8 @@ interface EventToSync {
   event_timezone: string | null;
   event_date: string | null;
   general_sale_at: string | null;
-  client: { meta_ad_account_id: string | null } | null;
+  tiktok_account_id: string | null;
+  client: { meta_ad_account_id: string | null; tiktok_account_id: string | null } | null;
 }
 
 interface EventSyncResult {
@@ -64,6 +65,8 @@ interface EventSyncResult {
   metaError: string | null;
   eventbriteOk: boolean;
   eventbriteError: string | null;
+  tiktokOk: boolean;
+  tiktokError: string | null;
   rowsUpserted: number;
   durationMs: number;
 }
@@ -194,7 +197,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, client:clients ( meta_ad_account_id )",
+      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
     )
     .in("id", eligibleIds);
   if (eventErr) {
@@ -216,12 +219,15 @@ export async function GET(req: NextRequest) {
     const t0 = Date.now();
     try {
       const clientRel = event.client as
-        | { meta_ad_account_id: string | null }
-        | { meta_ad_account_id: string | null }[]
+        | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
+        | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
         | null;
       const adAccountId = Array.isArray(clientRel)
         ? (clientRel[0]?.meta_ad_account_id ?? null)
         : (clientRel?.meta_ad_account_id ?? null);
+      const clientTikTokAccountId = Array.isArray(clientRel)
+        ? (clientRel[0]?.tiktok_account_id ?? null)
+        : (clientRel?.tiktok_account_id ?? null);
 
       const result = await runRollupSyncForEvent({
         supabase,
@@ -232,6 +238,8 @@ export async function GET(req: NextRequest) {
         adAccountId,
         clientId: event.client_id,
         eventDate: event.event_date,
+        eventTikTokAccountId: event.tiktok_account_id,
+        clientTikTokAccountId,
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;
@@ -242,6 +250,8 @@ export async function GET(req: NextRequest) {
         metaError: result.summary.metaError,
         eventbriteOk: result.summary.eventbriteOk,
         eventbriteError: result.summary.eventbriteError,
+        tiktokOk: result.summary.tiktokOk,
+        tiktokError: result.summary.tiktokError,
         rowsUpserted: result.summary.rowsUpserted,
         durationMs: Date.now() - t0,
       });
@@ -259,6 +269,8 @@ export async function GET(req: NextRequest) {
         metaError: message,
         eventbriteOk: false,
         eventbriteError: message,
+        tiktokOk: false,
+        tiktokError: message,
         rowsUpserted: 0,
         durationMs: Date.now() - t0,
       });

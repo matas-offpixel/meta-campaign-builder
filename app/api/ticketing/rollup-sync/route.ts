@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, event_date, client_id, client:clients ( meta_ad_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -90,15 +90,19 @@ export async function POST(req: NextRequest) {
   const eventTimezone = (event.event_timezone as string | null) ?? null;
   const eventDate = (event.event_date as string | null) ?? null;
   const clientId = (event.client_id as string | null) ?? null;
+  const eventTikTokAccountId = (event.tiktok_account_id as string | null) ?? null;
   // Same single-vs-array unwrap as /spend-by-day; Supabase returns the
   // join as either depending on schema definition.
   const clientRel = event.client as
-    | { meta_ad_account_id: string | null }
-    | { meta_ad_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
     : (clientRel?.meta_ad_account_id ?? null);
+  const clientTikTokAccountId = Array.isArray(clientRel)
+    ? (clientRel[0]?.tiktok_account_id ?? null)
+    : (clientRel?.tiktok_account_id ?? null);
 
   const result = await runRollupSyncForEvent({
     supabase,
@@ -109,6 +113,8 @@ export async function POST(req: NextRequest) {
     adAccountId,
     clientId,
     eventDate,
+    eventTikTokAccountId,
+    clientTikTokAccountId,
   });
 
   return NextResponse.json(
@@ -116,6 +122,7 @@ export async function POST(req: NextRequest) {
       ok: result.ok,
       summary: result.summary,
       meta: result.meta,
+      tiktok: result.tiktok,
       eventbrite: result.eventbrite,
       diagnostics: result.diagnostics,
     },

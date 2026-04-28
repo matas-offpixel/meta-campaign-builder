@@ -15,6 +15,7 @@ import {
 import {
   upsertEventbriteRollups,
   upsertMetaRollups,
+  upsertTikTokRollups,
 } from "@/lib/db/event-daily-rollups";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
@@ -23,6 +24,14 @@ import {
   allocateVenueSpendForCode,
   type VenueAllocatorResult,
 } from "@/lib/dashboard/venue-spend-allocator";
+import { getTikTokCredentials } from "@/lib/tiktok/credentials";
+import {
+  fetchTikTokDailyRollupInsights,
+} from "@/lib/tiktok/rollup-insights";
+import {
+  runTikTokRollupLeg,
+  type TikTokRollupDeps,
+} from "@/lib/dashboard/tiktok-rollup-leg";
 
 /**
  * lib/dashboard/rollup-sync-runner.ts
@@ -83,6 +92,17 @@ export interface RollupSyncInput {
    *  date) the allocator uses to find siblings. Null short-
    *  circuits the allocator leg. */
   eventDate?: string | null;
+  /** Event-level TikTok account FK. Falls back to `clientTikTokAccountId`. */
+  eventTikTokAccountId?: string | null;
+  /** Client-level TikTok account FK used when the event has no override. */
+  clientTikTokAccountId?: string | null;
+  /**
+   * Test-only override for the 50001 retry delay. Runtime keeps the TikTok
+   * Business API's 10s cool-off.
+   */
+  tiktokRateLimitRetryDelayMs?: number;
+  /** Test hooks only — production callers use the real TikTok helpers. */
+  tiktokDeps?: Partial<TikTokRollupDeps>;
 }
 
 export interface SyncLegResult {
@@ -201,6 +221,10 @@ export interface SyncSummary {
   eventbriteError: string | null;
   eventbriteReason: string | null;
   eventbriteRowsUpserted: number;
+  tiktokOk: boolean;
+  tiktokError: string | null;
+  tiktokReason: string | null;
+  tiktokRowsUpserted: number;
   /**
    * Allocator leg (PR D2 / PR #120) — `null` when the allocator
    * didn't run (missing scope inputs or Meta leg bailed first;
@@ -256,6 +280,7 @@ export interface RollupSyncResult {
    *  block landed read these directly. Kept for backwards compat. */
   meta: SyncLegResult;
   eventbrite: SyncLegResult;
+  tiktok: SyncLegResult;
   diagnostics: SyncDiagnostics;
 }
 
@@ -291,6 +316,10 @@ export async function runRollupSyncForEvent(
     adAccountId,
     clientId,
     eventDate,
+    eventTikTokAccountId,
+    clientTikTokAccountId,
+    tiktokRateLimitRetryDelayMs,
+    tiktokDeps,
   } = input;
 
   // Window: last 60 days (inclusive of today) in account local time.
@@ -344,6 +373,25 @@ export async function runRollupSyncForEvent(
       diagnostics.eventbriteTokenKeyPresent ? "present" : "missing"
     }`,
   );
+
+  const tiktokAccountId = eventTikTokAccountId ?? clientTikTokAccountId ?? null;
+  const tiktokPromise = runTikTokRollupLeg({
+    supabase,
+    eventId,
+    userId,
+    eventCode,
+    tiktokAccountId,
+    since: sinceStr,
+    until: untilStr,
+    retryDelayMs: tiktokRateLimitRetryDelayMs ?? 10_000,
+    deps: {
+      getCredentials: getTikTokCredentials,
+      fetchDailyInsights: fetchTikTokDailyRollupInsights,
+      upsertRollups: upsertTikTokRollups,
+      sleep,
+      ...tiktokDeps,
+    },
+  });
 
   // ── Meta leg ──────────────────────────────────────────────────────
   const metaResult: SyncLegResult = { ok: false };
@@ -589,6 +637,14 @@ export async function runRollupSyncForEvent(
     );
   }
 
+  // ── TikTok leg ────────────────────────────────────────────────────
+  //
+  // Started before the Meta leg above so both paid-media axes can run
+  // independently. Await here to keep the rest of the function's
+  // summary / diagnostics assembly simple while preserving overlap
+  // during the expensive remote calls.
+  const tiktokResult = await tiktokPromise;
+
   // ── Eventbrite leg ────────────────────────────────────────────────
   const eventbriteResult: SyncLegResult = { ok: false };
   try {
@@ -771,7 +827,7 @@ export async function runRollupSyncForEvent(
   }
 
   const allOk = metaResult.ok && eventbriteResult.ok;
-  const anyOk = metaResult.ok || eventbriteResult.ok;
+  const anyOk = metaResult.ok || eventbriteResult.ok || tiktokResult.ok;
 
   // Allocator roll-up — pull from the diagnostics object we threaded
   // through above. `null` on every field means the allocator leg
@@ -812,6 +868,10 @@ export async function runRollupSyncForEvent(
       : (eventbriteResult.error ?? null),
     eventbriteReason: eventbriteResult.reason ?? null,
     eventbriteRowsUpserted: eventbriteResult.rowsWritten ?? 0,
+    tiktokOk: tiktokResult.ok,
+    tiktokError: tiktokResult.ok ? null : (tiktokResult.error ?? null),
+    tiktokReason: tiktokResult.reason ?? null,
+    tiktokRowsUpserted: tiktokResult.rowsWritten ?? 0,
     allocatorOk,
     allocatorError,
     allocatorReason,
@@ -820,6 +880,7 @@ export async function runRollupSyncForEvent(
     rowsUpserted:
       (metaResult.rowsWritten ?? 0) +
       (eventbriteResult.rowsWritten ?? 0) +
+      (tiktokResult.rowsWritten ?? 0) +
       allocatorRowsUpserted,
     synced,
   };
@@ -829,7 +890,9 @@ export async function runRollupSyncForEvent(
       summary.metaOk
     }${summary.metaReason ? `(${summary.metaReason})` : ""} meta_rows=${
       summary.metaRowsUpserted
-    } eb_ok=${summary.eventbriteOk}${
+    } tt_ok=${summary.tiktokOk}${
+      summary.tiktokReason ? `(${summary.tiktokReason})` : ""
+    } tt_rows=${summary.tiktokRowsUpserted} eb_ok=${summary.eventbriteOk}${
       summary.eventbriteReason ? `(${summary.eventbriteReason})` : ""
     } eb_rows=${summary.eventbriteRowsUpserted} alloc_ok=${
       summary.allocatorOk ?? "n/a"
@@ -846,8 +909,13 @@ export async function runRollupSyncForEvent(
     summary,
     meta: metaResult,
     eventbrite: eventbriteResult,
+    tiktok: tiktokResult,
     diagnostics,
   };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function ymd(d: Date): string {
