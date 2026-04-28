@@ -15,7 +15,6 @@ import {
   aggregateVenueCampaignPerformance,
   aggregateVenueWoW,
   sortEventsGroupStageFirst,
-  type EventAllocationLifetime,
   type VenueCampaignPerformance,
   type VenueWoWTotals,
 } from "@/lib/db/client-dashboard-aggregations";
@@ -32,6 +31,10 @@ import {
   paidLinkClicksOf,
   paidSpendOf,
 } from "@/lib/dashboard/paid-spend";
+import {
+  venueSpend,
+  type GroupSpend,
+} from "@/lib/dashboard/venue-spend-model";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
@@ -152,15 +155,6 @@ interface Props {
  * flips every Tickets Sold + Revenue cell to inline inputs. Cells save
  * on blur (no per-row Save button). "Done" exits edit mode.
  */
-
-/**
- * Number of London venues sharing the WC26-LONDON-ONSALE campaign.
- * Hard-coded because the divisor is a contractual fact about how the
- * shared spend is allocated, not a count derived from venue rows
- * present in any given snapshot — using `londonGroups.length` would
- * silently rebalance if a venue went missing from the dataset.
- */
-const LONDON_VENUE_COUNT = 4;
 
 function isLondonCity(city: string | null | undefined): boolean {
   return (city ?? "").toLowerCase() === "london";
@@ -515,136 +509,6 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
   return out;
 }
 
-/**
- * Per-venue spend model. Three variants picked in priority order:
- *
- *   - `allocated` (PR D2) — every event in the group has a non-null
- *     `ad_spend_allocated` sum in `event_daily_rollups`. Each event
- *     carries its own attributed spend (specific + venue-generic
- *     share) rather than taking an equal 1/N slice of the campaign
- *     total. When this kind fires, the UI also shows the venue
- *     header footnote + per-row tooltip with the specific / generic
- *     breakdown.
- *   - `split` (legacy, non-London, pre-allocation) — the campaign
- *     total is one number baked into `meta_spend_cached`; prereg is
- *     carved out of the per-event slice.
- *   - `add` (WC26 London) — prereg and on-sale spend live in
- *     different Meta campaigns and are *added* to produce the per-
- *     event total.
- *
- * When a group straddles the rollout (some events allocated,
- * others not) we hold the line on the old model — mixing the two
- * kinds would produce a Total row that double-counts the venue
- * generic pool for unallocated events.
- */
-type GroupSpend =
-  | {
-      kind: "allocated";
-      /** Per-event lifetime allocation, keyed by event id. The
-       *  map is guaranteed to have one entry per event in the
-       *  group when this variant is returned. */
-      byEventId: Map<string, EventAllocationLifetime>;
-      /** Sum across all events of `specific` — the
-       *  game-specific slice of the venue's total ad spend. */
-      venueSpecific: number;
-      /** Sum across all events of `genericShare` — equals the
-       *  venue-wide generic pool the allocator split evenly. */
-      venueGenericPool: number;
-      /** `venueSpecific + venueGenericPool` — the raw venue
-       *  total the operator sees in Ads Manager. */
-      venueTotal: number;
-      /** Sum of allocator-written presale spend across events. */
-      venuePresale: number;
-      /** `venueTotal + venuePresale` — reconciles to Paid Media. */
-      venuePaidMedia: number;
-      /** `venueGenericPool / eventCount` — matches
-       *  `byEventId.get(*).genericShare` within rounding. */
-      genericSharePerEvent: number;
-      /** Number of events covered by this allocation. */
-      eventCount: number;
-    }
-  | { kind: "split"; perEventTotal: number | null }
-  | { kind: "add"; perEventAd: number | null }
-  | { kind: "rollup"; byEventId: Map<string, number>; venuePaidMedia: number };
-
-function venueSpend(
-  group: VenueGroup,
-  londonOnsaleSpend: number | null,
-  allocationByEvent: Map<string, EventAllocationLifetime>,
-  paidSpendByEvent: Map<string, number>,
-): GroupSpend {
-  // Prefer the allocation model when every event in the group has
-  // allocation data. We fall through to split/add when the
-  // allocator hasn't populated every event yet (half-rollout,
-  // post-migration catch-up, …) so the Total row stays consistent.
-  if (
-    group.events.length > 0 &&
-    group.events.every((ev) => allocationByEvent.has(ev.id))
-  ) {
-    const byEventId = new Map<string, EventAllocationLifetime>();
-    let venueSpecific = 0;
-    let venueGenericPool = 0;
-    let venuePresale = 0;
-    for (const ev of group.events) {
-      const alloc = allocationByEvent.get(ev.id)!;
-      byEventId.set(ev.id, alloc);
-      venueSpecific += alloc.specific;
-      venueGenericPool += alloc.genericShare;
-      venuePresale += alloc.presale;
-    }
-    const venueTotal = venueSpecific + venueGenericPool;
-    const venuePaidMedia = venueTotal + venuePresale;
-    const eventCount = group.events.length;
-    const genericSharePerEvent =
-      eventCount > 0 ? venueGenericPool / eventCount : 0;
-    return {
-      kind: "allocated",
-      byEventId,
-      venueSpecific,
-      venueGenericPool,
-      venueTotal,
-      venuePresale,
-      venuePaidMedia,
-      genericSharePerEvent,
-      eventCount,
-    };
-  }
-
-  if (isLondonCity(group.city) && londonOnsaleSpend !== null) {
-    // London additive model. Either input may be null in transitional
-    // states (e.g. admin has refreshed onsale but not yet the venue
-    // campaign). Treat null as 0 for the sum so a half-populated state
-    // still surfaces whichever half is known. Returns null only when
-    // the venue truly has no spend signal *and* no event count to
-    // divide by.
-    const onsaleShare = londonOnsaleSpend / LONDON_VENUE_COUNT;
-    const venueMeta = group.campaignSpend ?? 0;
-    const perEventAd =
-      group.eventCount > 0 ? (onsaleShare + venueMeta) / group.eventCount : null;
-    return { kind: "add", perEventAd };
-  }
-  if (group.campaignSpend === null) {
-    let venuePaidMedia = 0;
-    let hasPaidMedia = false;
-    const byEventId = new Map<string, number>();
-    for (const ev of group.events) {
-      const paid = paidSpendByEvent.get(ev.id);
-      if (paid == null) continue;
-      byEventId.set(ev.id, paid);
-      venuePaidMedia += paid;
-      hasPaidMedia = true;
-    }
-    if (hasPaidMedia) {
-      return { kind: "rollup", byEventId, venuePaidMedia };
-    }
-  }
-  const perEventTotal =
-    group.campaignSpend !== null && group.eventCount > 0
-      ? group.campaignSpend / group.eventCount
-      : null;
-  return { kind: "split", perEventTotal };
-}
-
 interface EventMetrics {
   prereg: number | null;
   perEventTotal: number | null;
@@ -842,11 +706,11 @@ function displayVenueSpend(
   spend: GroupSpend,
   totals: VenueTotals,
 ): number | null {
-  if (spend.kind !== "add" && group.campaignSpend !== null) {
-    return group.campaignSpend;
-  }
   if (spend.kind === "rollup") {
     return spend.venuePaidMedia;
+  }
+  if (spend.kind !== "add" && group.campaignSpend !== null) {
+    return group.campaignSpend;
   }
   return totals.total;
 }
