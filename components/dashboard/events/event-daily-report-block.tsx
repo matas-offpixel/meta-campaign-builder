@@ -81,7 +81,16 @@ interface SyncSummary {
   eventbriteError: string | null;
   eventbriteReason: string | null;
   eventbriteRowsUpserted: number;
+  allocatorOk?: boolean | null;
+  allocatorError?: string | null;
+  allocatorReason?: string | null;
+  allocatorRowsUpserted?: number;
+  allocatorClassErrors?: number;
   rowsUpserted: number;
+  /** PR #121 semantic success signal — treats `not_linked`,
+   *  `no_event_code`, `no_ad_account` skips as success. Older
+   *  servers won't return this; the consumer falls back to `ok`. */
+  synced?: boolean;
 }
 
 interface SyncDiagnostics {
@@ -293,9 +302,18 @@ export function EventDailyReportBlock(props: Props) {
       // so the operator can see the diagnostic block instead of
       // staring at an empty table. Records the attempt before any
       // throw so the visible state always reflects the latest call.
+      // PR #121: prefer the semantic `synced` signal over the strict
+      // `ok` flag so events without an Eventbrite link don't flash a
+      // red "failed" status when the Meta leg wrote rows cleanly.
+      // Fall back to the legacy `ok` for older deployments that
+      // haven't yet surfaced `summary.synced`.
+      const syncedOk =
+        typeof json.summary?.synced === "boolean"
+          ? json.summary.synced
+          : (json.ok ?? false);
       setLastSync({
         at: new Date().toISOString(),
-        ok: json.ok ?? false,
+        ok: syncedOk,
         topLevelError:
           !res.ok && res.status !== 207 ? (json.error ?? null) : null,
         summary: json.summary ?? null,

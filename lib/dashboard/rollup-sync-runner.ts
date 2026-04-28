@@ -201,8 +201,48 @@ export interface SyncSummary {
   eventbriteError: string | null;
   eventbriteReason: string | null;
   eventbriteRowsUpserted: number;
-  /** Sum across both legs — the easiest "did anything happen?" gauge. */
+  /**
+   * Allocator leg (PR D2 / PR #120) — `null` when the allocator
+   * didn't run (missing scope inputs or Meta leg bailed first;
+   * nothing to report). `true` when the allocator ran and wrote
+   * rows. `false` when the allocator ran but bailed for a recoverable
+   * reason (e.g. no siblings, opponent extraction returned empty);
+   * the raw `ad_spend` column is unaffected either way so this is
+   * never fatal to the overall sync.
+   */
+  allocatorOk: boolean | null;
+  allocatorError: string | null;
+  allocatorReason: string | null;
+  allocatorRowsUpserted: number;
+  /**
+   * Per-ad classification error count — useful in the inline error
+   * chip when the allocator bailed partway through. Zero is the happy
+   * path.
+   */
+  allocatorClassErrors: number;
+  /** Sum across all legs — the easiest "did anything happen?" gauge. */
   rowsUpserted: number;
+  /**
+   * Semantic success: "did every leg that was supposed to run
+   * actually succeed?". Treats **expected terminal states** as
+   * success so operators don't see phantom failures on events that
+   * legitimately don't have (say) an Eventbrite link:
+   *
+   *   - Meta leg: `metaOk` OR reason is `"no_event_code"` /
+   *     `"no_ad_account"` (the event is not set up for Meta yet —
+   *     not a runtime failure).
+   *   - Eventbrite leg: `eventbriteOk` OR reason is `"not_linked"`
+   *     (event has no Eventbrite binding — e.g. 4theFans events
+   *     routed through internal ticketing).
+   *   - Allocator leg: treated as non-fatal; only counts as failure
+   *     when `allocatorOk === false` AND the Meta leg succeeded
+   *     (otherwise the allocator's skip is cascading from Meta's).
+   *
+   * The legacy boolean `ok` (result.ok) remains the strict AND of
+   * metaOk+eventbriteOk for backwards compatibility with pre-#121
+   * callers. New callers should prefer `synced`.
+   */
+  synced: boolean;
 }
 
 export interface RollupSyncResult {
@@ -733,6 +773,34 @@ export async function runRollupSyncForEvent(
   const allOk = metaResult.ok && eventbriteResult.ok;
   const anyOk = metaResult.ok || eventbriteResult.ok;
 
+  // Allocator roll-up — pull from the diagnostics object we threaded
+  // through above. `null` on every field means the allocator leg
+  // didn't run at all (caller didn't opt in, or Meta failed first).
+  const allocator = diagnostics.allocatorResult;
+  const allocatorOk: boolean | null = allocator ? allocator.ok : null;
+  const allocatorError: string | null = allocator?.ok === false
+    ? (allocator.error ?? null)
+    : null;
+  const allocatorReason: string | null = allocator?.reason ?? null;
+  const allocatorRowsUpserted: number = allocator?.rowsWritten ?? 0;
+  const allocatorClassErrors: number =
+    allocator?.classificationErrors.length ?? 0;
+
+  // Semantic success — treat expected terminal states as success.
+  // See `SyncSummary.synced` for the full acceptance rule set.
+  const metaExpectedSkip =
+    metaResult.reason === "no_event_code" ||
+    metaResult.reason === "no_ad_account";
+  const eventbriteExpectedSkip = eventbriteResult.reason === "not_linked";
+  const metaOkOrExpectedSkip = metaResult.ok || metaExpectedSkip;
+  const eventbriteOkOrExpectedSkip =
+    eventbriteResult.ok || eventbriteExpectedSkip;
+  // Allocator failures are never fatal — the raw `ad_spend` column
+  // is still authoritative. We surface allocatorError downstream so
+  // the operator can see it, but `synced` stays true as long as the
+  // two primary legs are accounted for.
+  const synced = metaOkOrExpectedSkip && eventbriteOkOrExpectedSkip;
+
   const summary: SyncSummary = {
     metaOk: metaResult.ok,
     metaError: metaResult.ok ? null : (metaResult.error ?? null),
@@ -744,18 +812,32 @@ export async function runRollupSyncForEvent(
       : (eventbriteResult.error ?? null),
     eventbriteReason: eventbriteResult.reason ?? null,
     eventbriteRowsUpserted: eventbriteResult.rowsWritten ?? 0,
+    allocatorOk,
+    allocatorError,
+    allocatorReason,
+    allocatorRowsUpserted,
+    allocatorClassErrors,
     rowsUpserted:
-      (metaResult.rowsWritten ?? 0) + (eventbriteResult.rowsWritten ?? 0),
+      (metaResult.rowsWritten ?? 0) +
+      (eventbriteResult.rowsWritten ?? 0) +
+      allocatorRowsUpserted,
+    synced,
   };
 
   console.log(
-    `[rollup-sync] done event_id=${eventId} ok=${allOk} meta_ok=${
+    `[rollup-sync] done event_id=${eventId} ok=${allOk} synced=${synced} meta_ok=${
       summary.metaOk
-    } meta_rows=${summary.metaRowsUpserted} eb_ok=${
-      summary.eventbriteOk
-    } eb_rows=${summary.eventbriteRowsUpserted} total_rows=${
-      summary.rowsUpserted
-    }`,
+    }${summary.metaReason ? `(${summary.metaReason})` : ""} meta_rows=${
+      summary.metaRowsUpserted
+    } eb_ok=${summary.eventbriteOk}${
+      summary.eventbriteReason ? `(${summary.eventbriteReason})` : ""
+    } eb_rows=${summary.eventbriteRowsUpserted} alloc_ok=${
+      summary.allocatorOk ?? "n/a"
+    }${
+      summary.allocatorReason ? `(${summary.allocatorReason})` : ""
+    } alloc_rows=${summary.allocatorRowsUpserted} alloc_class_errors=${
+      summary.allocatorClassErrors
+    } total_rows=${summary.rowsUpserted}`,
   );
 
   return {
