@@ -539,15 +539,15 @@ export interface WeeklyTicketSnapshotLite {
  *
  * ## CPT
  *
- * CPT compares cumulative spend-per-ticket now vs seven days ago:
- * current cumulative spend / current cumulative tickets, versus
- * previous cumulative spend / previous cumulative tickets. Ticket
- * edges use the same snapshot-first waterfall as the Tickets half;
- * spend edges come from cumulative `event_daily_rollups` sums up to
- * each edge.
+ * CPT matches the expanded Total row semantics: current cumulative
+ * spend / current cumulative tickets, versus the SAME current spend
+ * divided by the previous ticket edge. That freezes spend at the
+ * displayed Total row value so collapsed and expanded views agree.
  *
- * ROAS uses the same cumulative-edge model: cumulative revenue /
- * cumulative spend now vs seven days ago.
+ * ROAS currently freezes both spend and revenue at the current edge,
+ * matching the chosen "expanded view is canonical" rule. That means
+ * its WoW delta is usually zero; if we want a more expressive ROAS
+ * comparison later, it should be designed as a separate follow-up.
  *
  * ## Windowing
  *
@@ -601,12 +601,8 @@ export function aggregateVenueWoW(
 
   // ── Daily rollup edges (spend/revenue cumulative + ticket fallback). ──
   let currentSpend = 0;
-  let previousSpend = 0;
   let currentRevenue = 0;
-  let previousRevenue = 0;
-  let previousSpendRows = 0;
   let currentRevenueRows = 0;
-  let previousRevenueRows = 0;
 
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
@@ -620,16 +616,6 @@ export function aggregateVenueWoW(
       if (r.revenue != null) {
         currentRevenue += r.revenue;
         currentRevenueRows += 1;
-      }
-    }
-    if (ms <= windowEdgeMs) {
-      if (spend != null) {
-        previousSpend += spend;
-        previousSpendRows += 1;
-      }
-      if (r.revenue != null) {
-        previousRevenue += r.revenue;
-        previousRevenueRows += 1;
       }
     }
     if (ms >= currStart && ms <= todayMs) {
@@ -711,10 +697,11 @@ export function aggregateVenueWoW(
     hasDeltaBase,
   );
 
-  // ── Cumulative CPT / ROAS edge comparison. ──
+  // ── Frozen-spend CPT / ROAS comparison. ──
   //
-  // These must match the expanded Total row semantics: ratio of sums,
-  // not average of event ratios and not last-7-day incrementals.
+  // These must match the expanded Total row semantics: current spend
+  // frozen across both ticket edges, not last-7-day incrementals and
+  // not cumulative spend as-of the previous edge.
   const currCpt =
     currentCumulativeTickets > 0 && currentSpend > 0
       ? currentSpend / currentCumulativeTickets
@@ -722,9 +709,8 @@ export function aggregateVenueWoW(
   const prevCpt =
     previousCumulativeTickets != null &&
     previousCumulativeTickets > 0 &&
-    previousSpendRows > 0 &&
-    previousSpend > 0
-      ? previousSpend / previousCumulativeTickets
+    currentSpend > 0
+      ? currentSpend / previousCumulativeTickets
       : null;
   const cpt: WoWDelta = buildHalf(
     currCpt,
@@ -737,8 +723,8 @@ export function aggregateVenueWoW(
       ? currentRevenue / currentSpend
       : null;
   const prevRoas =
-    previousSpend > 0 && previousRevenueRows > 0
-      ? previousRevenue / previousSpend
+    currRoas != null
+      ? currRoas
       : null;
   const roas: WoWDelta = buildHalf(
     currRoas,
