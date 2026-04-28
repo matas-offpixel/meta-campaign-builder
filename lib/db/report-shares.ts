@@ -141,15 +141,15 @@ export async function getShareForClient(
 export async function getShareForVenue(
   clientId: string,
   eventCode: string,
+  client?: SupabaseClient<Database>,
 ): Promise<ReportShareRow | null> {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   const { data, error } = await supabase
     .from("report_shares")
     .select("*")
     .eq("scope", "venue")
     .eq("client_id", clientId)
     .eq("event_code", eventCode)
-    .eq("enabled", true)
     .limit(1)
     .maybeSingle();
 
@@ -172,14 +172,13 @@ export async function mintVenueShare(input: {
   userId: string;
   expiresAt?: string | null;
   canEdit?: boolean;
+  client?: SupabaseClient<Database>;
 }): Promise<ReportShareRow> {
-  const supabase = await createClient();
+  const supabase = input.client ?? (await createClient());
   const token = generateShareToken();
   const canEdit = input.canEdit !== false;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const admin = supabase as any;
-  const { data, error } = await admin
+  const { data, error } = await supabase
     .from("report_shares")
     .insert({
       token,
@@ -247,8 +246,9 @@ export async function mintClientShare(input: {
 export async function setShareEnabled(
   token: string,
   enabled: boolean,
+  client?: SupabaseClient<Database>,
 ): Promise<void> {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   const { error } = await supabase
     .from("report_shares")
     .update({ enabled })
