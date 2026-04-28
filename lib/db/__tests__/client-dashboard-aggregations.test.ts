@@ -40,6 +40,7 @@ function rollup(
      *  this at the sentinel `2020-01-01`. */
     date?: string;
     tickets_sold?: number | null;
+    revenue?: number | null;
   },
 ): DailyRollupRow {
   return {
@@ -48,7 +49,7 @@ function rollup(
     tickets_sold: allocation?.tickets_sold ?? null,
     ad_spend,
     ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
-    revenue: null,
+    revenue: allocation?.revenue ?? null,
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
     ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
     ad_spend_presale: allocation?.ad_spend_presale ?? null,
@@ -542,6 +543,14 @@ describe("aggregateVenueWoW", () => {
     assert.ok(result.cpt.current !== null);
     assert.ok(Math.abs(result.cpt.current! - 700 / 300) < 1e-9);
     assert.equal(result.cpt.previous, 400 / 200);
+    assert.ok(result.cpt.delta !== null);
+    assert.ok(Math.abs(result.cpt.delta! - (700 / 300 - 400 / 200)) < 1e-9);
+    assert.ok(result.cpt.deltaPct !== null);
+    assert.ok(
+      Math.abs(
+        result.cpt.deltaPct! - ((700 / 300 - 400 / 200) / (400 / 200)) * 100,
+      ) < 1e-9,
+    );
   });
 
   it("falls back to (current − last-7-day rollup sum) when no snapshot before the window edge", () => {
@@ -659,6 +668,7 @@ describe("aggregateVenueWoW", () => {
     const result = aggregateVenueWoW([], [], TODAY);
     assert.equal(result.tickets.delta, null);
     assert.equal(result.cpt.delta, null);
+    assert.equal(result.roas.delta, null);
   });
 
   it("prefers latest-at-or-before when multiple snapshots exist before the window edge", () => {
@@ -703,5 +713,99 @@ describe("aggregateVenueWoW", () => {
     assert.equal(result.tickets.current, 1219);
     assert.equal(result.tickets.previous, 1142);
     assert.equal(result.tickets.delta, 77);
+  });
+
+  it("computes cumulative CPT delta with snapshot-preferred previous tickets", () => {
+    const events = eventsWithCumulative(570, 0);
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 600, { date: "2026-04-18" }),
+      rollup("a", 300, { date: "2026-04-21" }),
+      rollup("a", 35, { date: "2026-04-24" }),
+    ];
+    const snapshots = [
+      {
+        event_id: "a",
+        snapshot_at: "2026-04-20",
+        tickets_sold: 566,
+        source: "eventbrite",
+      },
+      {
+        event_id: "a",
+        snapshot_at: "2026-04-27",
+        tickets_sold: 570,
+        source: "eventbrite",
+      },
+    ];
+
+    const result = aggregateVenueWoW(events, rollups, TODAY, snapshots);
+
+    const current = 935 / 570;
+    const previous = 600 / 566;
+    assert.ok(result.cpt.current !== null);
+    assert.ok(Math.abs(result.cpt.current! - current) < 1e-9);
+    assert.equal(result.cpt.previous, previous);
+    assert.ok(result.cpt.delta !== null);
+    assert.ok(Math.abs(result.cpt.delta! - (current - previous)) < 1e-9);
+  });
+
+  it("computes cumulative CPT delta with rollup-fallback previous tickets", () => {
+    const events = eventsWithCumulative(570, 0);
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 600, { date: "2026-04-18" }),
+      rollup("a", 300, { date: "2026-04-21", tickets_sold: 2 }),
+      rollup("a", 35, { date: "2026-04-24", tickets_sold: 2 }),
+    ];
+
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+
+    const previousTickets = 566;
+    const current = 935 / 570;
+    const previous = 600 / previousTickets;
+    assert.equal(result.tickets.previous, previousTickets);
+    assert.ok(result.cpt.current !== null);
+    assert.ok(Math.abs(result.cpt.current! - current) < 1e-9);
+    assert.equal(result.cpt.previous, previous);
+    assert.ok(result.cpt.delta !== null);
+    assert.ok(Math.abs(result.cpt.delta! - (current - previous)) < 1e-9);
+  });
+
+  it("nulls CPT and ROAS deltas when either cumulative comparison edge is missing", () => {
+    const events = eventsWithCumulative(570, 0);
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 300, {
+        date: "2026-04-24",
+        tickets_sold: 4,
+        revenue: 900,
+      }),
+    ];
+
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+
+    assert.equal(result.tickets.previous, 566);
+    assert.ok(result.cpt.current !== null);
+    assert.equal(result.cpt.previous, null);
+    assert.equal(result.cpt.delta, null);
+    assert.ok(result.roas.current !== null);
+    assert.equal(result.roas.previous, null);
+    assert.equal(result.roas.delta, null);
+  });
+
+  it("computes cumulative ROAS delta from venue revenue/spend edges", () => {
+    const events = eventsWithCumulative(570, 0);
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 600, { date: "2026-04-18", revenue: 1200 }),
+      rollup("a", 300, { date: "2026-04-21", tickets_sold: 2, revenue: 450 }),
+      rollup("a", 35, { date: "2026-04-24", tickets_sold: 2, revenue: 150 }),
+    ];
+
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+
+    const current = 1800 / 935;
+    const previous = 1200 / 600;
+    assert.ok(result.roas.current !== null);
+    assert.ok(Math.abs(result.roas.current! - current) < 1e-9);
+    assert.equal(result.roas.previous, previous);
+    assert.ok(result.roas.delta !== null);
+    assert.ok(Math.abs(result.roas.delta! - (current - previous)) < 1e-9);
   });
 });
