@@ -38,7 +38,6 @@ import type {
   DailyRollupRow,
   PortalClient,
   PortalEvent,
-  VenueDailyBudgetRow,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import {
@@ -156,7 +155,6 @@ interface Props {
         dailyRollups: DailyRollupRow[];
         additionalSpend: AdditionalSpendRow[];
         weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
-        venueDailyBudgets: VenueDailyBudgetRow[];
       }
     | null;
 }
@@ -541,7 +539,6 @@ export function ClientDetail({
                   dailyEntries={portal.dailyEntries}
                   dailyRollups={portal.dailyRollups}
                   additionalSpend={portal.additionalSpend}
-                  venueDailyBudgets={portal.venueDailyBudgets}
                   weeklyTicketSnapshots={portal.weeklyTicketSnapshots}
                   isInternal
                 />
