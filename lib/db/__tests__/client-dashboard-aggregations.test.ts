@@ -624,12 +624,14 @@ describe("aggregateAllocationByEvent", () => {
     assert.equal(map.size, 2);
     const a = map.get("a")!;
     assert.equal(a.allocated, 180);
+    assert.equal(a.paidMedia, 180);
     assert.equal(a.specific, 80);
     assert.equal(a.genericShare, 100);
     assert.equal(a.daysCovered, 2);
 
     const b = map.get("b")!;
     assert.equal(b.allocated, 60);
+    assert.equal(b.paidMedia, 60);
     assert.equal(b.specific, 0);
     assert.equal(b.genericShare, 60);
     assert.equal(b.daysCovered, 1);
@@ -655,9 +657,35 @@ describe("aggregateAllocationByEvent", () => {
     const map = aggregateAllocationByEvent(rows);
     const a = map.get("a")!;
     assert.equal(a.allocated, 50);
+    assert.equal(a.paidMedia, 50);
     assert.equal(a.specific, 20);
     assert.equal(a.genericShare, 30);
     assert.equal(a.daysCovered, 1);
+  });
+
+  it("includes presale allocation in paidMedia without changing allocated", () => {
+    const rows: DailyRollupRow[] = [
+      rollup("a", 120, {
+        ad_spend_allocated: 80,
+        ad_spend_specific: 30,
+        ad_spend_generic_share: 50,
+        ad_spend_presale: 40,
+      }),
+      rollup("a", 60, {
+        ad_spend_allocated: 20,
+        ad_spend_specific: 0,
+        ad_spend_generic_share: 20,
+        ad_spend_presale: 40,
+      }),
+    ];
+
+    const map = aggregateAllocationByEvent(rows);
+    const a = map.get("a")!;
+    assert.equal(a.allocated, 100);
+    assert.equal(a.presale, 80);
+    assert.equal(a.paidMedia, 180);
+    assert.equal(a.daysCovered, 2);
+    assert.equal(a.daysCoveredPresale, 2);
   });
 });
 
