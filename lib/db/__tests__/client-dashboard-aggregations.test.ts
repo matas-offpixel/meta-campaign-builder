@@ -189,6 +189,33 @@ describe("aggregateClientWideTotals", () => {
     );
     assert.equal(partial.capacity, 100);
   });
+
+  it("marketingBudget is null when no event carries a budget_marketing value", () => {
+    const t = aggregateClientWideTotals(
+      [ev({ id: "a" }), ev({ id: "b" })],
+      [],
+      [],
+    );
+    assert.equal(t.marketingBudget, null);
+    assert.equal(t.marketingSpend, 0);
+  });
+
+  it("marketingBudget sums event-level budget_marketing across the client", () => {
+    const events = [
+      ev({ id: "a", budget_marketing: 1000 }),
+      ev({ id: "b", budget_marketing: 2500 }),
+      ev({ id: "c", budget_marketing: null }),
+    ];
+    const rollups = [rollup("a", 200), rollup("b", 100)];
+    const additional = [addl("a", 50)];
+
+    const t = aggregateClientWideTotals(events, rollups, additional);
+    assert.equal(t.marketingBudget, 3500);
+    // marketingSpend == adSpend + additionalSpend + preregSpend (totalSpend
+    // without the extra shared-campaign bucket — none supplied here).
+    assert.equal(t.marketingSpend, t.totalSpend);
+    assert.equal(t.marketingSpend, 350);
+  });
 });
 
 describe("aggregateVenueGroupTotals", () => {

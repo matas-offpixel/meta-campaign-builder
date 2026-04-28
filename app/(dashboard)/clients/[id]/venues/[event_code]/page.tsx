@@ -129,6 +129,7 @@ export default async function ClientVenueReportPage({ params }: Props) {
       />
       <VenueFullReport
         clientId={id}
+        eventCode={eventCode}
         client={portal.client}
         events={venueEvents}
         dailyEntries={venueDailyEntries}

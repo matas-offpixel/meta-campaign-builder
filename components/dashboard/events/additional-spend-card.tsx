@@ -64,19 +64,41 @@ type Entry = {
   notes: string | null;
 };
 
-function notifyAdditionalSpendChanged(eventId: string) {
+function notifyAdditionalSpendChanged(key: string) {
   if (typeof window === "undefined") return;
+  // `eventId` is kept as the detail key for backwards compat even when
+  // the card is venue-scoped — event-level listeners still fire for their
+  // own id; venue listeners match on `eventId === venue:<code>`.
   window.dispatchEvent(
-    new CustomEvent(ADDITIONAL_SPEND_CHANGED, { detail: { eventId } }),
+    new CustomEvent(ADDITIONAL_SPEND_CHANGED, { detail: { eventId: key } }),
   );
 }
 
+/**
+ * Venue-scope card pivots on `(clientId, venueEventCode)` instead of a
+ * single `eventId`. Writes hit the venue-scope collection routes added
+ * in PR 4 (`/api/clients/[id]/venues/[event_code]/...` internally,
+ * `/api/venues/by-share-token/[token]/...` externally). The response
+ * shape is identical to the per-event surface, so the UI plumbing
+ * below stays scope-agnostic past URL construction.
+ */
+export type AdditionalSpendCardScope =
+  | { kind: "event"; eventId: string }
+  | { kind: "venue"; clientId: string; venueEventCode: string };
+
 interface Props {
-  eventId: string;
+  /**
+   * Which dataset the card reads / writes against. Defaults to
+   * `{ kind: "event", eventId }` when only `eventId` is passed so
+   * existing call sites don't need to change.
+   */
+  scope?: AdditionalSpendCardScope;
+  /** Back-compat shim for pre-PR4 callers. Ignored when `scope` is set. */
+  eventId?: string;
   className?: string;
   /**
-   * `dashboard` — cookie auth (`/api/events/[id]/additional-spend`).
-   * `share` — report share token (`/api/events/by-share-token/...`).
+   * `dashboard` — cookie auth (internal `/api/...` routes).
+   * `share` — share token (`/api/.../by-share-token/[token]/...`).
    */
   mode?: "dashboard" | "share";
   shareToken?: string;
@@ -90,6 +112,7 @@ interface Props {
 }
 
 export function AdditionalSpendCard({
+  scope: scopeProp,
   eventId,
   className,
   mode = "dashboard",
@@ -97,6 +120,16 @@ export function AdditionalSpendCard({
   onAfterMutate,
   readOnly = false,
 }: Props) {
+  const scope: AdditionalSpendCardScope = scopeProp
+    ? scopeProp
+    : { kind: "event", eventId: eventId ?? "" };
+  // Stable key for the cross-component "spend changed" event. Venue rows
+  // broadcast under `venue:<event_code>` so per-event listeners keyed by
+  // an eventId don't spuriously refetch when a sibling venue mutates.
+  const notifyKey =
+    scope.kind === "event"
+      ? scope.eventId
+      : `venue:${scope.venueEventCode}`;
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,10 +148,18 @@ export function AdditionalSpendCard({
     amount?: string;
   }>({});
 
-  const spendListUrl =
-    mode === "share" && shareToken
-      ? `/api/events/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`
-      : `/api/events/${encodeURIComponent(eventId)}/additional-spend`;
+  const spendListUrl = (() => {
+    if (mode === "share" && shareToken) {
+      if (scope.kind === "venue") {
+        return `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`;
+      }
+      return `/api/events/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`;
+    }
+    if (scope.kind === "venue") {
+      return `/api/clients/${encodeURIComponent(scope.clientId)}/venues/${encodeURIComponent(scope.venueEventCode)}/additional-spend`;
+    }
+    return `/api/events/${encodeURIComponent(scope.eventId)}/additional-spend`;
+  })();
 
   const normalizeEntries = (raw: unknown[]): Entry[] =>
     raw.map((r) => {
@@ -152,7 +193,7 @@ export function AdditionalSpendCard({
 
   const afterMutate = () => {
     onAfterMutate?.();
-    notifyAdditionalSpendChanged(eventId);
+    notifyAdditionalSpendChanged(notifyKey);
   };
 
   useEffect(() => {
