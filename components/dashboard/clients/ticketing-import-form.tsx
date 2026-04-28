@@ -74,11 +74,20 @@ interface ParsePreview {
   totalSnapshots: number;
 }
 
+interface CommitRegression {
+  eventId: string;
+  snapshotAt: string;
+  ticketsSold: number;
+  prior: { snapshotAt: string; ticketsSold: number; source: string };
+}
+
 interface CommitResult {
   ok: true;
   rowsAttempted: number;
   rowsWritten: number;
   rowsSkipped: number;
+  /** Cumulative regressions the server flagged — non-blocking. */
+  regressions?: CommitRegression[];
 }
 
 interface Props {
@@ -280,6 +289,40 @@ export function TicketingImportForm({ clientId }: Props) {
               </span>
             )}
           </div>
+          {/*
+            Cumulative-regression flags — non-blocking. The server
+            still writes the row (the operator may be correcting a
+            prior over-count), but we surface each case so the
+            operator can cross-check before walking away. Ties
+            directly back to PR 2's Leeds diagnosis — the phantom
+            -692 WoW delta began life as an xlsx_import row whose
+            cumulative was lower than the existing eventbrite
+            number on an earlier date.
+          */}
+          {commitResult?.regressions && commitResult.regressions.length > 0 && (
+            <div className="mt-4 rounded border border-amber-400/40 bg-amber-50 p-3 text-[11px] text-amber-900 dark:bg-amber-900/10 dark:text-amber-200">
+              <p className="mb-1 font-semibold">
+                {commitResult.regressions.length} row
+                {commitResult.regressions.length === 1 ? "" : "s"} with a cumulative regression
+              </p>
+              <p className="mb-2">
+                Written as requested, but the incoming cumulative is lower than
+                an existing snapshot on or before the same date. Double-check
+                the source spreadsheet before signing off.
+              </p>
+              <ul className="space-y-0.5 font-mono">
+                {commitResult.regressions.slice(0, 10).map((r, i) => (
+                  <li key={i}>
+                    event {r.eventId.slice(0, 8)}… @ {r.snapshotAt} →{" "}
+                    {r.ticketsSold} (prior {r.prior.snapshotAt} / {r.prior.source}: {r.prior.ticketsSold})
+                  </li>
+                ))}
+                {commitResult.regressions.length > 10 && (
+                  <li>…and {commitResult.regressions.length - 10} more</li>
+                )}
+              </ul>
+            </div>
+          )}
         </section>
       )}
     </div>

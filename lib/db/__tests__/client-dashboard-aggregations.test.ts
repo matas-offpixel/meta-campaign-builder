@@ -468,91 +468,153 @@ describe("aggregateVenueWoW", () => {
   //   current:  2026-04-21 .. 2026-04-27 (7 days, inclusive)
   //   previous: 2026-04-14 .. 2026-04-20 (7 days, inclusive)
   const TODAY = "2026-04-27";
-  const events = [ev({ id: "a" }), ev({ id: "b" })];
 
-  it("computes tickets + CPT delta from rollups inside each window", () => {
+  /**
+   * Default two-event fixture. Events carry a cumulative
+   * `latest_snapshot.tickets_sold`; tests that want to exercise the
+   * "no cumulative baseline" path override with a plain `ev({ id })`.
+   */
+  function eventsWithCumulative(a: number, b: number) {
+    return [
+      ev({ id: "a", latest_snapshot: { tickets_sold: a, revenue: null } }),
+      ev({ id: "b", latest_snapshot: { tickets_sold: b, revenue: null } }),
+    ];
+  }
+
+  it("prefers weekly-snapshot cumulative for the previous edge when available", () => {
+    const events = eventsWithCumulative(200, 100); // current = 300 total
     const rollups: DailyRollupRow[] = [
-      // Current window — 300 tickets, £300 spend across two events
-      rollup("a", 100, { date: "2026-04-22", tickets_sold: 150 }),
-      rollup("b", 200, { date: "2026-04-25", tickets_sold: 150 }),
-      // Previous window — 200 tickets, £400 spend
-      rollup("a", 300, { date: "2026-04-14", tickets_sold: 100 }),
-      rollup("b", 100, { date: "2026-04-20", tickets_sold: 100 }),
+      // Current window — £300 spend across two events, incremental
+      // tickets sum to 100 (matches current - previous = 300 - 200).
+      rollup("a", 100, { date: "2026-04-22", tickets_sold: 60 }),
+      rollup("b", 200, { date: "2026-04-25", tickets_sold: 40 }),
+      // Previous window — £400 spend, incremental tickets sum to 120
+      // so the previous-window CPT denominator = 120.
+      rollup("a", 300, { date: "2026-04-14", tickets_sold: 80 }),
+      rollup("b", 100, { date: "2026-04-20", tickets_sold: 40 }),
+    ];
+    const snapshots = [
+      // Each event's cumulative on the day just before the current
+      // window opens. Sum = 200 → prev cumulative.
+      { event_id: "a", snapshot_at: "2026-04-20", tickets_sold: 140, source: "eventbrite" },
+      { event_id: "b", snapshot_at: "2026-04-20", tickets_sold: 60, source: "eventbrite" },
     ];
 
-    const result = aggregateVenueWoW(events, rollups, TODAY);
+    const result = aggregateVenueWoW(events, rollups, TODAY, snapshots);
 
+    // Cumulative today vs cumulative last week.
     assert.equal(result.tickets.current, 300);
     assert.equal(result.tickets.previous, 200);
     assert.equal(result.tickets.delta, 100);
     assert.equal(result.tickets.deltaPct, 50);
 
-    // CPT: curr = 300/300 = 1.00, prev = 400/200 = 2.00 → delta -1.00, -50%
-    assert.equal(result.cpt.current, 1);
-    assert.equal(result.cpt.previous, 2);
-    assert.equal(result.cpt.delta, -1);
-    assert.equal(result.cpt.deltaPct, -50);
+    // CPT: current denom = (300 − 200) = 100 → 300/100 = 3.00.
+    // Prev denom = rollup window sum (80+40) = 120 → 400/120 ≈ 3.333.
+    assert.equal(result.cpt.current, 3);
+    assert.ok(result.cpt.previous !== null);
+    assert.ok(Math.abs(result.cpt.previous! - 400 / 120) < 1e-9);
   });
 
-  it("surfaces current-window data but nulls the delta when previous window is empty", () => {
+  it("falls back to (current − last-7-day rollup sum) when no snapshot before the window edge", () => {
+    const events = eventsWithCumulative(500, 0);
     const rollups: DailyRollupRow[] = [
-      // Current only — previous window is empty.
-      rollup("a", 50, { date: "2026-04-23", tickets_sold: 100 }),
+      // Last 7 days: rollup tickets sum to 80 → previous cumulative
+      // derives to 500 − 80 = 420. No weekly snapshot older than
+      // 2026-04-20 in this fixture, so the fallback path triggers.
+      rollup("a", 50, { date: "2026-04-25", tickets_sold: 80 }),
     ];
     const result = aggregateVenueWoW(events, rollups, TODAY);
-    // The current half is non-null so the header can still render a
-    // plain "Tickets: 100" / "CPT: £0.50" — only the parenthetical
-    // delta gets hidden.
-    assert.equal(result.tickets.current, 100);
+    assert.equal(result.tickets.current, 500);
+    assert.equal(result.tickets.previous, 420);
+    assert.equal(result.tickets.delta, 80);
+  });
+
+  it("suppresses the delta when the derived previous exceeds current (monotonic guard)", () => {
+    // Simulates the Leeds FA Cup SF regression from PR 2's brief:
+    // current cumulative 1,091, a spurious "previous" of 1,783
+    // coming in from a cross-source contamination. The aggregator
+    // must refuse to render -692 rather than paper it over.
+    const events = [
+      ev({
+        id: "leeds",
+        latest_snapshot: { tickets_sold: 1091, revenue: null },
+      }),
+    ];
+    const snapshots = [
+      {
+        event_id: "leeds",
+        snapshot_at: "2026-04-20",
+        tickets_sold: 1783,
+        source: "xlsx_import",
+      },
+    ];
+    const result = aggregateVenueWoW(events, [], TODAY, snapshots);
+    // current still renders (the main header number is safe).
+    assert.equal(result.tickets.current, 1091);
+    // previous suppressed so the parenthetical hides.
     assert.equal(result.tickets.previous, null);
     assert.equal(result.tickets.delta, null);
     assert.equal(result.tickets.deltaPct, null);
-    assert.equal(result.cpt.current, 0.5);
-    assert.equal(result.cpt.previous, null);
-    assert.equal(result.cpt.delta, null);
+  });
+
+  it("clamps negative rollup tickets_sold values in the windows", () => {
+    // A contaminated rollup day with negative tickets (possible after
+    // a bad sync / reconciliation) must not drag CPT denominators
+    // below zero or let the cumulative-fallback produce a previous
+    // > current.
+    const events = eventsWithCumulative(100, 0);
+    const rollups: DailyRollupRow[] = [
+      rollup("a", 40, { date: "2026-04-22", tickets_sold: 20 }),
+      rollup("a", 60, { date: "2026-04-23", tickets_sold: -999 }),
+    ];
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+    // Fallback: previous = 100 − 20 = 80 (negative row clamped).
+    assert.equal(result.tickets.previous, 80);
+    assert.equal(result.tickets.delta, 20);
+  });
+
+  it("surfaces current cumulative but nulls the delta when no previous source is available", () => {
+    const events = eventsWithCumulative(100, 0);
+    const rollups: DailyRollupRow[] = [];
+    const result = aggregateVenueWoW(events, rollups, TODAY);
+    // With no rollup window data AND no snapshots, previous
+    // cumulative can't be derived → delta hides, current stays.
+    assert.equal(result.tickets.current, 100);
+    assert.equal(result.tickets.previous, null);
+    assert.equal(result.tickets.delta, null);
   });
 
   it("ignores rollup rows outside either window", () => {
+    const events = eventsWithCumulative(100, 0);
     const rollups: DailyRollupRow[] = [
-      // Inside windows
+      // Inside current window — contributes 10 tickets.
       rollup("a", 100, { date: "2026-04-25", tickets_sold: 10 }),
+      // Inside previous window — ignored for ticket math but spend
+      // feeds the prev-CPT denominator.
       rollup("a", 100, { date: "2026-04-15", tickets_sold: 10 }),
       // Too old — more than 13 days back.
       rollup("a", 9999, { date: "2026-04-01", tickets_sold: 9999 }),
-      // Future — future-dated test data.
+      // Future-dated.
       rollup("a", 9999, { date: "2026-05-10", tickets_sold: 9999 }),
     ];
     const result = aggregateVenueWoW(events, rollups, TODAY);
-    assert.equal(result.tickets.current, 10);
-    assert.equal(result.tickets.previous, 10);
-    assert.equal(result.tickets.delta, 0);
+    // Previous cumulative via fallback = 100 − 10 = 90.
+    assert.equal(result.tickets.current, 100);
+    assert.equal(result.tickets.previous, 90);
+    assert.equal(result.tickets.delta, 10);
   });
 
-  it("nulls CPT when spend or tickets is zero in a window", () => {
+  it("ignores rollup + snapshot rows for events outside the group", () => {
+    const events = eventsWithCumulative(100, 0);
     const rollups: DailyRollupRow[] = [
-      rollup("a", 100, { date: "2026-04-23", tickets_sold: 50 }),
-      // Previous window had spend but zero tickets → previous CPT = null
-      rollup("a", 50, { date: "2026-04-18", tickets_sold: 0 }),
-    ];
-    const result = aggregateVenueWoW(events, rollups, TODAY);
-    assert.notEqual(result.cpt.current, null);
-    assert.equal(result.cpt.previous, null);
-    assert.equal(result.cpt.delta, null);
-    assert.equal(result.cpt.deltaPct, null);
-    // Tickets delta still renders — one window with zero tickets is
-    // legitimate data, not missing data.
-    assert.equal(result.tickets.current, 50);
-    assert.equal(result.tickets.previous, 0);
-  });
-
-  it("ignores rollup rows for events outside the group", () => {
-    const rollups: DailyRollupRow[] = [
-      rollup("a", 100, { date: "2026-04-22", tickets_sold: 100 }),
-      rollup("a", 100, { date: "2026-04-17", tickets_sold: 80 }),
-      // Different event id — not in `events` list.
+      rollup("a", 100, { date: "2026-04-22", tickets_sold: 20 }),
       rollup("outsider", 9999, { date: "2026-04-23", tickets_sold: 9999 }),
     ];
-    const result = aggregateVenueWoW(events, rollups, TODAY);
+    const snapshots = [
+      { event_id: "a", snapshot_at: "2026-04-20", tickets_sold: 80, source: "eventbrite" },
+      { event_id: "outsider", snapshot_at: "2026-04-20", tickets_sold: 9999, source: "eventbrite" },
+    ];
+    const result = aggregateVenueWoW(events, rollups, TODAY, snapshots);
     assert.equal(result.tickets.current, 100);
     assert.equal(result.tickets.previous, 80);
   });
@@ -561,5 +623,19 @@ describe("aggregateVenueWoW", () => {
     const result = aggregateVenueWoW([], [], TODAY);
     assert.equal(result.tickets.delta, null);
     assert.equal(result.cpt.delta, null);
+  });
+
+  it("prefers latest-at-or-before when multiple snapshots exist before the window edge", () => {
+    const events = eventsWithCumulative(100, 0);
+    const snapshots = [
+      { event_id: "a", snapshot_at: "2026-04-10", tickets_sold: 50, source: "eventbrite" },
+      // Closer to the window edge — should win.
+      { event_id: "a", snapshot_at: "2026-04-19", tickets_sold: 75, source: "eventbrite" },
+      // After the window edge — must be ignored.
+      { event_id: "a", snapshot_at: "2026-04-22", tickets_sold: 90, source: "eventbrite" },
+    ];
+    const result = aggregateVenueWoW(events, [], TODAY, snapshots);
+    assert.equal(result.tickets.previous, 75);
+    assert.equal(result.tickets.delta, 25);
   });
 });

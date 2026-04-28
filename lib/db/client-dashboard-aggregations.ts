@@ -444,25 +444,87 @@ const ZERO_DELTA: WoWDelta = {
 };
 
 /**
- * Deterministic WoW (current 7 days vs prior 7 days) for a single
- * venue group. Pulls from `event_daily_rollups` alone — per the
- * PR D3 brief the field is "summed across all events in the venue
- * group" and the rollup table is the only date-axis source of
- * truth we have today.
+ * Minimal weekly-snapshot row shape accepted by `aggregateVenueWoW`.
+ * Matches `WeeklyTicketSnapshotRow` from `client-portal-server.ts`
+ * but locally-typed so the aggregation helpers don't drag the
+ * server types into the client bundle.
+ */
+export interface WeeklyTicketSnapshotLite {
+  event_id: string;
+  /** `YYYY-MM-DD` (UTC). */
+  snapshot_at: string;
+  /** Cumulative tickets sold as of this snapshot. */
+  tickets_sold: number;
+  /** Only used by the normalisation helper; the aggregator ignores
+   *  source because weeklyTicketSnapshots are passed through
+   *  `collapseWeekly`'s dominant-source pass upstream. */
+  source?: string;
+}
+
+/**
+ * Deterministic WoW (today vs 7 days ago) for a single venue group.
+ *
+ * ## Tickets
+ *
+ * Ticket counts are *cumulative* quantities — the number the client
+ * sees ("Tickets: 1,091") is the running total, not a per-week
+ * increment. Comparing two week-long *windows* of incremental daily
+ * rollups (PR #119's original approach) produced two incremental
+ * sums, which the parenthetical then read as "cumulative today vs
+ * cumulative last week" and rendered negative deltas on events that
+ * genuinely only grew (Leeds FA Cup SF showed -692 tickets when
+ * sales had never dropped). The cumulative vs incremental mismatch
+ * was the real bug.
+ *
+ * The aggregator now compares:
+ *   - `current`  = sum of each event's `latest_snapshot.tickets_sold`
+ *                  (cumulative count today, same source the header
+ *                  main number uses)
+ *   - `previous` = sum of each event's cumulative count 7 days ago,
+ *                  preferring the weekly snapshot with
+ *                  `snapshot_at` closest to and ≤ today-7, and
+ *                  falling back to `current − Σ(daily rollup
+ *                  tickets_sold in last 7 days)` when no weekly
+ *                  snapshot is available before the window edge.
+ *
+ * Delta (`current − previous`) is therefore "tickets gained in the
+ * last 7 days". A negative delta only renders when the data itself
+ * regressed (a legitimate data-quality signal, not a UI bug).
+ *
+ * ## CPT
+ *
+ * CPT is intrinsically window-over-window — "cost per ticket this
+ * week vs last week". Still sourced from `event_daily_rollups`:
+ *
+ *   - `currCpt` = (ad_spend summed over last 7 days) / (tickets
+ *                 gained over last 7 days, from the cumulative
+ *                 delta).
+ *   - `prevCpt` = the same shape for days 8-14.
+ *
+ * Using the cumulative delta for the denominator here (instead of a
+ * direct sum of rollup.tickets_sold) makes CPT resilient to the
+ * same kind of source contamination that broke the tickets half —
+ * a cumulative write into a single rollup row won't inflate the
+ * denominator into the thousands.
+ *
+ * ## Windowing
  *
  * `todayIso` is injected so SSR renders and tests don't drift with
  * wall-clock time. The current window is inclusive of `todayIso`
  * (i.e. last 7 days ending today); the prior window is the 7 days
  * before that.
  *
- * Returns `ZERO_DELTA` halves when a window has no qualifying
- * rollup rows — callers surface "—" for those, matching the brief's
- * "Show — when one of the two periods has zero data" rule.
+ * `weeklyTicketSnapshots` is optional for backwards compatibility —
+ * callers that haven't threaded the table in fall back to the
+ * rollup-derived previous cumulative. Tests at
+ * `lib/db/__tests__/client-dashboard-aggregations.test.ts` cover
+ * both code paths.
  */
 export function aggregateVenueWoW(
   events: AggregatableEvent[],
   dailyRollups: DailyRollupRow[],
   todayIso: string,
+  weeklyTicketSnapshots?: WeeklyTicketSnapshotLite[],
 ): VenueWoWTotals {
   const eventIds = new Set(events.map((e) => e.id));
   const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
@@ -472,11 +534,24 @@ export function aggregateVenueWoW(
   const currStart = todayMs - 6 * 86_400_000;
   const prevStart = todayMs - 13 * 86_400_000;
   const prevEnd = todayMs - 7 * 86_400_000;
+  const windowEdgeMs = todayMs - 7 * 86_400_000;
 
-  let currTickets = 0;
-  let prevTickets = 0;
+  // ── Current cumulative tickets (main number source of truth). ──
+  let currentCumulativeTickets = 0;
+  let hasAnyCumulative = false;
+  for (const e of events) {
+    const v = e.latest_snapshot?.tickets_sold ?? e.tickets_sold ?? null;
+    if (v != null) {
+      currentCumulativeTickets += v;
+      hasAnyCumulative = true;
+    }
+  }
+
+  // ── Daily rollup windows (spend + per-day tickets). ──
   let currSpend = 0;
   let prevSpend = 0;
+  let currTicketsWindow = 0;
+  let prevTicketsWindow = 0;
   let currRows = 0;
   let prevRows = 0;
 
@@ -486,38 +561,146 @@ export function aggregateVenueWoW(
     if (!Number.isFinite(ms)) continue;
     if (ms >= currStart && ms <= todayMs) {
       currRows += 1;
-      if (r.tickets_sold != null) currTickets += r.tickets_sold;
+      // Clamp negative rollup values — a legitimate per-day
+      // increment is ≥0. A negative here means the rollup row
+      // was written with contaminated data; summing it would
+      // inflate the previous-cumulative estimate.
+      if (r.tickets_sold != null) currTicketsWindow += Math.max(0, r.tickets_sold);
       if (r.ad_spend != null) currSpend += r.ad_spend;
     } else if (ms >= prevStart && ms <= prevEnd) {
       prevRows += 1;
-      if (r.tickets_sold != null) prevTickets += r.tickets_sold;
+      if (r.tickets_sold != null) prevTicketsWindow += Math.max(0, r.tickets_sold);
       if (r.ad_spend != null) prevSpend += r.ad_spend;
     }
   }
 
-  // Separate concerns: `current` / `previous` describe the windows
-  // independently (so the header can still render a plain CPT value
-  // when only one side has data); `delta` / `deltaPct` are set only
-  // when both sides are meaningful. The brief's "— when one period
-  // has zero data" rule applies to the delta parenthetical, not to
-  // the primary number.
-  const bothWindowsPresent = currRows > 0 && prevRows > 0;
+  // ── Previous cumulative tickets. ──
+  //
+  // Preferred path: find each event's weekly snapshot at ≤ today-7
+  // and sum across the group. Matches the operator's mental model
+  // of "where were we last week".
+  //
+  // Fallback: current cumulative − rollup tickets summed over the
+  // last 7 days. Works when the rollup column is well-behaved per-
+  // day incremental; gracefully degrades to null when neither
+  // source is usable so the parenthetical hides rather than
+  // misleading.
+  let previousCumulativeTickets: number | null = null;
+  if (weeklyTicketSnapshots && weeklyTicketSnapshots.length > 0) {
+    let sum = 0;
+    let foundForAnyEvent = false;
+    for (const e of events) {
+      const latestBefore = findLatestSnapshotAtOrBefore(
+        weeklyTicketSnapshots,
+        e.id,
+        windowEdgeMs,
+      );
+      if (latestBefore != null) {
+        sum += latestBefore;
+        foundForAnyEvent = true;
+      }
+    }
+    if (foundForAnyEvent) {
+      previousCumulativeTickets = sum;
+    }
+  }
+  if (previousCumulativeTickets == null && hasAnyCumulative && currRows > 0) {
+    previousCumulativeTickets = Math.max(
+      0,
+      currentCumulativeTickets - currTicketsWindow,
+    );
+  }
 
+  // Monotonic guard: cumulative tickets don't regress in the real
+  // world. When the derived `previous` exceeds `current`, something
+  // upstream corrupted the rollup column (a cumulative value
+  // written in where an incremental was expected, a source
+  // switch mid-week, etc). Suppress the delta rather than render
+  // a misleading negative. `console.warn` so the regression surfaces
+  // in Vercel logs for operator diagnosis.
+  if (
+    previousCumulativeTickets != null &&
+    previousCumulativeTickets > currentCumulativeTickets
+  ) {
+    console.warn(
+      `[venue-wow] cumulative regression — current=${currentCumulativeTickets} ` +
+        `previous=${previousCumulativeTickets} eventIds=${JSON.stringify(
+          Array.from(eventIds),
+        )} today=${todayIso} — suppressing delta`,
+    );
+    previousCumulativeTickets = null;
+  }
+
+  const hasDeltaBase =
+    hasAnyCumulative && previousCumulativeTickets != null;
   const tickets: WoWDelta = buildHalf(
-    currRows > 0 ? currTickets : null,
-    prevRows > 0 ? prevTickets : null,
-    bothWindowsPresent,
+    hasAnyCumulative ? currentCumulativeTickets : null,
+    previousCumulativeTickets,
+    hasDeltaBase,
   );
 
-  const currCpt = currTickets > 0 && currSpend > 0 ? currSpend / currTickets : null;
-  const prevCpt = prevTickets > 0 && prevSpend > 0 ? prevSpend / prevTickets : null;
+  // ── CPT window-over-window. ──
+  //
+  // Denominator precedence:
+  //   1. Cumulative delta — current − previous when both present.
+  //      Resilient to a contaminated rollup column since the edge
+  //      values come from cumulative snapshots, not a sum.
+  //   2. Raw rollup window sum — when no cumulative baseline is
+  //      available (e.g. event with no snapshot + no tickets).
+  //
+  // Same precedence applied to the prior window, using the prior
+  // cumulative window's delta where available.
+  const currCptTickets =
+    previousCumulativeTickets != null
+      ? Math.max(0, currentCumulativeTickets - previousCumulativeTickets)
+      : currTicketsWindow;
+  const currCpt =
+    currCptTickets > 0 && currSpend > 0 ? currSpend / currCptTickets : null;
+  // For the prior half we don't generally have the cumulative 14
+  // days ago — fall back to the rollup window's sum. This keeps
+  // the CPT comparison at least directionally meaningful even when
+  // only the current half has a cumulative baseline.
+  const prevCpt =
+    prevTicketsWindow > 0 && prevSpend > 0 ? prevSpend / prevTicketsWindow : null;
   const cpt: WoWDelta = buildHalf(
     currCpt,
     prevCpt,
-    bothWindowsPresent && currCpt != null && prevCpt != null,
+    currCpt != null && prevCpt != null && currRows > 0 && prevRows > 0,
   );
 
   return { tickets, cpt };
+}
+
+/**
+ * Helper for `aggregateVenueWoW` — walks `weeklyTicketSnapshots`
+ * for one event and returns the cumulative tickets count of the
+ * latest snapshot at-or-before `windowEdgeMs`. Returns null when
+ * no qualifying snapshot exists for that event.
+ *
+ * Expects the incoming snapshots to already be source-normalised
+ * (see `collapseWeekly` / `collapseWeeklyNormalizedPerEvent`).
+ * Mixing sources here would produce phantom regressions — the
+ * upstream normalisation is the safer place to enforce single-
+ * source consistency per event.
+ */
+function findLatestSnapshotAtOrBefore(
+  rows: readonly WeeklyTicketSnapshotLite[],
+  eventId: string,
+  windowEdgeMs: number,
+): number | null {
+  let bestMs = -Infinity;
+  let bestTickets: number | null = null;
+  for (const r of rows) {
+    if (r.event_id !== eventId) continue;
+    const ms = Date.parse(`${r.snapshot_at}T00:00:00Z`);
+    if (!Number.isFinite(ms)) continue;
+    if (ms > windowEdgeMs) continue;
+    if (ms > bestMs) {
+      bestMs = ms;
+      bestTickets = r.tickets_sold;
+    }
+  }
+  return bestTickets;
 }
 
 function buildHalf(

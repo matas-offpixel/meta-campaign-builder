@@ -809,10 +809,20 @@ export function ClientPortalVenueTable({
   const wowByVenue = useMemo(() => {
     const map = new Map<string, VenueWoWTotals>();
     for (const g of venues) {
-      map.set(g.key, aggregateVenueWoW(g.events, dailyRollups, todayIso));
+      // Pass weekly snapshots through so the aggregator uses
+      // cumulative-vs-cumulative semantics for tickets (pre-
+      // collapsed per-event on the server to a single source —
+      // see `collapseWeeklyNormalizedPerEvent`). Without this the
+      // aggregator sums rollup tickets_sold across windows, which
+      // produced the Leeds FA Cup SF "-692 (-85.1%)" phantom
+      // regression from PR 2's brief.
+      map.set(
+        g.key,
+        aggregateVenueWoW(g.events, dailyRollups, todayIso, weeklyTicketSnapshots),
+      );
     }
     return map;
-  }, [venues, dailyRollups, todayIso]);
+  }, [venues, dailyRollups, todayIso, weeklyTicketSnapshots]);
 
   // Expand/collapse state — every card defaults to collapsed so a
   // 16-venue roster reads as a clean topline. The URL hash is the

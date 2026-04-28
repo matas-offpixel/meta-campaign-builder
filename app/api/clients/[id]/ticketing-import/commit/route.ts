@@ -50,6 +50,22 @@ export interface CommitResponse {
   rowsWritten: number;
   rowsSkipped: number;
   skipped: Array<{ row: CommitRow; reason: string }>;
+  /**
+   * Rows where the committed cumulative is LOWER than a previously-
+   * recorded cumulative for the same event on or before the
+   * snapshot date — still written (the operator may be correcting
+   * a prior over-count), but surfaced so the UI can flag them for
+   * a second look. Ties into PR 2's Leeds regression diagnosis:
+   * the phantom -692 delta stemmed from an xlsx_import row that
+   * was lower than the eventbrite cumulative already on file for
+   * an earlier date.
+   */
+  regressions: Array<{
+    eventId: string;
+    snapshotAt: string;
+    ticketsSold: number;
+    prior: { snapshotAt: string; ticketsSold: number; source: string };
+  }>;
 }
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -180,8 +196,75 @@ export async function POST(
       rowsWritten: 0,
       rowsSkipped: skipped.length,
       skipped,
+      regressions: [],
     };
     return NextResponse.json(response);
+  }
+
+  // ── Cumulative-regression sanity check ───────────────────────────────
+  //
+  // For each (event, snapshot_at) we're about to write, fetch the
+  // latest existing snapshot with `snapshot_at <= this row's date`
+  // across ALL sources. If the incoming cumulative is strictly lower
+  // than the prior max, flag it — ticket counts don't refund in the
+  // real world, so a descending number usually means the spreadsheet
+  // was rolled back or attributes a lower bucket. Non-blocking: the
+  // upsert still runs (the operator may be intentionally correcting
+  // earlier over-counts), but the response carries the list for UI
+  // surfacing.
+  const regressions: CommitResponse["regressions"] = [];
+  // Batch the lookup per event so we issue at most one query per
+  // event rather than per row. For a typical weekly-tracker import
+  // (≤60 events × 10 weeks) this is ≤60 DB round trips.
+  const eventIds = Array.from(new Set(toWrite.map((r) => r.event_id)));
+  type PriorRow = {
+    event_id: string;
+    snapshot_at: string;
+    tickets_sold: number;
+    source: string;
+  };
+  const priorByEvent = new Map<string, PriorRow[]>();
+  if (eventIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = supabase as any;
+    const { data: priorRows } = await admin
+      .from("ticket_sales_snapshots")
+      .select("event_id, snapshot_at, tickets_sold, source")
+      .in("event_id", eventIds)
+      .order("snapshot_at", { ascending: true });
+    for (const pr of (priorRows as PriorRow[] | null) ?? []) {
+      const list = priorByEvent.get(pr.event_id) ?? [];
+      list.push(pr);
+      priorByEvent.set(pr.event_id, list);
+    }
+  }
+  for (const w of toWrite) {
+    const prior = priorByEvent.get(w.event_id) ?? [];
+    // Find the largest `tickets_sold` across rows at or before
+    // this row's `snapshot_at`. Using the max (not just the latest)
+    // so a single contaminated dip in history doesn't mask a fresh
+    // import that's still below the running peak.
+    const rowDate = w.snapshot_at.slice(0, 10);
+    let priorMax: PriorRow | null = null;
+    for (const pr of prior) {
+      const prDate = String(pr.snapshot_at).slice(0, 10);
+      if (prDate > rowDate) continue;
+      if (!priorMax || pr.tickets_sold > priorMax.tickets_sold) {
+        priorMax = pr;
+      }
+    }
+    if (priorMax && w.tickets_sold < priorMax.tickets_sold) {
+      regressions.push({
+        eventId: w.event_id,
+        snapshotAt: rowDate,
+        ticketsSold: w.tickets_sold,
+        prior: {
+          snapshotAt: String(priorMax.snapshot_at).slice(0, 10),
+          ticketsSold: priorMax.tickets_sold,
+          source: priorMax.source,
+        },
+      });
+    }
   }
 
   // ── Upsert ───────────────────────────────────────────────────────────
@@ -204,9 +287,17 @@ export async function POST(
     rowsWritten: toWrite.length,
     rowsSkipped: skipped.length,
     skipped,
+    regressions,
   };
   console.log(
-    `[ticketing-import commit] client=${clientId} written=${toWrite.length} skipped=${skipped.length}`,
+    `[ticketing-import commit] client=${clientId} written=${toWrite.length} skipped=${skipped.length} regressions=${regressions.length}`,
   );
+  if (regressions.length > 0) {
+    console.warn(
+      `[ticketing-import commit] ${regressions.length} cumulative regression(s): ${JSON.stringify(
+        regressions.slice(0, 5),
+      )}`,
+    );
+  }
   return NextResponse.json(response);
 }
