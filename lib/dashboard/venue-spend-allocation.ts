@@ -195,6 +195,26 @@ export function allocateVenueSpend(
   };
 }
 
+export function integerAllocationsByEvent(
+  events: readonly AllocatorEvent[],
+  allocations: Array<{ eventId: string; value: number }>,
+  expectedTotal: number,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const event of events) out.set(event.id, 0);
+  for (const allocation of allocations) {
+    out.set(allocation.eventId, Math.round(sanitiseSpend(allocation.value)));
+  }
+
+  let drift = Math.round(sanitiseSpend(expectedTotal));
+  for (const value of out.values()) drift -= value;
+  if (drift === 0 || events.length === 0) return out;
+
+  const last = events[events.length - 1];
+  out.set(last.id, Math.max(0, (out.get(last.id) ?? 0) + drift));
+  return out;
+}
+
 /**
  * When `eventCount > 0` and the generic pool doesn't divide
  * cleanly, the sum of per-event allocations drifts from the venue

@@ -345,16 +345,23 @@ export interface AllocatedSpendUpsertRow {
    * from "allocator ran, no presale activity".
    */
   ad_spend_presale: number;
+  /**
+   * Optional allocated Meta inline link clicks for multi-event venue rows.
+   * The initial Meta pass writes venue-level clicks to every sibling; the
+   * allocator can overwrite that with per-event allocated clicks so venue
+   * charts do not multiply shared-campaign clicks by event count.
+   */
+  link_clicks?: number;
 }
 
 /**
  * Bulk upsert allocated-spend columns on `event_daily_rollups` for
  * one event. Touches ONLY the three allocation columns introduced
- * in migration 046 — the existing `ad_spend` / `link_clicks` /
- * `source_meta_at` etc. are written by the Meta rollup pass and
- * must never be blanked out by the allocator. That isolation is
- * why the allocator is a separate upsert rather than folded into
- * `upsertMetaRollups`.
+ * in migration 046, plus optional allocated `link_clicks` for
+ * multi-event venues. The existing `ad_spend` / `source_meta_at`
+ * etc. are written by the Meta rollup pass and must never be
+ * blanked out by the allocator. That isolation is why the allocator
+ * is a separate upsert rather than folded into `upsertMetaRollups`.
  *
  * The `user_id` + `event_id` + `date` triple is always present so
  * the INSERT path satisfies the table's RLS + unique constraint.
@@ -379,6 +386,7 @@ export async function upsertAllocatedSpendRollups(
     ad_spend_specific: r.ad_spend_specific,
     ad_spend_generic_share: r.ad_spend_generic_share,
     ad_spend_presale: r.ad_spend_presale,
+    ...(r.link_clicks == null ? {} : { link_clicks: r.link_clicks }),
   }));
   const { error } = await asAny(supabase)
     .from("event_daily_rollups")

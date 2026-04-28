@@ -7,6 +7,7 @@ import { extractOpponentName } from "@/lib/db/event-opponent-extraction";
 import { fetchVenueDailyAdMetrics } from "@/lib/insights/meta";
 import {
   allocateVenueSpend,
+  integerAllocationsByEvent,
   type AllocatorAd,
   type AllocatorEvent,
 } from "@/lib/dashboard/venue-spend-allocation";
@@ -35,7 +36,9 @@ import {
  *      evenly across every sibling → per-event `presale`.
  *   5. Upsert the combined result into `event_daily_rollups`'s four
  *      allocation columns (ad_spend_allocated, ad_spend_specific,
- *      ad_spend_generic_share, ad_spend_presale).
+ *      ad_spend_generic_share, ad_spend_presale), plus allocated
+ *      per-event link_clicks so venue charts do not multiply shared
+ *      campaign clicks by sibling count.
  *
  * Called from `runRollupSyncForEvent` after the Meta leg succeeds —
  * it's a deliberate superset of the existing campaign-level rollup
@@ -155,6 +158,9 @@ export interface VenueAllocatorResult {
     spend: number;
     adRowsSpend: number;
     syntheticRemainder: number;
+    linkClicks: number;
+    adRowsLinkClicks: number;
+    syntheticLinkClicks: number;
     isPresaleMatch: boolean;
     isAllocatedMatch: boolean;
   }>;
@@ -318,7 +324,9 @@ export async function allocateVenueSpendForCode(
   const classificationErrors: VenueAllocatorResult["classificationErrors"] =
     [];
   const onsaleByDay = new Map<string, AllocatorAd[]>();
+  const onsaleClicksByDay = new Map<string, AllocatorAd[]>();
   const presaleByDay = new Map<string, number>();
+  const presaleClicksByDay = new Map<string, number>();
 
   // Campaign-id diagnostics: log what the Meta fetch returned vs
   // what the presale filter kept so a misclassified campaign name
@@ -350,11 +358,22 @@ export async function allocateVenueSpendForCode(
         row.day,
         (presaleByDay.get(row.day) ?? 0) + sanitiseSpend(row.spend),
       );
+      presaleClicksByDay.set(
+        row.day,
+        (presaleClicksByDay.get(row.day) ?? 0) + sanitiseSpend(row.linkClicks),
+      );
     } else {
       if (row.campaignId) campaignIdsOnsale.add(row.campaignId);
       const list = onsaleByDay.get(row.day) ?? [];
       list.push({ id: row.adId, name: row.adName, spend: row.spend });
       onsaleByDay.set(row.day, list);
+      const clickList = onsaleClicksByDay.get(row.day) ?? [];
+      clickList.push({
+        id: row.adId,
+        name: row.adName,
+        spend: sanitiseSpend(row.linkClicks),
+      });
+      onsaleClicksByDay.set(row.day, clickList);
     }
   }
 
@@ -370,6 +389,9 @@ export async function allocateVenueSpendForCode(
         spend: c.spend,
         ad_rows_spend: c.adRowsSpend,
         synthetic_remainder: c.syntheticRemainder,
+        link_clicks: c.linkClicks,
+        ad_rows_link_clicks: c.adRowsLinkClicks,
+        synthetic_link_clicks: c.syntheticLinkClicks,
         isPresale_match_result: c.isPresaleMatch,
         isAllocated_match_result: c.isAllocatedMatch,
       })),
@@ -381,6 +403,7 @@ export async function allocateVenueSpendForCode(
   const lifetimeGenericShare = new Map<string, number>();
   const lifetimeAllocated = new Map<string, number>();
   const lifetimePresale = new Map<string, number>();
+  const lifetimeLinkClicks = new Map<string, number>();
 
   // Payload keyed by eventId so the upsert can run one call per
   // event (Supabase's upsert is keyed on (event_id, date) and a
@@ -395,6 +418,7 @@ export async function allocateVenueSpendForCode(
       ad_spend_specific: number;
       ad_spend_generic_share: number;
       ad_spend_presale: number;
+      link_clicks: number;
     }>
   >();
 
@@ -406,12 +430,17 @@ export async function allocateVenueSpendForCode(
   const activeDays = new Set<string>([
     ...onsaleByDay.keys(),
     ...presaleByDay.keys(),
+    ...onsaleClicksByDay.keys(),
+    ...presaleClicksByDay.keys(),
   ]);
 
   for (const day of activeDays) {
     const onsaleAds = onsaleByDay.get(day) ?? [];
+    const onsaleClickAds = onsaleClicksByDay.get(day) ?? [];
     const presaleDayTotal = presaleByDay.get(day) ?? 0;
+    const presaleDayClicks = presaleClicksByDay.get(day) ?? 0;
     const presaleShare = eventCount > 0 ? presaleDayTotal / eventCount : 0;
+    const presaleClickShare = eventCount > 0 ? presaleDayClicks / eventCount : 0;
 
     // Wrap the pure allocator so a malformed ad name in the
     // classifier's regex path doesn't tank the whole venue.
@@ -444,6 +473,35 @@ export async function allocateVenueSpendForCode(
       };
     }
 
+    let clickDayResult;
+    try {
+      clickDayResult = allocateVenueSpend(allocatorEvents, onsaleClickAds);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.error(
+        `[venue-spend-allocator] classify_click_day_failed event_code=${eventCode} day=${day} ads=${onsaleClickAds.length} msg=${message}`,
+      );
+      clickDayResult = {
+        perEvent: allocatorEvents.map((ev) => ({
+          eventId: ev.id,
+          specific: 0,
+          genericShare: 0,
+          allocated: 0,
+        })),
+        venueTotalSpend: 0,
+        genericPool: 0,
+        genericSharePerEvent: 0,
+      };
+    }
+    const clickAllocations = integerAllocationsByEvent(
+      allocatorEvents,
+      clickDayResult.perEvent.map((r) => ({
+        eventId: r.eventId,
+        value: r.allocated + presaleClickShare,
+      })),
+      Math.round(clickDayResult.venueTotalSpend + presaleDayClicks),
+    );
+
     for (const r of dayResult.perEvent) {
       lifetimeSpecific.set(
         r.eventId,
@@ -461,6 +519,11 @@ export async function allocateVenueSpendForCode(
         r.eventId,
         (lifetimePresale.get(r.eventId) ?? 0) + presaleShare,
       );
+      const linkClicks = clickAllocations.get(r.eventId) ?? 0;
+      lifetimeLinkClicks.set(
+        r.eventId,
+        (lifetimeLinkClicks.get(r.eventId) ?? 0) + linkClicks,
+      );
       const list = upsertPayloads.get(r.eventId) ?? [];
       list.push({
         date: day,
@@ -468,6 +531,7 @@ export async function allocateVenueSpendForCode(
         ad_spend_specific: round2(r.specific),
         ad_spend_generic_share: round2(r.genericShare),
         ad_spend_presale: round2(presaleShare),
+        link_clicks: linkClicks,
       });
       upsertPayloads.set(r.eventId, list);
     }
@@ -520,12 +584,14 @@ export async function allocateVenueSpendForCode(
     );
     const allocated = sumMap(lifetimeAllocated);
     const presale = sumMap(lifetimePresale);
+    const linkClicks = sumMap(lifetimeLinkClicks);
     const unattributedRemainder = round2(rawAdSpend - allocated - presale);
     console.info("[venue-spend-allocator] Bristol attribution gap", {
       eventCode,
       rawAdSpend,
       allocated,
       presale,
+      link_clicks: linkClicks,
       unattributed_remainder: unattributedRemainder,
       rowsWritten,
       perEventLifetime: toLifetime(
