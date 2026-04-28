@@ -28,6 +28,13 @@ import {
   parseExpandedHash,
   serializeExpandedHash,
 } from "@/lib/dashboard/rollout-grouping";
+import {
+  EventTrendChart,
+  type TrendChartPoint,
+} from "@/components/dashboard/events/event-trend-chart";
+import { VenueActiveCreatives } from "./venue-active-creatives";
+import { VenueSyncButton } from "./venue-sync-button";
+import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
 
 /**
  * Sentinel for "no expanded cards" — re-used every render so the
@@ -47,11 +54,7 @@ const EMPTY_WOW: VenueWoWTotals = {
   cpt: { current: null, previous: null, delta: null, deltaPct: null },
   roas: { current: null, previous: null, delta: null, deltaPct: null },
 };
-import { DailyTracker } from "./daily-tracker";
-import { VenueActiveCreatives } from "./venue-active-creatives";
-import { VenueHistorySection } from "./venue-history-section";
-import { VenueSyncButton } from "./venue-sync-button";
-import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
+const COL_COUNT = 12;
 
 interface SavedSnapshot {
   tickets_sold: number;
@@ -87,26 +90,22 @@ interface Props {
    */
   londonPresaleSpend: number | null;
   /**
-   * All daily tracker rows for the client. Filtered down to the
-   * venue's events inside each VenueSection's <DailyTracker />.
+   * Legacy daily tracker rows for the client. Kept on the public
+   * payload for existing write paths, but the venue-expanded graph now
+   * reads `dailyRollups` so it matches the event report chart.
    */
   dailyEntries: DailyEntry[];
   /**
-   * Event daily rollups across the client. Only used by this
-   * component to score "activity" per venue group — picking which
-   * cards to auto-expand on first mount. Not used in the existing
-   * per-event arithmetic, which stays on meta_spend_cached.
+   * Event daily rollups across the client. Feeds venue activity,
+   * WoW deltas, spend allocation, and the shared trend chart.
    */
   dailyRollups: DailyRollupRow[];
   /** Additional spend rows across the client, filtered per venue card. */
   additionalSpend: AdditionalSpendRow[];
   /**
    * Weekly ticket snapshots across every event under the client.
-   * Pre-collapsed on the server (manual > xlsx_import > eventbrite)
-   * to one row per (event, week). The venue-expansion history
-   * section filters them down to the card's event set at render
-   * time. Empty when no snapshots exist yet — the section hides
-   * itself in that case rather than rendering a blank chart.
+   * Retained for callers that still load the field; venue trend
+   * bucketing now derives weekly points from `dailyRollups`.
    */
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Exposes admin-only controls per row when true. */
@@ -858,7 +857,6 @@ export function ClientPortalVenueTable({
   events,
   londonOnsaleSpend,
   londonPresaleSpend,
-  dailyEntries,
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
@@ -1014,8 +1012,6 @@ export function ClientPortalVenueTable({
                 group={group}
                 spend={venueSpend(group, londonOnsaleSpend, allocationByEvent)}
                 wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
-                dailyEntries={dailyEntries}
-                weeklyTicketSnapshots={weeklyTicketSnapshots}
                 dailyRollups={dailyRollups}
                 additionalSpend={additionalSpend}
                 isExpanded={expanded.has(group.expandKey)}
@@ -1245,20 +1241,10 @@ interface VenueSectionProps {
    * Overall London row + venue rows draw from identical arithmetic.
    */
   spend: GroupSpend;
-  /** All daily tracker rows for the client. Filtered to this venue's
-   *  events by the embedded <DailyTracker />. */
-  dailyEntries: DailyEntry[];
-  /**
-   * Pre-collapsed weekly ticket snapshots for every event under the
-   * client. The VenueHistorySection filters them down to this
-   * venue's event set. Empty arrays render nothing — operators
-   * upload an xlsx via /clients/[id]/ticketing-import to populate.
-   */
-  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   /**
    * Event daily rollups across the client. Forwarded so the
-   * history section can compute "≥7 days" per-event to decide
-   * whether the Daily granularity toggle is enabled.
+   * shared trend chart can aggregate the venue's events without
+   * re-fetching.
    */
   dailyRollups: DailyRollupRow[];
   /** Client-wide additional spend rows; venue card filters by event ids/code. */
@@ -1282,514 +1268,27 @@ interface VenueSectionProps {
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
-/**
- * Daily-entry rollup keyed by date. Drives the trend chart's X axis.
- *
- * Source values stay null when the venue's events report no value for
- * that field on that date — distinct from "value is 0". The chart
- * uses null to *break* lines rather than draw misleading zero
- * segments, and the latest-value pill labels suppress similarly.
- */
-interface ChartDay {
-  date: string;
-  spend: number | null;
-  tickets: number | null;
-  revenue: number | null;
-  linkClicks: number | null;
-  cpt: number | null;
-  roas: number | null;
-  cpc: number | null;
-}
-
-type MetricKey = "spend" | "tickets" | "cpt" | "roas" | "linkClicks" | "cpc";
-
-interface MetricDef {
-  key: MetricKey;
-  label: string;
-  /** Hex colour used for the SVG line + the HTML pill swatch. Kept
-   *  as a single literal so the two surfaces never drift. */
-  colour: string;
-  format: (n: number) => string;
-}
-
-const METRICS: MetricDef[] = [
-  { key: "spend", label: "Spend", colour: "#27272a", format: (n) => GBP2.format(n) },
-  { key: "tickets", label: "Tickets", colour: "#10b981", format: (n) => NUM.format(n) },
-  { key: "cpt", label: "CPT", colour: "#f59e0b", format: (n) => GBP2.format(n) },
-  { key: "roas", label: "ROAS", colour: "#8b5cf6", format: (n) => `${n.toFixed(2)}×` },
-  { key: "linkClicks", label: "Clicks", colour: "#0ea5e9", format: (n) => NUM.format(n) },
-  { key: "cpc", label: "CPC", colour: "#f43f5e", format: (n) => GBP2.format(n) },
-];
-
-/**
- * Aggregate per-event tracker rows down to one row per date. Sums
- * propagate nullness: a date where every contributing entry has a
- * null spend stays null (rather than collapsing to 0) so downstream
- * code can distinguish "no data" from "spent nothing".
- *
- * Output is sorted by date ASC for direct consumption by the chart.
- */
-function aggregateEntriesByDate(entries: DailyEntry[]): ChartDay[] {
-  type Acc = {
-    spend: number | null;
-    tickets: number | null;
-    revenue: number | null;
-    linkClicks: number | null;
-  };
-  const map = new Map<string, Acc>();
-  for (const e of entries) {
-    const cur =
-      map.get(e.date) ??
-      ({ spend: null, tickets: null, revenue: null, linkClicks: null } as Acc);
-    if (e.day_spend !== null) cur.spend = (cur.spend ?? 0) + e.day_spend;
-    if (e.tickets !== null) cur.tickets = (cur.tickets ?? 0) + e.tickets;
-    if (e.revenue !== null) cur.revenue = (cur.revenue ?? 0) + e.revenue;
-    if (e.link_clicks !== null)
-      cur.linkClicks = (cur.linkClicks ?? 0) + e.link_clicks;
-    map.set(e.date, cur);
+function dailyRollupSpend(row: DailyRollupRow): number | null {
+  if (row.ad_spend_allocated != null || row.ad_spend_presale != null) {
+    return (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
   }
-  return [...map.keys()]
-    .sort()
-    .map((date) => {
-      const v = map.get(date)!;
-      const cpt =
-        v.spend !== null && v.spend > 0 && v.tickets !== null && v.tickets > 0
-          ? v.spend / v.tickets
-          : null;
-      const roas =
-        v.revenue !== null && v.revenue > 0 && v.spend !== null && v.spend > 0
-          ? v.revenue / v.spend
-          : null;
-      const cpc =
-        v.spend !== null &&
-        v.spend > 0 &&
-        v.linkClicks !== null &&
-        v.linkClicks > 0
-          ? v.spend / v.linkClicks
-          : null;
-      return {
-        date,
-        spend: v.spend,
-        tickets: v.tickets,
-        revenue: v.revenue,
-        linkClicks: v.linkClicks,
-        cpt,
-        roas,
-        cpc,
-      };
-    });
+  return row.ad_spend;
 }
 
-/**
- * Format YYYY-MM-DD as `14 Apr` in en-GB. UTC-anchored — the API
- * persists ISO date strings, not timestamps, so the local timezone
- * mustn't shift the rendered day.
- */
-function chartShortDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
+function buildVenueTrendPoints(
+  dailyRollups: DailyRollupRow[],
+  venueEventIds: Set<string>,
+): TrendChartPoint[] {
+  return dailyRollups
+    .filter((row) => venueEventIds.has(row.event_id))
+    .map((row) => ({
+      date: row.date,
+      spend: dailyRollupSpend(row),
+      tickets: row.tickets_sold,
+      revenue: row.revenue,
+      linkClicks: row.link_clicks ?? null,
+    }));
 }
-
-/** Fuller date format for the hover tooltip — `Mon 14 Apr`. Same UTC
- *  anchoring as `chartShortDate`. */
-function chartTooltipDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
-}
-
-/** Last non-null value of a metric across the day series, or null
- *  when the metric has no data points at all. Powers the latest-
- *  value badge inside each pill so the toggle row is also a legend. */
-function latestMetricValue(days: ChartDay[], key: MetricKey): number | null {
-  for (let i = days.length - 1; i >= 0; i--) {
-    const v = days[i][key];
-    if (v !== null && Number.isFinite(v)) return v;
-  }
-  return null;
-}
-
-/**
- * Multi-metric time-series chart for a venue's daily tracker entries.
- *
- * Self-hides when fewer than two distinct days of data exist — a
- * single point can't draw a meaningful line and the empty plot would
- * imply data we don't have.
- *
- * Each metric has its own implicit Y scale (max-normalised to the plot
- * height independently), so absolute values across series aren't
- * comparable but trends are. The pills under the title double as the
- * legend (colour swatch + metric name + latest value) and the toggle
- * surface — clicking adds/removes a series. Refusing to deselect the
- * last active metric keeps the plot from going visually empty
- * mid-interaction; the user can always swap to a different metric in
- * a single click.
- *
- * Implementation detail: SVG draws lines + dots in a stretched
- * `preserveAspectRatio="none"` viewport so the geometry fills any
- * container width. Date labels are HTML overlaid below the SVG so
- * they don't get horizontally squished by the viewport stretch.
- */
-function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
-  const days = useMemo(() => aggregateEntriesByDate(entries), [entries]);
-  // Default pill set aligned with the per-event report chart
-  // (components/dashboard/events/event-trend-chart.tsx from PR #103
-  // era). Operators kept asking "why does my per-event view show
-  // three lines but the client portal shows one" — it was an
-  // oversight that the portal chart defaulted to CPT only.
-  const [active, setActive] = useState<Set<MetricKey>>(
-    () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
-  );
-  // Hover state lives at the chart level so the tooltip + hairline can
-  // share a single source of truth. `chartWidth` is captured at hover
-  // time (no ResizeObserver) because the only consumers are the
-  // tooltip + hairline rendered in the same pass.
-  const [hover, setHover] = useState<{
-    index: number;
-    chartWidth: number;
-  } | null>(null);
-
-  if (days.length < 2) return null;
-
-  const toggle = (key: MetricKey) => {
-    setActive((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        // Refuse to deselect the only remaining metric — the plot
-        // would otherwise render an empty axis frame which reads as
-        // a bug rather than a state.
-        if (next.size === 1) return prev;
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
-  // Stretchable plot area. Geometry only — text lives in HTML below.
-  const VB_W = 600;
-  const VB_H = 150;
-  const PAD_T = 8;
-  const PAD_R = 8;
-  const PAD_B = 8;
-  const PAD_L = 8;
-  const plotW = VB_W - PAD_L - PAD_R;
-  const plotH = VB_H - PAD_T - PAD_B;
-
-  const xAt = (i: number): number =>
-    days.length === 1
-      ? PAD_L + plotW / 2
-      : PAD_L + (i / (days.length - 1)) * plotW;
-
-  // For each active metric build (a) a per-metric max for normalisation
-  // and (b) polyline segments split on null gaps. A single polyline
-  // through nulls would draw straight across missing days and lie
-  // about the trend; segmenting preserves the gap visually.
-  type SeriesPoint = { x: number; y: number; v: number };
-  type Series = {
-    metric: MetricDef;
-    /** Maximum non-null value in the series. Anchors Y-axis tick
-     *  values for the primary metric. */
-    metricMax: number;
-    /** metricMax * 1.1 — the y=0 of the plot area maps to this so the
-     *  topmost data point sits inside the canvas. */
-    yMax: number;
-    segments: SeriesPoint[][];
-    points: SeriesPoint[];
-  };
-  const series: Series[] = METRICS.filter((m) => active.has(m.key)).map((m) => {
-    const raw = days.map((d) => d[m.key]);
-    const nonNull = raw.filter(
-      (v): v is number => v !== null && Number.isFinite(v),
-    );
-    const metricMax = nonNull.length > 0 ? Math.max(...nonNull) : 0;
-    // Headroom keeps the topmost point off the upper edge.
-    const yMax = metricMax > 0 ? metricMax * 1.1 : 1;
-    const segments: SeriesPoint[][] = [];
-    const points: SeriesPoint[] = [];
-    let cur: SeriesPoint[] = [];
-    raw.forEach((v, i) => {
-      if (v === null || !Number.isFinite(v)) {
-        if (cur.length > 0) {
-          segments.push(cur);
-          cur = [];
-        }
-        return;
-      }
-      const y = PAD_T + plotH - (v / yMax) * plotH;
-      const point: SeriesPoint = { x: xAt(i), y, v };
-      cur.push(point);
-      points.push(point);
-    });
-    if (cur.length > 0) segments.push(cur);
-    return { metric: m, metricMax, yMax, segments, points };
-  });
-
-  // Y-axis tick values anchored to the *primary* metric (first active
-  // in canonical METRICS order so the choice is deterministic and
-  // matches the leftmost pill). Each tick sits at a meaningful
-  // fraction of the metric's max — value labels at 0, max/3, 2max/3,
-  // max — rather than at evenly-spaced fractions of the plot height,
-  // which would put the top tick in the headroom band where no data
-  // can land.
-  const Y_TICK_COUNT = 4;
-  const primary = series[0];
-  const yTicks = primary
-    ? Array.from({ length: Y_TICK_COUNT }, (_, i) => {
-        const fraction = (Y_TICK_COUNT - 1 - i) / (Y_TICK_COUNT - 1);
-        const value = primary.metricMax * fraction;
-        const yPx = PAD_T + plotH - (value / primary.yMax) * plotH;
-        return { value, yPx };
-      })
-    : [];
-
-  // Hover state: index into `days` of the snapped point + the chart
-  // column's pixel width at hover-time. We capture width on each
-  // mousemove rather than via ResizeObserver because (a) we already
-  // have the bounding rect and (b) the only consumer is the tooltip
-  // position computed in the same render pass.
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width === 0 || days.length === 0) return;
-    const x = e.clientX - rect.left;
-    const vbX = (x / rect.width) * VB_W;
-    let nearest = 0;
-    let nearestDist = Infinity;
-    for (let i = 0; i < days.length; i++) {
-      const dist = Math.abs(xAt(i) - vbX);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearest = i;
-      }
-    }
-    setHover({ index: nearest, chartWidth: rect.width });
-  };
-
-  // Date label cadence: cap at ~6 visible labels regardless of point
-  // count so the row stays readable on mobile. Always include first
-  // and last so the timeline endpoints are anchored.
-  const labelEvery = Math.max(1, Math.ceil(days.length / 6));
-  const labelDays = days.filter(
-    (_, i) => i === 0 || i === days.length - 1 || i % labelEvery === 0,
-  );
-
-  return (
-    <div className="border-t border-border px-4 py-4">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Daily trend
-        </p>
-        <p className="text-[10px] text-muted-foreground/60">
-          {days.length} day{days.length === 1 ? "" : "s"} · click pills to
-          toggle
-        </p>
-      </div>
-      {/* Pill toggles double as legend. Latest non-null value is shown
-          alongside the metric name so the pill carries information
-          even before you read the chart. */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {METRICS.map((m) => {
-          const isActive = active.has(m.key);
-          const latest = latestMetricValue(days, m.key);
-          return (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => toggle(m.key)}
-              aria-pressed={isActive}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                isActive
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border-strong bg-card text-muted-foreground hover:border-border-strong"
-              }`}
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: m.colour }}
-                aria-hidden="true"
-              />
-              {m.label}
-              {latest !== null && (
-                <span
-                  className={`tabular-nums ${isActive ? "text-background/70" : "text-muted-foreground"}`}
-                >
-                  {m.format(latest)}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex">
-        {/* Y-axis column — fixed width, height matches SVG so absolute
-            tick positions resolve in the same coordinate space the
-            SVG draws in. Y values use the *primary* metric's scale
-            (formatted via that metric's formatter). When a second
-            series is also active its absolute values won't line up
-            with these ticks — that's an inherent trade-off of
-            independently-normalised series and matches the spec. */}
-        <div
-          className="relative h-[150px] w-12 flex-shrink-0"
-          aria-hidden={primary ? undefined : true}
-        >
-          {primary &&
-            yTicks.map((t) => (
-              <span
-                key={t.value}
-                className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
-                style={{ top: `${t.yPx}px` }}
-              >
-                {primary.metric.format(t.value)}
-              </span>
-            ))}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div
-            className="relative h-[150px]"
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => setHover(null)}
-          >
-            <svg
-              viewBox={`0 0 ${VB_W} ${VB_H}`}
-              preserveAspectRatio="none"
-              width="100%"
-              height={150}
-              role="img"
-              aria-label="Daily metric trend chart"
-              className="overflow-visible"
-            >
-              {/* Baseline + top reference for visual grounding. Tick
-                  rules come from the Y-axis column's labels — drawing
-                  them as SVG lines too would just be visual noise. */}
-              <line
-                x1={PAD_L}
-                x2={VB_W - PAD_R}
-                y1={PAD_T + plotH}
-                y2={PAD_T + plotH}
-                stroke="#e4e4e7"
-                strokeWidth={1}
-                vectorEffect="non-scaling-stroke"
-              />
-              {series.map((s) =>
-                s.segments.map((seg, i) => (
-                  <polyline
-                    key={`${s.metric.key}-${i}`}
-                    points={seg.map((p) => `${p.x},${p.y}`).join(" ")}
-                    fill="none"
-                    stroke={s.metric.colour}
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                )),
-              )}
-              {series.map((s) =>
-                s.points.map((p, i) => (
-                  <circle
-                    key={`${s.metric.key}-pt-${i}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={2.5}
-                    fill={s.metric.colour}
-                    stroke="#ffffff"
-                    strokeWidth={1}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                )),
-              )}
-            </svg>
-            {/* Hover hairline + tooltip. Both positioned in HTML pixel
-                space (not SVG units) so the text inside the tooltip
-                isn't subject to the SVG's stretched viewport. The
-                tooltip flips to the left of the hairline once we cross
-                the 60% mark of the chart width — the threshold is
-                slightly past centre to avoid a flicker on points near
-                the middle. */}
-            {hover &&
-              (() => {
-                const idx = hover.index;
-                const day = days[idx];
-                if (!day) return null;
-                const vbX = xAt(idx);
-                const pixelX = (vbX / VB_W) * hover.chartWidth;
-                const flipLeft = pixelX > hover.chartWidth * 0.6;
-                return (
-                  <>
-                    <div
-                      className="pointer-events-none absolute bottom-0 top-0 w-px bg-foreground/30"
-                      style={{ left: `${pixelX}px` }}
-                      aria-hidden="true"
-                    />
-                    <div
-                      className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] shadow-md"
-                      style={
-                        flipLeft
-                          ? {
-                              right: `${hover.chartWidth - pixelX + 8}px`,
-                              top: 4,
-                            }
-                          : { left: `${pixelX + 8}px`, top: 4 }
-                      }
-                    >
-                      <p className="mb-1 font-medium text-foreground">
-                        {chartTooltipDate(day.date)}
-                      </p>
-                      <ul className="space-y-0.5">
-                        {series.map((s) => {
-                          const v = day[s.metric.key];
-                          return (
-                            <li
-                              key={s.metric.key}
-                              className="flex items-center gap-2"
-                            >
-                              <span
-                                className="h-1.5 w-1.5 rounded-full"
-                                style={{ backgroundColor: s.metric.colour }}
-                                aria-hidden="true"
-                              />
-                              <span className="text-muted-foreground">
-                                {s.metric.label}
-                              </span>
-                              <span className="ml-auto tabular-nums text-foreground">
-                                {v !== null && Number.isFinite(v)
-                                  ? s.metric.format(v)
-                                  : "—"}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  </>
-                );
-              })()}
-          </div>
-          {/* HTML date labels overlaid below — kept out of SVG so the
-              stretched viewport doesn't squish the text horizontally. */}
-          <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
-            {labelDays.map((d) => (
-              <span key={d.date}>{chartShortDate(d.date)}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const COL_COUNT = 12;
 
 function VenueReportLink({
   token,
@@ -1876,8 +1375,6 @@ function VenueSection({
   group,
   spend,
   wow,
-  dailyEntries,
-  weeklyTicketSnapshots,
   dailyRollups,
   additionalSpend,
   isExpanded,
@@ -1949,17 +1446,20 @@ function VenueSection({
   // internal flag means "still editing when you come back" works
   // without an explicit reset.
   const effectiveEditMode = editMode && isExpanded;
-  // Pre-filter the client-wide tracker rows down to this venue's
-  // events. Done here (cheap) rather than passing the full set into
-  // every DailyTracker so the per-event grouping inside the tracker
-  // doesn't have to also discriminate by venue.
+  // Pre-filter the client-wide rollups down to this venue's events.
+  // The shared trend chart handles Daily/Weekly bucketing from these
+  // points, avoiding a second data source for the venue embed.
   const venueEventIds = useMemo(
     () => new Set(group.events.map((e) => e.id)),
     [group.events],
   );
-  const venueEntries = useMemo(
-    () => dailyEntries.filter((e) => venueEventIds.has(e.event_id)),
-    [dailyEntries, venueEventIds],
+  const venueTrendPoints = useMemo(
+    () => buildVenueTrendPoints(dailyRollups, venueEventIds),
+    [dailyRollups, venueEventIds],
+  );
+  const hasVenueTrend = useMemo(
+    () => new Set(venueTrendPoints.map((point) => point.date)).size >= 2,
+    [venueTrendPoints],
   );
 
   return (
@@ -2198,12 +1698,14 @@ function VenueSection({
         />
       )}
 
-      {isExpanded && (
-        <VenueHistorySection
-          events={group.events}
-          weeklyTicketSnapshots={weeklyTicketSnapshots}
-          dailyRollups={dailyRollups}
-        />
+      {isExpanded && hasVenueTrend && (
+        <div className="border-b border-border px-4 py-4">
+          <EventTrendChart
+            points={venueTrendPoints}
+            title="Venue trend"
+            className="border-border"
+          />
+        </div>
       )}
       {!isExpanded ? null : (
       <div id={bodyId} className="overflow-x-auto">
@@ -2283,22 +1785,8 @@ function VenueSection({
         <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
       </div>
       )}
-      {/* Multi-metric time-series fed by the venue's daily tracker
-          rows. Self-hides when fewer than two distinct days exist —
-          new venues without a tracker history won't render anything,
-          which is the correct empty state. */}
-      {isExpanded && <CptTrendChart entries={venueEntries} />}
-      {/* Collapsed-by-default daily tracker mirrors the Excel sheet
-          the client team currently keeps by hand. Read-only on the
-          public portal; the underlying /daily POST route exists for a
-          future internal admin UI. */}
-      {isExpanded && (
-        <DailyTracker
-          token={token}
-          events={group.events}
-          entries={venueEntries}
-        />
-      )}
+      {/* The old daily tracker table is intentionally not rendered here:
+          the shared trend chart above covers daily and ISO-week views. */}
       {/* Active creatives strip — lazy-fetched the first time the card
           is opened. Suppressed when the venue has no event_code to
           join Meta's `[event_code]` bracket pattern against (nothing

@@ -149,6 +149,8 @@ export interface DailyRollupRow {
   ad_spend_allocated: number | null;
   /** Ticket revenue for this event/day from the ticketing provider. */
   revenue: number | null;
+  /** Meta link clicks for this event/day. */
+  link_clicks?: number | null;
   /** Opponent-matched portion of the allocation. NULL when
    *  allocation hasn't run. */
   ad_spend_specific: number | null;
@@ -749,7 +751,7 @@ async function fetchAllDailyRollups(
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, revenue, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, revenue, link_clicks, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
@@ -774,6 +776,7 @@ async function fetchAllDailyRollups(
         ad_spend: (r.ad_spend as number | null) ?? null,
         ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
         revenue: (r.revenue as number | null) ?? null,
+        link_clicks: (r.link_clicks as number | null) ?? null,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:
           (r.ad_spend_generic_share as number | null) ?? null,
