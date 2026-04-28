@@ -55,6 +55,7 @@ export default async function ClientPortalPage({ params }: Props) {
       dailyEntries={result.dailyEntries}
       dailyRollups={result.dailyRollups}
       additionalSpend={result.additionalSpend}
+      weeklyTicketSnapshots={result.weeklyTicketSnapshots}
     />
   );
 }
