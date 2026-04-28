@@ -18,11 +18,32 @@ export interface WeeklySnapshot {
 }
 
 /**
+ * Source priority: higher number wins on ties. Matches the
+ * "operator override" intuition — manual edits from the dashboard
+ * always trump API-pulled or xlsx-bulk-loaded rows, and a one-off
+ * xlsx backfill trumps the Eventbrite auto-sync when both cover
+ * the same week.
+ */
+const SOURCE_PRIORITY: Record<string, number> = {
+  eventbrite: 1,
+  foursomething: 2,
+  xlsx_import: 3,
+  manual: 4,
+};
+
+/**
  * Resolve one snapshot per (eventId, snapshot_at week bucket),
  * preferring manual > xlsx_import > eventbrite when multiple rows
  * exist for the same week. Week bucket = the snapshot_at date
  * converted to YYYY-MM-DD (UTC), so two same-week rows with
  * different HH:MM still collapse correctly.
+ *
+ * This is the per-day tie-break, applied independently to each
+ * bucket. When two different weeks are backed by two different
+ * sources (e.g. week A from xlsx_import, week B from eventbrite)
+ * this helper keeps both — see `collapseWeeklyNormalizedPerEvent`
+ * for the stricter single-source variant used by the WoW
+ * aggregator.
  */
 export function collapseWeekly(
   rows: Array<{
@@ -31,15 +52,6 @@ export function collapseWeekly(
     source: string;
   }>,
 ): WeeklySnapshot[] {
-  // Source priority: higher number wins on ties. Matches the
-  // "operator override" intuition — manual edits from the dashboard
-  // always trump API-pulled or xlsx-bulk-loaded rows.
-  const priority: Record<string, number> = {
-    eventbrite: 1,
-    foursomething: 2,
-    xlsx_import: 3,
-    manual: 4,
-  };
   const byDay = new Map<string, WeeklySnapshot>();
   for (const r of rows) {
     const day = ymd(r.snapshot_at);
@@ -48,7 +60,8 @@ export function collapseWeekly(
     const current = byDay.get(day);
     if (
       !current ||
-      (priority[normalizedSource] ?? 0) > (priority[current.source] ?? 0)
+      (SOURCE_PRIORITY[normalizedSource] ?? 0) >
+        (SOURCE_PRIORITY[current.source] ?? 0)
     ) {
       byDay.set(day, {
         snapshot_at: day,
@@ -60,6 +73,54 @@ export function collapseWeekly(
   return Array.from(byDay.values()).sort((a, b) =>
     a.snapshot_at.localeCompare(b.snapshot_at),
   );
+}
+
+/**
+ * Per-event source normalisation.
+ *
+ * Picks a single *dominant* source for the event (the highest-
+ * priority source present in the input rows) and returns only
+ * snapshots from that source. Drops rows from lower-priority
+ * sources entirely — the WoW aggregator can then compare two
+ * cumulative values that both came from the same reporting flow
+ * without risking phantom regressions where week A came from an
+ * xlsx_import cumulative (say 1,783) and week B came from an
+ * Eventbrite live total (1,091) that doesn't include the same
+ * buckets.
+ *
+ * Why not "pick dominant by coverage count":
+ *   Coverage-based dominance would surface `eventbrite` for a
+ *   long-running event even when the operator went out of their
+ *   way to import a cleaner xlsx_import set — the whole point of
+ *   imports is operator authority, so priority-based dominance
+ *   matches the PR #122 contract.
+ *
+ * Callers that want the cross-source union (e.g. the weekly
+ * trends chart that renders every data point regardless of
+ * source) keep using `collapseWeekly`. The WoW aggregator and
+ * anything else that relies on cumulative consistency uses this
+ * helper.
+ */
+export function collapseWeeklyNormalizedPerEvent(
+  rows: Array<{
+    snapshot_at: string;
+    tickets_sold: number;
+    source: string;
+  }>,
+): WeeklySnapshot[] {
+  const collapsed = collapseWeekly(rows);
+  if (collapsed.length === 0) return [];
+  // Find the highest-priority source that appears in the data.
+  let dominantSource: WeeklySnapshot["source"] = "eventbrite";
+  let dominantPriority = -1;
+  for (const r of collapsed) {
+    const p = SOURCE_PRIORITY[r.source] ?? 0;
+    if (p > dominantPriority) {
+      dominantPriority = p;
+      dominantSource = r.source;
+    }
+  }
+  return collapsed.filter((r) => r.source === dominantSource);
 }
 
 function normalizeSource(s: string): WeeklySnapshot["source"] {

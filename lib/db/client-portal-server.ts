@@ -477,11 +477,23 @@ async function loadPortalForClientId(
       // transitive deps for anything that might one day bundle this
       // file into a client boundary (it shouldn't, but the guard
       // costs nothing).
-      const { collapseWeekly } = await import(
+      //
+      // `collapseWeeklyNormalizedPerEvent` picks a single dominant
+      // source *per event* (priority-ordered manual > xlsx_import >
+      // foursomething > eventbrite). That's stricter than the
+      // per-day tie-break `collapseWeekly` applies — the WoW
+      // aggregator needs cumulative comparability within an event's
+      // own history, otherwise week A from xlsx_import (cumulative
+      // 1,783) vs week B from eventbrite (cumulative 1,091)
+      // produces a phantom regression like the Leeds FA Cup SF -692
+      // delta from PR 2's brief. See the docblocks on
+      // `collapseWeekly` and `collapseWeeklyNormalizedPerEvent` for
+      // the full reasoning.
+      const { collapseWeeklyNormalizedPerEvent } = await import(
         "@/lib/db/event-history-collapse"
       );
       for (const [eid, rowsForEvent] of byEvent) {
-        const collapsed = collapseWeekly(rowsForEvent);
+        const collapsed = collapseWeeklyNormalizedPerEvent(rowsForEvent);
         for (const c of collapsed) {
           weeklyTicketSnapshots.push({
             event_id: eid,
