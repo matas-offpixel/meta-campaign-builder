@@ -42,6 +42,7 @@ import { DailyTracker } from "./daily-tracker";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueHistorySection } from "./venue-history-section";
 import { VenueSyncButton } from "./venue-sync-button";
+import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
 
 interface SavedSnapshot {
   tickets_sold: number;
@@ -291,13 +292,18 @@ function WoWDeltaInline({
   const up = delta.delta > 0;
   const good = positiveIsGood ? up : !up;
   const colour = good ? "text-emerald-600" : "text-red-600";
-  const pct =
+  // Render deltas as `(+22, +9.7%)` — one set of parens, comma-
+  // separated. Earlier iterations nested the percentage in its own
+  // bracket (`(-692 (-85.1%))`) which read as a nested expression
+  // rather than a single WoW delta, confusing operators who parsed
+  // the outer number as the 7-day cumulative.
+  const pctSuffix =
     delta.deltaPct != null && Number.isFinite(delta.deltaPct)
-      ? ` (${delta.deltaPct > 0 ? "+" : ""}${delta.deltaPct.toFixed(1)}%)`
+      ? `, ${delta.deltaPct > 0 ? "+" : ""}${delta.deltaPct.toFixed(1)}%`
       : "";
   return (
     <span className={`ml-1 text-[11px] ${colour}`}>
-      {`(${formatAbs(delta.delta)}${pct})`}
+      {`(${formatAbs(delta.delta)}${pctSuffix})`}
     </span>
   );
 }
@@ -1774,12 +1780,25 @@ function VenueSection({
               when either side is missing so we never render
               misleading deltas on fresh syncs. */}
           {!isExpanded && (
-            <span className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-muted-foreground">
+            <span
+              // Stop-propagation wrapper: the outer <button> on the
+              // header toggles expand state, so we have to contain
+              // any click on the tickets pill or the operator taps
+              // the figure and the card collapses out from under
+              // the picker / inline input.
+              className="ml-auto flex flex-wrap items-baseline gap-3 text-xs text-muted-foreground"
+              onClick={(e) => e.stopPropagation()}
+            >
               <span className="tabular-nums">
                 Tickets:{" "}
-                <span className="font-semibold text-foreground">
-                  {formatNumber(totals.tickets)}
-                </span>
+                <VenueTicketsClickEdit
+                  events={group.events}
+                  totalTickets={totals.tickets}
+                  token={token}
+                  isInternal={isInternal}
+                  onSnapshotSaved={onSnapshotSaved}
+                  displayValue={formatNumber(totals.tickets)}
+                />
                 <WoWDeltaInline
                   delta={wow.tickets}
                   formatAbs={(v) => formatSignedNumber(v)}
@@ -2015,11 +2034,18 @@ function VenueSection({
           and read-only. */}
       {isExpanded && isInternal && (
         <div className="border-t border-border bg-muted px-4 py-2 text-xs">
-          <p className="text-muted-foreground">
-            Admin:{" "}
+          <p className="flex flex-wrap items-center gap-x-1 gap-y-1 text-muted-foreground">
+            <span>Admin:</span>
             {group.events.map((ev, i) => (
-              <span key={ev.id}>
-                {i > 0 && <span className="text-muted-foreground/60"> · </span>}
+              <span key={ev.id} className="inline-flex items-center gap-1">
+                {i > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="text-muted-foreground/60"
+                  >
+                    ·
+                  </span>
+                )}
                 <a
                   href={`/events/${ev.id}?tab=reporting`}
                   target="_blank"
@@ -2028,6 +2054,18 @@ function VenueSection({
                 >
                   {ev.name}
                 </a>
+                {/* Per-event compact sync button — sits immediately
+                    after the event name so operators can scope a
+                    single sync without fanning across the venue.
+                    Reuses the same fan-out component with a
+                    size-one event array (keeps success semantics +
+                    error extraction consistent with the venue and
+                    client-wide variants). */}
+                <VenueSyncButton
+                  eventIds={[ev.id]}
+                  size="compact"
+                  ariaLabel={`Sync ${ev.name}`}
+                />
               </span>
             ))}
           </p>
