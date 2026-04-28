@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, LinkIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientPortal } from "@/components/share/client-portal";
@@ -63,6 +63,14 @@ export default async function ClientDashboardPage({ params }: Props) {
         actions={
           <div className="flex items-center gap-4">
             <ClientSyncAllButton eventIds={allEventIds} />
+            <Link
+              href={`/clients/${id}/ticketing-link-discovery`}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              title="Sweep for events missing an Eventbrite link"
+            >
+              <LinkIcon className="h-3 w-3" />
+              Link discovery
+            </Link>
             <Link
               href={`/clients/${id}`}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
