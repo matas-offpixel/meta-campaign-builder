@@ -552,6 +552,10 @@ type GroupSpend =
       /** `venueSpecific + venueGenericPool` — the raw venue
        *  total the operator sees in Ads Manager. */
       venueTotal: number;
+      /** Sum of allocator-written presale spend across events. */
+      venuePresale: number;
+      /** `venueTotal + venuePresale` — reconciles to Paid Media. */
+      venuePaidMedia: number;
       /** `venueGenericPool / eventCount` — matches
        *  `byEventId.get(*).genericShare` within rounding. */
       genericSharePerEvent: number;
@@ -577,13 +581,16 @@ function venueSpend(
     const byEventId = new Map<string, EventAllocationLifetime>();
     let venueSpecific = 0;
     let venueGenericPool = 0;
+    let venuePresale = 0;
     for (const ev of group.events) {
       const alloc = allocationByEvent.get(ev.id)!;
       byEventId.set(ev.id, alloc);
       venueSpecific += alloc.specific;
       venueGenericPool += alloc.genericShare;
+      venuePresale += alloc.presale;
     }
     const venueTotal = venueSpecific + venueGenericPool;
+    const venuePaidMedia = venueTotal + venuePresale;
     const eventCount = group.events.length;
     const genericSharePerEvent =
       eventCount > 0 ? venueGenericPool / eventCount : 0;
@@ -593,6 +600,8 @@ function venueSpend(
       venueSpecific,
       venueGenericPool,
       venueTotal,
+      venuePresale,
+      venuePaidMedia,
       genericSharePerEvent,
       eventCount,
     };
@@ -638,24 +647,18 @@ function computeEventMetrics(
   ev: PortalEvent,
   spend: GroupSpend,
 ): EventMetrics {
-  // Prereg source-of-truth precedence (PR #120 fix):
-  //   1. Allocator-written `ad_spend_presale` when the allocator
-  //      has covered this event (distinguished from "allocator
-  //      ran but no presale activity" by `daysCoveredPresale > 0`;
-  //      the latter legitimately returns 0 and we trust it).
-  //   2. Legacy `events.prereg_spend` column for events the
-  //      allocator hasn't yet touched (pre-PR-#120 rows or
-  //      venues that haven't run a presale through Meta).
-  // The spend model below (allocated / split / add) stays the same
-  // — only the source of `prereg` changes depending on which one
-  // fires.
+  // Allocator-written `ad_spend_presale` is paid media from Meta. In
+  // allocated venues it belongs in the Ad Spend column so the expanded
+  // row totals reconcile to the Paid Media card. Legacy
+  // `events.prereg_spend` remains the fallback Pre-reg source only
+  // before the allocator's presale pass has touched the row.
   const allocPresale =
     spend.kind === "allocated"
       ? spend.byEventId.get(ev.id)
       : undefined;
   const prereg =
     allocPresale && allocPresale.daysCoveredPresale > 0
-      ? allocPresale.presale
+      ? 0
       : ev.prereg_spend;
 
   // Resolve perEventAd / perEventTotal pair from the spend model.
@@ -672,7 +675,7 @@ function computeEventMetrics(
   let perEventTotal: number | null;
   if (spend.kind === "allocated") {
     const alloc = spend.byEventId.get(ev.id);
-    perEventAd = alloc?.allocated ?? null;
+    perEventAd = alloc?.paidMedia ?? null;
     perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
   } else if (spend.kind === "split") {
     perEventTotal = spend.perEventTotal;
@@ -741,16 +744,14 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   let revenue = 0;
   let hasRevenue = false;
   for (const ev of group.events) {
-    // Match `computeEventMetrics`'s prereg source precedence so the
-    // Total row sums to the visible per-row values (PR #120 fix).
-    // Allocator-written `ad_spend_presale` wins over the legacy
-    // `events.prereg_spend` column whenever this event has been
-    // touched by the allocator's presale pass.
+    // Match `computeEventMetrics`: allocator presale is paid-media
+    // Ad Spend, not a separate Pre-reg value, once the allocator has
+    // covered this event.
     const allocPresale =
       spend.kind === "allocated" ? spend.byEventId.get(ev.id) : undefined;
     const rowPrereg =
       allocPresale && allocPresale.daysCoveredPresale > 0
-        ? allocPresale.presale
+        ? 0
         : ev.prereg_spend ?? 0;
     prereg += rowPrereg;
     const sold = ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
@@ -766,13 +767,10 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   let total: number | null;
   let ad: number | null;
   if (spend.kind === "allocated") {
-    // Venue total ad spend = sum of per-event allocations — by
-    // construction of the allocator, this exactly equals
-    // `spend.venueTotal` (specific + generic pool). Total = prereg
-    // + venueAd keeps the Total row numerically consistent with
-    // the visible sum of per-event rows.
-    ad = spend.venueTotal;
-    total = prereg + spend.venueTotal;
+    // Venue total ad spend = allocator spend plus presale paid
+    // media. This matches the Paid Media card/header source.
+    ad = spend.venuePaidMedia;
+    total = prereg + spend.venuePaidMedia;
   } else if (spend.kind === "split") {
     // Legacy: campaign value already includes prereg, so ad = total − prereg.
     total = group.campaignSpend;
@@ -824,6 +822,34 @@ function displayVenueSpend(
     return group.campaignSpend;
   }
   return totals.total;
+}
+
+function isBristolVenueGroup(group: VenueGroup): boolean {
+  const haystack = [
+    group.eventCode,
+    group.displayName,
+    group.city,
+    ...group.events.map((event) => event.venue_name),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+  return haystack.includes("BRISTOL") || haystack.includes("PROSPECT BUILDING");
+}
+
+function sumNullable<K extends keyof DailyRollupRow>(
+  rows: DailyRollupRow[],
+  key: K,
+): number | null {
+  let total = 0;
+  let seen = false;
+  for (const row of rows) {
+    const value = row[key];
+    if (typeof value !== "number") continue;
+    total += value;
+    seen = true;
+  }
+  return seen ? total : null;
 }
 
 export function ClientPortalVenueTable({
@@ -1876,6 +1902,33 @@ function VenueSection({
       ),
     [group.events, additionalSpend, dailyRollups, venueDisplaySpend],
   );
+  useEffect(() => {
+    if (!isBristolVenueGroup(group)) return;
+    console.info("[venue-spend] Bristol diagnostics", {
+      eventCode: group.eventCode,
+      displayName: group.displayName,
+      paidMediaCardSpend: venueDisplaySpend,
+      expandedTotalAdSpend: totals.ad,
+      events: group.events.map((event) => {
+        const rows = dailyRollups.filter((row) => row.event_id === event.id);
+        const metrics = computeEventMetrics(event, spend);
+        return {
+          eventId: event.id,
+          eventName: event.name,
+          rollups: rows.map((row) => ({
+            date: row.date,
+            ad_spend: row.ad_spend,
+            ad_spend_allocated: row.ad_spend_allocated,
+            ad_spend_presale: row.ad_spend_presale,
+          })),
+          rawAdSpend: sumNullable(rows, "ad_spend"),
+          adSpendAllocated: sumNullable(rows, "ad_spend_allocated"),
+          adSpendPresale: sumNullable(rows, "ad_spend_presale"),
+          resolvedPerEventAdSpend: metrics.perEventAd,
+        };
+      }),
+    });
+  }, [dailyRollups, group, spend, totals.ad, venueDisplaySpend]);
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
   const headerLabel =
     group.eventCount > 1 && group.city
@@ -2122,7 +2175,17 @@ function VenueSection({
             <span className="font-medium text-foreground">
               {formatGBP(spend.venueGenericPool)}
             </span>{" "}
-            averaged across {spend.eventCount} games
+            averaged generic
+            {spend.venuePresale > 0 ? (
+              <>
+                {" "}+{" "}
+                <span className="font-medium text-foreground">
+                  {formatGBP(spend.venuePresale)}
+                </span>{" "}
+                presale paid media
+              </>
+            ) : null}{" "}
+            across {spend.eventCount} games
           </p>
         )}
 
@@ -2654,7 +2717,11 @@ function EventRow({
       ? spend.byEventId.get(event.id) ?? null
       : null;
   const adSpendTitle = allocationRow
-    ? `Includes ${formatGBP(allocationRow.specific)} specific to this game + ${formatGBP(allocationRow.genericShare)} share of venue-generic spend`
+    ? `Includes ${formatGBP(allocationRow.specific)} specific to this game + ${formatGBP(allocationRow.genericShare)} share of venue-generic spend${
+        allocationRow.presale > 0
+          ? ` + ${formatGBP(allocationRow.presale)} presale paid media`
+          : ""
+      }`
     : undefined;
 
   return (

@@ -64,8 +64,7 @@ export interface EventAllocationLifetime {
   specific: number;
   /** This event's share of the venue-wide generic pool, lifetime. */
   genericShare: number;
-  /** specific + genericShare — what the venue card's Ad Spend
-   *  column renders when allocation is available. */
+  /** specific + genericShare — allocation output excluding presale. */
   allocated: number;
   /**
    * This event's share of the venue's presale-campaign spend,
@@ -78,6 +77,8 @@ export interface EventAllocationLifetime {
    * two apart.
    */
   presale: number;
+  /** allocated + presale — the venue table's paid-media Ad Spend. */
+  paidMedia: number;
   /** Number of rollup days that contributed non-null allocation.
    *  Used as a "has any allocation" flag by the venue table. */
   daysCovered: number;
@@ -115,6 +116,7 @@ export function aggregateAllocationByEvent(
       genericShare: 0,
       allocated: 0,
       presale: 0,
+      paidMedia: 0,
       daysCovered: 0,
       daysCoveredPresale: 0,
     };
@@ -128,6 +130,7 @@ export function aggregateAllocationByEvent(
       existing.presale += r.ad_spend_presale;
       existing.daysCoveredPresale += 1;
     }
+    existing.paidMedia = existing.allocated + existing.presale;
     out.set(r.event_id, existing);
   }
   return out;
