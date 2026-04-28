@@ -4,8 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getShareForVenue,
   mintVenueShare,
+  resolveShareByToken,
   setShareEnabled,
 } from "@/lib/db/report-shares";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * Authenticated POST — mint (or resurface) a venue-scoped share
@@ -27,6 +29,7 @@ import {
 interface PostBody {
   client_id?: unknown;
   event_code?: unknown;
+  client_token?: unknown;
 }
 
 interface PatchBody {
@@ -64,9 +67,6 @@ export async function POST(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ ok: false, error: "Unauthorised" }, { status: 401 });
-  }
 
   let body: PostBody;
   try {
@@ -89,22 +89,46 @@ export async function POST(req: NextRequest) {
   const clientId = body.client_id;
   const eventCode = body.event_code.trim();
 
-  // Ownership — the caller must own the parent client AND at least
-  // one event under (client_id, event_code). The event check double-
-  // protects against stray event_code strings that slipped through
-  // `isEventCode` — we only want to mint shares for venue codes the
-  // operator actually has events under.
-  const { data: ownedClient, error: ownErr } = await supabase
-    .from("clients")
-    .select("id")
-    .eq("id", clientId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (ownErr || !ownedClient) {
-    return NextResponse.json(
-      { ok: false, error: "Client not found or not yours" },
-      { status: 403 },
-    );
+  let shareUserId: string;
+  if (!user && isToken(body.client_token)) {
+    const admin = createServiceRoleClient();
+    const resolved = await resolveShareByToken(body.client_token, admin);
+    if (
+      !resolved.ok ||
+      resolved.share.scope !== "client" ||
+      resolved.share.client_id !== clientId
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Client share token invalid" },
+        { status: 403 },
+      );
+    }
+    shareUserId = resolved.share.user_id;
+  } else {
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorised" },
+        { status: 401 },
+      );
+    }
+    shareUserId = user.id;
+    // Ownership — the caller must own the parent client AND at least
+    // one event under (client_id, event_code). The event check double-
+    // protects against stray event_code strings that slipped through
+    // `isEventCode` — we only want to mint shares for venue codes the
+    // operator actually has events under.
+    const { data: ownedClient, error: ownErr } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("id", clientId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (ownErr || !ownedClient) {
+      return NextResponse.json(
+        { ok: false, error: "Client not found or not yours" },
+        { status: 403 },
+      );
+    }
   }
   const { data: anyEvent } = await supabase
     .from("events")
@@ -136,7 +160,7 @@ export async function POST(req: NextRequest) {
     const share = await mintVenueShare({
       clientId,
       eventCode,
-      userId: user.id,
+      userId: shareUserId,
     });
     return NextResponse.json(
       {

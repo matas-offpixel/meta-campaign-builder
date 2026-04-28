@@ -9,6 +9,7 @@ import type {
   DailyRollupRow,
   PortalClient,
   PortalEvent,
+  VenueDailyBudgetRow,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
@@ -71,6 +72,7 @@ interface Props {
   dailyEntries: DailyEntry[];
   dailyRollups: DailyRollupRow[];
   additionalSpend: AdditionalSpendRow[];
+  venueDailyBudgets: VenueDailyBudgetRow[];
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   londonOnsaleSpend: number | null;
   londonPresaleSpend: number | null;
@@ -92,6 +94,7 @@ export function VenueFullReport({
   dailyEntries,
   dailyRollups,
   additionalSpend,
+  venueDailyBudgets,
   weeklyTicketSnapshots,
   londonOnsaleSpend,
   londonPresaleSpend,
@@ -144,6 +147,7 @@ export function VenueFullReport({
         dailyEntries={dailyEntries}
         dailyRollups={dailyRollups}
         additionalSpend={additionalSpend}
+        venueDailyBudgets={venueDailyBudgets}
         weeklyTicketSnapshots={weeklyTicketSnapshots}
         isInternal={isInternal}
         onSnapshotSaved={handleSnapshotSaved}

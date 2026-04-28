@@ -97,7 +97,10 @@ export default async function ClientVenueReportPage({ params }: Props) {
     eventIdSet.has(r.event_id),
   );
   const venueAdditionalSpend = portal.additionalSpend.filter((r) =>
-    eventIdSet.has(r.event_id),
+    r.scope === "venue" ? r.venue_event_code === eventCode : eventIdSet.has(r.event_id),
+  );
+  const venueDailyBudgets = portal.venueDailyBudgets.filter(
+    (r) => r.event_code === eventCode,
   );
   const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots.filter(
     (r) => eventIdSet.has(r.event_id),
@@ -135,6 +138,7 @@ export default async function ClientVenueReportPage({ params }: Props) {
         dailyEntries={venueDailyEntries}
         dailyRollups={venueDailyRollups}
         additionalSpend={venueAdditionalSpend}
+        venueDailyBudgets={venueDailyBudgets}
         weeklyTicketSnapshots={venueWeeklyTicketSnapshots}
         londonOnsaleSpend={portal.londonOnsaleSpend}
         londonPresaleSpend={portal.londonPresaleSpend}

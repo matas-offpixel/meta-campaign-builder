@@ -361,6 +361,7 @@ export function aggregateVenueCampaignPerformance(
   dailyRollups: DailyRollupRow[],
   todayIso = new Date().toISOString().slice(0, 10),
   paidMediaSpentOverride?: number | null,
+  dailyBudgetOverride?: number | null,
 ): VenueCampaignPerformance {
   const eventIds = new Set(events.map((e) => e.id));
   const eventCodes = new Set(
@@ -440,7 +441,7 @@ export function aggregateVenueCampaignPerformance(
     paidMediaSpent: paidSpent,
     paidMediaRemaining,
     paidMediaUsedPct,
-    dailyBudget: null,
+    dailyBudget: dailyBudgetOverride ?? null,
     ticketsSold: tickets,
     capacity: capacityOut,
     sellThroughPct,

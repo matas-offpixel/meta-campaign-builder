@@ -8,6 +8,7 @@ import type {
   DailyEntry,
   DailyRollupRow,
   PortalEvent,
+  VenueDailyBudgetRow,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import {
@@ -95,6 +96,8 @@ interface Props {
   dailyRollups: DailyRollupRow[];
   /** Additional spend rows across the client, filtered per venue card. */
   additionalSpend: AdditionalSpendRow[];
+  /** Active Meta ad-set daily budgets keyed by venue event_code. */
+  venueDailyBudgets: VenueDailyBudgetRow[];
   /**
    * Weekly ticket snapshots across every event under the client.
    * Pre-collapsed on the server (manual > xlsx_import > eventbrite)
@@ -830,6 +833,7 @@ export function ClientPortalVenueTable({
   dailyEntries,
   dailyRollups,
   additionalSpend,
+  venueDailyBudgets,
   weeklyTicketSnapshots,
   isInternal,
   onSnapshotSaved,
@@ -987,6 +991,7 @@ export function ClientPortalVenueTable({
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
                 dailyRollups={dailyRollups}
                 additionalSpend={additionalSpend}
+                venueDailyBudgets={venueDailyBudgets}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
                 isInternal={isInternal}
@@ -1232,6 +1237,8 @@ interface VenueSectionProps {
   dailyRollups: DailyRollupRow[];
   /** Client-wide additional spend rows; venue card filters by event ids/code. */
   additionalSpend: AdditionalSpendRow[];
+  /** Active Meta ad-set daily budgets keyed by event_code. */
+  venueDailyBudgets: VenueDailyBudgetRow[];
   /**
    * Collapsed-by-default layout surfaces 16+ venue groups in a
    * readable first paint. Header click toggles; state lives on the
@@ -1760,6 +1767,85 @@ function CptTrendChart({ entries }: { entries: DailyEntry[] }) {
 
 const COL_COUNT = 12;
 
+function VenueReportLink({
+  token,
+  clientId,
+  isInternal,
+  eventCode,
+}: {
+  token: string;
+  clientId: string;
+  isInternal: boolean;
+  eventCode: string;
+}) {
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (isInternal) {
+    return (
+      <a
+        href={`/clients/${clientId}/venues/${encodeURIComponent(eventCode)}`}
+        className="inline-flex items-center gap-1 rounded border border-border-strong px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+      >
+        View full venue report
+        <ChevronRight className="h-3 w-3" aria-hidden="true" />
+      </a>
+    );
+  }
+
+  const openShare = async () => {
+    if (loading) return;
+    setError(null);
+    const existingToken = shareToken;
+    if (existingToken) {
+      window.open(`/share/venue/${encodeURIComponent(existingToken)}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/share/venue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          event_code: eventCode,
+          client_token: token,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        token?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.ok || !json.token) {
+        throw new Error(json.error ?? "Unable to open venue report");
+      }
+      setShareToken(json.token);
+      window.open(`/share/venue/${encodeURIComponent(json.token)}`, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to open venue report");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        onClick={openShare}
+        disabled={loading}
+        className="inline-flex items-center gap-1 rounded border border-border-strong px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-60"
+      >
+        {loading ? "Opening..." : "View full venue report"}
+        <ChevronRight className="h-3 w-3" aria-hidden="true" />
+      </button>
+      {error ? <span className="text-[11px] text-red-600">{error}</span> : null}
+    </span>
+  );
+}
+
 function VenueSection({
   token,
   clientId,
@@ -1770,6 +1856,7 @@ function VenueSection({
   weeklyTicketSnapshots,
   dailyRollups,
   additionalSpend,
+  venueDailyBudgets,
   isExpanded,
   onToggle,
   isInternal,
@@ -1781,6 +1868,11 @@ function VenueSection({
     () => displayVenueSpend(group, spend, totals),
     [group, spend, totals],
   );
+  const venueDailyBudget =
+    group.eventCode != null
+      ? (venueDailyBudgets.find((r) => r.event_code === group.eventCode)
+          ?.daily_budget ?? null)
+      : null;
   const campaignPerformance = useMemo(
     () =>
       aggregateVenueCampaignPerformance(
@@ -1789,8 +1881,15 @@ function VenueSection({
         dailyRollups,
         undefined,
         venueDisplaySpend,
+        venueDailyBudget,
       ),
-    [group.events, additionalSpend, dailyRollups, venueDisplaySpend],
+    [
+      group.events,
+      additionalSpend,
+      dailyRollups,
+      venueDisplaySpend,
+      venueDailyBudget,
+    ],
   );
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
   const headerLabel =
@@ -2001,27 +2100,16 @@ function VenueSection({
         {isInternal && (
           <VenueSyncButton eventIds={group.events.map((e) => e.id)} />
         )}
-        {/* "View full venue report" CTA — placeholder link to a
-            dedicated per-venue page planned in a follow-up PR. The
-            href carries the venue's event_code so the target page
-            can look it up directly. Hidden for solo venues without
-            an event_code (nothing to link to) and always hidden when
-            the card is collapsed (no visual room next to the
-            collapsed-state quick stats). */}
+        {/* "View full venue report" CTA. Hidden for solo venues without
+            an event_code and while collapsed (no visual room next to
+            the collapsed-state quick stats). */}
         {isExpanded && group.eventCode && (
-          <a
-            href={
-              isInternal
-                ? `/clients/${clientId}/venues/${encodeURIComponent(group.eventCode)}`
-                : `/coming-soon?from=venue-report&event_code=${encodeURIComponent(group.eventCode)}`
-            }
-            target={isInternal ? undefined : "_blank"}
-            rel={isInternal ? undefined : "noopener noreferrer"}
-            className="inline-flex items-center gap-1 rounded border border-border-strong px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
-          >
-            View full venue report
-            <ChevronRight className="h-3 w-3" aria-hidden="true" />
-          </a>
+          <VenueReportLink
+            token={token}
+            clientId={clientId}
+            isInternal={isInternal}
+            eventCode={group.eventCode}
+          />
         )}
       </header>
 
