@@ -52,6 +52,11 @@ export interface TimelineRow {
    * Preserved when a manual row overrides spend/tickets for the same date.
    */
   meta_regs: number | null;
+  tiktok_spend: number | null;
+  tiktok_impressions: number | null;
+  tiktok_clicks: number | null;
+  tiktok_video_views: number | null;
+  tiktok_results: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   notes: string | null;
@@ -115,13 +120,19 @@ export function mergeTimeline(
     const eb = r.source_eventbrite_at
       ? Date.parse(r.source_eventbrite_at)
       : 0;
-    const fresh = Math.max(meta, eb);
+    const tt = r.source_tiktok_at ? Date.parse(r.source_tiktok_at) : 0;
+    const fresh = Math.max(meta, eb, tt);
     byDate.set(r.date, {
       date: r.date,
       source: "live",
       ad_spend: r.ad_spend != null ? Number(r.ad_spend) : null,
       link_clicks: r.link_clicks ?? null,
       meta_regs: r.meta_regs ?? null,
+      tiktok_spend: r.tiktok_spend != null ? Number(r.tiktok_spend) : null,
+      tiktok_impressions: r.tiktok_impressions ?? null,
+      tiktok_clicks: r.tiktok_clicks ?? null,
+      tiktok_video_views: r.tiktok_video_views ?? null,
+      tiktok_results: r.tiktok_results ?? null,
       tickets_sold: r.tickets_sold ?? null,
       revenue: r.revenue != null ? Number(r.revenue) : null,
       notes: r.notes ?? null,
@@ -137,6 +148,11 @@ export function mergeTimeline(
       ad_spend: m.day_spend != null ? Number(m.day_spend) : null,
       link_clicks: m.link_clicks ?? null,
       meta_regs: prev?.meta_regs ?? null,
+      tiktok_spend: prev?.tiktok_spend ?? null,
+      tiktok_impressions: prev?.tiktok_impressions ?? null,
+      tiktok_clicks: prev?.tiktok_clicks ?? null,
+      tiktok_video_views: prev?.tiktok_video_views ?? null,
+      tiktok_results: prev?.tiktok_results ?? null,
       tickets_sold: m.tickets ?? null,
       revenue: m.revenue != null ? Number(m.revenue) : null,
       notes: m.notes ?? null,

@@ -146,7 +146,7 @@ export async function POST(
 
   const { data: client, error: clientErr } = await supabase
     .from("clients")
-    .select("id, meta_ad_account_id")
+    .select("id, meta_ad_account_id, tiktok_account_id")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -191,7 +191,7 @@ export async function POST(
   const [{ data: events, error: eventsErr }, { data: connections, error: connErr }] = await Promise.all([
     supabase
       .from("events")
-      .select("id, user_id, client_id, event_code, event_timezone, event_date")
+      .select("id, user_id, client_id, event_code, event_timezone, event_date, tiktok_account_id")
       .in("id", eventIds),
     supabase
       .from("client_ticketing_connections")
@@ -330,6 +330,8 @@ export async function POST(
 
     const adAccountId = (client as { meta_ad_account_id: string | null })
       .meta_ad_account_id;
+    const clientTikTokAccountId = (client as { tiktok_account_id: string | null })
+      .tiktok_account_id;
 
     await runWithConcurrency(toSync, DEFAULT_SYNC_CONCURRENCY, async ({ r, idx }) => {
       const ev = eventById.get(r.eventId);
@@ -351,6 +353,10 @@ export async function POST(
           adAccountId,
           clientId: ev.client_id,
           eventDate: ev.event_date,
+          eventTikTokAccountId:
+            (ev as typeof ev & { tiktok_account_id: string | null })
+              .tiktok_account_id,
+          clientTikTokAccountId,
         });
         results[idx] = {
           ...r,
