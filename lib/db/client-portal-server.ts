@@ -252,8 +252,9 @@ export type ClientPortalData =
       /**
        * Weekly ticket-sales snapshots across every event under the
        * client, collapsed to one row per (event, week) with source
-       * priority manual > xlsx_import > eventbrite. Drives the
-       * venue-expansion weekly trends chart (PR #122).
+       * priority manual > xlsx_import > eventbrite. Used as the
+       * venue trend chart ticket fallback when rollups only carry
+       * spend/clicks.
        *
        * Kept as a flat array keyed by event_id rather than a
        * Map<eventId, Snapshot[]> because the public share JSON

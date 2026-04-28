@@ -1013,6 +1013,7 @@ export function ClientPortalVenueTable({
                 spend={venueSpend(group, londonOnsaleSpend, allocationByEvent)}
                 wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
                 dailyRollups={dailyRollups}
+                weeklyTicketSnapshots={weeklyTicketSnapshots}
                 additionalSpend={additionalSpend}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
@@ -1247,6 +1248,12 @@ interface VenueSectionProps {
    * re-fetching.
    */
   dailyRollups: DailyRollupRow[];
+  /**
+   * Snapshot fallback for venues whose rollups currently carry spend
+   * but no ticket values. The chart folds these into the same shared
+   * point shape instead of re-fetching.
+   */
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Client-wide additional spend rows; venue card filters by event ids/code. */
   additionalSpend: AdditionalSpendRow[];
   /**
@@ -1278,16 +1285,55 @@ function dailyRollupSpend(row: DailyRollupRow): number | null {
 function buildVenueTrendPoints(
   dailyRollups: DailyRollupRow[],
   venueEventIds: Set<string>,
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
 ): TrendChartPoint[] {
-  return dailyRollups
-    .filter((row) => venueEventIds.has(row.event_id))
-    .map((row) => ({
-      date: row.date,
-      spend: dailyRollupSpend(row),
-      tickets: row.tickets_sold,
-      revenue: row.revenue,
-      linkClicks: row.link_clicks ?? null,
-    }));
+  const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
+  const hasRollupTickets = rows.some((row) => row.tickets_sold != null);
+  const snapshotsByEvent = hasRollupTickets
+    ? new Map<string, WeeklyTicketSnapshotRow[]>()
+    : buildSnapshotsByEvent(weeklyTicketSnapshots, venueEventIds);
+
+  return rows.map((row) => ({
+    date: row.date,
+    spend: dailyRollupSpend(row),
+    tickets: hasRollupTickets
+      ? row.tickets_sold
+      : latestSnapshotTicketsAtOrBefore(
+          snapshotsByEvent.get(row.event_id) ?? [],
+          row.date,
+        ),
+    revenue: row.revenue,
+    linkClicks: row.link_clicks ?? null,
+  }));
+}
+
+function buildSnapshotsByEvent(
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+  venueEventIds: Set<string>,
+): Map<string, WeeklyTicketSnapshotRow[]> {
+  const out = new Map<string, WeeklyTicketSnapshotRow[]>();
+  for (const row of weeklyTicketSnapshots) {
+    if (!venueEventIds.has(row.event_id)) continue;
+    const rows = out.get(row.event_id) ?? [];
+    rows.push(row);
+    out.set(row.event_id, rows);
+  }
+  for (const rows of out.values()) {
+    rows.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
+  }
+  return out;
+}
+
+function latestSnapshotTicketsAtOrBefore(
+  snapshots: WeeklyTicketSnapshotRow[],
+  date: string,
+): number | null {
+  let latest: number | null = null;
+  for (const snapshot of snapshots) {
+    if (snapshot.snapshot_at > date) break;
+    latest = snapshot.tickets_sold;
+  }
+  return latest;
 }
 
 function VenueReportLink({
@@ -1376,6 +1422,7 @@ function VenueSection({
   spend,
   wow,
   dailyRollups,
+  weeklyTicketSnapshots,
   additionalSpend,
   isExpanded,
   onToggle,
@@ -1454,8 +1501,13 @@ function VenueSection({
     [group.events],
   );
   const venueTrendPoints = useMemo(
-    () => buildVenueTrendPoints(dailyRollups, venueEventIds),
-    [dailyRollups, venueEventIds],
+    () =>
+      buildVenueTrendPoints(
+        dailyRollups,
+        venueEventIds,
+        weeklyTicketSnapshots,
+      ),
+    [dailyRollups, venueEventIds, weeklyTicketSnapshots],
   );
   const hasVenueTrend = useMemo(
     () => new Set(venueTrendPoints.map((point) => point.date)).size >= 2,
