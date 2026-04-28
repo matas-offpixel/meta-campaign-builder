@@ -15,7 +15,7 @@ import { VenueShareControls } from "@/components/dashboard/clients/venue-share-c
  * Internal venue full-report page. Replaces the placeholder that
  * shipped alongside PR #117 with a full-width render of every section
  * the venue card exposes on the dashboard — performance summary,
- * daily trend + tracker, weekly trends chart, active creatives —
+ * shared daily/weekly trend chart, active creatives —
  * scoped to a single `event_code` under this client.
  *
  * Data flow:

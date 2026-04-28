@@ -50,21 +50,35 @@ export default async function VenueSharePage({ params }: Props) {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 py-6 text-zinc-900">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 sm:px-6">
-        <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-            Off Pixel · Venue Report
+    <main className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border bg-background">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
+          <p className="font-heading text-base tracking-[0.2em] text-foreground">
+            OFF / PIXEL
           </p>
-          <h1 className="font-heading text-2xl tracking-wide">
-            {result.events[0]?.venue_name ?? result.event_code}
-          </h1>
-          <p className="text-sm text-zinc-600">
-            {result.events.length} event
-            {result.events.length === 1 ? "" : "s"} under event code{" "}
-            <span className="font-mono text-xs">{result.event_code}</span>.
+          <p className="max-w-[40ch] truncate text-xs text-muted-foreground">
+            Venue Report
           </p>
         </div>
+      </header>
+
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <section className="space-y-2">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            Venue Report
+          </p>
+          <h1 className="font-heading text-2xl tracking-wide text-foreground">
+            {result.events[0]?.venue_name ?? result.event_code}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {result.events.length} event
+            {result.events.length === 1 ? "" : "s"} under event code{" "}
+            <span className="font-mono text-xs text-foreground">
+              {result.event_code}
+            </span>
+            .
+          </p>
+        </section>
         <VenueFullReport
           token={token}
           clientId={result.client_id}
