@@ -447,9 +447,9 @@ function daysBetween(a: string, b: string): number {
  * pretending the comparison is meaningful.
  */
 export interface WoWDelta {
-  /** Current 7-day total (last 7 days ending on `todayIso`). */
+  /** Current edge value as of `todayIso`. */
   current: number | null;
-  /** Prior 7-day total (the 7 days before the current window). */
+  /** Prior edge value as of seven days before `todayIso`. */
   previous: number | null;
   /** `current - previous`; null when either side is null. */
   delta: number | null;
@@ -460,17 +460,21 @@ export interface WoWDelta {
 export interface VenueWoWTotals {
   tickets: WoWDelta;
   /**
-   * Cost-per-ticket — (ad_spend in the window) / (tickets_sold in
-   * the window). Nullable halves when either side is zero / missing,
-   * so a window with spend but no tickets shows "—" rather than ∞.
+   * Cost-per-ticket — cumulative venue spend / cumulative venue
+   * tickets now, compared with the same cumulative ratio seven days
+   * ago. Nullable halves when either edge is missing or denominator
+   * is zero, so the header shows "(—)" rather than an incremental
+   * period value that disagrees with the expanded Total row.
    *
    * Intentionally ignores `additional_spend_entries` because the
    * additional-spend table isn't date-bucketed (it carries only an
-   * event_id + amount today). Per-day CPT uses the rollup ad_spend
-   * column alone — a reasonable approximation since additional spend
-   * at 4theFans is typically lifetime sponsorship, not per-week.
+   * event_id + amount today). Uses allocated rollup spend when
+   * available so multi-event venue totals match the expanded table.
    */
   cpt: WoWDelta;
+  /** ROAS — cumulative venue revenue / cumulative venue spend, current
+   * edge vs seven-days-ago edge. */
+  roas: WoWDelta;
 }
 
 const ZERO_DELTA: WoWDelta = {
@@ -478,6 +482,11 @@ const ZERO_DELTA: WoWDelta = {
   previous: null,
   delta: null,
   deltaPct: null,
+};
+const EMPTY_VENUE_WOW: VenueWoWTotals = {
+  tickets: ZERO_DELTA,
+  cpt: ZERO_DELTA,
+  roas: ZERO_DELTA,
 };
 
 /**
@@ -532,9 +541,13 @@ export interface WeeklyTicketSnapshotLite {
  *
  * CPT compares cumulative spend-per-ticket now vs seven days ago:
  * current cumulative spend / current cumulative tickets, versus
- * (current spend minus last-7-day spend) / previous cumulative
- * tickets. Ticket edges use the same snapshot-first waterfall as
- * the Tickets half.
+ * previous cumulative spend / previous cumulative tickets. Ticket
+ * edges use the same snapshot-first waterfall as the Tickets half;
+ * spend edges come from cumulative `event_daily_rollups` sums up to
+ * each edge.
+ *
+ * ROAS uses the same cumulative-edge model: cumulative revenue /
+ * cumulative spend now vs seven days ago.
  *
  * ## Windowing
  *
@@ -558,7 +571,7 @@ export function aggregateVenueWoW(
   const eventIds = new Set(events.map((e) => e.id));
   const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
   if (!Number.isFinite(todayMs) || eventIds.size === 0) {
-    return { tickets: ZERO_DELTA, cpt: ZERO_DELTA };
+    return EMPTY_VENUE_WOW;
   }
   const currStart = todayMs - 6 * 86_400_000;
   const windowEdgeMs = todayMs - 7 * 86_400_000;
@@ -586,22 +599,40 @@ export function aggregateVenueWoW(
     }
   }
 
-  // ── Daily rollup windows (spend + per-day tickets). ──
-  let currSpend = 0;
-  let currRows = 0;
-  let cumulativeSpend = 0;
-  let cumulativeSpendRows = 0;
+  // ── Daily rollup edges (spend/revenue cumulative + ticket fallback). ──
+  let currentSpend = 0;
+  let previousSpend = 0;
+  let currentRevenue = 0;
+  let previousRevenue = 0;
+  let previousSpendRows = 0;
+  let currentRevenueRows = 0;
+  let previousRevenueRows = 0;
 
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
     const ms = Date.parse(`${r.date}T00:00:00Z`);
     if (!Number.isFinite(ms)) continue;
-    if (ms <= todayMs && r.ad_spend != null) {
-      cumulativeSpend += r.ad_spend;
-      cumulativeSpendRows += 1;
+    const spend = r.ad_spend_allocated ?? r.ad_spend;
+    if (ms <= todayMs) {
+      if (spend != null) {
+        currentSpend += spend;
+      }
+      if (r.revenue != null) {
+        currentRevenue += r.revenue;
+        currentRevenueRows += 1;
+      }
+    }
+    if (ms <= windowEdgeMs) {
+      if (spend != null) {
+        previousSpend += spend;
+        previousSpendRows += 1;
+      }
+      if (r.revenue != null) {
+        previousRevenue += r.revenue;
+        previousRevenueRows += 1;
+      }
     }
     if (ms >= currStart && ms <= todayMs) {
-      currRows += 1;
       // Clamp negative rollup values — a legitimate per-day
       // increment is ≥0. A negative here means the rollup row
       // was written with contaminated data; summing it would
@@ -613,7 +644,6 @@ export function aggregateVenueWoW(
           (currentWindowTicketsByEvent.get(r.event_id) ?? 0) + tickets,
         );
       }
-      if (r.ad_spend != null) currSpend += r.ad_spend;
     }
   }
 
@@ -681,25 +711,18 @@ export function aggregateVenueWoW(
     hasDeltaBase,
   );
 
-  // ── CPT window-over-window. ──
+  // ── Cumulative CPT / ROAS edge comparison. ──
   //
-  // Compare the venue's current cumulative CPT with the same shape
-  // seven days ago. Ticket edges use the same snapshot-first
-  // waterfall as the Tickets delta above; spend edges are derived
-  // from daily rollups by subtracting the last-7-days spend from the
-  // currently loaded cumulative spend.
-  const previousSpend =
-    cumulativeSpendRows > 0 && currRows > 0
-      ? Math.max(0, cumulativeSpend - currSpend)
-      : null;
+  // These must match the expanded Total row semantics: ratio of sums,
+  // not average of event ratios and not last-7-day incrementals.
   const currCpt =
-    currentCumulativeTickets > 0 && cumulativeSpend > 0
-      ? cumulativeSpend / currentCumulativeTickets
+    currentCumulativeTickets > 0 && currentSpend > 0
+      ? currentSpend / currentCumulativeTickets
       : null;
   const prevCpt =
     previousCumulativeTickets != null &&
     previousCumulativeTickets > 0 &&
-    previousSpend != null &&
+    previousSpendRows > 0 &&
     previousSpend > 0
       ? previousSpend / previousCumulativeTickets
       : null;
@@ -709,7 +732,21 @@ export function aggregateVenueWoW(
     currCpt != null && prevCpt != null,
   );
 
-  return { tickets, cpt };
+  const currRoas =
+    currentSpend > 0 && currentRevenueRows > 0
+      ? currentRevenue / currentSpend
+      : null;
+  const prevRoas =
+    previousSpend > 0 && previousRevenueRows > 0
+      ? previousRevenue / previousSpend
+      : null;
+  const roas: WoWDelta = buildHalf(
+    currRoas,
+    prevRoas,
+    currRoas != null && prevRoas != null,
+  );
+
+  return { tickets, cpt, roas };
 }
 
 /**

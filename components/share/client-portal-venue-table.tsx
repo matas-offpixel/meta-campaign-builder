@@ -37,6 +37,7 @@ const EMPTY_EXPAND_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_WOW: VenueWoWTotals = {
   tickets: { current: null, previous: null, delta: null, deltaPct: null },
   cpt: { current: null, previous: null, delta: null, deltaPct: null },
+  roas: { current: null, previous: null, delta: null, deltaPct: null },
 };
 import { DailyTracker } from "./daily-tracker";
 import { VenueActiveCreatives } from "./venue-active-creatives";
@@ -333,6 +334,11 @@ function WoWDeltaInline({
 function formatRoas(n: number | null): string {
   if (n === null || !Number.isFinite(n)) return "—";
   return `${n.toFixed(2)}×`;
+}
+
+function formatSignedRoas(n: number): string {
+  if (n === 0) return "0.00×";
+  return `${n > 0 ? "+" : "-"}${Math.abs(n).toFixed(2)}×`;
 }
 
 function roasClass(n: number | null): string {
@@ -1888,6 +1894,11 @@ function VenueSection({
                 className={`tabular-nums ${roasClass(totals.roas)}`}
               >
                 ROAS: {formatRoas(totals.roas)}
+                <WoWDeltaInline
+                  delta={wow.roas}
+                  formatAbs={(v) => formatSignedRoas(v)}
+                  positiveIsGood
+                />
               </span>
             </span>
           )}
