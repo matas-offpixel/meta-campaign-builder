@@ -9,9 +9,15 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  *
  * Authentication is the token itself: no Supabase session, no cookie.
  * Authorisation:
- *   - Token must be `scope='client'` and `enabled` (resolveShareByToken).
+ *   - Token must be `scope='client'` OR `scope='venue'` and `enabled`
+ *     (resolveShareByToken). Event-scope tokens are rejected — the
+ *     per-event share surface is `/share/report/[token]`, not the
+ *     portal.
  *   - Token must have `can_edit=true`.
  *   - Submitted event_id must belong to the same client as the token.
+ *   - For `scope='venue'` tokens, the submitted event must ALSO
+ *     carry the venue's pinned event_code — so a venue token minted
+ *     for Brighton can't be used to overwrite Manchester snapshots.
  *
  * Storage: upserts into client_report_weekly_snapshots keyed on
  * (event_id, week_start) — one snapshot per event per Mon-Sun week.
@@ -74,7 +80,10 @@ export async function POST(
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);
-  if (!resolved.ok || resolved.share.scope !== "client") {
+  if (
+    !resolved.ok ||
+    (resolved.share.scope !== "client" && resolved.share.scope !== "venue")
+  ) {
     return NextResponse.json(
       { ok: false, error: "Not found" },
       { status: 404 },
@@ -150,9 +159,14 @@ export async function POST(
   // Cross-tenant guard: the submitted event must belong to the same
   // client this token authorises. Without this, a token holder could
   // POST any event_id they could guess.
+  //
+  // Venue-scope tokens tighten the guard further — the event must ALSO
+  // carry the pinned event_code so a Brighton venue token can't reach
+  // into Manchester snapshots. We select `event_code` unconditionally
+  // since it's free on the row fetch.
   const { data: event, error: evErr } = await admin
     .from("events")
-    .select("id, client_id")
+    .select("id, client_id, event_code")
     .eq("id", eventId)
     .maybeSingle();
   if (evErr || !event) {
@@ -164,6 +178,12 @@ export async function POST(
   if (event.client_id !== share.client_id) {
     return NextResponse.json(
       { ok: false, error: "Event does not belong to this client" },
+      { status: 403 },
+    );
+  }
+  if (share.scope === "venue" && event.event_code !== share.event_code) {
+    return NextResponse.json(
+      { ok: false, error: "Event does not belong to this venue" },
       { status: 403 },
     );
   }
