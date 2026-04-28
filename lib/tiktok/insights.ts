@@ -1,6 +1,6 @@
-import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
-import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "@/lib/tiktok/client";
-import { campaignNameMatchesEventCode } from "@/lib/tiktok/matching";
+import type { CampaignInsightsRow } from "../reporting/event-insights";
+import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
+import { campaignNameMatchesEventCode } from "./matching.ts";
 
 interface TikTokIntegratedRow {
   dimensions?: Record<string, string | undefined>;
@@ -17,11 +17,24 @@ interface TikTokIntegratedResponse {
   };
 }
 
+interface TikTokCampaignGetRow {
+  campaign_id?: string;
+  campaign_name?: string;
+}
+
+interface TikTokCampaignGetResponse {
+  list?: TikTokCampaignGetRow[];
+}
+
+type TikTokGet = typeof tiktokGet;
+
 export interface FetchTikTokEventCampaignInsightsInput {
   advertiserId: string;
   token: string;
   eventCode: string;
   window: { since: string; until: string };
+  /** Test hook only — production callers use the default `tiktokGet`. */
+  request?: TikTokGet;
 }
 
 const METRICS = [
@@ -35,7 +48,7 @@ const METRICS = [
   "average_video_play",
 ];
 
-const DIMENSIONS = ["campaign_id", "campaign_name", "stat_time_day"];
+const DIMENSIONS = ["campaign_id", "stat_time_day"];
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
 
@@ -59,16 +72,16 @@ export async function fetchTikTokEventCampaignInsights(
     string,
     {
       id: string;
-      name: string;
       spend: number;
       impressions: number;
       clicks: number;
       results: number;
     }
   >();
+  const request = input.request ?? tiktokGet;
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const res = await tiktokGet<TikTokIntegratedResponse>(
+    const res = await request<TikTokIntegratedResponse>(
       "/report/integrated/get/",
       {
         advertiser_id: input.advertiserId,
@@ -88,11 +101,9 @@ export async function fetchTikTokEventCampaignInsights(
       const dims = row.dimensions ?? {};
       const metrics = row.metrics ?? {};
       const id = dims.campaign_id;
-      const name = dims.campaign_name ?? "";
-      if (!id || !campaignNameMatchesEventCode(name, input.eventCode)) continue;
+      if (!id) continue;
       const existing = aggregates.get(id) ?? {
         id,
-        name,
         spend: 0,
         impressions: 0,
         clicks: 0,
@@ -109,13 +120,28 @@ export async function fetchTikTokEventCampaignInsights(
     if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
   }
 
-  return [...aggregates.values()].map((a) => {
+  const campaignNames = await fetchTikTokCampaignNames({
+    advertiserId: input.advertiserId,
+    token: input.token,
+    campaignIds: [...aggregates.keys()],
+    request,
+  });
+
+  const hasEnrichedNames = campaignNames.size > 0;
+  return [...aggregates.values()].flatMap((a) => {
+    const name = campaignNames.get(a.id) ?? "(unnamed)";
+    // If /campaign/get/ returns no names at all, keep the rows visible rather
+    // than presenting a false "no matching campaigns" state. As soon as TikTok
+    // returns any campaign-name data, filtering uses the enriched names.
+    if (hasEnrichedNames && !campaignNameMatchesEventCode(name, input.eventCode)) {
+      return [];
+    }
     const ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : null;
     const cpm = a.impressions > 0 ? (a.spend / a.impressions) * 1000 : null;
     const cpr = a.results > 0 ? a.spend / a.results : null;
-    return {
+    return [{
       id: a.id,
-      name: a.name,
+      name,
       status: "UNKNOWN",
       spend: a.spend,
       impressions: a.impressions,
@@ -125,8 +151,34 @@ export async function fetchTikTokEventCampaignInsights(
       cpr,
       results: a.results,
       ad_account_id: input.advertiserId,
-    };
+    }];
   });
+}
+
+async function fetchTikTokCampaignNames(input: {
+  advertiserId: string;
+  token: string;
+  campaignIds: string[];
+  request: TikTokGet;
+}): Promise<Map<string, string>> {
+  if (input.campaignIds.length === 0) return new Map();
+  const res = await input.request<TikTokCampaignGetResponse>(
+    "/campaign/get/",
+    {
+      advertiser_id: input.advertiserId,
+      campaign_ids: input.campaignIds,
+      fields: ["campaign_id", "campaign_name"],
+      page_size: PAGE_SIZE,
+    },
+    input.token,
+  );
+  const names = new Map<string, string>();
+  for (const row of res.list ?? []) {
+    if (row.campaign_id && row.campaign_name) {
+      names.set(row.campaign_id, row.campaign_name);
+    }
+  }
+  return names;
 }
 
 function numberMetric(value: string | number | null | undefined): number {
