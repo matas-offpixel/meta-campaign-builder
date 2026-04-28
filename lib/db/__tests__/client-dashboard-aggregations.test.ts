@@ -375,7 +375,7 @@ describe("aggregateVenueCampaignPerformance", () => {
     assert.equal(t.dailyBudget, null);
   });
 
-  it("uses an allocator-aware paid-spend override when supplied", () => {
+  it("uses the displayed venue Meta spend override when supplied", () => {
     const events = [
       ev({
         id: "a",
@@ -392,13 +392,13 @@ describe("aggregateVenueCampaignPerformance", () => {
       [],
       [rollup("a", 9999)],
       TODAY,
-      931,
+      2594,
     );
 
     assert.equal(t.paidMediaBudget, 10125);
-    assert.equal(t.paidMediaSpent, 931);
-    assert.equal(t.paidMediaUsedPct, (931 / 10125) * 100);
-    assert.equal(t.costPerTicket, 931 / 568);
+    assert.equal(t.paidMediaSpent, 2594);
+    assert.equal(t.paidMediaUsedPct, (2594 / 10125) * 100);
+    assert.equal(t.costPerTicket, 2594 / 568);
   });
 });
 

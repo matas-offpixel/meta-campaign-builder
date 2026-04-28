@@ -810,6 +810,17 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   };
 }
 
+function displayVenueSpend(
+  group: VenueGroup,
+  spend: GroupSpend,
+  totals: VenueTotals,
+): number | null {
+  if (spend.kind !== "add" && group.campaignSpend !== null) {
+    return group.campaignSpend;
+  }
+  return totals.total;
+}
+
 export function ClientPortalVenueTable({
   token,
   clientId,
@@ -1766,6 +1777,10 @@ function VenueSection({
 }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
   const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
+  const venueDisplaySpend = useMemo(
+    () => displayVenueSpend(group, spend, totals),
+    [group, spend, totals],
+  );
   const campaignPerformance = useMemo(
     () =>
       aggregateVenueCampaignPerformance(
@@ -1773,9 +1788,9 @@ function VenueSection({
         additionalSpend,
         dailyRollups,
         undefined,
-        totals.total,
+        venueDisplaySpend,
       ),
-    [group.events, additionalSpend, dailyRollups, totals.total],
+    [group.events, additionalSpend, dailyRollups, venueDisplaySpend],
   );
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
   const headerLabel =
@@ -1918,7 +1933,7 @@ function VenueSection({
               <span className="tabular-nums">
                 CPT:{" "}
                 <span className="font-semibold text-foreground">
-                  {formatGBP(totals.cpt, 2)}
+                  {formatGBP(campaignPerformance.costPerTicket, 2)}
                 </span>
                 <WoWDeltaInline
                   delta={wow.cpt}
