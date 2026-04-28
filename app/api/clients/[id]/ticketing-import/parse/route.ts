@@ -34,6 +34,10 @@ import {
   type ParsedSnapshot,
   type ParseError,
 } from "@/lib/ticketing/parse-ticketing-xlsx";
+import {
+  labelMatchScore,
+  similarityScore,
+} from "@/lib/ticketing/fuzzy-match";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -219,34 +223,12 @@ function findBestEventMatch(
   label: string,
   events: ClientEventRow[],
 ): ClientEventRow | null {
-  const normLabel = normalize(label);
   let best: { score: number; event: ClientEventRow } | null = null;
   for (const ev of events) {
-    const normEv = normalize(ev.name);
-    let score = 0;
-    if (normEv === normLabel) {
-      score = 1.0;
-    } else if (normEv.includes(normLabel) || normLabel.includes(normEv)) {
-      score = 0.8;
-    } else {
-      score = similarityScore(label, ev.name);
-    }
+    const score = labelMatchScore(label, ev.name);
     if (score > (best?.score ?? 0)) {
       best = { score, event: ev };
     }
   }
   return best && best.score >= 0.6 ? best.event : null;
-}
-
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function similarityScore(a: string, b: string): number {
-  const ta = new Set(normalize(a).split(" ").filter(Boolean));
-  const tb = new Set(normalize(b).split(" ").filter(Boolean));
-  if (ta.size === 0 || tb.size === 0) return 0;
-  let inter = 0;
-  for (const t of ta) if (tb.has(t)) inter++;
-  return inter / (ta.size + tb.size - inter);
 }
