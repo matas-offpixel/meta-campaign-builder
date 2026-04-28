@@ -28,6 +28,10 @@ import {
   parseExpandedHash,
   serializeExpandedHash,
 } from "@/lib/dashboard/rollout-grouping";
+import {
+  paidLinkClicksOf,
+  paidSpendOf,
+} from "@/lib/dashboard/paid-spend";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
@@ -560,12 +564,14 @@ type GroupSpend =
       eventCount: number;
     }
   | { kind: "split"; perEventTotal: number | null }
-  | { kind: "add"; perEventAd: number | null };
+  | { kind: "add"; perEventAd: number | null }
+  | { kind: "rollup"; byEventId: Map<string, number>; venuePaidMedia: number };
 
 function venueSpend(
   group: VenueGroup,
   londonOnsaleSpend: number | null,
   allocationByEvent: Map<string, EventAllocationLifetime>,
+  paidSpendByEvent: Map<string, number>,
 ): GroupSpend {
   // Prefer the allocation model when every event in the group has
   // allocation data. We fall through to split/add when the
@@ -616,6 +622,21 @@ function venueSpend(
     const perEventAd =
       group.eventCount > 0 ? (onsaleShare + venueMeta) / group.eventCount : null;
     return { kind: "add", perEventAd };
+  }
+  if (group.campaignSpend === null) {
+    let venuePaidMedia = 0;
+    let hasPaidMedia = false;
+    const byEventId = new Map<string, number>();
+    for (const ev of group.events) {
+      const paid = paidSpendByEvent.get(ev.id);
+      if (paid == null) continue;
+      byEventId.set(ev.id, paid);
+      venuePaidMedia += paid;
+      hasPaidMedia = true;
+    }
+    if (hasPaidMedia) {
+      return { kind: "rollup", byEventId, venuePaidMedia };
+    }
   }
   const perEventTotal =
     group.campaignSpend !== null && group.eventCount > 0
@@ -678,8 +699,11 @@ function computeEventMetrics(
     perEventTotal = spend.perEventTotal;
     perEventAd =
       perEventTotal !== null ? perEventTotal - (prereg ?? 0) : null;
-  } else {
+  } else if (spend.kind === "add") {
     perEventAd = spend.perEventAd;
+    perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
+  } else {
+    perEventAd = spend.byEventId.get(ev.id) ?? null;
     perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
   }
 
@@ -772,7 +796,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
     // Legacy: campaign value already includes prereg, so ad = total − prereg.
     total = group.campaignSpend;
     ad = total !== null ? total - prereg : null;
-  } else {
+  } else if (spend.kind === "add") {
     // London: venue ad = perEventAd × eventCount (== onsaleShare + venueMeta).
     // Total = prereg + venueAd. Re-multiplying perEventAd preserves the
     // exact same arithmetic the per-row cells use, so the venue total
@@ -781,6 +805,9 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
       spend.perEventAd !== null ? spend.perEventAd * group.eventCount : null;
     ad = venueAd;
     total = venueAd !== null ? prereg + venueAd : null;
+  } else {
+    ad = spend.venuePaidMedia;
+    total = prereg + spend.venuePaidMedia;
   }
 
   const cpt = total !== null && total > 0 && tickets > 0 ? total / tickets : null;
@@ -818,7 +845,22 @@ function displayVenueSpend(
   if (spend.kind !== "add" && group.campaignSpend !== null) {
     return group.campaignSpend;
   }
+  if (spend.kind === "rollup") {
+    return spend.venuePaidMedia;
+  }
   return totals.total;
+}
+
+function paidSpendByEvent(dailyRollups: DailyRollupRow[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of dailyRollups) {
+    const spend = paidSpendOf(row);
+    if (spend === 0 && row.ad_spend == null && row.tiktok_spend == null) {
+      continue;
+    }
+    out.set(row.event_id, (out.get(row.event_id) ?? 0) + spend);
+  }
+  return out;
 }
 
 function isBristolVenueGroup(group: VenueGroup): boolean {
@@ -849,6 +891,17 @@ function sumNullable<K extends keyof DailyRollupRow>(
   return seen ? total : null;
 }
 
+function sumPaidSpendNullable(rows: DailyRollupRow[]): number | null {
+  let total = 0;
+  let seen = false;
+  for (const row of rows) {
+    if (row.ad_spend == null && row.tiktok_spend == null) continue;
+    total += paidSpendOf(row);
+    seen = true;
+  }
+  return seen ? total : null;
+}
+
 export function ClientPortalVenueTable({
   token,
   clientId,
@@ -870,6 +923,10 @@ export function ClientPortalVenueTable({
   // "fall back to the split model" signal `venueSpend` reads.
   const allocationByEvent = useMemo(
     () => aggregateAllocationByEvent(dailyRollups),
+    [dailyRollups],
+  );
+  const paidSpendByEventMap = useMemo(
+    () => paidSpendByEvent(dailyRollups),
     [dailyRollups],
   );
 
@@ -1008,7 +1065,12 @@ export function ClientPortalVenueTable({
                 token={token}
                 clientId={clientId}
                 group={group}
-                spend={venueSpend(group, londonOnsaleSpend, allocationByEvent)}
+                spend={venueSpend(
+                  group,
+                  londonOnsaleSpend,
+                  allocationByEvent,
+                  paidSpendByEventMap,
+                )}
                 wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
                 dailyRollups={dailyRollups}
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
@@ -1275,9 +1337,14 @@ interface VenueSectionProps {
 
 function dailyRollupSpend(row: DailyRollupRow): number | null {
   if (row.ad_spend_allocated != null || row.ad_spend_presale != null) {
-    return (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
+    return paidSpendOf({
+      ad_spend: (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0),
+      tiktok_spend: row.tiktok_spend,
+    });
   }
-  return row.ad_spend;
+  return row.ad_spend != null || row.tiktok_spend != null
+    ? paidSpendOf(row)
+    : null;
 }
 
 function buildVenueTrendPoints(
@@ -1292,7 +1359,10 @@ function buildVenueTrendPoints(
     spend: dailyRollupSpend(row),
     tickets: hasRollupTickets ? row.tickets_sold : null,
     revenue: row.revenue,
-    linkClicks: row.link_clicks ?? null,
+    linkClicks:
+      row.link_clicks != null || row.tiktok_clicks != null
+        ? paidLinkClicksOf(row)
+        : null,
   }));
   if (!hasRollupTickets) {
     points.push(...buildVenueTicketSnapshotPoints(weeklyTicketSnapshots, venueEventIds));
@@ -1466,10 +1536,12 @@ function VenueSection({
           rollups: rows.map((row) => ({
             date: row.date,
             ad_spend: row.ad_spend,
+            tiktok_spend: row.tiktok_spend,
             ad_spend_allocated: row.ad_spend_allocated,
             ad_spend_presale: row.ad_spend_presale,
           })),
-          rawAdSpend: sumNullable(rows, "ad_spend"),
+          rawPaidSpend: sumPaidSpendNullable(rows),
+          rawMetaAdSpend: sumNullable(rows, "ad_spend"),
           adSpendAllocated: sumNullable(rows, "ad_spend_allocated"),
           adSpendPresale: sumNullable(rows, "ad_spend_presale"),
           resolvedPerEventAdSpend: metrics.perEventAd,

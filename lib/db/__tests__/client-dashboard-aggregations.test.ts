@@ -33,6 +33,7 @@ function rollup(
   ad_spend: number | null,
   allocation?: {
     ad_spend_allocated?: number | null;
+    tiktok_spend?: number | null;
     ad_spend_specific?: number | null;
     ad_spend_generic_share?: number | null;
     ad_spend_presale?: number | null;
@@ -49,8 +50,11 @@ function rollup(
     date: allocation?.date ?? "2020-01-01",
     tickets_sold: allocation?.tickets_sold ?? null,
     ad_spend,
+    tiktok_spend: allocation?.tiktok_spend ?? null,
     ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
     revenue: allocation?.revenue ?? null,
+    link_clicks: null,
+    tiktok_clicks: null,
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
     ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
     ad_spend_presale: allocation?.ad_spend_presale ?? null,
@@ -185,6 +189,25 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.totalSpend, 1234);
   });
 
+  it("sums TikTok-only spend into paid media, CPT, and ROAS", () => {
+    const events = [
+      ev({
+        id: "black-butter",
+        latest_snapshot: { tickets_sold: 20, revenue: 640 },
+      }),
+    ];
+    const t = aggregateClientWideTotals(
+      events,
+      [rollup("black-butter", null, { tiktok_spend: 160 })],
+      [],
+    );
+
+    assert.equal(t.adSpend, 160);
+    assert.equal(t.totalSpend, 160);
+    assert.equal(t.cpt, 8);
+    assert.equal(t.roas, 4);
+  });
+
   it("null capacities collapse to null; mixed null/non-null sums non-null only", () => {
     const all = aggregateClientWideTotals(
       [ev({ id: "a" }), ev({ id: "b" })],
@@ -277,6 +300,27 @@ describe("aggregateVenueGroupTotals", () => {
     const t = aggregateVenueGroupTotals(events, rollups, additional, TODAY);
     assert.equal(t.adSpend, 10);
     assert.equal(t.additionalSpend, 5);
+  });
+
+  it("uses TikTok-only spend for venue paid media totals", () => {
+    const events = [
+      ev({
+        id: "black-butter",
+        event_date: TODAY,
+        latest_snapshot: { tickets_sold: 16, revenue: 640 },
+      }),
+    ];
+    const t = aggregateVenueGroupTotals(
+      events,
+      [rollup("black-butter", null, { tiktok_spend: 160 })],
+      [],
+      TODAY,
+    );
+
+    assert.equal(t.adSpend, 160);
+    assert.equal(t.totalSpend, 160);
+    assert.equal(t.cpt, 10);
+    assert.equal(t.roas, 4);
   });
 
   it("activity score is higher for events happening today than last year", () => {
@@ -476,6 +520,31 @@ describe("aggregateVenueCampaignPerformance", () => {
     assert.equal(t.paidMediaSpent, 2594);
     assert.equal(t.paidMediaUsedPct, (2594 / 10125) * 100);
     assert.equal(t.costPerTicket, 2594 / 568);
+  });
+
+  it("aggregates TikTok-only rollups into the venue Paid Media card", () => {
+    const events = [
+      ev({
+        id: "black-butter",
+        event_code: "BB26",
+        event_date: "2026-06-01",
+        budget_marketing: 500,
+        capacity: 100,
+        latest_snapshot: { tickets_sold: 20, revenue: 640 },
+      }),
+    ];
+
+    const t = aggregateVenueCampaignPerformance(
+      events,
+      [],
+      [rollup("black-butter", null, { tiktok_spend: 160 })],
+      TODAY,
+    );
+
+    assert.equal(t.paidMediaSpent, 160);
+    assert.equal(t.paidMediaRemaining, 340);
+    assert.equal(t.paidMediaUsedPct, 32);
+    assert.equal(t.costPerTicket, 8);
   });
 });
 

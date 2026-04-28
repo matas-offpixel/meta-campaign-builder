@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import {
   sumAdditionalSpendAmounts,
 } from "@/lib/db/additional-spend-sum";
+import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -134,13 +135,21 @@ function sumSpendTimeline(
   let t = 0;
   for (const r of timeline) {
     if (window != null && !window.has(r.date)) continue;
-    if (r.ad_spend != null) t += Number(r.ad_spend);
+    t += paidSpendOf(r);
   }
   return t;
 }
 
-function ticketsSoldToDate(timeline: TimelineRow[]): number {
-  return sumTicketsTimeline(timeline, null);
+function sumTikTokSpendTimeline(
+  timeline: TimelineRow[],
+  window: Set<string> | null,
+): number {
+  let t = 0;
+  for (const r of timeline) {
+    if (window != null && !window.has(r.date)) continue;
+    if (r.tiktok_spend != null) t += Number(r.tiktok_spend);
+  }
+  return t;
 }
 
 function fullDaysUntilEventUtc(eventDateYmd: string | null | undefined): number | null {
@@ -337,8 +346,9 @@ function computeMetrics(
   let hasRevenue = false;
   let hasPrev = false;
   for (const r of timeline) {
-    if (r.ad_spend != null) {
-      liveSpendAll += Number(r.ad_spend);
+    const paidSpend = paidSpendOf(r);
+    if (paidSpend > 0 || r.ad_spend != null || r.tiktok_spend != null) {
+      liveSpendAll += paidSpend;
       hasSpend = true;
     }
     if (r.tickets_sold != null) {
@@ -357,14 +367,18 @@ function computeMetrics(
   const adBudget = event.budget_marketing;
   const prereg =
     event.prereg_spend != null ? Number(event.prereg_spend) : null;
+  const tiktokLifetime = sumTikTokSpendTimeline(timeline, null);
   const metaLifetime =
     event.meta_spend_cached != null
-      ? Number(event.meta_spend_cached)
+      ? Number(event.meta_spend_cached) + tiktokLifetime
       : hasSpend
         ? liveSpendAll
         : null;
 
   let metaWindow: number | null = timeframe.metaSpend;
+  if (metaWindow !== null) {
+    metaWindow += sumTikTokSpendTimeline(timeline, window);
+  }
   if (metaWindow === null) {
     metaWindow =
       window === null

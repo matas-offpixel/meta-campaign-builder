@@ -13,6 +13,7 @@
  * per-venue-group totals. Both flow through identical arithmetic
  * fed by the same underlying row arrays; any divergence is a bug.
  */
+import { paidSpendOf } from "../dashboard/paid-spend.ts";
 import type { DailyRollupRow } from "./client-portal-server";
 
 /** Minimal event shape the aggregators need — a subset of PortalEvent. */
@@ -143,7 +144,7 @@ export interface ClientWideTotals {
   events: number;
   /** Sum of capacities; null when every event's capacity is null. */
   capacity: number | null;
-  /** Sum of `event_daily_rollups.ad_spend` across all events. */
+  /** Sum of paid-media spend across all events. */
   adSpend: number;
   /** Sum of `additional_spend_entries.amount` across all events. */
   additionalSpend: number;
@@ -223,7 +224,7 @@ export function aggregateClientWideTotals(
   let adSpend = 0;
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
-    if (r.ad_spend != null) adSpend += r.ad_spend;
+    adSpend += paidSpendOf(r);
   }
   adSpend += extraAdSpend;
 
@@ -432,8 +433,10 @@ export function aggregateVenueCampaignPerformance(
     paidSpent = 0;
     for (const row of dailyRollups) {
       if (!eventIds.has(row.event_id)) continue;
-      const spend = row.ad_spend_allocated ?? row.ad_spend;
-      if (spend != null) paidSpent += spend;
+      paidSpent += paidSpendOf({
+        ad_spend: row.ad_spend_allocated ?? row.ad_spend,
+        tiktok_spend: row.tiktok_spend,
+      });
     }
   }
 
@@ -514,7 +517,7 @@ export function aggregateVenueGroupTotals(
   let adSpend = 0;
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
-    if (r.ad_spend != null) adSpend += r.ad_spend;
+    adSpend += paidSpendOf(r);
   }
 
   let additional = 0;
@@ -556,7 +559,7 @@ export function aggregateVenueGroupTotals(
 
   // Activity score: heuristic for auto-expanding the "most active"
   // cards. Weights:
-  //   - ad_spend (direct signal of "money is flowing here")
+  //   - paid media spend (direct signal of "money is flowing here")
   //   - recency bonus (past-dated events score lower; upcoming or
   //     very recent score higher) clipped to a 60-day window
   //
@@ -573,7 +576,7 @@ export function aggregateVenueGroupTotals(
       // than one from six months ago.
       const normalized = 1 - Math.min(Math.abs(daysAway), 60) / 60;
       // Scale the bonus so a busy upcoming event can outrank a past
-      // event with a similar ad_spend. Value picked empirically.
+      // event with similar paid-media spend. Value picked empirically.
       recencyBonus = normalized * 500;
     }
   }
@@ -600,15 +603,6 @@ function firstEventDate(events: AggregatableEvent[]): string | null {
     if (ev.event_date) return ev.event_date;
   }
   return null;
-}
-
-function daysUntilDate(dateIso: string | null, todayIso: string): number | null {
-  if (!dateIso) return null;
-  const eventMs = Date.parse(`${dateIso}T00:00:00Z`);
-  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
-  if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return null;
-  const days = Math.ceil((eventMs - todayMs) / 86_400_000);
-  return days > 0 ? days : 1;
 }
 
 function normalizeEventDate(dateIso: string | null | undefined): string | null {
@@ -825,9 +819,12 @@ export function aggregateVenueWoW(
     if (!eventIds.has(r.event_id)) continue;
     const ms = Date.parse(`${r.date}T00:00:00Z`);
     if (!Number.isFinite(ms)) continue;
-    const spend = r.ad_spend_allocated ?? r.ad_spend;
+    const spend = paidSpendOf({
+      ad_spend: r.ad_spend_allocated ?? r.ad_spend,
+      tiktok_spend: r.tiktok_spend,
+    });
     if (ms <= todayMs) {
-      if (spend != null) {
+      if (spend > 0 || r.ad_spend != null || r.tiktok_spend != null) {
         currentSpend += spend;
       }
       if (r.revenue != null) {

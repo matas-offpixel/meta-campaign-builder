@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 
+import {
+  paidLinkClicksOf,
+  paidSpendOf,
+} from "@/lib/dashboard/paid-spend";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import {
   aggregateTrendChartPoints,
@@ -70,10 +74,14 @@ interface Props {
 function timelineToPoints(timeline: TimelineRow[]): TrendChartPoint[] {
   return timeline.map((r) => ({
     date: r.date,
-    spend: r.ad_spend != null ? Number(r.ad_spend) : null,
+    spend:
+      r.ad_spend != null || r.tiktok_spend != null ? paidSpendOf(r) : null,
     tickets: r.tickets_sold != null ? Number(r.tickets_sold) : null,
     revenue: r.revenue != null ? Number(r.revenue) : null,
-    linkClicks: r.link_clicks != null ? Number(r.link_clicks) : null,
+    linkClicks:
+      r.link_clicks != null || r.tiktok_clicks != null
+        ? paidLinkClicksOf(r)
+        : null,
   }));
 }
 

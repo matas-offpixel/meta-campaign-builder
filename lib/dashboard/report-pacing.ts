@@ -1,4 +1,5 @@
 import { sumAdditionalSpendAmounts } from "@/lib/db/additional-spend-sum";
+import { paidSpendOf } from "./paid-spend.ts";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 
 /** Whole calendar days from today (UTC) until event date; null if past or missing. */
@@ -40,13 +41,16 @@ export function computeSellOutPacing(
   input: SellOutPacingInput,
 ): SellOutPacingResult {
   let liveSpendAll = 0;
+  let tiktokSpendAll = 0;
   let hasSpend = false;
   let ticketsAll = 0;
   for (const r of input.timeline) {
-    if (r.ad_spend != null) {
-      liveSpendAll += Number(r.ad_spend);
+    const paidSpend = paidSpendOf(r);
+    if (paidSpend > 0 || r.ad_spend != null || r.tiktok_spend != null) {
+      liveSpendAll += paidSpend;
       hasSpend = true;
     }
+    if (r.tiktok_spend != null) tiktokSpendAll += Number(r.tiktok_spend);
     if (r.tickets_sold != null) ticketsAll += Number(r.tickets_sold);
   }
 
@@ -54,7 +58,7 @@ export function computeSellOutPacing(
     input.preregSpend != null ? Number(input.preregSpend) : null;
   const metaLifetime =
     input.metaSpendCached != null
-      ? Number(input.metaSpendCached)
+      ? Number(input.metaSpendCached) + tiktokSpendAll
       : hasSpend
         ? liveSpendAll
         : null;
