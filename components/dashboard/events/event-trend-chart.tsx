@@ -7,12 +7,10 @@ import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 /**
  * components/dashboard/events/event-trend-chart.tsx
  *
- * Multi-metric daily trend chart for the event report block. Mirrors
- * the interaction model of the WC client portal's `CptTrendChart`
- * (`components/share/client-portal-venue-table.tsx`): pill toggles
- * double as the legend, a hairline + tooltip on hover, and each metric
- * gets its own normalised Y scale so trends are comparable even when
- * absolute values aren't.
+ * Multi-metric trend chart shared by the event report block and the
+ * WC venue portal embed: pill toggles double as the legend, a hairline
+ * + tooltip follows hover, and each metric gets its own normalised Y
+ * scale so trends are comparable even when absolute values aren't.
  *
  * Self-hides when fewer than two distinct days of data exist — a
  * single point can't draw a line and the empty plot would imply data
@@ -23,12 +21,17 @@ import type { TimelineRow } from "@/lib/db/event-daily-timeline";
  * fetch + sync.
  */
 
-interface ChartDay {
+export type TrendGranularity = "daily" | "weekly";
+
+export interface TrendChartPoint {
   date: string;
   spend: number | null;
   tickets: number | null;
   revenue: number | null;
   linkClicks: number | null;
+}
+
+export interface TrendChartDay extends TrendChartPoint {
   cpt: number | null;
   roas: number | null;
   cpc: number | null;
@@ -63,75 +66,121 @@ const METRICS: MetricDef[] = [
 ];
 
 interface Props {
-  timeline: TimelineRow[];
+  timeline?: TimelineRow[];
+  points?: TrendChartPoint[];
   /** Optional className override for layout adjustments. */
   className?: string;
+  title?: string;
+  defaultGranularity?: TrendGranularity;
+  showGranularityToggle?: boolean;
 }
 
-/**
- * Convert the merged timeline into the chart's internal day shape.
- * Sorted ASC by date for direct consumption by the polyline geometry.
- * Nulls propagate so polylines are split across missing days rather
- * than drawing fake straight lines through the gaps.
- */
-function timelineToChart(timeline: TimelineRow[]): ChartDay[] {
-  // Timeline arrives DESC; render needs ASC so the line reads
-  // left-to-right chronologically.
-  const asc = [...timeline].sort((a, b) =>
-    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-  );
-  return asc.map((r) => {
-    const spend = r.ad_spend != null ? Number(r.ad_spend) : null;
-    const tickets = r.tickets_sold != null ? Number(r.tickets_sold) : null;
-    const revenue = r.revenue != null ? Number(r.revenue) : null;
-    const linkClicks = r.link_clicks != null ? Number(r.link_clicks) : null;
-    const cpt =
-      spend != null && spend > 0 && tickets != null && tickets > 0
-        ? spend / tickets
-        : null;
-    const roas =
-      revenue != null && revenue > 0 && spend != null && spend > 0
-        ? revenue / spend
-        : null;
-    const cpc =
-      spend != null && spend > 0 && linkClicks != null && linkClicks > 0
-        ? spend / linkClicks
-        : null;
-    return {
-      date: r.date,
-      spend,
-      tickets,
-      revenue,
-      linkClicks,
-      cpt,
-      roas,
-      cpc,
-    };
-  });
+function timelineToPoints(timeline: TimelineRow[]): TrendChartPoint[] {
+  return timeline.map((r) => ({
+    date: r.date,
+    spend: r.ad_spend != null ? Number(r.ad_spend) : null,
+    tickets: r.tickets_sold != null ? Number(r.tickets_sold) : null,
+    revenue: r.revenue != null ? Number(r.revenue) : null,
+    linkClicks: r.link_clicks != null ? Number(r.link_clicks) : null,
+  }));
 }
 
-function chartShortDate(iso: string): string {
+interface PointAccumulator {
+  spend: number | null;
+  tickets: number | null;
+  revenue: number | null;
+  linkClicks: number | null;
+}
+
+function addNullable(
+  current: number | null,
+  value: number | null,
+): number | null {
+  return value != null ? (current ?? 0) + value : current;
+}
+
+function isoWeekStart(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() - day + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function deriveMetrics(date: string, v: PointAccumulator): TrendChartDay {
+  const cpt =
+    v.spend !== null && v.spend > 0 && v.tickets !== null && v.tickets > 0
+      ? v.spend / v.tickets
+      : null;
+  const roas =
+    v.revenue !== null && v.revenue > 0 && v.spend !== null && v.spend > 0
+      ? v.revenue / v.spend
+      : null;
+  const cpc =
+    v.spend !== null &&
+    v.spend > 0 &&
+    v.linkClicks !== null &&
+    v.linkClicks > 0
+      ? v.spend / v.linkClicks
+      : null;
+  return {
+    date,
+    spend: v.spend,
+    tickets: v.tickets,
+    revenue: v.revenue,
+    linkClicks: v.linkClicks,
+    cpt,
+    roas,
+    cpc,
+  };
+}
+
+export function aggregateTrendChartPoints(
+  points: TrendChartPoint[],
+  granularity: TrendGranularity,
+): TrendChartDay[] {
+  const map = new Map<string, PointAccumulator>();
+  for (const point of points) {
+    const key = granularity === "weekly" ? isoWeekStart(point.date) : point.date;
+    const cur =
+      map.get(key) ??
+      ({ spend: null, tickets: null, revenue: null, linkClicks: null } as PointAccumulator);
+    cur.spend = addNullable(cur.spend, point.spend);
+    cur.tickets = addNullable(cur.tickets, point.tickets);
+    cur.revenue = addNullable(cur.revenue, point.revenue);
+    cur.linkClicks = addNullable(cur.linkClicks, point.linkClicks);
+    map.set(key, cur);
+  }
+
+  return [...map.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, v]) => deriveMetrics(date, v));
+}
+
+function chartShortDate(iso: string, granularity: TrendGranularity): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-GB", {
+  const label = d.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   });
+  return granularity === "weekly" ? `w/c ${label}` : label;
 }
 
-function chartTooltipDate(iso: string): string {
+function chartTooltipDate(iso: string, granularity: TrendGranularity): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-GB", {
+  const label = d.toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   });
+  return granularity === "weekly" ? `Week commencing ${label}` : label;
 }
 
-function latestMetricValue(days: ChartDay[], key: MetricKey): number | null {
+function latestMetricValue(days: TrendChartDay[], key: MetricKey): number | null {
   for (let i = days.length - 1; i >= 0; i--) {
     const v = days[i][key];
     if (v !== null && Number.isFinite(v)) return v;
@@ -139,8 +188,28 @@ function latestMetricValue(days: ChartDay[], key: MetricKey): number | null {
   return null;
 }
 
-export function EventTrendChart({ timeline, className }: Props) {
-  const days = useMemo(() => timelineToChart(timeline), [timeline]);
+export function EventTrendChart({
+  timeline,
+  points,
+  className,
+  title,
+  defaultGranularity = "daily",
+  showGranularityToggle = true,
+}: Props) {
+  const [granularity, setGranularity] =
+    useState<TrendGranularity>(defaultGranularity);
+  const sourcePoints = useMemo(
+    () => points ?? timelineToPoints(timeline ?? []),
+    [points, timeline],
+  );
+  const sourceDateCount = useMemo(
+    () => new Set(sourcePoints.map((point) => point.date)).size,
+    [sourcePoints],
+  );
+  const days = useMemo(
+    () => aggregateTrendChartPoints(sourcePoints, granularity),
+    [sourcePoints, granularity],
+  );
   const [active, setActive] = useState<Set<MetricKey>>(
     () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
   );
@@ -149,7 +218,10 @@ export function EventTrendChart({ timeline, className }: Props) {
     chartWidth: number;
   } | null>(null);
 
-  if (days.length < 2) return null;
+  if (sourceDateCount < 2) return null;
+
+  const titleLabel =
+    title ?? `${granularity === "weekly" ? "Weekly" : "Daily"} trend`;
 
   const toggle = (key: MetricKey) => {
     setActive((prev) => {
@@ -260,11 +332,32 @@ export function EventTrendChart({ timeline, className }: Props) {
     <div className={`rounded-md border border-border bg-card ${className ?? ""}`}>
       <div className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="font-heading text-sm tracking-wide">Daily trend</h3>
-          <p className="text-[10px] text-muted-foreground">
-            {days.length} day{days.length === 1 ? "" : "s"} · click pills to
-            toggle
-          </p>
+          <h3 className="font-heading text-sm tracking-wide">{titleLabel}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] text-muted-foreground">
+              {days.length} {granularity === "weekly" ? "week" : "day"}
+              {days.length === 1 ? "" : "s"} · click pills to toggle
+            </p>
+            {showGranularityToggle && (
+              <div className="flex gap-1 border-l border-border pl-2">
+                {(["daily", "weekly"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setGranularity(value)}
+                    aria-pressed={granularity === value}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize transition-colors ${
+                      granularity === value
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+                    }`}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {METRICS.map((m) => {
@@ -330,7 +423,7 @@ export function EventTrendChart({ timeline, className }: Props) {
               width="100%"
               height={150}
               role="img"
-              aria-label="Daily metric trend chart"
+              aria-label={`${titleLabel} metric trend chart`}
               className="overflow-visible"
             >
               <line
@@ -402,7 +495,7 @@ export function EventTrendChart({ timeline, className }: Props) {
                       }
                     >
                       <p className="mb-1 font-medium">
-                        {chartTooltipDate(day.date)}
+                        {chartTooltipDate(day.date, granularity)}
                       </p>
                       <ul className="space-y-0.5">
                         {series.map((s) => {
@@ -436,7 +529,7 @@ export function EventTrendChart({ timeline, className }: Props) {
           </div>
           <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
             {labelDays.map((d) => (
-              <span key={d.date}>{chartShortDate(d.date)}</span>
+              <span key={d.date}>{chartShortDate(d.date, granularity)}</span>
             ))}
           </div>
         </div>
