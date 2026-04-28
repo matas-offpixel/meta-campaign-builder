@@ -20,10 +20,8 @@ import {
  * "CAMPAIGN PERFORMANCE" panel for the event detail Campaigns tab.
  *
  * Behaviour:
- *   - Platform tabs: Meta is live; TikTok / Google Ads are disabled
- *     stubs with a "Coming soon" tooltip — the underlying API routes
- *     exist but return `platform_pending` so flipping them on later
- *     is API-only.
+ *   - Platform tabs: Meta + TikTok are live; Google Ads remains disabled
+ *     with a "Coming soon" tooltip.
  *   - Time range toggle (All / 30d / 14d / 7d / 3d / Yesterday).
  *     Default 30d. Each change triggers a fresh fetch; benchmarks
  *     stay locked to the rolling 90-day window so colour coding
@@ -95,7 +93,7 @@ const PLATFORMS: Array<{
   tooltip?: string;
 }> = [
   { id: "meta", label: "Meta", enabled: true },
-  { id: "tiktok", label: "TikTok", enabled: false, tooltip: "Coming soon" },
+  { id: "tiktok", label: "TikTok", enabled: true },
   { id: "google", label: "Google Ads", enabled: false, tooltip: "Coming soon" },
 ];
 
@@ -111,7 +109,7 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
   const fetchTokenRef = useRef(0);
 
   const refetch = useCallback(async () => {
-    if (platform !== "meta") {
+    if (platform === "google") {
       setData(null);
       setError(null);
       return;
@@ -120,9 +118,13 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const url = `/api/reporting/event-campaigns?eventId=${encodeURIComponent(
+      const base =
+        platform === "tiktok"
+          ? "/api/reporting/event-campaigns/tiktok"
+          : "/api/reporting/event-campaigns";
+      const url = `${base}?eventId=${encodeURIComponent(
         eventId,
-      )}&range=${range}&platform=meta`;
+      )}&range=${range}&platform=${platform}`;
       const res = await fetch(url, { credentials: "same-origin" });
       const json = (await res.json()) as ApiResponse;
       if (token !== fetchTokenRef.current) return;
@@ -152,7 +154,7 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
             Campaign performance
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Live insights for every Meta campaign whose name contains the
+            Live insights for every Meta or TikTok campaign whose name contains the
             event&apos;s event code. Each cell is colour-coded against this
             ad account&apos;s rolling 90-day average.
           </p>
@@ -161,7 +163,7 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
           variant="outline"
           size="sm"
           onClick={() => void refetch()}
-          disabled={loading || platform !== "meta"}
+          disabled={loading || platform === "google"}
         >
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -244,11 +246,11 @@ function PerformanceBody({
   data: ApiResponse | null;
   hasEventCode: boolean;
 }) {
-  if (platform !== "meta") {
+  if (platform === "google") {
     return (
       <EmptyState
-        title={`${platform === "tiktok" ? "TikTok" : "Google Ads"} reporting coming soon`}
-        body="The native adapter for this platform is not connected yet. The Meta tab is live."
+        title="Google Ads reporting coming soon"
+        body="The native adapter for this platform is not connected yet. Meta and TikTok are live."
       />
     );
   }
@@ -277,15 +279,31 @@ function PerformanceBody({
     return (
       <EmptyState
         title="No event code set"
-        body="Set an event code on this event to enable campaign matching. We use a substring match against Meta campaign names."
+        body={`Set an event code on this event to enable campaign matching. We use a substring match against ${platform === "tiktok" ? "TikTok" : "Meta"} campaign names.`}
       />
     );
   }
-  if (data.reason === "no_ad_account") {
+  if (data.reason === "no_ad_account" || data.reason === "no_tiktok_account") {
     return (
       <EmptyState
-        title="No Meta ad account on the client"
-        body="Connect a Meta ad account on this event's client so we can read insights for it."
+        title={
+          platform === "tiktok"
+            ? "No TikTok account on this event"
+            : "No Meta ad account on the client"
+        }
+        body={
+          platform === "tiktok"
+            ? "Link a TikTok account on this event or its client so we can read insights for it."
+            : "Connect a Meta ad account on this event's client so we can read insights for it."
+        }
+      />
+    );
+  }
+  if (data.reason === "no_access_token" || data.reason === "no_advertiser_id") {
+    return (
+      <EmptyState
+        title="TikTok OAuth is not connected"
+        body="Connect TikTok Business API OAuth for this account before loading live insights."
       />
     );
   }
@@ -293,8 +311,8 @@ function PerformanceBody({
   if (campaigns.length === 0) {
     return (
       <EmptyState
-        title="No matching Meta campaigns"
-        body={`No Meta campaigns in this account contain "${data.event_code}". Rename a campaign in Ads Manager to match, or update the event code.`}
+        title={`No matching ${platform === "tiktok" ? "TikTok" : "Meta"} campaigns`}
+        body={`No ${platform === "tiktok" ? "TikTok" : "Meta"} campaigns in this account contain "${data.event_code}". Rename a campaign to match, or update the event code.`}
       />
     );
   }
@@ -303,6 +321,7 @@ function PerformanceBody({
     <CampaignTable
       campaigns={campaigns}
       benchmarks={data.benchmarks ?? { ctr: null, cpm: null, cpr: null, campaignsCounted: 0 }}
+      platform={platform}
     />
   );
 }
@@ -310,9 +329,11 @@ function PerformanceBody({
 function CampaignTable({
   campaigns,
   benchmarks,
+  platform,
 }: {
   campaigns: CampaignRow[];
   benchmarks: Benchmarks;
+  platform: Exclude<PlatformId, "google">;
 }) {
   const totals = useMemo(() => {
     const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
@@ -363,22 +384,34 @@ function CampaignTable({
               benchmarks.cpr,
               "lower-is-better",
             );
-            const adsManagerUrl = `https://business.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(
-              c.ad_account_id,
-            )}&selected_campaign_ids=${encodeURIComponent(c.id)}`;
+            const adsManagerUrl =
+              platform === "meta"
+                ? `https://business.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(
+                    c.ad_account_id,
+                  )}&selected_campaign_ids=${encodeURIComponent(c.id)}`
+                : null;
             return (
               <tr
                 key={c.id}
-                onClick={() => window.open(adsManagerUrl, "_blank", "noopener,noreferrer")}
-                className="cursor-pointer border-b border-border/60 align-middle hover:bg-muted/40"
-                title="Open in Meta Ads Manager"
+                onClick={() => {
+                  if (adsManagerUrl) {
+                    window.open(adsManagerUrl, "_blank", "noopener,noreferrer");
+                  }
+                }}
+                className={[
+                  "border-b border-border/60 align-middle hover:bg-muted/40",
+                  adsManagerUrl ? "cursor-pointer" : "",
+                ].join(" ")}
+                title={adsManagerUrl ? "Open in Meta Ads Manager" : undefined}
               >
                 <td className="py-2 pr-3">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate font-medium text-foreground">
                       {c.name}
                     </span>
-                    <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    {adsManagerUrl ? (
+                      <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    ) : null}
                   </div>
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums">
@@ -432,9 +465,14 @@ function CampaignTable({
           Account benchmarks (rolling 90d, n={benchmarks.campaignsCounted}): CTR {benchmarks.ctr.toFixed(2)}% · CPM {formatCurrency(benchmarks.cpm ?? 0)} · CPR {benchmarks.cpr != null ? formatCurrency(benchmarks.cpr) : "—"}
         </p>
       )}
-      {benchmarks.ctr == null && (
+      {benchmarks.ctr == null && platform === "meta" && (
         <p className="mt-2 text-[10px] text-muted-foreground">
           Not enough recent campaign data on this ad account for colour coding (need ≥5 campaigns in the last 90 days).
+        </p>
+      )}
+      {benchmarks.ctr == null && platform === "tiktok" && (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          TikTok benchmark colour-coding is not configured yet; campaign rows are shown without a baseline.
         </p>
       )}
     </div>

@@ -14,8 +14,11 @@ export interface TikTokAccount {
   user_id: string;
   account_name: string;
   tiktok_advertiser_id: string | null;
-  /** Token is never returned to the client — present in API surface only. */
+  /** Legacy placeholder; new OAuth writes use credentials_encrypted. */
   access_token_encrypted?: string | null;
+  /** pgcrypto blob from migration 054. Never returned to browser clients. */
+  credentials_encrypted?: string | null;
+  credentials_format?: string | null;
   created_at: string;
   updated_at: string;
 }
