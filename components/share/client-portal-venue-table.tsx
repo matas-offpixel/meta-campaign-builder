@@ -2384,7 +2384,6 @@ function VenueCampaignPerformanceCards({
               )}
             </p>
             <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-muted-foreground">
-              <span>Daily budget:</span>
               <LazyVenueDailyBudget
                 clientId={clientId}
                 eventCode={eventCode}
@@ -2456,13 +2455,23 @@ function LazyVenueDailyBudget({
 }) {
   const [state, setState] = useState<
     | { kind: "loading" }
-    | { kind: "ready"; dailyBudget: number | null }
-    | { kind: "error" }
+    | {
+        kind: "ready";
+        dailyBudget: number | null;
+        label: "daily" | "effective_daily";
+        reason: string | null;
+      }
+    | { kind: "error"; reason: string | null }
   >({ kind: "loading" });
 
   useEffect(() => {
     if (!eventCode) {
-      setState({ kind: "ready", dailyBudget: null });
+      setState({
+        kind: "ready",
+        dailyBudget: null,
+        label: "daily",
+        reason: "No event code",
+      });
       return;
     }
     let cancelled = false;
@@ -2478,13 +2487,27 @@ function LazyVenueDailyBudget({
         );
         const json = (await res.json()) as {
           dailyBudget?: number | null;
+          label?: "daily" | "effective_daily";
+          reasonLabel?: string | null;
+          error?: string;
         };
         if (!res.ok) throw new Error("Daily budget unavailable");
         if (!cancelled) {
-          setState({ kind: "ready", dailyBudget: json.dailyBudget ?? null });
+          setState({
+            kind: "ready",
+            dailyBudget: json.dailyBudget ?? null,
+            label: json.label ?? "daily",
+            reason: json.reasonLabel ?? json.error ?? null,
+          });
         }
-      } catch {
-        if (!cancelled) setState({ kind: "error" });
+      } catch (err) {
+        if (!cancelled) {
+          setState({
+            kind: "error",
+            reason:
+              err instanceof Error ? err.message : "Daily budget unavailable",
+          });
+        }
       }
     };
     const timer = window.setTimeout(() => {
@@ -2498,22 +2521,41 @@ function LazyVenueDailyBudget({
 
   if (state.kind === "loading") {
     return (
-      <span className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums">
-        ...
-      </span>
+      <>
+        <span>Daily budget:</span>
+        <span className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums">
+          ...
+        </span>
+      </>
     );
   }
   if (state.kind === "error") {
     return (
-      <span className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums">
-        —
-      </span>
+      <>
+        <span>Daily budget:</span>
+        <span
+          className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums"
+          title={state.reason ?? "Daily budget unavailable"}
+        >
+          —
+        </span>
+      </>
     );
   }
+  const label =
+    state.label === "effective_daily" ? "Effective daily:" : "Daily budget:";
   return (
-    <span className="font-heading text-xl tracking-wide text-foreground tabular-nums">
-      {formatGBP(state.dailyBudget)}
-    </span>
+    <>
+      <span>{label}</span>
+      <span
+        className={`font-heading text-xl tracking-wide tabular-nums ${
+          state.dailyBudget == null ? "text-muted-foreground" : "text-foreground"
+        }`}
+        title={state.dailyBudget == null ? (state.reason ?? undefined) : undefined}
+      >
+        {formatGBP(state.dailyBudget)}
+      </span>
+    </>
   );
 }
 
