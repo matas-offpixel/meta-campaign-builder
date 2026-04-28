@@ -21,6 +21,7 @@ import {
 } from "@/lib/db/client-dashboard-aggregations";
 import {
   DAILY_BUDGET_UPDATED_EVENT,
+  getDailyBudgetUpdate,
   type DailyBudgetUpdateDetail,
 } from "./client-refresh-daily-budgets-button";
 import {
@@ -2038,7 +2039,14 @@ function VenueSection({
                 />
               </span>
               <span className="hidden text-muted-foreground/60 2xl:inline" aria-hidden="true">·</span>
-              <span className="hidden tabular-nums xl:inline">
+              <span
+                className="hidden max-w-[8rem] truncate tabular-nums xl:inline-block"
+                title={`Pacing: ${
+                  campaignPerformance.pacingTicketsPerDay !== null
+                    ? `${formatNumber(campaignPerformance.pacingTicketsPerDay)}/day`
+                    : "—"
+                }`}
+              >
                 Pacing:{" "}
                 <span className="font-semibold text-foreground">
                   {campaignPerformance.pacingTicketsPerDay !== null
@@ -2466,15 +2474,45 @@ function LazyVenueDailyBudget({
         reason: string | null;
       }
     | { kind: "error"; reason: string | null }
-  >({ kind: "loading" });
-  const hydratedFromBroadcastRef = useRef(false);
+  >(() => {
+    if (!eventCode) return { kind: "loading" };
+    const cached = getDailyBudgetUpdate(clientId, eventCode);
+    if (!cached) return { kind: "loading" };
+    return {
+      kind: "ready",
+      dailyBudget: cached.dailyBudget,
+      label: cached.label,
+      reason: cached.reasonLabel,
+    };
+  });
+  const hydratedFromBroadcastRef = useRef(
+    eventCode ? getDailyBudgetUpdate(clientId, eventCode) !== null : false,
+  );
 
   useEffect(() => {
     if (!eventCode) return;
+    const cached = getDailyBudgetUpdate(clientId, eventCode);
+    if (cached) {
+      hydratedFromBroadcastRef.current = true;
+      setState({
+        kind: "ready",
+        dailyBudget: cached.dailyBudget,
+        label: cached.label,
+        reason: cached.reasonLabel,
+      });
+    } else {
+      hydratedFromBroadcastRef.current = false;
+    }
     const onBudgetUpdated = (event: Event) => {
       const custom = event as CustomEvent<DailyBudgetUpdateDetail>;
       const detail = custom.detail;
       if (detail.clientId !== clientId || detail.eventCode !== eventCode) return;
+      console.log("[venue-daily-budget] broadcast received", {
+        eventCode: detail.eventCode,
+        dailyBudget: detail.dailyBudget,
+        reason: detail.reason,
+        settingCardState: true,
+      });
       hydratedFromBroadcastRef.current = true;
       setState({
         kind: "ready",

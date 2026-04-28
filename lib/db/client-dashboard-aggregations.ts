@@ -379,7 +379,11 @@ export function aggregateVenueCampaignPerformance(
       capacity += ev.capacity;
       hasCapacity = true;
     }
-    if (ev.event_date && (!earliestEventDate || ev.event_date < earliestEventDate)) {
+    if (
+      ev.event_date &&
+      isUpcomingOrToday(ev.event_date, todayIso) &&
+      (!earliestEventDate || ev.event_date < earliestEventDate)
+    ) {
       earliestEventDate = ev.event_date;
     }
   }
@@ -424,14 +428,14 @@ export function aggregateVenueCampaignPerformance(
   const costPerTicket = tickets > 0 && paidSpent > 0 ? paidSpent / tickets : null;
   const remainingTickets =
     capacityOut != null ? Math.max(0, capacityOut - tickets) : null;
-  const daysUntil = daysUntilDate(earliestEventDate, todayIso);
+  const daysUntil = daysUntilUpcomingDate(earliestEventDate, todayIso);
   const pacingTicketsPerDay =
-    remainingTickets != null && remainingTickets > 0
-      ? Math.ceil(remainingTickets / Math.max(daysUntil ?? 1, 1))
+    remainingTickets != null && remainingTickets > 0 && daysUntil != null
+      ? Math.round(remainingTickets / Math.max(daysUntil, 1))
       : null;
   const pacingSpendPerDay =
-    pacingTicketsPerDay != null && costPerTicket != null
-      ? Math.round(pacingTicketsPerDay * costPerTicket)
+    paidMediaRemaining != null && paidMediaRemaining > 0 && daysUntil != null
+      ? Math.round(paidMediaRemaining / Math.max(daysUntil, 1))
       : null;
 
   return {
@@ -567,6 +571,25 @@ function daysUntilDate(dateIso: string | null, todayIso: string): number | null 
   if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return null;
   const days = Math.ceil((eventMs - todayMs) / 86_400_000);
   return days > 0 ? days : 1;
+}
+
+function isUpcomingOrToday(dateIso: string, todayIso: string): boolean {
+  const eventMs = Date.parse(`${dateIso}T00:00:00Z`);
+  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
+  if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return false;
+  return eventMs >= todayMs;
+}
+
+function daysUntilUpcomingDate(
+  dateIso: string | null,
+  todayIso: string,
+): number | null {
+  if (!dateIso) return null;
+  const eventMs = Date.parse(`${dateIso}T00:00:00Z`);
+  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
+  if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return null;
+  if (eventMs < todayMs) return null;
+  return Math.max(1, Math.ceil((eventMs - todayMs) / 86_400_000));
 }
 
 function daysBetween(a: string, b: string): number {
