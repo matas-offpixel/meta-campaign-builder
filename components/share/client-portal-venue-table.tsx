@@ -1747,7 +1747,10 @@ function VenueSection({
   const [editMode, setEditMode] = useState(false);
   const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
-  const headerLabel = group.displayName;
+  const headerLabel =
+    group.eventCount > 1 && group.city
+      ? `${group.displayName} · ${group.city}`
+      : group.displayName;
   const subtitle = soloEvent
     ? [
         soloEvent.venue_name,

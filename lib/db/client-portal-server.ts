@@ -147,6 +147,8 @@ export interface DailyRollupRow {
   /** Per-event allocated spend (specific + generic share).
    *  NULL when allocation hasn't run yet. */
   ad_spend_allocated: number | null;
+  /** Ticket revenue for this event/day from the ticketing provider. */
+  revenue: number | null;
   /** Opponent-matched portion of the allocation. NULL when
    *  allocation hasn't run. */
   ad_spend_specific: number | null;
@@ -537,7 +539,7 @@ async function loadPortalForClientId(
     const { data: rows } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, ad_spend_allocated, revenue, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds);
     if (rows) {
@@ -547,6 +549,7 @@ async function loadPortalForClientId(
         tickets_sold: (r.tickets_sold as number | null) ?? null,
         ad_spend: (r.ad_spend as number | null) ?? null,
         ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
+        revenue: (r.revenue as number | null) ?? null,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:
           (r.ad_spend_generic_share as number | null) ?? null,
