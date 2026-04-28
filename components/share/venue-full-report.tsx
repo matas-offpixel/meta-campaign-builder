@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import type {
@@ -10,6 +11,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
 import { ClientPortalVenueTable } from "./client-portal-venue-table";
 
 /**
@@ -62,6 +64,8 @@ interface Props {
    */
   token?: string;
   clientId: string;
+  /** The venue's `event_code` — the pivot key for venue-scope writes. */
+  eventCode: string;
   client: PortalClient;
   events: PortalEvent[];
   dailyEntries: DailyEntry[];
@@ -71,11 +75,19 @@ interface Props {
   londonOnsaleSpend: number | null;
   londonPresaleSpend: number | null;
   isInternal?: boolean;
+  /**
+   * Controls whether the venue additional-spend card renders in
+   * read-only mode on the share surface. Defaults to read-only for
+   * external shares that weren't explicitly flagged editable — matches
+   * the per-event share card's contract.
+   */
+  canEdit?: boolean;
 }
 
 export function VenueFullReport({
   token = "",
   clientId,
+  eventCode,
   client: _client,
   events: initialEvents,
   dailyEntries,
@@ -85,7 +97,9 @@ export function VenueFullReport({
   londonOnsaleSpend,
   londonPresaleSpend,
   isInternal = false,
+  canEdit = false,
 }: Props) {
+  const router = useRouter();
   // Optimistic snapshot state — a save on any row inside the
   // expanded venue card calls `onSnapshotSaved` with the new
   // cumulative, and we update the in-memory events list so the
@@ -114,19 +128,40 @@ export function VenueFullReport({
     );
   };
 
+  // Venue-scope additional spend. Internal surface: cookie auth,
+  // always editable. Share surface: token auth, editable iff the
+  // share row was minted with `can_edit=true`.
+  const mode: "dashboard" | "share" = isInternal ? "dashboard" : "share";
+  const readOnly = !isInternal && !canEdit;
+
   return (
-    <ClientPortalVenueTable
-      token={token}
-      clientId={clientId}
-      events={events}
-      londonOnsaleSpend={londonOnsaleSpend}
-      londonPresaleSpend={londonPresaleSpend}
-      dailyEntries={dailyEntries}
-      dailyRollups={dailyRollups}
-      weeklyTicketSnapshots={weeklyTicketSnapshots}
-      isInternal={isInternal}
-      onSnapshotSaved={handleSnapshotSaved}
-      forceExpandAll
-    />
+    <div className="space-y-6">
+      <ClientPortalVenueTable
+        token={token}
+        clientId={clientId}
+        events={events}
+        londonOnsaleSpend={londonOnsaleSpend}
+        londonPresaleSpend={londonPresaleSpend}
+        dailyEntries={dailyEntries}
+        dailyRollups={dailyRollups}
+        weeklyTicketSnapshots={weeklyTicketSnapshots}
+        isInternal={isInternal}
+        onSnapshotSaved={handleSnapshotSaved}
+        forceExpandAll
+      />
+      {/* Venue-level additional spend (PR 4). Sits *after* the
+          venue table rather than inline so the per-event table
+          markup stays untouched; the card aggregates scope='venue'
+          rows across every match under this event_code. */}
+      <div className="rounded-md border border-border bg-background p-4">
+        <AdditionalSpendCard
+          scope={{ kind: "venue", clientId, venueEventCode: eventCode }}
+          mode={mode}
+          shareToken={mode === "share" ? token : undefined}
+          readOnly={readOnly}
+          onAfterMutate={() => router.refresh()}
+        />
+      </div>
+    </div>
   );
 }
