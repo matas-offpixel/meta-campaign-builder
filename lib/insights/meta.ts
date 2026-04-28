@@ -540,7 +540,6 @@ export async function fetchVenueDailyBudget(args: {
     }
 
     let totalMajor = 0;
-    let usedDaily = false;
     let usedLifetime = false;
     let activeAdsetsTotal = 0;
     const todayMs = startOfUtcDayMs(new Date());
@@ -572,7 +571,6 @@ export async function fetchVenueDailyBudget(args: {
         }
         if (dailyMinor != null) {
           totalMajor += dailyMinor / 100;
-          usedDaily = true;
           continue;
         }
 
@@ -2046,6 +2044,16 @@ export interface VenueDailyAdMetricsRow {
   spend: number;
 }
 
+export interface VenueDailyAdCampaignDiagnostics {
+  campaignId: string;
+  campaignName: string;
+  spend: number;
+  adRowsSpend: number;
+  syntheticRemainder: number;
+  isPresaleMatch: boolean;
+  isAllocatedMatch: boolean;
+}
+
 /**
  * Whole-word case-insensitive test for "PRESALE" in a campaign name.
  * Exported so the allocator's diagnostic log can quote the same
@@ -2073,6 +2081,13 @@ export type VenueDailyAdMetricsResult =
        *  doesn't mean "broken", it means no live ads in the
        *  campaign yet for this window. */
       campaignNames: string[];
+      /**
+       * Campaign-level reconciliation diagnostics. The allocator fetches
+       * ad-level rows, then compares them with campaign-level spend so
+       * inactive/off campaigns or Meta rows without ad granularity do
+       * not silently drop spend.
+       */
+      campaignDiagnostics: VenueDailyAdCampaignDiagnostics[];
     }
   | { ok: false; error: InsightsError };
 
@@ -2086,10 +2101,12 @@ export type VenueDailyAdMetricsResult =
  * Sibling to `fetchEventDailyMetaMetrics`:
  *   That helper aggregates to `level=campaign` because the original
  *   single-event rollup only needed a single per-day number. The
- *   attribution work can't collapse ads — it needs per-ad granularity
- *   to classify and redistribute spend. Both helpers share the same
- *   bracket-wrap matching convention + case-sensitive post-filter so
- *   a campaign that shows up in one tracker shows up in the other.
+ *   attribution work needs per-ad granularity to classify opponent
+ *   matches, then reconciles back to `level=campaign` totals so spend
+ *   from off campaigns or missing ad-level rows is not dropped. Both
+ *   helpers share the same bracket-wrap matching convention + case-
+ *   sensitive post-filter so a campaign that shows up in one tracker
+ *   shows up in the other.
  *
  * Pagination + caps:
  *   The `/insights` call is capped at 500 rows per page × 20 pages
@@ -2126,6 +2143,7 @@ export async function fetchVenueDailyAdMetrics(
     const rows: VenueDailyAdMetricsRow[] = [];
     const adNames = new Set<string>();
     const campaignNames = new Set<string>();
+    const adSpendByCampaignDay = new Map<string, number>();
 
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
@@ -2173,11 +2191,17 @@ export async function fetchVenueDailyAdMetrics(
         const spend = parseNum(row.spend);
         campaignNames.add(campaignName);
         adNames.add(adName);
+        const campaignId = row.campaign_id ?? "";
+        const key = campaignDayKey(campaignId, campaignName, day);
+        adSpendByCampaignDay.set(
+          key,
+          (adSpendByCampaignDay.get(key) ?? 0) + spend,
+        );
         rows.push({
           day,
           adId,
           adName,
-          campaignId: row.campaign_id ?? "",
+          campaignId,
           campaignName,
           campaignPhase: isPresaleCampaignName(campaignName)
             ? "presale"
@@ -2190,13 +2214,104 @@ export async function fetchVenueDailyAdMetrics(
       if (!res.paging?.next || !after) break;
     }
 
+    const campaignDiagnostics = new Map<
+      string,
+      VenueDailyAdCampaignDiagnostics
+    >();
+    after = undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = {
+        fields: "spend,date_start,campaign_id,campaign_name",
+        level: "campaign",
+        time_increment: "1",
+        time_range: timeRange,
+        filtering,
+        action_attribution_windows: ATTRIBUTION_WINDOWS,
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<
+        GraphPaged<{
+          spend?: string;
+          date_start?: string;
+          campaign_id?: string;
+          campaign_name?: string;
+        }>
+      >(`/${account}/insights`, params, token);
+
+      for (const row of res.data ?? []) {
+        const day = row.date_start;
+        if (!day) continue;
+        const campaignName = row.campaign_name ?? "";
+        if (!campaignName.includes(codeBracketed)) continue;
+        const campaignId = row.campaign_id ?? "";
+        const campaignSpend = parseNum(row.spend);
+        const dayKey = campaignDayKey(campaignId, campaignName, day);
+        const diagKey = campaignDiagKey(campaignId, campaignName);
+        const adRowsSpend = adSpendByCampaignDay.get(dayKey) ?? 0;
+        const remainder = Math.max(0, round2(campaignSpend - adRowsSpend));
+        const isPresaleMatch = isPresaleCampaignName(campaignName);
+        const existing =
+          campaignDiagnostics.get(diagKey) ??
+          ({
+            campaignId,
+            campaignName,
+            spend: 0,
+            adRowsSpend: 0,
+            syntheticRemainder: 0,
+            isPresaleMatch,
+            isAllocatedMatch: !isPresaleMatch,
+          } satisfies VenueDailyAdCampaignDiagnostics);
+        existing.spend = round2(existing.spend + campaignSpend);
+        existing.adRowsSpend = round2(existing.adRowsSpend + adRowsSpend);
+        existing.syntheticRemainder = round2(
+          existing.syntheticRemainder + remainder,
+        );
+        campaignDiagnostics.set(diagKey, existing);
+        campaignNames.add(campaignName);
+
+        if (remainder > 0.01) {
+          rows.push({
+            day,
+            adId: `campaign-remainder:${campaignId || campaignName}:${day}`,
+            adName: `${campaignName} campaign-level remainder`,
+            campaignId,
+            campaignName,
+            campaignPhase: isPresaleMatch ? "presale" : "onsale",
+            spend: remainder,
+          });
+        }
+      }
+
+      after = res.paging?.cursors?.after;
+      if (!res.paging?.next || !after) break;
+    }
+
     return {
       ok: true,
       rows,
       adNames: [...adNames].sort(),
       campaignNames: [...campaignNames].sort(),
+      campaignDiagnostics: [...campaignDiagnostics.values()].sort((a, b) =>
+        a.campaignId === b.campaignId
+          ? a.campaignName.localeCompare(b.campaignName)
+          : a.campaignId.localeCompare(b.campaignId),
+      ),
     };
   } catch (err) {
     return handleMetaError(err);
   }
+}
+
+function campaignDayKey(
+  campaignId: string,
+  campaignName: string,
+  day: string,
+): string {
+  return `${campaignDiagKey(campaignId, campaignName)}::${day}`;
+}
+
+function campaignDiagKey(campaignId: string, campaignName: string): string {
+  return campaignId || `name:${campaignName}`;
 }
