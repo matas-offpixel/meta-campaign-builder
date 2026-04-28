@@ -372,6 +372,16 @@ export function aggregateVenueCampaignPerformance(
   let capacity = 0;
   let hasCapacity = false;
   let earliestEventDate: string | null = null;
+  const isManchester = events.some((ev) =>
+    (ev.event_code ?? "").toUpperCase().includes("MANCHESTER"),
+  );
+  const manchesterEvents: Array<{
+    id: string;
+    event_code: string | null;
+    event_date: string | null;
+    normalized_event_date: string | null;
+    isUpcomingOrToday: boolean;
+  }> = [];
 
   for (const ev of events) {
     tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
@@ -379,12 +389,25 @@ export function aggregateVenueCampaignPerformance(
       capacity += ev.capacity;
       hasCapacity = true;
     }
+    const eventDate = normalizeEventDate(ev.event_date);
+    const eventIsUpcoming = eventDate
+      ? isUpcomingOrToday(eventDate, todayIso)
+      : false;
+    if (isManchester) {
+      manchesterEvents.push({
+        id: ev.id,
+        event_code: ev.event_code,
+        event_date: ev.event_date,
+        normalized_event_date: eventDate,
+        isUpcomingOrToday: eventIsUpcoming,
+      });
+    }
     if (
-      ev.event_date &&
-      isUpcomingOrToday(ev.event_date, todayIso) &&
-      (!earliestEventDate || ev.event_date < earliestEventDate)
+      eventDate &&
+      eventIsUpcoming &&
+      (!earliestEventDate || eventDate < earliestEventDate)
     ) {
-      earliestEventDate = ev.event_date;
+      earliestEventDate = eventDate;
     }
   }
 
@@ -437,6 +460,18 @@ export function aggregateVenueCampaignPerformance(
     paidMediaRemaining != null && paidMediaRemaining > 0 && daysUntil != null
       ? Math.round(paidMediaRemaining / Math.max(daysUntil, 1))
       : null;
+
+  if (isManchester) {
+    console.info("[venue-pacing] Manchester diagnostics", {
+      todayIso,
+      events: manchesterEvents,
+      earliestEventDate,
+      capacity: capacityOut,
+      tickets,
+      daysUntil,
+      pacingTicketsPerDay,
+    });
+  }
 
   return {
     paidMediaBudget,
@@ -573,9 +608,26 @@ function daysUntilDate(dateIso: string | null, todayIso: string): number | null 
   return days > 0 ? days : 1;
 }
 
+function normalizeEventDate(dateIso: string | null | undefined): string | null {
+  if (!dateIso) return null;
+  const trimmed = dateIso.trim();
+  if (!trimmed) return null;
+  const ymd = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (ymd) return ymd[1];
+  const ms = Date.parse(trimmed);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function parseUtcDayMs(dateIso: string): number {
+  const normalized = normalizeEventDate(dateIso);
+  if (!normalized) return NaN;
+  return Date.parse(`${normalized}T00:00:00Z`);
+}
+
 function isUpcomingOrToday(dateIso: string, todayIso: string): boolean {
-  const eventMs = Date.parse(`${dateIso}T00:00:00Z`);
-  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
+  const eventMs = parseUtcDayMs(dateIso);
+  const todayMs = parseUtcDayMs(todayIso);
   if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return false;
   return eventMs >= todayMs;
 }
@@ -585,8 +637,8 @@ function daysUntilUpcomingDate(
   todayIso: string,
 ): number | null {
   if (!dateIso) return null;
-  const eventMs = Date.parse(`${dateIso}T00:00:00Z`);
-  const todayMs = Date.parse(`${todayIso}T00:00:00Z`);
+  const eventMs = parseUtcDayMs(dateIso);
+  const todayMs = parseUtcDayMs(todayIso);
   if (!Number.isFinite(eventMs) || !Number.isFinite(todayMs)) return null;
   if (eventMs < todayMs) return null;
   return Math.max(1, Math.ceil((eventMs - todayMs) / 86_400_000));
