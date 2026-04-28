@@ -370,9 +370,64 @@ describe("aggregateVenueCampaignPerformance", () => {
     assert.equal(t.sellThroughPct, (500 / 1800) * 100);
     assert.equal(t.costPerTicket, 300 / 500);
     assert.equal(t.earliestEventDate, "2026-06-01");
-    assert.equal(t.pacingTicketsPerDay, Math.ceil(1300 / 34));
-    assert.equal(t.pacingSpendPerDay, Math.round(t.pacingTicketsPerDay! * 0.6));
+    assert.equal(t.pacingTicketsPerDay, Math.round(1300 / 34));
+    assert.equal(t.pacingSpendPerDay, Math.round(2700 / 34));
     assert.equal(t.dailyBudget, null);
+  });
+
+  it("uses the earliest upcoming event_date for venue pacing and ignores past dates", () => {
+    const events = [
+      ev({
+        id: "past",
+        event_code: "WC26-MANCHESTER",
+        event_date: "2026-04-20",
+        budget_marketing: 16000,
+        capacity: 0,
+        latest_snapshot: { tickets_sold: 0, revenue: null },
+      }),
+      ev({
+        id: "future",
+        event_code: "WC26-MANCHESTER",
+        event_date: "2026-06-27",
+        budget_marketing: 16000,
+        capacity: 16000,
+        latest_snapshot: { tickets_sold: 878, revenue: null },
+      }),
+    ];
+
+    const t = aggregateVenueCampaignPerformance(
+      events,
+      [],
+      [rollup("future", 1000)],
+      TODAY,
+      1000,
+    );
+
+    console.info("[pacing-test] Manchester tickets/day", t.pacingTicketsPerDay);
+    assert.equal(t.earliestEventDate, "2026-06-27");
+    assert.equal(t.pacingTicketsPerDay, 252);
+    assert.equal(t.pacingSpendPerDay, 250);
+  });
+
+  it("returns null pacing when every venue event date is in the past", () => {
+    const t = aggregateVenueCampaignPerformance(
+      [
+        ev({
+          id: "past",
+          event_date: "2026-04-20",
+          budget_marketing: 1000,
+          capacity: 1000,
+          latest_snapshot: { tickets_sold: 100, revenue: null },
+        }),
+      ],
+      [],
+      [rollup("past", 100)],
+      TODAY,
+    );
+
+    assert.equal(t.earliestEventDate, null);
+    assert.equal(t.pacingTicketsPerDay, null);
+    assert.equal(t.pacingSpendPerDay, null);
   });
 
   it("uses the displayed venue Meta spend override when supplied", () => {

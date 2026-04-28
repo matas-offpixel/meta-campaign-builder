@@ -12,6 +12,7 @@ export interface DailyBudgetUpdateDetail {
   eventCode: string;
   dailyBudget: number | null;
   label: "daily" | "effective_daily";
+  reason: string | null;
   reasonLabel: string | null;
 }
 
@@ -25,9 +26,28 @@ interface Props {
 type Status =
   | { kind: "idle" }
   | { kind: "pending"; completed: number; total: number }
-  | { kind: "done"; total: number; ok: number; failed: number };
+  | {
+      kind: "done";
+      total: number;
+      withBudget: number;
+      noActiveAdsets: number;
+      noBudgetOther: number;
+      failed: number;
+    };
 
 const CONCURRENCY = 3;
+const dailyBudgetUpdates = new Map<string, DailyBudgetUpdateDetail>();
+
+function updateKey(clientId: string, eventCode: string): string {
+  return `${clientId}::${eventCode}`;
+}
+
+export function getDailyBudgetUpdate(
+  clientId: string,
+  eventCode: string,
+): DailyBudgetUpdateDetail | null {
+  return dailyBudgetUpdates.get(updateKey(clientId, eventCode)) ?? null;
+}
 
 export function ClientRefreshDailyBudgetsButton({
   clientId,
@@ -63,6 +83,7 @@ export function ClientRefreshDailyBudgetsButton({
           const json = (await res.json()) as {
             dailyBudget?: number | null;
             label?: "daily" | "effective_daily";
+            reason?: string | null;
             reasonLabel?: string | null;
             error?: string;
           };
@@ -73,6 +94,7 @@ export function ClientRefreshDailyBudgetsButton({
             eventCode,
             dailyBudget: json.dailyBudget ?? null,
             label: json.label ?? "daily",
+            reason: json.reason ?? (res.ok ? null : "fetch_error"),
             reasonLabel: reason,
           };
           dispatchDailyBudgetUpdate(detail);
@@ -88,6 +110,7 @@ export function ClientRefreshDailyBudgetsButton({
               eventCode,
               dailyBudget: null,
               label: "daily",
+              reason: "fetch_error",
               reasonLabel: reason,
             });
           }
@@ -99,8 +122,33 @@ export function ClientRefreshDailyBudgetsButton({
       },
     );
 
-    const ok = results.filter((r) => r.status === "fulfilled").length;
-    setStatus({ kind: "done", total, ok, failed: total - ok });
+    let withBudget = 0;
+    let noActiveAdsets = 0;
+    let noBudgetOther = 0;
+    let failed = 0;
+    for (const result of results) {
+      if (result.status === "rejected") {
+        failed += 1;
+        continue;
+      }
+      if (result.value.dailyBudget != null) {
+        withBudget += 1;
+      } else if (result.value.reason === "no_active_adsets") {
+        noActiveAdsets += 1;
+      } else if (result.value.reason === "fetch_error") {
+        failed += 1;
+      } else {
+        noBudgetOther += 1;
+      }
+    }
+    setStatus({
+      kind: "done",
+      total,
+      withBudget,
+      noActiveAdsets,
+      noBudgetOther,
+      failed,
+    });
   }, [clientId, shareToken, status.kind, total, venues]);
 
   const disabled = status.kind === "pending" || total === 0;
@@ -134,10 +182,18 @@ export function ClientRefreshDailyBudgetsButton({
       {status.kind === "done" ? (
         <span
           className={`text-[11px] ${
-            status.failed === 0 ? "text-emerald-600" : "text-amber-600"
+            status.failed === 0 && status.noBudgetOther === 0
+              ? "text-emerald-600"
+              : "text-amber-600"
           }`}
         >
-          {status.ok} of {status.total} refreshed
+          {status.withBudget} of {status.total} returned a budget
+          {status.noActiveAdsets > 0
+            ? ` · ${status.noActiveAdsets} had no active ad sets`
+            : ""}
+          {status.noBudgetOther > 0
+            ? ` · ${status.noBudgetOther} no matching budget`
+            : ""}
           {status.failed > 0 ? ` · ${status.failed} failed` : ""}
         </span>
       ) : null}
@@ -146,6 +202,7 @@ export function ClientRefreshDailyBudgetsButton({
 }
 
 function dispatchDailyBudgetUpdate(detail: DailyBudgetUpdateDetail) {
+  dailyBudgetUpdates.set(updateKey(detail.clientId, detail.eventCode), detail);
   window.dispatchEvent(
     new CustomEvent<DailyBudgetUpdateDetail>(DAILY_BUDGET_UPDATED_EVENT, {
       detail,

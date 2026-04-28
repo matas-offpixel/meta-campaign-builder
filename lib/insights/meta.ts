@@ -284,7 +284,52 @@ async function listCampaignsForEvent(args: {
     after = res.paging?.cursors?.after;
     if (!res.paging?.next || !after) break;
   }
-  return matched;
+  if (matched.length > 0) return matched;
+
+  // Meta's CONTAIN filter is case-sensitive. When the strict
+  // bracketed-code match misses, fall back to a bounded account scan
+  // and match locally so campaign-code casing or bracket/no-bracket
+  // variants don't turn into silent "—" daily budgets.
+  const fallback: RawCampaign[] = [];
+  const sampledNames: string[] = [];
+  after = undefined;
+  for (let page = 0; page < 10; page++) {
+    const params: Record<string, string> = {
+      fields,
+      limit: String(CAMPAIGN_FETCH_LIMIT),
+    };
+    if (after) params.after = after;
+
+    const res = await graphGetWithToken<GraphPaged<RawCampaign>>(
+      `/${adAccountId}/campaigns`,
+      params,
+      token,
+    );
+    for (const campaign of res.data ?? []) {
+      if (sampledNames.length < 25) sampledNames.push(campaign.name);
+      if (campaignNameMatchesEventCode(campaign.name, eventCode)) {
+        fallback.push(campaign);
+      }
+    }
+    after = res.paging?.cursors?.after;
+    if (!res.paging?.next || !after) break;
+  }
+  console.info("[venue-daily-budget] campaign fallback scan", {
+    eventCode,
+    matchedCampaignNames: fallback.map((campaign) => campaign.name),
+    sampledCampaignNames: sampledNames,
+  });
+  return fallback;
+}
+
+function campaignNameMatchesEventCode(name: string, eventCode: string): boolean {
+  const normalizedName = name.toUpperCase();
+  const normalizedCode = eventCode.trim().toUpperCase();
+  if (normalizedName.includes(`[${normalizedCode}]`)) return true;
+  const escaped = normalizedCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(
+    normalizedName,
+  );
 }
 
 const ADSETS_PAGE_LIMIT = 50;
