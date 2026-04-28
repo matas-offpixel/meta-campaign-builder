@@ -350,6 +350,60 @@ async function sumActiveAdsetDailyBudgetsForCampaigns(args: {
   return totalMinor / 100;
 }
 
+export async function fetchVenueDailyBudget(args: {
+  eventCode: string;
+  adAccountId: string;
+  token: string;
+}): Promise<number | null> {
+  const eventCode = args.eventCode.trim();
+  const adAccountId = args.adAccountId.trim();
+  const devLog = process.env.NODE_ENV !== "production";
+  if (!eventCode) {
+    if (devLog) console.info("[venue-daily-budget] skipped: no event_code");
+    return null;
+  }
+  if (!adAccountId) {
+    if (devLog) {
+      console.info("[venue-daily-budget] skipped:", eventCode, "no ad account");
+    }
+    return null;
+  }
+  try {
+    const campaigns = await listCampaignsForEvent({
+      adAccountId: ensureActPrefix(adAccountId),
+      eventCode,
+      token: args.token,
+    });
+    if (devLog) {
+      console.info(
+        "[venue-daily-budget] campaigns",
+        eventCode,
+        campaigns.map((c) => c.name),
+      );
+    }
+    if (campaigns.length === 0) return null;
+    const total = await sumActiveAdsetDailyBudgetsForCampaigns({
+      campaigns,
+      token: args.token,
+    });
+    if (devLog) {
+      console.info(
+        "[venue-daily-budget] result",
+        eventCode,
+        total ?? "no active adset daily_budget",
+      );
+    }
+    return total;
+  } catch (err) {
+    console.warn(
+      "[venue-daily-budget] fetch failed",
+      eventCode,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
 // ─── Insights per campaign ────────────────────────────────────────────────
 
 interface ActionRow {

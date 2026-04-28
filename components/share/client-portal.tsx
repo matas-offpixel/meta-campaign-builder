@@ -8,6 +8,7 @@ import type {
   DailyRollupRow,
   PortalClient,
   PortalEvent,
+  VenueDailyBudgetRow,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import { aggregateClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
@@ -53,6 +54,7 @@ interface Props {
    * trends chart receives one row per (event, week).
    */
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  venueDailyBudgets: VenueDailyBudgetRow[];
   /**
    * True when rendered inside `/clients/[id]/dashboard` (the
    * internal admin counterpart). Unlocks per-row admin actions on
@@ -111,6 +113,7 @@ export function ClientPortal({
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
+  venueDailyBudgets,
   isInternal = false,
 }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
@@ -343,6 +346,7 @@ export function ClientPortal({
               dailyEntries={dailyEntries}
               dailyRollups={dailyRollups}
               additionalSpend={additionalSpend}
+              venueDailyBudgets={venueDailyBudgets}
               weeklyTicketSnapshots={weeklyTicketSnapshots}
               isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}

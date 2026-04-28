@@ -34,7 +34,7 @@ interface Props {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function generateMetadata({ params: _ }: Props): Promise<Metadata> {
+export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "Venue Report · Off Pixel",
     robots: { index: false, follow: false },
@@ -74,6 +74,7 @@ export default async function VenueSharePage({ params }: Props) {
           dailyEntries={result.dailyEntries}
           dailyRollups={result.dailyRollups}
           additionalSpend={result.additionalSpend}
+          venueDailyBudgets={result.venueDailyBudgets}
           weeklyTicketSnapshots={result.weeklyTicketSnapshots}
           londonOnsaleSpend={result.londonOnsaleSpend}
           londonPresaleSpend={result.londonPresaleSpend}

@@ -1,6 +1,8 @@
 import "server-only";
 
 import { bumpShareView, resolveShareByToken } from "@/lib/db/report-shares";
+import { fetchVenueDailyBudget } from "@/lib/insights/meta";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -165,6 +167,11 @@ export interface DailyRollupRow {
   ad_spend_presale: number | null;
 }
 
+export interface VenueDailyBudgetRow {
+  event_code: string;
+  daily_budget: number | null;
+}
+
 /**
  * Slim `additional_spend_entries` row for the same reason. The
  * topline sums amounts across the client; category / date / label
@@ -263,6 +270,7 @@ export type ClientPortalData =
        * well under any payload concern.
        */
       weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+      venueDailyBudgets: VenueDailyBudgetRow[];
     }
   | {
       ok: false;
@@ -397,10 +405,15 @@ export async function loadVenuePortalByToken(
     eventIdSet.has(r.event_id),
   );
   const venueAdditionalSpend = portal.additionalSpend.filter((r) =>
-    eventIdSet.has(r.event_id),
+    r.scope === "venue"
+      ? r.venue_event_code === share.event_code
+      : eventIdSet.has(r.event_id),
   );
   const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots.filter((r) =>
     eventIdSet.has(r.event_id),
+  );
+  const venueDailyBudgets = portal.venueDailyBudgets.filter(
+    (r) => r.event_code === share.event_code,
   );
 
   return {
@@ -416,6 +429,7 @@ export async function loadVenuePortalByToken(
     dailyRollups: venueDailyRollups,
     additionalSpend: venueAdditionalSpend,
     weeklyTicketSnapshots: venueWeeklyTicketSnapshots,
+    venueDailyBudgets,
   };
 }
 
@@ -426,7 +440,7 @@ async function loadPortalForClientId(
 
   const { data: client, error: clientErr } = await admin
     .from("clients")
-    .select("id, name, slug, primary_type")
+    .select("id, name, slug, primary_type, user_id, meta_ad_account_id")
     .eq("id", clientId)
     .maybeSingle();
   if (clientErr || !client) {
@@ -468,6 +482,20 @@ async function loadPortalForClientId(
   }
 
   const eventIds = eventRows.map((e) => e.id);
+  const venueDailyBudgets = await loadVenueDailyBudgets({
+    admin,
+    clientUserId: (client as { user_id?: string | null }).user_id ?? null,
+    adAccountId:
+      (client as { meta_ad_account_id?: string | null }).meta_ad_account_id ??
+      null,
+    eventCodes: Array.from(
+      new Set(
+        eventRows
+          .map((e) => e.event_code)
+          .filter((c): c is string => Boolean(c?.trim())),
+      ),
+    ),
+  });
 
   const snapshotsByEvent = new Map<string, PortalSnapshot>();
   const historyByEvent = new Map<string, PortalSnapshot[]>();
@@ -703,6 +731,7 @@ async function loadPortalForClientId(
     dailyRollups,
     additionalSpend,
     weeklyTicketSnapshots,
+    venueDailyBudgets,
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       const resolvedTicketsSold =
@@ -742,6 +771,49 @@ async function loadPortalForClientId(
       };
     }),
   };
+}
+
+async function loadVenueDailyBudgets(args: {
+  admin: ReturnType<typeof createServiceRoleClient>;
+  clientUserId: string | null;
+  adAccountId: string | null;
+  eventCodes: string[];
+}): Promise<VenueDailyBudgetRow[]> {
+  const devLog = process.env.NODE_ENV !== "production";
+  if (args.eventCodes.length === 0) return [];
+  if (!args.adAccountId) {
+    if (devLog) console.info("[venue-daily-budget] skipped all: no ad account");
+    return [];
+  }
+  if (!args.clientUserId) {
+    if (devLog) console.info("[venue-daily-budget] skipped all: no client user");
+    return [];
+  }
+
+  let token: string;
+  try {
+    token = (await resolveServerMetaToken(args.admin, args.clientUserId)).token;
+  } catch (err) {
+    console.warn(
+      "[venue-daily-budget] token resolve failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return args.eventCodes.map((eventCode) => ({
+      event_code: eventCode,
+      daily_budget: null,
+    }));
+  }
+
+  const rows: VenueDailyBudgetRow[] = [];
+  for (const eventCode of args.eventCodes) {
+    const dailyBudget = await fetchVenueDailyBudget({
+      eventCode,
+      adAccountId: args.adAccountId,
+      token,
+    });
+    rows.push({ event_code: eventCode, daily_budget: dailyBudget });
+  }
+  return rows;
 }
 
 function sourcePriority(source: string): number {

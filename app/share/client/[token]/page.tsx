@@ -30,7 +30,7 @@ interface Props {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function generateMetadata({ params: _ }: Props): Promise<Metadata> {
+export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "Campaign Dashboard · Off Pixel",
     robots: { index: false, follow: false },
@@ -55,6 +55,7 @@ export default async function ClientPortalPage({ params }: Props) {
       dailyEntries={result.dailyEntries}
       dailyRollups={result.dailyRollups}
       additionalSpend={result.additionalSpend}
+      venueDailyBudgets={result.venueDailyBudgets}
       weeklyTicketSnapshots={result.weeklyTicketSnapshots}
     />
   );
