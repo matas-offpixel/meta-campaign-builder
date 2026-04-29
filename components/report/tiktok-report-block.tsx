@@ -33,6 +33,7 @@ export interface TikTokReportBlockData {
   date_range_start: string;
   date_range_end: string;
   imported_at: string;
+  fetched_at?: string | null;
   snapshot: TikTokManualReportSnapshot;
 }
 
@@ -98,6 +99,7 @@ export function TikTokReportBlock({ data }: { data: TikTokReportBlockData }) {
               {fmtDate(data.date_range_start)} —{" "}
               {fmtDate(data.date_range_end)} · imported{" "}
               {fmtRelative(data.imported_at)}
+              {data.fetched_at ? ` · live metrics as of ${fmtRelative(data.fetched_at)}` : ""}
             </p>
           </div>
           {c?.primary_status && <StatusBadge status={c.primary_status} />}
@@ -113,11 +115,9 @@ export function TikTokReportBlock({ data }: { data: TikTokReportBlockData }) {
         )}
       </div>
 
-      {snapshot.ads.length > 0 && (
-        <BreakdownSection title="Ads" defaultOpen>
-          <AdsTable rows={snapshot.ads} currency={currency} />
-        </BreakdownSection>
-      )}
+      <BreakdownSection title="Ads" defaultOpen>
+        <AdsTable rows={snapshot.ads} currency={currency} />
+      </BreakdownSection>
 
       <BreakdownSection title="Top regions" defaultOpen>
         <GeoTable rows={snapshot.geo} currency={currency} />
@@ -214,6 +214,9 @@ function AdsTable({
   rows: TikTokAdRow[];
   currency: string;
 }) {
+  if (rows.length === 0) {
+    return <EmptyBreakdown label="No live TikTok ad rows available yet." />;
+  }
   const sorted = [...rows].sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0));
   return (
     <div className="overflow-x-auto">
