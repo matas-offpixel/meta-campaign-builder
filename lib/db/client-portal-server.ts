@@ -508,33 +508,10 @@ async function loadPortalForClientId(
   }
 
   // Daily tracker rows for every event under this client. Filtered by
-  // client_id (not event_ids) so the query is one round-trip even
-  // when the event list is long. Ordered (event_id, date ASC) so the
-  // UI can group/iterate without re-sorting.
-  let dailyEntries: DailyEntry[] = [];
-  {
-    const { data: rows, error: dailyErr } = await admin
-      .from("daily_tracking_entries")
-      .select("id, event_id, date, day_spend, tickets, revenue, link_clicks, notes")
-      .eq("client_id", clientId)
-      .order("event_id", { ascending: true })
-      .order("date", { ascending: true });
-    // Soft-fail: if the table doesn't exist yet (migration 025 not
-    // applied) or the query trips, render the rest of the portal with
-    // an empty tracker rather than 500-ing the whole page.
-    if (!dailyErr && rows) {
-      dailyEntries = rows.map((r) => ({
-        id: r.id as string,
-        event_id: r.event_id as string,
-        date: r.date as string,
-        day_spend: (r.day_spend as number | null) ?? null,
-        tickets: (r.tickets as number | null) ?? null,
-        revenue: (r.revenue as number | null) ?? null,
-        link_clicks: (r.link_clicks as number | null) ?? null,
-        notes: (r.notes as string | null) ?? null,
-      }));
-    }
-  }
+  // client_id (not event_ids) so the query is one round-trip per page.
+  // Page explicitly because this legacy table grows as events × days
+  // and can otherwise hit PostgREST's 1,000-row cap.
+  const dailyEntries = await fetchAllDailyEntries(admin, clientId);
 
   // Event daily rollups (`event_daily_rollups`) — the source of truth
   // for paid-media spend across events. Filtered by event_ids rather
@@ -561,11 +538,7 @@ async function loadPortalForClientId(
   // keep the DB query simple rather than doing it in SQL.
   const weeklyTicketSnapshots: WeeklyTicketSnapshotRow[] = [];
   if (eventIds.length > 0) {
-    const { data: rows } = await admin
-      .from("ticket_sales_snapshots")
-      .select("event_id, snapshot_at, tickets_sold, source")
-      .in("event_id", eventIds)
-      .order("snapshot_at", { ascending: true });
+    const rows = await fetchAllTicketSalesSnapshots(admin, eventIds);
     if (rows) {
       const byEvent = new Map<
         string,
@@ -652,10 +625,7 @@ async function loadPortalForClientId(
   //     group, same as event-scope rows).
   let additionalSpend: AdditionalSpendRow[] = [];
   if (eventIds.length > 0) {
-    const { data: rows } = await admin
-      .from("additional_spend_entries")
-      .select("event_id, amount, scope, venue_event_code")
-      .in("event_id", eventIds);
+    const rows = await fetchAllAdditionalSpend(admin, eventIds);
     if (rows) {
       additionalSpend = rows
         .map((r) => {
@@ -744,15 +714,60 @@ function sourcePriority(source: string): number {
   return 1;
 }
 
-const ROLLUP_PAGE_SIZE = 1000;
+const PORTAL_PAGE_SIZE = 1000;
+
+async function fetchAllDailyEntries(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  clientId: string,
+): Promise<DailyEntry[]> {
+  const rows: DailyEntry[] = [];
+  for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
+    const to = from + PORTAL_PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("daily_tracking_entries")
+      .select("id, event_id, date, day_spend, tickets, revenue, link_clicks, notes")
+      .eq("client_id", clientId)
+      .order("event_id", { ascending: true })
+      .order("date", { ascending: true })
+      .range(from, to);
+
+    // Soft-fail: if the legacy table doesn't exist or the query trips,
+    // render the rest of the portal rather than 500-ing the page.
+    if (error) {
+      console.warn("[client-portal-server] daily entries load failed", {
+        from,
+        to,
+        message: error.message,
+      });
+      return rows;
+    }
+    if (!data || data.length === 0) break;
+
+    rows.push(
+      ...data.map((r) => ({
+        id: r.id as string,
+        event_id: r.event_id as string,
+        date: r.date as string,
+        day_spend: (r.day_spend as number | null) ?? null,
+        tickets: (r.tickets as number | null) ?? null,
+        revenue: (r.revenue as number | null) ?? null,
+        link_clicks: (r.link_clicks as number | null) ?? null,
+        notes: (r.notes as string | null) ?? null,
+      })),
+    );
+
+    if (data.length < PORTAL_PAGE_SIZE) break;
+  }
+  return rows;
+}
 
 async function fetchAllDailyRollups(
   admin: ReturnType<typeof createServiceRoleClient>,
   eventIds: string[],
 ): Promise<DailyRollupRow[]> {
   const rows: DailyRollupRow[] = [];
-  for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
-    const to = from + ROLLUP_PAGE_SIZE - 1;
+  for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
+    const to = from + PORTAL_PAGE_SIZE - 1;
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
@@ -791,7 +806,99 @@ async function fetchAllDailyRollups(
       })),
     );
 
-    if (data.length < ROLLUP_PAGE_SIZE) break;
+    if (data.length < PORTAL_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function fetchAllTicketSalesSnapshots(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  eventIds: string[],
+): Promise<Array<{ event_id: string; snapshot_at: string; tickets_sold: number; source: string }>> {
+  const rows: Array<{
+    event_id: string;
+    snapshot_at: string;
+    tickets_sold: number;
+    source: string;
+  }> = [];
+  for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
+    const to = from + PORTAL_PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("ticket_sales_snapshots")
+      .select("event_id, snapshot_at, tickets_sold, source")
+      .in("event_id", eventIds)
+      .order("snapshot_at", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      console.warn("[client-portal-server] ticket snapshots load failed", {
+        from,
+        to,
+        message: error.message,
+      });
+      return rows;
+    }
+    if (!data || data.length === 0) break;
+
+    rows.push(
+      ...data.map((r) => ({
+        event_id: r.event_id as string,
+        snapshot_at: String(r.snapshot_at),
+        tickets_sold: Number(r.tickets_sold ?? 0),
+        source: String(r.source ?? "eventbrite"),
+      })),
+    );
+
+    if (data.length < PORTAL_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function fetchAllAdditionalSpend(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  eventIds: string[],
+): Promise<
+  Array<{
+    event_id: string;
+    amount: number | string | null;
+    scope?: string | null;
+    venue_event_code?: string | null;
+  }>
+> {
+  const rows: Array<{
+    event_id: string;
+    amount: number | string | null;
+    scope?: string | null;
+    venue_event_code?: string | null;
+  }> = [];
+  for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
+    const to = from + PORTAL_PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("additional_spend_entries")
+      .select("event_id, amount, scope, venue_event_code")
+      .in("event_id", eventIds)
+      .range(from, to);
+
+    if (error) {
+      console.warn("[client-portal-server] additional spend load failed", {
+        from,
+        to,
+        message: error.message,
+      });
+      return rows;
+    }
+    if (!data || data.length === 0) break;
+
+    rows.push(
+      ...data.map((r) => ({
+        event_id: r.event_id as string,
+        amount: r.amount as number | string | null,
+        scope: (r.scope as string | null | undefined) ?? null,
+        venue_event_code: (r.venue_event_code as string | null | undefined) ?? null,
+      })),
+    );
+
+    if (data.length < PORTAL_PAGE_SIZE) break;
   }
   return rows;
 }
