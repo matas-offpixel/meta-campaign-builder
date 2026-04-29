@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import ShareActiveCreativesClient from "@/components/share/share-active-creatives-client";
+import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 
 /**
@@ -72,6 +73,10 @@ interface Props {
    * creatives under a client they don't own.
    */
   clientId?: string;
+  datePreset?: DatePreset;
+  customRange?: CustomDateRange;
+  refreshNonce?: number;
+  fullReport?: boolean;
 }
 
 type ApiResponse =
@@ -139,6 +144,10 @@ export function VenueActiveCreatives({
   venueLabel,
   isInternal,
   clientId,
+  datePreset = "maximum",
+  customRange,
+  refreshNonce = 0,
+  fullReport = false,
 }: Props) {
   const [state, setState] = useState<State>({ status: "idle" });
   const [showAll, setShowAll] = useState(false);
@@ -182,6 +191,17 @@ export function VenueActiveCreatives({
         }
         url = `/api/share/client/${encodeURIComponent(token)}/venue-creatives/${encodeURIComponent(eventCode)}`;
       }
+      const qs = new URLSearchParams();
+      qs.set("datePreset", datePreset);
+      if (datePreset === "custom" && customRange) {
+        qs.set("since", customRange.since);
+        qs.set("until", customRange.until);
+      }
+      if (refreshNonce > 0) {
+        qs.set("force", "1");
+        qs.set("nonce", String(refreshNonce));
+      }
+      url = `${url}?${qs.toString()}`;
 
       try {
         const res = await fetch(url, {
@@ -243,15 +263,40 @@ export function VenueActiveCreatives({
       cancelled = true;
       ctrl.abort();
     };
-  }, [token, eventCode, isInternal, clientId]);
+  }, [
+    token,
+    eventCode,
+    isInternal,
+    clientId,
+    datePreset,
+    customRange?.since,
+    customRange?.until,
+    customRange,
+    refreshNonce,
+  ]);
 
   return (
-    <section className="border-t border-border bg-card px-4 py-4">
+    <section
+      className={
+        fullReport ? "space-y-3" : "border-t border-border bg-card px-4 py-4"
+      }
+    >
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-heading text-sm tracking-wide text-foreground">
-          Top creatives · {venueLabel}
-        </h3>
-        <Caveat state={state} showAll={showAll} onToggle={() => setShowAll((v) => !v)} />
+        {fullReport ? (
+          <h2 className="font-heading text-base tracking-wide text-foreground">
+            Active creatives
+          </h2>
+        ) : (
+          <h3 className="font-heading text-sm tracking-wide text-foreground">
+            Top creatives · {venueLabel}
+          </h3>
+        )}
+        <Caveat
+          state={state}
+          showAll={showAll}
+          onToggle={() => setShowAll((v) => !v)}
+          fullReport={fullReport}
+        />
       </header>
 
       {state.status === "loading" && <LoadingGrid />}
@@ -272,9 +317,7 @@ export function VenueActiveCreatives({
       )}
       {state.status === "ready" && (
         <ShareActiveCreativesClient
-          groups={
-            showAll ? state.groups : state.groups.slice(0, TOP_N)
-          }
+          groups={fullReport || showAll ? state.groups : state.groups.slice(0, TOP_N)}
         />
       )}
     </section>
@@ -285,10 +328,12 @@ function Caveat({
   state,
   showAll,
   onToggle,
+  fullReport,
 }: {
   state: State;
   showAll: boolean;
   onToggle: () => void;
+  fullReport: boolean;
 }) {
   if (state.status === "loading") {
     return (
@@ -300,7 +345,7 @@ function Caveat({
   }
   if (state.status !== "ready") return null;
   const { groups, adsFetched, campaignsTotal } = state;
-  if (groups.length <= TOP_N) {
+  if (fullReport || groups.length <= TOP_N) {
     return (
       <span className="text-[11px] text-muted-foreground">
         {groups.length} concept{groups.length === 1 ? "" : "s"} ·{" "}

@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import { RefreshReportButton } from "@/components/report/refresh-report-button";
 import { CustomRangePicker, TimeframeSelector } from "@/components/report/timeframe-controls";
+import { fmtInt } from "@/components/report/meta-insights-sections";
 import {
   DAILY_BUDGET_UPDATED_EVENT,
   getDailyBudgetUpdate,
@@ -11,7 +13,6 @@ import {
 } from "@/components/share/client-refresh-daily-budgets-button";
 import { fmtCurrencyCompact, fmtDate } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
-import { fullDaysUntilEventUtc } from "@/lib/dashboard/report-pacing";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -19,10 +20,13 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
+import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueDailyReportBlock } from "./venue-daily-report-block";
+import { VenueLiveReportInsights } from "./venue-live-report-insights";
 
 /**
  * components/share/venue-full-report.tsx
@@ -66,6 +70,7 @@ interface Props {
   canEdit?: boolean;
   datePreset?: DatePreset;
   customRange?: CustomDateRange;
+  linkedDrafts?: EventLinkedDraft[];
 }
 
 export function VenueFullReport({
@@ -80,14 +85,20 @@ export function VenueFullReport({
   canEdit = false,
   datePreset = "maximum",
   customRange,
+  linkedDrafts = [],
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
+  const [refreshNonce, setRefreshNonce] = useState(0);
   // Venue-scope additional spend. Internal surface: cookie auth,
   // always editable. Share surface: token auth, editable iff the
   // share row was minted with `can_edit=true`.
   const mode: "dashboard" | "share" = isInternal ? "dashboard" : "share";
   const readOnly = !isInternal && !canEdit;
+  const handleRefresh = async () => {
+    setRefreshNonce((value) => value + 1);
+    router.refresh();
+  };
   const handleTimeframeChange = (
     preset: DatePreset,
     nextCustomRange?: CustomDateRange,
@@ -112,6 +123,10 @@ export function VenueFullReport({
         shareToken={mode === "share" ? token : ""}
         datePreset={datePreset}
         customRange={customRange}
+        additionalSpend={additionalSpend}
+        linkedDrafts={linkedDrafts}
+        refreshNonce={refreshNonce}
+        onRefresh={handleRefresh}
         onTimeframeChange={handleTimeframeChange}
       />
       <div className="rounded-md border border-border bg-background p-4">
@@ -145,6 +160,10 @@ function VenueLiveReportTabs({
   shareToken,
   datePreset,
   customRange,
+  additionalSpend,
+  linkedDrafts,
+  refreshNonce,
+  onRefresh,
   onTimeframeChange,
 }: {
   clientId: string;
@@ -154,13 +173,17 @@ function VenueLiveReportTabs({
   shareToken: string;
   datePreset: DatePreset;
   customRange?: CustomDateRange;
+  additionalSpend: AdditionalSpendRow[];
+  linkedDrafts: EventLinkedDraft[];
+  refreshNonce: number;
+  onRefresh: () => Promise<void>;
   onTimeframeChange: (
     preset: DatePreset,
     customRange?: CustomDateRange,
   ) => void;
 }) {
-  const earliestUpcomingDate = earliestUpcomingEventDate(events);
-  const daysUntil = fullDaysUntilEventUtc(earliestUpcomingDate);
+  const displayEventDate = displayVenueEventDate(events);
+  const daysUntil = computeDaysUntil(displayEventDate);
   const windowDays = useMemo(
     () => resolvePresetToDays(datePreset, customRange),
     [datePreset, customRange],
@@ -169,6 +192,11 @@ function VenueLiveReportTabs({
     () => sumWindowMetaSpend(dailyRollups, events.length > 1, windowDays),
     [dailyRollups, events.length, windowDays],
   );
+  const performance = useMemo(
+    () => computeVenuePerformance(events, dailyRollups, additionalSpend),
+    [additionalSpend, dailyRollups, events],
+  );
+  const lastUpdatedIso = latestRollupTimestamp(dailyRollups);
 
   return (
     <section className="space-y-4">
@@ -211,7 +239,7 @@ function VenueLiveReportTabs({
         <StatCard
           label="Days until event"
           value={daysUntil != null ? daysUntilLabel(daysUntil) : "Date TBC"}
-          sub={earliestUpcomingDate ? fmtDate(earliestUpcomingDate) : null}
+          sub={displayEventDate ? fmtDate(displayEventDate) : null}
         />
       </div>
       <div className="space-y-2">
@@ -234,9 +262,43 @@ function VenueLiveReportTabs({
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
           <div className="rounded-md border border-border bg-card p-4">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Total marketing
+            </p>
+            <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {performance.totalMarketing > 0 ? (
+                  <>
+                    {fmtCurrencyCompact(performance.totalMarketing)}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {" "}
+                      · {fmtCurrencyCompact(performance.paidMediaBudget)} Paid
+                      media + {fmtCurrencyCompact(performance.additionalSpend)}{" "}
+                      Additional
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Paid media
             </p>
             <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {performance.paidMediaBudget > 0 ? (
+                  <>
+                    {fmtCurrencyCompact(performance.paidMediaBudget)}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      Allocated (paid media only)
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
               <p className="font-heading text-xl tracking-wide tabular-nums">
                 {windowSpend > 0 ? (
                   <>
@@ -266,12 +328,113 @@ function VenueLiveReportTabs({
               </p>
             </div>
           </div>
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Tickets
+            </p>
+            <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {performance.tickets != null ? (
+                  performance.capacity != null ? (
+                    <>
+                      {fmtInt(performance.tickets)} / {fmtInt(performance.capacity)}{" "}
+                      sold
+                      {performance.sellThroughPct != null ? (
+                        <span className="text-sm font-normal text-muted-foreground">
+                          {" "}
+                          ({performance.sellThroughPct.toFixed(1)}%)
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>{fmtInt(performance.tickets)} sold</>
+                  )
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {performance.costPerTicket != null ? (
+                  <>
+                    {fmtCurrencyCompact(performance.costPerTicket)}{" "}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      cost per ticket
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+            </div>
+          </div>
         </div>
       </section>
-      <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-        Venue-scoped Meta stats, breakdowns and active creatives will attach
-        here in the next tiers using the selected timeframe.
+      <VenueLiveReportInsights
+        clientId={clientId}
+        eventCode={eventCode}
+        shareToken={shareToken}
+        datePreset={datePreset}
+        customRange={customRange}
+        isInternal={shareToken === ""}
+        refreshNonce={refreshNonce}
+      />
+      <VenueActiveCreatives
+        token={shareToken}
+        clientId={clientId}
+        isInternal={shareToken === ""}
+        eventCode={eventCode}
+        venueLabel={events[0]?.venue_name ?? eventCode}
+        datePreset={datePreset}
+        customRange={customRange}
+        refreshNonce={refreshNonce}
+        fullReport
+      />
+      <LinkedCampaigns drafts={linkedDrafts} />
+      <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          Last updated {fmtRelativeShort(lastUpdatedIso)} · click refresh for latest
+        </p>
+        <RefreshReportButton onRefresh={onRefresh} />
       </div>
+    </section>
+  );
+}
+
+function LinkedCampaigns({ drafts }: { drafts: EventLinkedDraft[] }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="font-heading text-base tracking-wide text-foreground">
+        Linked campaigns
+      </h2>
+      {drafts.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+          No linked campaign drafts for this venue yet.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-md border border-border">
+          <ul className="divide-y divide-border bg-card">
+            {drafts.map((draft) => (
+              <li
+                key={draft.id}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">
+                    {draft.name ?? "Untitled campaign"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {draft.objective ?? "No objective"} · Updated{" "}
+                    {fmtRelativeShort(draft.updated_at)}
+                  </p>
+                </div>
+                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {draft.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }
@@ -409,20 +572,129 @@ function StatCard({
   );
 }
 
-function earliestUpcomingEventDate(events: PortalEvent[]): string | null {
+function displayVenueEventDate(events: PortalEvent[]): string | null {
   const today = new Date().toISOString().slice(0, 10);
   const upcoming = events
     .map((event) => event.event_date)
     .filter((date): date is string => !!date && date >= today)
     .sort();
   if (upcoming.length > 0) return upcoming[0];
-  return null;
+  return events
+    .map((event) => event.event_date)
+    .filter((date): date is string => !!date)
+    .sort()
+    .at(-1) ?? null;
+}
+
+function computeDaysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const target = Date.parse(`${iso}T00:00:00`);
+  if (!Number.isFinite(target)) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((target - now.getTime()) / 86_400_000);
 }
 
 function daysUntilLabel(d: number): string {
   if (d === 0) return "Today";
   if (d === 1) return "Tomorrow";
+  if (d === -1) return "Yesterday";
+  if (d < -1) return `${Math.abs(d)} days ago`;
   return `${d} days`;
+}
+
+function computeVenuePerformance(
+  events: PortalEvent[],
+  rollups: DailyRollupRow[],
+  additionalSpend: AdditionalSpendRow[],
+): {
+  paidMediaBudget: number;
+  additionalSpend: number;
+  totalMarketing: number;
+  capacity: number | null;
+  tickets: number | null;
+  sellThroughPct: number | null;
+  costPerTicket: number | null;
+} {
+  const paidMediaBudget = sumNumbers(
+    events.map((event) => event.budget_marketing),
+  );
+  const eventIds = new Set(events.map((event) => event.id));
+  const additionalSpendTotal = sumNumbers(
+    additionalSpend
+      .filter((row) =>
+        row.scope === "venue"
+          ? row.venue_event_code === events[0]?.event_code
+          : eventIds.has(row.event_id),
+      )
+      .map((row) => row.amount),
+  );
+  const capacity = nullableSum(events.map((event) => event.capacity));
+  const tickets = sumTickets(rollups, null);
+  const paidSpend = sumWindowMetaSpend(rollups, events.length > 1, null);
+  const sellThroughPct =
+    capacity != null && capacity > 0 && tickets != null
+      ? (tickets / capacity) * 100
+      : null;
+  const costPerTicket =
+    tickets != null && tickets > 0 && paidSpend > 0 ? paidSpend / tickets : null;
+  return {
+    paidMediaBudget,
+    additionalSpend: additionalSpendTotal,
+    totalMarketing: paidMediaBudget + additionalSpendTotal,
+    capacity,
+    tickets,
+    sellThroughPct,
+    costPerTicket,
+  };
+}
+
+function latestRollupTimestamp(rollups: DailyRollupRow[]): string {
+  const latest = rollups
+    .flatMap((row) => [row.source_meta_at, row.source_eventbrite_at, row.updated_at])
+    .filter((value): value is string => !!value)
+    .sort()
+    .at(-1);
+  return latest ?? new Date().toISOString();
+}
+
+function fmtRelativeShort(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "just now";
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
+  return `${Math.round(diff / 86_400_000)}d ago`;
+}
+
+function sumTickets(
+  rollups: DailyRollupRow[],
+  windowDays: string[] | null,
+): number | null {
+  if (rollups.length === 0) return null;
+  const windowDaySet = windowDays === null ? null : new Set(windowDays);
+  let total = 0;
+  for (const row of rollups) {
+    if (windowDaySet && !windowDaySet.has(row.date)) continue;
+    if (row.tickets_sold != null) total += row.tickets_sold;
+  }
+  return total;
+}
+
+function nullableSum(values: Array<number | null | undefined>): number | null {
+  let total = 0;
+  let any = false;
+  for (const value of values) {
+    if (value == null) continue;
+    total += value;
+    any = true;
+  }
+  return any ? total : null;
+}
+
+function sumNumbers(values: Array<number | null | undefined>): number {
+  return nullableSum(values) ?? 0;
 }
 
 function sumWindowMetaSpend(
