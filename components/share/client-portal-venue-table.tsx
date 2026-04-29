@@ -1226,6 +1226,7 @@ function buildVenueTrendPoints(
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
+  const isMultiEventVenue = venueEventIds.size > 1;
   const hasRollupTickets = rows.some((row) => row.tickets_sold != null);
   const byDate = new Map<string, VenueTrendDateAccumulator>();
   for (const row of rows) {
@@ -1245,18 +1246,21 @@ function buildVenueTrendPoints(
     const spend = dailyRollupSpend(row);
     if (hasAllocationForRow) {
       cur.hasAllocatedSpend = true;
-      if (spend != null) cur.allocatedSpend = (cur.allocatedSpend ?? 0) + spend;
+      const allocatedSpend =
+        (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
+      cur.allocatedSpend = (cur.allocatedSpend ?? 0) + allocatedSpend;
       if (row.link_clicks != null || row.tiktok_clicks != null) {
         cur.allocatedLinkClicks =
           (cur.allocatedLinkClicks ?? 0) + paidLinkClicksOf(row);
       }
-    } else {
-      // Pre-allocation multi-event rollups carry the same shared venue
-      // campaign totals on every child event. Use the largest raw row
-      // for the venue/day rather than summing the same campaign 3-4x.
-      if (spend != null) cur.rawSpend = Math.max(cur.rawSpend ?? 0, spend);
+    } else if (!isMultiEventVenue) {
+      // Raw rollup spend is safe for single-event venues. For multi-
+      // event venues it is duplicated on every child event, so the
+      // trend chart intentionally leaves pre-allocation dates blank
+      // rather than showing a smoothed but approximate split.
+      if (spend != null) cur.rawSpend = (cur.rawSpend ?? 0) + spend;
       if (row.link_clicks != null || row.tiktok_clicks != null) {
-        cur.rawLinkClicks = Math.max(cur.rawLinkClicks ?? 0, paidLinkClicksOf(row));
+        cur.rawLinkClicks = (cur.rawLinkClicks ?? 0) + paidLinkClicksOf(row);
       }
     }
     if (hasRollupTickets && row.tickets_sold != null) {
