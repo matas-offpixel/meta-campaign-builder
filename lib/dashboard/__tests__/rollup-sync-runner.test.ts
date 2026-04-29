@@ -7,6 +7,7 @@ import {
   type RunTikTokRollupLegInput,
   type TikTokRollupDeps,
 } from "../tiktok-rollup-leg.ts";
+import { shouldInvokeVenueAllocator } from "../venue-allocator-trigger.ts";
 import { TikTokApiError } from "../../tiktok/client.ts";
 import type { TikTokDailyInsightRow } from "../../tiktok/rollup-insights.ts";
 
@@ -195,5 +196,58 @@ describe("runRollupSyncForEvent TikTok leg", () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, "no_credentials");
     assert.equal(upserted.length, 0);
+  });
+});
+
+describe("shouldInvokeVenueAllocator", () => {
+  it("allows null-date venue groups when Meta scope is otherwise complete", () => {
+    assert.equal(
+      shouldInvokeVenueAllocator({
+        metaOk: true,
+        eventCode: "WC26-MANCHESTER",
+        adAccountId: "act_123",
+        clientId: "client-1",
+      }),
+      true,
+    );
+  });
+
+  it("still skips when Meta did not run or required scope is missing", () => {
+    assert.equal(
+      shouldInvokeVenueAllocator({
+        metaOk: false,
+        eventCode: "WC26-MANCHESTER",
+        adAccountId: "act_123",
+        clientId: "client-1",
+      }),
+      false,
+    );
+    assert.equal(
+      shouldInvokeVenueAllocator({
+        metaOk: true,
+        eventCode: null,
+        adAccountId: "act_123",
+        clientId: "client-1",
+      }),
+      false,
+    );
+    assert.equal(
+      shouldInvokeVenueAllocator({
+        metaOk: true,
+        eventCode: "WC26-MANCHESTER",
+        adAccountId: null,
+        clientId: "client-1",
+      }),
+      false,
+    );
+    assert.equal(
+      shouldInvokeVenueAllocator({
+        metaOk: true,
+        eventCode: "WC26-MANCHESTER",
+        adAccountId: "act_123",
+        clientId: null,
+      }),
+      false,
+    );
   });
 });
