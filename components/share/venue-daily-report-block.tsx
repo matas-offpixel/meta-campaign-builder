@@ -7,6 +7,7 @@ import {
   type PerformanceSummaryTimeframe,
 } from "@/components/dashboard/events/event-summary-header";
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
+import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import {
   additionalSpendBreakdownLinesByDate,
   additionalSpendTotalsByDate,
@@ -117,7 +118,7 @@ export function VenueDailyReportBlock({
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="font-heading text-lg tracking-wide">Venue reporting</h2>
+        <h2 className="font-heading text-lg tracking-wide">Event reporting</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Aggregated across {events.length} event
           {events.length === 1 ? "" : "s"} under{" "}
@@ -131,6 +132,8 @@ export function VenueDailyReportBlock({
         timeframe={DEFAULT_PERF_SUMMARY}
         additionalSpendEntries={additionalSpendRows}
       />
+
+      <EventTrendChart timeline={timeline} title="Daily trend" />
 
       <DailyTracker
         eventId={`venue:${eventCode}`}
