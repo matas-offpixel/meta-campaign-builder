@@ -22,8 +22,7 @@ create extension if not exists pgcrypto;
 alter table google_ads_accounts
   add column if not exists credentials_encrypted bytea,
   add column if not exists credentials_format    text not null default 'v1',
-  add column if not exists login_customer_id     text,
-  add column if not exists access_token_encrypted text;
+  add column if not exists login_customer_id     text;
 
 comment on column google_ads_accounts.credentials_encrypted is
   'pgp_sym_encrypt(plaintext_json::text, GOOGLE_ADS_TOKEN_KEY) — never decrypted server-side except via get_google_ads_credentials(). Replaces the legacy access_token_encrypted placeholder for new writes.';
@@ -31,9 +30,6 @@ comment on column google_ads_accounts.credentials_format is
   'Schema version of the encrypted JSON payload. v1 = Google OAuth token response + customer/login customer ids.';
 comment on column google_ads_accounts.login_customer_id is
   'Manager account id used as login-customer-id for Google Ads API calls. Default MCC for this rollout is 333-703-8088.';
-comment on column google_ads_accounts.access_token_encrypted is
-  'Legacy placeholder kept unused for compatibility. New writes use credentials_encrypted; drop in a follow-up cleanup PR after production verification.';
-
 do $$
 begin
   if not exists (
@@ -104,8 +100,6 @@ begin
   update google_ads_accounts
      set credentials_encrypted = pgp_sym_encrypt(p_plaintext, v_key),
          credentials_format    = 'v1',
-         -- Do not populate the legacy text placeholder on new writes.
-         access_token_encrypted = null,
          updated_at            = now()
    where id = p_account_id;
 

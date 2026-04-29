@@ -55,7 +55,12 @@ interface EventToSync {
   event_date: string | null;
   general_sale_at: string | null;
   tiktok_account_id: string | null;
-  client: { meta_ad_account_id: string | null; tiktok_account_id: string | null } | null;
+  google_ads_account_id: string | null;
+  client: {
+    meta_ad_account_id: string | null;
+    tiktok_account_id: string | null;
+    google_ads_account_id: string | null;
+  } | null;
 }
 
 interface EventSyncResult {
@@ -67,6 +72,8 @@ interface EventSyncResult {
   eventbriteError: string | null;
   tiktokOk: boolean;
   tiktokError: string | null;
+  googleAdsOk: boolean;
+  googleAdsError: string | null;
   rowsUpserted: number;
   durationMs: number;
 }
@@ -197,7 +204,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
+      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
     )
     .in("id", eligibleIds);
   if (eventErr) {
@@ -219,8 +226,16 @@ export async function GET(req: NextRequest) {
     const t0 = Date.now();
     try {
       const clientRel = event.client as
-        | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
-        | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
+        | {
+            meta_ad_account_id: string | null;
+            tiktok_account_id: string | null;
+            google_ads_account_id: string | null;
+          }
+        | Array<{
+            meta_ad_account_id: string | null;
+            tiktok_account_id: string | null;
+            google_ads_account_id: string | null;
+          }>
         | null;
       const adAccountId = Array.isArray(clientRel)
         ? (clientRel[0]?.meta_ad_account_id ?? null)
@@ -228,6 +243,9 @@ export async function GET(req: NextRequest) {
       const clientTikTokAccountId = Array.isArray(clientRel)
         ? (clientRel[0]?.tiktok_account_id ?? null)
         : (clientRel?.tiktok_account_id ?? null);
+      const clientGoogleAdsAccountId = Array.isArray(clientRel)
+        ? (clientRel[0]?.google_ads_account_id ?? null)
+        : (clientRel?.google_ads_account_id ?? null);
 
       const result = await runRollupSyncForEvent({
         supabase,
@@ -240,6 +258,8 @@ export async function GET(req: NextRequest) {
         eventDate: event.event_date,
         eventTikTokAccountId: event.tiktok_account_id,
         clientTikTokAccountId,
+        eventGoogleAdsAccountId: event.google_ads_account_id,
+        clientGoogleAdsAccountId,
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;
@@ -252,6 +272,8 @@ export async function GET(req: NextRequest) {
         eventbriteError: result.summary.eventbriteError,
         tiktokOk: result.summary.tiktokOk,
         tiktokError: result.summary.tiktokError,
+        googleAdsOk: result.summary.googleAdsOk,
+        googleAdsError: result.summary.googleAdsError,
         rowsUpserted: result.summary.rowsUpserted,
         durationMs: Date.now() - t0,
       });
@@ -271,6 +293,8 @@ export async function GET(req: NextRequest) {
         eventbriteError: message,
         tiktokOk: false,
         tiktokError: message,
+        googleAdsOk: false,
+        googleAdsError: message,
         rowsUpserted: 0,
         durationMs: Date.now() - t0,
       });

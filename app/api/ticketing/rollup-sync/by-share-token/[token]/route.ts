@@ -100,7 +100,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -136,9 +136,11 @@ export async function POST(
   const eventDate = (event.event_date as string | null) ?? null;
   const clientId = (event.client_id as string | null) ?? null;
   const eventTikTokAccountId = (event.tiktok_account_id as string | null) ?? null;
+  const eventGoogleAdsAccountId =
+    (event.google_ads_account_id as string | null) ?? null;
   const clientRel = event.client as
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
@@ -146,6 +148,9 @@ export async function POST(
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
+  const clientGoogleAdsAccountId = Array.isArray(clientRel)
+    ? (clientRel[0]?.google_ads_account_id ?? null)
+    : (clientRel?.google_ads_account_id ?? null);
 
   const result = await runRollupSyncForEvent({
     supabase,
@@ -158,6 +163,8 @@ export async function POST(
     eventDate,
     eventTikTokAccountId,
     clientTikTokAccountId,
+    eventGoogleAdsAccountId,
+    clientGoogleAdsAccountId,
   });
 
   return NextResponse.json(
@@ -166,6 +173,7 @@ export async function POST(
       summary: result.summary,
       meta: result.meta,
       tiktok: result.tiktok,
+      googleAds: result.googleAds,
       eventbrite: result.eventbrite,
       diagnostics: result.diagnostics,
     },

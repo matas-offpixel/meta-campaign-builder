@@ -38,6 +38,7 @@ describe("Google Ads OAuth", () => {
         clientId: "client-id",
         clientSecret: "secret",
         redirectUri: "https://example.com/api/google-ads/oauth/callback",
+        stateSecret: "state-secret",
       },
       async (input, init) => {
         calls.push({ input, init });

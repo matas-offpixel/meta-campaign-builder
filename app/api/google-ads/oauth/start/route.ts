@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { state, nonce } = createGoogleAdsOAuthState({
-    secret: config.clientSecret,
+    secret: config.stateSecret,
     customerId: req.nextUrl.searchParams.get("customerId"),
   });
   const res = NextResponse.redirect(buildGoogleAdsOAuthUrl({ config, state }));

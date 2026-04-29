@@ -1253,11 +1253,17 @@ export type Database = {
           created_at: string
           date: string
           event_id: string
+          google_ads_clicks: number | null
+          google_ads_conversions: number | null
+          google_ads_impressions: number | null
+          google_ads_spend: number | null
+          google_ads_video_views: number | null
           id: string
           link_clicks: number | null
           notes: string | null
           revenue: number | null
           source_eventbrite_at: string | null
+          source_google_ads_at: string | null
           source_meta_at: string | null
           tickets_sold: number | null
           updated_at: string
@@ -1268,11 +1274,17 @@ export type Database = {
           created_at?: string
           date: string
           event_id: string
+          google_ads_clicks?: number | null
+          google_ads_conversions?: number | null
+          google_ads_impressions?: number | null
+          google_ads_spend?: number | null
+          google_ads_video_views?: number | null
           id?: string
           link_clicks?: number | null
           notes?: string | null
           revenue?: number | null
           source_eventbrite_at?: string | null
+          source_google_ads_at?: string | null
           source_meta_at?: string | null
           tickets_sold?: number | null
           updated_at?: string
@@ -1283,11 +1295,17 @@ export type Database = {
           created_at?: string
           date?: string
           event_id?: string
+          google_ads_clicks?: number | null
+          google_ads_conversions?: number | null
+          google_ads_impressions?: number | null
+          google_ads_spend?: number | null
+          google_ads_video_views?: number | null
           id?: string
           link_clicks?: number | null
           notes?: string | null
           revenue?: number | null
           source_eventbrite_at?: string | null
+          source_google_ads_at?: string | null
           source_meta_at?: string | null
           tickets_sold?: number | null
           updated_at?: string
@@ -1630,7 +1648,6 @@ export type Database = {
       }
       google_ads_accounts: {
         Row: {
-          access_token_encrypted: string | null
           account_name: string
           created_at: string
           credentials_encrypted: string | null
@@ -1642,7 +1659,6 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          access_token_encrypted?: string | null
           account_name: string
           created_at?: string
           credentials_encrypted?: string | null
@@ -1654,7 +1670,6 @@ export type Database = {
           user_id: string
         }
         Update: {
-          access_token_encrypted?: string | null
           account_name?: string
           created_at?: string
           credentials_encrypted?: string | null

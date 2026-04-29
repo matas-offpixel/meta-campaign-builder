@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { MetaApiError } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { getEventByIdServer } from "@/lib/db/events-server";
+import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
 import {
   computeBenchmarks,
   type AdAccountBenchmarks,
@@ -108,6 +109,23 @@ export async function GET(req: NextRequest) {
   }
 
   const eventCode = event.event_code?.trim() ?? "";
+  const platform = req.nextUrl.searchParams.get("platform")?.trim() ?? "meta";
+  if (platform === "google") {
+    return getGoogleEventCampaigns({
+      supabase,
+      userId: user.id,
+      event,
+      eventCode,
+      req,
+    });
+  }
+  if (platform !== "meta") {
+    return NextResponse.json(
+      { ok: false, reason: "bad_request", error: `Unsupported platform: ${platform}` },
+      { status: 400 },
+    );
+  }
+
   const adAccountIdRaw =
     (event.client?.meta_ad_account_id as string | null | undefined) ?? null;
 
@@ -206,4 +224,116 @@ export async function GET(req: NextRequest) {
 
 function nullBenchmarks(): AdAccountBenchmarks {
   return { ctr: null, cpm: null, cpr: null, campaignsCounted: 0 };
+}
+
+async function getGoogleEventCampaigns(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  event: NonNullable<Awaited<ReturnType<typeof getEventByIdServer>>>;
+  eventCode: string;
+  req: NextRequest;
+}) {
+  const { supabase, userId, event, eventCode, req } = input;
+  const accountId =
+    event.google_ads_account_id ?? event.client?.google_ads_account_id ?? null;
+  if (!eventCode) {
+    return NextResponse.json({
+      ok: true,
+      reason: "no_event_code",
+      campaigns: [],
+      benchmarks: nullBenchmarks(),
+      event_code: null,
+      ad_account_id: accountId,
+      window: null,
+    });
+  }
+  if (!accountId) {
+    return NextResponse.json({
+      ok: true,
+      reason: "no_google_ads_account",
+      campaigns: [],
+      benchmarks: nullBenchmarks(),
+      event_code: eventCode,
+      ad_account_id: null,
+      window: null,
+    });
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from("google_ads_accounts")
+    .select("id, google_customer_id, login_customer_id")
+    .eq("id", accountId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (accountError) {
+    return NextResponse.json(
+      { ok: false, reason: "google_ads_account_failed", error: accountError.message },
+      { status: 500 },
+    );
+  }
+  if (!account?.google_customer_id) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "no_google_ads_customer_id",
+        error: "Linked Google Ads account has no customer ID.",
+      },
+      { status: 502 },
+    );
+  }
+
+  const range = req.nextUrl.searchParams.get("range");
+  const sinceParam = parseDateParam(req.nextUrl.searchParams.get("since"));
+  const untilParam = parseDateParam(req.nextUrl.searchParams.get("until"));
+  const window = resolveWindow(sinceParam, untilParam, range);
+
+  let credentials;
+  try {
+    credentials = await getGoogleAdsCredentials(supabase, account.id);
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "google_ads_credentials_failed",
+        error: err instanceof Error ? err.message : "Google Ads credentials failed.",
+      },
+      { status: 502 },
+    );
+  }
+  if (!credentials) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "google_ads_oauth_not_connected",
+        error: "Google Ads OAuth is not connected for this client.",
+      },
+      { status: 502 },
+    );
+  }
+
+  try {
+    const campaigns = await fetchEventCampaignInsights({
+      platform: "google",
+      customerId: account.google_customer_id,
+      refreshToken: credentials.refresh_token,
+      loginCustomerId: account.login_customer_id ?? credentials.login_customer_id,
+      eventCode,
+      window,
+    });
+    return NextResponse.json({
+      ok: true,
+      campaigns,
+      benchmarks: nullBenchmarks(),
+      event_code: eventCode,
+      ad_account_id: account.google_customer_id,
+      window,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[reporting/event-campaigns] google insights failed:", msg);
+    return NextResponse.json(
+      { ok: false, reason: "google_ads_insights_failed", error: msg },
+      { status: 502 },
+    );
+  }
 }
