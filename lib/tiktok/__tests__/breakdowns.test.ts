@@ -14,7 +14,10 @@ type Request = NonNullable<FetchTikTokBreakdownsInput["request"]>;
 describe("fetchTikTokBreakdowns", () => {
   it("requests each dimension separately and maps API rows", async () => {
     const reportDimensions: unknown[] = [];
-    const request: Request = async <T,>(path, params): Promise<T> => {
+    const request: Request = async <T,>(
+      path: string,
+      params: Record<string, unknown>,
+    ): Promise<T> => {
       if (path === "/campaign/get/") {
         return {
           list: [{ campaign_id: "campaign-1", campaign_name: "[EVT] Campaign" }],
@@ -77,7 +80,7 @@ describe("fetchTikTokBreakdowns", () => {
 
   it("retries TikTok 50001 once for report calls", async () => {
     let calls = 0;
-    const request: Request = async <T,>(path): Promise<T> => {
+    const request: Request = async <T,>(path: string): Promise<T> => {
       if (path === "/campaign/get/") return { list: [] } as T;
       calls += 1;
       if (calls === 1) {

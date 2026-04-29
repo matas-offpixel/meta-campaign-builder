@@ -1630,26 +1630,38 @@ export type Database = {
       }
       google_ads_accounts: {
         Row: {
+          access_token_encrypted: string | null
           account_name: string
           created_at: string
+          credentials_encrypted: string | null
+          credentials_format: string
           google_customer_id: string | null
           id: string
+          login_customer_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          access_token_encrypted?: string | null
           account_name: string
           created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
           google_customer_id?: string | null
           id?: string
+          login_customer_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          access_token_encrypted?: string | null
           account_name?: string
           created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
           google_customer_id?: string | null
           id?: string
+          login_customer_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2218,6 +2230,10 @@ export type Database = {
         Args: { p_id: string; p_key: string }
         Returns: Json
       }
+      get_google_ads_credentials: {
+        Args: { p_account_id: string; p_key?: string | null }
+        Returns: string
+      }
       get_ticketing_credentials: {
         Args: { p_connection_id: string; p_key: string }
         Returns: string
@@ -2228,6 +2244,10 @@ export type Database = {
       }
       set_d2c_credentials: {
         Args: { p_credentials: Json; p_id: string; p_key: string }
+        Returns: undefined
+      }
+      set_google_ads_credentials: {
+        Args: { p_account_id: string; p_key?: string | null; p_plaintext: string }
         Returns: undefined
       }
       set_ticketing_credentials: {

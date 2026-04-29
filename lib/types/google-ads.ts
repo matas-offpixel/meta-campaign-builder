@@ -15,6 +15,10 @@ export interface GoogleAdsAccount {
   user_id: string;
   account_name: string;
   google_customer_id: string | null;
+  login_customer_id?: string | null;
+  credentials_encrypted?: string | null;
+  credentials_format?: string | null;
+  access_token_encrypted?: string | null;
   created_at: string;
   updated_at: string;
 }

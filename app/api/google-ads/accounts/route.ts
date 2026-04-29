@@ -28,6 +28,7 @@ export async function GET() {
     | "user_id"
     | "account_name"
     | "google_customer_id"
+    | "login_customer_id"
     | "created_at"
     | "updated_at"
   >;
@@ -35,7 +36,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("google_ads_accounts")
     .select(
-      "id, user_id, account_name, google_customer_id, created_at, updated_at",
+      "id, user_id, account_name, google_customer_id, login_customer_id, created_at, updated_at",
     )
     .eq("user_id", user.id)
     .order("account_name", { ascending: true });

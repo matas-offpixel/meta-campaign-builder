@@ -4,7 +4,10 @@ import { describe, it } from "node:test";
 import {
   buildDateWindows,
   fetchTikTokAdsForShareUncached,
+  type FetchTikTokAdsForShareInput,
 } from "../share-render.ts";
+
+type Request = NonNullable<FetchTikTokAdsForShareInput["request"]>;
 
 describe("fetchTikTokAdsForShare", () => {
   it("fetches matching ad rows with live metrics and creative fields", async () => {
@@ -16,7 +19,10 @@ describe("fetchTikTokAdsForShare", () => {
       since: "2026-04-01",
       until: "2026-04-30",
       credentials: { access_token: "token", advertiser_ids: ["adv-1"] },
-      request: async (path, params) => {
+      request: (async <T,>(
+        path: string,
+        params: Record<string, unknown>,
+      ): Promise<T> => {
         calls.push({ path, params });
         if (path === "/ad/get/") {
           return {
@@ -33,7 +39,7 @@ describe("fetchTikTokAdsForShare", () => {
               },
             ],
             page_info: { page: 1, total_page: 1 },
-          };
+          } as T;
         }
         if (path === "/report/integrated/get/") {
           return {
@@ -53,10 +59,10 @@ describe("fetchTikTokAdsForShare", () => {
               },
             ],
             page_info: { page: 1, total_page: 1 },
-          };
+          } as T;
         }
-        return { list: [] };
-      },
+        return { list: [] } as T;
+      }) as Request,
     });
 
     assert.equal(rows.length, 1);
@@ -76,7 +82,7 @@ describe("fetchTikTokAdsForShare", () => {
       since: "2026-04-01",
       until: "2026-04-30",
       credentials: { access_token: "token", advertiser_ids: ["adv-1"] },
-      request: async (path) => {
+      request: (async <T,>(path: string): Promise<T> => {
         if (path === "/ad/get/") {
           return {
             list: [
@@ -94,10 +100,10 @@ describe("fetchTikTokAdsForShare", () => {
               },
             ],
             page_info: { page: 1, total_page: 1 },
-          };
+          } as T;
         }
-        return { list: [], page_info: { page: 1, total_page: 1 } };
-      },
+        return { list: [], page_info: { page: 1, total_page: 1 } } as T;
+      }) as Request,
     });
 
     assert.deepEqual(

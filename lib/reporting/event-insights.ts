@@ -1,6 +1,10 @@
 import "server-only";
 
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
+import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
+import { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
+
+export { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
 
 /**
  * lib/reporting/event-insights.ts
@@ -35,6 +39,10 @@ export interface CampaignInsightsRow {
   cpr: number | null;
   results: number;
   ad_account_id: string;
+  video_views?: number;
+  cost_per_view?: number | null;
+  thruplays?: number;
+  campaign_type?: string;
 }
 
 interface InsightsRow {
@@ -90,10 +98,28 @@ export function normaliseAdAccountId(raw: string): string {
 }
 
 export interface FetchEventCampaignInsightsInput {
+  platform?: "meta";
   adAccountId: string;
   /** Case-insensitive substring against `campaign_name`. */
   eventCode: string;
   token: string;
+  window: { since: string; until: string };
+}
+
+export interface FetchGoogleEventCampaignInsightsInput {
+  platform: "google";
+  customerId: string;
+  refreshToken: string;
+  loginCustomerId?: string | null;
+  eventCode: string;
+  window: { since: string; until: string };
+}
+
+export interface FetchTikTokEventCampaignInsightsInput {
+  platform: "tiktok";
+  advertiserId: string;
+  token: string;
+  eventCode: string;
   window: { since: string; until: string };
 }
 
@@ -107,11 +133,21 @@ export interface FetchEventCampaignInsightsInput {
  * a 502, the rollup degrades to "no data" for the offending event).
  */
 export async function fetchEventCampaignInsights(
-  input: FetchEventCampaignInsightsInput,
+  input:
+    | FetchEventCampaignInsightsInput
+    | FetchGoogleEventCampaignInsightsInput
+    | FetchTikTokEventCampaignInsightsInput,
 ): Promise<CampaignInsightsRow[]> {
+  if (input.platform === "google") {
+    return fetchGoogleAdsEventCampaignInsights(input);
+  }
+  if (input.platform === "tiktok") {
+    const { fetchTikTokEventCampaignInsights } = await import("@/lib/tiktok/insights");
+    return fetchTikTokEventCampaignInsights(input);
+  }
+
   const { token, window, eventCode } = input;
   const adAccountId = normaliseAdAccountId(input.adAccountId);
-  const codeLower = eventCode.toLowerCase();
 
   const aggregates = new Map<
     string,
@@ -144,7 +180,7 @@ export async function fetchEventCampaignInsights(
       const id = row.campaign_id;
       const name = row.campaign_name ?? "";
       if (!id) continue;
-      if (!name.toLowerCase().includes(codeLower)) continue;
+      if (!campaignNameMatchesEventCode(name, eventCode)) continue;
       const existing = aggregates.get(id) ?? {
         id,
         name,
