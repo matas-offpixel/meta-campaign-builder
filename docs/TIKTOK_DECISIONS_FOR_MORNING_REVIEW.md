@@ -38,3 +38,20 @@
 - Why: This keeps PR-B aligned with the already-merged share report window and preserves last-good data on skip/error.
 - Reversibility: reversible.
 - Reviewer action needed: yes — confirm the canonical TikTok reporting window before enabling wider cron reliance.
+
+## PR-C — TikTok Campaign Creator Foundation
+
+- Decision made: Use `/tiktok-campaign/[id]` instead of a platform-polymorphic `/campaign/[id]`.
+- Why: TikTok needs a distinct draft schema and step semantics; keeping routes separate avoids adding platform branches to the existing Meta wizard.
+- Reversibility: reversible before functional TikTok steps ship.
+- Reviewer action needed: yes — sign off on the architecture doc before PR-D.
+
+- Decision made: Store TikTok draft state in `state jsonb` on `tiktok_campaign_drafts`, parallel to Meta's `draft_json` pattern but with TikTok-specific top-level columns.
+- Why: JSON keeps early schema iteration cheap while `client_id`, `event_id`, `status`, and `name` remain queryable.
+- Reversibility: reversible with a migration.
+- Reviewer action needed: no.
+
+- Decision made: Do not add any TikTok write API route/helper in the foundation PR.
+- Why: The overnight rule forbids write calls until morning sign-off.
+- Reversibility: one-way for this PR; future write helpers can be added later.
+- Reviewer action needed: no.
