@@ -59,8 +59,12 @@ export interface TikTokCampaignSetup {
 export interface TikTokOptimisation {
   smartPlusEnabled: boolean;
   bidStrategy: TikTokBidStrategy | null;
-  benchmarkCpt: number | null;
-  benchmarkCtr: number | null;
+  benchmarkCpv: number | null;
+  benchmarkCpc: number | null;
+  benchmarkCpm: number | null;
+  pacing: "STANDARD" | "ACCELERATED";
+  maxDailySpend: number | null;
+  maxLifetimeSpend: number | null;
   guardrails: string[];
 }
 
@@ -95,6 +99,12 @@ export interface TikTokAdGroupDraft {
 }
 
 export interface TikTokBudgetSchedule {
+  budgetMode: "DAILY" | "LIFETIME";
+  budgetAmount: number | null;
+  scheduleStartAt: string | null;
+  scheduleEndAt: string | null;
+  automaticSchedule: boolean;
+  frequencyCap: number | null;
   lifetimeBudget: number | null;
   dailyBudget: number | null;
   adGroups: TikTokAdGroupDraft[];
@@ -131,8 +141,12 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
     optimisation: {
       smartPlusEnabled: false,
       bidStrategy: null,
-      benchmarkCpt: null,
-      benchmarkCtr: null,
+      benchmarkCpv: null,
+      benchmarkCpc: null,
+      benchmarkCpm: null,
+      pacing: "STANDARD",
+      maxDailySpend: null,
+      maxLifetimeSpend: null,
       guardrails: [],
     },
     audiences: {
@@ -144,6 +158,12 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
     },
     creatives: { items: [] },
     budgetSchedule: {
+      budgetMode: "DAILY",
+      budgetAmount: null,
+      scheduleStartAt: null,
+      scheduleEndAt: null,
+      automaticSchedule: false,
+      frequencyCap: null,
       lifetimeBudget: null,
       dailyBudget: null,
       adGroups: [],
