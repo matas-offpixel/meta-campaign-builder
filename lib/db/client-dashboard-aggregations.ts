@@ -49,7 +49,9 @@ export interface AggregatableEvent {
 /** One `additional_spend_entries` row; only `event_id` + `amount` used. */
 export interface AdditionalSpendRow {
   event_id: string;
+  date?: string;
   amount: number | null;
+  category?: string;
   scope?: "event" | "venue";
   venue_event_code?: string | null;
 }

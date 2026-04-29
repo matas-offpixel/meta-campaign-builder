@@ -38,6 +38,7 @@ import {
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
+import { VenueDailyReportBlock } from "./venue-daily-report-block";
 import { VenueSyncButton } from "./venue-sync-button";
 import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
 
@@ -772,6 +773,7 @@ export function ClientPortalVenueTable({
   events,
   londonOnsaleSpend,
   londonPresaleSpend,
+  dailyEntries,
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
@@ -935,12 +937,14 @@ export function ClientPortalVenueTable({
                   paidSpendByEventMap,
                 )}
                 wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
+                dailyEntries={dailyEntries}
                 dailyRollups={dailyRollups}
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
                 additionalSpend={additionalSpend}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
                 isInternal={isInternal}
+                renderDailyReport={!forceExpandAll}
                 onSnapshotSaved={onSnapshotSaved}
               />
             ))}
@@ -1188,6 +1192,8 @@ interface VenueSectionProps {
   onToggle: () => void;
   /** Internal admin surface — surfaces per-row actions when true. */
   isInternal: boolean;
+  /** Full venue pages render this block once above the legacy card table. */
+  renderDailyReport: boolean;
   /**
    * Pre-computed week-over-week deltas for the venue's event set.
    * Rendered in the collapsed-state quick stats next to Tickets + CPT.
@@ -1195,6 +1201,7 @@ interface VenueSectionProps {
    * and the header hides the parenthetical.
    */
   wow: VenueWoWTotals;
+  dailyEntries: DailyEntry[];
   onSnapshotSaved: Props["onSnapshotSaved"];
 }
 
@@ -1411,12 +1418,14 @@ function VenueSection({
   group,
   spend,
   wow,
+  dailyEntries,
   dailyRollups,
   weeklyTicketSnapshots,
   additionalSpend,
   isExpanded,
   onToggle,
   isInternal,
+  renderDailyReport,
   onSnapshotSaved,
 }: VenueSectionProps) {
   const [editMode, setEditMode] = useState(false);
@@ -1751,6 +1760,22 @@ function VenueSection({
           />
         </div>
       )}
+      {isExpanded && renderDailyReport && group.eventCode ? (
+        <div className="border-b border-border px-4 py-4">
+          <VenueDailyReportBlock
+            eventCode={group.eventCode}
+            events={group.events}
+            dailyEntries={dailyEntries.filter((row) =>
+              venueEventIds.has(row.event_id),
+            )}
+            dailyRollups={dailyRollups.filter((row) =>
+              venueEventIds.has(row.event_id),
+            )}
+            additionalSpend={additionalSpend}
+            mode={isInternal ? "dashboard" : "share"}
+          />
+        </div>
+      ) : null}
       {!isExpanded ? null : (
       <div id={bodyId} className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-sm">
