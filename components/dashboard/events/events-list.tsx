@@ -80,6 +80,9 @@ export function EventsList({
               <Plus className="h-4 w-4" />
               New event
             </Button>
+            <Button variant="outline" onClick={() => router.push("/tiktok/new")}>
+              New TikTok campaign
+            </Button>
           </>
         }
       />
@@ -137,18 +140,16 @@ export function EventsList({
           ) : (
             <div className="space-y-2">
               {events.map((ev) => (
-                <Link
+                <div
                   key={ev.id}
-                  href={`/events/${ev.id}`}
-                  className="block rounded-md border border-border bg-card p-4 transition-colors
-                    hover:border-border-strong"
+                  className="rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong"
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium truncate">
+                        <Link href={`/events/${ev.id}`} className="truncate text-sm font-medium hover:underline">
                           {ev.name}
-                        </p>
+                        </Link>
                         <KindBadge kind={ev.kind} />
                         <StatusPill status={ev.status} kind="event" />
                       </div>
@@ -165,11 +166,19 @@ export function EventsList({
                         )}
                       </div>
                     </div>
-                    <div className="text-xs text-muted-foreground shrink-0 text-right">
-                      {ev.event_date ? fmtDate(ev.event_date) : "TBD"}
+                    <div className="shrink-0 space-y-2 text-right text-xs text-muted-foreground">
+                      <div>{ev.event_date ? fmtDate(ev.event_date) : "TBD"}</div>
+                      {(ev.tiktok_account_id || ev.client?.tiktok_account_id) && (
+                        <Link
+                          href={`/tiktok/new?client=${encodeURIComponent(ev.client_id)}&event=${encodeURIComponent(ev.id)}`}
+                          className="inline-flex rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+                        >
+                          New TikTok campaign
+                        </Link>
+                      )}
                     </div>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           )}

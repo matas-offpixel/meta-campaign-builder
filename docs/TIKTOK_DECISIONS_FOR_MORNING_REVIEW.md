@@ -113,3 +113,15 @@
 - Why: The prompt asked for 2-4 suggested ad groups; this keeps v1 predictable while preserving manual ad-group count as a future enhancement.
 - Reversibility: reversible.
 - Reviewer action needed: no.
+
+## PR-E — TikTok Campaign Library + Entry Points
+
+- Decision made: Upgrade the existing `/tiktok` skeleton route instead of creating a separate `/tiktok-campaigns` route.
+- Why: `/tiktok` was already the separate TikTok campaign area, and reusing it avoids two library URLs for the same surface.
+- Reversibility: reversible with redirects if a future route rename is desired.
+- Reviewer action needed: no.
+
+- Decision made: Client/event entry points route through `/tiktok/new` and create draft state server-side before opening `/tiktok-campaign/[id]`.
+- Why: This keeps draft creation local to Supabase and avoids adding any TikTok write surface.
+- Reversibility: reversible.
+- Reviewer action needed: no.
