@@ -72,3 +72,15 @@
 - Why: Morning sign-off closed the v1 objective enum to TRAFFIC, CONVERSIONS, VIDEO_VIEWS, REACH, AWARENESS, and ENGAGEMENT.
 - Reversibility: reversible after a future spec update.
 - Reviewer action needed: no.
+
+## PR-B — TikTok Wizard Step 2 + Step 5
+
+- Decision made: Smart+ applies a 30-day automatic schedule from the moment the toggle is enabled when the draft has no schedule yet.
+- Why: The prompt specified "start now, end +30 days" as the Smart+ default, and preserving existing explicit schedule values avoids surprising users who toggled Smart+ after entering dates.
+- Reversibility: reversible.
+- Reviewer action needed: no.
+
+- Decision made: Budget guardrails render as warnings in Steps 2/5 rather than blocking saves.
+- Why: Guardrails feed the future review-step pre-flight checks, and blocking intermediate draft saves would make partially complete drafts harder to work with.
+- Reversibility: reversible.
+- Reviewer action needed: no.
