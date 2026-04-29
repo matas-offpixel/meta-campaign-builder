@@ -1,5 +1,6 @@
 import "server-only";
 
+import { classifyCampaignFunnelStage } from "@/lib/dashboard/funnel-stage-classifier";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import { isPresaleCampaignName } from "@/lib/insights/meta-campaign-phase";
 import {
@@ -237,8 +238,10 @@ export async function fetchEventInsights(
 interface RawCampaign {
   id: string;
   name: string;
+  objective?: string;
   status?: string;
   effective_status?: string;
+  funnel_stage?: "TOFU" | "MOFU" | "BOFU" | null;
 }
 
 interface GraphPaged<T> {
@@ -258,7 +261,7 @@ async function listCampaignsForEvent(args: {
 }): Promise<RawCampaign[]> {
   const { adAccountId, eventCode, token } = args;
   const needle = `[${eventCode}]`;
-  const fields = "id,name,status,effective_status";
+  const fields = "id,name,objective,status,effective_status";
 
   // Use Meta's server-side filter so we don't drag every campaign back.
   // CONTAIN is case-sensitive on Meta's side; event codes are stored
@@ -984,7 +987,9 @@ function mapCampaignRow(
   return {
     id: campaign.id,
     name: campaign.name,
+    objective: campaign.objective ?? null,
     status: campaign.effective_status ?? campaign.status ?? "UNKNOWN",
+    funnelStage: classifyCampaignFunnelStage(campaign),
     spend,
     impressions,
     reach,
