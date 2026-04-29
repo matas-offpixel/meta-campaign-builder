@@ -9,6 +9,11 @@ import {
   fetchActiveCreativesForEvent,
 } from "@/lib/reporting/active-creatives-fetch";
 import { groupByAssetSignature } from "@/lib/reporting/group-creatives";
+import {
+  DATE_PRESETS,
+  type CustomDateRange,
+  type DatePreset,
+} from "@/lib/insights/types";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -42,13 +47,38 @@ const SHARE_GROUPS_CAP = 30;
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
+function parseDatePreset(value: string | null): DatePreset {
+  if (value === "custom") return "custom";
+  if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
+    return value as DatePreset;
+  }
+  return "maximum";
+}
+
+function parseCustomRange(
+  preset: DatePreset,
+  since: string | null,
+  until: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!since || !until) return undefined;
+  return { since, until };
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   {
     params,
   }: { params: Promise<{ token: string; event_code: string }> },
 ) {
   const { token, event_code } = await params;
+  const sp = req.nextUrl.searchParams;
+  const datePreset = parseDatePreset(sp.get("datePreset"));
+  const customRange = parseCustomRange(
+    datePreset,
+    sp.get("since"),
+    sp.get("until"),
+  );
   if (!token || token.length > 64) {
     return NextResponse.json(
       { ok: false, error: "Not found" },
@@ -65,13 +95,22 @@ export async function GET(
 
   const admin = createServiceRoleClient();
   const resolved = await resolveShareByToken(token, admin);
-  if (!resolved.ok || resolved.share.scope !== "client") {
+  if (
+    !resolved.ok ||
+    (resolved.share.scope !== "client" && resolved.share.scope !== "venue")
+  ) {
     return NextResponse.json(
       { ok: false, error: "Not found" },
       { status: 404 },
     );
   }
   const share = resolved.share;
+  if (share.scope === "venue" && share.event_code !== eventCodeRaw) {
+    return NextResponse.json(
+      { ok: false, error: "Not found" },
+      { status: 404 },
+    );
+  }
   if (!share.client_id) {
     return NextResponse.json(
       { ok: false, error: "Share missing client_id" },
@@ -139,6 +178,8 @@ export async function GET(
       adAccountId,
       eventCode: eventCodeRaw,
       token: ownerToken,
+      datePreset,
+      customRange,
       // Keep concurrency low — this route is hit once per expanded
       // card, and multiple cards may expand in quick succession on a
       // wide client like 4theFans. Two parallel cards at concurrency=3

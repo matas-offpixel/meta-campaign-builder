@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { loadVenuePortalByToken } from "@/lib/db/client-portal-server";
+import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { ClientPortalUnavailable } from "@/components/share/client-portal-unavailable";
 import {
@@ -8,6 +9,7 @@ import {
   type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * app/share/venue/[token]/page.tsx
@@ -60,6 +62,11 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
   if (!result.ok) {
     return <ClientPortalUnavailable />;
   }
+  const admin = createServiceRoleClient();
+  const linkedDrafts = await listDraftsForEventIds(
+    admin,
+    result.events.map((event) => event.id),
+  );
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -105,6 +112,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
           canEdit={result.can_edit}
           datePreset={datePreset}
           customRange={customRange}
+          linkedDrafts={linkedDrafts}
         />
       </div>
     </main>

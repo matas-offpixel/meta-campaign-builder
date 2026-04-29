@@ -159,6 +159,9 @@ export interface DailyRollupRow {
   meta_regs: number | null;
   /** TikTok clicks for this event/day. */
   tiktok_clicks: number | null;
+  source_meta_at?: string | null;
+  source_eventbrite_at?: string | null;
+  updated_at?: string;
   /** Opponent-matched portion of the allocation. NULL when
    *  allocation hasn't run. */
   ad_spend_specific: number | null;
@@ -786,7 +789,7 @@ async function fetchAllDailyRollups(
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, tiktok_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, tiktok_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, source_meta_at, source_eventbrite_at, updated_at, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
@@ -815,6 +818,9 @@ async function fetchAllDailyRollups(
         link_clicks: (r.link_clicks as number | null) ?? null,
         meta_regs: (r.meta_regs as number | null) ?? null,
         tiktok_clicks: (r.tiktok_clicks as number | null) ?? null,
+        source_meta_at: (r.source_meta_at as string | null) ?? null,
+        source_eventbrite_at: (r.source_eventbrite_at as string | null) ?? null,
+        updated_at: r.updated_at as string,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:
           (r.ad_spend_generic_share as number | null) ?? null,

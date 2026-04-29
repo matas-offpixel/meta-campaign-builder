@@ -7,6 +7,11 @@ import {
 } from "@/lib/reporting/active-creatives-fetch";
 import { groupByAssetSignature } from "@/lib/reporting/group-creatives";
 import {
+  DATE_PRESETS,
+  type CustomDateRange,
+  type DatePreset,
+} from "@/lib/insights/types";
+import {
   createClient,
   createServiceRoleClient,
 } from "@/lib/supabase/server";
@@ -52,13 +57,38 @@ const SHARE_GROUPS_CAP = 30;
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
+function parseDatePreset(value: string | null): DatePreset {
+  if (value === "custom") return "custom";
+  if (value && (DATE_PRESETS as readonly string[]).includes(value)) {
+    return value as DatePreset;
+  }
+  return "maximum";
+}
+
+function parseCustomRange(
+  preset: DatePreset,
+  since: string | null,
+  until: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!since || !until) return undefined;
+  return { since, until };
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   {
     params,
   }: { params: Promise<{ clientId: string; event_code: string }> },
 ) {
   const { clientId, event_code } = await params;
+  const sp = req.nextUrl.searchParams;
+  const datePreset = parseDatePreset(sp.get("datePreset"));
+  const customRange = parseCustomRange(
+    datePreset,
+    sp.get("since"),
+    sp.get("until"),
+  );
   if (!clientId || clientId.length > 64) {
     return NextResponse.json(
       { ok: false, error: "Invalid client id" },
@@ -159,6 +189,8 @@ export async function GET(
       adAccountId,
       eventCode: eventCodeRaw,
       token: ownerToken,
+      datePreset,
+      customRange,
       // Match the share route's concurrency budget. The internal
       // dashboard can fan several expanded venue cards at once; a
       // single in-flight /ads call per card keeps us under Meta's

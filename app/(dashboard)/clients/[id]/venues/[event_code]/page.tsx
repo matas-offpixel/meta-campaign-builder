@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { getShareForVenue } from "@/lib/db/report-shares";
+import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueShareControls } from "@/components/dashboard/clients/venue-share-controls";
 import {
   DATE_PRESETS,
@@ -120,6 +121,9 @@ export default async function ClientVenueReportPage({
   const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots.filter(
     (r) => eventIdSet.has(r.event_id),
   );
+  const linkedDrafts = await listDraftsForEventIds(supabase, [
+    ...eventIdSet,
+  ]);
 
   const venueTitle = venueEvents[0]?.venue_name ?? eventCode;
 
@@ -157,6 +161,7 @@ export default async function ClientVenueReportPage({
         londonPresaleSpend={portal.londonPresaleSpend}
         datePreset={datePreset}
         customRange={customRange}
+        linkedDrafts={linkedDrafts}
         isInternal
       />
     </div>
