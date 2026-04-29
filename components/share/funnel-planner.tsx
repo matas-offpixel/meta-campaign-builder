@@ -158,6 +158,15 @@ export function FunnelPlanner({
           costBasis={null}
         />
       </div>
+
+      <FunnelChart
+        tiers={[
+          { label: "TOFU", required: required.tofuReach, actual: data.tofu.reach },
+          { label: "MOFU", required: required.mofuReach, actual: data.mofu.reach },
+          { label: "BOFU", required: required.bofuLpv, actual: data.bofu.lpv },
+          { label: "SALE", required: data.ticketsTarget, actual: data.ticketsSold },
+        ]}
+      />
     </section>
   );
 }
@@ -363,6 +372,108 @@ function VolumeCard({
       </p>
     </div>
   );
+}
+
+function FunnelChart({
+  tiers,
+}: {
+  tiers: Array<{ label: string; required: number | null; actual: number }>;
+}) {
+  const chartWidth = 920;
+  const tierHeight = 80;
+  const gap = 10;
+  const maxRequired = Math.max(
+    1,
+    ...tiers.map((tier) => tier.required ?? 0),
+  );
+
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+        <h3 className="font-heading text-base tracking-wide">Visual funnel</h3>
+        <p className="text-xs text-muted-foreground">
+          Fill shows actual progress toward required volume
+        </p>
+      </div>
+      <svg
+        viewBox={`0 0 ${chartWidth} ${tiers.length * (tierHeight + gap) - gap}`}
+        role="img"
+        aria-label="Required funnel volumes versus actual progress"
+        className="h-auto w-full overflow-visible"
+      >
+        {tiers.map((tier, index) => {
+          const y = index * (tierHeight + gap);
+          const topWidth = widthForTier(tier.required, maxRequired, chartWidth);
+          const nextRequired = tiers[index + 1]?.required ?? tier.required;
+          const bottomWidth = widthForTier(nextRequired, maxRequired, chartWidth);
+          const progress =
+            tier.required && tier.required > 0
+              ? Math.min(1, tier.actual / tier.required)
+              : 0;
+          const topFill = topWidth * progress;
+          const bottomFill = bottomWidth * progress;
+          const center = chartWidth / 2;
+          const bgPoints = trapezoidPoints(center, y, topWidth, bottomWidth, tierHeight);
+          const fillPoints = trapezoidPoints(center, y, topFill, bottomFill, tierHeight);
+          const pct = tier.required && tier.required > 0 ? progress * 100 : null;
+          return (
+            <g key={tier.label}>
+              <polygon points={bgPoints} className="fill-muted stroke-border" />
+              <polygon points={fillPoints} className={fillClass(pct)} />
+              <text
+                x={center}
+                y={y + 34}
+                textAnchor="middle"
+                className="fill-foreground font-heading text-[20px] tracking-wide"
+              >
+                {tier.label} · {tier.required == null ? "TBC" : fmtInt(Math.ceil(tier.required))}
+              </text>
+              <text
+                x={center}
+                y={y + 58}
+                textAnchor="middle"
+                className="fill-muted-foreground text-[14px]"
+              >
+                Actual {fmtInt(tier.actual)}
+                {pct == null ? "" : ` · ${pct.toFixed(0)}%`}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </section>
+  );
+}
+
+function widthForTier(
+  required: number | null,
+  maxRequired: number,
+  chartWidth: number,
+): number {
+  if (required == null || required <= 0) return chartWidth * 0.36;
+  const ratio = required / maxRequired;
+  return chartWidth * (0.36 + ratio * 0.58);
+}
+
+function trapezoidPoints(
+  center: number,
+  y: number,
+  topWidth: number,
+  bottomWidth: number,
+  height: number,
+): string {
+  const topLeft = center - topWidth / 2;
+  const topRight = center + topWidth / 2;
+  const bottomLeft = center - bottomWidth / 2;
+  const bottomRight = center + bottomWidth / 2;
+  return `${topLeft},${y} ${topRight},${y} ${bottomRight},${y + height} ${bottomLeft},${y + height}`;
+}
+
+function fillClass(pct: number | null): string {
+  if (pct == null) return "fill-muted-foreground/20";
+  if (pct >= 100) return "fill-emerald-500/70";
+  if (pct >= 75) return "fill-amber-500/70";
+  return "fill-red-500/70";
 }
 
 function requiredVolumes(data: ReturnType<typeof aggregateFunnelData>): {
