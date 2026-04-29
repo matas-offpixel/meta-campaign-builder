@@ -80,10 +80,10 @@ export interface PortalClient {
 
 /**
  * One day's tracker entry for one event. Mirrors the
- * `daily_tracking_entries` row introduced in migration 025; the UI
- * (`components/share/daily-tracker.tsx`) groups entries by event_id
- * and pads any missing calendar days between the earliest entry and
- * today so the venue table can show a continuous timeline.
+ * legacy `daily_tracking_entries` row introduced in migration 025.
+ * The current venue trend surface reads `dailyRollups`; this payload
+ * remains for older JSON/API consumers while the dashboard's active
+ * editable tracker writes through `event_daily_rollups`.
  *
  * All numeric fields are nullable: a partial-day entry (spend
  * recorded but tickets not yet reported) is a valid intermediate
