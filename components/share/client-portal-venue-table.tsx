@@ -833,14 +833,12 @@ export function ClientPortalVenueTable({
   //                    render doesn't silently re-apply a default.
   //   new Set([...]) — operator's explicit open-set.
   //
-  // Lazy-initialised from `window.location.hash` so the first render
-  // already has the correct set when the browser has one — no
-  // frame-one flicker of collapsed → hash-target.
-  const [hashOverride, setHashOverride] = useState<Set<string> | null>(() => {
-    if (typeof window === "undefined") return null;
-    const fromHash = parseExpandedHash(window.location.hash);
-    return fromHash.size > 0 ? fromHash : null;
-  });
+  // Keep the first client render identical to SSR. Reading
+  // `window.location.hash` in the state initializer makes deep-linked
+  // pages hydrate with expanded sections that the server never
+  // rendered, which trips React hydration error #418. The effect below
+  // applies any hash immediately after hydration.
+  const [hashOverride, setHashOverride] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -848,6 +846,7 @@ export function ClientPortalVenueTable({
       const next = parseExpandedHash(window.location.hash);
       setHashOverride(next.size > 0 ? next : null);
     };
+    onChange();
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
