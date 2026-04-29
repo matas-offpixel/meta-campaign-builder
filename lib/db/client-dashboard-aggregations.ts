@@ -218,13 +218,17 @@ export function aggregateClientWideTotals(
   extraAdSpend = 0,
 ): ClientWideTotals {
   const eventIds = new Set(events.map((e) => e.id));
+  const eventGroupSizes = eventGroupSizesById(events);
 
   // Sum across allowed events only — guards against stray rows that
   // belong to a different client slipping into the arrays.
   let adSpend = 0;
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
-    adSpend += paidSpendOf(r);
+    adSpend += clientWidePaidSpendOf(
+      r,
+      (eventGroupSizes.get(r.event_id) ?? 1) > 1,
+    );
   }
   adSpend += extraAdSpend;
 
@@ -301,6 +305,40 @@ function groupKey(ev: {
 }): string {
   if (!ev.event_code) return `__solo__::${ev.id}`;
   return `${ev.event_code}::${ev.event_date ?? ""}`;
+}
+
+function eventGroupSizesById(events: AggregatableEvent[]): Map<string, number> {
+  const groupSizes = new Map<string, number>();
+  for (const ev of events) {
+    const key = groupKey(ev);
+    groupSizes.set(key, (groupSizes.get(key) ?? 0) + 1);
+  }
+
+  const byEventId = new Map<string, number>();
+  for (const ev of events) {
+    byEventId.set(ev.id, groupSizes.get(groupKey(ev)) ?? 1);
+  }
+  return byEventId;
+}
+
+function clientWidePaidSpendOf(
+  row: DailyRollupRow,
+  rawMetaSpendIsDuplicated: boolean,
+): number {
+  if (row.ad_spend_allocated != null || row.ad_spend_presale != null) {
+    return paidSpendOf({
+      ad_spend: (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0),
+      tiktok_spend: row.tiktok_spend,
+    });
+  }
+
+  return paidSpendOf({
+    // Multi-event venue raw Meta rows store the full venue total on
+    // every sibling event. Until the allocator covers that date, do
+    // not let duplicated raw Meta spend inflate the client headline.
+    ad_spend: rawMetaSpendIsDuplicated ? null : row.ad_spend,
+    tiktok_spend: row.tiktok_spend,
+  });
 }
 
 export interface VenueGroupTotals {
