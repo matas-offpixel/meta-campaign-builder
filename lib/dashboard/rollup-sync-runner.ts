@@ -32,6 +32,7 @@ import {
   runTikTokRollupLeg,
   type TikTokRollupDeps,
 } from "@/lib/dashboard/tiktok-rollup-leg";
+import { shouldInvokeVenueAllocator } from "@/lib/dashboard/venue-allocator-trigger";
 
 /**
  * lib/dashboard/rollup-sync-runner.ts
@@ -88,9 +89,9 @@ export interface RollupSyncInput {
    *  Null short-circuits the allocator leg without failing the
    *  sync (old callers pre-D2 keep working). */
   clientId?: string | null;
-  /** Event's `event_date` — part of the venue key (event_code +
-   *  date) the allocator uses to find siblings. Null short-
-   *  circuits the allocator leg. */
+  /** Event's `event_date` — part of the venue key when present.
+   *  Null-date imported venue groups still run allocation, grouped
+   *  under (client_id, event_code, event_date IS NULL). */
   eventDate?: string | null;
   /** Event-level TikTok account FK. Falls back to `clientTikTokAccountId`. */
   eventTikTokAccountId?: string | null;
@@ -190,9 +191,9 @@ export interface SyncDiagnostics {
   todayRowAfterSync: TodayRowProbe | null;
   /**
    * Summary of the per-event spend allocator leg (PR D2). `null`
-   * when the allocator didn't run (no event_code, no event_date,
-   * no client_id — old callers that haven't opted in, or solo-
-   * event venues where allocation is a no-op). When present, it
+   * when the allocator didn't run (no event_code, no client_id —
+   * old callers that haven't opted in, or solo-event venues where
+   * allocation is a no-op). When present, it
    * reports the sibling count, distinct ad names seen, rows
    * written, and the per-event lifetime breakdown — the last is
    * what the post-deploy verification step prints to confirm
@@ -578,21 +579,28 @@ export async function runRollupSyncForEvent(
   // The existing `ad_spend` column stays valid and the reporting
   // layer falls back to it when `ad_spend_allocated` is null.
   if (
-    metaResult.ok &&
-    eventCode &&
-    adAccountId &&
-    clientId &&
-    eventDate
+    shouldInvokeVenueAllocator({
+      metaOk: metaResult.ok,
+      eventCode,
+      adAccountId,
+      clientId,
+    })
   ) {
     try {
+      const allocatorClientId = clientId as string;
+      const allocatorEventCode = eventCode as string;
+      const allocatorAdAccountId = adAccountId as string;
+      console.info(
+        `[rollup-sync] allocator invoking event_code=${allocatorEventCode} client_id=${allocatorClientId} event_date=${eventDate ?? "<null>"} window=${sinceStr}..${untilStr}`,
+      );
       const { token } = await resolveServerMetaToken(supabase, userId);
       const allocator = await allocateVenueSpendForCode({
         supabase,
         userId,
-        clientId,
-        eventCode,
-        eventDate,
-        adAccountId,
+        clientId: allocatorClientId,
+        eventCode: allocatorEventCode,
+        eventDate: eventDate ?? null,
+        adAccountId: allocatorAdAccountId,
         token,
         since: sinceStr,
         until: untilStr,
@@ -633,7 +641,7 @@ export async function runRollupSyncForEvent(
     console.log(
       `[rollup-sync] allocator not invoked (clientId=${
         clientId ?? "<null>"
-      } eventDate=${eventDate ?? "<null>"})`,
+      } eventCode=${eventCode ?? "<null>"} adAccountId=${adAccountId ?? "<null>"})`,
     );
   }
 

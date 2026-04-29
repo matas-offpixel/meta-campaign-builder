@@ -104,6 +104,10 @@ export async function POST(req: NextRequest) {
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
 
+  console.info(
+    `[rollup-sync/route] invoking runner event_id=${eventId} event_code=${eventCode ?? "<null>"} client_id=${clientId ?? "<null>"} event_date=${eventDate ?? "<null>"} ad_account=${adAccountId ?? "<null>"}`,
+  );
+
   const result = await runRollupSyncForEvent({
     supabase,
     eventId,

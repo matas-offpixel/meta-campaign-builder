@@ -20,7 +20,8 @@ import {
  * a side-effectful runner:
  *
  *   1. Look up every event in the venue (same `event_code` + same
- *      `event_date`, under the same `client_id`).
+ *      `event_date` when present, or the null-date group under the
+ *      same `client_id`).
  *   2. Pull ad-level daily insights from Meta for the bracketed
  *      `[event_code]`, reconciled against campaign-level spend so
  *      inactive/off campaigns and rows without ad granularity still
@@ -89,8 +90,8 @@ export interface VenueAllocatorInput {
    *  wraps it in brackets. */
   eventCode: string;
   /** YYYY-MM-DD `events.event_date` shared by the venue siblings.
-   *  Null short-circuits with reason="no_event_date" — can't
-   *  group without a date. */
+   *  Null is valid for imported venue groups; those are grouped by
+   *  (client_id, event_code, event_date IS NULL). */
   eventDate: string | null;
   /** "act_…" prefixed ad account id. Null short-circuits the
    *  fetch. */
@@ -203,7 +204,14 @@ export async function allocateVenueSpendForCode(
     until,
   } = input;
 
+  console.info(
+    `[venue-spend-allocator] start event_code=${eventCode ?? "<null>"} client_id=${clientId} event_date=${eventDate ?? "<null>"} ad_account=${adAccountId ?? "<null>"} window=${since}..${until}`,
+  );
+
   if (!eventCode || !eventCode.trim()) {
+    console.info(
+      `[venue-spend-allocator] early-return reason=no_event_code client_id=${clientId} event_date=${eventDate ?? "<null>"}`,
+    );
     return EMPTY_RESULT({
       reason: "no_event_code",
       error: "Event has no event_code set.",
@@ -212,6 +220,9 @@ export async function allocateVenueSpendForCode(
     });
   }
   if (!adAccountId) {
+    console.info(
+      `[venue-spend-allocator] early-return reason=no_ad_account event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"}`,
+    );
     return EMPTY_RESULT({
       reason: "no_ad_account",
       error: "Client has no Meta ad account linked.",
@@ -236,6 +247,9 @@ export async function allocateVenueSpendForCode(
     ? await siblingQuery.eq("event_date", eventDate)
     : await siblingQuery.is("event_date", null);
   if (siblingsErr) {
+    console.info(
+      `[venue-spend-allocator] early-return reason=upsert_failed stage=sibling_lookup event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${siblingsErr.message}`,
+    );
     return EMPTY_RESULT({
       reason: "upsert_failed",
       error: siblingsErr.message,
@@ -245,6 +259,9 @@ export async function allocateVenueSpendForCode(
   }
   const siblingRows = (siblings ?? []) as Array<{ id: string; name: string | null }>;
   if (siblingRows.length === 0) {
+    console.info(
+      `[venue-spend-allocator] early-return reason=no_siblings event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"}`,
+    );
     return EMPTY_RESULT({
       reason: "no_siblings",
       error: "No events found for this (client, event_code, event_date).",
@@ -258,6 +275,9 @@ export async function allocateVenueSpendForCode(
   // says. Skip the extra Meta fetch + upsert and keep the rollup
   // reader on the fallback path.
   if (siblingRows.length === 1) {
+    console.info(
+      `[venue-spend-allocator] early-return reason=solo_event_skipped event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} sibling=${siblingRows[0].id}`,
+    );
     return EMPTY_RESULT({
       ok: true,
       reason: "solo_event_skipped",
@@ -312,6 +332,9 @@ export async function allocateVenueSpendForCode(
     until,
   });
   if (!adFetch.ok) {
+    console.info(
+      `[venue-spend-allocator] early-return reason=meta_fetch_failed event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${adFetch.error.message}`,
+    );
     return EMPTY_RESULT({
       reason: "meta_fetch_failed",
       error: adFetch.error.message,
@@ -558,9 +581,13 @@ export async function allocateVenueSpendForCode(
       });
       rowsWritten += rows.length;
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.info(
+        `[venue-spend-allocator] early-return reason=upsert_failed event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} event_id=${eventId} msg=${message}`,
+      );
       return EMPTY_RESULT({
         reason: "upsert_failed",
-        error: err instanceof Error ? err.message : "Unknown error",
+        error: message,
         venueEventIds: allocatorEvents.map((e) => e.id),
         adNames: adFetch.adNames,
         rowsWritten,
