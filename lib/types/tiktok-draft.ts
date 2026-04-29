@@ -12,6 +12,7 @@ export interface TikTokCampaignDraft {
   creatives: TikTokCreatives;
   budgetSchedule: TikTokBudgetSchedule;
   creativeAssignments: TikTokCreativeAssignments;
+  reviewReadyAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -198,6 +199,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       adGroups: [],
     },
     creativeAssignments: { byAdGroupId: {} },
+    reviewReadyAt: null,
     createdAt: now,
     updatedAt: now,
   };

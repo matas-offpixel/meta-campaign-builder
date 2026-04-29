@@ -101,3 +101,15 @@
 - Why: Morning sign-off said placeholder only in v1.
 - Reversibility: reversible when Spark Ads are scoped.
 - Reviewer action needed: no.
+
+## PR-D — TikTok Wizard Step 6 + Step 7
+
+- Decision made: Do not add `review_ready` to the `tiktok_campaign_drafts.status` check constraint.
+- Why: Launch is still a placeholder and adding a status would require a migration for a state that is not yet operational. The UI stores `reviewReadyAt` inside draft JSON instead.
+- Reversibility: reversible with a future migration when launch workflow semantics are final.
+- Reviewer action needed: no.
+
+- Decision made: Step 6 suggests 2 ad groups for Smart+ drafts and 3 ad groups for manual drafts.
+- Why: The prompt asked for 2-4 suggested ad groups; this keeps v1 predictable while preserving manual ad-group count as a future enhancement.
+- Reversibility: reversible.
+- Reviewer action needed: no.
