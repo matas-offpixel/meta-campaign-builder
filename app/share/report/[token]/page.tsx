@@ -56,7 +56,7 @@ import {
 } from "@/lib/db/share-snapshots";
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
 import type { TikTokShareAdRow } from "@/lib/tiktok/share-render";
-import { fetchTikTokAdsForShare } from "@/lib/tiktok/share-render";
+import { readActiveTikTokCreativesSnapshot } from "@/lib/tiktok/snapshots";
 import {
   isSnapshotFresh,
   readActiveCreativesSnapshot,
@@ -473,7 +473,6 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           admin,
           eventId: event_id,
           eventCode: event.eventCode,
-          tiktokAccountId: event.tiktokAccountId,
           base: tiktokBase,
           rollups: eventDailyData.rollups,
           eventDate: event.eventDate,
@@ -1036,7 +1035,6 @@ interface ResolveTikTokHybridInput {
   admin: ReturnType<typeof createServiceRoleClient>;
   eventId: string;
   eventCode: string;
-  tiktokAccountId: string | null;
   base: TikTokReportBlockData;
   rollups: EventDailyRollup[];
   eventDate: string | null;
@@ -1050,20 +1048,15 @@ async function resolveTikTokHybridReport(
 ): Promise<TikTokReportBlockData> {
   const window = resolveTikTokWindow(input);
   const liveTotals = aggregateTikTokRollups(input.rollups, window);
-  let ads: TikTokShareAdRow[] = [];
-  try {
-    ads = await fetchTikTokAdsForShare({
-      supabase: input.admin,
-      tiktokAccountId: input.tiktokAccountId,
-      eventCode: input.eventCode,
-      since: window.since,
-      until: window.until,
-    });
-  } catch (err) {
+  const snapshot = await readActiveTikTokCreativesSnapshot(
+    input.admin,
+    input.eventId,
+    window,
+  );
+  const ads: TikTokShareAdRow[] = snapshot?.rows ?? [];
+  if (!snapshot) {
     console.warn(
-      `[share/report] live TikTok ad fetch failed for token=${input.token}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      `[share/report] TikTok ads snapshot unavailable for token=${input.token}`,
     );
   }
 

@@ -18,6 +18,10 @@
       "schedule": "15 */6 * * *"
     },
     {
+      "path": "/api/cron/tiktok-active-creatives",
+      "schedule": "15 */6 * * *"
+    },
+    {
       "path": "/api/cron/d2c-send",
       "schedule": "*/5 * * * *"
     }
