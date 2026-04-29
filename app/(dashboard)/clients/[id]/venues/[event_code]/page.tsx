@@ -8,6 +8,11 @@ import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { getShareForVenue } from "@/lib/db/report-shares";
 import { VenueShareControls } from "@/components/dashboard/clients/venue-share-controls";
+import {
+  DATE_PRESETS,
+  type CustomDateRange,
+  type DatePreset,
+} from "@/lib/insights/types";
 
 /**
  * /clients/[id]/venues/[event_code]
@@ -40,13 +45,26 @@ import { VenueShareControls } from "@/components/dashboard/clients/venue-share-c
  */
 interface Props {
   params: Promise<{ id: string; event_code: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function ClientVenueReportPage({ params }: Props) {
-  const { id, event_code: eventCodeRaw } = await params;
+export default async function ClientVenueReportPage({
+  params,
+  searchParams,
+}: Props) {
+  const [{ id, event_code: eventCodeRaw }, sp] = await Promise.all([
+    params,
+    searchParams,
+  ]);
+  const datePreset = parseDatePreset(sp.tf);
+  const customRange = parseCustomRange(
+    datePreset,
+    pickQueryParam(sp.from),
+    pickQueryParam(sp.to),
+  );
   const eventCode = decodeURIComponent(eventCodeRaw);
 
   const supabase = await createClient();
@@ -137,8 +155,36 @@ export default async function ClientVenueReportPage({ params }: Props) {
         weeklyTicketSnapshots={venueWeeklyTicketSnapshots}
         londonOnsaleSpend={portal.londonOnsaleSpend}
         londonPresaleSpend={portal.londonPresaleSpend}
+        datePreset={datePreset}
+        customRange={customRange}
         isInternal
       />
     </div>
   );
+}
+
+function parseDatePreset(value: string | string[] | undefined): DatePreset {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === "custom") return "custom";
+  if (raw && (DATE_PRESETS as readonly string[]).includes(raw)) {
+    return raw as DatePreset;
+  }
+  return "maximum";
+}
+
+function pickQueryParam(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function parseCustomRange(
+  preset: DatePreset,
+  from: string | null,
+  to: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!from || !to) return undefined;
+  return { since: from, until: to };
 }
