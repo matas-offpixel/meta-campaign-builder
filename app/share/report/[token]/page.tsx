@@ -38,6 +38,7 @@ import { ShareActiveCreativesSkeleton } from "@/components/share/share-active-cr
 import { ShareActiveCreativesWarming } from "@/components/share/share-active-creatives-warming";
 import { ActiveCreativesStaleBanner } from "@/components/share/active-creatives-stale-banner";
 import { listLinksForEvent } from "@/lib/db/ticketing";
+import type { TikTokCampaignTotals } from "@/lib/types/tiktok";
 import {
   computePresaleBucket,
   loadEventDailyTimeline,
@@ -53,6 +54,9 @@ import {
   writeShareSnapshot,
   type ShareSnapshotPayload,
 } from "@/lib/db/share-snapshots";
+import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
+import type { TikTokShareAdRow } from "@/lib/tiktok/share-render";
+import { fetchTikTokAdsForShare } from "@/lib/tiktok/share-render";
 import {
   isSnapshotFresh,
   readActiveCreativesSnapshot,
@@ -179,6 +183,7 @@ interface ResolvedEvent {
    *  'daily' for any event that pre-dates the column. */
   reportCadence: "daily" | "weekly";
   capacity: number | null;
+  tiktokAccountId: string | null;
 }
 
 export default async function PublicReportPage({ params, searchParams }: Props) {
@@ -248,7 +253,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, client:clients ( meta_ad_account_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -274,12 +279,15 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   }
 
   const clientRel = eventRow.data.client as
-    | { meta_ad_account_id: string | null }
-    | { meta_ad_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
     : (clientRel?.meta_ad_account_id ?? null);
+  const clientTikTokAccountId = Array.isArray(clientRel)
+    ? (clientRel[0]?.tiktok_account_id ?? null)
+    : (clientRel?.tiktok_account_id ?? null);
 
   // Plan-side cumulative wins when present — see the JSDoc on
   // `getLatestTicketsSoldForEvent` for the rationale (dated history,
@@ -339,6 +347,9 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         ? "weekly"
         : "daily",
     capacity: (eventRow.data.capacity as number | null) ?? null,
+    tiktokAccountId:
+      ((eventRow.data.tiktok_account_id as string | null) ?? null) ??
+      clientTikTokAccountId,
   };
 
   // Bump the view counter best-effort — non-blocking.
@@ -407,24 +418,6 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     ? true
     : creativesResult?.kind === "ok" && creativesResult.groups.length > 0;
 
-  // Final fatal branch: only when there is genuinely nothing to
-  // render — no Meta payload, no TikTok snapshot, and no usable
-  // creatives. ReportUnavailable's reason diagnostic uses the Meta
-  // error if we have one; otherwise we fall back to `no_ad_account`
-  // (the most common cause of a TikTok-only client also lacking a
-  // TikTok import).
-  if (!metaPayload && !tiktokRow && !creativesHaveContent) {
-    return (
-      <ReportUnavailable
-        eventName={event.name}
-        venueName={event.venueName}
-        venueCity={event.venueCity}
-        eventDate={event.eventDate}
-        reason={metaErrorReason ?? "no_ad_account"}
-      />
-    );
-  }
-
   // Partial-render flag: drop the headline metric grid but keep
   // the creatives + timeframe selector + muted banner. Only when
   // the headline call actually failed AND the creative breakdown
@@ -468,6 +461,42 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     eventDailyData.rollups,
     event.generalSaleAt,
   );
+  const tiktokBase =
+    tiktokRow ??
+    buildEmptyTikTokBlockData({
+      eventName: event.name,
+      rollups: eventDailyData.rollups,
+    });
+  const tiktokRowResolved =
+    tiktokBase && event.eventCode
+      ? await resolveTikTokHybridReport({
+          admin,
+          eventId: event_id,
+          eventCode: event.eventCode,
+          tiktokAccountId: event.tiktokAccountId,
+          base: tiktokBase,
+          rollups: eventDailyData.rollups,
+          eventDate: event.eventDate,
+          eventStartAt: event.eventStartAt,
+          campaignEndAt: (eventRow.data.campaign_end_at as string | null) ?? null,
+          token,
+        })
+      : tiktokBase;
+
+  // Final fatal branch: only when there is genuinely nothing to
+  // render — no Meta payload, no TikTok live/manual block, and no
+  // usable creatives.
+  if (!metaPayload && !tiktokRowResolved && !creativesHaveContent) {
+    return (
+      <ReportUnavailable
+        eventName={event.name}
+        venueName={event.venueName}
+        venueCity={event.venueCity}
+        eventDate={event.eventDate}
+        reason={metaErrorReason ?? "no_ad_account"}
+      />
+    );
+  }
   const eventDailySlot = (
     <EventDailyReportBlock
       mode="share"
@@ -554,7 +583,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         capacity: event.capacity,
       }}
       meta={metaPayload}
-      tiktok={tiktokRow}
+      tiktok={tiktokRowResolved}
       shareToken={token}
       datePreset={datePreset}
       customRange={customRange}
@@ -1001,6 +1030,193 @@ async function DeferredCreativesSlot({
     return <ShareActiveCreativesWarming />;
   }
   return <ShareActiveCreativesSection result={result} />;
+}
+
+interface ResolveTikTokHybridInput {
+  admin: ReturnType<typeof createServiceRoleClient>;
+  eventId: string;
+  eventCode: string;
+  tiktokAccountId: string | null;
+  base: TikTokReportBlockData;
+  rollups: EventDailyRollup[];
+  eventDate: string | null;
+  eventStartAt: string | null;
+  campaignEndAt: string | null;
+  token: string;
+}
+
+async function resolveTikTokHybridReport(
+  input: ResolveTikTokHybridInput,
+): Promise<TikTokReportBlockData> {
+  const window = resolveTikTokWindow(input);
+  const liveTotals = aggregateTikTokRollups(input.rollups, window);
+  let ads: TikTokShareAdRow[] = [];
+  try {
+    ads = await fetchTikTokAdsForShare({
+      supabase: input.admin,
+      tiktokAccountId: input.tiktokAccountId,
+      eventCode: input.eventCode,
+      since: window.since,
+      until: window.until,
+    });
+  } catch (err) {
+    console.warn(
+      `[share/report] live TikTok ad fetch failed for token=${input.token}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const campaign: TikTokCampaignTotals = {
+    ...input.base.snapshot.campaign,
+    campaign_name: input.base.campaign_name,
+    primary_status: input.base.snapshot.campaign?.primary_status ?? "UNKNOWN",
+    currency: input.base.snapshot.campaign?.currency ?? "GBP",
+    cost: liveTotals.spend,
+    impressions: liveTotals.impressions,
+    impressions_raw: null,
+    reach: null,
+    cost_per_1000_reached: null,
+    frequency: null,
+    clicks_all: liveTotals.clicks,
+    ctr_all:
+      liveTotals.impressions > 0
+        ? (liveTotals.clicks / liveTotals.impressions) * 100
+        : null,
+    cpm:
+      liveTotals.impressions > 0
+        ? (liveTotals.spend / liveTotals.impressions) * 1000
+        : null,
+    clicks_destination: liveTotals.clicks,
+    cpc_destination:
+      liveTotals.clicks > 0 ? liveTotals.spend / liveTotals.clicks : null,
+    ctr_destination:
+      liveTotals.impressions > 0
+        ? (liveTotals.clicks / liveTotals.impressions) * 100
+        : null,
+    video_views_2s: null,
+    video_views_6s: null,
+    video_views_p100: liveTotals.videoViews100p,
+    video_views_p25: input.base.snapshot.campaign?.video_views_p25 ?? null,
+    video_views_p50: input.base.snapshot.campaign?.video_views_p50 ?? null,
+    video_views_p75: input.base.snapshot.campaign?.video_views_p75 ?? null,
+    avg_play_time_per_user: null,
+    avg_play_time_per_video_view:
+      input.base.snapshot.campaign?.avg_play_time_per_video_view ?? null,
+    interactive_addon_impressions:
+      input.base.snapshot.campaign?.interactive_addon_impressions ?? null,
+    interactive_addon_destination_clicks:
+      input.base.snapshot.campaign?.interactive_addon_destination_clicks ?? null,
+  };
+
+  return {
+    ...input.base,
+    fetched_at: liveTotals.fetchedAt,
+    date_range_start: window.since,
+    date_range_end: window.until,
+    snapshot: {
+      ...input.base.snapshot,
+      campaign,
+      ads: ads.length > 0 ? ads : input.base.snapshot.ads,
+      // Manual XLSX imports remain authoritative for these breakdowns.
+      geo: input.base.snapshot.geo,
+      demographics: input.base.snapshot.demographics,
+      interests: input.base.snapshot.interests,
+    },
+  };
+}
+
+function buildEmptyTikTokBlockData(input: {
+  eventName: string;
+  rollups: EventDailyRollup[];
+}): TikTokReportBlockData | null {
+  const rows = input.rollups.filter((row) => (row.tiktok_spend ?? 0) > 0);
+  if (rows.length === 0) return null;
+  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    id: "live-rollup",
+    campaign_name: `${input.eventName} TikTok`,
+    date_range_start: sorted[0]?.date ?? todayYmd(),
+    date_range_end: sorted[sorted.length - 1]?.date ?? todayYmd(),
+    imported_at:
+      sorted[sorted.length - 1]?.source_tiktok_at ?? new Date(0).toISOString(),
+    snapshot: {
+      v: 1,
+      fetchedAt:
+        sorted[sorted.length - 1]?.source_tiktok_at ?? new Date().toISOString(),
+      date_range_start: sorted[0]?.date ?? todayYmd(),
+      date_range_end: sorted[sorted.length - 1]?.date ?? todayYmd(),
+      campaign: null,
+      ads: [],
+      geo: [],
+      demographics: [],
+      interests: [],
+      searchTerms: [],
+    },
+  };
+}
+
+function aggregateTikTokRollups(
+  rows: EventDailyRollup[],
+  window: { since: string; until: string },
+): {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  videoViews100p: number;
+  fetchedAt: string | null;
+} {
+  let spend = 0;
+  let impressions = 0;
+  let clicks = 0;
+  let videoViews100p = 0;
+  let fetchedAt: string | null = null;
+  for (const row of rows) {
+    if (row.date < window.since || row.date > window.until) continue;
+    if ((row.tiktok_spend ?? 0) <= 0) continue;
+    spend += Number(row.tiktok_spend ?? 0);
+    impressions += Number(row.tiktok_impressions ?? 0);
+    clicks += Number(row.tiktok_clicks ?? 0);
+    videoViews100p += Number(row.tiktok_video_views ?? 0);
+    if (row.source_tiktok_at && (!fetchedAt || row.source_tiktok_at > fetchedAt)) {
+      fetchedAt = row.source_tiktok_at;
+    }
+  }
+  return {
+    spend: Math.round(spend * 100) / 100,
+    impressions: Math.round(impressions),
+    clicks: Math.round(clicks),
+    videoViews100p: Math.round(videoViews100p),
+    fetchedAt,
+  };
+}
+
+function resolveTikTokWindow(input: ResolveTikTokHybridInput): {
+  since: string;
+  until: string;
+} {
+  const since =
+    ymd(input.eventStartAt) ??
+    ymd(input.base.date_range_start) ??
+    ymd(input.eventDate) ??
+    todayYmd();
+  const until =
+    ymd(input.campaignEndAt) ??
+    ymd(input.base.date_range_end) ??
+    ymd(input.eventDate) ??
+    todayYmd();
+  return since <= until ? { since, until } : { since: until, until: since };
+}
+
+function ymd(value: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+
+function todayYmd(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /**
