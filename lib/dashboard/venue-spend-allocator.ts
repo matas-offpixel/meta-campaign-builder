@@ -211,14 +211,6 @@ export async function allocateVenueSpendForCode(
       windowUntil: until,
     });
   }
-  if (!eventDate) {
-    return EMPTY_RESULT({
-      reason: "no_event_date",
-      error: "Event has no event_date set.",
-      windowSince: since,
-      windowUntil: until,
-    });
-  }
   if (!adAccountId) {
     return EMPTY_RESULT({
       reason: "no_ad_account",
@@ -229,16 +221,20 @@ export async function allocateVenueSpendForCode(
   }
 
   // Sibling lookup — every event at this venue. `event_date` is
-  // included in the key so a venue that happens to reuse the same
-  // event_code across two tour dates (rare, but possible) stays
-  // split across two allocation passes.
+  // included in the key when present so a venue that happens to reuse
+  // the same event_code across two tour dates (rare, but possible)
+  // stays split across two allocation passes. Some imported 4tF venue
+  // groups have null event_date; those still form a valid venue group
+  // and should allocate together under (client_id, event_code, null).
   const client = supabase as unknown as SupabaseClient;
-  const { data: siblings, error: siblingsErr } = await client
+  const siblingQuery = client
     .from("events")
     .select("id, name")
     .eq("client_id", clientId)
-    .eq("event_code", eventCode)
-    .eq("event_date", eventDate);
+    .eq("event_code", eventCode);
+  const { data: siblings, error: siblingsErr } = eventDate
+    ? await siblingQuery.eq("event_date", eventDate)
+    : await siblingQuery.is("event_date", null);
   if (siblingsErr) {
     return EMPTY_RESULT({
       reason: "upsert_failed",
