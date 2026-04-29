@@ -13,6 +13,7 @@ import type {
 } from "@/lib/db/client-portal-server";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
 import { ClientPortalVenueTable } from "./client-portal-venue-table";
+import { VenueDailyReportBlock } from "./venue-daily-report-block";
 
 /**
  * Shape the portal table hands back on a successful ticket save.
@@ -135,6 +136,14 @@ export function VenueFullReport({
 
   return (
     <div className="space-y-6">
+      <VenueDailyReportBlock
+        eventCode={eventCode}
+        events={events}
+        dailyEntries={dailyEntries}
+        dailyRollups={dailyRollups}
+        additionalSpend={additionalSpend}
+        mode={mode}
+      />
       <ClientPortalVenueTable
         token={token}
         clientId={clientId}

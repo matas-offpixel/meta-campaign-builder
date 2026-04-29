@@ -41,6 +41,8 @@ export interface PortalEvent {
   venue_country: string | null;
   capacity: number | null;
   event_date: string | null;
+  general_sale_at: string | null;
+  report_cadence: "daily" | "weekly";
   budget_marketing: number | null;
   /**
    * Meta campaign id covering this event (migration 023). All events at
@@ -153,6 +155,8 @@ export interface DailyRollupRow {
   revenue: number | null;
   /** Meta link clicks for this event/day. */
   link_clicks: number | null;
+  /** Meta complete_registration actions for this event/day. */
+  meta_regs: number | null;
   /** TikTok clicks for this event/day. */
   tiktok_clicks: number | null;
   /** Opponent-matched portion of the allocation. NULL when
@@ -189,7 +193,9 @@ export interface DailyRollupRow {
  */
 export interface AdditionalSpendRow {
   event_id: string;
+  date: string;
   amount: number;
+  category: string;
   scope: "event" | "venue";
   venue_event_code: string | null;
 }
@@ -444,7 +450,7 @@ async function loadPortalForClientId(
   const { data: events, error: eventsErr } = await admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached",
     )
     .eq("client_id", clientId)
     .order("event_date", { ascending: true, nullsFirst: false });
@@ -631,7 +637,9 @@ async function loadPortalForClientId(
         .map((r) => {
           const row = r as unknown as {
             event_id: string;
+            date: string;
             amount: number | string | null;
+            category?: string | null;
             scope?: string | null;
             venue_event_code?: string | null;
           };
@@ -639,10 +647,12 @@ async function loadPortalForClientId(
           const scope = rawScope === "venue" ? "venue" : "event";
           return {
             event_id: row.event_id,
+            date: row.date,
             amount:
               typeof row.amount === "number"
                 ? row.amount
                 : Number(row.amount ?? 0),
+            category: row.category ?? "OTHER",
             scope,
             venue_event_code:
               scope === "venue" ? (row.venue_event_code ?? null) : null,
@@ -688,6 +698,11 @@ async function loadPortalForClientId(
         venue_country: e.venue_country,
         capacity: e.capacity,
         event_date: e.event_date,
+        general_sale_at: e.general_sale_at,
+        report_cadence:
+          e.report_cadence === "weekly" || e.report_cadence === "daily"
+            ? e.report_cadence
+            : "daily",
         budget_marketing: e.budget_marketing,
         meta_campaign_id: e.meta_campaign_id,
         meta_spend_cached: e.meta_spend_cached,
@@ -771,7 +786,7 @@ async function fetchAllDailyRollups(
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, tiktok_spend, ad_spend_allocated, revenue, link_clicks, tiktok_clicks, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, tiktok_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
@@ -798,6 +813,7 @@ async function fetchAllDailyRollups(
         ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
         revenue: (r.revenue as number | null) ?? null,
         link_clicks: (r.link_clicks as number | null) ?? null,
+        meta_regs: (r.meta_regs as number | null) ?? null,
         tiktok_clicks: (r.tiktok_clicks as number | null) ?? null,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:
@@ -860,14 +876,18 @@ async function fetchAllAdditionalSpend(
 ): Promise<
   Array<{
     event_id: string;
+    date: string;
     amount: number | string | null;
+    category?: string | null;
     scope?: string | null;
     venue_event_code?: string | null;
   }>
 > {
   const rows: Array<{
     event_id: string;
+    date: string;
     amount: number | string | null;
+    category?: string | null;
     scope?: string | null;
     venue_event_code?: string | null;
   }> = [];
@@ -875,7 +895,7 @@ async function fetchAllAdditionalSpend(
     const to = from + PORTAL_PAGE_SIZE - 1;
     const { data, error } = await admin
       .from("additional_spend_entries")
-      .select("event_id, amount, scope, venue_event_code")
+      .select("event_id, date, amount, category, scope, venue_event_code")
       .in("event_id", eventIds)
       .range(from, to);
 
@@ -892,7 +912,9 @@ async function fetchAllAdditionalSpend(
     rows.push(
       ...data.map((r) => ({
         event_id: r.event_id as string,
+        date: r.date as string,
         amount: r.amount as number | string | null,
+        category: (r.category as string | null | undefined) ?? null,
         scope: (r.scope as string | null | undefined) ?? null,
         venue_event_code: (r.venue_event_code as string | null | undefined) ?? null,
       })),

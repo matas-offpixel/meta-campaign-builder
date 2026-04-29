@@ -43,6 +43,7 @@ function rollup(
     date?: string;
     tickets_sold?: number | null;
     revenue?: number | null;
+    meta_regs?: number | null;
   },
 ): DailyRollupRow {
   return {
@@ -54,6 +55,7 @@ function rollup(
     ad_spend_allocated: allocation?.ad_spend_allocated ?? null,
     revenue: allocation?.revenue ?? null,
     link_clicks: null,
+    meta_regs: allocation?.meta_regs ?? null,
     tiktok_clicks: null,
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
     ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
@@ -62,7 +64,14 @@ function rollup(
 }
 
 function addl(event_id: string, amount: number | null): AdditionalSpendRow {
-  return { event_id, amount };
+  return {
+    event_id,
+    date: "2020-01-01",
+    amount: amount ?? 0,
+    category: "OTHER",
+    scope: "event",
+    venue_event_code: null,
+  };
 }
 
 function venueAddl(
@@ -70,7 +79,14 @@ function venueAddl(
   amount: number | null,
   venue_event_code: string,
 ): AdditionalSpendRow {
-  return { event_id, amount, scope: "venue", venue_event_code };
+  return {
+    event_id,
+    date: "2020-01-01",
+    amount: amount ?? 0,
+    category: "OTHER",
+    scope: "venue",
+    venue_event_code,
+  };
 }
 
 describe("aggregateClientWideTotals", () => {
