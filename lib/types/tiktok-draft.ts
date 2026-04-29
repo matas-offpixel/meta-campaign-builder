@@ -21,7 +21,10 @@ export interface TikTokAccountSetup {
   advertiserId: string | null;
   identityId: string | null;
   identityDisplayName: string | null;
+  identityManualName: string | null;
+  identityType: "PERSONAL_HUB" | "CUSTOMIZED_USER" | "TT_USER" | "MANUAL" | null;
   pixelId: string | null;
+  pixelName: string | null;
 }
 
 export type TikTokObjective =
@@ -29,25 +32,33 @@ export type TikTokObjective =
   | "CONVERSIONS"
   | "VIDEO_VIEWS"
   | "REACH"
-  | "AWARENESS";
+  | "AWARENESS"
+  | "ENGAGEMENT";
 
 export type TikTokOptimisationGoal =
   | "CLICK"
+  | "LANDING_PAGE_VIEW"
   | "CONVERSION"
+  | "VALUE"
   | "VIDEO_VIEW"
+  | "VIEW_6_SECOND"
   | "REACH"
-  | "SHOW";
+  | "SHOW"
+  | "ENGAGEMENT";
+
+export type TikTokBidStrategy = "COST_CAP" | "LOWEST_COST" | "SMART_PLUS";
 
 export interface TikTokCampaignSetup {
   campaignName: string;
   eventCode: string | null;
   objective: TikTokObjective | null;
   optimisationGoal: TikTokOptimisationGoal | null;
+  bidStrategy: TikTokBidStrategy | null;
 }
 
 export interface TikTokOptimisation {
   smartPlusEnabled: boolean;
-  bidStrategy: "COST_CAP" | "LOWEST_COST" | "SMART_PLUS" | null;
+  bidStrategy: TikTokBidStrategy | null;
   benchmarkCpt: number | null;
   benchmarkCtr: number | null;
   guardrails: string[];
@@ -105,13 +116,17 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       advertiserId: null,
       identityId: null,
       identityDisplayName: null,
+      identityManualName: null,
+      identityType: null,
       pixelId: null,
+      pixelName: null,
     },
     campaignSetup: {
       campaignName: "",
       eventCode: null,
       objective: null,
       optimisationGoal: null,
+      bidStrategy: null,
     },
     optimisation: {
       smartPlusEnabled: false,

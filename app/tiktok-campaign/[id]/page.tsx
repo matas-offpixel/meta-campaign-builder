@@ -13,6 +13,17 @@ export default async function TikTokCampaignPage(props: {
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
 
-  const draft = (await getTikTokDraft(supabase, id)) ?? createDefaultTikTokDraft(id);
+  const loaded = await getTikTokDraft(supabase, id);
+  const draft = loaded ?? createDefaultTikTokDraft(id);
+  if (draft.eventId && !draft.campaignSetup.eventCode) {
+    const { data: event } = await supabase
+      .from("events")
+      .select("event_code")
+      .eq("id", draft.eventId)
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+    draft.campaignSetup.eventCode =
+      ((event as { event_code?: string | null } | null)?.event_code ?? null);
+  }
   return <TikTokWizardShell draft={draft} />;
 }
