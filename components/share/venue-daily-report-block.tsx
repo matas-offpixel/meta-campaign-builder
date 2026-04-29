@@ -21,6 +21,7 @@ import type {
   DailyEntry,
   DailyRollupRow,
   PortalEvent,
+  WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 
 interface Props {
@@ -29,6 +30,7 @@ interface Props {
   dailyEntries: DailyEntry[];
   dailyRollups: DailyRollupRow[];
   additionalSpend: AdditionalSpendRow[];
+  weeklyTicketSnapshots?: WeeklyTicketSnapshotRow[];
   mode: "dashboard" | "share";
   datePreset?: DatePreset;
   customRange?: CustomDateRange;
@@ -68,6 +70,7 @@ export function VenueDailyReportBlock({
   dailyEntries,
   dailyRollups,
   additionalSpend,
+  weeklyTicketSnapshots = [],
   mode,
   datePreset = "maximum",
   customRange,
@@ -80,8 +83,15 @@ export function VenueDailyReportBlock({
     otherSpendByDate,
     otherSpendBreakdownByDate,
   } = useMemo(
-    () => buildVenueReportModel(events, dailyEntries, dailyRollups, additionalSpend),
-    [events, dailyEntries, dailyRollups, additionalSpend],
+    () =>
+      buildVenueReportModel(
+        events,
+        dailyEntries,
+        dailyRollups,
+        additionalSpend,
+        weeklyTicketSnapshots,
+      ),
+    [events, dailyEntries, dailyRollups, additionalSpend, weeklyTicketSnapshots],
   );
   const chartTimeline = useMemo(
     () =>
@@ -162,9 +172,10 @@ export function VenueDailyReportBlock({
       row.ad_spend_presale != null ||
       row.tiktok_spend != null,
   );
-  const hasEventbriteLink = dailyRollups.some(
-    (row) => row.tickets_sold != null || row.revenue != null,
-  );
+  const hasEventbriteLink =
+    dailyRollups.some((row) => row.tickets_sold != null || row.revenue != null) ||
+    weeklyTicketSnapshots.length > 0 ||
+    events.some((event) => event.history.length > 0);
 
   if (!hasMetaScope && !hasEventbriteLink && additionalSpendRows.length === 0) {
     return null;
@@ -216,6 +227,7 @@ function buildVenueReportModel(
   dailyEntries: DailyEntry[],
   dailyRollups: DailyRollupRow[],
   additionalSpend: AdditionalSpendRow[],
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
 ): {
   event: VenueEventLike;
   timeline: TimelineRow[];
@@ -248,6 +260,8 @@ function buildVenueReportModel(
     dailyRollups,
     dailyEntries,
     isMultiEventVenue,
+    weeklyTicketSnapshots,
+    events,
   );
   const generalSaleAt = earliestIso(
     events.map((event) => event.general_sale_at).filter(isString),
@@ -256,7 +270,12 @@ function buildVenueReportModel(
   return {
     event: {
       budget_marketing: maxNullable(events.map((event) => event.budget_marketing)),
-      meta_spend_cached: sumNullable(events.map((event) => event.meta_spend_cached)),
+      // Raw cached campaign spend is duplicated across multi-event
+      // venues. Leave null so EventSummaryHeader uses the allocator-
+      // aware merged timeline instead.
+      meta_spend_cached: isMultiEventVenue
+        ? null
+        : sumNullable(events.map((event) => event.meta_spend_cached)),
       prereg_spend: sumNullable(events.map((event) => event.prereg_spend)),
       general_sale_at: generalSaleAt,
       capacity: sumNullable(events.map((event) => event.capacity)),
@@ -277,8 +296,18 @@ function mergeVenueTimeline(
   rollups: DailyRollupRow[],
   manualEntries: DailyEntry[],
   isMultiEventVenue: boolean,
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+  events: PortalEvent[],
 ): TimelineRow[] {
   const byDate = new Map<string, TimelineRow>();
+  const rollupTicketTotal = rollups.reduce(
+    (sum, row) => sum + (row.tickets_sold ?? 0),
+    0,
+  );
+  const rollupRevenueTotal = rollups.reduce(
+    (sum, row) => sum + (row.revenue ?? 0),
+    0,
+  );
   for (const row of rollups) {
     const current = byDate.get(row.date) ?? emptyTimelineRow(row.date, "live");
     const hasAllocatedSpend =
@@ -310,9 +339,78 @@ function mergeVenueTimeline(
     byDate.set(row.date, current);
   }
 
+  if (rollupTicketTotal === 0) {
+    for (const [date, tickets] of venueSnapshotTicketDeltas(
+      weeklyTicketSnapshots,
+    )) {
+      const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
+      current.tickets_sold = addNullable(current.tickets_sold, tickets);
+      byDate.set(date, current);
+    }
+  }
+
+  if (rollupRevenueTotal === 0) {
+    for (const [date, revenue] of venueSnapshotRevenueDeltas(events)) {
+      const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
+      current.revenue = addNullable(current.revenue, revenue);
+      byDate.set(date, current);
+    }
+  }
+
   return [...byDate.values()].sort((a, b) =>
     a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
   );
+}
+
+function venueSnapshotTicketDeltas(
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+): Map<string, number> {
+  const byEvent = new Map<string, WeeklyTicketSnapshotRow[]>();
+  for (const row of weeklyTicketSnapshots) {
+    const rows = byEvent.get(row.event_id) ?? [];
+    rows.push(row);
+    byEvent.set(row.event_id, rows);
+  }
+  const deltas = new Map<string, number>();
+  for (const rows of byEvent.values()) {
+    rows.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
+    let prev = 0;
+    for (const row of rows) {
+      const delta = Math.max(0, row.tickets_sold - prev);
+      prev = row.tickets_sold;
+      if (delta > 0) {
+        deltas.set(row.snapshot_at, (deltas.get(row.snapshot_at) ?? 0) + delta);
+      }
+    }
+  }
+  return deltas;
+}
+
+function venueSnapshotRevenueDeltas(events: PortalEvent[]): Map<string, number> {
+  const deltas = new Map<string, number>();
+  for (const event of events) {
+    const history = [...(event.history ?? [])].sort((a, b) =>
+      snapshotDate(a).localeCompare(snapshotDate(b)),
+    );
+    let prev = 0;
+    for (const snapshot of history) {
+      if (snapshot.revenue == null) continue;
+      const delta = Math.max(0, snapshot.revenue - prev);
+      prev = snapshot.revenue;
+      if (delta > 0) {
+        const date = snapshotDate(snapshot);
+        deltas.set(
+          date,
+          (deltas.get(date) ?? 0) + delta,
+        );
+      }
+    }
+  }
+  return deltas;
+}
+
+function snapshotDate(snapshot: PortalEvent["history"][number]): string {
+  return snapshot.week_start || snapshot.captured_at.slice(0, 10);
 }
 
 function emptyTimelineRow(date: string, source: TimelineRow["source"]): TimelineRow {
