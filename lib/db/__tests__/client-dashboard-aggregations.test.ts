@@ -123,6 +123,70 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.roas, 2800 / 700);
   });
 
+  it("uses allocated plus presale spend for multi-event client headline totals", () => {
+    const events = [
+      ev({
+        id: "croatia",
+        event_code: "WC26-MANCHESTER",
+        event_date: null,
+        latest_snapshot: { tickets_sold: 100, revenue: 1000 },
+      }),
+      ev({
+        id: "ghana",
+        event_code: "WC26-MANCHESTER",
+        event_date: null,
+        latest_snapshot: { tickets_sold: 100, revenue: 1000 },
+      }),
+      ev({
+        id: "panama",
+        event_code: "WC26-MANCHESTER",
+        event_date: null,
+        latest_snapshot: { tickets_sold: 100, revenue: 1000 },
+      }),
+      ev({
+        id: "last-32",
+        event_code: "WC26-MANCHESTER",
+        event_date: null,
+        latest_snapshot: { tickets_sold: 100, revenue: 1000 },
+      }),
+    ];
+    const rollups: DailyRollupRow[] = [
+      // Raw pre-allocation rows are duplicated on every child event
+      // and must not inflate the client-wide headline.
+      rollup("croatia", 100),
+      rollup("ghana", 100),
+      rollup("panama", 100),
+      rollup("last-32", 100),
+      // Allocator-covered rows are already per-event shares and
+      // should sum to the venue total.
+      rollup("croatia", 1000, {
+        ad_spend_allocated: 250,
+        ad_spend_presale: 25,
+      }),
+      rollup("ghana", 1000, {
+        ad_spend_allocated: 250,
+        ad_spend_presale: 25,
+      }),
+      rollup("panama", 1000, {
+        ad_spend_allocated: 250,
+        ad_spend_presale: 25,
+      }),
+      rollup("last-32", 1000, {
+        ad_spend_allocated: 250,
+        ad_spend_presale: 25,
+      }),
+    ];
+
+    const t = aggregateClientWideTotals(events, rollups, [addl("croatia", 50)]);
+
+    assert.equal(t.adSpend, 1100);
+    assert.equal(t.additionalSpend, 50);
+    assert.equal(t.marketingSpend, 1150);
+    assert.equal(t.totalSpend, 1150);
+    assert.equal(t.ticketRevenue, 4000);
+    assert.equal(t.roas, 4000 / 1100);
+  });
+
   it("ignores rollup + additional spend rows whose event is not in the list", () => {
     const events = [ev({ id: "a" })];
     const rollups: DailyRollupRow[] = [
@@ -242,7 +306,10 @@ describe("aggregateClientWideTotals", () => {
       ev({ id: "solo", budget_marketing: 750 }),
       ev({ id: "empty", budget_marketing: null }),
     ];
-    const rollups = [rollup("a", 200), rollup("b", 100)];
+    const rollups = [
+      rollup("a", 200, { ad_spend_allocated: 200 }),
+      rollup("b", 100, { ad_spend_allocated: 100 }),
+    ];
     const additional = [addl("a", 50)];
 
     const t = aggregateClientWideTotals(events, rollups, additional);
