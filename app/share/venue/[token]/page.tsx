@@ -83,7 +83,6 @@ export default async function VenueSharePage({ params }: Props) {
           token={token}
           clientId={result.client_id}
           eventCode={result.event_code}
-          client={result.client}
           events={result.events}
           dailyEntries={result.dailyEntries}
           dailyRollups={result.dailyRollups}
