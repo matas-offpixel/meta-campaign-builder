@@ -75,6 +75,34 @@ function deriveMetrics(date: string, v: PointAccumulator): TrendChartDay {
   };
 }
 
+function hasRangeAnchorMetric(
+  day: TrendChartDay,
+  hasCumulativeTickets: boolean,
+): boolean {
+  return (
+    day.spend !== null ||
+    day.revenue !== null ||
+    day.linkClicks !== null ||
+    (!hasCumulativeTickets && day.tickets !== null)
+  );
+}
+
+function trimEmptyRange(
+  days: TrendChartDay[],
+  hasCumulativeTickets: boolean,
+): TrendChartDay[] {
+  const first = days.findIndex((day) =>
+    hasRangeAnchorMetric(day, hasCumulativeTickets),
+  );
+  if (first === -1) return [];
+
+  let last = days.length - 1;
+  while (last > first && !hasRangeAnchorMetric(days[last]!, hasCumulativeTickets)) {
+    last -= 1;
+  }
+  return days.slice(first, last + 1);
+}
+
 export function hasCumulativeTicketPoints(points: TrendChartPoint[]): boolean {
   return points.some((point) => point.ticketsKind === "cumulative_snapshot");
 }
@@ -108,6 +136,7 @@ export function aggregateTrendChartPoints(
   const daily = [...map.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([date, v]) => deriveMetrics(date, v));
+  const dailyRange = trimEmptyRange(daily, hasCumulativeTickets);
 
   if (hasCumulativeTickets) {
     let latestTickets: number | null = null;
@@ -124,10 +153,12 @@ export function aggregateTrendChartPoints(
     }
   }
 
-  if (granularity === "daily") return daily;
+  const trimmedDaily = dailyRange.map((day) => ({ ...day }));
+
+  if (granularity === "daily") return trimmedDaily;
 
   const weekly = new Map<string, PointAccumulator>();
-  for (const day of daily) {
+  for (const day of trimmedDaily) {
     const key = isoWeekStart(day.date);
     const cur =
       weekly.get(key) ??

@@ -84,4 +84,62 @@ describe("trend chart aggregation", () => {
     assert.equal(Number(summary.cpt?.toFixed(2)), 4.78);
     assert.equal(Number(summary.cpc?.toFixed(2)), 1.28);
   });
+
+  it("trims leading and trailing all-null dates without removing middle gaps", () => {
+    const points: TrendChartPoint[] = [
+      { date: "2026-02-28", spend: null, tickets: null, revenue: null, linkClicks: null },
+      { date: "2026-03-01", spend: null, tickets: null, revenue: null, linkClicks: null },
+      { date: "2026-04-02", spend: 53.53, tickets: null, revenue: null, linkClicks: 515 },
+      { date: "2026-04-03", spend: null, tickets: null, revenue: null, linkClicks: null },
+      { date: "2026-04-04", spend: 54, tickets: null, revenue: null, linkClicks: 520 },
+      { date: "2026-04-05", spend: null, tickets: null, revenue: null, linkClicks: null },
+    ];
+
+    const daily = aggregateTrendChartPoints(points, "daily");
+
+    assert.deepEqual(
+      daily.map((day) => day.date),
+      ["2026-04-02", "2026-04-03", "2026-04-04"],
+    );
+    assert.equal(daily[1]?.spend, null);
+  });
+
+  it("does not let synthetic cumulative ticket snapshots anchor the trimmed range", () => {
+    const points: TrendChartPoint[] = [
+      {
+        date: "2026-01-12",
+        spend: null,
+        tickets: 517,
+        revenue: null,
+        linkClicks: null,
+        ticketsKind: "cumulative_snapshot",
+      },
+      { date: "2026-02-28", spend: null, tickets: null, revenue: null, linkClicks: null },
+      { date: "2026-04-02", spend: 53.53, tickets: null, revenue: null, linkClicks: 515 },
+      { date: "2026-04-03", spend: null, tickets: null, revenue: null, linkClicks: null },
+    ];
+
+    const daily = aggregateTrendChartPoints(points, "daily");
+
+    assert.deepEqual(
+      daily.map((day) => day.date),
+      ["2026-04-02"],
+    );
+    assert.equal(daily[0]?.tickets, 517);
+  });
+
+  it("returns no days when only cumulative ticket snapshots exist", () => {
+    const points: TrendChartPoint[] = [
+      {
+        date: "2026-01-12",
+        spend: null,
+        tickets: 517,
+        revenue: null,
+        linkClicks: null,
+        ticketsKind: "cumulative_snapshot",
+      },
+    ];
+
+    assert.deepEqual(aggregateTrendChartPoints(points, "daily"), []);
+  });
 });
