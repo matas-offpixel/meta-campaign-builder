@@ -81,6 +81,7 @@ export function VenueFullReport({
   dailyEntries,
   dailyRollups,
   additionalSpend,
+  weeklyTicketSnapshots,
   isInternal = false,
   canEdit = false,
   datePreset = "maximum",
@@ -125,6 +126,7 @@ export function VenueFullReport({
         customRange={customRange}
         additionalSpend={additionalSpend}
         linkedDrafts={linkedDrafts}
+        weeklyTicketSnapshots={weeklyTicketSnapshots}
         refreshNonce={refreshNonce}
         onRefresh={handleRefresh}
         onTimeframeChange={handleTimeframeChange}
@@ -144,6 +146,7 @@ export function VenueFullReport({
         dailyEntries={dailyEntries}
         dailyRollups={dailyRollups}
         additionalSpend={additionalSpend}
+        weeklyTicketSnapshots={weeklyTicketSnapshots}
         mode={mode}
         datePreset={datePreset}
         customRange={customRange}
@@ -162,6 +165,7 @@ function VenueLiveReportTabs({
   customRange,
   additionalSpend,
   linkedDrafts,
+  weeklyTicketSnapshots,
   refreshNonce,
   onRefresh,
   onTimeframeChange,
@@ -175,6 +179,7 @@ function VenueLiveReportTabs({
   customRange?: CustomDateRange;
   additionalSpend: AdditionalSpendRow[];
   linkedDrafts: EventLinkedDraft[];
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   refreshNonce: number;
   onRefresh: () => Promise<void>;
   onTimeframeChange: (
@@ -193,8 +198,14 @@ function VenueLiveReportTabs({
     [dailyRollups, events.length, windowDays],
   );
   const performance = useMemo(
-    () => computeVenuePerformance(events, dailyRollups, additionalSpend),
-    [additionalSpend, dailyRollups, events],
+    () =>
+      computeVenuePerformance(
+        events,
+        dailyRollups,
+        additionalSpend,
+        weeklyTicketSnapshots,
+      ),
+    [additionalSpend, dailyRollups, events, weeklyTicketSnapshots],
   );
   const lastUpdatedIso = latestRollupTimestamp(dailyRollups);
 
@@ -607,6 +618,7 @@ function computeVenuePerformance(
   events: PortalEvent[],
   rollups: DailyRollupRow[],
   additionalSpend: AdditionalSpendRow[],
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
 ): {
   paidMediaBudget: number;
   additionalSpend: number;
@@ -630,7 +642,8 @@ function computeVenuePerformance(
       .map((row) => row.amount),
   );
   const capacity = nullableSum(events.map((event) => event.capacity));
-  const tickets = sumTickets(rollups, null);
+  const tickets =
+    sumTickets(rollups, null) ?? latestVenueSnapshotTickets(weeklyTicketSnapshots);
   const paidSpend = sumWindowMetaSpend(rollups, events.length > 1, null);
   const sellThroughPct =
     capacity != null && capacity > 0 && tickets != null
@@ -675,10 +688,31 @@ function sumTickets(
   if (rollups.length === 0) return null;
   const windowDaySet = windowDays === null ? null : new Set(windowDays);
   let total = 0;
+  let any = false;
   for (const row of rollups) {
     if (windowDaySet && !windowDaySet.has(row.date)) continue;
-    if (row.tickets_sold != null) total += row.tickets_sold;
+    if (row.tickets_sold != null) {
+      total += row.tickets_sold;
+      any = true;
+    }
   }
+  return any ? total : null;
+}
+
+function latestVenueSnapshotTickets(
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+): number | null {
+  if (weeklyTicketSnapshots.length === 0) return null;
+  const latestByEvent = new Map<string, WeeklyTicketSnapshotRow>();
+  for (const row of weeklyTicketSnapshots) {
+    const current = latestByEvent.get(row.event_id);
+    if (!current || row.snapshot_at > current.snapshot_at) {
+      latestByEvent.set(row.event_id, row);
+    }
+  }
+  if (latestByEvent.size === 0) return null;
+  let total = 0;
+  for (const row of latestByEvent.values()) total += row.tickets_sold;
   return total;
 }
 
