@@ -13,6 +13,7 @@ import {
 } from "@/components/share/client-refresh-daily-budgets-button";
 import { fmtCurrencyCompact, fmtDate } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
+import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -628,9 +629,7 @@ function computeVenuePerformance(
   sellThroughPct: number | null;
   costPerTicket: number | null;
 } {
-  const paidMediaBudget = sumNumbers(
-    events.map((event) => event.budget_marketing),
-  );
+  const paidMediaBudget = aggregateSharedVenueBudget(events) ?? 0;
   const eventIds = new Set(events.map((event) => event.id));
   const additionalSpendTotal = sumNumbers(
     additionalSpend
