@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { Database, Json } from "./database.types.ts";
 import {
   createDefaultTikTokDraft,
   type TikTokCampaignDraft,
@@ -7,6 +8,7 @@ import {
 } from "../types/tiktok-draft.ts";
 
 const TABLE = "tiktok_campaign_drafts";
+type TypedSupabaseClient = SupabaseClient<Database>;
 
 export interface TikTokDraftListFilters {
   userId?: string;
@@ -26,10 +28,10 @@ interface TikTokDraftRow {
 }
 
 export async function getTikTokDraft(
-  supabase: SupabaseClient,
+  supabase: TypedSupabaseClient,
   draftId: string,
 ): Promise<TikTokCampaignDraft | null> {
-  const { data, error } = await asAny(supabase)
+  const { data, error } = await supabase
     .from(TABLE)
     .select("id, client_id, event_id, status, state, created_at, updated_at")
     .eq("id", draftId)
@@ -40,7 +42,7 @@ export async function getTikTokDraft(
 }
 
 export async function upsertTikTokDraft(
-  supabase: SupabaseClient,
+  supabase: TypedSupabaseClient,
   draftId: string,
   partial: Partial<TikTokCampaignDraft> & { userId: string },
 ): Promise<TikTokCampaignDraft> {
@@ -51,7 +53,7 @@ export async function upsertTikTokDraft(
     id: draftId,
     updatedAt: now,
   };
-  const { error } = await asAny(supabase).from(TABLE).upsert(
+  const { error } = await supabase.from(TABLE).upsert(
     {
       id: draft.id,
       user_id: partial.userId,
@@ -59,7 +61,10 @@ export async function upsertTikTokDraft(
       event_id: draft.eventId,
       name: draft.campaignSetup.campaignName || null,
       status: draft.status,
-      state: draft,
+      // The DB column is intentionally jsonb so the wizard can evolve between
+      // launches. Generated Supabase types expose that as generic Json, not the
+      // application-level TikTokCampaignDraft shape.
+      state: draft as unknown as Json,
       updated_at: now,
     },
     { onConflict: "id" },
@@ -69,10 +74,10 @@ export async function upsertTikTokDraft(
 }
 
 export async function listTikTokDrafts(
-  supabase: SupabaseClient,
+  supabase: TypedSupabaseClient,
   filters: TikTokDraftListFilters = {},
 ): Promise<TikTokCampaignDraft[]> {
-  let query = asAny(supabase)
+  let query = supabase
     .from(TABLE)
     .select("id, client_id, event_id, status, state, created_at, updated_at")
     .order("updated_at", { ascending: false });
@@ -87,10 +92,10 @@ export async function listTikTokDrafts(
 }
 
 export async function deleteTikTokDraft(
-  supabase: SupabaseClient,
+  supabase: TypedSupabaseClient,
   draftId: string,
 ): Promise<void> {
-  const { error } = await asAny(supabase)
+  const { error } = await supabase
     .from(TABLE)
     .update({ status: "archived", updated_at: new Date().toISOString() })
     .eq("id", draftId);
@@ -113,9 +118,4 @@ function rowToDraft(row: TikTokDraftRow): TikTokCampaignDraft {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function asAny(supabase: SupabaseClient) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return supabase as unknown as any;
 }

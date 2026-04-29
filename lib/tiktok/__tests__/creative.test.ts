@@ -34,7 +34,10 @@ describe("TikTok creative helpers", () => {
       advertiserId: "advertiser-1",
       token: "token-1",
       videoIds: ["v1"],
-      request: async <T,>(path, params): Promise<T> => {
+      request: async <T,>(
+        path: string,
+        params: Record<string, unknown>,
+      ): Promise<T> => {
         assert.equal(path, "/file/video/ad/info/");
         assert.deepEqual(params.video_ids, ["v1"]);
         return {

@@ -3,6 +3,11 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
+import {
+  buildTikTokBriefFilename,
+  buildTikTokBriefMarkdown,
+} from "@/lib/tiktok-wizard/brief";
 import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
@@ -12,9 +17,11 @@ import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 export function ReviewLaunchStep({
   draft,
   onSave,
+  context,
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  context?: TikTokWizardContext;
 }) {
   const [saving, setSaving] = useState(false);
   const checks = buildTikTokPreflightChecks(draft);
@@ -27,6 +34,19 @@ export function ReviewLaunchStep({
     } finally {
       setSaving(false);
     }
+  }
+
+  function downloadBrief() {
+    const markdown = buildTikTokBriefMarkdown(draft, context);
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = buildTikTokBriefFilename(draft);
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -179,6 +199,9 @@ export function ReviewLaunchStep({
           title="TikTok writes coming soon — this draft is saved and will be launchable when the writes API is enabled."
         >
           Launch on TikTok
+        </Button>
+        <Button type="button" variant="outline" onClick={downloadBrief}>
+          Download as brief (Markdown)
         </Button>
         <Button
           type="button"

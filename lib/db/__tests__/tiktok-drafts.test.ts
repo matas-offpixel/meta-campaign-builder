@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { Database } from "../database.types.ts";
 import {
   deleteTikTokDraft,
   getTikTokDraft,
@@ -37,7 +38,7 @@ function makeQueryClient(result: { data: unknown; error: unknown }) {
       calls.push({ method: "from", args: [table] });
       return builder;
     },
-  } as unknown as SupabaseClient;
+  } as unknown as SupabaseClient<Database>;
   return { client, calls };
 }
 
@@ -73,7 +74,7 @@ describe("tiktok-drafts db helpers", () => {
           },
         };
       },
-    } as unknown as SupabaseClient;
+    } as unknown as SupabaseClient<Database>;
 
     const draft = await upsertTikTokDraft(client, "draft-1", {
       userId: "user-1",
@@ -83,6 +84,7 @@ describe("tiktok-drafts db helpers", () => {
         eventCode: "EVT",
         objective: "TRAFFIC",
         optimisationGoal: "CLICK",
+        bidStrategy: "LOWEST_COST",
       },
     });
 
@@ -117,7 +119,7 @@ describe("tiktok-drafts db helpers", () => {
         };
         return builder;
       },
-    } as unknown as SupabaseClient;
+    } as unknown as SupabaseClient<Database>;
     await deleteTikTokDraft(updateClient, "draft-1");
     assert.equal((updates[0] as Record<string, unknown>).status, "archived");
   });

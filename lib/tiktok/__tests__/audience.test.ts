@@ -13,7 +13,10 @@ describe("TikTok audience read helpers", () => {
     const rows = await fetchTikTokInterestCategories({
       advertiserId: "advertiser-1",
       token: "token-1",
-      request: async <T,>(path, params): Promise<T> => {
+      request: async <T,>(
+        path: string,
+        params: Record<string, unknown>,
+      ): Promise<T> => {
         assert.equal(path, "/tools/category/");
         assert.equal(params.advertiser_id, "advertiser-1");
         return {
