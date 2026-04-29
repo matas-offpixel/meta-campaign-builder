@@ -6,6 +6,27 @@ Status: Draft brief for Cursor — open questions flagged at end
 
 ---
 
+## Implementation Status — 2026-04-29 Overnight Update
+
+The client dashboard is now past the original skeleton phase and has a production data path for the 4theFans rollout:
+
+- **Venue allocator:** multi-event venue spend uses the three-tier allocator: ad-level attribution, campaign-level synthetic remainder reconciliation, and historical window extension for allocator-owned fields such as `link_clicks`. This is the source of truth for expanded venue paid-media rows.
+- **Trend chart:** event reports and venue cards share `EventTrendChart`, with pure aggregation logic in `lib/dashboard/trend-chart-data.ts`. Metric pills use lifetime totals for additive metrics and derived lifetime averages for ratios. Ticket data preserves the additive-vs-cumulative snapshot distinction.
+- **Portal loader pagination:** `event_daily_rollups` must always be range-paginated because PostgREST silently caps unpaginated selects at 1,000 rows. The same rule now applies to other growth tables used by the portal loader, including tracker entries, ticket snapshots, and additional spend.
+- **Daily budgets:** the venue daily-budget API is already protected by a 1-hour in-memory TTL and stale-while-revalidate behavior. Cached stale values return immediately while the route refreshes Meta in the background.
+- **Venue shares:** migration 055 allows `report_shares.scope = 'venue'`, and the venue share route uses the service role after token validation so public client-token minting does not trip RLS.
+
+Recent verification anchor for Bristol after allocator rerun: Spend approximately £2,476, Tickets 517, CPT approximately £4.79, and Clicks approximately 18,169-29,531 depending on the exact post-rerun window and Meta link-click source in the live data.
+
+Current overnight PRs:
+
+- `#159` fixes null-date multi-event venue groups such as Manchester and Margate so they no longer skip allocation.
+- `#162` paginates additional client portal growth-table reads.
+- `#163` removes the orphaned old share-side Daily Tracker component.
+- `#165` fixes the venue-table hash expansion hydration mismatch.
+
+---
+
 ## Context
 
 We have working per-event dashboards (e.g. Leeds FA Cup SF, Arsenal CL SF) showing live spend / tickets / creatives / pacing — both internal Reporting tab and `/share/report/[token]` external view, with client-editable additional spend. Architecture documented in earlier session handovers (Apr 24).
