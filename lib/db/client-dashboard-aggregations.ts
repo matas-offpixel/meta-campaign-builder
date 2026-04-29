@@ -218,13 +218,17 @@ export function aggregateClientWideTotals(
   extraAdSpend = 0,
 ): ClientWideTotals {
   const eventIds = new Set(events.map((e) => e.id));
+  const eventCodeCounts = eventCodeCountsByEventId(events);
 
   // Sum across allowed events only — guards against stray rows that
   // belong to a different client slipping into the arrays.
   let adSpend = 0;
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
-    adSpend += paidSpendOf(r);
+    adSpend += clientWidePaidSpendOf(
+      r,
+      (eventCodeCounts.get(r.event_id) ?? 1) > 1,
+    );
   }
   adSpend += extraAdSpend;
 
@@ -301,6 +305,44 @@ function groupKey(ev: {
 }): string {
   if (!ev.event_code) return `__solo__::${ev.id}`;
   return `${ev.event_code}::${ev.event_date ?? ""}`;
+}
+
+function eventCodeCountsByEventId(
+  events: AggregatableEvent[],
+): Map<string, number> {
+  const countsByCode = new Map<string, number>();
+  for (const ev of events) {
+    if (!ev.event_code) continue;
+    countsByCode.set(ev.event_code, (countsByCode.get(ev.event_code) ?? 0) + 1);
+  }
+
+  const countsByEventId = new Map<string, number>();
+  for (const ev of events) {
+    countsByEventId.set(
+      ev.id,
+      ev.event_code ? (countsByCode.get(ev.event_code) ?? 1) : 1,
+    );
+  }
+  return countsByEventId;
+}
+
+function clientWidePaidSpendOf(
+  row: DailyRollupRow,
+  isMultiEventCode: boolean,
+): number {
+  if (!isMultiEventCode) {
+    return paidSpendOf(row);
+  }
+
+  return paidSpendOf({
+    // Multi-event venues write the full raw Meta total on each sibling
+    // event row. The allocator columns are the per-event source of truth.
+    ad_spend:
+      row.ad_spend_allocated != null || row.ad_spend_presale != null
+        ? (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0)
+        : null,
+    tiktok_spend: row.tiktok_spend,
+  });
 }
 
 export interface VenueGroupTotals {

@@ -123,6 +123,52 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.roas, 2800 / 700);
   });
 
+  it("uses allocator spend for multi-event codes and raw spend for solo events", () => {
+    const events = [
+      ev({
+        id: "multi-a",
+        event_code: "WC26-MANCHESTER",
+        latest_snapshot: { tickets_sold: 10, revenue: 300 },
+      }),
+      ev({
+        id: "multi-b",
+        event_code: "WC26-MANCHESTER",
+        latest_snapshot: { tickets_sold: 10, revenue: 300 },
+      }),
+      ev({
+        id: "multi-c",
+        event_code: "WC26-MANCHESTER",
+        latest_snapshot: { tickets_sold: 10, revenue: 300 },
+      }),
+      ev({
+        id: "multi-d",
+        event_code: "WC26-MANCHESTER",
+        latest_snapshot: { tickets_sold: 10, revenue: 300 },
+      }),
+      ev({
+        id: "solo-leeds",
+        event_code: "LEEDS-FA-CUP",
+        latest_snapshot: { tickets_sold: 5, revenue: 150 },
+      }),
+    ];
+    const rollups: DailyRollupRow[] = [
+      // Raw Meta spend is duplicated across the four shared-code rows.
+      rollup("multi-a", 100, { ad_spend_allocated: 25 }),
+      rollup("multi-b", 100, { ad_spend_allocated: 25 }),
+      rollup("multi-c", 100, { ad_spend_allocated: 25 }),
+      rollup("multi-d", 100, { ad_spend_allocated: 25 }),
+      // Solo events are skipped by the venue allocator, so raw spend is valid.
+      rollup("solo-leeds", 50),
+    ];
+
+    const t = aggregateClientWideTotals(events, rollups, []);
+
+    assert.equal(t.adSpend, 150);
+    assert.equal(t.totalSpend, 150);
+    assert.equal(t.ticketRevenue, 1350);
+    assert.equal(t.roas, 9);
+  });
+
   it("ignores rollup + additional spend rows whose event is not in the list", () => {
     const events = [ev({ id: "a" })];
     const rollups: DailyRollupRow[] = [
@@ -242,7 +288,10 @@ describe("aggregateClientWideTotals", () => {
       ev({ id: "solo", budget_marketing: 750 }),
       ev({ id: "empty", budget_marketing: null }),
     ];
-    const rollups = [rollup("a", 200), rollup("b", 100)];
+    const rollups = [
+      rollup("a", 200, { ad_spend_allocated: 200 }),
+      rollup("b", 100, { ad_spend_allocated: 100 }),
+    ];
     const additional = [addl("a", 50)];
 
     const t = aggregateClientWideTotals(events, rollups, additional);
