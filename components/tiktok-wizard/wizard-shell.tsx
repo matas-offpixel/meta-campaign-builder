@@ -17,7 +17,27 @@ import { ReviewLaunchStep } from "./steps/review-launch";
 
 export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
   const [step, setStep] = useState(0);
+  const [workingDraft, setWorkingDraft] = useState(draft);
   const CurrentStep = useMemo(() => STEP_COMPONENTS[step] ?? AccountSetupStep, [step]);
+
+  async function saveDraft(patch: Partial<TikTokCampaignDraft>) {
+    const optimistic = mergeDraft(workingDraft, patch);
+    setWorkingDraft(optimistic);
+    const res = await fetch(`/api/tiktok/drafts/${workingDraft.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | { ok: true; draft: TikTokCampaignDraft }
+      | { ok: false; error: string }
+      | null;
+    if (!res.ok || !json?.ok) {
+      setWorkingDraft(workingDraft);
+      throw new Error(json && !json.ok ? json.error : "Failed to save draft");
+    }
+    setWorkingDraft(json.draft);
+  }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -26,10 +46,10 @@ export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
             TikTok campaign creator
           </p>
-          <h1 className="mt-2 font-heading text-3xl">Campaign draft foundation</h1>
+          <h1 className="mt-2 font-heading text-3xl">TikTok campaign draft</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Skeleton only. Functional TikTok wizard steps and launch writes come
-            after architecture sign-off.
+            Build the TikTok campaign configuration step by step. Launch remains
+            disabled until TikTok write APIs are enabled.
           </p>
         </div>
 
@@ -53,7 +73,7 @@ export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
         </ol>
 
         <section className="rounded-lg border border-border bg-card p-6">
-          <CurrentStep draft={draft} />
+          <CurrentStep draft={workingDraft} onSave={saveDraft} />
         </section>
 
         <div className="mt-6 flex justify-between">
@@ -81,7 +101,10 @@ export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
   );
 }
 
-type StepProps = { draft: TikTokCampaignDraft };
+type StepProps = {
+  draft: TikTokCampaignDraft;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+};
 
 const STEP_COMPONENTS: Array<(props: StepProps) => React.ReactNode> = [
   AccountSetupStep,
@@ -93,3 +116,26 @@ const STEP_COMPONENTS: Array<(props: StepProps) => React.ReactNode> = [
   AssignCreativesStep,
   ReviewLaunchStep,
 ];
+
+function mergeDraft(
+  current: TikTokCampaignDraft,
+  patch: Partial<TikTokCampaignDraft>,
+): TikTokCampaignDraft {
+  return {
+    ...current,
+    ...patch,
+    accountSetup: { ...current.accountSetup, ...(patch.accountSetup ?? {}) },
+    campaignSetup: { ...current.campaignSetup, ...(patch.campaignSetup ?? {}) },
+    optimisation: { ...current.optimisation, ...(patch.optimisation ?? {}) },
+    audiences: { ...current.audiences, ...(patch.audiences ?? {}) },
+    creatives: { ...current.creatives, ...(patch.creatives ?? {}) },
+    budgetSchedule: {
+      ...current.budgetSchedule,
+      ...(patch.budgetSchedule ?? {}),
+    },
+    creativeAssignments: {
+      ...current.creativeAssignments,
+      ...(patch.creativeAssignments ?? {}),
+    },
+  };
+}

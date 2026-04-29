@@ -55,3 +55,20 @@
 - Why: The overnight rule forbids write calls until morning sign-off.
 - Reversibility: one-way for this PR; future write helpers can be added later.
 - Reviewer action needed: no.
+
+## PR-A — TikTok Wizard Step 0 + Step 1
+
+- Decision made: If TikTok `/identity/get/` returns no identities or fails, Step 0 preserves the selected advertiser and exposes a manual identity override instead of blocking the draft.
+- Why: Identity is load-bearing for dark-ad grouping, but TikTok identity availability appears advertiser/scoping dependent; a manual label keeps the draft usable without making a write/API assumption.
+- Reversibility: reversible once live advertiser behaviour is confirmed.
+- Reviewer action needed: yes — confirm whether manual identity labels should remain allowed after identity API coverage is known.
+
+- Decision made: Pixel selection is optional in Step 0 and missing pixels render as "No pixels configured".
+- Why: Pixel is only required for conversion-oriented campaigns; non-conversion objectives can proceed without one.
+- Reversibility: reversible.
+- Reviewer action needed: no.
+
+- Decision made: Lead generation and app install objectives remain omitted from Step 1.
+- Why: Morning sign-off closed the v1 objective enum to TRAFFIC, CONVERSIONS, VIDEO_VIEWS, REACH, AWARENESS, and ENGAGEMENT.
+- Reversibility: reversible after a future spec update.
+- Reviewer action needed: no.
