@@ -21,6 +21,7 @@ interface Props {
   campaigns: MetaCampaignRow[];
   initialOverride?: EventFunnelOverride | null;
   storageKey?: string;
+  overrideEndpoint?: string;
 }
 
 type RateKey =
@@ -47,8 +48,10 @@ export function FunnelPlanner({
   campaigns,
   initialOverride = null,
   storageKey,
+  overrideEndpoint,
 }: Props) {
   const loadedStorageKey = useRef<string | undefined>(undefined);
+  const remoteReady = useRef(false);
   const [override, setOverride] = useState<EventFunnelOverride>(() => {
     if (!storageKey || typeof window === "undefined") return initialOverride ?? {};
     try {
@@ -58,6 +61,38 @@ export function FunnelPlanner({
       return initialOverride ?? {};
     }
   });
+  useEffect(() => {
+    if (!overrideEndpoint) {
+      remoteReady.current = true;
+      return;
+    }
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const load = async () => {
+      try {
+        const res = await fetch(overrideEndpoint, {
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
+        const json = (await res.json()) as {
+          ok?: boolean;
+          override?: EventFunnelOverride | null;
+        };
+        if (!res.ok || !json.ok) throw new Error("Override unavailable");
+        if (!cancelled) setOverride(json.override ?? {});
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+      } finally {
+        if (!cancelled) remoteReady.current = true;
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [overrideEndpoint]);
+
   useEffect(() => {
     if (!storageKey) return;
     if (loadedStorageKey.current !== storageKey) {
@@ -70,6 +105,27 @@ export function FunnelPlanner({
       // Ignore persistence failures; DB-backed overrides land in a later tier.
     }
   }, [override, storageKey]);
+
+  useEffect(() => {
+    if (!overrideEndpoint || !remoteReady.current) return;
+    const ctrl = new AbortController();
+    const save = async () => {
+      try {
+        await fetch(overrideEndpoint, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(override),
+          signal: ctrl.signal,
+        });
+      } catch (err) {
+        if (!(err instanceof Error && err.name === "AbortError")) {
+          console.warn("[funnel-planner] override save failed", err);
+        }
+      }
+    };
+    void save();
+    return () => ctrl.abort();
+  }, [override, overrideEndpoint]);
   const data = useMemo(
     () =>
       aggregateFunnelData(
@@ -113,6 +169,7 @@ export function FunnelPlanner({
             key={rate.key}
             label={rate.label}
             value={override[rate.key] ?? rate.defaultValue}
+            defaultValue={rate.defaultValue}
             actual={actualRates[rate.key]}
             onChange={(value) =>
               setOverride((prev) => ({ ...prev, [rate.key]: value }))
@@ -268,6 +325,11 @@ export function VenueFunnelPlanner({
       events={events}
       campaigns={state.campaigns}
       storageKey={`funnel-planner:venue:${clientId}:${eventCode}`}
+      overrideEndpoint={
+        isInternal
+          ? `/api/clients/${encodeURIComponent(clientId)}/venues/${encodeURIComponent(eventCode)}/funnel-overrides`
+          : `/api/share/venue/${encodeURIComponent(shareToken)}/funnel-overrides`
+      }
     />
   );
 }
@@ -287,12 +349,14 @@ function FunnelPlannerMessage({ message }: { message: string }) {
 function RateCard({
   label,
   value,
+  defaultValue,
   actual,
   onChange,
   onReset,
 }: {
   label: string;
   value: number | null;
+  defaultValue: number | null;
   actual: number | null;
   onChange: (value: number | null) => void;
   onReset: () => void;
@@ -313,7 +377,7 @@ function RateCard({
         }}
       />
       <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-        <p>Leeds default: {fmtPct(value)}</p>
+        <p>Leeds default: {fmtPct(defaultValue)}</p>
         <p>Your actual: {fmtPct(actual)}</p>
         <button
           type="button"

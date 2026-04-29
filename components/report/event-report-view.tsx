@@ -762,6 +762,11 @@ function MetaReportBlock({
         ]}
         campaigns={meta.campaigns}
         storageKey={`funnel-planner:event:${event.name}`}
+        overrideEndpoint={
+          creativesSource.kind === "internal"
+            ? `/api/events/${encodeURIComponent(creativesSource.eventId)}/funnel-overrides`
+            : `/api/share/report/${encodeURIComponent(creativesSource.token)}/funnel-overrides`
+        }
       />
 
       <MetaCampaignStatsSection meta={meta} isRefreshing={isRefreshing} />
