@@ -84,3 +84,20 @@
 - Why: Guardrails feed the future review-step pre-flight checks, and blocking intermediate draft saves would make partially complete drafts harder to work with.
 - Reversibility: reversible.
 - Reviewer action needed: no.
+
+## PR-C — TikTok Wizard Step 3 + Step 4
+
+- Decision made: Do not add a server-side audience-category cache migration in v1.
+- Why: The audience reads are scoped to one advertiser and only run inside the wizard; avoiding a migration keeps the PR deployable without morning Cowork work. If live latency or payload size is poor, a cache table can be added as a targeted follow-up.
+- Reversibility: reversible with a future migration.
+- Reviewer action needed: no.
+
+- Decision made: Behaviour, custom-audience, and saved/lookalike read failures degrade to empty lists while preserving interest categories when available.
+- Why: TikTok advertiser capabilities vary; one unavailable audience source should not block selecting other targeting dimensions.
+- Reversibility: reversible.
+- Reviewer action needed: no.
+
+- Decision made: Spark Ads remain a disabled radio option with no fields.
+- Why: Morning sign-off said placeholder only in v1.
+- Reversibility: reversible when Spark Ads are scoped.
+- Reviewer action needed: no.

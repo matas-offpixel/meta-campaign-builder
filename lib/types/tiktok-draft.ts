@@ -70,19 +70,38 @@ export interface TikTokOptimisation {
 
 export interface TikTokAudiences {
   interestCategoryIds: string[];
+  interestCategoryLabels: Record<string, string>;
   interestKeywordIds: string[];
   behaviourCategoryIds: string[];
+  behaviourCategoryLabels: Record<string, string>;
   customAudienceIds: string[];
+  customAudienceLabels: Record<string, string>;
   lookalikeAudienceIds: string[];
+  lookalikeAudienceLabels: Record<string, string>;
+  locationCodes: string[];
+  ageMin: number;
+  ageMax: number;
+  genders: Array<"MALE" | "FEMALE" | "UNKNOWN">;
+  languages: string[];
+  estimatedReach: number | null;
 }
 
 export interface TikTokCreativeDraft {
   id: string;
   name: string;
-  mode: "upload" | "url" | "spark_ad";
+  mode: "VIDEO_REFERENCE" | "SPARK_AD";
+  baseName: string;
+  videoId: string | null;
   videoUrl: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  title: string | null;
   sparkPostId: string | null;
   caption: string;
+  adText: string;
+  displayName: string;
+  landingPageUrl: string;
+  cta: string | null;
   musicId: string | null;
 }
 
@@ -151,10 +170,20 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
     },
     audiences: {
       interestCategoryIds: [],
+      interestCategoryLabels: {},
       interestKeywordIds: [],
       behaviourCategoryIds: [],
+      behaviourCategoryLabels: {},
       customAudienceIds: [],
+      customAudienceLabels: {},
       lookalikeAudienceIds: [],
+      lookalikeAudienceLabels: {},
+      locationCodes: ["GB"],
+      ageMin: 18,
+      ageMax: 65,
+      genders: [],
+      languages: ["en"],
+      estimatedReach: null,
     },
     creatives: { items: [] },
     budgetSchedule: {
