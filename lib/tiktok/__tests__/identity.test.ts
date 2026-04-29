@@ -10,7 +10,10 @@ describe("fetchTikTokIdentities", () => {
     const rows = await fetchTikTokIdentities({
       advertiserId: "advertiser-1",
       token: "token-1",
-      request: async <T,>(_path, params): Promise<T> => {
+      request: async <T,>(
+        _path: string,
+        params: Record<string, unknown>,
+      ): Promise<T> => {
         identityTypes.push(String(params.identity_type));
         return {
           list: [

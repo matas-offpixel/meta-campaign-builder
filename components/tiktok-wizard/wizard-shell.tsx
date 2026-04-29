@@ -15,10 +15,26 @@ import { BudgetScheduleStep } from "./steps/budget-schedule";
 import { AssignCreativesStep } from "./steps/assign-creatives";
 import { ReviewLaunchStep } from "./steps/review-launch";
 
-export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
+export interface TikTokWizardContext {
+  eventName?: string | null;
+  eventDate?: string | null;
+  clientName?: string | null;
+  advertiserName?: string | null;
+}
+
+export function TikTokWizardShell({
+  draft,
+  context,
+}: {
+  draft: TikTokCampaignDraft;
+  context?: TikTokWizardContext;
+}) {
   const [step, setStep] = useState(0);
   const [workingDraft, setWorkingDraft] = useState(draft);
-  const CurrentStep = useMemo(() => STEP_COMPONENTS[step] ?? AccountSetupStep, [step]);
+  const CurrentStep = useMemo(
+    () => STEP_COMPONENTS[step] ?? AccountSetupStep,
+    [step],
+  );
 
   async function saveDraft(patch: Partial<TikTokCampaignDraft>) {
     const optimistic = mergeDraft(workingDraft, patch);
@@ -73,7 +89,11 @@ export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
         </ol>
 
         <section className="rounded-lg border border-border bg-card p-6">
-          <CurrentStep draft={workingDraft} onSave={saveDraft} />
+          <CurrentStep
+            draft={workingDraft}
+            onSave={saveDraft}
+            context={context}
+          />
         </section>
 
         <div className="mt-6 flex justify-between">
@@ -104,6 +124,7 @@ export function TikTokWizardShell({ draft }: { draft: TikTokCampaignDraft }) {
 type StepProps = {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  context?: TikTokWizardContext;
 };
 
 const STEP_COMPONENTS: Array<(props: StepProps) => React.ReactNode> = [

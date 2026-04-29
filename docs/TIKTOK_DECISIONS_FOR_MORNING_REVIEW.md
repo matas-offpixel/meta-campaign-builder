@@ -125,3 +125,15 @@
 - Why: This keeps draft creation local to Supabase and avoids adding any TikTok write surface.
 - Reversibility: reversible.
 - Reviewer action needed: no.
+
+## PR-A — TikTok Wizard Polish Types + Brief Export
+
+- Decision made: Keep `state` on `tiktok_campaign_drafts` as a JSON cast in `lib/db/tiktok-drafts.ts` even after type regeneration.
+- Why: Supabase correctly exposes the column as generic `Json`; the application-level `TikTokCampaignDraft` shape is intentionally more specific and evolves faster than the DB column.
+- Reversibility: reversible if the draft schema is later normalized into typed columns.
+- Reviewer action needed: no.
+
+- Decision made: Preserve the Google Ads credential RPC type signatures in the regenerated database types because the live generated schema omitted them while `origin/main` callers already depend on migration `060_encrypt_google_ads_credentials.sql`.
+- Why: Without preserving those RPC typings, `npx tsc --noEmit` fails in existing Google Ads code even though PR-A is scoped to TikTok wizard polish.
+- Reversibility: reversible after the live Supabase schema generation includes those RPCs directly.
+- Reviewer action needed: yes — confirm whether migration `060_encrypt_google_ads_credentials.sql` has been applied to the project used for type generation.

@@ -12,33 +12,64 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
+      active_creatives_snapshots: {
+        Row: {
+          created_at: string
+          custom_since: string | null
+          custom_until: string | null
+          date_preset: string
+          event_id: string
+          expires_at: string
+          fetched_at: string
+          id: string
+          is_stale: boolean
+          last_refresh_error: string | null
+          payload: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          custom_since?: string | null
+          custom_until?: string | null
+          date_preset: string
+          event_id: string
+          expires_at: string
+          fetched_at?: string
+          id?: string
+          is_stale?: boolean
+          last_refresh_error?: string | null
+          payload: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          custom_since?: string | null
+          custom_until?: string | null
+          date_preset?: string
+          event_id?: string
+          expires_at?: string
+          fetched_at?: string
+          id?: string
+          is_stale?: boolean
+          last_refresh_error?: string | null
+          payload?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "active_creatives_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ad_plan_audiences: {
         Row: {
           age_max: number | null
@@ -242,6 +273,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ad_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      additional_spend_entries: {
+        Row: {
+          amount: number
+          category: Database["public"]["Enums"]["additional_spend_category"]
+          created_at: string
+          date: string
+          event_id: string
+          id: string
+          label: string
+          notes: string | null
+          scope: string
+          updated_at: string
+          user_id: string
+          venue_event_code: string | null
+        }
+        Insert: {
+          amount: number
+          category?: Database["public"]["Enums"]["additional_spend_category"]
+          created_at?: string
+          date: string
+          event_id: string
+          id?: string
+          label?: string
+          notes?: string | null
+          scope?: string
+          updated_at?: string
+          user_id: string
+          venue_event_code?: string | null
+        }
+        Update: {
+          amount?: number
+          category?: Database["public"]["Enums"]["additional_spend_category"]
+          created_at?: string
+          date?: string
+          event_id?: string
+          id?: string
+          label?: string
+          notes?: string | null
+          scope?: string
+          updated_at?: string
+          user_id?: string
+          venue_event_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "additional_spend_entries_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
@@ -568,7 +652,6 @@ export type Database = {
       }
       clients: {
         Row: {
-          bannerbear_enabled: boolean
           billing_model: string
           created_at: string
           custom_minimum_fee: number | null
@@ -600,7 +683,6 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          bannerbear_enabled?: boolean
           billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
@@ -632,7 +714,6 @@ export type Database = {
           user_id: string
         }
         Update: {
-          bannerbear_enabled?: boolean
           billing_model?: string
           created_at?: string
           custom_minimum_fee?: number | null
@@ -921,48 +1002,39 @@ export type Database = {
       }
       d2c_connections: {
         Row: {
-          approved_by_matas: boolean
           client_id: string
           created_at: string
           credentials: Json
-          credentials_encrypted: string | null
           external_account_id: string | null
           id: string
           last_error: string | null
           last_synced_at: string | null
-          live_enabled: boolean
           provider: string
           status: string
           updated_at: string
           user_id: string
         }
         Insert: {
-          approved_by_matas?: boolean
           client_id: string
           created_at?: string
           credentials?: Json
-          credentials_encrypted?: string | null
           external_account_id?: string | null
           id?: string
           last_error?: string | null
           last_synced_at?: string | null
-          live_enabled?: boolean
           provider: string
           status?: string
           updated_at?: string
           user_id: string
         }
         Update: {
-          approved_by_matas?: boolean
           client_id?: string
           created_at?: string
           credentials?: Json
-          credentials_encrypted?: string | null
           external_account_id?: string | null
           id?: string
           last_error?: string | null
           last_synced_at?: string | null
-          live_enabled?: boolean
           provider?: string
           status?: string
           updated_at?: string
@@ -980,9 +1052,6 @@ export type Database = {
       }
       d2c_scheduled_sends: {
         Row: {
-          approval_status: string
-          approved_at: string | null
-          approved_by: string | null
           audience: Json
           channel: string
           connection_id: string
@@ -999,9 +1068,6 @@ export type Database = {
           variables: Json
         }
         Insert: {
-          approval_status?: string
-          approved_at?: string | null
-          approved_by?: string | null
           audience?: Json
           channel: string
           connection_id: string
@@ -1018,9 +1084,6 @@ export type Database = {
           variables?: Json
         }
         Update: {
-          approval_status?: string
-          approved_at?: string | null
-          approved_by?: string | null
           audience?: Json
           channel?: string
           connection_id?: string
@@ -1250,46 +1313,97 @@ export type Database = {
       event_daily_rollups: {
         Row: {
           ad_spend: number | null
+          ad_spend_allocated: number | null
+          ad_spend_generic_share: number | null
+          ad_spend_presale: number | null
+          ad_spend_specific: number | null
           created_at: string
           date: string
           event_id: string
           id: string
           link_clicks: number | null
+          meta_regs: number | null
           notes: string | null
           revenue: number | null
           source_eventbrite_at: string | null
           source_meta_at: string | null
+          source_tiktok_at: string | null
           tickets_sold: number | null
+          tiktok_avg_play_time_ms: number | null
+          tiktok_clicks: number | null
+          tiktok_impressions: number | null
+          tiktok_post_engagement: number | null
+          tiktok_reach: number | null
+          tiktok_results: number | null
+          tiktok_spend: number | null
+          tiktok_video_views: number | null
+          tiktok_video_views_100p: number | null
+          tiktok_video_views_2s: number | null
+          tiktok_video_views_6s: number | null
           updated_at: string
           user_id: string
         }
         Insert: {
           ad_spend?: number | null
+          ad_spend_allocated?: number | null
+          ad_spend_generic_share?: number | null
+          ad_spend_presale?: number | null
+          ad_spend_specific?: number | null
           created_at?: string
           date: string
           event_id: string
           id?: string
           link_clicks?: number | null
+          meta_regs?: number | null
           notes?: string | null
           revenue?: number | null
           source_eventbrite_at?: string | null
           source_meta_at?: string | null
+          source_tiktok_at?: string | null
           tickets_sold?: number | null
+          tiktok_avg_play_time_ms?: number | null
+          tiktok_clicks?: number | null
+          tiktok_impressions?: number | null
+          tiktok_post_engagement?: number | null
+          tiktok_reach?: number | null
+          tiktok_results?: number | null
+          tiktok_spend?: number | null
+          tiktok_video_views?: number | null
+          tiktok_video_views_100p?: number | null
+          tiktok_video_views_2s?: number | null
+          tiktok_video_views_6s?: number | null
           updated_at?: string
           user_id: string
         }
         Update: {
           ad_spend?: number | null
+          ad_spend_allocated?: number | null
+          ad_spend_generic_share?: number | null
+          ad_spend_presale?: number | null
+          ad_spend_specific?: number | null
           created_at?: string
           date?: string
           event_id?: string
           id?: string
           link_clicks?: number | null
+          meta_regs?: number | null
           notes?: string | null
           revenue?: number | null
           source_eventbrite_at?: string | null
           source_meta_at?: string | null
+          source_tiktok_at?: string | null
           tickets_sold?: number | null
+          tiktok_avg_play_time_ms?: number | null
+          tiktok_clicks?: number | null
+          tiktok_impressions?: number | null
+          tiktok_post_engagement?: number | null
+          tiktok_reach?: number | null
+          tiktok_results?: number | null
+          tiktok_spend?: number | null
+          tiktok_video_views?: number | null
+          tiktok_video_views_100p?: number | null
+          tiktok_video_views_2s?: number | null
+          tiktok_video_views_6s?: number | null
           updated_at?: string
           user_id?: string
         }
@@ -1427,6 +1541,7 @@ export type Database = {
           objective: string | null
           prereg_spend: number | null
           presale_at: string | null
+          report_cadence: string
           signup_url: string | null
           slug: string
           status: string
@@ -1469,6 +1584,7 @@ export type Database = {
           objective?: string | null
           prereg_spend?: number | null
           presale_at?: string | null
+          report_cadence?: string
           signup_url?: string | null
           slug: string
           status?: string
@@ -1511,6 +1627,7 @@ export type Database = {
           objective?: string | null
           prereg_spend?: number | null
           presale_at?: string | null
+          report_cadence?: string
           signup_url?: string | null
           slug?: string
           status?: string
@@ -1630,38 +1747,26 @@ export type Database = {
       }
       google_ads_accounts: {
         Row: {
-          access_token_encrypted: string | null
           account_name: string
           created_at: string
-          credentials_encrypted: string | null
-          credentials_format: string
           google_customer_id: string | null
           id: string
-          login_customer_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          access_token_encrypted?: string | null
           account_name: string
           created_at?: string
-          credentials_encrypted?: string | null
-          credentials_format?: string
           google_customer_id?: string | null
           id?: string
-          login_customer_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          access_token_encrypted?: string | null
           account_name?: string
           created_at?: string
-          credentials_encrypted?: string | null
-          credentials_format?: string
           google_customer_id?: string | null
           id?: string
-          login_customer_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1958,7 +2063,7 @@ export type Database = {
       }
       ticket_sales_snapshots: {
         Row: {
-          connection_id: string
+          connection_id: string | null
           created_at: string
           currency: string | null
           event_id: string
@@ -1966,12 +2071,13 @@ export type Database = {
           id: string
           raw_payload: Json | null
           snapshot_at: string
+          source: string
           tickets_available: number | null
           tickets_sold: number
           user_id: string
         }
         Insert: {
-          connection_id: string
+          connection_id?: string | null
           created_at?: string
           currency?: string | null
           event_id: string
@@ -1979,12 +2085,13 @@ export type Database = {
           id?: string
           raw_payload?: Json | null
           snapshot_at?: string
+          source?: string
           tickets_available?: number | null
           tickets_sold?: number
           user_id: string
         }
         Update: {
-          connection_id?: string
+          connection_id?: string | null
           created_at?: string
           currency?: string | null
           event_id?: string
@@ -1992,6 +2099,7 @@ export type Database = {
           id?: string
           raw_payload?: Json | null
           snapshot_at?: string
+          source?: string
           tickets_available?: number | null
           tickets_sold?: number
           user_id?: string
@@ -2044,6 +2152,259 @@ export type Database = {
           credentials_format?: string
           id?: string
           tiktok_advertiser_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      tiktok_active_creatives_snapshots: {
+        Row: {
+          ad_id: string
+          ad_name: string | null
+          ad_text: string | null
+          campaign_id: string | null
+          campaign_name: string | null
+          clicks: number | null
+          created_at: string
+          ctr: number | null
+          deeplink_url: string | null
+          error_message: string | null
+          event_id: string
+          fetched_at: string
+          id: string
+          impressions: number | null
+          kind: string
+          reach: number | null
+          spend: number | null
+          status: string | null
+          thumbnail_url: string | null
+          updated_at: string
+          user_id: string
+          video_views_100p: number | null
+          video_views_2s: number | null
+          video_views_6s: number | null
+          window_since: string
+          window_until: string
+        }
+        Insert: {
+          ad_id: string
+          ad_name?: string | null
+          ad_text?: string | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          clicks?: number | null
+          created_at?: string
+          ctr?: number | null
+          deeplink_url?: string | null
+          error_message?: string | null
+          event_id: string
+          fetched_at?: string
+          id?: string
+          impressions?: number | null
+          kind: string
+          reach?: number | null
+          spend?: number | null
+          status?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id: string
+          video_views_100p?: number | null
+          video_views_2s?: number | null
+          video_views_6s?: number | null
+          window_since: string
+          window_until: string
+        }
+        Update: {
+          ad_id?: string
+          ad_name?: string | null
+          ad_text?: string | null
+          campaign_id?: string | null
+          campaign_name?: string | null
+          clicks?: number | null
+          created_at?: string
+          ctr?: number | null
+          deeplink_url?: string | null
+          error_message?: string | null
+          event_id?: string
+          fetched_at?: string
+          id?: string
+          impressions?: number | null
+          kind?: string
+          reach?: number | null
+          spend?: number | null
+          status?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id?: string
+          video_views_100p?: number | null
+          video_views_2s?: number | null
+          video_views_6s?: number | null
+          window_since?: string
+          window_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tiktok_active_creatives_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tiktok_breakdown_snapshots: {
+        Row: {
+          avg_play_time_ms: number | null
+          clicks: number | null
+          created_at: string
+          ctr: number | null
+          dimension: string
+          dimension_value: string
+          event_id: string
+          fetched_at: string
+          id: string
+          impressions: number | null
+          reach: number | null
+          spend: number | null
+          updated_at: string
+          user_id: string
+          video_views_100p: number | null
+          video_views_2s: number | null
+          video_views_6s: number | null
+          window_since: string
+          window_until: string
+        }
+        Insert: {
+          avg_play_time_ms?: number | null
+          clicks?: number | null
+          created_at?: string
+          ctr?: number | null
+          dimension: string
+          dimension_value: string
+          event_id: string
+          fetched_at?: string
+          id?: string
+          impressions?: number | null
+          reach?: number | null
+          spend?: number | null
+          updated_at?: string
+          user_id: string
+          video_views_100p?: number | null
+          video_views_2s?: number | null
+          video_views_6s?: number | null
+          window_since: string
+          window_until: string
+        }
+        Update: {
+          avg_play_time_ms?: number | null
+          clicks?: number | null
+          created_at?: string
+          ctr?: number | null
+          dimension?: string
+          dimension_value?: string
+          event_id?: string
+          fetched_at?: string
+          id?: string
+          impressions?: number | null
+          reach?: number | null
+          spend?: number | null
+          updated_at?: string
+          user_id?: string
+          video_views_100p?: number | null
+          video_views_2s?: number | null
+          video_views_6s?: number | null
+          window_since?: string
+          window_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tiktok_breakdown_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tiktok_campaign_drafts: {
+        Row: {
+          client_id: string | null
+          created_at: string
+          event_id: string | null
+          id: string
+          name: string | null
+          state: Json
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          name?: string | null
+          state?: Json
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          name?: string | null
+          state?: Json
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tiktok_campaign_drafts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiktok_campaign_drafts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tiktok_campaign_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          snapshot: Json
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          snapshot: Json
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          snapshot?: Json
+          tags?: string[]
           updated_at?: string
           user_id?: string
         }
@@ -2226,10 +2587,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      get_d2c_credentials: {
-        Args: { p_id: string; p_key: string }
-        Returns: Json
-      }
       get_google_ads_credentials: {
         Args: { p_account_id: string; p_key?: string | null }
         Returns: string
@@ -2242,12 +2599,12 @@ export type Database = {
         Args: { p_account_id: string; p_key: string }
         Returns: string
       }
-      set_d2c_credentials: {
-        Args: { p_credentials: Json; p_id: string; p_key: string }
-        Returns: undefined
-      }
       set_google_ads_credentials: {
-        Args: { p_account_id: string; p_key?: string | null; p_plaintext: string }
+        Args: {
+          p_account_id: string
+          p_key?: string | null
+          p_plaintext: string
+        }
         Returns: undefined
       }
       set_ticketing_credentials: {
@@ -2260,7 +2617,12 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      additional_spend_category:
+        | "PR"
+        | "INFLUENCER"
+        | "PRINT"
+        | "RADIO"
+        | "OTHER"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2386,10 +2748,15 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
-    Enums: {},
+    Enums: {
+      additional_spend_category: [
+        "PR",
+        "INFLUENCER",
+        "PRINT",
+        "RADIO",
+        "OTHER",
+      ],
+    },
   },
 } as const

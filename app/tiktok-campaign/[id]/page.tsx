@@ -25,5 +25,43 @@ export default async function TikTokCampaignPage(props: {
     draft.campaignSetup.eventCode =
       ((event as { event_code?: string | null } | null)?.event_code ?? null);
   }
-  return <TikTokWizardShell draft={draft} />;
+
+  const [{ data: event }, { data: client }, { data: advertiser }] = await Promise.all([
+    draft.eventId
+      ? supabase
+          .from("events")
+          .select("name, event_date")
+          .eq("id", draft.eventId)
+          .eq("user_id", data.user.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    draft.clientId
+      ? supabase
+          .from("clients")
+          .select("name")
+          .eq("id", draft.clientId)
+          .eq("user_id", data.user.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    draft.accountSetup.tiktokAccountId
+      ? supabase
+          .from("tiktok_accounts")
+          .select("account_name")
+          .eq("id", draft.accountSetup.tiktokAccountId)
+          .eq("user_id", data.user.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  return (
+    <TikTokWizardShell
+      draft={draft}
+      context={{
+        eventName: event?.name ?? null,
+        eventDate: event?.event_date ?? null,
+        clientName: client?.name ?? null,
+        advertiserName: advertiser?.account_name ?? null,
+      }}
+    />
+  );
 }
