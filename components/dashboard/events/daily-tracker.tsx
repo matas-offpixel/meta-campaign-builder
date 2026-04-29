@@ -193,6 +193,12 @@ interface Props {
     otherSpendByDate?: ReadonlyMap<string, number>;
     /** Category breakdown per day for Day other tooltips. */
     otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
+    /**
+     * Timeframe-scoped report embeds pass a pre-filtered timeline. In
+     * that mode, avoid adding today's placeholder when today is outside
+     * the selected window (e.g. Yesterday).
+     */
+    suppressSyntheticToday?: boolean;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -481,6 +487,9 @@ export function DailyTracker({
   const otherBreakdownMap = isControlled
     ? controlled?.otherSpendBreakdownByDate
     : undefined;
+  const suppressSyntheticToday = isControlled
+    ? !!controlled?.suppressSyntheticToday
+    : false;
 
   /** Hide leading zero-pad days (PR #99 sync window) — display-only; API + DB unchanged. */
   const trackerDisplayTimeline = useMemo(
@@ -506,6 +515,7 @@ export function DailyTracker({
             presale,
             otherSpendByDate: otherSpendMap,
             otherSpendBreakdownByDate: otherBreakdownMap,
+            suppressSyntheticToday,
           }),
     [
       trackerDisplayTimeline,
@@ -513,6 +523,7 @@ export function DailyTracker({
       cadence,
       otherSpendMap,
       otherBreakdownMap,
+      suppressSyntheticToday,
     ],
   );
 
@@ -1092,11 +1103,13 @@ function buildDisplayRows({
   presale,
   otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
   otherSpendBreakdownByDate,
+  suppressSyntheticToday = false,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   otherSpendByDate?: ReadonlyMap<string, number>;
   otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
+  suppressSyntheticToday?: boolean;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -1149,7 +1162,11 @@ function buildDisplayRows({
   // for today. Tagged "live" but the badge is suppressed for synthetic
   // rows in the renderer.
   const hasToday = dailyRows.some((r) => r.date === todayStr);
-  if (!hasToday && (!generalSaleCutoff || todayStr >= generalSaleCutoff)) {
+  if (
+    !suppressSyntheticToday &&
+    !hasToday &&
+    (!generalSaleCutoff || todayStr >= generalSaleCutoff)
+  ) {
     dailyRows.push({
       date: todayStr,
       source: "live",

@@ -3,6 +3,11 @@ import type { Metadata } from "next";
 import { loadVenuePortalByToken } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { ClientPortalUnavailable } from "@/components/share/client-portal-unavailable";
+import {
+  DATE_PRESETS,
+  type CustomDateRange,
+  type DatePreset,
+} from "@/lib/insights/types";
 
 /**
  * app/share/venue/[token]/page.tsx
@@ -29,6 +34,7 @@ import { ClientPortalUnavailable } from "@/components/share/client-portal-unavai
 
 interface Props {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -41,8 +47,14 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function VenueSharePage({ params }: Props) {
-  const { token } = await params;
+export default async function VenueSharePage({ params, searchParams }: Props) {
+  const [{ token }, sp] = await Promise.all([params, searchParams]);
+  const datePreset = parseDatePreset(sp.tf);
+  const customRange = parseCustomRange(
+    datePreset,
+    pickQueryParam(sp.from),
+    pickQueryParam(sp.to),
+  );
   const result = await loadVenuePortalByToken(token, { bumpView: true });
 
   if (!result.ok) {
@@ -91,8 +103,36 @@ export default async function VenueSharePage({ params }: Props) {
           londonOnsaleSpend={result.londonOnsaleSpend}
           londonPresaleSpend={result.londonPresaleSpend}
           canEdit={result.can_edit}
+          datePreset={datePreset}
+          customRange={customRange}
         />
       </div>
     </main>
   );
+}
+
+function parseDatePreset(value: string | string[] | undefined): DatePreset {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === "custom") return "custom";
+  if (raw && (DATE_PRESETS as readonly string[]).includes(raw)) {
+    return raw as DatePreset;
+  }
+  return "maximum";
+}
+
+function pickQueryParam(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function parseCustomRange(
+  preset: DatePreset,
+  from: string | null,
+  to: string | null,
+): CustomDateRange | undefined {
+  if (preset !== "custom") return undefined;
+  if (!from || !to) return undefined;
+  return { since: from, until: to };
 }

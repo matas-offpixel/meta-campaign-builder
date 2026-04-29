@@ -14,6 +14,8 @@ import {
 } from "@/lib/db/additional-spend-sum";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
+import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -28,6 +30,8 @@ interface Props {
   dailyRollups: DailyRollupRow[];
   additionalSpend: AdditionalSpendRow[];
   mode: "dashboard" | "share";
+  datePreset?: DatePreset;
+  customRange?: CustomDateRange;
 }
 
 interface VenueEventLike {
@@ -65,6 +69,8 @@ export function VenueDailyReportBlock({
   dailyRollups,
   additionalSpend,
   mode,
+  datePreset = "maximum",
+  customRange,
 }: Props) {
   const {
     event,
@@ -87,10 +93,46 @@ export function VenueDailyReportBlock({
       }),
     [timeline, otherSpendByDate],
   );
+  const windowDays = useMemo(
+    () => resolvePresetToDays(datePreset, customRange),
+    [datePreset, customRange],
+  );
+  const windowDaySet = useMemo(
+    () => (windowDays === null ? null : new Set(windowDays)),
+    [windowDays],
+  );
+  const windowedTimeline = useMemo(
+    () =>
+      windowDaySet === null
+        ? timeline
+        : timeline.filter((row) => windowDaySet.has(row.date)),
+    [timeline, windowDaySet],
+  );
+  const windowedChartTimeline = useMemo(
+    () =>
+      windowDaySet === null
+        ? chartTimeline
+        : chartTimeline.filter((row) => windowDaySet.has(row.date)),
+    [chartTimeline, windowDaySet],
+  );
+  const windowedOtherSpendByDate = useMemo(
+    () =>
+      windowDaySet === null
+        ? otherSpendByDate
+        : filterMapByDate(otherSpendByDate, windowDaySet),
+    [otherSpendByDate, windowDaySet],
+  );
+  const windowedOtherSpendBreakdownByDate = useMemo(
+    () =>
+      windowDaySet === null
+        ? otherSpendBreakdownByDate
+        : filterMapByDate(otherSpendBreakdownByDate, windowDaySet),
+    [otherSpendBreakdownByDate, windowDaySet],
+  );
 
   const controlled = useMemo(
     () => ({
-      timeline,
+      timeline: windowedTimeline,
       presale,
       syncing: false,
       error: null,
@@ -98,16 +140,18 @@ export function VenueDailyReportBlock({
       readOnly: mode === "share",
       isEditable: false,
       defaultCadence: event.report_cadence,
-      otherSpendByDate,
-      otherSpendBreakdownByDate,
+      otherSpendByDate: windowedOtherSpendByDate,
+      otherSpendBreakdownByDate: windowedOtherSpendBreakdownByDate,
+      suppressSyntheticToday: windowDaySet !== null,
     }),
     [
-      timeline,
+      windowedTimeline,
       presale,
       mode,
       event.report_cadence,
-      otherSpendByDate,
-      otherSpendBreakdownByDate,
+      windowedOtherSpendByDate,
+      windowedOtherSpendBreakdownByDate,
+      windowDaySet,
     ],
   );
 
@@ -144,7 +188,7 @@ export function VenueDailyReportBlock({
         additionalSpendEntries={additionalSpendRows}
       />
 
-      <EventTrendChart timeline={chartTimeline} title="Daily trend" />
+      <EventTrendChart timeline={windowedChartTimeline} title="Daily trend" />
 
       <DailyTracker
         eventId={`venue:${eventCode}`}
@@ -154,6 +198,17 @@ export function VenueDailyReportBlock({
       />
     </section>
   );
+}
+
+function filterMapByDate<T>(
+  map: ReadonlyMap<string, T>,
+  allowedDays: ReadonlySet<string>,
+): ReadonlyMap<string, T> {
+  const out = new Map<string, T>();
+  for (const [date, value] of map) {
+    if (allowedDays.has(date)) out.set(date, value);
+  }
+  return out;
 }
 
 function buildVenueReportModel(

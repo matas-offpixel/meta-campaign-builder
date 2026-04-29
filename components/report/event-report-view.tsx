@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { sumAdditionalSpendAmounts } from "@/lib/db/additional-spend-sum";
 import {
@@ -14,8 +14,6 @@ import {
 } from "@/lib/dashboard/report-pacing";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import {
-  DATE_PRESETS,
-  DATE_PRESET_LABELS,
   type CustomDateRange,
   type DatePreset,
   type EventInsightsPayload,
@@ -23,6 +21,7 @@ import {
 
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
 import { RefreshReportButton } from "./refresh-report-button";
+import { CustomRangePicker, TimeframeSelector } from "./timeframe-controls";
 import {
   TikTokReportBlock,
   type TikTokReportBlockData,
@@ -974,192 +973,6 @@ function resolveTicketsSoldSub(event: EventReportViewEvent): string | null {
   }
   if (event.ticketsSold === 0) return "0 to date";
   return null;
-}
-
-// ─── Timeframe selector ────────────────────────────────────────────────────
-
-function TimeframeSelector({
-  active,
-  disabled,
-  onChange,
-}: {
-  active: DatePreset;
-  disabled: boolean;
-  onChange: (preset: DatePreset) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        Timeframe
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {DATE_PRESETS.map((p) => {
-          // "custom" lives in its own picker row below — DATE_PRESETS
-          // omits it deliberately, so active==="custom" naturally
-          // leaves every preset button un-highlighted.
-          const isActive = p === active;
-          return (
-            <button
-              key={p}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(p)}
-              className={`rounded-md border px-2.5 py-1 text-[11px] tracking-wide transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                isActive
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-background text-muted-foreground hover:border-border-strong hover:text-foreground"
-              }`}
-            >
-              {DATE_PRESET_LABELS[p]}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Custom range picker ──────────────────────────────────────────────────
-
-/**
- * From / To date inputs that own their own "draft" state until the user
- * hits Apply. Decoupling the inputs from the active range avoids firing
- * a Meta call on each keystroke and lets the user freely flip between
- * "since" and "until" without intermediate fetches.
- *
- * `min` is today - 37 months (Meta's retention cap); `max` is today UTC
- * (no future windows). Both bounds match the server-side validator in
- * `lib/insights/meta.ts#resolveCustomRange` so a successful client-side
- * Apply never fails server-side validation.
- */
-function CustomRangePicker({
-  active,
-  disabled,
-  initialRange,
-  onApply,
-}: {
-  active: boolean;
-  disabled: boolean;
-  initialRange: CustomDateRange | null;
-  onApply: (range: CustomDateRange) => void;
-}) {
-  const todayIso = todayIsoUtc();
-  const minIso = minSinceIsoUtc();
-
-  const [from, setFrom] = useState<string>(initialRange?.since ?? "");
-  const [to, setTo] = useState<string>(initialRange?.until ?? "");
-
-  // Re-seed the draft inputs when the parent's `initialRange` shifts —
-  // e.g. navigating between two share URLs that differ only in
-  // ?from / ?to. React 19's `react-hooks/set-state-in-effect` rules out
-  // the obvious `useEffect(() => setFrom(...))` shape, so we use the
-  // "adjust state in render" pattern: track the parent range as a
-  // string and trigger the re-seed synchronously when it differs.
-  // No extra render commit, no stale-data window.
-  const initialKey = `${initialRange?.since ?? ""}|${initialRange?.until ?? ""}`;
-  const [trackedKey, setTrackedKey] = useState<string>(initialKey);
-  if (trackedKey !== initialKey) {
-    setTrackedKey(initialKey);
-    setFrom(initialRange?.since ?? "");
-    setTo(initialRange?.until ?? "");
-  }
-
-  const isValid =
-    from !== "" &&
-    to !== "" &&
-    from >= minIso &&
-    to <= todayIso &&
-    from <= to;
-
-  const handleApply = () => {
-    if (!isValid) return;
-    onApply({ since: from, until: to });
-  };
-
-  const activeLabel =
-    active && initialRange
-      ? `${fmtDate(initialRange.since)} → ${fmtDate(initialRange.until)}`
-      : null;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div
-        className={`flex flex-wrap items-end gap-2 rounded-md border px-2.5 py-2 transition ${
-          active
-            ? "border-primary bg-primary/5"
-            : "border-border bg-background"
-        }`}
-      >
-        <label className="flex flex-col gap-0.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            From
-          </span>
-          <input
-            type="date"
-            min={minIso}
-            max={todayIso}
-            value={from}
-            disabled={disabled}
-            onChange={(e) => setFrom(e.target.value)}
-            className="rounded-md border border-border-strong bg-background px-2 py-1 text-[12px] text-foreground disabled:opacity-50"
-          />
-        </label>
-        <label className="flex flex-col gap-0.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            To
-          </span>
-          <input
-            type="date"
-            min={minIso}
-            max={todayIso}
-            value={to}
-            disabled={disabled}
-            onChange={(e) => setTo(e.target.value)}
-            className="rounded-md border border-border-strong bg-background px-2 py-1 text-[12px] text-foreground disabled:opacity-50"
-          />
-        </label>
-        <button
-          type="button"
-          disabled={disabled || !isValid}
-          onClick={handleApply}
-          className="rounded-md border border-primary bg-primary px-2.5 py-1 text-[11px] font-medium tracking-wide text-primary-foreground transition disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Apply
-        </button>
-        {activeLabel ? (
-          <span className="text-[11px] font-medium tracking-wide text-primary">
-            {activeLabel}
-          </span>
-        ) : (
-          <span className="text-[11px] tracking-wide text-muted-foreground">
-            Custom range
-          </span>
-        )}
-      </div>
-      {from !== "" && to !== "" && from > to ? (
-        <p className="text-[10px] text-destructive">
-          From date must be on or before To date.
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function todayIsoUtc(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-}
-
-function minSinceIsoUtc(): string {
-  const d = new Date();
-  // Meta retention is 37 months; using setUTCMonth handles month-length
-  // wrap-around correctly.
-  d.setUTCMonth(d.getUTCMonth() - 37);
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-}
-
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : String(n);
 }
 
 // ─── Header / footer ───────────────────────────────────────────────────────
