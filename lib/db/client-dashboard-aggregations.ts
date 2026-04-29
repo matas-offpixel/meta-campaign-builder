@@ -339,6 +339,8 @@ export interface VenueCampaignPerformance {
   earliestEventDate: string | null;
 }
 
+const NULL_EVENT_DATE_PACING_DAYS = 90;
+
 /**
  * WC26 venue budget rows are stored redundantly on every child match.
  * Treat `budget_marketing` as a venue-shared cap: one budget per
@@ -376,16 +378,7 @@ export function aggregateVenueCampaignPerformance(
   let capacity = 0;
   let hasCapacity = false;
   let earliestEventDate: string | null = null;
-  const isManchester = events.some((ev) =>
-    (ev.event_code ?? "").toUpperCase().includes("MANCHESTER"),
-  );
-  const manchesterEvents: Array<{
-    id: string;
-    event_code: string | null;
-    event_date: string | null;
-    normalized_event_date: string | null;
-    isUpcomingOrToday: boolean;
-  }> = [];
+  let hasAnyEventDate = false;
 
   for (const ev of events) {
     tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
@@ -394,18 +387,10 @@ export function aggregateVenueCampaignPerformance(
       hasCapacity = true;
     }
     const eventDate = normalizeEventDate(ev.event_date);
+    if (eventDate) hasAnyEventDate = true;
     const eventIsUpcoming = eventDate
       ? isUpcomingOrToday(eventDate, todayIso)
       : false;
-    if (isManchester) {
-      manchesterEvents.push({
-        id: ev.id,
-        event_code: ev.event_code,
-        event_date: ev.event_date,
-        normalized_event_date: eventDate,
-        isUpcomingOrToday: eventIsUpcoming,
-      });
-    }
     if (
       eventDate &&
       eventIsUpcoming &&
@@ -457,7 +442,13 @@ export function aggregateVenueCampaignPerformance(
   const costPerTicket = tickets > 0 && paidSpent > 0 ? paidSpent / tickets : null;
   const remainingTickets =
     capacityOut != null ? Math.max(0, capacityOut - tickets) : null;
-  const daysUntil = daysUntilUpcomingDate(earliestEventDate, todayIso);
+  const daysUntil =
+    daysUntilUpcomingDate(earliestEventDate, todayIso) ??
+    // Imported venue groups can have active campaigns and ticket sales
+    // before the exact event date is known. Keep pacing useful rather
+    // than hiding it, but only for groups with no event dates at all;
+    // dated past events should still suppress pacing.
+    (!hasAnyEventDate ? NULL_EVENT_DATE_PACING_DAYS : null);
   const pacingTicketsPerDay =
     remainingTickets != null && remainingTickets > 0 && daysUntil != null
       ? Math.round(remainingTickets / Math.max(daysUntil, 1))
@@ -466,18 +457,6 @@ export function aggregateVenueCampaignPerformance(
     paidMediaRemaining != null && paidMediaRemaining > 0 && daysUntil != null
       ? Math.round(paidMediaRemaining / Math.max(daysUntil, 1))
       : null;
-
-  if (isManchester) {
-    console.info("[venue-pacing] Manchester diagnostics", {
-      todayIso,
-      events: manchesterEvents,
-      earliestEventDate,
-      capacity: capacityOut,
-      tickets,
-      daysUntil,
-      pacingTicketsPerDay,
-    });
-  }
 
   return {
     paidMediaBudget,

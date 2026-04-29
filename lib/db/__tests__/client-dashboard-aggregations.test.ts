@@ -496,6 +496,37 @@ describe("aggregateVenueCampaignPerformance", () => {
     assert.equal(t.pacingSpendPerDay, null);
   });
 
+  it("uses a documented 90-day pacing window when every venue event date is null", () => {
+    const t = aggregateVenueCampaignPerformance(
+      [
+        ev({
+          id: "manchester-croatia",
+          event_code: "WC26-MANCHESTER",
+          event_date: null,
+          budget_marketing: 16000,
+          capacity: 8000,
+          latest_snapshot: { tickets_sold: 500, revenue: null },
+        }),
+        ev({
+          id: "manchester-ghana",
+          event_code: "WC26-MANCHESTER",
+          event_date: null,
+          budget_marketing: 16000,
+          capacity: 8000,
+          latest_snapshot: { tickets_sold: 400, revenue: null },
+        }),
+      ],
+      [],
+      [rollup("manchester-croatia", 1000), rollup("manchester-ghana", 1000)],
+      TODAY,
+      3359,
+    );
+
+    assert.equal(t.earliestEventDate, null);
+    assert.equal(t.pacingTicketsPerDay, Math.round((16000 - 900) / 90));
+    assert.equal(t.pacingSpendPerDay, Math.round((16000 - 3359) / 90));
+  });
+
   it("uses the displayed venue Meta spend override when supplied", () => {
     const events = [
       ev({

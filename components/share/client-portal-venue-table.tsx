@@ -1210,23 +1210,76 @@ function dailyRollupSpend(row: DailyRollupRow): number | null {
     : null;
 }
 
+interface VenueTrendDateAccumulator {
+  allocatedSpend: number | null;
+  rawSpend: number | null;
+  tickets: number | null;
+  revenue: number | null;
+  allocatedLinkClicks: number | null;
+  rawLinkClicks: number | null;
+  hasAllocatedSpend: boolean;
+}
+
 function buildVenueTrendPoints(
   dailyRollups: DailyRollupRow[],
   venueEventIds: Set<string>,
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
+  const isMultiEventVenue = venueEventIds.size > 1;
   const hasRollupTickets = rows.some((row) => row.tickets_sold != null);
-  const points: TrendChartPoint[] = rows.map((row) => ({
-    date: row.date,
-    spend: dailyRollupSpend(row),
-    tickets: hasRollupTickets ? row.tickets_sold : null,
-    revenue: row.revenue,
-    linkClicks:
-      row.link_clicks != null || row.tiktok_clicks != null
-        ? paidLinkClicksOf(row)
-        : null,
-  }));
+  const byDate = new Map<string, VenueTrendDateAccumulator>();
+  for (const row of rows) {
+    const cur =
+      byDate.get(row.date) ??
+      ({
+        allocatedSpend: null,
+        rawSpend: null,
+        tickets: null,
+        revenue: null,
+        allocatedLinkClicks: null,
+        rawLinkClicks: null,
+        hasAllocatedSpend: false,
+      } as VenueTrendDateAccumulator);
+    const hasAllocationForRow =
+      row.ad_spend_allocated != null || row.ad_spend_presale != null;
+    const spend = dailyRollupSpend(row);
+    if (hasAllocationForRow) {
+      cur.hasAllocatedSpend = true;
+      const allocatedSpend =
+        (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
+      cur.allocatedSpend = (cur.allocatedSpend ?? 0) + allocatedSpend;
+      if (row.link_clicks != null || row.tiktok_clicks != null) {
+        cur.allocatedLinkClicks =
+          (cur.allocatedLinkClicks ?? 0) + paidLinkClicksOf(row);
+      }
+    } else if (!isMultiEventVenue) {
+      // Raw rollup spend is safe for single-event venues. For multi-
+      // event venues it is duplicated on every child event, so the
+      // trend chart intentionally leaves pre-allocation dates blank
+      // rather than showing a smoothed but approximate split.
+      if (spend != null) cur.rawSpend = (cur.rawSpend ?? 0) + spend;
+      if (row.link_clicks != null || row.tiktok_clicks != null) {
+        cur.rawLinkClicks = (cur.rawLinkClicks ?? 0) + paidLinkClicksOf(row);
+      }
+    }
+    if (hasRollupTickets && row.tickets_sold != null) {
+      cur.tickets = (cur.tickets ?? 0) + row.tickets_sold;
+    }
+    if (row.revenue != null) {
+      cur.revenue = (cur.revenue ?? 0) + row.revenue;
+    }
+    byDate.set(row.date, cur);
+  }
+  const points: TrendChartPoint[] = [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, row]) => ({
+      date,
+      spend: row.hasAllocatedSpend ? row.allocatedSpend : row.rawSpend,
+      tickets: hasRollupTickets ? row.tickets : null,
+      revenue: row.revenue,
+      linkClicks: row.hasAllocatedSpend ? row.allocatedLinkClicks : row.rawLinkClicks,
+    }));
   if (!hasRollupTickets) {
     points.push(...buildVenueTicketSnapshotPoints(weeklyTicketSnapshots, venueEventIds));
   }
