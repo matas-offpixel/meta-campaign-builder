@@ -146,8 +146,14 @@ describe("runRollupSyncForEvent TikTok leg", () => {
         date: "2026-04-27",
         tiktok_spend: 160,
         tiktok_impressions: 179459,
+        tiktok_reach: 120000,
         tiktok_clicks: 612,
         tiktok_video_views: 12000,
+        tiktok_video_views_2s: 85000,
+        tiktok_video_views_6s: 64000,
+        tiktok_video_views_100p: 12000,
+        tiktok_avg_play_time_ms: 4200,
+        tiktok_post_engagement: 9000,
         tiktok_results: 9000,
       },
     ];
@@ -165,6 +171,10 @@ describe("runRollupSyncForEvent TikTok leg", () => {
     assert.equal(payloadKeys.includes("ad_spend"), false);
     assert.equal(payloadKeys.includes("link_clicks"), false);
     assert.equal(payloadKeys.includes("meta_regs"), false);
+    assert.equal(payloadKeys.includes("tiktok_reach"), true);
+    assert.equal(payloadKeys.includes("tiktok_video_views_2s"), true);
+    assert.equal(payloadKeys.includes("tiktok_video_views_6s"), true);
+    assert.equal(payloadKeys.includes("tiktok_video_views_100p"), true);
   });
 
   it("retries TikTok 50001 once, then fails soft if still rate-limited", async () => {
