@@ -369,6 +369,31 @@ export function ClientDetail({
           <TabPanel active={activeTab === "overview"}>
           <div className="space-y-6">
           <ConnectedIntegrationsPill items={integrations} />
+          {client.tiktok_account_id && (
+            <section className="rounded-md border border-border bg-card p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-heading text-base tracking-wide">
+                    TikTok campaigns
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Start TikTok drafts for this client in the separate TikTok
+                    campaign library.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/tiktok?client=${encodeURIComponent(client.id)}`}>
+                    <Button variant="outline" size="sm">
+                      View TikTok campaigns
+                    </Button>
+                  </Link>
+                  <Link href={`/tiktok/new?client=${encodeURIComponent(client.id)}`}>
+                    <Button size="sm">New TikTok campaign</Button>
+                  </Link>
+                </div>
+              </div>
+            </section>
+          )}
           <section className="rounded-md border border-border bg-card p-5">
             <h2 className="font-heading text-base tracking-wide mb-3">
               Details
@@ -516,6 +541,13 @@ export function ClientDetail({
                     }))}
                     adAccountId={client.meta_ad_account_id ?? null}
                   />
+                  {client.tiktok_account_id && (
+                    <Link href={`/tiktok/new?client=${encodeURIComponent(client.id)}`}>
+                      <Button size="sm" variant="outline">
+                        New TikTok campaign
+                      </Button>
+                    </Link>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
