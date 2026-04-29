@@ -12,6 +12,7 @@ import {
   additionalSpendBreakdownLinesByDate,
   additionalSpendTotalsByDate,
 } from "@/lib/db/additional-spend-sum";
+import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import type {
   AdditionalSpendRow,
@@ -76,6 +77,16 @@ export function VenueDailyReportBlock({
     () => buildVenueReportModel(events, dailyEntries, dailyRollups, additionalSpend),
     [events, dailyEntries, dailyRollups, additionalSpend],
   );
+  const chartTimeline = useMemo(
+    () =>
+      trimTimelineForTrackerDisplay(timeline, {
+        // Do not cut at general sale for the chart: presale activity is
+        // a valid first data point and should anchor the visible range.
+        generalSaleCutoff: null,
+        otherSpendByDate,
+      }),
+    [timeline, otherSpendByDate],
+  );
 
   const controlled = useMemo(
     () => ({
@@ -133,7 +144,7 @@ export function VenueDailyReportBlock({
         additionalSpendEntries={additionalSpendRows}
       />
 
-      <EventTrendChart timeline={timeline} title="Daily trend" />
+      <EventTrendChart timeline={chartTimeline} title="Daily trend" />
 
       <DailyTracker
         eventId={`venue:${eventCode}`}

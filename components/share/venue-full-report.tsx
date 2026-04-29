@@ -6,7 +6,6 @@ import type {
   AdditionalSpendRow,
   DailyEntry,
   DailyRollupRow,
-  PortalClient,
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
@@ -38,7 +37,6 @@ interface Props {
   clientId: string;
   /** The venue's `event_code` — the pivot key for venue-scope writes. */
   eventCode: string;
-  client: PortalClient;
   events: PortalEvent[];
   dailyEntries: DailyEntry[];
   dailyRollups: DailyRollupRow[];
@@ -76,6 +74,7 @@ export function VenueFullReport({
 
   return (
     <div className="space-y-6">
+      <VenueLiveReportTabs />
       <div className="rounded-md border border-border bg-background p-4">
         <AdditionalSpendCard
           scope={{ kind: "venue", clientId, venueEventCode: eventCode }}
@@ -94,5 +93,52 @@ export function VenueFullReport({
         mode={mode}
       />
     </div>
+  );
+}
+
+function VenueLiveReportTabs() {
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            Live report
+          </p>
+          <h2 className="font-heading text-lg tracking-wide">
+            Channel performance
+          </h2>
+        </div>
+        <div
+          role="tablist"
+          aria-label="Live report channels"
+          className="inline-flex rounded-md border border-border bg-muted/30 p-1 text-xs"
+        >
+          {(["Meta", "TikTok", "Google Ads"] as const).map((label, index) => {
+            const active = index === 0;
+            return (
+              <button
+                key={label}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                disabled={!active}
+                className={`rounded px-3 py-1.5 font-medium transition ${
+                  active
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground opacity-60"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+        Venue-scoped Meta, TikTok and Google Ads live report panels will attach
+        here in the next tiers. This scaffold fixes the report order without
+        adding a second data path.
+      </div>
+    </section>
   );
 }
