@@ -49,8 +49,14 @@ export interface EventDailyRollup {
   ad_spend_presale: number | null;
   tiktok_spend: number | null;
   tiktok_impressions: number | null;
+  tiktok_reach: number | null;
   tiktok_clicks: number | null;
   tiktok_video_views: number | null;
+  tiktok_video_views_2s: number | null;
+  tiktok_video_views_6s: number | null;
+  tiktok_video_views_100p: number | null;
+  tiktok_avg_play_time_ms: number | null;
+  tiktok_post_engagement: number | null;
   tiktok_results: number | null;
   source_meta_at: string | null;
   source_eventbrite_at: string | null;
@@ -280,8 +286,14 @@ export interface TikTokUpsertRow {
   date: string;
   tiktok_spend: number;
   tiktok_impressions: number;
+  tiktok_reach?: number | null;
   tiktok_clicks: number;
   tiktok_video_views: number;
+  tiktok_video_views_2s?: number | null;
+  tiktok_video_views_6s?: number | null;
+  tiktok_video_views_100p?: number | null;
+  tiktok_avg_play_time_ms?: number | null;
+  tiktok_post_engagement?: number | null;
   tiktok_results: number;
 }
 
@@ -305,8 +317,16 @@ export async function upsertTikTokRollups(
     date: r.date,
     tiktok_spend: r.tiktok_spend,
     tiktok_impressions: r.tiktok_impressions,
+    tiktok_reach: r.tiktok_reach ?? null,
     tiktok_clicks: r.tiktok_clicks,
-    tiktok_video_views: r.tiktok_video_views,
+    tiktok_video_views:
+      r.tiktok_video_views_100p ?? r.tiktok_video_views ?? 0,
+    tiktok_video_views_2s: r.tiktok_video_views_2s ?? null,
+    tiktok_video_views_6s: r.tiktok_video_views_6s ?? null,
+    tiktok_video_views_100p:
+      r.tiktok_video_views_100p ?? r.tiktok_video_views ?? null,
+    tiktok_avg_play_time_ms: r.tiktok_avg_play_time_ms ?? null,
+    tiktok_post_engagement: r.tiktok_post_engagement ?? null,
     tiktok_results: r.tiktok_results,
     source_tiktok_at: now,
   }));

@@ -29,8 +29,14 @@ export interface TikTokDailyInsightRow {
   date: string;
   tiktok_spend: number;
   tiktok_impressions: number;
+  tiktok_reach: number;
   tiktok_clicks: number;
   tiktok_video_views: number;
+  tiktok_video_views_2s: number;
+  tiktok_video_views_6s: number;
+  tiktok_video_views_100p: number;
+  tiktok_avg_play_time_ms: number | null;
+  tiktok_post_engagement: number;
   tiktok_results: number;
 }
 
@@ -47,9 +53,18 @@ export interface FetchTikTokDailyRollupInsightsInput {
 const METRICS = [
   "spend",
   "impressions",
+  "reach",
   "clicks",
+  "engagements",
+  "post_engagement",
   "video_play_actions",
+  "video_watched_2s",
+  "video_watched_6s",
+  "video_views_p25",
+  "video_views_p50",
+  "video_views_p75",
   "video_views_p100",
+  "average_video_play",
 ];
 
 const DIMENSIONS = ["campaign_id", "stat_time_day"];
@@ -76,7 +91,12 @@ export async function fetchTikTokDailyRollupInsights(
     spend: number;
     impressions: number;
     clicks: number;
-    videoViews: number;
+    reach: number;
+    videoViews2s: number;
+    videoViews6s: number;
+    videoViews100p: number;
+    avgPlayTimeMs: number | null;
+    postEngagement: number;
     results: number;
   }> = [];
   const campaignIds = new Set<string>();
@@ -111,8 +131,13 @@ export async function fetchTikTokDailyRollupInsights(
           date: date.slice(0, 10),
           spend: numberMetric(metrics.spend),
           impressions: numberMetric(metrics.impressions),
+          reach: numberMetric(metrics.reach),
           clicks: numberMetric(metrics.clicks),
-          videoViews: numberMetric(metrics.video_views_p100),
+          videoViews2s: numberMetric(metrics.video_watched_2s),
+          videoViews6s: numberMetric(metrics.video_watched_6s),
+          videoViews100p: numberMetric(metrics.video_views_p100),
+          avgPlayTimeMs: nullableNumberMetric(metrics.average_video_play),
+          postEngagement: numberMetric(metrics.post_engagement) || numberMetric(metrics.engagements),
           results: numberMetric(metrics.video_play_actions),
         });
       }
@@ -142,14 +167,31 @@ export async function fetchTikTokDailyRollupInsights(
       date: row.date,
       tiktok_spend: 0,
       tiktok_impressions: 0,
+      tiktok_reach: 0,
       tiktok_clicks: 0,
       tiktok_video_views: 0,
+      tiktok_video_views_2s: 0,
+      tiktok_video_views_6s: 0,
+      tiktok_video_views_100p: 0,
+      tiktok_avg_play_time_ms: null,
+      tiktok_post_engagement: 0,
       tiktok_results: 0,
     };
     existing.tiktok_spend += row.spend;
     existing.tiktok_impressions += row.impressions;
+    existing.tiktok_reach += row.reach;
     existing.tiktok_clicks += row.clicks;
-    existing.tiktok_video_views += row.videoViews;
+    existing.tiktok_video_views += row.videoViews100p;
+    existing.tiktok_video_views_2s += row.videoViews2s;
+    existing.tiktok_video_views_6s += row.videoViews6s;
+    existing.tiktok_video_views_100p += row.videoViews100p;
+    existing.tiktok_avg_play_time_ms = weightedAverage(
+      existing.tiktok_avg_play_time_ms,
+      existing.tiktok_impressions - row.impressions,
+      row.avgPlayTimeMs,
+      row.impressions,
+    );
+    existing.tiktok_post_engagement += row.postEngagement;
     existing.tiktok_results += row.results;
     byDate.set(row.date, existing);
   }
@@ -159,8 +201,17 @@ export async function fetchTikTokDailyRollupInsights(
       ...row,
       tiktok_spend: round2(row.tiktok_spend),
       tiktok_impressions: Math.round(row.tiktok_impressions),
+      tiktok_reach: Math.round(row.tiktok_reach),
       tiktok_clicks: Math.round(row.tiktok_clicks),
       tiktok_video_views: Math.round(row.tiktok_video_views),
+      tiktok_video_views_2s: Math.round(row.tiktok_video_views_2s),
+      tiktok_video_views_6s: Math.round(row.tiktok_video_views_6s),
+      tiktok_video_views_100p: Math.round(row.tiktok_video_views_100p),
+      tiktok_avg_play_time_ms:
+        row.tiktok_avg_play_time_ms == null
+          ? null
+          : Math.round(row.tiktok_avg_play_time_ms),
+      tiktok_post_engagement: Math.round(row.tiktok_post_engagement),
       tiktok_results: Math.round(row.tiktok_results),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -197,6 +248,28 @@ function numberMetric(value: string | number | null | undefined): number {
   if (typeof value !== "string") return 0;
   const parsed = Number.parseFloat(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nullableNumberMetric(
+  value: string | number | null | undefined,
+): number | null {
+  if (value == null) return null;
+  const n = numberMetric(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function weightedAverage(
+  currentAverage: number | null,
+  currentWeight: number,
+  nextAverage: number | null,
+  nextWeight: number,
+): number | null {
+  if (nextAverage == null || nextWeight <= 0) return currentAverage;
+  if (currentAverage == null || currentWeight <= 0) return nextAverage;
+  return (
+    (currentAverage * currentWeight + nextAverage * nextWeight) /
+    (currentWeight + nextWeight)
+  );
 }
 
 function buildDateWindows(
