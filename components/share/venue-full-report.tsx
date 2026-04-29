@@ -27,6 +27,7 @@ import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueDailyReportBlock } from "./venue-daily-report-block";
+import { VenueFunnelPlanner } from "./funnel-planner";
 import { VenueLiveReportInsights } from "./venue-live-report-insights";
 
 /**
@@ -381,6 +382,20 @@ function VenueLiveReportTabs({
           </div>
         </div>
       </section>
+      <VenueFunnelPlanner
+        clientId={clientId}
+        eventCode={eventCode}
+        shareToken={shareToken}
+        datePreset={datePreset}
+        customRange={customRange}
+        isInternal={shareToken === ""}
+        refreshNonce={refreshNonce}
+        events={events.map((event) => ({
+          capacity: event.capacity,
+          tickets_sold: event.tickets_sold,
+          latest_snapshot: event.latest_snapshot,
+        }))}
+      />
       <VenueLiveReportInsights
         clientId={clientId}
         eventCode={eventCode}

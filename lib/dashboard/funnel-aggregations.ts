@@ -1,7 +1,12 @@
 import { classifyCampaignFunnelStage, type FunnelStage } from "./funnel-stage-classifier.ts";
-import type { PortalEvent } from "@/lib/db/client-portal-server";
 import type { MetaCampaignRow } from "@/lib/insights/types";
 import type { VenueDailyAdMetricsRow } from "@/lib/insights/meta";
+
+export interface FunnelEventLike {
+  capacity?: number | null;
+  tickets_sold?: number | null;
+  latest_snapshot?: { tickets_sold: number | null } | null;
+}
 
 export interface FunnelStageMetrics {
   stage: FunnelStage;
@@ -70,7 +75,7 @@ export const LEEDS_FA_CUP_FUNNEL_DEFAULTS: FunnelDefaults = {
 };
 
 export function aggregateFunnelData(
-  events: PortalEvent[],
+  events: FunnelEventLike[],
   campaigns: MetaCampaignRow[],
   insights: VenueDailyAdMetricsRow[],
   override: EventFunnelOverride | null,
@@ -162,7 +167,7 @@ function safeRate(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
-function sumTicketsSold(events: PortalEvent[]): number {
+function sumTicketsSold(events: FunnelEventLike[]): number {
   return events.reduce(
     (total, event) =>
       total + (event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0),
@@ -170,7 +175,7 @@ function sumTicketsSold(events: PortalEvent[]): number {
   );
 }
 
-function sumCapacity(events: PortalEvent[]): number | null {
+function sumCapacity(events: FunnelEventLike[]): number | null {
   let total = 0;
   let any = false;
   for (const event of events) {

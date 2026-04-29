@@ -33,6 +33,7 @@ import {
   TikTokReportBlock,
   type TikTokReportBlockData,
 } from "./tiktok-report-block";
+import { FunnelPlanner } from "@/components/share/funnel-planner";
 /**
  * components/report/event-report-view.tsx
  *
@@ -750,6 +751,18 @@ function MetaReportBlock({
           <div className="mt-6 space-y-4">{additionalSpendSlot}</div>
         ) : null}
       </Section>
+
+      <FunnelPlanner
+        events={[
+          {
+            capacity,
+            tickets_sold: ticketsSold,
+            latest_snapshot: null,
+          },
+        ]}
+        campaigns={meta.campaigns}
+        storageKey={`funnel-planner:event:${event.name}`}
+      />
 
       <MetaCampaignStatsSection meta={meta} isRefreshing={isRefreshing} />
       <MetaCampaignBreakdownSection meta={meta} />
