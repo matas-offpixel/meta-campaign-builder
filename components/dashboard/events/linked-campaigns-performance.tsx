@@ -20,8 +20,7 @@ import {
  * "CAMPAIGN PERFORMANCE" panel for the event detail Campaigns tab.
  *
  * Behaviour:
- *   - Platform tabs: Meta + TikTok are live; Google Ads remains disabled
- *     with a "Coming soon" tooltip.
+ *   - Platform tabs: Meta, TikTok and Google Ads are live.
  *   - Time range toggle (All / 30d / 14d / 7d / 3d / Yesterday).
  *     Default 30d. Each change triggers a fresh fetch; benchmarks
  *     stay locked to the rolling 90-day window so colour coding
@@ -75,6 +74,7 @@ interface Props {
   eventId: string;
   /** Surfaces inline so the panel can self-explain when no event_code is set. */
   hasEventCode: boolean;
+  initialPlatform?: PlatformId;
 }
 
 const RANGES: Array<{ id: RangeKey; label: string }> = [
@@ -94,11 +94,11 @@ const PLATFORMS: Array<{
 }> = [
   { id: "meta", label: "Meta", enabled: true },
   { id: "tiktok", label: "TikTok", enabled: true },
-  { id: "google", label: "Google Ads", enabled: false, tooltip: "Coming soon" },
+  { id: "google", label: "Google Ads", enabled: true },
 ];
 
-export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
-  const [platform, setPlatform] = useState<PlatformId>("meta");
+export function LinkedCampaignsPerformance({ eventId, hasEventCode, initialPlatform = "meta" }: Props) {
+  const [platform, setPlatform] = useState<PlatformId>(initialPlatform);
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -109,11 +109,6 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
   const fetchTokenRef = useRef(0);
 
   const refetch = useCallback(async () => {
-    if (platform === "google") {
-      setData(null);
-      setError(null);
-      return;
-    }
     const token = ++fetchTokenRef.current;
     setLoading(true);
     setError(null);
@@ -121,6 +116,8 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
       const base =
         platform === "tiktok"
           ? "/api/reporting/event-campaigns/tiktok"
+          : platform === "google"
+            ? "/api/reporting/event-campaigns/google"
           : "/api/reporting/event-campaigns";
       const url = `${base}?eventId=${encodeURIComponent(
         eventId,
@@ -163,7 +160,7 @@ export function LinkedCampaignsPerformance({ eventId, hasEventCode }: Props) {
           variant="outline"
           size="sm"
           onClick={() => void refetch()}
-          disabled={loading || platform === "google"}
+          disabled={loading}
         >
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -246,15 +243,6 @@ function PerformanceBody({
   data: ApiResponse | null;
   hasEventCode: boolean;
 }) {
-  if (platform === "google") {
-    return (
-      <EmptyState
-        title="Google Ads reporting coming soon"
-        body="The native adapter for this platform is not connected yet. Meta and TikTok are live."
-      />
-    );
-  }
-
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center gap-2 py-12 text-xs text-muted-foreground">
@@ -279,21 +267,25 @@ function PerformanceBody({
     return (
       <EmptyState
         title="No event code set"
-        body={`Set an event code on this event to enable campaign matching. We use a substring match against ${platform === "tiktok" ? "TikTok" : "Meta"} campaign names.`}
+        body={`Set an event code on this event to enable campaign matching. We use a substring match against ${platformLabel(platform)} campaign names.`}
       />
     );
   }
-  if (data.reason === "no_ad_account" || data.reason === "no_tiktok_account") {
+  if (data.reason === "no_ad_account" || data.reason === "no_tiktok_account" || data.reason === "no_google_ads_account") {
     return (
       <EmptyState
         title={
           platform === "tiktok"
             ? "No TikTok account on this event"
+            : platform === "google"
+              ? "No Google Ads account on this event"
             : "No Meta ad account on the client"
         }
         body={
           platform === "tiktok"
             ? "Link a TikTok account on this event or its client so we can read insights for it."
+            : platform === "google"
+              ? "Link a Google Ads account on this event or its client so we can read insights for it."
             : "Connect a Meta ad account on this event's client so we can read insights for it."
         }
       />
@@ -311,8 +303,8 @@ function PerformanceBody({
   if (campaigns.length === 0) {
     return (
       <EmptyState
-        title={`No matching ${platform === "tiktok" ? "TikTok" : "Meta"} campaigns`}
-        body={`No ${platform === "tiktok" ? "TikTok" : "Meta"} campaigns in this account contain "${data.event_code}". Rename a campaign to match, or update the event code.`}
+        title={`No matching ${platformLabel(platform)} campaigns`}
+        body={`No ${platformLabel(platform)} campaigns in this account contain "${data.event_code}". Rename a campaign to match, or update the event code.`}
       />
     );
   }
@@ -333,7 +325,7 @@ function CampaignTable({
 }: {
   campaigns: CampaignRow[];
   benchmarks: Benchmarks;
-  platform: Exclude<PlatformId, "google">;
+  platform: PlatformId;
 }) {
   const totals = useMemo(() => {
     const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
@@ -475,8 +467,17 @@ function CampaignTable({
           TikTok benchmark colour-coding is not configured yet; campaign rows are shown without a baseline.
         </p>
       )}
+      {benchmarks.ctr == null && platform === "google" && (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          Google Ads benchmark colour-coding is not configured yet; campaign rows are shown without a baseline.
+        </p>
+      )}
     </div>
   );
+}
+
+function platformLabel(platform: PlatformId): string {
+  return platform === "tiktok" ? "TikTok" : platform === "google" ? "Google Ads" : "Meta";
 }
 
 function MetricCell({

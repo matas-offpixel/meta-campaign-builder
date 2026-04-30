@@ -28,6 +28,7 @@ import {
 import type { TikTokManualReportSnapshot } from "@/lib/types/tiktok";
 import { PublicReport } from "@/components/report/public-report";
 import type { TikTokReportBlockData } from "@/components/report/tiktok-report-block";
+import type { GoogleAdsReportBlockData } from "@/components/report/google-ads-report-block";
 import { ReportUnavailable } from "@/components/report/report-unavailable";
 import {
   fetchShareActiveCreatives,
@@ -69,6 +70,10 @@ import {
 import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives-refresh-runner";
 import type { ResolvedShare } from "@/lib/db/report-shares";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
+import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
+import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -189,6 +194,7 @@ interface ResolvedEvent {
   reportCadence: "daily" | "weekly";
   capacity: number | null;
   tiktokAccountId: string | null;
+  googleAdsAccountId: string | null;
 }
 
 export default async function PublicReportPage({ params, searchParams }: Props) {
@@ -253,12 +259,12 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // same admin client so no extra Supabase connection is opened. The
   // TikTok read returns null on any failure so a missing snapshot never
   // poisons the Meta path — TikTok is purely additive here.
-  const [eventRow, providerToken, planTickets, tiktokRow, planBudgetRow] =
+  const [eventRow, providerToken, planTickets, tiktokRow, planBudgetRow, googleAdsPlanRow] =
     await Promise.all([
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -268,6 +274,14 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("ad_plans")
         .select("total_budget")
+        .eq("event_id", event_id)
+        .neq("status", "archived")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      admin
+        .from("google_ad_plans")
+        .select("google_ads_account_id")
         .eq("event_id", event_id)
         .neq("status", "archived")
         .order("created_at", { ascending: false })
@@ -284,8 +298,8 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   }
 
   const clientRel = eventRow.data.client as
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
@@ -293,6 +307,9 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
+  const clientGoogleAdsAccountId = Array.isArray(clientRel)
+    ? (clientRel[0]?.google_ads_account_id ?? null)
+    : (clientRel?.google_ads_account_id ?? null);
 
   // Plan-side cumulative wins when present — see the JSDoc on
   // `getLatestTicketsSoldForEvent` for the rationale (dated history,
@@ -356,6 +373,10 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     tiktokAccountId:
       ((eventRow.data.tiktok_account_id as string | null) ?? null) ??
       clientTikTokAccountId,
+    googleAdsAccountId:
+      ((eventRow.data.google_ads_account_id as string | null) ?? null) ??
+      ((googleAdsPlanRow.data?.google_ads_account_id as string | null) ?? null) ??
+      clientGoogleAdsAccountId,
   };
 
   // Bump the view counter best-effort — non-blocking.
@@ -487,11 +508,21 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     window: canonicalTikTokWindow,
     hasTikTokAccount: Boolean(event.tiktokAccountId),
   });
+  const googleAdsBlock = await resolveGoogleAdsReportBlock({
+    admin,
+    eventCode: event.eventCode,
+    eventName: event.name,
+    googleAdsAccountId: event.googleAdsAccountId,
+    rollups: eventDailyData.rollups,
+    datePreset,
+    customRange,
+    token,
+  });
 
   // Final fatal branch: only when there is genuinely nothing to
   // render — no Meta payload, no TikTok live/manual block, and no
   // usable creatives.
-  if (!metaPayload && !tiktokRowResolved && !creativesHaveContent) {
+  if (!metaPayload && !tiktokRowResolved && !googleAdsBlock && !creativesHaveContent) {
     return (
       <ReportUnavailable
         eventName={event.name}
@@ -589,6 +620,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       }}
       meta={metaPayload}
       tiktok={tiktokRowResolved}
+      googleAds={googleAdsBlock}
       shareToken={token}
       datePreset={datePreset}
       customRange={customRange}
@@ -1035,6 +1067,117 @@ async function DeferredCreativesSlot({
     return <ShareActiveCreativesWarming />;
   }
   return <ShareActiveCreativesSection result={result} />;
+}
+
+async function resolveGoogleAdsReportBlock(input: {
+  admin: ReturnType<typeof createServiceRoleClient>;
+  eventCode: string | null;
+  eventName: string;
+  googleAdsAccountId: string | null;
+  rollups: EventDailyRollup[];
+  datePreset: DatePreset;
+  customRange: CustomDateRange | undefined;
+  token: string;
+}): Promise<GoogleAdsReportBlockData | null> {
+  const window = resolveGoogleAdsWindow(input.datePreset, input.customRange);
+  const rollup = aggregateGoogleAdsRollups(input.rollups, window);
+  if (rollup.spend > 0 || rollup.impressions > 0 || rollup.videoViews > 0) {
+    return {
+      sourceLabel: rollup.fetchedAt ? `rollup · last sync ${rollup.fetchedAt}` : "rollup",
+      totals: rollup,
+    };
+  }
+  if (!input.eventCode || !input.googleAdsAccountId) return null;
+
+  const { data: account, error } = await input.admin
+    .from("google_ads_accounts")
+    .select("id, google_customer_id, login_customer_id")
+    .eq("id", input.googleAdsAccountId)
+    .maybeSingle();
+  if (error || !account?.google_customer_id) {
+    console.warn(`[share/report] Google Ads account lookup failed token=${input.token}`);
+    return null;
+  }
+  const credentials = await getGoogleAdsCredentials(input.admin, account.id as string).catch((err) => {
+    console.warn(`[share/report] Google Ads credentials failed token=${input.token}:`, err);
+    return null;
+  });
+  if (!credentials) return null;
+
+  const campaigns = await fetchGoogleAdsEventCampaignInsights({
+    customerId: account.google_customer_id as string,
+    refreshToken: credentials.refresh_token,
+    loginCustomerId: (account.login_customer_id as string | null) ?? credentials.login_customer_id,
+    eventCode: input.eventCode,
+    window,
+  }).catch((err) => {
+    console.warn(`[share/report] Google Ads live insights failed token=${input.token}:`, err);
+    return [] as CampaignInsightsRow[];
+  });
+  if (campaigns.length === 0) return null;
+  return {
+    sourceLabel: `${input.eventName} Google Ads · live`,
+    totals: aggregateGoogleAdsCampaigns(campaigns),
+  };
+}
+
+function resolveGoogleAdsWindow(
+  datePreset: DatePreset,
+  customRange: CustomDateRange | undefined,
+): { since: string; until: string } {
+  const days = resolvePresetToDays(datePreset, customRange);
+  if (days?.length) return { since: days[0]!, until: days[days.length - 1]! };
+  const now = new Date();
+  const until = now.toISOString().slice(0, 10);
+  const since = new Date(now.getTime() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return { since, until };
+}
+
+function aggregateGoogleAdsRollups(
+  rows: EventDailyRollup[],
+  window: { since: string; until: string },
+): GoogleAdsReportBlockData["totals"] & { fetchedAt: string | null } {
+  let spend = 0;
+  let impressions = 0;
+  let clicks = 0;
+  let videoViews = 0;
+  let fetchedAt: string | null = null;
+  for (const row of rows) {
+    if (row.date < window.since || row.date > window.until) continue;
+    spend += Number(row.google_ads_spend ?? 0);
+    impressions += Number(row.google_ads_impressions ?? 0);
+    clicks += Number(row.google_ads_clicks ?? 0);
+    videoViews += Number(row.google_ads_video_views ?? 0);
+    if (row.source_google_ads_at && (!fetchedAt || row.source_google_ads_at > fetchedAt)) {
+      fetchedAt = row.source_google_ads_at;
+    }
+  }
+  return {
+    spend: Math.round(spend * 100) / 100,
+    impressions: Math.round(impressions),
+    videoViews: Math.round(videoViews),
+    clicks: Math.round(clicks),
+    reach: null,
+    frequency: null,
+    costPerView: videoViews > 0 ? spend / videoViews : null,
+    fetchedAt,
+  };
+}
+
+function aggregateGoogleAdsCampaigns(campaigns: CampaignInsightsRow[]): GoogleAdsReportBlockData["totals"] {
+  const spend = campaigns.reduce((sum, c) => sum + c.spend, 0);
+  const impressions = campaigns.reduce((sum, c) => sum + c.impressions, 0);
+  const videoViews = campaigns.reduce((sum, c) => sum + (c.video_views ?? c.results), 0);
+  const clicks = campaigns.reduce((sum, c) => sum + c.clicks, 0);
+  return {
+    spend: Math.round(spend * 100) / 100,
+    impressions,
+    videoViews,
+    clicks,
+    reach: null,
+    frequency: null,
+    costPerView: videoViews > 0 ? spend / videoViews : null,
+  };
 }
 
 interface ResolveTikTokHybridInput {

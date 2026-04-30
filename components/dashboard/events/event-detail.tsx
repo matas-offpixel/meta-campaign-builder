@@ -140,6 +140,8 @@ interface Props {
    * the connect / link CTA instead of the live numbers".
    */
   ticketingSummary: EventTicketingSummary;
+  /** Existing Google Ads plan id for the Reporting tab, when present. */
+  initialGoogleAdsPlanId: string | null;
 }
 
 /**
@@ -162,6 +164,7 @@ export function EventDetail({
   linkedQuote,
   linkedInvoices,
   ticketingSummary,
+  initialGoogleAdsPlanId,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
   // resolved here so the Tickets sold StatCard, the read-only panel
@@ -736,12 +739,8 @@ export function EventDetail({
                 eventId={event.id}
                 clientId={event.client_id}
                 initialTikTokAccountId={event.tiktok_account_id ?? null}
-                // Slice 4 doesn't yet prefetch the plan id server-side
-                // (no lib/db helper landed in this scaffold) — pass null
-                // so the Google Ads tab renders the "create plan" CTA.
-                // Once Slice 5 wires the prefetch, swap to the resolved
-                // google_ad_plans row id here.
-                initialGoogleAdsPlanId={null}
+                hasEventCode={Boolean(event.event_code)}
+                initialGoogleAdsPlanId={initialGoogleAdsPlanId}
                 metaPanel={
                   <div className="space-y-6">
                     <section className="rounded-md border border-border bg-card p-5">

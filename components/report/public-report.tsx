@@ -22,6 +22,7 @@ import {
   type EventReportViewEvent,
 } from "./event-report-view";
 import type { TikTokReportBlockData } from "./tiktok-report-block";
+import type { GoogleAdsReportBlockData } from "./google-ads-report-block";
 
 interface Props {
   event: EventReportViewEvent;
@@ -40,6 +41,7 @@ interface Props {
    * non-null when this component renders.
    */
   tiktok: TikTokReportBlockData | null;
+  googleAds?: GoogleAdsReportBlockData | null;
   /**
    * Public share token. Already in the URL — rendering it in the page
    * (via the lazy creative loader's source prop) doesn't add exposure.
@@ -127,6 +129,7 @@ export function PublicReport({
   event,
   meta,
   tiktok,
+  googleAds = null,
   shareToken,
   datePreset,
   customRange,
@@ -322,6 +325,7 @@ export function PublicReport({
       event={event}
       meta={meta}
       tiktok={tiktok}
+      googleAds={googleAds}
       datePreset={datePreset}
       customRange={customRange}
       creativesSource={{ kind: "share", token: shareToken }}

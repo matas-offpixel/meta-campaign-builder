@@ -14,6 +14,7 @@ interface Props {
   /** Live Meta report rendered by the parent server-resolved tree. */
   metaPanel: ReactNode;
   initialTikTokAccountId: string | null;
+  hasEventCode: boolean;
   /**
    * google_ad_plans.id when an existing plan is linked to this event,
    * otherwise null. Drives the Google Ads tab between "create plan"
@@ -37,6 +38,7 @@ export function EventReportingTabs({
   clientId,
   metaPanel,
   initialTikTokAccountId,
+  hasEventCode,
   initialGoogleAdsPlanId,
 }: Props) {
   const [active, setActive] = useState<ReportChannel>("meta");
@@ -66,6 +68,7 @@ export function EventReportingTabs({
       <TabPanel active={active === "google-ads"}>
         <GoogleAdsReportTab
           eventId={eventId}
+          hasEventCode={hasEventCode}
           initialPlanId={initialGoogleAdsPlanId}
         />
       </TabPanel>

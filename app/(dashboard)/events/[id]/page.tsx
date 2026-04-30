@@ -63,6 +63,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
     planTickets,
     linkedQuote,
     linkedInvoices,
+    googleAdsPlan,
   ] = await Promise.all([
     getEventByIdServer(id),
     listDraftsForEventServer(id),
@@ -96,6 +97,22 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       console.error("[EventDetailPage] listInvoicesForEventServer failed:", err);
       return [];
     }),
+    supabase
+      .from("google_ad_plans")
+      .select("id")
+      .eq("event_id", id)
+      .eq("user_id", user.id)
+      .neq("status", "archived")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("[EventDetailPage] google_ad_plans lookup failed:", error);
+          return null;
+        }
+        return data;
+      }),
   ]);
 
   if (!event) notFound();
@@ -145,6 +162,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       linkedQuote={linkedQuote}
       linkedInvoices={linkedInvoices}
       ticketingSummary={ticketingSummary}
+      initialGoogleAdsPlanId={googleAdsPlan?.id ?? null}
     />
   );
 }
