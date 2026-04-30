@@ -160,6 +160,13 @@ export async function readActiveCreativesSnapshot(
     .maybeSingle();
 
   if (error) {
+    if (isMissingBuildVersionColumn(error)) {
+      const legacy = await readActiveCreativesSnapshotWithoutBuildVersion(
+        supabase,
+        key,
+      );
+      if (legacy) return legacy;
+    }
     console.warn("[active-creatives-snapshots] read failed", error.message);
     return null;
   }
@@ -168,6 +175,58 @@ export async function readActiveCreativesSnapshot(
   const row = data as CacheRow;
   if (row.build_version !== getCurrentBuildVersion()) return null;
 
+  const fetchedAt = new Date(row.fetched_at);
+  const expiresAt = new Date(row.expires_at);
+  const fetchedMs = fetchedAt.getTime();
+  const ageMs = Number.isFinite(fetchedMs)
+    ? Math.max(0, Date.now() - fetchedMs)
+    : 0;
+
+  return {
+    payload: row.payload,
+    fetchedAt,
+    expiresAt,
+    isStale: row.is_stale,
+    ageMs,
+  };
+}
+
+async function readActiveCreativesSnapshotWithoutBuildVersion(
+  supabase: SupabaseClient,
+  key: ActiveCreativesSnapshotKey,
+): Promise<ActiveCreativesSnapshotRecord | null> {
+  // Backward compatibility for deployments where code with
+  // build-version-aware snapshots reached production before the DB
+  // column did. Existing rows are still safe to serve; once the
+  // migration lands, the normal path above resumes deploy invalidation.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as unknown as any;
+  let q = sb
+    .from(TABLE)
+    .select("payload, fetched_at, expires_at, is_stale")
+    .eq("event_id", key.eventId)
+    .eq("date_preset", key.datePreset);
+  q = key.customRange
+    ? q.eq("custom_since", key.customRange.since)
+    : q.is("custom_since", null);
+  q = key.customRange
+    ? q.eq("custom_until", key.customRange.until)
+    : q.is("custom_until", null);
+  const { data, error } = await q
+    .order("expires_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      "[active-creatives-snapshots] legacy read failed",
+      error.message,
+    );
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data as Omit<CacheRow, "build_version">;
   const fetchedAt = new Date(row.fetched_at);
   const expiresAt = new Date(row.expires_at);
   const fetchedMs = fetchedAt.getTime();
@@ -219,27 +278,54 @@ export async function writeActiveCreativesSnapshot(
   const now = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
+  const basePayload = {
+    event_id: key.eventId,
+    user_id: key.userId,
+    date_preset: key.datePreset,
+    custom_since: key.customRange?.since ?? null,
+    custom_until: key.customRange?.until ?? null,
+    payload,
+    fetched_at: new Date(now).toISOString(),
+    expires_at: new Date(now + ttlMs).toISOString(),
+    is_stale: false,
+    last_refresh_error: null,
+  };
   const { error } = await sb.from(TABLE).upsert(
     {
-      event_id: key.eventId,
-      user_id: key.userId,
-      date_preset: key.datePreset,
-      custom_since: key.customRange?.since ?? null,
-      custom_until: key.customRange?.until ?? null,
-      payload,
+      ...basePayload,
       build_version: getCurrentBuildVersion(),
-      fetched_at: new Date(now).toISOString(),
-      expires_at: new Date(now + ttlMs).toISOString(),
-      is_stale: false,
-      last_refresh_error: null,
     },
     {
       onConflict: "event_id,date_preset,custom_since,custom_until",
     },
   );
   if (error) {
+    if (isMissingBuildVersionColumn(error)) {
+      const { error: legacyError } = await sb.from(TABLE).upsert(
+        basePayload,
+        {
+          onConflict: "event_id,date_preset,custom_since,custom_until",
+        },
+      );
+      if (!legacyError) return;
+      console.warn(
+        "[active-creatives-snapshots] legacy write failed",
+        legacyError.message,
+      );
+      return;
+    }
     console.warn("[active-creatives-snapshots] write failed", error.message);
   }
+}
+
+function isMissingBuildVersionColumn(error: {
+  code?: string;
+  message?: string;
+}): boolean {
+  return (
+    error.code === "42703" &&
+    /build_version/.test(error.message ?? "")
+  );
 }
 
 /**

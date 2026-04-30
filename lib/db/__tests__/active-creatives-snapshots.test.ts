@@ -54,8 +54,11 @@ interface UpdateRecorder {
 }
 
 function makeReadStub(
-  result: { data: unknown; error: unknown },
+  result:
+    | { data: unknown; error: unknown }
+    | Array<{ data: unknown; error: unknown }>,
 ): { client: SupabaseClient; rec: ReadRecorder } {
+  const results = Array.isArray(result) ? [...result] : [result];
   const rec: ReadRecorder = {
     table: null,
     selects: [],
@@ -63,7 +66,7 @@ function makeReadStub(
     isCalls: [],
     order: null,
     limit: null,
-    result,
+    result: results[0]!,
   };
   const builder = {
     select(cols: string) {
@@ -87,6 +90,7 @@ function makeReadStub(
       return builder;
     },
     maybeSingle() {
+      rec.result = results.shift() ?? rec.result;
       return Promise.resolve(rec.result);
     },
   };
@@ -100,18 +104,22 @@ function makeReadStub(
 }
 
 function makeWriteStub(
-  result: { data: unknown; error: unknown },
+  result:
+    | { data: unknown; error: unknown }
+    | Array<{ data: unknown; error: unknown }>,
 ): { client: SupabaseClient; rec: WriteRecorder } {
+  const results = Array.isArray(result) ? [...result] : [result];
   const rec: WriteRecorder = {
     table: null,
     upserts: [],
     upsertOpts: null,
-    result,
+    result: results[0]!,
   };
   const builder = {
     upsert(payload: unknown, opts: Record<string, unknown>) {
       rec.upserts.push(payload);
       rec.upsertOpts = opts;
+      rec.result = results.shift() ?? rec.result;
       return Promise.resolve(rec.result);
     },
   };
@@ -293,6 +301,39 @@ describe("readActiveCreativesSnapshot", () => {
     assert.equal(out, null);
   });
 
+  it("falls back to legacy rows when build_version column is missing", async () => {
+    const future = new Date(Date.now() + 60 * 60_000).toISOString();
+    const { client, rec } = makeReadStub([
+      {
+        data: null,
+        error: {
+          code: "42703",
+          message: 'column active_creatives_snapshots.build_version does not exist',
+        },
+      },
+      {
+        data: {
+          payload: OK_PAYLOAD,
+          fetched_at: new Date(Date.now() - 60_000).toISOString(),
+          expires_at: future,
+          is_stale: true,
+        },
+        error: null,
+      },
+    ]);
+    const out = await readActiveCreativesSnapshot(client, {
+      eventId: EVENT_ID,
+      datePreset: "last_7d",
+    });
+    assert.ok(out, "expected a legacy snapshot hit");
+    assert.deepEqual(out!.payload, OK_PAYLOAD);
+    assert.equal(out!.isStale, true);
+    assert.deepEqual(rec.selects, [
+      "payload, fetched_at, expires_at, is_stale, build_version",
+      "payload, fetched_at, expires_at, is_stale",
+    ]);
+  });
+
   it("returns null when no row exists", async () => {
     const { client, rec } = makeReadStub({ data: null, error: null });
     const out = await readActiveCreativesSnapshot(client, {
@@ -412,6 +453,39 @@ describe("writeActiveCreativesSnapshot", () => {
     );
     assert.equal(rec.upserts.length, 0, "should refuse the write");
     assert.equal(rec.table, null);
+  });
+
+  it("falls back to legacy upsert when build_version column is missing", async () => {
+    const { client, rec } = makeWriteStub([
+      {
+        data: null,
+        error: {
+          code: "42703",
+          message: 'column active_creatives_snapshots.build_version does not exist',
+        },
+      },
+      { data: null, error: null },
+    ]);
+    await writeActiveCreativesSnapshot(
+      client,
+      {
+        eventId: EVENT_ID,
+        userId: USER_ID,
+        datePreset: "last_7d",
+      },
+      OK_PAYLOAD,
+      ACS_DEFAULT_TTL_MS,
+    );
+
+    assert.equal(rec.upserts.length, 2);
+    assert.equal(
+      (rec.upserts[0] as Record<string, unknown>).build_version,
+      getCurrentBuildVersion(),
+    );
+    assert.equal(
+      "build_version" in (rec.upserts[1] as Record<string, unknown>),
+      false,
+    );
   });
 
   it("does NOT write when payload.kind === 'error'", async () => {
