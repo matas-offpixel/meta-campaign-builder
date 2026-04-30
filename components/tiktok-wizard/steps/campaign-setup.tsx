@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import {
   defaultOptimisationGoalForObjective,
   ensureTikTokCampaignNamePrefix,
@@ -26,9 +27,11 @@ import type {
 export function CampaignSetupStep({
   draft,
   onSave,
+  context,
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  context?: TikTokWizardContext;
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -48,6 +51,14 @@ export function CampaignSetupStep({
     validOptimisationGoalForObjective(objective, draft.campaignSetup.optimisationGoal)
       ? draft.campaignSetup.optimisationGoal
       : defaultOptimisationGoalForObjective(objective);
+  const invalidObjectiveGoal = Boolean(
+    draft.campaignSetup.objective &&
+      draft.campaignSetup.optimisationGoal &&
+      !validOptimisationGoalForObjective(
+        draft.campaignSetup.objective,
+        draft.campaignSetup.optimisationGoal,
+      ),
+  );
 
   async function persist(campaignSetup: Partial<TikTokCampaignDraft["campaignSetup"]>) {
     setSaving(true);
@@ -134,9 +145,23 @@ export function CampaignSetupStep({
           />
         </div>
         {!eventCode && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            This draft is not linked to an event code yet, so no locked prefix
-            can be applied.
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            Set an event_code on the event row before creating a campaign.
+            {context?.eventEditPath ? (
+              <>
+                {" "}
+                <a className="underline" href={context.eventEditPath}>
+                  Open event editor
+                </a>
+                .
+              </>
+            ) : null}
+          </p>
+        )}
+        {invalidObjectiveGoal && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            The saved objective and optimisation goal are invalid together.
+            Choose a valid optimisation goal for this objective.
           </p>
         )}
       </div>
@@ -170,9 +195,13 @@ export function CampaignSetupStep({
         <Select
           id="tiktok-bid-strategy"
           label="Bid strategy"
-          value={draft.campaignSetup.bidStrategy ?? ""}
+          value={
+            draft.optimisation.smartPlusEnabled
+              ? "SMART_PLUS"
+              : (draft.campaignSetup.bidStrategy ?? "")
+          }
           onChange={(event) => void saveBidStrategy(event.target.value as TikTokBidStrategy)}
-          disabled={saving}
+          disabled={saving || draft.optimisation.smartPlusEnabled}
           placeholder="Select bid strategy"
           options={TIKTOK_BID_STRATEGIES.map((value) => ({
             value,

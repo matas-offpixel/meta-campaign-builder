@@ -44,6 +44,9 @@ export function AudiencesStep({
   const [savedAudiences, setSavedAudiences] = useState<TikTokAudienceListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+  const [customUnavailable, setCustomUnavailable] = useState(false);
+  const [lookalikesUnavailable, setLookalikesUnavailable] = useState(false);
+  const [reachUnavailable, setReachUnavailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ageMin, setAgeMin] = useState(String(draft.audiences.ageMin));
   const [ageMax, setAgeMax] = useState(String(draft.audiences.ageMax));
@@ -54,6 +57,9 @@ export function AudiencesStep({
     let cancelled = false;
     setLoading(true);
     setWarning(null);
+    setCustomUnavailable(false);
+    setLookalikesUnavailable(false);
+    setReachUnavailable(false);
     const selectedParams = draft.audiences.interestCategoryIds
       .map((id) => `selected_id=${encodeURIComponent(id)}`)
       .join("&");
@@ -71,6 +77,9 @@ export function AudiencesStep({
           customAudiences?: TikTokAudienceListItem[];
           savedAudiences?: TikTokAudienceListItem[];
           estimatedReach?: number | null;
+          customAudiencesError?: string | null;
+          savedAudiencesError?: string | null;
+          reachError?: string | null;
           error?: string;
         }) => {
           if (cancelled) return;
@@ -81,6 +90,9 @@ export function AudiencesStep({
           setBehaviours(json.behaviours ?? []);
           setCustomAudiences(json.customAudiences ?? []);
           setSavedAudiences(json.savedAudiences ?? []);
+          setCustomUnavailable(Boolean(json.customAudiencesError));
+          setLookalikesUnavailable(Boolean(json.savedAudiencesError));
+          setReachUnavailable(Boolean(json.reachError));
           if (json.estimatedReach !== undefined) {
             void persist({ estimatedReach: json.estimatedReach ?? null });
           }
@@ -182,7 +194,9 @@ export function AudiencesStep({
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
           Estimated reach:{" "}
-          {draft.audiences.estimatedReach == null
+          {reachUnavailable
+            ? "Reach estimate unavailable"
+            : draft.audiences.estimatedReach == null
             ? "—"
             : draft.audiences.estimatedReach.toLocaleString()}
         </p>
@@ -206,20 +220,24 @@ export function AudiencesStep({
       </div>
 
       {activeTab === "interests" && (
-        <CategoryList
-          rows={interestTree}
-          selectedIds={draft.audiences.interestCategoryIds}
-          disabled={saving || loading}
-          empty="No interest categories available."
-          onToggle={(row) =>
-            void toggleCategory(
-              row.id,
-              row.label,
-              "interestCategoryIds",
-              "interestCategoryLabels",
-            )
-          }
-        />
+        loading ? (
+          <SkeletonTree />
+        ) : (
+          <CategoryList
+            rows={interestTree}
+            selectedIds={draft.audiences.interestCategoryIds}
+            disabled={saving || loading}
+            empty="No interest categories available."
+            onToggle={(row) =>
+              void toggleCategory(
+                row.id,
+                row.label,
+                "interestCategoryIds",
+                "interestCategoryLabels",
+              )
+            }
+          />
+        )
       )}
       {activeTab === "behaviours" && (
         <CategoryList
@@ -238,36 +256,48 @@ export function AudiencesStep({
         />
       )}
       {activeTab === "custom" && (
-        <AudienceList
-          rows={customAudiences}
-          selectedIds={draft.audiences.customAudienceIds}
-          disabled={saving || loading}
-          empty="No custom audiences available."
-          onToggle={(row) =>
-            void toggleListItem(
-              row.id,
-              row.label,
-              "customAudienceIds",
-              "customAudienceLabels",
-            )
-          }
-        />
+        customUnavailable ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            Custom audiences temporarily unavailable.
+          </p>
+        ) : (
+          <AudienceList
+            rows={customAudiences}
+            selectedIds={draft.audiences.customAudienceIds}
+            disabled={saving || loading}
+            empty="No custom audiences available."
+            onToggle={(row) =>
+              void toggleListItem(
+                row.id,
+                row.label,
+                "customAudienceIds",
+                "customAudienceLabels",
+              )
+            }
+          />
+        )
       )}
       {activeTab === "lookalikes" && (
-        <AudienceList
-          rows={savedAudiences}
-          selectedIds={draft.audiences.lookalikeAudienceIds}
-          disabled={saving || loading}
-          empty="No lookalikes available."
-          onToggle={(row) =>
-            void toggleListItem(
-              row.id,
-              row.label,
-              "lookalikeAudienceIds",
-              "lookalikeAudienceLabels",
-            )
-          }
-        />
+        lookalikesUnavailable ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            Custom audiences temporarily unavailable.
+          </p>
+        ) : (
+          <AudienceList
+            rows={savedAudiences}
+            selectedIds={draft.audiences.lookalikeAudienceIds}
+            disabled={saving || loading}
+            empty="No lookalikes available."
+            onToggle={(row) =>
+              void toggleListItem(
+                row.id,
+                row.label,
+                "lookalikeAudienceIds",
+                "lookalikeAudienceLabels",
+              )
+            }
+          />
+        )
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -342,6 +372,20 @@ export function AudiencesStep({
           onChange={(languages) => void persist({ languages })}
         />
       </div>
+    </div>
+  );
+}
+
+function SkeletonTree() {
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-background p-3">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div
+          key={index}
+          className="h-5 animate-pulse rounded bg-muted"
+          style={{ width: `${90 - index * 8}%` }}
+        />
+      ))}
     </div>
   );
 }

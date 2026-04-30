@@ -2,6 +2,7 @@ import type {
   TikTokAdGroupDraft,
   TikTokCampaignDraft,
 } from "../types/tiktok-draft.ts";
+import { validOptimisationGoalForObjective } from "./campaign-setup.ts";
 
 export type PreflightSeverity = "red" | "amber" | "green";
 
@@ -88,6 +89,15 @@ export function buildTikTokPreflightChecks(
       draft.campaignSetup.eventCode ?? "No event code",
     ),
     check(
+      "objective-goal",
+      "Objective matches optimisation goal",
+      validOptimisationGoalForObjective(
+        draft.campaignSetup.objective,
+        draft.campaignSetup.optimisationGoal,
+      ),
+      "Objective and optimisation goal are compatible",
+    ),
+    check(
       "creatives",
       "At least one creative",
       draft.creatives.items.length > 0,
@@ -98,6 +108,12 @@ export function buildTikTokPreflightChecks(
       "Every creative assigned",
       everyCreativeAssigned(draft),
       "Creative to ad-group matrix complete",
+    ),
+    check(
+      "ad-group-assignments",
+      "Every ad group has creatives",
+      everyAdGroupHasCreative(draft),
+      "Ad-group columns have at least one creative",
     ),
     check("budget", "Budget > 0", budgetPositive, "Budget amount set"),
     check("schedule", "Schedule end > start", scheduleValid, "Schedule dates valid"),

@@ -61,6 +61,7 @@ export default async function TikTokCampaignPage(props: {
         eventDate: event?.event_date ?? null,
         clientName: client?.name ?? null,
         advertiserName: advertiser?.account_name ?? null,
+        eventEditPath: draft.eventId ? `/events/${draft.eventId}/edit` : null,
       }}
     />
   );

@@ -37,6 +37,8 @@ export function CreativesStep({
   const [cta, setCta] = useState("LEARN_MORE");
   const [variationCount, setVariationCount] = useState("1");
   const [saving, setSaving] = useState(false);
+  const [videoLookupLoading, setVideoLookupLoading] = useState(false);
+  const [retryVideoId, setRetryVideoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function persist(items: TikTokCreativeDraft[]) {
@@ -63,6 +65,7 @@ export function CreativesStep({
     }
     const count = Math.max(1, Math.min(10, Number.parseInt(variationCount, 10) || 1));
     const videoInfo = await loadVideoInfo(videoId);
+    if (!videoInfo) return;
     const names = nameCreativeVariations(baseName, count);
     const displayName =
       draft.accountSetup.identityDisplayName ??
@@ -95,19 +98,39 @@ export function CreativesStep({
   async function loadVideoInfo(videoId: string): Promise<TikTokVideoInfo | null> {
     const advertiserId = draft.accountSetup.advertiserId;
     if (!advertiserId) return null;
+    setVideoLookupLoading(true);
+    setRetryVideoId(null);
     const params = new URLSearchParams({
       advertiser_id: advertiserId,
       video_id: videoId,
     });
-    const res = await fetch(`/api/tiktok/creative/video-info?${params.toString()}`);
-    const json = (await res.json().catch(() => null)) as
-      | { ok?: boolean; videos?: TikTokVideoInfo[]; error?: string }
-      | null;
-    if (!json?.ok) {
-      setError(json?.error ?? "Could not validate video. Saved as a reference.");
-      return null;
+    try {
+      const res = await fetch(`/api/tiktok/creative/video-info?${params.toString()}`);
+      const json = (await res.json().catch(() => null)) as
+        | { ok?: boolean; videos?: TikTokVideoInfo[]; error?: string }
+        | null;
+      if (!json?.ok) {
+        const message = json?.error ?? "Could not validate video.";
+        if (isRateLimitMessage(message)) {
+          setRetryVideoId(videoId);
+          setError("TikTok video API is rate limited. Try again in a moment.");
+          return null;
+        }
+        if (isVideoNotFoundMessage(message)) {
+          setError("Video not found in this advertiser. Check the URL or video ID.");
+          return null;
+        }
+        setError(message);
+        return null;
+      }
+      const video = json.videos?.[0] ?? null;
+      if (!video) {
+        setError("Video not found in this advertiser. Check the URL or video ID.");
+      }
+      return video;
+    } finally {
+      setVideoLookupLoading(false);
     }
-    return json.videos?.[0] ?? null;
   }
 
   async function removeCreative(id: string) {
@@ -126,7 +149,19 @@ export function CreativesStep({
 
       {error && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          {error}
+          <p>{error}</p>
+          {retryVideoId && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              disabled={videoLookupLoading}
+              onClick={() => void loadVideoInfo(retryVideoId)}
+            >
+              Retry video lookup
+            </Button>
+          )}
         </div>
       )}
 
@@ -177,6 +212,9 @@ export function CreativesStep({
           onChange={(event) => setAdText(event.target.value)}
           placeholder="Book tickets now"
         />
+        <p className="self-end text-xs text-muted-foreground">
+          {adText.length}/100 characters
+        </p>
         <Input
           id="creative-landing-page"
           label="Landing page URL"
@@ -206,7 +244,11 @@ export function CreativesStep({
         />
       </div>
 
-      <Button type="button" onClick={() => void addVideoReference()} disabled={saving}>
+      <Button
+        type="button"
+        onClick={() => void addVideoReference()}
+        disabled={saving || videoLookupLoading}
+      >
         Add creative variation{variationCount === "1" ? "" : "s"}
       </Button>
 
@@ -254,4 +296,13 @@ export function CreativesStep({
       </div>
     </div>
   );
+}
+
+function isRateLimitMessage(message: string): boolean {
+  return message.includes("50001") || message.toLowerCase().includes("rate");
+}
+
+function isVideoNotFoundMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("404") || lower.includes("not found");
 }

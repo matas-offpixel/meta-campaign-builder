@@ -72,6 +72,12 @@ export function AssignCreativesStep({
         </Badge>
       </div>
 
+      {draft.creatives.items.length > 0 && !everyAdGroupHasCreative(draft) && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          Assign at least one creative to each ad group.
+        </p>
+      )}
+
       {draft.creatives.items.length === 0 ? (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           Add at least one creative in Step 4 before assigning.
@@ -82,14 +88,32 @@ export function AssignCreativesStep({
             <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="p-3">Creative</th>
-                {adGroups.map((adGroup) => (
-                  <th key={adGroup.id} className="p-3">
-                    {adGroup.name}
-                    <span className="ml-2 rounded-full bg-background px-2 py-0.5 text-[10px]">
-                      {(draft.creativeAssignments.byAdGroupId[adGroup.id] ?? []).length}
-                    </span>
-                  </th>
-                ))}
+                {adGroups.map((adGroup) => {
+                  const assignedCount = (
+                    draft.creativeAssignments.byAdGroupId[adGroup.id] ?? []
+                  ).length;
+                  return (
+                    <th
+                      key={adGroup.id}
+                      className={`p-3 ${
+                        assignedCount === 0
+                          ? "border-l border-red-500/40 bg-red-500/10"
+                          : ""
+                      }`}
+                    >
+                      {adGroup.name}
+                      <span
+                        className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${
+                          assignedCount === 0
+                            ? "bg-red-500/20 text-red-700"
+                            : "bg-background"
+                        }`}
+                      >
+                        {assignedCount}
+                      </span>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>

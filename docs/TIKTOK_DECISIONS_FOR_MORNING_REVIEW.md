@@ -137,3 +137,15 @@
 - Why: Without preserving those RPC typings, `npx tsc --noEmit` fails in existing Google Ads code even though PR-A is scoped to TikTok wizard polish.
 - Reversibility: reversible after the live Supabase schema generation includes those RPCs directly.
 - Reviewer action needed: yes — confirm whether migration `060_encrypt_google_ads_credentials.sql` has been applied to the project used for type generation.
+
+## PR-B — TikTok Wizard Edge Cases + Validation
+
+- Decision made: Centralize blocking wizard validation in `lib/tiktok-wizard/validation.ts` and render it in both the step shell and Step 7 summary.
+- Why: The same rules need to block step progression, explain pre-flight failures, and stay testable without browser-only component tests.
+- Reversibility: reversible; rules can be split back into step-local validators if the wizard needs per-step ownership later.
+- Reviewer action needed: no.
+
+- Decision made: When TikTok video validation fails, Step 4 does not save a new creative reference.
+- Why: The prompt asked for "video not found" and rate-limit failures to fail soft without blocking the whole step; saving unknown video IDs after a failed validation would make the review step look more complete than it is.
+- Reversibility: reversible if operators prefer draft-only unvalidated video placeholders.
+- Reviewer action needed: yes — confirm whether invalid video references should ever be allowed as draft placeholders.
