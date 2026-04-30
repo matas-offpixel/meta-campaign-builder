@@ -50,13 +50,15 @@ export interface FetchTikTokDailyRollupInsightsInput {
   request?: TikTokGet;
 }
 
-const METRICS = [
+export const TIKTOK_ROLLUP_METRICS = [
   "spend",
   "impressions",
   "reach",
   "clicks",
-  "engagements",
-  "post_engagement",
+  "comments",
+  "likes",
+  "shares",
+  "follows",
   "video_play_actions",
   "video_watched_2s",
   "video_watched_6s",
@@ -110,7 +112,7 @@ export async function fetchTikTokDailyRollupInsights(
           report_type: "BASIC",
           data_level: "AUCTION_CAMPAIGN",
           dimensions: DIMENSIONS,
-          metrics: METRICS,
+          metrics: TIKTOK_ROLLUP_METRICS,
           start_date: window.since,
           end_date: window.until,
           page,
@@ -137,7 +139,11 @@ export async function fetchTikTokDailyRollupInsights(
           videoViews6s: numberMetric(metrics.video_watched_6s),
           videoViews100p: numberMetric(metrics.video_views_p100),
           avgPlayTimeMs: nullableNumberMetric(metrics.average_video_play),
-          postEngagement: numberMetric(metrics.post_engagement) || numberMetric(metrics.engagements),
+          postEngagement:
+            numberMetric(metrics.comments) +
+            numberMetric(metrics.likes) +
+            numberMetric(metrics.shares) +
+            numberMetric(metrics.follows),
           results: numberMetric(metrics.video_play_actions),
         });
       }
