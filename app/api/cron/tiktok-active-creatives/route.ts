@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { resolveComputedTikTokWindow } from "@/lib/share/tiktok-window";
 import { fetchTikTokAdsForShare } from "@/lib/tiktok/share-render";
 import { writeActiveTikTokCreativesSnapshot } from "@/lib/tiktok/snapshots";
 
@@ -49,10 +50,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  const events = ((data ?? []) as unknown as EventToRefresh[]).filter((event) => {
-    const accountId = resolveTikTokAccountId(event);
-    return Boolean(accountId && event.event_code && resolveWindow(event));
-  });
+  const events = ((data ?? []) as unknown as EventToRefresh[]).filter((event) =>
+    Boolean(resolveTikTokAccountId(event) && event.event_code),
+  );
 
   const results: Array<{
     eventId: string;
@@ -64,7 +64,13 @@ export async function GET(req: NextRequest) {
 
   for (const event of events) {
     const accountId = resolveTikTokAccountId(event);
-    const window = resolveWindow(event);
+    const window = await resolveComputedTikTokWindow(supabase, {
+      id: event.id,
+      kind: eventKind(event),
+      event_date: event.event_date,
+      event_start_at: event.event_start_at,
+      campaign_end_at: event.campaign_end_at,
+    });
     if (!accountId || !event.event_code || !window) continue;
     try {
       const rows = await fetchTikTokAdsForShare({
@@ -119,20 +125,6 @@ function resolveTikTokAccountId(event: EventToRefresh): string | null {
   return client?.tiktok_account_id ?? null;
 }
 
-function resolveWindow(event: EventToRefresh): { since: string; until: string } | null {
-  const since = ymd(event.event_start_at) ?? ymd(event.event_date);
-  const until = ymd(event.campaign_end_at) ?? ymd(event.event_date) ?? todayYmd();
-  if (!since) return null;
-  return since <= until ? { since, until } : { since: until, until: since };
-}
-
-function ymd(value: string | null): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
-  return d.toISOString().slice(0, 10);
-}
-
-function todayYmd(): string {
-  return new Date().toISOString().slice(0, 10);
+function eventKind(event: EventToRefresh): string {
+  return event.event_date ? "event" : "brand_campaign";
 }

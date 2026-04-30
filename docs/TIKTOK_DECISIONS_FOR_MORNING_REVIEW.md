@@ -149,3 +149,15 @@
 - Why: The prompt asked for "video not found" and rate-limit failures to fail soft without blocking the whole step; saving unknown video IDs after a failed validation would make the review step look more complete than it is.
 - Reversibility: reversible if operators prefer draft-only unvalidated video placeholders.
 - Reviewer action needed: yes — confirm whether invalid video references should ever be allowed as draft placeholders.
+
+## PR-C — Canonical TikTok Share Window
+
+- Decision made: Keep manual imports visually authoritative whenever a manual report row exists, while resolving the canonical computed window for API-backed rows and cron writes.
+- Why: The prompt explicitly preserved the legacy manual branch for BB26-RIANBRAZIL, and the computed-first resolver still governs API-backed reports and cron alignment.
+- Reversibility: reversible by removing the manual-first render branch once all share-report breakdowns are API-backed.
+- Reviewer action needed: yes — confirm when BB26-RIANBRAZIL can move from manual-preserved rendering to fully API-rendered breakdowns.
+
+- Decision made: Infer brand-campaign cron windows from missing `event_date` in the cron routes instead of widening the cron event select to include `kind`.
+- Why: The existing event rows already distinguish dated shows and brand campaigns through `event_date` presence for this path, and avoiding an extra generated type dependency keeps the cron change narrow.
+- Reversibility: reversible by selecting `kind` directly in a future cleanup.
+- Reviewer action needed: no.

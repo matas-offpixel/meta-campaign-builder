@@ -34,6 +34,7 @@ export interface TikTokReportBlockData {
   date_range_end: string;
   imported_at: string;
   fetched_at?: string | null;
+  source_label?: string | null;
   snapshot: TikTokManualReportSnapshot;
 }
 
@@ -104,6 +105,11 @@ export function TikTokReportBlock({ data }: { data: TikTokReportBlockData }) {
           </div>
           {c?.primary_status && <StatusBadge status={c.primary_status} />}
         </div>
+        {data.source_label ? (
+          <p className="mt-3 inline-flex rounded-full bg-muted px-3 py-1 text-[11px] text-muted-foreground">
+            {data.source_label}
+          </p>
+        ) : null}
       </section>
 
       <div className="space-y-3">
