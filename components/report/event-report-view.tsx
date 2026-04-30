@@ -33,6 +33,10 @@ import {
   TikTokReportBlock,
   type TikTokReportBlockData,
 } from "./tiktok-report-block";
+import {
+  GoogleAdsReportBlock,
+  type GoogleAdsReportBlockData,
+} from "./google-ads-report-block";
 /**
  * components/report/event-report-view.tsx
  *
@@ -109,6 +113,7 @@ interface Props {
    * fallback.
    */
   tiktok?: TikTokReportBlockData | null;
+  googleAds?: GoogleAdsReportBlockData | null;
   datePreset: DatePreset;
   /**
    * Active custom range when `datePreset === "custom"`. Drives the
@@ -232,6 +237,7 @@ export function EventReportView({
   event,
   meta = null,
   tiktok = null,
+  googleAds = null,
   datePreset,
   customRange,
   creativesSource,
@@ -477,6 +483,9 @@ export function EventReportView({
 
         {/* ─── TikTok block ─────────────────────────────────────── */}
         {tiktok ? <TikTokReportBlock data={tiktok} /> : null}
+
+        {/* ─── Google Ads block ─────────────────────────────────── */}
+        {googleAds ? <GoogleAdsReportBlock data={googleAds} /> : null}
 
         {/* ─── Event daily report block ─────────────────────────── */
          /* Server-rendered from the unified timeline (live rollups +
