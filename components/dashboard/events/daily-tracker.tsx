@@ -280,6 +280,7 @@ export function DailyTracker({
     ? (controlled.legErrors ?? null)
     : internalLegErrors;
   const readOnly = isControlled ? !!controlled.readOnly : false;
+  const isBrandCampaign = kind === "brand_campaign";
   // Editable mode requires both: the prop opt-in AND not-readOnly. The
   // controlled value wins when both are set (orchestrator owns the
   // dashboard-vs-share discriminator).
@@ -468,6 +469,7 @@ export function DailyTracker({
           ad_spend: null,
           link_clicks: null,
           meta_regs: null,
+          ad_spend_allocated: null,
           tiktok_spend: null,
           tiktok_impressions: null,
           tiktok_clicks: null,
@@ -517,6 +519,7 @@ export function DailyTracker({
             presale,
             otherSpendByDate: otherSpendMap,
             otherSpendBreakdownByDate: otherBreakdownMap,
+            isBrandCampaign,
           })
         : buildDisplayRows({
             timeline: trackerDisplayTimeline,
@@ -524,6 +527,7 @@ export function DailyTracker({
             otherSpendByDate: otherSpendMap,
             otherSpendBreakdownByDate: otherBreakdownMap,
             suppressSyntheticToday,
+            isBrandCampaign,
           }),
     [
       trackerDisplayTimeline,
@@ -532,6 +536,7 @@ export function DailyTracker({
       otherSpendMap,
       otherBreakdownMap,
       suppressSyntheticToday,
+      isBrandCampaign,
     ],
   );
 
@@ -582,7 +587,6 @@ export function DailyTracker({
   // subtitle reads as guidance rather than a claim about row count.
   const WEEKLY_WINDOW_LABEL_WEEKS = Math.ceil(60 / 7); // = 9
   const dateColLabel = cadence === "weekly" ? "Week (W/C)" : "Date";
-  const isBrandCampaign = kind === "brand_campaign";
   const colSpan = isEditable ? (isBrandCampaign ? 9 : 18) : isBrandCampaign ? 8 : 17;
   const windowLabel =
     cadence === "weekly"
@@ -1125,12 +1129,14 @@ function buildDisplayRows({
   otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
   otherSpendBreakdownByDate,
   suppressSyntheticToday = false,
+  isBrandCampaign,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   otherSpendByDate?: ReadonlyMap<string, number>;
   otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
   suppressSyntheticToday?: boolean;
+  isBrandCampaign: boolean;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -1166,7 +1172,7 @@ function buildDisplayRows({
       date: r.date,
       source: r.source,
       isSynthetic: false,
-      ad_spend: paidSpendOf(r),
+      ad_spend: paidSpendForDisplay(r, isBrandCampaign),
       meta_ad_spend: r.ad_spend,
       other_spend: otherSpendByDate.get(r.date) ?? null,
       other_spend_tooltip: fmtOtherSpendTooltipLines(
@@ -1383,11 +1389,13 @@ function buildWeeklyDisplayRows({
   presale,
   otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
   otherSpendBreakdownByDate,
+  isBrandCampaign,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   otherSpendByDate?: ReadonlyMap<string, number>;
   otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
+  isBrandCampaign: boolean;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
@@ -1443,8 +1451,14 @@ function buildWeeklyDisplayRows({
         revenue: null,
         hasManualSource: false,
       } satisfies WeekAgg);
-    const spend = paidSpendOf(r);
-    if (spend > 0 || r.ad_spend !== null || r.tiktok_spend !== null)
+    const spend = paidSpendForDisplay(r, isBrandCampaign);
+    if (
+      spend > 0 ||
+      r.ad_spend !== null ||
+      r.ad_spend_allocated != null ||
+      r.tiktok_spend !== null ||
+      r.google_ads_spend != null
+    )
       cur.spend = (cur.spend ?? 0) + spend;
     if (r.ad_spend !== null)
       cur.metaSpend = (cur.metaSpend ?? 0) + Number(r.ad_spend);
@@ -1661,6 +1675,15 @@ function derive(
   if (numerator == null) return null;
   if (denominator == null || denominator <= 0) return null;
   return numerator / denominator;
+}
+
+function paidSpendForDisplay(row: TimelineRow, isBrandCampaign: boolean): number {
+  if (!isBrandCampaign) return paidSpendOf(row);
+  return (
+    num(row.ad_spend_allocated ?? row.ad_spend) +
+    num(row.google_ads_spend) +
+    num(row.tiktok_spend)
+  );
 }
 
 function totalImpressionsOf(row: {

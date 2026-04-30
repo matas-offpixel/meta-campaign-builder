@@ -791,7 +791,7 @@ function platformValues(
 ): Record<AwarenessMetricKey, number> {
   if (platform === "meta") {
     return {
-      spend: Number(row.ad_spend ?? 0),
+      spend: Number(row.ad_spend_allocated ?? row.ad_spend ?? 0),
       impressions: Number((row as { impressions?: number | null }).impressions ?? 0),
       clicks: Number(row.link_clicks ?? 0),
       videoViews: Number((row as { meta_video_views?: number | null }).meta_video_views ?? 0),
