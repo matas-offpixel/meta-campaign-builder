@@ -200,6 +200,7 @@ interface GoogleAdsCreativeApiRow {
 }
 
 interface GoogleAdsGeoApiRow {
+  campaign?: { id?: string | number | null };
   geographic_view?: {
     country_criterion_id?: string | number | null;
     country_criterion?: string | number | null;
@@ -266,7 +267,7 @@ function buildGeoQuery(window: { since: string; until: string }, campaignIds: st
   const since = requireIsoDate(window.since, "since");
   const until = requireIsoDate(window.until, "until");
   return [
-    "SELECT segments.geo_target_country, metrics.cost_micros, metrics.impressions, metrics.clicks",
+    "SELECT campaign.id, geographic_view.country_criterion_id, metrics.cost_micros, metrics.impressions, metrics.clicks",
     "FROM geographic_view",
     `WHERE segments.date BETWEEN '${since}' AND '${until}'`,
     `AND campaign.id IN (${campaignIds.join(",")})`,
@@ -358,13 +359,17 @@ function mapBreakdownRows(
     const label =
       kind === "geo"
         ? geoLabel(
-            (row as GoogleAdsGeoApiRow).segments?.geo_target_country ??
-              (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion_id ??
+            (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion_id ??
+              (row as GoogleAdsGeoApiRow).segments?.geo_target_country ??
               (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion,
           )
         : kind === "age"
-          ? enumLabel((row as GoogleAdsAgeApiRow).ad_group_criterion?.age_range?.type)
-          : enumLabel((row as GoogleAdsGenderApiRow).ad_group_criterion?.gender?.type);
+          ? normaliseAgeRangeLabel(
+              (row as GoogleAdsAgeApiRow).ad_group_criterion?.age_range?.type,
+            )
+          : normaliseGenderLabel(
+              (row as GoogleAdsGenderApiRow).ad_group_criterion?.gender?.type,
+            );
     return {
       label,
       spend: microsToCurrency(metrics.cost_micros),
@@ -383,14 +388,23 @@ function extractYoutubeId(url: string): string | null {
   return match?.[1] ?? null;
 }
 
-function enumLabel(value: string | null | undefined): string {
-  if (!value) return "Unknown";
-  return value
-    .toLowerCase()
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+export function normaliseAgeRangeLabel(rawValue: string | null | undefined): string {
+  if (!rawValue) return "Unknown";
+  const value = rawValue.toUpperCase();
+  if (value.includes("UNDETERMINED")) return "Unknown";
+  if (value.includes("65") && value.includes("UP")) return "65+";
+  const match = value.match(/(\d+)_(\d+)/);
+  if (match) return `${match[1]}-${match[2]}`;
+  return rawValue;
+}
+
+export function normaliseGenderLabel(rawValue: string | null | undefined): string {
+  if (!rawValue) return "Unknown";
+  const value = rawValue.toUpperCase();
+  if (value.includes("UNDETERMINED")) return "Unknown";
+  if (value.includes("FEMALE")) return "Female";
+  if (value.includes("MALE")) return "Male";
+  return rawValue;
 }
 
 function geoLabel(value: string | number | null | undefined): string {
