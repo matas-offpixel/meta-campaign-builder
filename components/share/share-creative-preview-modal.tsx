@@ -12,6 +12,7 @@ import {
   sanitiseCreativeName,
   type ConceptGroupRow,
 } from "@/lib/reporting/group-creatives";
+import { resolveActiveCreativeModalImage } from "@/lib/reporting/active-creatives-thumbnail";
 import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
 
 /**
@@ -106,8 +107,7 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
   }, [onClose]);
 
   const preview = group.representative_preview;
-  const fallbackImage =
-    preview.image_url || group.representative_thumbnail || null;
+  const fallbackImage = group.representative_thumbnail || null;
   const cta = ctaLabel(preview.call_to_action_type);
   const link = preview.link_url;
   // Title is the group's display_name (already prefers ad.name over
@@ -339,7 +339,7 @@ function ShareAssetBlock({
     // rewrites Meta CDN stp= size tokens (e.g. _s160x160_ →
     // _s640x640_) only here so 160px video posters are not upscaled
     // ~2.8× in the layout.
-    const rawSrc = preview.image_url ?? fallbackImage!;
+    const rawSrc = resolveActiveCreativeModalImage(preview, fallbackImage)!;
     return (
       <div className="space-y-2">
         <div

@@ -77,6 +77,10 @@ export interface ConceptInputRow {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  /** Ad that supplied `thumbnail_url`; null when no thumbnail was resolved. */
+  thumbnail_ad_id?: string | null;
+  /** Spend for the ad that supplied `thumbnail_url`; null when no thumbnail resolved. */
+  thumbnail_spend?: number | null;
   /** Stable post identifier — first tier of the grouping waterfall. */
   effective_object_story_id: string | null;
   object_story_id: string | null;
@@ -159,6 +163,8 @@ export interface ConceptGroupRow {
   /** Top-spend underlying row supplies these representative fields. */
   representative_ad_id: string;
   representative_thumbnail: string | null;
+  /** Ad that supplied `representative_thumbnail`; null when no thumbnail resolved. */
+  representative_thumbnail_ad_id: string | null;
   representative_headline: string | null;
   representative_body_preview: string | null;
   /** Top-spend underlying row's modal preview payload. */
@@ -615,6 +621,9 @@ interface Accumulator {
   topSpend: number;
   representative_ad_id: string;
   representative_thumbnail: string | null;
+  representative_thumbnail_ad_id: string | null;
+  /** Spend attached to the ad that supplied `representative_thumbnail`. */
+  representative_thumbnail_spend: number;
   representative_headline: string | null;
   representative_body_preview: string | null;
   representative_creative_name: string | null;
@@ -666,6 +675,12 @@ export function groupByAssetSignature(
         topSpend: -Infinity,
         representative_ad_id: row.representative_ad_id,
         representative_thumbnail: row.thumbnail_url,
+        representative_thumbnail_ad_id: row.thumbnail_url
+          ? (row.thumbnail_ad_id ?? row.representative_ad_id)
+          : null,
+        representative_thumbnail_spend: row.thumbnail_url
+          ? (row.thumbnail_spend ?? row.spend)
+          : -Infinity,
         representative_headline: row.headline,
         representative_body_preview: row.body,
         representative_creative_name: row.creative_name,
@@ -712,6 +727,16 @@ export function groupByAssetSignature(
       acc.representative_preview = row.preview;
     }
 
+    const rowThumbnailSpend = row.thumbnail_url
+      ? (row.thumbnail_spend ?? row.spend)
+      : -Infinity;
+    if (row.thumbnail_url && rowThumbnailSpend > acc.representative_thumbnail_spend) {
+      acc.representative_thumbnail_spend = rowThumbnailSpend;
+      acc.representative_thumbnail = row.thumbnail_url;
+      acc.representative_thumbnail_ad_id =
+        row.thumbnail_ad_id ?? row.representative_ad_id;
+    }
+
     buckets.set(key, acc);
   }
 
@@ -756,6 +781,7 @@ export function groupByAssetSignature(
       })),
       representative_ad_id: acc.representative_ad_id,
       representative_thumbnail: acc.representative_thumbnail,
+      representative_thumbnail_ad_id: acc.representative_thumbnail_ad_id,
       representative_headline: acc.representative_headline,
       representative_body_preview: acc.representative_body_preview,
       representative_preview: acc.representative_preview,
