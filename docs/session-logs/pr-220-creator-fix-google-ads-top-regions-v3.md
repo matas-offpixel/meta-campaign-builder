@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 220
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/220
 - **Branch:** `creator/fix-google-ads-top-regions-v3`
 
 ## Summary
