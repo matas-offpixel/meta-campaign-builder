@@ -30,10 +30,15 @@ import { HealthBadge } from "@/components/share/health-badge";
 
 interface Props {
   groups: ConceptGroupRow[];
+  kind?: "event" | "brand_campaign";
 }
 
-export default function ShareActiveCreativesClient({ groups }: Props) {
+export default function ShareActiveCreativesClient({
+  groups,
+  kind = "event",
+}: Props) {
   const [openGroup, setOpenGroup] = useState<ConceptGroupRow | null>(null);
+  const isBrandCampaign = kind === "brand_campaign";
 
   return (
     <>
@@ -42,6 +47,7 @@ export default function ShareActiveCreativesClient({ groups }: Props) {
           <ShareCreativeCard
             key={g.group_key}
             row={g}
+            isBrandCampaign={isBrandCampaign}
             onClick={() => setOpenGroup(g)}
           />
         ))}
@@ -59,9 +65,11 @@ export default function ShareActiveCreativesClient({ groups }: Props) {
 
 function ShareCreativeCard({
   row,
+  isBrandCampaign,
   onClick,
 }: {
   row: ConceptGroupRow;
+  isBrandCampaign: boolean;
   onClick: () => void;
 }) {
   return (
@@ -144,31 +152,43 @@ function ShareCreativeCard({
         keep registration data without adding a fifth row.
       */}
       <div className="space-y-1.5 text-sm">
-        <FunnelRow
-          label="Clicks"
-          volume={fmtInt(row.clicks)}
-          costLabel="CPC"
-          cost={fmtMoneyOrDash(row.cpc)}
-        />
-        <FunnelRow
-          label="LPV"
-          volume={fmtInt(row.landingPageViews)}
-          costLabel="CPLPV"
-          cost={fmtMoneyOrDash(row.cplpv)}
-        />
-        <FunnelRow
-          label="Purchases"
-          volume={fmtInt(row.purchases)}
-          costLabel="CPP"
-          cost={fmtMoneyOrDash(row.cpp)}
-        />
-        {row.registrations > 0 && (
-          <FunnelRow
-            label="Regs"
-            volume={fmtInt(row.registrations)}
-            costLabel="CPR"
-            cost={fmtMoneyOrDash(row.cpr)}
-          />
+        {isBrandCampaign ? (
+          <>
+            <AwarenessRow label="Impressions" value={fmtInt(row.impressions)} />
+            <AwarenessRow label="Reach" value={fmtInt(row.reach)} />
+            <AwarenessRow label="CTR" value={fmtPct(row.ctr)} />
+            <AwarenessRow label="CPM" value={fmtMoneyOrDash(row.cpm)} />
+            <AwarenessRow label="Clicks" value={fmtInt(row.clicks)} />
+          </>
+        ) : (
+          <>
+            <FunnelRow
+              label="Clicks"
+              volume={fmtInt(row.clicks)}
+              costLabel="CPC"
+              cost={fmtMoneyOrDash(row.cpc)}
+            />
+            <FunnelRow
+              label="LPV"
+              volume={fmtInt(row.landingPageViews)}
+              costLabel="CPLPV"
+              cost={fmtMoneyOrDash(row.cplpv)}
+            />
+            <FunnelRow
+              label="Purchases"
+              volume={fmtInt(row.purchases)}
+              costLabel="CPP"
+              cost={fmtMoneyOrDash(row.cpp)}
+            />
+            {row.registrations > 0 && (
+              <FunnelRow
+                label="Regs"
+                volume={fmtInt(row.registrations)}
+                costLabel="CPR"
+                cost={fmtMoneyOrDash(row.cpr)}
+              />
+            )}
+          </>
         )}
       </div>
 
@@ -176,6 +196,17 @@ function ShareCreativeCard({
         Click to preview →
       </div>
     </button>
+  );
+}
+
+function AwarenessRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className="text-sm font-medium text-foreground">{value}</span>
+    </div>
   );
 }
 
@@ -256,6 +287,11 @@ function Stat({
 function fmtMoneyOrDash(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return fmtCurrency(v);
+}
+
+function fmtPct(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v.toFixed(2)}%`;
 }
 /**
  * Integer formatter for the funnel volume column. Locale-grouped

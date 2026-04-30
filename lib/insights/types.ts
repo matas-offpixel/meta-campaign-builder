@@ -88,6 +88,14 @@ export interface MetaCampaignRow {
   cpp: number;
 }
 
+export interface MetaDemographicRow {
+  label: string;
+  spend: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+}
+
 /** Channel split — Meta in v1, others reserved. */
 export interface ChannelBreakdown {
   meta: number;
@@ -201,6 +209,11 @@ export interface EventInsightsPayload {
   channelBreakdown: ChannelBreakdown;
   /** Per-campaign rows, sorted by spend desc. */
   campaigns: MetaCampaignRow[];
+  demographics?: {
+    regions: MetaDemographicRow[];
+    ageRanges: MetaDemographicRow[];
+    genders: MetaDemographicRow[];
+  };
   /** Number of Meta campaigns matched on `[event_code]`. */
   matchedCampaignCount: number;
   /**

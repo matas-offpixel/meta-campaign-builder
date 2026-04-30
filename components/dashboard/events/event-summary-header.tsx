@@ -340,10 +340,12 @@ export function EventSummaryHeader({
           ) : null}
         </table>
       </div>
-      <p className="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
-        CRM signup totals will replace Meta Regs when connected — Meta remains
-        the fallback.
-      </p>
+      {!m.isBrandCampaign ? (
+        <p className="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
+          CRM signup totals will replace Meta Regs when connected — Meta remains
+          the fallback.
+        </p>
+      ) : null}
     </section>
   );
 }

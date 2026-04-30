@@ -246,7 +246,7 @@ function buildCreativeInsightsQuery(
   return [
     "SELECT ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.final_urls,",
     "campaign.id, campaign.name, metrics.cost_micros, metrics.impressions,",
-    "metrics.clicks, metrics.ctr, metrics.engagements, metrics.video_quartile_p100_rate",
+    "metrics.clicks, metrics.ctr, metrics.engagements, metrics.video_quartile_p25_rate",
     "FROM ad_group_ad",
     `WHERE segments.date BETWEEN '${since}' AND '${until}'`,
     "AND campaign.advertising_channel_type = VIDEO",
@@ -333,8 +333,8 @@ function mapCreativeRows(rows: GoogleAdsCreativeApiRow[]): GoogleAdsCreativeRow[
       ctr: impressions > 0 ? (clicks / impressions) * 100 : nullableMetric(metrics.ctr),
       engagements,
       videoViews:
-        optionalMetric(metrics.video_quartile_p100_rate) != null
-          ? Math.round(optionalMetric(metrics.video_quartile_p100_rate)! * impressions)
+        optionalMetric(metrics.video_quartile_p25_rate) != null
+          ? Math.round(optionalMetric(metrics.video_quartile_p25_rate)! * impressions)
           : engagements,
     };
   }).filter((row) => row.id && row.impressions > 0);
