@@ -78,6 +78,16 @@ type QueryValue =
   | string[]
   | Record<string, unknown>;
 
+export type BodyValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | string[]
+  | number[]
+  | Record<string, unknown>;
+
 export async function tiktokGet<T>(
   path: string,
   params: Record<string, QueryValue>,
@@ -140,6 +150,73 @@ export async function tiktokGet<T>(
     if (!decision.retry) throw lastError;
     console.warn(
       `[tiktokGet] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${decision.delayMs}ms: ${path} (reason: ${decision.kind})`,
+    );
+    await sleep(decision.delayMs);
+  }
+
+  throw lastError ?? new TikTokApiError("TikTok Business API request failed.");
+}
+
+export async function tiktokPost<T>(
+  path: string,
+  body: Record<string, BodyValue>,
+  token: string,
+): Promise<T> {
+  const url = new URL(path.replace(/^\//, ""), `${TIKTOK_BASE}/`);
+
+  let lastError: TikTokApiError | null = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        method: "POST",
+        headers: {
+          "Access-Token": token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+    } catch (err) {
+      lastError = new TikTokApiError(
+        `Network error calling TikTok Business API: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      if (attempt >= MAX_ATTEMPTS - 1) throw lastError;
+      await sleep(TRANSIENT_BACKOFFS_MS[attempt] ?? 2_000);
+      continue;
+    }
+
+    const raw = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const envelope = raw as TikTokApiEnvelope<T>;
+    const code = typeof envelope.code === "number" ? envelope.code : undefined;
+    const requestId =
+      typeof envelope.request_id === "string" ? envelope.request_id : undefined;
+
+    if (response.ok && (code == null || code === 0)) {
+      return (envelope.data ?? raw) as T;
+    }
+
+    const message =
+      typeof envelope.message === "string"
+        ? envelope.message
+        : typeof envelope.msg === "string"
+          ? envelope.msg
+          : `HTTP ${response.status}`;
+    lastError = new TikTokApiError(message, code, requestId, response.status);
+
+    const decision = classifyTikTokRetry({
+      httpStatus: response.status,
+      code,
+      attempt,
+    });
+    if (!decision.retry) throw lastError;
+    console.warn(
+      `[tiktokPost] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${decision.delayMs}ms: ${path} (reason: ${decision.kind})`,
     );
     await sleep(decision.delayMs);
   }
