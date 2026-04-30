@@ -161,3 +161,20 @@
 - Why: The existing event rows already distinguish dated shows and brand campaigns through `event_date` presence for this path, and avoiding an extra generated type dependency keeps the cron change narrow.
 - Reversibility: reversible by selecting `kind` directly in a future cleanup.
 - Reviewer action needed: no.
+
+## PR-D — Motion-Replacement Tag Schema
+
+- Decision made: Claim migration `061_creative_tags_schema.sql` for the Motion taxonomy PR rather than `060`.
+- Why: `origin/main` already contains `060_encrypt_google_ads_credentials.sql`, so reusing `060` would add another duplicate migration prefix.
+- Reversibility: not worth reversing unless migration numbering is renormalized before merge.
+- Reviewer action needed: yes — apply migration 061 via Cowork MCP after merge.
+
+- Decision made: Evolve the existing `creative_tags` table from migration 020 instead of creating a fresh table with the same name.
+- Why: The existing intelligence routes still use `creative_tags` for legacy per-Meta-ad tags; migration 061 adds nullable taxonomy columns and a `(user_id, dimension, value_key)` uniqueness path so legacy rows and Motion taxonomy rows can coexist.
+- Reversibility: reversible with a future split into a dedicated taxonomy table if legacy intelligence tagging is retired.
+- Reviewer action needed: yes — sanity-check that the coexistence shape is acceptable before applying migration 061.
+
+- Decision made: Commit `scripts/import-motion-tags.ts` pointing at `docs/motion-research/01-glossary-with-creative-ids.json`, but do not commit or synthesize the missing glossary file.
+- Why: The prompt names the extracted Motion glossary as the source of truth, but the file is not present on `origin/main`; generating placeholder taxonomy would undermine the one-shot import.
+- Reversibility: reversible by adding the real extracted file or passing `MOTION_GLOSSARY_PATH` to the script.
+- Reviewer action needed: yes — ensure the extracted glossary JSON is present before running the seed import.
