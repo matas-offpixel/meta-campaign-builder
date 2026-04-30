@@ -1,17 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, type NextRequest as NextRequestType } from "next/server";
+
+import { GET as getSharedEventCampaigns } from "../route";
 
 /**
  * GET /api/reporting/event-campaigns/google
  *
- * Stub. Mirror of the TikTok stub at the sibling path — see that
- * file for rationale. Returns `platform_pending` so the UI can
- * render the disabled "Coming soon" tab without special-casing the
- * client component per platform.
+ * Compatibility shim for clients that call the platform-specific Google Ads
+ * endpoint. The canonical implementation lives on the shared route and is
+ * selected with `?platform=google`.
  */
-export function GET() {
-  return NextResponse.json({
-    ok: false,
-    reason: "platform_pending",
-    error: "Google Ads campaign reporting adapter is not implemented yet.",
-  });
+export function GET(req: NextRequestType) {
+  const url = new URL(req.url);
+  url.searchParams.set("platform", "google");
+  return getSharedEventCampaigns(new NextRequest(url, req));
 }

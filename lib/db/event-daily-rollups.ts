@@ -58,9 +58,15 @@ export interface EventDailyRollup {
   tiktok_avg_play_time_ms: number | null;
   tiktok_post_engagement: number | null;
   tiktok_results: number | null;
+  google_ads_spend: number | null;
+  google_ads_impressions: number | null;
+  google_ads_clicks: number | null;
+  google_ads_conversions: number | null;
+  google_ads_video_views: number | null;
   source_meta_at: string | null;
   source_eventbrite_at: string | null;
   source_tiktok_at: string | null;
+  source_google_ads_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -335,6 +341,48 @@ export async function upsertTikTokRollups(
     .upsert(payload, { onConflict: "event_id,date" });
   if (error) {
     console.warn("[event-daily-rollups upsertTikTok]", error.message);
+    throw new Error(error.message);
+  }
+}
+
+export interface GoogleAdsUpsertRow {
+  date: string;
+  google_ads_spend: number;
+  google_ads_impressions: number;
+  google_ads_clicks: number;
+  google_ads_conversions: number;
+  google_ads_video_views: number;
+}
+
+/**
+ * Bulk upsert Google Ads-owned columns on `event_daily_rollups`.
+ *
+ * Isolation invariant: this writes ONLY `google_ads_*` +
+ * `source_google_ads_at`. Meta/TikTok/ticketing columns are deliberately
+ * omitted so a Google Ads sync cannot overwrite other platform data.
+ */
+export async function upsertGoogleAdsRollups(
+  supabase: AnySupabaseClient,
+  args: { userId: string; eventId: string; rows: GoogleAdsUpsertRow[] },
+): Promise<void> {
+  if (args.rows.length === 0) return;
+  const now = new Date().toISOString();
+  const payload = args.rows.map((r) => ({
+    user_id: args.userId,
+    event_id: args.eventId,
+    date: r.date,
+    google_ads_spend: r.google_ads_spend,
+    google_ads_impressions: r.google_ads_impressions,
+    google_ads_clicks: r.google_ads_clicks,
+    google_ads_conversions: r.google_ads_conversions,
+    google_ads_video_views: r.google_ads_video_views,
+    source_google_ads_at: now,
+  }));
+  const { error } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .upsert(payload, { onConflict: "event_id,date" });
+  if (error) {
+    console.warn("[event-daily-rollups upsertGoogleAds]", error.message);
     throw new Error(error.message);
   }
 }

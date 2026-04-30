@@ -203,7 +203,14 @@ export function PlatformAccountsCard({
                 }))}
                 disabled={googleAdsSave.kind === "saving"}
               />
-            ) : null
+            ) : (
+              <a
+                href="/api/google-ads/oauth/start"
+                className="inline-flex items-center justify-center rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                Connect Google Ads
+              </a>
+            )
           }
           saveStatus={googleAdsSave}
         />

@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -91,11 +91,13 @@ export async function POST(req: NextRequest) {
   const eventDate = (event.event_date as string | null) ?? null;
   const clientId = (event.client_id as string | null) ?? null;
   const eventTikTokAccountId = (event.tiktok_account_id as string | null) ?? null;
+  const eventGoogleAdsAccountId =
+    (event.google_ads_account_id as string | null) ?? null;
   // Same single-vs-array unwrap as /spend-by-day; Supabase returns the
   // join as either depending on schema definition.
   const clientRel = event.client as
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
@@ -103,6 +105,9 @@ export async function POST(req: NextRequest) {
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
+  const clientGoogleAdsAccountId = Array.isArray(clientRel)
+    ? (clientRel[0]?.google_ads_account_id ?? null)
+    : (clientRel?.google_ads_account_id ?? null);
 
   console.info(
     `[rollup-sync/route] invoking runner event_id=${eventId} event_code=${eventCode ?? "<null>"} client_id=${clientId ?? "<null>"} event_date=${eventDate ?? "<null>"} ad_account=${adAccountId ?? "<null>"}`,
@@ -119,6 +124,8 @@ export async function POST(req: NextRequest) {
     eventDate,
     eventTikTokAccountId,
     clientTikTokAccountId,
+    eventGoogleAdsAccountId,
+    clientGoogleAdsAccountId,
   });
 
   return NextResponse.json(
@@ -127,6 +134,7 @@ export async function POST(req: NextRequest) {
       summary: result.summary,
       meta: result.meta,
       tiktok: result.tiktok,
+      googleAds: result.googleAds,
       eventbrite: result.eventbrite,
       diagnostics: result.diagnostics,
     },

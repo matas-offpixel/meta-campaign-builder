@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/ticketing";
 import {
   upsertEventbriteRollups,
+  upsertGoogleAdsRollups,
   upsertMetaRollups,
   upsertTikTokRollups,
 } from "@/lib/db/event-daily-rollups";
@@ -32,6 +33,12 @@ import {
   runTikTokRollupLeg,
   type TikTokRollupDeps,
 } from "@/lib/dashboard/tiktok-rollup-leg";
+import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
+import { fetchGoogleAdsDailyRollupInsights } from "@/lib/google-ads/rollup-insights";
+import {
+  runGoogleAdsRollupLeg,
+  type GoogleAdsRollupDeps,
+} from "@/lib/dashboard/google-ads-rollup-leg";
 import { shouldInvokeVenueAllocator } from "@/lib/dashboard/venue-allocator-trigger";
 
 /**
@@ -97,6 +104,10 @@ export interface RollupSyncInput {
   eventTikTokAccountId?: string | null;
   /** Client-level TikTok account FK used when the event has no override. */
   clientTikTokAccountId?: string | null;
+  /** Event-level Google Ads account FK. Falls back to `clientGoogleAdsAccountId`. */
+  eventGoogleAdsAccountId?: string | null;
+  /** Client-level Google Ads account FK used when the event has no override. */
+  clientGoogleAdsAccountId?: string | null;
   /**
    * Test-only override for the 50001 retry delay. Runtime keeps the TikTok
    * Business API's 10s cool-off.
@@ -104,6 +115,8 @@ export interface RollupSyncInput {
   tiktokRateLimitRetryDelayMs?: number;
   /** Test hooks only — production callers use the real TikTok helpers. */
   tiktokDeps?: Partial<TikTokRollupDeps>;
+  /** Test hooks only — production callers use the real Google Ads helpers. */
+  googleAdsDeps?: Partial<GoogleAdsRollupDeps>;
 }
 
 export interface SyncLegResult {
@@ -226,6 +239,10 @@ export interface SyncSummary {
   tiktokError: string | null;
   tiktokReason: string | null;
   tiktokRowsUpserted: number;
+  googleAdsOk: boolean;
+  googleAdsError: string | null;
+  googleAdsReason: string | null;
+  googleAdsRowsUpserted: number;
   /**
    * Allocator leg (PR D2 / PR #120) — `null` when the allocator
    * didn't run (missing scope inputs or Meta leg bailed first;
@@ -282,6 +299,7 @@ export interface RollupSyncResult {
   meta: SyncLegResult;
   eventbrite: SyncLegResult;
   tiktok: SyncLegResult;
+  googleAds: SyncLegResult;
   diagnostics: SyncDiagnostics;
 }
 
@@ -319,8 +337,11 @@ export async function runRollupSyncForEvent(
     eventDate,
     eventTikTokAccountId,
     clientTikTokAccountId,
+    eventGoogleAdsAccountId,
+    clientGoogleAdsAccountId,
     tiktokRateLimitRetryDelayMs,
     tiktokDeps,
+    googleAdsDeps,
   } = input;
 
   // Window: last 60 days (inclusive of today) in account local time.
@@ -391,6 +412,23 @@ export async function runRollupSyncForEvent(
       upsertRollups: upsertTikTokRollups,
       sleep,
       ...tiktokDeps,
+    },
+  });
+  const googleAdsAccountId =
+    eventGoogleAdsAccountId ?? clientGoogleAdsAccountId ?? null;
+  const googleAdsPromise = runGoogleAdsRollupLeg({
+    supabase,
+    eventId,
+    userId,
+    eventCode,
+    googleAdsAccountId,
+    since: sinceStr,
+    until: untilStr,
+    deps: {
+      getCredentials: getGoogleAdsCredentials,
+      fetchDailyInsights: fetchGoogleAdsDailyRollupInsights,
+      upsertRollups: upsertGoogleAdsRollups,
+      ...googleAdsDeps,
     },
   });
 
@@ -652,6 +690,7 @@ export async function runRollupSyncForEvent(
   // summary / diagnostics assembly simple while preserving overlap
   // during the expensive remote calls.
   const tiktokResult = await tiktokPromise;
+  const googleAdsResult = await googleAdsPromise;
 
   // ── Eventbrite leg ────────────────────────────────────────────────
   const eventbriteResult: SyncLegResult = { ok: false };
@@ -835,7 +874,8 @@ export async function runRollupSyncForEvent(
   }
 
   const allOk = metaResult.ok && eventbriteResult.ok;
-  const anyOk = metaResult.ok || eventbriteResult.ok || tiktokResult.ok;
+  const anyOk =
+    metaResult.ok || eventbriteResult.ok || tiktokResult.ok || googleAdsResult.ok;
 
   // Allocator roll-up — pull from the diagnostics object we threaded
   // through above. `null` on every field means the allocator leg
@@ -880,6 +920,10 @@ export async function runRollupSyncForEvent(
     tiktokError: tiktokResult.ok ? null : (tiktokResult.error ?? null),
     tiktokReason: tiktokResult.reason ?? null,
     tiktokRowsUpserted: tiktokResult.rowsWritten ?? 0,
+    googleAdsOk: googleAdsResult.ok,
+    googleAdsError: googleAdsResult.ok ? null : (googleAdsResult.error ?? null),
+    googleAdsReason: googleAdsResult.reason ?? null,
+    googleAdsRowsUpserted: googleAdsResult.rowsWritten ?? 0,
     allocatorOk,
     allocatorError,
     allocatorReason,
@@ -889,6 +933,7 @@ export async function runRollupSyncForEvent(
       (metaResult.rowsWritten ?? 0) +
       (eventbriteResult.rowsWritten ?? 0) +
       (tiktokResult.rowsWritten ?? 0) +
+      (googleAdsResult.rowsWritten ?? 0) +
       allocatorRowsUpserted,
     synced,
   };
@@ -900,7 +945,11 @@ export async function runRollupSyncForEvent(
       summary.metaRowsUpserted
     } tt_ok=${summary.tiktokOk}${
       summary.tiktokReason ? `(${summary.tiktokReason})` : ""
-    } tt_rows=${summary.tiktokRowsUpserted} eb_ok=${summary.eventbriteOk}${
+    } tt_rows=${summary.tiktokRowsUpserted} gads_ok=${summary.googleAdsOk}${
+      summary.googleAdsReason ? `(${summary.googleAdsReason})` : ""
+    } gads_rows=${
+      summary.googleAdsRowsUpserted
+    } eb_ok=${summary.eventbriteOk}${
       summary.eventbriteReason ? `(${summary.eventbriteReason})` : ""
     } eb_rows=${summary.eventbriteRowsUpserted} alloc_ok=${
       summary.allocatorOk ?? "n/a"
@@ -918,6 +967,7 @@ export async function runRollupSyncForEvent(
     meta: metaResult,
     eventbrite: eventbriteResult,
     tiktok: tiktokResult,
+    googleAds: googleAdsResult,
     diagnostics,
   };
 }

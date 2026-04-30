@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     parsedState = verifyGoogleAdsOAuthState({
       state,
       expectedNonce,
-      secret: config.clientSecret,
+      secret: config.stateSecret,
     });
   } catch (err) {
     return redirectWithStatus(
@@ -156,7 +156,6 @@ async function upsertGoogleAdsAccount({
       account_name: `Google Ads — ${customerId}`,
       google_customer_id: customerId,
       login_customer_id: loginCustomerId,
-      access_token_encrypted: null,
     })
     .select("id")
     .maybeSingle();

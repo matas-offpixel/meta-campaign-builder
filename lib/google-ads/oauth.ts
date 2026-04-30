@@ -7,6 +7,7 @@ export interface GoogleAdsOAuthConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  stateSecret: string;
 }
 
 export interface GoogleAdsOAuthStatePayload {
@@ -34,10 +35,14 @@ export function requireGoogleAdsOAuthConfig(): GoogleAdsOAuthConfig {
   const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
   const redirectUri = process.env.GOOGLE_ADS_REDIRECT_URI;
+  const stateSecret = process.env.GOOGLE_ADS_OAUTH_STATE_SECRET;
   if (!clientId) throw new Error("GOOGLE_ADS_CLIENT_ID is not configured.");
   if (!clientSecret) throw new Error("GOOGLE_ADS_CLIENT_SECRET is not configured.");
   if (!redirectUri) throw new Error("GOOGLE_ADS_REDIRECT_URI is not configured.");
-  return { clientId, clientSecret, redirectUri };
+  if (!stateSecret) {
+    throw new Error("GOOGLE_ADS_OAUTH_STATE_SECRET is not configured.");
+  }
+  return { clientId, clientSecret, redirectUri, stateSecret };
 }
 
 export function buildGoogleAdsOAuthUrl(input: {

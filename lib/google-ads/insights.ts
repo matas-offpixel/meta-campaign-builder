@@ -1,7 +1,18 @@
-import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
-import { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
+import type { CampaignInsightsRow } from "../reporting/event-insights.ts";
+import { campaignNameMatchesEventCode } from "../reporting/campaign-matching.ts";
 
-import { GoogleAdsClient, GOOGLE_ADS_CHUNK_CONCURRENCY } from "./client";
+import { GOOGLE_ADS_CHUNK_CONCURRENCY } from "./constants.ts";
+
+interface GoogleAdsQueryClient {
+  query<T>(
+    credentials: {
+      customerId: string;
+      refreshToken: string;
+      loginCustomerId?: string | null;
+    },
+    gaql: string,
+  ): Promise<T>;
+}
 
 export interface FetchGoogleAdsEventCampaignInsightsInput {
   customerId: string;
@@ -9,7 +20,7 @@ export interface FetchGoogleAdsEventCampaignInsightsInput {
   loginCustomerId?: string | null;
   eventCode: string;
   window: { since: string; until: string };
-  client?: Pick<GoogleAdsClient, "query">;
+  client?: GoogleAdsQueryClient;
 }
 
 interface GoogleAdsCampaignRow {
@@ -38,7 +49,7 @@ export async function fetchGoogleAdsEventCampaignInsights(
     throw new Error("Google Ads insight chunks must run serially.");
   }
 
-  const client = input.client ?? new GoogleAdsClient();
+  const client = input.client ?? await createDefaultClient();
   const rows = await client.query<GoogleAdsCampaignRow[]>(
     {
       customerId: input.customerId,
@@ -64,7 +75,8 @@ export async function fetchGoogleAdsEventCampaignInsights(
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : nullableMetric(metrics.ctr);
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : microsToNullableCurrency(metrics.average_cpm);
     const cpr = results > 0 ? spend / results : null;
-    const costPerView = videoViews > 0 ? spend / videoViews : null;
+    const isVideoCampaign = campaign.advertising_channel_type === "VIDEO";
+    const costPerView = isVideoCampaign && videoViews > 0 ? spend / videoViews : null;
     const campaignType = [
       campaign.advertising_channel_type,
       campaign.advertising_channel_sub_type,
@@ -88,6 +100,11 @@ export async function fetchGoogleAdsEventCampaignInsights(
       campaign_type: campaignType,
     }];
   });
+}
+
+async function createDefaultClient(): Promise<GoogleAdsQueryClient> {
+  const { GoogleAdsClient } = await import("./client.ts");
+  return new GoogleAdsClient();
 }
 
 function buildCampaignInsightsQuery(window: { since: string; until: string }): string {
