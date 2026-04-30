@@ -12,8 +12,8 @@ Finished the Google Ads reporting/OAuth scaffold so connected accounts can pull 
 
 ## Scope / files
 
-- `supabase/migrations/060_encrypt_google_ads_credentials.sql` verified and tightened for credential encryption only; written, NOT applied.
-- `supabase/migrations/061_event_daily_rollups_google_ads_columns.sql` added Google Ads daily rollup columns; written, NOT applied.
+- `supabase/migrations/063_encrypt_google_ads_credentials.sql` verified and tightened for credential encryption only; written, NOT applied.
+- `supabase/migrations/064_event_daily_rollups_google_ads_columns.sql` added Google Ads daily rollup columns; written, NOT applied.
 - `lib/google-ads/*` gained a dependency-light concurrency constant, Google campaign insight tests, and minimal daily rollup insight fetching.
 - `lib/dashboard/google-ads-rollup-leg.ts`, `lib/dashboard/rollup-sync-runner.ts`, `lib/db/event-daily-rollups.ts`, and rollup-sync callers now include Google Ads alongside Meta/TikTok/Eventbrite without sharing platform concurrency budgets.
 - `app/api/reporting/event-campaigns/route.ts` supports `?platform=google`; `app/api/reporting/event-campaigns/google/route.ts` forwards to the shared implementation.

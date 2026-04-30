@@ -42,7 +42,7 @@ Existing open questions remain in `docs/SPEC_QUESTIONS_FOR_MATAS.md`. The ones t
 
 1. Confirm when BB26-RIANBRAZIL can move from manual-preserved TikTok rendering to fully API-rendered breakdowns.
 2. Confirm whether invalid TikTok video references should ever be allowed as draft placeholders.
-3. Confirm the migrated Supabase project used for type generation includes `060_encrypt_google_ads_credentials.sql`.
+3. Confirm the migrated Supabase project used for type generation includes `063_encrypt_google_ads_credentials.sql`.
 4. Confirm the Motion taxonomy should coexist in `creative_tags` rather than split into a dedicated taxonomy table.
 
 ## Pending Cowork Migrations

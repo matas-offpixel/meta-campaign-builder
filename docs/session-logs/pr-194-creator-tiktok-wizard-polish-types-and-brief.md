@@ -32,4 +32,4 @@ Regenerated Supabase database types, removed the untyped TikTok draft DB shim wh
 
 Repo-wide `npm run lint` still fails on pre-existing unrelated lint debt outside this PR, including `app/api/meta/interest-suggestions/route.ts`, `app/auth/facebook-error/page.tsx`, `components/dashboard/events/event-plan-tab.tsx`, `components/report/internal-event-report.tsx`, and legacy Meta wizard hook files. The PR-touched files lint clean.
 
-The live generated Supabase types did not include the Google Ads credential RPC signatures from migration `060_encrypt_google_ads_credentials.sql`, so those two RPC typings were preserved manually in `lib/db/database.types.ts` to avoid regressing existing Google Ads callers while still committing the regenerated table coverage.
+The live generated Supabase types did not include the Google Ads credential RPC signatures from migration `063_encrypt_google_ads_credentials.sql`, so those two RPC typings were preserved manually in `lib/db/database.types.ts` to avoid regressing existing Google Ads callers while still committing the regenerated table coverage.
