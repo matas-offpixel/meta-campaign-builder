@@ -12,6 +12,39 @@ function fakeClient(rows: unknown[]) {
 }
 
 describe("fetchGoogleAdsEventCampaignInsights", () => {
+  it("builds GAQL with unquoted enum values and YYYY-MM-DD dates", async () => {
+    let gaql = "";
+    await fetchGoogleAdsEventCampaignInsights({
+      customerId: "288-501-5945",
+      refreshToken: "refresh-token",
+      eventCode: "BB26-KAYODE",
+      window: { since: "2026-04-01", until: "2026-04-30" },
+      client: {
+        async query<T>(_credentials: unknown, query: string): Promise<T> {
+          gaql = query;
+          return [] as T;
+        },
+      },
+    });
+
+    assert.match(gaql, /segments\.date BETWEEN '2026-04-01' AND '2026-04-30'/);
+    assert.match(gaql, /campaign\.advertising_channel_type IN \(SEARCH, VIDEO\)/);
+    assert.doesNotMatch(gaql, /'SEARCH'|'VIDEO'/);
+  });
+
+  it("rejects non-YYYY-MM-DD date windows before issuing GAQL", async () => {
+    await assert.rejects(
+      fetchGoogleAdsEventCampaignInsights({
+        customerId: "288-501-5945",
+        refreshToken: "refresh-token",
+        eventCode: "BB26-KAYODE",
+        window: { since: "2026-04-01T00:00:00Z", until: "2026-04-30" },
+        client: fakeClient([]),
+      }),
+      /window\.since must be YYYY-MM-DD/,
+    );
+  });
+
   it("returns a matching SEARCH campaign with no cost_per_view", async () => {
     const rows = await fetchGoogleAdsEventCampaignInsights({
       customerId: "333-703-8088",
