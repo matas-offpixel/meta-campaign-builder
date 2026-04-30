@@ -33,6 +33,9 @@ export interface GoogleAdsReportBlockData {
     frequency: number | null;
     cpm: number | null;
     ctr: number | null;
+    averageCpc: number | null;
+    costPerVideoView: number | null;
+    viewThroughRate: number | null;
     costPerEngagement: number | null;
     costPer1000Reached: number | null;
     videoViews25: number | null;

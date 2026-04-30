@@ -134,12 +134,14 @@ function ShareCreativeCard({
           through both groupers; tooltip exposes the raw numbers
           and which threshold tripped.
         */}
-        <HealthBadge
-          frequency={row.frequency}
-          inlineLinkClicks={row.inline_link_clicks}
-          impressions={row.impressions}
-          anyAdActive={row.any_ad_active}
-        />
+        {!isBrandCampaign ? (
+          <HealthBadge
+            frequency={row.frequency}
+            inlineLinkClicks={row.inline_link_clicks}
+            impressions={row.impressions}
+            anyAdActive={row.any_ad_active}
+          />
+        ) : null}
       </div>
 
       {/*

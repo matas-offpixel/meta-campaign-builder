@@ -4,6 +4,7 @@ import type {
   GoogleAdsCreativeRow,
 } from "../reporting/google-ads-share-types.ts";
 import { campaignNameMatchesEventCode } from "../reporting/campaign-matching.ts";
+import { COUNTRY_CRITERIA } from "./geo-target-constants.ts";
 
 import { GOOGLE_ADS_CHUNK_CONCURRENCY } from "./constants.ts";
 
@@ -199,7 +200,10 @@ interface GoogleAdsCreativeApiRow {
 }
 
 interface GoogleAdsGeoApiRow {
-  geographic_view?: { country_criterion_id?: string | number | null };
+  geographic_view?: {
+    country_criterion_id?: string | number | null;
+    country_criterion?: string | number | null;
+  };
   metrics?: GoogleAdsCampaignRow["metrics"];
 }
 interface GoogleAdsAgeApiRow {
@@ -348,7 +352,10 @@ function mapBreakdownRows(
     const metrics = row.metrics ?? {};
     const label =
       kind === "geo"
-        ? geoLabel((row as GoogleAdsGeoApiRow).geographic_view?.country_criterion_id)
+        ? geoLabel(
+            (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion_id ??
+              (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion,
+          )
         : kind === "age"
           ? enumLabel((row as GoogleAdsAgeApiRow).ad_group_criterion?.age_range?.type)
           : enumLabel((row as GoogleAdsGenderApiRow).ad_group_criterion?.gender?.type);
@@ -358,7 +365,7 @@ function mapBreakdownRows(
       impressions: numberMetric(metrics.impressions),
       clicks: numberMetric(metrics.clicks),
     };
-  }).filter((row) => row.label !== "Unknown" && row.impressions > 0);
+  }).filter((row) => row.impressions > 0);
 }
 
 function findYoutubeUrl(urls: string[]): string | null {
@@ -381,22 +388,9 @@ function enumLabel(value: string | null | undefined): string {
 }
 
 function geoLabel(value: string | number | null | undefined): string {
-  const id = String(value ?? "");
-  return COUNTRY_CRITERIA[id] ?? (id ? `Country ${id}` : "Unknown");
+  const id = String(value ?? "").match(/\d+$/)?.[0] ?? "";
+  return COUNTRY_CRITERIA[id] ?? (id ? `Country (ID: ${id})` : "Unknown");
 }
-
-const COUNTRY_CRITERIA: Record<string, string> = {
-  "2826": "United Kingdom",
-  "2840": "United States",
-  "2372": "Ireland",
-  "2250": "France",
-  "2276": "Germany",
-  "2380": "Italy",
-  "2724": "Spain",
-  "2124": "Canada",
-  "2036": "Australia",
-  "2528": "Netherlands",
-};
 
 function requireIsoDate(value: string, field: "since" | "until"): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {

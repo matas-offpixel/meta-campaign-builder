@@ -46,6 +46,7 @@ export interface TimelineRow {
   /** Which upstream table fed this row. */
   source: TimelineSource;
   ad_spend: number | null;
+  ad_spend_allocated?: number | null;
   link_clicks: number | null;
   /**
    * Meta complete_registration actions for the day (rollup-sync).
@@ -131,6 +132,8 @@ export function mergeTimeline(
       date: r.date,
       source: "live",
       ad_spend: r.ad_spend != null ? Number(r.ad_spend) : null,
+      ad_spend_allocated:
+        r.ad_spend_allocated != null ? Number(r.ad_spend_allocated) : null,
       link_clicks: r.link_clicks ?? null,
       meta_regs: r.meta_regs ?? null,
       tiktok_spend: r.tiktok_spend != null ? Number(r.tiktok_spend) : null,
@@ -156,6 +159,7 @@ export function mergeTimeline(
       date: m.date,
       source: "manual",
       ad_spend: m.day_spend != null ? Number(m.day_spend) : null,
+      ad_spend_allocated: prev?.ad_spend_allocated ?? null,
       link_clicks: m.link_clicks ?? null,
       meta_regs: prev?.meta_regs ?? null,
       tiktok_spend: prev?.tiktok_spend ?? null,

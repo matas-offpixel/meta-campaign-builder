@@ -1195,6 +1195,9 @@ function aggregateGoogleAdsRollups(
     frequency: null,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : null,
     ctr: impressions > 0 ? (clicks / impressions) * 100 : null,
+    averageCpc: clicks > 0 ? spend / clicks : null,
+    costPerVideoView: null,
+    viewThroughRate: null,
     costPerEngagement: engagements > 0 ? spend / engagements : null,
     costPer1000Reached: null,
     videoViews25: null,
@@ -1220,6 +1223,7 @@ function aggregateGoogleAdsCampaigns(campaigns: CampaignInsightsRow[]): GoogleAd
     }, 0);
     return seen ? Math.round(total) : null;
   };
+  const videoViews100 = quartile("video_quartile_p100_rate");
   return {
     spend: Math.round(spend * 100) / 100,
     impressions,
@@ -1229,12 +1233,15 @@ function aggregateGoogleAdsCampaigns(campaigns: CampaignInsightsRow[]): GoogleAd
     frequency: null,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : null,
     ctr: impressions > 0 ? (clicks / impressions) * 100 : null,
+    averageCpc: clicks > 0 ? spend / clicks : null,
+    costPerVideoView: videoViews100 && videoViews100 > 0 ? spend / videoViews100 : null,
+    viewThroughRate: impressions > 0 && videoViews100 != null ? (videoViews100 / impressions) * 100 : null,
     costPerEngagement: engagements > 0 ? spend / engagements : null,
     costPer1000Reached: null,
     videoViews25: quartile("video_quartile_p25_rate"),
     videoViews50: quartile("video_quartile_p50_rate"),
     videoViews75: quartile("video_quartile_p75_rate"),
-    videoViews100: quartile("video_quartile_p100_rate"),
+    videoViews100,
   };
 }
 
