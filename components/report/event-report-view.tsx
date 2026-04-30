@@ -63,6 +63,7 @@ export interface EventReportViewEvent {
   venueCountry: string | null;
   eventDate: string | null;
   eventStartAt: string | null;
+  kind?: string | null;
   paidMediaBudget: number | null;
   ticketsSold: number | null;
   /**
@@ -257,6 +258,7 @@ export function EventReportView({
     .join(", ");
 
   const eventDateLabel = event.eventDate ? fmtDate(event.eventDate) : "—";
+  const isBrandCampaign = event.kind === "brand_campaign";
 
   const daysUntil = computeDaysUntil(event.eventDate);
   const paidMediaCap = event.paidMediaBudget ?? 0;
@@ -267,10 +269,13 @@ export function EventReportView({
     windowDaySet,
   );
   const metaSpend = meta?.totals.spend ?? 0;
+  const googleAdsSpend = googleAds?.totals.spend ?? 0;
+  const tiktokSpend = tiktok?.snapshot.campaign?.cost ?? 0;
+  const platformSpend = metaSpend + googleAdsSpend + tiktokSpend;
   const spentTotalAll =
-    meta != null ? metaSpend + otherSpendWindow : metaSpend;
-  /** Burn against paid media budget only (Meta in-window). */
-  const paidMediaSpent = metaSpend;
+    meta != null ? platformSpend + otherSpendWindow : platformSpend;
+  /** Burn against paid media budget across every surfaced paid platform. */
+  const paidMediaSpent = platformSpend;
   const remainingPaidMedia = Math.max(0, paidMediaCap - paidMediaSpent);
   const paidMediaBudgetUsedPct =
     paidMediaCap > 0 && meta
@@ -460,6 +465,7 @@ export function EventReportView({
             capacity={capacity}
             sellThroughPct={sellThroughPct}
             costPerTicket={costPerTicket}
+            isBrandCampaign={isBrandCampaign}
             sellOutPacing={sellOutPacing}
             channelMultiActive={channelMultiActive}
             isRefreshing={isRefreshing}
@@ -538,6 +544,7 @@ interface MetaReportBlockProps {
   capacity: number | null;
   sellThroughPct: number | null;
   costPerTicket: number | null;
+  isBrandCampaign: boolean;
   sellOutPacing: SellOutPacingResult | null;
   channelMultiActive: boolean;
   isRefreshing: boolean;
@@ -577,6 +584,7 @@ function MetaReportBlock({
   capacity,
   sellThroughPct,
   costPerTicket,
+  isBrandCampaign,
   sellOutPacing,
   channelMultiActive,
   isRefreshing,
@@ -702,51 +710,55 @@ function MetaReportBlock({
             </div>
           </div>
 
-          <div className="rounded-md border border-border bg-card p-4">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Tickets
-            </p>
-            <div className="mt-3 space-y-2 text-foreground">
-              <p className="font-heading text-xl tracking-wide tabular-nums">
-                {ticketsSold != null ? (
-                  capacity != null ? (
+          {!isBrandCampaign ? (
+            <div className="rounded-md border border-border bg-card p-4">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Tickets
+              </p>
+              <div className="mt-3 space-y-2 text-foreground">
+                <p className="font-heading text-xl tracking-wide tabular-nums">
+                  {ticketsSold != null ? (
+                    capacity != null ? (
+                      <>
+                        {fmtInt(ticketsSold)} / {fmtInt(capacity)} sold
+                        {sellThroughPct != null ? (
+                          <span className="text-sm font-normal text-muted-foreground">
+                            {" "}
+                            ({sellThroughPct.toFixed(1)}%)
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>{fmtInt(ticketsSold)} sold</>
+                    )
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </p>
+                {ticketsSub ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {ticketsSub}
+                  </p>
+                ) : null}
+                <p className="font-heading text-xl tracking-wide tabular-nums">
+                  {costPerTicket != null ? (
                     <>
-                      {fmtInt(ticketsSold)} / {fmtInt(capacity)} sold
-                      {sellThroughPct != null ? (
-                        <span className="text-sm font-normal text-muted-foreground">
-                          {" "}
-                          ({sellThroughPct.toFixed(1)}%)
-                        </span>
-                      ) : null}
+                      {fmtCurrencyCompact(costPerTicket)}{" "}
+                      <span className="text-sm font-normal text-muted-foreground">
+                        cost per ticket
+                      </span>
                     </>
                   ) : (
-                    <>{fmtInt(ticketsSold)} sold</>
-                  )
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </p>
-              {ticketsSub ? (
-                <p className="text-[11px] text-muted-foreground">{ticketsSub}</p>
-              ) : null}
-              <p className="font-heading text-xl tracking-wide tabular-nums">
-                {costPerTicket != null ? (
-                  <>
-                    {fmtCurrencyCompact(costPerTicket)}{" "}
-                    <span className="text-sm font-normal text-muted-foreground">
-                      cost per ticket
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </p>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                <span className="font-medium text-foreground">Pacing:</span>{" "}
-                {formatSellOutPacingLine(sellOutPacing)}
-              </p>
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </p>
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  <span className="font-medium text-foreground">Pacing:</span>{" "}
+                  {formatSellOutPacingLine(sellOutPacing)}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
         {channelMultiActive ? (
           <ChannelBreakdownStrip
@@ -760,8 +772,15 @@ function MetaReportBlock({
         ) : null}
       </Section>
 
-      <MetaCampaignStatsSection meta={meta} isRefreshing={isRefreshing} />
-      <MetaCampaignBreakdownSection meta={meta} />
+      <MetaCampaignStatsSection
+        meta={meta}
+        isRefreshing={isRefreshing}
+        kind={isBrandCampaign ? "brand_campaign" : "event"}
+      />
+      <MetaCampaignBreakdownSection
+        meta={meta}
+        kind={isBrandCampaign ? "brand_campaign" : "event"}
+      />
 
       {/* Creative section. The share page swaps in a server-rendered
           "Active creatives" component via `creativesSlot` so the

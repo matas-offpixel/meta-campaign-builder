@@ -687,6 +687,7 @@ export function EventDetail({
                     general_sale_at:
                       (event as unknown as { general_sale_at: string | null })
                         .general_sale_at ?? null,
+                    kind: event.kind ?? null,
                     capacity: event.capacity ?? null,
                     event_date: event.event_date ?? null,
                     // Per migration 040 — `EventRow` already carries

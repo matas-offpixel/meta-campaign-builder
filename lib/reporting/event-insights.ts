@@ -52,6 +52,10 @@ export interface CampaignInsightsRow {
   cost_per_view?: number | null;
   thruplays?: number;
   campaign_type?: string;
+  video_quartile_p25_rate?: number | null;
+  video_quartile_p50_rate?: number | null;
+  video_quartile_p75_rate?: number | null;
+  video_quartile_p100_rate?: number | null;
 }
 
 interface InsightsRow {

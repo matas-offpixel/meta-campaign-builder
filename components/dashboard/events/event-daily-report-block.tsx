@@ -145,6 +145,7 @@ interface EventLike {
   meta_spend_cached: number | null;
   prereg_spend: number | null;
   general_sale_at: string | null;
+  kind?: string | null;
   capacity?: number | null;
   event_date?: string | null;
   /** First-paint cadence for the embedded DailyTracker — comes from
