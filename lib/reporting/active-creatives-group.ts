@@ -180,6 +180,10 @@ export interface CreativeRow {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  /** Ad that supplied `thumbnail_url`; null when no thumbnail was resolved. */
+  thumbnail_ad_id: string | null;
+  /** Spend for the ad that supplied `thumbnail_url`; null when no thumbnail resolved. */
+  thumbnail_spend: number | null;
   /** Same-post identifier used by the second-layer asset-hash grouper. */
   effective_object_story_id: string | null;
   object_story_id: string | null;
@@ -372,6 +376,7 @@ interface Accumulator {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  thumbnail_ad_id: string | null;
   effective_object_story_id: string | null;
   object_story_id: string | null;
   primary_asset_signature: string | null;
@@ -399,6 +404,8 @@ interface Accumulator {
   any_ad_active: boolean;
   /** Highest-spend value seen so far — drives the preview-refresh check. */
   topSpend: number;
+  /** Highest-spend ad with a non-null thumbnail. */
+  thumbnailSpend: number;
 }
 
 function emptyPreview(): CreativePreview {
@@ -455,6 +462,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       headline: ad.headline,
       body: ad.body,
       thumbnail_url: ad.thumbnail_url,
+      thumbnail_ad_id: ad.thumbnail_url ? ad.ad_id : null,
       effective_object_story_id: ad.effective_object_story_id,
       object_story_id: ad.object_story_id,
       primary_asset_signature: ad.primary_asset_signature,
@@ -474,6 +482,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       inline_link_clicks: 0,
       any_ad_active: false,
       topSpend: -Infinity,
+      thumbnailSpend: ad.thumbnail_url ? adSpend : -Infinity,
     };
 
     // First-seen wins for the descriptive fields. If two ads sharing
@@ -483,7 +492,6 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     if (!acc.creative_name && ad.creative_name) acc.creative_name = ad.creative_name;
     if (!acc.headline && ad.headline) acc.headline = ad.headline;
     if (!acc.body && ad.body) acc.body = ad.body;
-    if (!acc.thumbnail_url && ad.thumbnail_url) acc.thumbnail_url = ad.thumbnail_url;
     if (!acc.effective_object_story_id && ad.effective_object_story_id) {
       acc.effective_object_story_id = ad.effective_object_story_id;
     }
@@ -530,6 +538,17 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
     acc.inline_link_clicks += ins?.inline_link_clicks ?? 0;
     if (ad.status === "ACTIVE") acc.any_ad_active = true;
 
+    // Deterministic thumbnail picker: choose the thumbnail from the
+    // highest-spend ad that actually has a thumbnail. If the top-spend
+    // ad's own thumbnail is null / expired, this falls through to the
+    // next highest-spend thumbnail produced by the fetcher's fallback
+    // chain (top thumbnail_url → preview.image_url).
+    if (ad.thumbnail_url && adSpend > acc.thumbnailSpend) {
+      acc.thumbnailSpend = adSpend;
+      acc.thumbnail_url = ad.thumbnail_url;
+      acc.thumbnail_ad_id = ad.ad_id;
+    }
+
     // Preview tracking: top-spend ad's payload wins. Tie on first-seen
     // (no need for stable sort — the modal viewer can't tell which of
     // two equally-spending ads is shown).
@@ -568,6 +587,10 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       headline: acc.headline,
       body: acc.body,
       thumbnail_url: acc.thumbnail_url,
+      thumbnail_ad_id: acc.thumbnail_ad_id,
+      thumbnail_spend: Number.isFinite(acc.thumbnailSpend)
+        ? acc.thumbnailSpend
+        : null,
       effective_object_story_id: acc.effective_object_story_id,
       object_story_id: acc.object_story_id,
       primary_asset_signature: acc.primary_asset_signature,

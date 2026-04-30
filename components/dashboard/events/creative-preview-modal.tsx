@@ -8,6 +8,7 @@ import { NoPreviewModalPlaceholder } from "@/components/report/no-preview-placeh
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmtCurrency } from "@/lib/dashboard/format";
+import { resolveActiveCreativeModalImage } from "@/lib/reporting/active-creatives-thumbnail";
 import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 
@@ -132,8 +133,7 @@ export default function CreativePreviewModal({
   }, [onClose]);
 
   const preview = group.representative_preview;
-  const fallbackImage =
-    preview.image_url || group.representative_thumbnail || null;
+  const fallbackImage = group.representative_thumbnail || null;
   const cta = ctaLabel(preview.call_to_action_type);
   const link = preview.link_url;
   // Title comes from the group's display_name (which already
@@ -400,7 +400,7 @@ function AssetBlock({
     const isThumbOnly =
       (!preview.image_url || preview.is_low_res_fallback === true) &&
       !!fallbackImage;
-    const rawSrc = preview.image_url ?? fallbackImage!;
+    const rawSrc = resolveActiveCreativeModalImage(preview, fallbackImage)!;
     return (
       <div className="space-y-2">
         <div

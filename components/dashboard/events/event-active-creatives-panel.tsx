@@ -61,6 +61,8 @@ interface CreativeRow {
   headline: string | null;
   body: string | null;
   thumbnail_url: string | null;
+  thumbnail_ad_id?: string | null;
+  thumbnail_spend?: number | null;
   /** Asset-grouping signals — present on every API row (see PR #40). */
   effective_object_story_id: string | null;
   object_story_id: string | null;
@@ -227,6 +229,7 @@ function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
     campaigns: row.campaigns,
     representative_ad_id: row.representative_ad_id,
     representative_thumbnail: row.thumbnail_url,
+    representative_thumbnail_ad_id: row.thumbnail_ad_id ?? null,
     representative_headline: row.headline,
     representative_body_preview: row.body,
     representative_preview: row.preview,
