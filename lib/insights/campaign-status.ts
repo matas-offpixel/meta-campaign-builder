@@ -6,6 +6,8 @@ export type CampaignDisplayStatus =
   | "NOT_DELIVERING"
   | "UNKNOWN";
 
+export type CampaignStatusReason = "no_delivery_24h";
+
 const DISPLAY_STATUS_BY_META_EFFECTIVE_STATUS: Record<
   string,
   CampaignDisplayStatus
@@ -31,8 +33,40 @@ export function normaliseMetaCampaignStatus(input: {
   return DISPLAY_STATUS_BY_META_EFFECTIVE_STATUS[raw] ?? "UNKNOWN";
 }
 
+export function applyCampaignDeliveryHeuristic(input: {
+  status: CampaignDisplayStatus;
+  lifetimeImpressions?: number | null;
+  impressionsLast24h?: number | null;
+}): { status: CampaignDisplayStatus; reason?: CampaignStatusReason } {
+  if (
+    input.lifetimeImpressions == null ||
+    input.impressionsLast24h == null ||
+    !Number.isFinite(input.lifetimeImpressions) ||
+    !Number.isFinite(input.impressionsLast24h)
+  ) {
+    return { status: input.status };
+  }
+  if (
+    input.status === "ACTIVE" &&
+    input.lifetimeImpressions > 100 &&
+    input.impressionsLast24h === 0
+  ) {
+    return { status: "NOT_DELIVERING", reason: "no_delivery_24h" };
+  }
+  return { status: input.status };
+}
+
 export function campaignStatusLabel(status: string): string {
   return status.toLowerCase().replaceAll("_", " ");
+}
+
+export function campaignStatusReasonLabel(
+  reason: CampaignStatusReason,
+): string {
+  switch (reason) {
+    case "no_delivery_24h":
+      return "(no delivery in 24h)";
+  }
 }
 
 export function campaignStatusTone(status: string): string {

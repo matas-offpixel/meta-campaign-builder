@@ -1,4 +1,5 @@
 import type { FunnelStage } from "@/lib/dashboard/funnel-stage-classifier";
+import type { CampaignStatusReason } from "@/lib/insights/campaign-status";
 
 /**
  * lib/insights/types.ts
@@ -70,6 +71,7 @@ export interface MetaCampaignRow {
   name: string;
   objective: string | null;
   status: string;
+  statusReason?: CampaignStatusReason;
   funnelStage: FunnelStage;
   spend: number;
   impressions: number;
