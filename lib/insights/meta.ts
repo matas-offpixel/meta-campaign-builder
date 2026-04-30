@@ -1040,6 +1040,14 @@ function mapCampaignRow(
   const purchases = sumActions(insights?.actions, [
     "offsite_conversion.fb_pixel_purchase",
   ]);
+  const videoPlays3s = sumActions(insights?.actions, ["video_view"]);
+  const videoPlays15s = sumActions(insights?.actions, [
+    "video_15_sec_watched_actions",
+  ]);
+  const videoPlaysP100 = sumActions(insights?.actions, [
+    "video_p100_watched_actions",
+  ]);
+  const engagements = sumActions(insights?.actions, ["post_engagement"]);
   const purchaseValue = sumActions(insights?.action_values, [
     "offsite_conversion.fb_pixel_purchase",
   ]);
@@ -1071,6 +1079,10 @@ function mapCampaignRow(
     cpr: regs > 0 ? spend / regs : 0,
     cplpv: lpv > 0 ? spend / lpv : 0,
     cpp: purchases > 0 ? spend / purchases : 0,
+    videoPlays3s,
+    videoPlays15s,
+    videoPlaysP100,
+    engagements,
   };
 }
 
@@ -1090,6 +1102,10 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
       acc.regs += r.registrations;
       acc.purchases += r.purchases;
       acc.purchaseValue += r.purchaseValue;
+      acc.videoPlays3s += r.videoPlays3s;
+      acc.videoPlays15s += r.videoPlays15s;
+      acc.videoPlaysP100 += r.videoPlaysP100;
+      acc.engagements += r.engagements;
       return acc;
     },
     {
@@ -1101,6 +1117,10 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
       regs: 0,
       purchases: 0,
       purchaseValue: 0,
+      videoPlays3s: 0,
+      videoPlays15s: 0,
+      videoPlaysP100: 0,
+      engagements: 0,
     },
   );
 
@@ -1122,6 +1142,10 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
     cpr: sum.regs > 0 ? sum.spend / sum.regs : 0,
     cplpv: sum.lpv > 0 ? sum.spend / sum.lpv : 0,
     cpp: sum.purchases > 0 ? sum.spend / sum.purchases : 0,
+    videoPlays3s: sum.videoPlays3s,
+    videoPlays15s: sum.videoPlays15s,
+    videoPlaysP100: sum.videoPlaysP100,
+    engagements: sum.engagements,
   };
 }
 
@@ -1924,6 +1948,12 @@ export async function fetchEventDailyMetaMetrics(
     const totalsSpend = new Map<string, number>();
     const totalsClicks = new Map<string, number>();
     const totalsRegs = new Map<string, number>();
+    const totalsImpressions = new Map<string, number>();
+    const totalsReach = new Map<string, number>();
+    const totalsVideo3s = new Map<string, number>();
+    const totalsVideo15s = new Map<string, number>();
+    const totalsVideoP100 = new Map<string, number>();
+    const totalsEngagements = new Map<string, number>();
     // Track which distinct campaigns survived the case-sensitive
     // post-filter — surfaced in the result for diagnostic logging
     // (rollup-sync prints these so we can confirm at a glance the
@@ -1940,7 +1970,8 @@ export async function fetchEventDailyMetaMetrics(
       const params: Record<string, string> = {
         // campaign_name comes back so we can re-filter case-sensitively
         // before aggregating (Meta's CONTAIN is case-INsensitive).
-        fields: "spend,inline_link_clicks,date_start,campaign_name,actions",
+        fields:
+          "spend,impressions,reach,inline_link_clicks,date_start,campaign_name,actions,action_values",
         level: "campaign",
         time_increment: "1",
         time_range: timeRange,
@@ -1953,6 +1984,8 @@ export async function fetchEventDailyMetaMetrics(
       const res = await graphGetWithToken<
         GraphPaged<{
           spend?: string;
+          impressions?: string;
+          reach?: string;
           inline_link_clicks?: string;
           date_start?: string;
           campaign_name?: string;
@@ -1979,10 +2012,34 @@ export async function fetchEventDailyMetaMetrics(
           day,
           (totalsClicks.get(day) ?? 0) + parseNum(row.inline_link_clicks),
         );
+        totalsImpressions.set(
+          day,
+          (totalsImpressions.get(day) ?? 0) + parseNum(row.impressions),
+        );
+        totalsReach.set(day, (totalsReach.get(day) ?? 0) + parseNum(row.reach));
         const regs = sumActions(row.actions, regActionTypes);
         if (regs > 0) {
           totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
         }
+        totalsVideo3s.set(
+          day,
+          (totalsVideo3s.get(day) ?? 0) + sumActions(row.actions, ["video_view"]),
+        );
+        totalsVideo15s.set(
+          day,
+          (totalsVideo15s.get(day) ?? 0) +
+            sumActions(row.actions, ["video_15_sec_watched_actions"]),
+        );
+        totalsVideoP100.set(
+          day,
+          (totalsVideoP100.get(day) ?? 0) +
+            sumActions(row.actions, ["video_p100_watched_actions"]),
+        );
+        totalsEngagements.set(
+          day,
+          (totalsEngagements.get(day) ?? 0) +
+            sumActions(row.actions, ["post_engagement"]),
+        );
       }
 
       after = res.paging?.cursors?.after;
@@ -1993,6 +2050,12 @@ export async function fetchEventDailyMetaMetrics(
       ...totalsSpend.keys(),
       ...totalsClicks.keys(),
       ...totalsRegs.keys(),
+      ...totalsImpressions.keys(),
+      ...totalsReach.keys(),
+      ...totalsVideo3s.keys(),
+      ...totalsVideo15s.keys(),
+      ...totalsVideoP100.keys(),
+      ...totalsEngagements.keys(),
     ]);
     const days: DailyMetaMetricsRow[] = [...allDays]
       .sort()
@@ -2001,6 +2064,12 @@ export async function fetchEventDailyMetaMetrics(
         spend: totalsSpend.get(day) ?? 0,
         linkClicks: totalsClicks.get(day) ?? 0,
         metaRegs: totalsRegs.get(day) ?? 0,
+        impressions: totalsImpressions.get(day) ?? 0,
+        reach: totalsReach.get(day) ?? 0,
+        videoPlays3s: totalsVideo3s.get(day) ?? 0,
+        videoPlays15s: totalsVideo15s.get(day) ?? 0,
+        videoPlaysP100: totalsVideoP100.get(day) ?? 0,
+        engagements: totalsEngagements.get(day) ?? 0,
       }));
 
     return {
@@ -2081,6 +2150,12 @@ export async function fetchEventTodayMetaSnapshot(
     let totalSpend = 0;
     let totalClicks = 0;
     let totalRegs = 0;
+    let totalImpressions = 0;
+    let totalReach = 0;
+    let totalVideo3s = 0;
+    let totalVideo15s = 0;
+    let totalVideoP100 = 0;
+    let totalEngagements = 0;
     const matchedCampaigns = new Set<string>();
     const regActionTypes = [
       "complete_registration",
@@ -2092,7 +2167,8 @@ export async function fetchEventTodayMetaSnapshot(
       const params: Record<string, string> = {
         // campaign_name comes back so we can re-filter case-sensitively
         // before aggregating (Meta's CONTAIN is case-INsensitive).
-        fields: "spend,inline_link_clicks,campaign_name,actions",
+        fields:
+          "spend,impressions,reach,inline_link_clicks,campaign_name,actions,action_values",
         level: "campaign",
         date_preset: "today",
         filtering,
@@ -2104,6 +2180,8 @@ export async function fetchEventTodayMetaSnapshot(
       const res = await graphGetWithToken<
         GraphPaged<{
           spend?: string;
+          impressions?: string;
+          reach?: string;
           inline_link_clicks?: string;
           campaign_name?: string;
           actions?: ActionRow[];
@@ -2117,6 +2195,16 @@ export async function fetchEventTodayMetaSnapshot(
         totalSpend += parseNum(row.spend);
         totalClicks += parseNum(row.inline_link_clicks);
         totalRegs += sumActions(row.actions, regActionTypes);
+        totalImpressions += parseNum(row.impressions);
+        totalReach += parseNum(row.reach);
+        totalVideo3s += sumActions(row.actions, ["video_view"]);
+        totalVideo15s += sumActions(row.actions, [
+          "video_15_sec_watched_actions",
+        ]);
+        totalVideoP100 += sumActions(row.actions, [
+          "video_p100_watched_actions",
+        ]);
+        totalEngagements += sumActions(row.actions, ["post_engagement"]);
       }
 
       after = res.paging?.cursors?.after;
@@ -2131,6 +2219,12 @@ export async function fetchEventTodayMetaSnapshot(
           spend: totalSpend,
           linkClicks: totalClicks,
           metaRegs: totalRegs,
+          impressions: totalImpressions,
+          reach: totalReach,
+          videoPlays3s: totalVideo3s,
+          videoPlays15s: totalVideo15s,
+          videoPlaysP100: totalVideoP100,
+          engagements: totalEngagements,
         },
       ],
       campaignNames: [...matchedCampaigns].sort(),

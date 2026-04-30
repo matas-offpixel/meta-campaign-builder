@@ -24,6 +24,62 @@ export function MetaCampaignStatsSection({
   kind?: "event" | "brand_campaign";
 }) {
   const isBrandCampaign = kind === "brand_campaign";
+  if (isBrandCampaign) {
+    const videoPlays = meta.totals.videoPlays3s;
+    const engagements = meta.totals.engagements;
+    return (
+      <Section title="Meta campaign stats">
+        <div
+          className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 ${
+            isRefreshing ? "opacity-60 transition-opacity" : ""
+          }`}
+        >
+          <Metric label="Spend" value={fmtCurrency(meta.totals.spend)} />
+          <Metric label="Impressions" value={fmtInt(meta.totals.impressions)} />
+          <Metric label="Reach (sum)" value={fmtInt(meta.totals.reachSum)} />
+          <Metric
+            label="Clicks"
+            value={fmtInt(meta.totals.clicks)}
+            sub={formatCostPerSub(meta.totalSpend, meta.totals.clicks, "click")}
+          />
+          <Metric
+            label="CTR"
+            value={fmtPct(rate(meta.totals.clicks, meta.totals.impressions))}
+          />
+          <Metric label="CPM" value={fmtCurrency(meta.totals.cpm)} />
+          <Metric label="Video Plays" value={fmtInt(videoPlays)} />
+          <Metric label="Engagements" value={fmtInt(engagements)} />
+          {videoPlays > 0 ? (
+            <>
+              <Metric
+                label="Cost per video play"
+                value={
+                  videoPlays > 0
+                    ? fmtCurrency(meta.totals.spend / videoPlays)
+                    : "—"
+                }
+              />
+              <Metric
+                label="Cost per engagement"
+                value={
+                  engagements > 0
+                    ? fmtCurrency(meta.totals.spend / engagements)
+                    : "—"
+                }
+              />
+            </>
+          ) : null}
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">Reach (sum)</span> is
+          summed across campaigns — not deduplicated unique reach across the
+          event. A user reached by more than one campaign is counted once per
+          campaign. Video Plays uses Meta&rsquo;s default 3-second video view
+          action.
+        </p>
+      </Section>
+    );
+  }
   return (
     <Section title="Meta campaign stats">
       <div
@@ -68,7 +124,7 @@ export function MetaCampaignStatsSection({
         ) : null}
         <Metric label="CPM" value={fmtCurrency(meta.totals.cpm)} />
         <Metric label="Frequency" value={fmtDecimal(meta.totals.frequency)} />
-        {!isBrandCampaign ? <Metric label="CPR" value={fmtCurrency(meta.totals.cpr)} /> : null}
+        <Metric label="CPR" value={fmtCurrency(meta.totals.cpr)} />
       </div>
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground">Reach (sum)</span> is

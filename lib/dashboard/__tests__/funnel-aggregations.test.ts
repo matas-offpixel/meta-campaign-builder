@@ -159,6 +159,10 @@ function campaign({
     cpr: regs > 0 ? spend / regs : 0,
     cplpv: lpv > 0 ? spend / lpv : 0,
     cpp: 0,
+    videoPlays3s: 0,
+    videoPlays15s: 0,
+    videoPlaysP100: 0,
+    engagements: 0,
   };
 }
 
