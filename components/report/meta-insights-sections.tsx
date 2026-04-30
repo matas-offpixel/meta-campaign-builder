@@ -5,6 +5,7 @@ import {
   campaignStatusReasonLabel,
   campaignStatusLabel,
   campaignStatusTone,
+  sortCampaignsByStatusThenSpend,
 } from "@/lib/insights/campaign-status";
 import type { CampaignStatusReason } from "@/lib/insights/campaign-status";
 import type { EventInsightsPayload } from "@/lib/insights/types";
@@ -71,6 +72,8 @@ export function MetaCampaignBreakdownSection({
 }: {
   meta: EventInsightsPayload;
 }) {
+  const campaigns = sortCampaignsByStatusThenSpend(meta.campaigns);
+
   return (
     <Section title="Meta campaign breakdown">
       {meta.campaigns.length === 0 ? (
@@ -95,7 +98,7 @@ export function MetaCampaignBreakdownSection({
               </tr>
             </thead>
             <tbody>
-              {meta.campaigns.map((c) => (
+              {campaigns.map((c) => (
                 <tr
                   key={c.id}
                   className="border-t border-border odd:bg-background even:bg-card/40"
