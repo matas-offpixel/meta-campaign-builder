@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   fetchTikTokDailyRollupInsights,
+  TIKTOK_ROLLUP_METRICS,
   type FetchTikTokDailyRollupInsightsInput,
 } from "../rollup-insights.ts";
 
@@ -47,7 +48,10 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
               impressions: "1000",
               reach: "800",
               clicks: "10",
-              post_engagement: "42",
+              comments: "10",
+              likes: "20",
+              shares: "7",
+              follows: "5",
               video_play_actions: "25",
               video_watched_2s: "500",
               video_watched_6s: "300",
@@ -72,7 +76,10 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
             impressions: "2000",
             reach: "1500",
             clicks: "20",
-            post_engagement: "84",
+            comments: "20",
+            likes: "40",
+            shares: "14",
+            follows: "10",
             video_play_actions: "35",
             video_watched_2s: "1000",
             video_watched_6s: "700",
@@ -89,6 +96,34 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
 }
 
 describe("fetchTikTokDailyRollupInsights date window chunking", () => {
+  it("requests only TikTok-valid AUCTION_CAMPAIGN BASIC metrics", () => {
+    const validMetrics = new Set([
+      "spend",
+      "impressions",
+      "reach",
+      "clicks",
+      "comments",
+      "likes",
+      "shares",
+      "follows",
+      "video_play_actions",
+      "video_watched_2s",
+      "video_watched_6s",
+      "video_views_p25",
+      "video_views_p50",
+      "video_views_p75",
+      "video_views_p100",
+      "average_video_play",
+    ]);
+
+    assert.ok(!TIKTOK_ROLLUP_METRICS.includes("engagements"));
+    assert.ok(!TIKTOK_ROLLUP_METRICS.includes("post_engagement"));
+    assert.deepEqual(
+      TIKTOK_ROLLUP_METRICS.filter((metric) => !validMetrics.has(metric)),
+      [],
+    );
+  });
+
   it("requests both 30-day slices and accumulates rows across slices", async () => {
     const { request, reportCalls } = makeRequest();
 
@@ -171,5 +206,91 @@ describe("fetchTikTokDailyRollupInsights date window chunking", () => {
       { start_date: "2026-03-01", end_date: "2026-03-30" },
       { start_date: "2026-03-31", end_date: "2026-04-29" },
     ]);
+  });
+
+  it("derives post engagement from comments, likes, shares, and follows", async () => {
+    const request: Request = async <T,>(path: string): Promise<T> => {
+      if (path === "/campaign/get/") {
+        return {
+          list: [
+            {
+              campaign_id: "campaign-1",
+              campaign_name: "[BB26-RIANBRAZIL] conversion",
+            },
+          ],
+        } as T;
+      }
+      return {
+        list: [
+          {
+            dimensions: {
+              campaign_id: "campaign-1",
+              stat_time_day: "2026-04-12 00:00:00",
+            },
+            metrics: {
+              spend: "1",
+              impressions: "10",
+              comments: "2",
+              likes: "3",
+              shares: "4",
+              follows: "5",
+            },
+          },
+        ],
+        page_info: { page: 1, total_page: 1 },
+      } as T;
+    };
+
+    const rows = await fetchTikTokDailyRollupInsights({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      eventCode: "BB26-RIANBRAZIL",
+      since: "2026-04-12",
+      until: "2026-04-12",
+      request,
+    });
+
+    assert.equal(rows[0].tiktok_post_engagement, 14);
+  });
+
+  it("defaults derived post engagement to 0 when engagement metrics are absent", async () => {
+    const request: Request = async <T,>(path: string): Promise<T> => {
+      if (path === "/campaign/get/") {
+        return {
+          list: [
+            {
+              campaign_id: "campaign-1",
+              campaign_name: "[BB26-RIANBRAZIL] conversion",
+            },
+          ],
+        } as T;
+      }
+      return {
+        list: [
+          {
+            dimensions: {
+              campaign_id: "campaign-1",
+              stat_time_day: "2026-04-12 00:00:00",
+            },
+            metrics: {
+              spend: "1",
+              impressions: "10",
+            },
+          },
+        ],
+        page_info: { page: 1, total_page: 1 },
+      } as T;
+    };
+
+    const rows = await fetchTikTokDailyRollupInsights({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      eventCode: "BB26-RIANBRAZIL",
+      since: "2026-04-12",
+      until: "2026-04-12",
+      request,
+    });
+
+    assert.equal(rows[0].tiktok_post_engagement, 0);
   });
 });
