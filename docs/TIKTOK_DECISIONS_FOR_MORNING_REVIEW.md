@@ -178,3 +178,20 @@
 - Why: The prompt names the extracted Motion glossary as the source of truth, but the file is not present on `origin/main`; generating placeholder taxonomy would undermine the one-shot import.
 - Reversibility: reversible by adding the real extracted file or passing `MOTION_GLOSSARY_PATH` to the script.
 - Reviewer action needed: yes — ensure the extracted glossary JSON is present before running the seed import.
+
+## PR-E — TikTok Write API Foundation
+
+- Decision made: Claim migration `062_tiktok_write_idempotency.sql` for the write foundation.
+- Why: PR-D merged as migration 061, so the idempotency table must use the next integer.
+- Reversibility: not worth reversing unless migration numbering is renormalized before merge.
+- Reviewer action needed: yes — apply migration 062 via Cowork MCP after merge.
+
+- Decision made: Add `tiktokPost` to `lib/tiktok/client.ts`, but keep every write helper behind `OFFPIXEL_TIKTOK_WRITES_ENABLED === "true"` and add no route/UI caller.
+- Why: The foundation needs reusable write primitives and tests, while the overnight hard rule forbids live writes and keeps Step 7 wiring as a follow-up after review.
+- Reversibility: reversible by deleting the write folder before any caller is added.
+- Reviewer action needed: yes — review the foundation before flipping the env flag in any sandbox.
+
+- Decision made: Keep write tests fully mock-driven with injected request functions rather than exercising `fetch`.
+- Why: It proves ordering, idempotency, retry, and cleanup behavior without any chance of calling TikTok write endpoints.
+- Reversibility: reversible if a future contract-test layer is added behind an explicit sandbox-only harness.
+- Reviewer action needed: no.
