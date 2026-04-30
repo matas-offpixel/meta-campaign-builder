@@ -2,9 +2,11 @@
 
 import { fmtCurrency } from "@/lib/dashboard/format";
 import {
+  campaignStatusReasonLabel,
   campaignStatusLabel,
   campaignStatusTone,
 } from "@/lib/insights/campaign-status";
+import type { CampaignStatusReason } from "@/lib/insights/campaign-status";
 import type { EventInsightsPayload } from "@/lib/insights/types";
 
 export function MetaCampaignStatsSection({
@@ -104,7 +106,7 @@ export function MetaCampaignBreakdownSection({
                     </span>
                   </Td>
                   <Td>
-                    <StatusChip status={c.status} />
+                    <StatusChip status={c.status} reason={c.statusReason} />
                   </Td>
                   <Td align="right">{fmtCurrency(c.spend)}</Td>
                   <Td align="right">{fmtInt(c.registrations)}</Td>
@@ -209,13 +211,26 @@ export function Td({
   return <td className={`px-3 py-2 ${alignClass}`}>{children}</td>;
 }
 
-export function StatusChip({ status }: { status: string }) {
+export function StatusChip({
+  status,
+  reason,
+}: {
+  status: string;
+  reason?: CampaignStatusReason;
+}) {
   const tone = campaignStatusTone(status);
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${tone}`}
-    >
-      {campaignStatusLabel(status)}
+    <span className="inline-flex flex-col items-center gap-0.5">
+      <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${tone}`}
+      >
+        {campaignStatusLabel(status)}
+      </span>
+      {reason ? (
+        <span className="text-[10px] leading-none text-muted-foreground">
+          {campaignStatusReasonLabel(reason)}
+        </span>
+      ) : null}
     </span>
   );
 }

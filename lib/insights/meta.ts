@@ -1,7 +1,10 @@
 import "server-only";
 
 import { classifyCampaignFunnelStage } from "@/lib/dashboard/funnel-stage-classifier";
-import { normaliseMetaCampaignStatus } from "@/lib/insights/campaign-status";
+import {
+  applyCampaignDeliveryHeuristic,
+  normaliseMetaCampaignStatus,
+} from "@/lib/insights/campaign-status";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import { isPresaleCampaignName } from "@/lib/insights/meta-campaign-phase";
 import {
@@ -166,14 +169,52 @@ export async function fetchEventInsights(
 
     const [campaignRows, dailyBudgetSet] = await Promise.all([
       Promise.all(
-        matchedCampaigns.map((c) =>
-          fetchCampaignInsights({
+        matchedCampaigns.map(async (c) => {
+          const insights = await fetchCampaignInsights({
             campaignId: c.id,
             token,
             datePreset,
             customRange,
-          }).then((insights) => mapCampaignRow(c, insights)),
-        ),
+          });
+          const [lifetimeInsights, todayInsights] = await Promise.all([
+            datePreset === "maximum" && !customRange
+              ? Promise.resolve(insights)
+              : fetchCampaignInsights({
+                  campaignId: c.id,
+                  token,
+                  datePreset: "maximum",
+                }).catch((err) => {
+                  console.warn(
+                    "[insights/meta] lifetime delivery heuristic fetch failed:",
+                    err instanceof Error ? err.message : err,
+                  );
+                  return undefined;
+                }),
+            datePreset === "today" && !customRange
+              ? Promise.resolve(insights)
+              : fetchCampaignInsights({
+                  campaignId: c.id,
+                  token,
+                  datePreset: "today",
+                }).catch((err) => {
+                  console.warn(
+                    "[insights/meta] today delivery heuristic fetch failed:",
+                    err instanceof Error ? err.message : err,
+                  );
+                  return undefined;
+                }),
+          ]);
+          return mapCampaignRow(c, insights, {
+            lifetimeImpressions:
+              lifetimeInsights === undefined
+                ? undefined
+                : parseNum(lifetimeInsights?.impressions),
+            impressionsLast24h:
+              todayInsights === undefined
+                ? undefined
+                : parseNum(todayInsights?.impressions),
+          });
+        }),
       ),
       sumActiveAdsetDailyBudgetsForCampaigns({
         campaigns: matchedCampaigns,
@@ -969,6 +1010,10 @@ function createChunkSemaphore(limit: number) {
 function mapCampaignRow(
   campaign: RawCampaign,
   insights: RawInsights | null,
+  delivery?: {
+    lifetimeImpressions?: number;
+    impressionsLast24h?: number;
+  },
 ): MetaCampaignRow {
   const spend = parseNum(insights?.spend);
   const impressions = parseNum(insights?.impressions);
@@ -984,15 +1029,21 @@ function mapCampaignRow(
   const purchaseValue = sumActions(insights?.action_values, [
     "offsite_conversion.fb_pixel_purchase",
   ]);
+  const display = applyCampaignDeliveryHeuristic({
+    status: normaliseMetaCampaignStatus({
+      status: campaign.status,
+      effectiveStatus: campaign.effective_status,
+    }),
+    lifetimeImpressions: delivery?.lifetimeImpressions ?? impressions,
+    impressionsLast24h: delivery?.impressionsLast24h ?? 0,
+  });
 
   return {
     id: campaign.id,
     name: campaign.name,
     objective: campaign.objective ?? null,
-    status: normaliseMetaCampaignStatus({
-      status: campaign.status,
-      effectiveStatus: campaign.effective_status,
-    }),
+    status: display.status,
+    ...(display.reason ? { statusReason: display.reason } : {}),
     funnelStage: classifyCampaignFunnelStage(campaign),
     spend,
     impressions,

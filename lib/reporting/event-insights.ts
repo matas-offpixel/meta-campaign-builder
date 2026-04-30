@@ -1,6 +1,13 @@
 import "server-only";
 
-import { normaliseMetaCampaignStatus } from "@/lib/insights/campaign-status";
+import {
+  applyCampaignDeliveryHeuristic,
+  normaliseMetaCampaignStatus,
+} from "@/lib/insights/campaign-status";
+import type {
+  CampaignDisplayStatus,
+  CampaignStatusReason,
+} from "@/lib/insights/campaign-status";
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
 import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
 import { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
@@ -29,6 +36,7 @@ export interface CampaignInsightsRow {
   id: string;
   name: string;
   status: string;
+  statusReason?: CampaignStatusReason;
   spend: number;
   impressions: number;
   clicks: number;
@@ -203,7 +211,7 @@ export async function fetchEventCampaignInsights(
   }
 
   const matchedIds = [...aggregates.keys()];
-  const statuses = new Map<string, string>();
+  const statuses = new Map<string, CampaignDisplayStatus>();
   if (matchedIds.length > 0) {
     try {
       const res = await graphGetWithToken<{
@@ -257,15 +265,45 @@ export async function fetchEventCampaignInsights(
     }
   }
 
+  const [lifetimeImpressions, impressionsLast24h] =
+    matchedIds.length > 0
+      ? await Promise.all([
+          fetchMatchedCampaignImpressions({
+            adAccountId,
+            eventCode,
+            token,
+            datePreset: "maximum",
+          }),
+          fetchMatchedCampaignImpressions({
+            adAccountId,
+            eventCode,
+            token,
+            datePreset: "today",
+          }),
+        ])
+      : [null, null];
+
   return matchedIds.map((id) => {
     const a = aggregates.get(id)!;
     const ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : null;
     const cpm = a.impressions > 0 ? (a.spend / a.impressions) * 1000 : null;
     const cpr = a.results > 0 ? a.spend / a.results : null;
+    const display = applyCampaignDeliveryHeuristic({
+      status: statuses.get(id) ?? "UNKNOWN",
+      lifetimeImpressions:
+        lifetimeImpressions === null
+          ? undefined
+          : (lifetimeImpressions.get(id) ?? 0),
+      impressionsLast24h:
+        impressionsLast24h === null
+          ? undefined
+          : (impressionsLast24h.get(id) ?? 0),
+    });
     return {
       id,
       name: a.name,
-      status: statuses.get(id) ?? "UNKNOWN",
+      status: display.status,
+      ...(display.reason ? { statusReason: display.reason } : {}),
       spend: a.spend,
       impressions: a.impressions,
       clicks: a.clicks,
@@ -276,4 +314,52 @@ export async function fetchEventCampaignInsights(
       ad_account_id: adAccountId,
     };
   });
+}
+
+async function fetchMatchedCampaignImpressions(args: {
+  adAccountId: string;
+  eventCode: string;
+  token: string;
+  datePreset: "maximum" | "today";
+}): Promise<Map<string, number> | null> {
+  const out = new Map<string, number>();
+  let after: string | undefined;
+  let pageCount = 0;
+  try {
+    while (pageCount < MAX_PAGES) {
+      const queryParams: Record<string, string> = {
+        fields: "campaign_id,campaign_name,impressions",
+        date_preset: args.datePreset,
+        level: "campaign",
+        limit: "500",
+      };
+      if (after) queryParams.after = after;
+      const res = await graphGetWithToken<InsightsResponse>(
+        `/${args.adAccountId}/insights`,
+        queryParams,
+        args.token,
+      );
+      for (const row of res.data ?? []) {
+        const id = row.campaign_id;
+        const name = row.campaign_name ?? "";
+        if (!id) continue;
+        if (!campaignNameMatchesEventCode(name, args.eventCode)) continue;
+        out.set(
+          id,
+          (out.get(id) ?? 0) + (Number.parseFloat(row.impressions ?? "") || 0),
+        );
+      }
+      pageCount += 1;
+      const nextCursor = res.paging?.cursors?.after;
+      if (!res.paging?.next || !nextCursor) break;
+      after = nextCursor;
+    }
+  } catch (err) {
+    console.warn(
+      `[event-insights] ${args.datePreset} impression heuristic fetch failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+  return out;
 }
