@@ -1176,7 +1176,7 @@ async function fetchMetaBreakdownRows(args: {
       const res = await graphGetWithToken<GraphPaged<RawBreakdownInsights>>(
         `/${campaignId}/insights`,
         {
-          fields: `spend,impressions,reach,clicks,${labelKey}`,
+          fields: "spend,impressions,reach,clicks",
           level: "campaign",
           breakdowns: breakdown,
           ...buildTimeParams(datePreset, customRange),
