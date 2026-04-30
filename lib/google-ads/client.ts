@@ -1,13 +1,11 @@
-import "server-only";
-
-import { GoogleAdsApi, type Customer } from "google-ads-api";
+import { OAuth2Client } from "google-auth-library";
 
 import {
   customerIdForGoogleAdsApi,
   GOOGLE_ADS_LOGIN_CUSTOMER_ID,
-} from "./oauth";
-import { classifyGoogleAdsRetry, parseGoogleAdsError } from "./retry";
-export { GOOGLE_ADS_CHUNK_CONCURRENCY } from "./constants";
+} from "./oauth.ts";
+import { classifyGoogleAdsRetry, parseGoogleAdsError } from "./retry.ts";
+export { GOOGLE_ADS_CHUNK_CONCURRENCY } from "./constants.ts";
 
 const MAX_ATTEMPTS = 5;
 
@@ -41,47 +39,76 @@ export interface GoogleAdsCustomerCredentials {
 }
 
 type QueryRunner<T> = (gaql: string) => Promise<T>;
+type GoogleAdsFetch = typeof fetch;
+type GoogleAdsAuthClient = {
+  setCredentials(credentials: { refresh_token: string }): void;
+  getAccessToken(): Promise<{ token?: string | null }>;
+};
+type GoogleAdsAuthFactory = () => GoogleAdsAuthClient;
+
+interface GoogleAdsRestListAccessibleCustomersResponse {
+  resourceNames?: string[];
+  resource_names?: string[];
+}
+
+interface GoogleAdsRestSearchResponse {
+  results?: unknown[];
+}
 
 export class GoogleAdsClient {
-  private readonly api: GoogleAdsApi;
+  private readonly config: GoogleAdsClientConfig;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly fetcher: GoogleAdsFetch;
+  private readonly authFactory: GoogleAdsAuthFactory;
 
   constructor(
     config = requireGoogleAdsClientConfig(),
-    options: { sleep?: (ms: number) => Promise<void> } = {},
+    options: {
+      sleep?: (ms: number) => Promise<void>;
+      fetcher?: GoogleAdsFetch;
+      authFactory?: GoogleAdsAuthFactory;
+    } = {},
   ) {
-    this.api = new GoogleAdsApi({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      developer_token: config.developerToken,
-    });
+    this.config = config;
     this.sleep = options.sleep ?? sleep;
+    this.fetcher = options.fetcher ?? fetch;
+    this.authFactory = options.authFactory ?? (() => new OAuth2Client({
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+    }));
   }
 
   async listAccessibleCustomers(refreshToken: string): Promise<string[]> {
     const res = await this.executeWithRetry(
-      () => this.api.listAccessibleCustomers(refreshToken),
+      () => this.request<GoogleAdsRestListAccessibleCustomersResponse>({
+        refreshToken,
+        path: "/customers:listAccessibleCustomers",
+        method: "GET",
+      }),
       "customers:listAccessibleCustomers",
     );
-    return (res.resource_names ?? []).map((name) => name.replace(/^customers\//, ""));
+    return (res.resourceNames ?? res.resource_names ?? [])
+      .map((name) => name.replace(/^customers\//, ""));
   }
 
   async query<T>(
     credentials: GoogleAdsCustomerCredentials,
     gaql: string,
   ): Promise<T> {
-    const customer = this.customer(credentials);
-    return this.executeQueryWithRetry<T>((query) => customer.query<T>(query), gaql);
-  }
-
-  private customer(credentials: GoogleAdsCustomerCredentials): Customer {
-    return this.api.Customer({
-      customer_id: customerIdForGoogleAdsApi(credentials.customerId),
-      refresh_token: credentials.refreshToken,
-      login_customer_id: customerIdForGoogleAdsApi(
-        credentials.loginCustomerId ?? GOOGLE_ADS_LOGIN_CUSTOMER_ID,
-      ),
-    });
+    const customerId = customerIdForGoogleAdsApi(credentials.customerId);
+    return this.executeQueryWithRetry<T>(
+      async (query) => {
+        const res = await this.request<GoogleAdsRestSearchResponse>({
+          refreshToken: credentials.refreshToken,
+          path: `/customers/${customerId}/googleAds:search`,
+          method: "POST",
+          loginCustomerId: credentials.loginCustomerId,
+          body: { query },
+        });
+        return normalizeGoogleAdsRestRowKeys(res.results ?? []) as T;
+      },
+      gaql,
+    );
   }
 
   private async executeQueryWithRetry<T>(
@@ -118,6 +145,44 @@ export class GoogleAdsClient {
     }
     throw toGoogleAdsApiError(lastError);
   }
+
+  private async request<T>(input: {
+    refreshToken: string;
+    path: string;
+    method: "GET" | "POST";
+    loginCustomerId?: string | null;
+    body?: Record<string, unknown>;
+  }): Promise<T> {
+    const auth = this.authFactory();
+    auth.setCredentials({ refresh_token: input.refreshToken });
+    const accessToken = await auth.getAccessToken();
+    const token = accessToken.token;
+    if (!token) throw new Error("Google OAuth refresh token did not return an access token.");
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "developer-token": this.config.developerToken,
+    };
+    const loginCustomerId = customerIdForGoogleAdsApi(
+      input.loginCustomerId ?? GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+    );
+    if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
+    if (input.method === "POST") headers["Content-Type"] = "application/json";
+
+    const response = await this.fetcher(`https://googleads.googleapis.com/v23${input.path}`, {
+      method: input.method,
+      headers,
+      body: input.body ? JSON.stringify(input.body) : undefined,
+      cache: "no-store",
+    });
+    const json = await response.json().catch(async () => ({
+      error: { message: await response.text() },
+    }));
+    if (!response.ok) {
+      throw { response: { status: response.status, data: json } };
+    }
+    return json as T;
+  }
 }
 
 export function requireGoogleAdsClientConfig(): GoogleAdsClientConfig {
@@ -142,6 +207,21 @@ function toGoogleAdsApiError(error: unknown): GoogleAdsApiError {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeGoogleAdsRestRowKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeGoogleAdsRestRowKeys);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      camelToSnake(key),
+      normalizeGoogleAdsRestRowKeys(entry),
+    ]),
+  );
+}
+
+function camelToSnake(value: string): string {
+  return value.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
 }
 
 function errorConstructorName(error: unknown): string {
