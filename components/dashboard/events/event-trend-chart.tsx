@@ -492,12 +492,13 @@ type PlatformKey = "all" | "meta" | "google" | "tiktok";
 const AWARENESS_METRICS: {
   key: AwarenessMetricKey;
   label: string;
+  colour: string;
   format: (n: number) => string;
 }[] = [
-  { key: "spend", label: "Spend", format: (n) => GBP2.format(n) },
-  { key: "impressions", label: "Impressions", format: (n) => NUM.format(n) },
-  { key: "clicks", label: "Clicks", format: (n) => NUM.format(n) },
-  { key: "videoViews", label: "Video Views", format: (n) => NUM.format(n) },
+  { key: "spend", label: "Spend", colour: "#27272a", format: (n) => GBP2.format(n) },
+  { key: "impressions", label: "Impressions", colour: "#2563eb", format: (n) => NUM.format(n) },
+  { key: "clicks", label: "Clicks", colour: "#0ea5e9", format: (n) => NUM.format(n) },
+  { key: "videoViews", label: "Video Views", colour: "#8b5cf6", format: (n) => NUM.format(n) },
 ];
 
 const PLATFORM_META: Record<Exclude<PlatformKey, "all">, { label: string; colour: string }> = {
@@ -522,7 +523,7 @@ function AwarenessTrendChart({
   const [granularity, setGranularity] =
     useState<TrendGranularity>(defaultGranularity);
   const [platform, setPlatform] = useState<PlatformKey>("all");
-  const [metric, setMetric] = useState<AwarenessMetricKey>("spend");
+  const [metrics, setMetrics] = useState<AwarenessMetricKey[]>(["spend"]);
   const [hover, setHover] = useState<{ index: number; chartWidth: number } | null>(null);
   const rows = useMemo(
     () => buildAwarenessRows(timeline, granularity),
@@ -539,7 +540,9 @@ function AwarenessTrendChart({
     activePlatform === "all"
       ? platforms
       : ([activePlatform] as Exclude<PlatformKey, "all">[]);
-  const metricDef = AWARENESS_METRICS.find((m) => m.key === metric)!;
+  const metricDefs = metrics
+    .map((metric) => AWARENESS_METRICS.find((m) => m.key === metric))
+    .filter((m): m is (typeof AWARENESS_METRICS)[number] => m != null);
   const titleLabel =
     title ?? `${granularity === "weekly" ? "Weekly" : "Daily"} trend`;
 
@@ -557,7 +560,7 @@ function AwarenessTrendChart({
     rows.length === 1 ? PAD_L + plotW / 2 : PAD_L + (i / (rows.length - 1)) * plotW;
   const max = Math.max(
     1,
-    ...visibleSeries.flatMap((p) => rows.map((r) => r[p][metric])),
+    ...metricDefs.flatMap((m) => rows.map((r) => maxMetricValue(r, visibleSeries, m.key))),
   );
   const yAt = (v: number) => PAD_T + plotH - (v / (max * 1.1)) * plotH;
   const labelEvery = Math.max(1, Math.ceil(rows.length / 6));
@@ -599,7 +602,12 @@ function AwarenessTrendChart({
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {AWARENESS_METRICS.map((m) => (
-            <Pill key={m.key} active={metric === m.key} onClick={() => setMetric(m.key)}>
+            <Pill
+              key={m.key}
+              active={metrics.includes(m.key)}
+              onClick={() => setMetrics((current) => toggleAwarenessMetric(current, m.key))}
+            >
+              {metrics.includes(m.key) ? "✓ " : ""}
               {m.label}
             </Pill>
           ))}
@@ -613,7 +621,7 @@ function AwarenessTrendChart({
               className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
               style={{ top: `${PAD_T + plotH - fraction * plotH}px` }}
             >
-              {metricDef.format(max * fraction)}
+              {formatAwarenessAxis(metricDefs, max * fraction)}
             </span>
           ))}
         </div>
@@ -639,18 +647,23 @@ function AwarenessTrendChart({
           >
             <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none" width="100%" height={150}>
               <line x1={PAD_L} x2={VB_W - PAD_R} y1={PAD_T + plotH} y2={PAD_T + plotH} stroke="currentColor" strokeOpacity={0.15} />
-              {visibleSeries.map((p) => (
-                <polyline
-                  key={p}
-                  points={rows.map((r, i) => `${xAt(i)},${yAt(r[p][metric])}`).join(" ")}
-                  fill="none"
-                  stroke={PLATFORM_META[p].colour}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-              ))}
+              {metricDefs.map((m) =>
+                visibleSeries.map((p) => (
+                  <polyline
+                    key={`${p}-${m.key}`}
+                    points={rows
+                      .map((r, i) => `${xAt(i)},${yAt(r[p][m.key])}`)
+                      .join(" ")}
+                    fill="none"
+                    stroke={activePlatform === "all" ? PLATFORM_META[p].colour : m.colour}
+                    strokeDasharray={activePlatform === "all" ? metricDash(m.key) : undefined}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )),
+              )}
             </svg>
             {hover ? (
               <div
@@ -660,15 +673,20 @@ function AwarenessTrendChart({
                 <p className="mb-1 font-medium">
                   {chartTooltipDate(rows[hover.index]!.date, granularity)}
                 </p>
-                {visibleSeries.map((p) => (
-                  <p key={p} className="flex gap-2">
-                    <span style={{ color: PLATFORM_META[p].colour }}>●</span>
-                    <span className="text-muted-foreground">{PLATFORM_META[p].label}</span>
-                    <span className="ml-auto tabular-nums">
-                      {metricDef.format(rows[hover.index]![p][metric])}
-                    </span>
-                  </p>
-                ))}
+                {metricDefs.flatMap((m) =>
+                  visibleSeries.map((p) => (
+                    <p key={`${p}-${m.key}`} className="flex gap-2">
+                      <span style={{ color: activePlatform === "all" ? PLATFORM_META[p].colour : m.colour }}>●</span>
+                      <span className="text-muted-foreground">
+                        {activePlatform === "all" ? `${PLATFORM_META[p].label} · ` : ""}
+                        {m.label}
+                      </span>
+                      <span className="ml-auto tabular-nums">
+                        {m.format(rows[hover.index]![p][m.key])}
+                      </span>
+                    </p>
+                  )),
+                )}
               </div>
             ) : null}
           </div>
@@ -677,12 +695,27 @@ function AwarenessTrendChart({
               <span key={d.date}>{chartShortDate(d.date, granularity)}</span>
             ))}
           </div>
-          {activePlatform === "all" ? (
+          <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+            {activePlatform === "all"
+              ? visibleSeries.map((p) => (
+                  <span key={p} className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: PLATFORM_META[p].colour }} />
+                    {PLATFORM_META[p].label}
+                  </span>
+                ))
+              : metricDefs.map((m) => (
+                  <span key={m.key} className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: m.colour }} />
+                    {m.label}
+                  </span>
+                ))}
+          </div>
+          {activePlatform === "all" && metricDefs.length > 1 ? (
             <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
-              {visibleSeries.map((p) => (
-                <span key={p} className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: PLATFORM_META[p].colour }} />
-                  {PLATFORM_META[p].label}
+              {metricDefs.map((m) => (
+                <span key={m.key} className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-4 rounded-full bg-muted-foreground/60" />
+                  {m.label}
                 </span>
               ))}
             </div>
@@ -718,6 +751,40 @@ function Pill({
   );
 }
 
+function toggleAwarenessMetric(
+  current: AwarenessMetricKey[],
+  metric: AwarenessMetricKey,
+): AwarenessMetricKey[] {
+  if (current.includes(metric)) {
+    return current.length === 1 ? current : current.filter((m) => m !== metric);
+  }
+  return [...current, metric].slice(-4);
+}
+
+function metricDash(metric: AwarenessMetricKey): string | undefined {
+  if (metric === "spend") return undefined;
+  if (metric === "impressions") return "6 3";
+  if (metric === "clicks") return "2 3";
+  return "8 3 2 3";
+}
+
+function maxMetricValue(
+  row: ReturnType<typeof buildAwarenessRows>[number],
+  platforms: Exclude<PlatformKey, "all">[],
+  metric: AwarenessMetricKey,
+): number {
+  return platforms.reduce((max, platform) => Math.max(max, row[platform][metric]), 0);
+}
+
+function formatAwarenessAxis(
+  metrics: Array<(typeof AWARENESS_METRICS)[number]>,
+  value: number,
+): string {
+  return metrics.length === 1 && metrics[0]?.key === "spend"
+    ? GBP2.format(value)
+    : NUM.format(Math.round(value));
+}
+
 function platformValues(
   row: TimelineRow,
   platform: Exclude<PlatformKey, "all">,
@@ -725,9 +792,9 @@ function platformValues(
   if (platform === "meta") {
     return {
       spend: Number(row.ad_spend ?? 0),
-      impressions: 0,
+      impressions: Number((row as { impressions?: number | null }).impressions ?? 0),
       clicks: Number(row.link_clicks ?? 0),
-      videoViews: 0,
+      videoViews: Number((row as { meta_video_views?: number | null }).meta_video_views ?? 0),
     };
   }
   if (platform === "google") {

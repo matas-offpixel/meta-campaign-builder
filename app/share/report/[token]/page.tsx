@@ -588,7 +588,10 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     creativesSlot = (
       <>
         <Suspense fallback={<ShareActiveCreativesSkeleton />}>
-          <DeferredCreativesSlot promise={deferredCreatives} />
+          <DeferredCreativesSlot
+            promise={deferredCreatives}
+            kind={event.kind}
+          />
         </Suspense>
       </>
     );
@@ -603,7 +606,10 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
             customRange={customRange}
           />
         ) : null}
-        <ShareActiveCreativesSection result={creativesResult} />
+        <ShareActiveCreativesSection
+          result={creativesResult}
+          kind={event.kind}
+        />
       </>
     );
   }
@@ -1062,8 +1068,10 @@ function withTimeout(
  */
 async function DeferredCreativesSlot({
   promise,
+  kind,
 }: {
   promise: Promise<ShareActiveCreativesResult>;
+  kind?: string | null;
 }) {
   const result = await promise;
   if (
@@ -1072,7 +1080,7 @@ async function DeferredCreativesSlot({
   ) {
     return <ShareActiveCreativesWarming />;
   }
-  return <ShareActiveCreativesSection result={result} />;
+  return <ShareActiveCreativesSection result={result} kind={kind} />;
 }
 
 async function resolveGoogleAdsReportBlock(input: {

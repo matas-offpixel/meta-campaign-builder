@@ -19,9 +19,10 @@ import ShareActiveCreativesClient from "@/components/share/share-active-creative
 
 interface Props {
   result: ShareActiveCreativesResult;
+  kind?: string | null;
 }
 
-export function ShareActiveCreativesSection({ result }: Props) {
+export function ShareActiveCreativesSection({ result, kind }: Props) {
   if (result.kind === "skip") {
     // No section at all — the event simply isn't running anything.
     // Different from `error`, where we want the muted note so the
@@ -43,6 +44,7 @@ export function ShareActiveCreativesSection({ result }: Props) {
   }
 
   const { groups, meta } = result;
+  const isBrandCampaign = kind === "brand_campaign";
   if (groups.length === 0) {
     return null;
   }
@@ -61,11 +63,14 @@ export function ShareActiveCreativesSection({ result }: Props) {
         </span>
       </div>
 
-      <ShareActiveCreativesClient groups={groups} />
+      <ShareActiveCreativesClient
+        groups={groups}
+        kind={isBrandCampaign ? "brand_campaign" : "event"}
+      />
 
       <p className="text-xs text-muted-foreground">
-        Spend, registrations and reach are summed across the underlying
-        ads in each creative concept. Rate metrics (CTR, CPR, frequency)
+        {isBrandCampaign ? "Spend, impressions and reach" : "Spend, registrations and reach"} are summed across the underlying
+        ads in each creative concept. Rate metrics (CTR{isBrandCampaign ? ", CPM" : ", CPR"}, frequency)
         are recomputed from the summed totals — not averaged across ads
         — to avoid the usual ratio-of-rates inflation. Reach is summed
         across ads and may over-count audiences that overlap. Click any

@@ -14,18 +14,24 @@ export type { GoogleAdsReportBlockData };
 export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData }) {
   const t = data.totals;
   const hasVideo = data.campaigns.some((c) => c.campaign_type?.includes("VIDEO"));
-  const row1 = [
+  const row1 = compactCards([
     { label: "Impressions", value: fmtInt(t.impressions) },
-    { label: "Reach", value: fmtNullableInt(t.reach) },
+    t.reach && t.reach > 0
+      ? { label: "Reach", value: fmtNullableInt(t.reach) }
+      : null,
     { label: "Spend", value: fmtMoney(t.spend) },
-    { label: "Frequency", value: fmtFrequency(t.frequency) },
-  ];
-  const row2 = [
+    t.frequency && t.frequency > 0
+      ? { label: "Frequency", value: fmtFrequency(t.frequency) }
+      : null,
+  ]);
+  const row2 = compactCards([
     { label: "Clicks (all)", value: fmtInt(t.clicks) },
     { label: "CTR (all)", value: fmtPct(t.ctr) },
     { label: "CPM", value: fmtMoney(t.cpm) },
-    { label: "Cost per 1000 reached", value: fmtMoney(t.costPer1000Reached) },
-  ];
+    t.costPer1000Reached && t.costPer1000Reached > 0
+      ? { label: "Cost per 1000 reached", value: fmtMoney(t.costPer1000Reached) }
+      : null,
+  ]);
   const row3 = [
     { label: "Video views (25%)", value: fmtNullableInt(t.videoViews25) },
     { label: "Video views (50%)", value: fmtNullableInt(t.videoViews50) },
@@ -40,8 +46,7 @@ export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData 
         <p className="mt-1 text-xs text-muted-foreground">{data.sourceLabel}</p>
       </section>
       <div className="space-y-3">
-        <StatGrid cards={row1} />
-        <StatGrid cards={row2} />
+        <StatGrid cards={[...row1, ...row2]} />
         {hasVideo ? <StatGrid cards={row3} /> : null}
         {t.engagements > 0 ? (
           <p className="px-1 text-[11px] text-muted-foreground">
@@ -86,6 +91,12 @@ function StatGrid({ cards }: { cards: { label: string; value: string }[] }) {
       ))}
     </section>
   );
+}
+
+function compactCards(
+  cards: Array<{ label: string; value: string } | null>,
+): { label: string; value: string }[] {
+  return cards.filter((card): card is { label: string; value: string } => card != null);
 }
 
 function CampaignTable({ rows }: { rows: CampaignInsightsRow[] }) {

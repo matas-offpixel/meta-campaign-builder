@@ -31,6 +31,7 @@ import type {
   InsightsError,
   InsightsResult,
   MetaCampaignRow,
+  MetaDemographicRow,
   MetaTotals,
   SpendByDayResult,
 } from "@/lib/insights/types";
@@ -167,7 +168,7 @@ export async function fetchEventInsights(
       );
     }
 
-    const [campaignRows, dailyBudgetSet] = await Promise.all([
+    const [campaignRows, dailyBudgetSet, demographics] = await Promise.all([
       Promise.all(
         matchedCampaigns.map(async (c) => {
           const insights = await fetchCampaignInsights({
@@ -226,6 +227,18 @@ export async function fetchEventInsights(
         );
         return null;
       }),
+      fetchMetaDemographicsForCampaigns({
+        campaignIds: matchedCampaigns.map((campaign) => campaign.id),
+        token,
+        datePreset,
+        customRange,
+      }).catch((err) => {
+        console.warn(
+          "[insights/meta] demographics breakdowns failed:",
+          err instanceof Error ? err.message : err,
+        );
+        return undefined;
+      }),
     ]);
 
     const filteredRows = campaignRows
@@ -266,6 +279,7 @@ export async function fetchEventInsights(
         google: null,
       },
       campaigns: filteredRows,
+      ...(demographics ? { demographics } : {}),
       matchedCampaignCount: filteredRows.length,
       ticketsSoldInWindow,
     };
@@ -1109,6 +1123,118 @@ function aggregateTotals(rows: MetaCampaignRow[]): MetaTotals {
     cplpv: sum.lpv > 0 ? sum.spend / sum.lpv : 0,
     cpp: sum.purchases > 0 ? sum.spend / sum.purchases : 0,
   };
+}
+
+async function fetchMetaDemographicsForCampaigns(args: {
+  campaignIds: string[];
+  token: string;
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+}): Promise<EventInsightsPayload["demographics"]> {
+  const { campaignIds, token, datePreset, customRange } = args;
+  const [regions, ageRanges, genders] = await Promise.all([
+    fetchMetaBreakdownRows({
+      campaignIds,
+      token,
+      datePreset,
+      customRange,
+      breakdown: "country",
+      labelKey: "country",
+    }),
+    fetchMetaBreakdownRows({
+      campaignIds,
+      token,
+      datePreset,
+      customRange,
+      breakdown: "age",
+      labelKey: "age",
+    }),
+    fetchMetaBreakdownRows({
+      campaignIds,
+      token,
+      datePreset,
+      customRange,
+      breakdown: "gender",
+      labelKey: "gender",
+    }),
+  ]);
+  return { regions, ageRanges, genders };
+}
+
+async function fetchMetaBreakdownRows(args: {
+  campaignIds: string[];
+  token: string;
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+  breakdown: "country" | "age" | "gender";
+  labelKey: "country" | "age" | "gender";
+}): Promise<MetaDemographicRow[]> {
+  const { campaignIds, token, datePreset, customRange, breakdown, labelKey } =
+    args;
+  const rows = await Promise.all(
+    campaignIds.map(async (campaignId) => {
+      const res = await graphGetWithToken<GraphPaged<RawBreakdownInsights>>(
+        `/${campaignId}/insights`,
+        {
+          fields: `spend,impressions,reach,clicks,${labelKey}`,
+          level: "campaign",
+          breakdowns: breakdown,
+          ...buildTimeParams(datePreset, customRange),
+        },
+        token,
+      );
+      return res.data ?? [];
+    }),
+  );
+  return mergeBreakdownRows(rows.flat(), labelKey);
+}
+
+interface RawBreakdownInsights extends RawInsights {
+  country?: string;
+  age?: string;
+  gender?: string;
+}
+
+function mergeBreakdownRows(
+  rows: RawBreakdownInsights[],
+  labelKey: "country" | "age" | "gender",
+): MetaDemographicRow[] {
+  const byLabel = new Map<string, MetaDemographicRow>();
+  for (const row of rows) {
+    const label = formatMetaBreakdownLabel(labelKey, row[labelKey]);
+    const current =
+      byLabel.get(label) ??
+      ({
+        label,
+        spend: 0,
+        impressions: 0,
+        reach: 0,
+        clicks: 0,
+      } satisfies MetaDemographicRow);
+    current.spend += parseNum(row.spend);
+    current.impressions += parseNum(row.impressions);
+    current.reach += parseNum(row.reach);
+    current.clicks += parseNum(row.clicks);
+    byLabel.set(label, current);
+  }
+  return [...byLabel.values()]
+    .filter((row) => row.impressions > 0 || row.spend > 0 || row.clicks > 0)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 20);
+}
+
+function formatMetaBreakdownLabel(
+  key: "country" | "age" | "gender",
+  value: string | undefined,
+): string {
+  if (!value) return "Unknown";
+  if (key === "gender") {
+    const normalised = value.toLowerCase();
+    if (normalised === "male") return "Male";
+    if (normalised === "female") return "Female";
+    if (normalised === "unknown") return "Unknown";
+  }
+  return value;
 }
 
 // ─── Public entrypoint: creative performance ──────────────────────────────

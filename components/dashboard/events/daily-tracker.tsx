@@ -619,9 +619,12 @@ export function DailyTracker({
               Daily tracker
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {windowLabel} · Meta spend &amp; clicks aggregated by{" "}
+              {windowLabel} ·{" "}
+              {isBrandCampaign
+                ? "Cross-platform spend aggregated by"
+                : "Meta spend & clicks aggregated by"}{" "}
               <code className="text-foreground/80">[event_code]</code>
-              {hasEventbriteLink
+              {!isBrandCampaign && hasEventbriteLink
                 ? cadence === "weekly"
                   ? " · Eventbrite tickets & revenue per ISO week"
                   : " · Eventbrite tickets & revenue per day"

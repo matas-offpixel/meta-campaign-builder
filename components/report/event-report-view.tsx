@@ -22,6 +22,7 @@ import {
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
 import {
   MetaCampaignBreakdownSection,
+  MetaDemographicsSection,
   MetaCampaignStatsSection,
   Section,
   Metric,
@@ -786,6 +787,7 @@ function MetaReportBlock({
         meta={meta}
         kind={isBrandCampaign ? "brand_campaign" : "event"}
       />
+      <MetaDemographicsSection meta={meta} />
 
       {/* Creative section. The share page swaps in a server-rendered
           "Active creatives" component via `creativesSlot` so the
