@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 217
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/217
 - **Branch:** `creator/fix-boh-active-creatives-regression`
 
 ## Summary
