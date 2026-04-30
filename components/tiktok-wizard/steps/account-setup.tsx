@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { TIKTOK_PIXEL_ID_PATTERN } from "@/lib/tiktok-wizard/validation";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
@@ -34,8 +36,12 @@ export function AccountSetupStep({
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [identityWarning, setIdentityWarning] = useState<string | null>(null);
   const [pixelWarning, setPixelWarning] = useState<string | null>(null);
+  const [pixelApiFailed, setPixelApiFailed] = useState(false);
   const [manualIdentityName, setManualIdentityName] = useState(
     draft.accountSetup.identityManualName ?? "",
+  );
+  const [manualPixelId, setManualPixelId] = useState(
+    draft.accountSetup.pixelId ?? "",
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -72,6 +78,7 @@ export function AccountSetupStep({
     setLoadingDetails(true);
     setIdentityWarning(null);
     setPixelWarning(null);
+    setPixelApiFailed(false);
 
     async function loadDetails() {
       const [identityRes, pixelRes] = await Promise.allSettled([
@@ -88,17 +95,19 @@ export function AccountSetupStep({
         } | null;
         const next = json?.ok ? (json.identities ?? []) : [];
         setIdentities(next);
-        if (next.length === 0) {
+        if (!json?.ok && json?.error) {
           setIdentityWarning(
-            json?.error
-              ? `No identities available (${json.error}). Use the manual override below.`
-              : "No identities available. Use the manual override below.",
+            `TikTok identity API returned: ${json.error}. Use manual override below.`,
+          );
+        } else if (next.length === 0) {
+          setIdentityWarning(
+            "No identities available. Use the manual override below.",
           );
         }
       } else {
         setIdentities([]);
         setIdentityWarning(
-          "No identities available. Use the manual override below.",
+          "TikTok identity API returned: request failed. Use manual override below.",
         );
       }
 
@@ -110,12 +119,16 @@ export function AccountSetupStep({
         } | null;
         const next = json?.ok ? (json.pixels ?? []) : [];
         setPixels(next);
-        if (next.length === 0) {
-          setPixelWarning("No pixels configured. Pixel is optional outside conversion campaigns.");
+        if (!json?.ok && json?.error) {
+          setPixelApiFailed(true);
+          setPixelWarning(`TikTok pixel API returned: ${json.error}. Enter a pixel ID manually below.`);
+        } else if (next.length === 0) {
+          setPixelWarning("No pixels configured for this advertiser.");
         }
       } else {
         setPixels([]);
-        setPixelWarning("No pixels configured. Pixel is optional outside conversion campaigns.");
+        setPixelApiFailed(true);
+        setPixelWarning("TikTok pixel API returned: request failed. Enter a pixel ID manually below.");
       }
     }
 
@@ -163,6 +176,18 @@ export function AccountSetupStep({
     await persist({
       pixelId: pixel?.pixel_id ?? null,
       pixelName: pixel?.pixel_name ?? null,
+    });
+  }
+
+  async function saveManualPixel() {
+    const value = manualPixelId.trim();
+    if (value && !TIKTOK_PIXEL_ID_PATTERN.test(value)) {
+      setSaveError("TikTok pixel IDs are typically numeric strings.");
+      return;
+    }
+    await persist({
+      pixelId: value || null,
+      pixelName: value ? `Manual pixel ${value}` : null,
     });
   }
 
@@ -234,6 +259,16 @@ export function AccountSetupStep({
         />
       </div>
 
+      {!loadingAccounts && accounts.filter((account) => Boolean(account.tiktok_advertiser_id)).length === 0 && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          Connect a TikTok account first in{" "}
+          <Link className="underline" href="/settings">
+            Settings
+          </Link>
+          .
+        </p>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Select
           id="tiktok-identity"
@@ -295,8 +330,39 @@ export function AccountSetupStep({
 
       {pixelWarning && (
         <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-          {pixelWarning}
+          {pixelWarning}{" "}
+          {!pixelApiFailed && (
+            <a
+              className="underline"
+              href="https://ads.tiktok.com/i18n/events_manager"
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open TikTok Events Manager
+            </a>
+          )}
         </p>
+      )}
+
+      {pixelApiFailed && (
+        <div className="grid gap-3 rounded-md border border-border bg-background p-3 md:grid-cols-[1fr_auto] md:items-end">
+          <Input
+            id="tiktok-manual-pixel"
+            label="Manual pixel ID"
+            value={manualPixelId}
+            onChange={(event) => setManualPixelId(event.target.value)}
+            placeholder="Numeric TikTok pixel ID"
+            disabled={!draft.accountSetup.advertiserId || saving}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void saveManualPixel()}
+            disabled={!draft.accountSetup.advertiserId || saving}
+          >
+            Save pixel ID
+          </Button>
+        </div>
       )}
     </div>
   );

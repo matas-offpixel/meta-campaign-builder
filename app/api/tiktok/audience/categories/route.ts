@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   try {
     const selectedIds = req.nextUrl.searchParams.getAll("selected_id");
     const [interests, behaviours, customAudiences, savedAudiences, estimatedReach] =
-      await Promise.all([
+      await Promise.allSettled([
         fetchTikTokInterestCategories({
           advertiserId,
           token: credentials.accessToken,
@@ -52,30 +52,48 @@ export async function GET(req: NextRequest) {
         fetchTikTokBehaviourCategories({
           advertiserId,
           token: credentials.accessToken,
-        }).catch(() => []),
+        }),
         fetchTikTokCustomAudiences({
           advertiserId,
           token: credentials.accessToken,
-        }).catch(() => []),
+        }),
         fetchTikTokSavedAudiences({
           advertiserId,
           token: credentials.accessToken,
-        }).catch(() => []),
+        }),
         fetchTikTokAudienceSize({
           advertiserId,
           token: credentials.accessToken,
           selectedIds,
-        }).catch(() => null),
+        }),
       ]);
+
+    if (interests.status === "rejected") throw interests.reason;
 
     return NextResponse.json(
       {
         ok: true,
-        interests,
-        behaviours,
-        customAudiences,
-        savedAudiences,
-        estimatedReach,
+        interests: interests.value,
+        behaviours: behaviours.status === "fulfilled" ? behaviours.value : [],
+        customAudiences:
+          customAudiences.status === "fulfilled" ? customAudiences.value : [],
+        savedAudiences: savedAudiences.status === "fulfilled" ? savedAudiences.value : [],
+        estimatedReach:
+          estimatedReach.status === "fulfilled" ? estimatedReach.value : null,
+        behaviourError:
+          behaviours.status === "rejected" ? errorMessage(behaviours.reason) : null,
+        customAudiencesError:
+          customAudiences.status === "rejected"
+            ? errorMessage(customAudiences.reason)
+            : null,
+        savedAudiencesError:
+          savedAudiences.status === "rejected"
+            ? errorMessage(savedAudiences.reason)
+            : null,
+        reachError:
+          estimatedReach.status === "rejected"
+            ? errorMessage(estimatedReach.reason)
+            : null,
       },
       { status: 200 },
     );
@@ -95,4 +113,8 @@ export async function GET(req: NextRequest) {
       { status: 200 },
     );
   }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

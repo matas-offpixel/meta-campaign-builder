@@ -34,6 +34,15 @@ export function BudgetScheduleStep({
     budget: draft.budgetSchedule,
     optimisation: draft.optimisation,
   });
+  const budgetInvalid =
+    draft.budgetSchedule.budgetAmount != null &&
+    draft.budgetSchedule.budgetAmount <= 0;
+  const scheduleInvalid = Boolean(
+    !smartPlus &&
+      draft.budgetSchedule.scheduleStartAt &&
+      draft.budgetSchedule.scheduleEndAt &&
+      draft.budgetSchedule.scheduleEndAt <= draft.budgetSchedule.scheduleStartAt,
+  );
 
   async function persist(
     patch: Partial<TikTokCampaignDraft["budgetSchedule"]>,
@@ -57,6 +66,10 @@ export function BudgetScheduleStep({
   async function saveBudgetAmount(raw: string) {
     try {
       const amount = parseOptionalMoney(raw);
+      if (amount != null && amount <= 0) {
+        setError("Set a budget greater than £0.");
+        return;
+      }
       await persist({
         budgetAmount: amount,
         lifetimeBudget:
@@ -128,6 +141,7 @@ export function BudgetScheduleStep({
           onChange={(event) => setBudgetDraft(event.target.value)}
           onBlur={() => void saveBudgetAmount(budgetDraft)}
           placeholder="1,000"
+          error={budgetInvalid ? "Set a budget greater than £0" : undefined}
         />
       </div>
 
@@ -148,6 +162,7 @@ export function BudgetScheduleStep({
           onChange={(event) =>
             void persist({ scheduleStartAt: event.target.value || null })
           }
+          error={scheduleInvalid ? "Schedule end must be after start" : undefined}
         />
         <Input
           id="tiktok-schedule-end"
@@ -158,6 +173,7 @@ export function BudgetScheduleStep({
           onChange={(event) =>
             void persist({ scheduleEndAt: event.target.value || null })
           }
+          error={scheduleInvalid ? "Schedule end must be after start" : undefined}
         />
       </div>
 

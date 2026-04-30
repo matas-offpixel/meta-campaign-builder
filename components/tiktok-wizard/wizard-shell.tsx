@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 
 import {
+  validateTikTokWizardStep,
+  type TikTokWizardValidationIssue,
+} from "@/lib/tiktok-wizard/validation";
+import {
   TIKTOK_WIZARD_STEPS,
   type TikTokCampaignDraft,
 } from "@/lib/types/tiktok-draft";
@@ -20,6 +24,7 @@ export interface TikTokWizardContext {
   eventDate?: string | null;
   clientName?: string | null;
   advertiserName?: string | null;
+  eventEditPath?: string | null;
 }
 
 export function TikTokWizardShell({
@@ -35,6 +40,13 @@ export function TikTokWizardShell({
     () => STEP_COMPONENTS[step] ?? AccountSetupStep,
     [step],
   );
+  const validationContext = { eventEditPath: context?.eventEditPath ?? null };
+  const currentIssues = validateTikTokWizardStep(
+    workingDraft,
+    step,
+    validationContext,
+  );
+  const blocksNext = currentIssues.some((issue) => issue.blocksContinue);
 
   async function saveDraft(patch: Partial<TikTokCampaignDraft>) {
     const optimistic = mergeDraft(workingDraft, patch);
@@ -73,6 +85,7 @@ export function TikTokWizardShell({
           {TIKTOK_WIZARD_STEPS.map((label, index) => (
             <li key={label}>
               <button
+                id={`tiktok-step-${index}`}
                 type="button"
                 onClick={() => setStep(index)}
                 className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
@@ -89,6 +102,7 @@ export function TikTokWizardShell({
         </ol>
 
         <section className="rounded-lg border border-border bg-card p-6">
+          <StepValidationMessages issues={currentIssues} />
           <CurrentStep
             draft={workingDraft}
             onSave={saveDraft}
@@ -108,7 +122,7 @@ export function TikTokWizardShell({
           <button
             type="button"
             className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40"
-            disabled={step === TIKTOK_WIZARD_STEPS.length - 1}
+            disabled={step === TIKTOK_WIZARD_STEPS.length - 1 || blocksNext}
             onClick={() =>
               setStep((s) => Math.min(TIKTOK_WIZARD_STEPS.length - 1, s + 1))
             }
@@ -159,4 +173,29 @@ function mergeDraft(
       ...(patch.creativeAssignments ?? {}),
     },
   };
+}
+
+function StepValidationMessages({
+  issues,
+}: {
+  issues: TikTokWizardValidationIssue[];
+}) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="mb-6 space-y-2">
+      {issues.map((issue) => (
+        <p
+          key={issue.id}
+          className={`rounded-md border p-3 text-sm ${
+            issue.severity === "error"
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          }`}
+        >
+          <span className="font-medium">{issue.label}: </span>
+          {issue.message}
+        </p>
+      ))}
+    </div>
+  );
 }

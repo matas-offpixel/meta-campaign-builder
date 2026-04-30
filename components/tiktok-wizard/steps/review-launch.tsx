@@ -12,6 +12,7 @@ import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
 } from "@/lib/tiktok-wizard/review";
+import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 export function ReviewLaunchStep({
@@ -24,8 +25,15 @@ export function ReviewLaunchStep({
   context?: TikTokWizardContext;
 }) {
   const [saving, setSaving] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
   const checks = buildTikTokPreflightChecks(draft);
   const adGroups = suggestTikTokAdGroups(draft);
+  const validationIssues = buildTikTokWizardValidationIssues(draft, {
+    eventEditPath: context?.eventEditPath,
+  });
+  const failingIssues = validationIssues.filter(
+    (issue) => issue.severity === "error",
+  );
 
   async function markReviewReady() {
     setSaving(true);
@@ -58,6 +66,46 @@ export function ReviewLaunchStep({
           TikTok write API is enabled.
         </p>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setValidationOpen((open) => !open)}
+        className={`rounded-full px-3 py-1 text-xs font-medium ${
+          failingIssues.length > 0
+            ? "bg-red-500/10 text-red-700"
+            : "bg-emerald-500/10 text-emerald-700"
+        }`}
+      >
+        Validation summary:{" "}
+        {failingIssues.length > 0
+          ? `${failingIssues.length} failing`
+          : "all checks pass"}
+      </button>
+
+      {validationOpen && (
+        <div className="rounded-md border border-border bg-background p-4">
+          <p className="text-sm font-medium">Failing validation checks</p>
+          {failingIssues.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No failing validation checks.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-2 text-sm">
+              {failingIssues.map((issue) => (
+                <li key={issue.id}>
+                  <a
+                    className="font-medium underline"
+                    href={`#tiktok-step-${issue.step}`}
+                  >
+                    Step {issue.step + 1}
+                  </a>
+                  : {issue.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <section className="grid gap-3 md:grid-cols-2">
         {checks.map((check) => (
