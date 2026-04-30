@@ -102,6 +102,13 @@ export class GoogleAdsClient {
       } catch (err) {
         lastError = err;
         const decision = classifyGoogleAdsRetry({ error: err, attempt });
+        console.error("[googleAds] request failed", {
+          label,
+          attempt,
+          errorName: errorConstructorName(err),
+          errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
+          error: safeStringify(err),
+        });
         if (!decision.retry) throw toGoogleAdsApiError(err);
         console.warn(
           `[googleAds] retry ${attempt + 1}/${MAX_ATTEMPTS - 1} after ${decision.delayMs}ms: ${label} (reason: ${decision.kind})`,
@@ -135,4 +142,24 @@ function toGoogleAdsApiError(error: unknown): GoogleAdsApiError {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorConstructorName(error: unknown): string {
+  if (!error || typeof error !== "object") return typeof error;
+  return error.constructor?.name ?? "unknown";
+}
+
+function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (_key, next) => {
+      if (typeof next === "object" && next !== null) {
+        if (seen.has(next)) return "[Circular]";
+        seen.add(next);
+      }
+      return next;
+    }) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
