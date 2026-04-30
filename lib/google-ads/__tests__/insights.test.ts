@@ -1,7 +1,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { fetchGoogleAdsEventCampaignInsights, fetchGoogleAdsShareExtras } from "../insights.ts";
+import {
+  fetchGoogleAdsEventCampaignInsights,
+  fetchGoogleAdsShareExtras,
+  normaliseAgeRangeLabel,
+  normaliseGenderLabel,
+} from "../insights.ts";
 import { fetchGoogleAdsDailyRollupInsights } from "../rollup-insights.ts";
 
 function fakeClient(rows: unknown[]) {
@@ -190,7 +195,7 @@ describe("fetchGoogleAdsDailyRollupInsights", () => {
 });
 
 describe("fetchGoogleAdsShareExtras", () => {
-  it("queries Top Regions via geographic_view segments.geo_target_country", async () => {
+  it("queries Top Regions via geographic_view country_criterion_id", async () => {
     const queries: string[] = [];
     const extras = await fetchGoogleAdsShareExtras({
       customerId: "288-501-5945",
@@ -205,11 +210,13 @@ describe("fetchGoogleAdsShareExtras", () => {
           if (query.includes("FROM geographic_view")) {
             return [
               {
-                segments: { geo_target_country: "geoTargetConstants/2566" },
+                campaign: { id: "1234567890" },
+                geographic_view: { country_criterion_id: "2566" },
                 metrics: { cost_micros: "10000000", impressions: "398839", clicks: "100" },
               },
               {
-                segments: { geo_target_country: "geoTargetConstants/2826" },
+                campaign: { id: "1234567890" },
+                geographic_view: { country_criterion_id: "2826" },
                 metrics: { cost_micros: "1000000", impressions: "5247", clicks: "10" },
               },
             ] as T;
@@ -220,7 +227,7 @@ describe("fetchGoogleAdsShareExtras", () => {
     });
 
     const geoQuery = queries.find((query) => query.includes("FROM geographic_view")) ?? "";
-    assert.match(geoQuery, /segments\.geo_target_country/);
+    assert.match(geoQuery, /campaign\.id, geographic_view\.country_criterion_id/);
     assert.match(geoQuery, /campaign\.id IN \(1234567890\)/);
     assert.deepEqual(
       extras.demographics.regions.map((row) => ({
@@ -232,5 +239,12 @@ describe("fetchGoogleAdsShareExtras", () => {
         { label: "United Kingdom", impressions: 5247 },
       ],
     );
+  });
+
+  it("normalises Google Ads age and gender labels", () => {
+    assert.equal(normaliseAgeRangeLabel("AGE_RANGE_25_34"), "25-34");
+    assert.equal(normaliseAgeRangeLabel("AGE_RANGE_65_UP"), "65+");
+    assert.equal(normaliseAgeRangeLabel("AGE_RANGE_UNDETERMINED"), "Unknown");
+    assert.equal(normaliseGenderLabel("FEMALE"), "Female");
   });
 });
