@@ -63,6 +63,14 @@ export interface MetaTotals {
   cplpv: number;
   /** Cost per purchase — spend / purchases. 0 when purchases == 0. */
   cpp: number;
+  /** Meta `video_view` actions — Ads Manager's default 3-second video plays. */
+  videoPlays3s: number;
+  /** Meta 15-second watched actions. */
+  videoPlays15s: number;
+  /** Meta 100% watched actions. */
+  videoPlaysP100: number;
+  /** Meta `post_engagement` actions only. */
+  engagements: number;
 }
 
 /** Per-campaign row for the breakdown table. */
@@ -86,6 +94,10 @@ export interface MetaCampaignRow {
   cplpv: number;
   /** Cost per purchase — spend / purchases. 0 when purchases === 0. */
   cpp: number;
+  videoPlays3s: number;
+  videoPlays15s: number;
+  videoPlaysP100: number;
+  engagements: number;
 }
 
 export interface MetaDemographicRow {
@@ -416,6 +428,12 @@ export interface DailyMetaMetricsRow {
    * actions for the day (Daily Tracker REGS column).
    */
   metaRegs: number;
+  impressions: number;
+  reach: number;
+  videoPlays3s: number;
+  videoPlays15s: number;
+  videoPlaysP100: number;
+  engagements: number;
 }
 
 export type DailyMetaMetricsResult =

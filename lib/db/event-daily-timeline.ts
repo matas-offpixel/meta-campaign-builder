@@ -53,6 +53,12 @@ export interface TimelineRow {
    * Preserved when a manual row overrides spend/tickets for the same date.
    */
   meta_regs: number | null;
+  meta_impressions?: number | null;
+  meta_reach?: number | null;
+  meta_video_plays_3s?: number | null;
+  meta_video_plays_15s?: number | null;
+  meta_video_plays_p100?: number | null;
+  meta_engagements?: number | null;
   tiktok_spend: number | null;
   tiktok_impressions: number | null;
   tiktok_clicks: number | null;
@@ -136,6 +142,12 @@ export function mergeTimeline(
         r.ad_spend_allocated != null ? Number(r.ad_spend_allocated) : null,
       link_clicks: r.link_clicks ?? null,
       meta_regs: r.meta_regs ?? null,
+      meta_impressions: r.meta_impressions ?? null,
+      meta_reach: r.meta_reach ?? null,
+      meta_video_plays_3s: r.meta_video_plays_3s ?? null,
+      meta_video_plays_15s: r.meta_video_plays_15s ?? null,
+      meta_video_plays_p100: r.meta_video_plays_p100 ?? null,
+      meta_engagements: r.meta_engagements ?? null,
       tiktok_spend: r.tiktok_spend != null ? Number(r.tiktok_spend) : null,
       tiktok_impressions: r.tiktok_impressions ?? null,
       tiktok_clicks: r.tiktok_clicks ?? null,
@@ -162,6 +174,12 @@ export function mergeTimeline(
       ad_spend_allocated: prev?.ad_spend_allocated ?? null,
       link_clicks: m.link_clicks ?? null,
       meta_regs: prev?.meta_regs ?? null,
+      meta_impressions: prev?.meta_impressions ?? null,
+      meta_reach: prev?.meta_reach ?? null,
+      meta_video_plays_3s: prev?.meta_video_plays_3s ?? null,
+      meta_video_plays_15s: prev?.meta_video_plays_15s ?? null,
+      meta_video_plays_p100: prev?.meta_video_plays_p100 ?? null,
+      meta_engagements: prev?.meta_engagements ?? null,
       tiktok_spend: prev?.tiktok_spend ?? null,
       tiktok_impressions: prev?.tiktok_impressions ?? null,
       tiktok_clicks: prev?.tiktok_clicks ?? null,

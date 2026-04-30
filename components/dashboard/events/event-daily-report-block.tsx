@@ -22,7 +22,10 @@ import {
   EventSummaryHeader,
   type PerformanceSummaryTimeframe,
 } from "@/components/dashboard/events/event-summary-header";
-import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
+import {
+  EventTrendChart,
+  type PlatformKey,
+} from "@/components/dashboard/events/event-trend-chart";
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 
 /**
@@ -234,6 +237,8 @@ export function EventDailyReportBlock(props: Props) {
   const [autoTried, setAutoTried] = useState(false);
   const [lastSync, setLastSync] = useState<LastSync | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [awarenessPlatform, setAwarenessPlatform] =
+    useState<PlatformKey>("all");
 
   const loadAdditionalSpend = useCallback(async () => {
     if (isShare) return;
@@ -474,6 +479,7 @@ export function EventDailyReportBlock(props: Props) {
       defaultCadence: event.report_cadence ?? "daily",
       otherSpendByDate,
       otherSpendBreakdownByDate,
+      awarenessPlatform,
     }),
     [
       timeline,
@@ -488,6 +494,7 @@ export function EventDailyReportBlock(props: Props) {
       event.report_cadence,
       otherSpendByDate,
       otherSpendBreakdownByDate,
+      awarenessPlatform,
     ],
   );
 
@@ -555,7 +562,12 @@ export function EventDailyReportBlock(props: Props) {
         timeframe={performanceSummary}
         additionalSpendEntries={additionalSpendRows}
       />
-      <EventTrendChart timeline={chartTimeline} kind={event.kind} />
+      <EventTrendChart
+        timeline={chartTimeline}
+        kind={event.kind}
+        awarenessPlatform={awarenessPlatform}
+        onAwarenessPlatformChange={setAwarenessPlatform}
+      />
       <DailyTracker
         eventId={event.id}
         hasMetaScope={hasMetaScope}

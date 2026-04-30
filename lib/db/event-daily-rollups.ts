@@ -58,6 +58,12 @@ export interface EventDailyRollup {
   tiktok_avg_play_time_ms: number | null;
   tiktok_post_engagement: number | null;
   tiktok_results: number | null;
+  meta_impressions: number | null;
+  meta_reach: number | null;
+  meta_video_plays_3s: number | null;
+  meta_video_plays_15s: number | null;
+  meta_video_plays_p100: number | null;
+  meta_engagements: number | null;
   google_ads_spend: number | null;
   google_ads_impressions: number | null;
   google_ads_clicks: number | null;
@@ -231,6 +237,12 @@ export interface MetaUpsertRow {
   ad_spend: number;
   link_clicks: number;
   meta_regs: number;
+  meta_impressions?: number;
+  meta_reach?: number;
+  meta_video_plays_3s?: number;
+  meta_video_plays_15s?: number;
+  meta_video_plays_p100?: number;
+  meta_engagements?: number;
 }
 
 export async function upsertMetaRollups(
@@ -246,6 +258,12 @@ export async function upsertMetaRollups(
     ad_spend: r.ad_spend,
     link_clicks: r.link_clicks,
     meta_regs: r.meta_regs,
+    meta_impressions: r.meta_impressions ?? null,
+    meta_reach: r.meta_reach ?? null,
+    meta_video_plays_3s: r.meta_video_plays_3s ?? null,
+    meta_video_plays_15s: r.meta_video_plays_15s ?? null,
+    meta_video_plays_p100: r.meta_video_plays_p100 ?? null,
+    meta_engagements: r.meta_engagements ?? null,
     source_meta_at: now,
   }));
   // Note: `onConflict: "event_id,date"` — the unique constraint name

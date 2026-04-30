@@ -496,13 +496,29 @@ export async function runRollupSyncForEvent(
         // the underlying numbers are pending.
         const metaByDate = new Map<
           string,
-          { ad_spend: number; link_clicks: number; meta_regs: number }
+          {
+            ad_spend: number;
+            link_clicks: number;
+            meta_regs: number;
+            meta_impressions: number;
+            meta_reach: number;
+            meta_video_plays_3s: number;
+            meta_video_plays_15s: number;
+            meta_video_plays_p100: number;
+            meta_engagements: number;
+          }
         >();
         for (const d of metaFetch.days) {
           metaByDate.set(d.day, {
             ad_spend: d.spend,
             link_clicks: d.linkClicks,
             meta_regs: d.metaRegs,
+            meta_impressions: d.impressions,
+            meta_reach: d.reach,
+            meta_video_plays_3s: d.videoPlays3s,
+            meta_video_plays_15s: d.videoPlays15s,
+            meta_video_plays_p100: d.videoPlaysP100,
+            meta_engagements: d.engagements,
           });
         }
         const hasToday = metaByDate.has(todayStr);
@@ -511,6 +527,12 @@ export async function runRollupSyncForEvent(
           let snapshotSpend = 0;
           let snapshotClicks = 0;
           let snapshotRegs = 0;
+          let snapshotImpressions = 0;
+          let snapshotReach = 0;
+          let snapshotVideo3s = 0;
+          let snapshotVideo15s = 0;
+          let snapshotVideoP100 = 0;
+          let snapshotEngagements = 0;
           let snapshotOk = false;
           try {
             const snap = await fetchEventTodayMetaSnapshot({
@@ -523,6 +545,12 @@ export async function runRollupSyncForEvent(
               snapshotSpend = snap.days[0]?.spend ?? 0;
               snapshotClicks = snap.days[0]?.linkClicks ?? 0;
               snapshotRegs = snap.days[0]?.metaRegs ?? 0;
+              snapshotImpressions = snap.days[0]?.impressions ?? 0;
+              snapshotReach = snap.days[0]?.reach ?? 0;
+              snapshotVideo3s = snap.days[0]?.videoPlays3s ?? 0;
+              snapshotVideo15s = snap.days[0]?.videoPlays15s ?? 0;
+              snapshotVideoP100 = snap.days[0]?.videoPlaysP100 ?? 0;
+              snapshotEngagements = snap.days[0]?.engagements ?? 0;
               snapshotOk = true;
               diagnostics.metaTodayFromSnapshot = true;
               console.log(
@@ -550,6 +578,12 @@ export async function runRollupSyncForEvent(
             ad_spend: snapshotSpend,
             link_clicks: snapshotClicks,
             meta_regs: snapshotRegs,
+            meta_impressions: snapshotImpressions,
+            meta_reach: snapshotReach,
+            meta_video_plays_3s: snapshotVideo3s,
+            meta_video_plays_15s: snapshotVideo15s,
+            meta_video_plays_p100: snapshotVideoP100,
+            meta_engagements: snapshotEngagements,
           });
         }
 
@@ -561,6 +595,12 @@ export async function runRollupSyncForEvent(
               ad_spend: 0,
               link_clicks: 0,
               meta_regs: 0,
+              meta_impressions: 0,
+              meta_reach: 0,
+              meta_video_plays_3s: 0,
+              meta_video_plays_15s: 0,
+              meta_video_plays_p100: 0,
+              meta_engagements: 0,
             });
             metaPadded++;
           }
@@ -573,6 +613,12 @@ export async function runRollupSyncForEvent(
             ad_spend: v.ad_spend,
             link_clicks: v.link_clicks,
             meta_regs: v.meta_regs,
+            meta_impressions: v.meta_impressions,
+            meta_reach: v.meta_reach,
+            meta_video_plays_3s: v.meta_video_plays_3s,
+            meta_video_plays_15s: v.meta_video_plays_15s,
+            meta_video_plays_p100: v.meta_video_plays_p100,
+            meta_engagements: v.meta_engagements,
           }));
         diagnostics.metaRowsAttempted = metaRows.length;
         console.log(

@@ -31,6 +31,7 @@ import type {
   TimelineRow,
   TimelineSource,
 } from "@/lib/db/event-daily-timeline";
+import type { PlatformKey } from "@/components/dashboard/events/event-trend-chart";
 
 /**
  * components/dashboard/events/daily-tracker.tsx
@@ -194,6 +195,8 @@ interface Props {
     otherSpendByDate?: ReadonlyMap<string, number>;
     /** Category breakdown per day for Day other tooltips. */
     otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
+    /** Shared awareness platform filter from the Daily Trend chart. */
+    awarenessPlatform?: PlatformKey;
     /**
      * Timeframe-scoped report embeds pass a pre-filtered timeline. In
      * that mode, avoid adding today's placeholder when today is outside
@@ -469,6 +472,12 @@ export function DailyTracker({
           ad_spend: null,
           link_clicks: null,
           meta_regs: null,
+          meta_impressions: null,
+          meta_reach: null,
+          meta_video_plays_3s: null,
+          meta_video_plays_15s: null,
+          meta_video_plays_p100: null,
+          meta_engagements: null,
           ad_spend_allocated: null,
           tiktok_spend: null,
           tiktok_impressions: null,
@@ -520,6 +529,7 @@ export function DailyTracker({
             otherSpendByDate: otherSpendMap,
             otherSpendBreakdownByDate: otherBreakdownMap,
             isBrandCampaign,
+            platform: controlled?.awarenessPlatform ?? "all",
           })
         : buildDisplayRows({
             timeline: trackerDisplayTimeline,
@@ -528,6 +538,7 @@ export function DailyTracker({
             otherSpendBreakdownByDate: otherBreakdownMap,
             suppressSyntheticToday,
             isBrandCampaign,
+            platform: controlled?.awarenessPlatform ?? "all",
           }),
     [
       trackerDisplayTimeline,
@@ -537,6 +548,7 @@ export function DailyTracker({
       otherBreakdownMap,
       suppressSyntheticToday,
       isBrandCampaign,
+      controlled?.awarenessPlatform,
     ],
   );
 
@@ -1130,6 +1142,7 @@ function buildDisplayRows({
   otherSpendBreakdownByDate,
   suppressSyntheticToday = false,
   isBrandCampaign,
+  platform,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
@@ -1137,6 +1150,7 @@ function buildDisplayRows({
   otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
   suppressSyntheticToday?: boolean;
   isBrandCampaign: boolean;
+  platform: PlatformKey;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -1172,16 +1186,16 @@ function buildDisplayRows({
       date: r.date,
       source: r.source,
       isSynthetic: false,
-      ad_spend: paidSpendForDisplay(r, isBrandCampaign),
+      ad_spend: paidSpendForDisplay(r, isBrandCampaign, platform),
       meta_ad_spend: r.ad_spend,
       other_spend: otherSpendByDate.get(r.date) ?? null,
       other_spend_tooltip: fmtOtherSpendTooltipLines(
         otherSpendBreakdownByDate?.get(r.date),
       ),
-      link_clicks: paidLinkClicksOf(r),
+      link_clicks: linkClicksForDisplay(r, isBrandCampaign, platform),
       meta_regs: r.meta_regs,
-      impressions: totalImpressionsOf(r),
-      video_views: totalVideoViewsOf(r),
+      impressions: totalImpressionsOf(r, platform),
+      video_views: totalVideoViewsOf(r, platform),
       tickets_sold: r.tickets_sold,
       revenue: r.revenue,
       notes: r.notes,
@@ -1390,12 +1404,14 @@ function buildWeeklyDisplayRows({
   otherSpendByDate = EMPTY_OTHER_SPEND_MAP,
   otherSpendBreakdownByDate,
   isBrandCampaign,
+  platform,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   otherSpendByDate?: ReadonlyMap<string, number>;
   otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
   isBrandCampaign: boolean;
+  platform: PlatformKey;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
@@ -1451,7 +1467,7 @@ function buildWeeklyDisplayRows({
         revenue: null,
         hasManualSource: false,
       } satisfies WeekAgg);
-    const spend = paidSpendForDisplay(r, isBrandCampaign);
+    const spend = paidSpendForDisplay(r, isBrandCampaign, platform);
     if (
       spend > 0 ||
       r.ad_spend !== null ||
@@ -1475,15 +1491,20 @@ function buildWeeklyDisplayRows({
         );
       }
     }
-    const clicks = paidLinkClicksOf(r);
-    if (clicks > 0 || r.link_clicks !== null || r.tiktok_clicks !== null)
+    const clicks = linkClicksForDisplay(r, isBrandCampaign, platform);
+    if (
+      clicks > 0 ||
+      r.link_clicks !== null ||
+      r.tiktok_clicks !== null ||
+      r.google_ads_clicks != null
+    )
       cur.clicks = (cur.clicks ?? 0) + clicks;
     if (r.meta_regs != null)
       cur.regs = (cur.regs ?? 0) + Number(r.meta_regs);
-    const impressions = totalImpressionsOf(r);
+    const impressions = totalImpressionsOf(r, platform);
     if (impressions > 0)
       cur.impressions = (cur.impressions ?? 0) + impressions;
-    const videoViews = totalVideoViewsOf(r);
+    const videoViews = totalVideoViewsOf(r, platform);
     if (videoViews > 0)
       cur.videoViews = (cur.videoViews ?? 0) + videoViews;
     if (r.tickets_sold !== null)
@@ -1677,8 +1698,15 @@ function derive(
   return numerator / denominator;
 }
 
-function paidSpendForDisplay(row: TimelineRow, isBrandCampaign: boolean): number {
+function paidSpendForDisplay(
+  row: TimelineRow,
+  isBrandCampaign: boolean,
+  platform: PlatformKey,
+): number {
   if (!isBrandCampaign) return paidSpendOf(row);
+  if (platform === "meta") return num(row.ad_spend_allocated ?? row.ad_spend);
+  if (platform === "google") return num(row.google_ads_spend);
+  if (platform === "tiktok") return num(row.tiktok_spend);
   return (
     num(row.ad_spend_allocated ?? row.ad_spend) +
     num(row.google_ads_spend) +
@@ -1686,18 +1714,56 @@ function paidSpendForDisplay(row: TimelineRow, isBrandCampaign: boolean): number
   );
 }
 
-function totalImpressionsOf(row: {
-  tiktok_impressions?: number | null;
-  google_ads_impressions?: number | null;
-}): number {
-  return num(row.tiktok_impressions) + num(row.google_ads_impressions);
+function linkClicksForDisplay(
+  row: TimelineRow,
+  isBrandCampaign: boolean,
+  platform: PlatformKey,
+): number {
+  if (!isBrandCampaign) return paidLinkClicksOf(row);
+  if (platform === "meta") return num(row.link_clicks);
+  if (platform === "google") return num(row.google_ads_clicks);
+  if (platform === "tiktok") return num(row.tiktok_clicks);
+  return (
+    num(row.link_clicks) +
+    num(row.google_ads_clicks) +
+    num(row.tiktok_clicks)
+  );
 }
 
-function totalVideoViewsOf(row: {
-  tiktok_video_views?: number | null;
-  google_ads_video_views?: number | null;
-}): number {
-  return num(row.tiktok_video_views) + num(row.google_ads_video_views);
+function totalImpressionsOf(
+  row: {
+    meta_impressions?: number | null;
+    tiktok_impressions?: number | null;
+    google_ads_impressions?: number | null;
+  },
+  platform: PlatformKey,
+): number {
+  if (platform === "meta") return num(row.meta_impressions);
+  if (platform === "google") return num(row.google_ads_impressions);
+  if (platform === "tiktok") return num(row.tiktok_impressions);
+  return (
+    num(row.meta_impressions) +
+    num(row.tiktok_impressions) +
+    num(row.google_ads_impressions)
+  );
+}
+
+function totalVideoViewsOf(
+  row: {
+    meta_video_plays_3s?: number | null;
+    tiktok_video_views?: number | null;
+    google_ads_video_views?: number | null;
+  },
+  platform: PlatformKey,
+): number {
+  if (platform === "meta") return num(row.meta_video_plays_3s);
+  if (platform === "google") return num(row.google_ads_video_views);
+  if (platform === "tiktok") return num(row.tiktok_video_views);
+  return (
+    num(row.meta_video_plays_3s) +
+    num(row.tiktok_video_views) +
+    num(row.google_ads_video_views)
+  );
 }
 
 function fmtMoney(n: number | null): string {

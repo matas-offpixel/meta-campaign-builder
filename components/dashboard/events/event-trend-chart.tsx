@@ -70,6 +70,8 @@ interface Props {
   kind?: string | null;
   defaultGranularity?: TrendGranularity;
   showGranularityToggle?: boolean;
+  awarenessPlatform?: PlatformKey;
+  onAwarenessPlatformChange?: (platform: PlatformKey) => void;
 }
 
 function timelineToPoints(timeline: TimelineRow[]): TrendChartPoint[] {
@@ -122,6 +124,8 @@ export function EventTrendChart(props: Props) {
         title={props.title}
         defaultGranularity={props.defaultGranularity ?? "daily"}
         showGranularityToggle={props.showGranularityToggle ?? true}
+        platform={props.awarenessPlatform}
+        onPlatformChange={props.onAwarenessPlatformChange}
       />
     );
   }
@@ -487,7 +491,7 @@ function LegacyTrendChart({
 }
 
 type AwarenessMetricKey = "spend" | "impressions" | "clicks" | "videoViews";
-type PlatformKey = "all" | "meta" | "google" | "tiktok";
+export type PlatformKey = "all" | "meta" | "google" | "tiktok";
 
 const AWARENESS_METRICS: {
   key: AwarenessMetricKey;
@@ -513,18 +517,23 @@ function AwarenessTrendChart({
   title,
   defaultGranularity,
   showGranularityToggle,
+  platform: controlledPlatform,
+  onPlatformChange,
 }: {
   timeline: TimelineRow[];
   className?: string;
   title?: string;
   defaultGranularity: TrendGranularity;
   showGranularityToggle: boolean;
+  platform?: PlatformKey;
+  onPlatformChange?: (platform: PlatformKey) => void;
 }) {
   const [granularity, setGranularity] =
     useState<TrendGranularity>(defaultGranularity);
-  const [platform, setPlatform] = useState<PlatformKey>("all");
+  const [internalPlatform, setInternalPlatform] = useState<PlatformKey>("all");
   const [metrics, setMetrics] = useState<AwarenessMetricKey[]>(["spend"]);
   const [hover, setHover] = useState<{ index: number; chartWidth: number } | null>(null);
+  const platform = controlledPlatform ?? internalPlatform;
   const rows = useMemo(
     () => buildAwarenessRows(timeline, granularity),
     [timeline, granularity],
@@ -595,7 +604,14 @@ function AwarenessTrendChart({
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {platformOptions.map((p) => (
-            <Pill key={p} active={activePlatform === p} onClick={() => setPlatform(p)}>
+            <Pill
+              key={p}
+              active={activePlatform === p}
+              onClick={() => {
+                if (controlledPlatform === undefined) setInternalPlatform(p);
+                onPlatformChange?.(p);
+              }}
+            >
               {p === "all" ? "All" : PLATFORM_META[p].label}
             </Pill>
           ))}
@@ -792,9 +808,9 @@ function platformValues(
   if (platform === "meta") {
     return {
       spend: Number(row.ad_spend_allocated ?? row.ad_spend ?? 0),
-      impressions: Number((row as { impressions?: number | null }).impressions ?? 0),
+      impressions: Number(row.meta_impressions ?? 0),
       clicks: Number(row.link_clicks ?? 0),
-      videoViews: Number((row as { meta_video_views?: number | null }).meta_video_views ?? 0),
+      videoViews: Number(row.meta_video_plays_3s ?? 0),
     };
   }
   if (platform === "google") {

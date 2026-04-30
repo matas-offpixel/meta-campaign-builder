@@ -23,7 +23,7 @@ export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData 
   const row2 = [
     { label: "Engagements", value: fmtInt(t.engagements) },
     { label: "Avg CPC", value: fmtMoney(t.averageCpc) },
-    { label: "Cost per video view", value: fmtMoney(t.costPerVideoView) },
+    { label: "Cost per video view", value: fmtMoneyOrPence(t.costPerVideoView) },
     { label: "View-through rate", value: fmtPct(t.viewThroughRate) },
   ];
   const row3 = [
@@ -45,7 +45,7 @@ export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData 
         {hasVideo ? <StatGrid cards={row3} /> : null}
         {t.cpm != null || t.costPerEngagement != null ? (
           <p className="px-1 text-[11px] text-muted-foreground">
-            CPM {fmtMoney(t.cpm)} · CPE {fmtMoney(t.costPerEngagement)}
+            CPM {fmtMoney(t.cpm)} · CPE {fmtMoneyOrPence(t.costPerEngagement)}
           </p>
         ) : null}
       </div>
@@ -233,6 +233,11 @@ function BreakdownTable({ rows }: { rows: GoogleAdsBreakdownRow[] }) {
 
 const GBP = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 2 });
 const fmtMoney = (value: number | null) => (value == null ? "—" : GBP.format(value));
+const fmtMoneyOrPence = (value: number | null) => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value < 0.01) return `${(value * 100).toFixed(1)}p`;
+  return GBP.format(value);
+};
 const fmtInt = (value: number) => Math.round(value).toLocaleString("en-GB");
 const fmtNullableInt = (value: number | null) => (value == null ? "—" : fmtInt(value));
 const fmtPct = (value: number | null) => (value == null ? "—" : `${value.toFixed(2)}%`);
