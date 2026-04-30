@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import { fetchGoogleAdsEventCampaignInsights } from "../insights.ts";
+import { fetchGoogleAdsDailyRollupInsights } from "../rollup-insights.ts";
 
 function fakeClient(rows: unknown[]) {
   return {
@@ -140,5 +141,50 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
     });
 
     assert.deepEqual(rows, []);
+  });
+});
+
+describe("fetchGoogleAdsDailyRollupInsights", () => {
+  it("builds a segments.date GAQL query and derives video views from p25 rate", async () => {
+    let gaql = "";
+    const rows = await fetchGoogleAdsDailyRollupInsights({
+      customerId: "333-703-8088",
+      refreshToken: "refresh-token",
+      eventCode: "BB26-KAYODE",
+      since: "2026-04-23",
+      until: "2026-04-30",
+      client: {
+        async query<T>(_credentials: unknown, query: string): Promise<T> {
+          gaql = query;
+          return [
+            {
+              campaign: { id: "1", name: "YouTube - BB26-KAYODE - Awareness" },
+              segments: { date: "2026-04-30" },
+              metrics: {
+                cost_micros: "15000000",
+                impressions: "100000",
+                clicks: "200",
+                conversions: "0",
+                engagements: "12000",
+                video_quartile_p25_rate: "0.64",
+              },
+            },
+          ] as T;
+        },
+      },
+    });
+
+    assert.match(gaql, /segments\.date/);
+    assert.match(gaql, /metrics\.video_quartile_p25_rate/);
+    assert.deepEqual(rows, [
+      {
+        date: "2026-04-30",
+        google_ads_spend: 15,
+        google_ads_impressions: 100000,
+        google_ads_clicks: 200,
+        google_ads_conversions: 0,
+        google_ads_video_views: 64000,
+      },
+    ]);
   });
 });

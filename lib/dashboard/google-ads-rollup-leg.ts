@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { GoogleAdsCredentials } from "@/lib/google-ads/credentials";
-import type { GoogleAdsDailyInsightRow } from "@/lib/google-ads/rollup-insights";
+import type { GoogleAdsCredentials } from "../google-ads/credentials.ts";
+import type { GoogleAdsDailyInsightRow } from "../google-ads/rollup-insights.ts";
+import { eachInclusiveYmd } from "./rollup-date-range.ts";
 
 export interface GoogleAdsRollupDeps {
   getCredentials: (
@@ -98,22 +99,25 @@ export async function runGoogleAdsRollupLeg(
       since: args.since,
       until: args.until,
     });
+    const paddedRows = zeroPadGoogleAdsRows(rows, {
+      since: args.since,
+      until: args.until,
+    });
     if (rows.length === 0) {
-      result.reason = "no_rows";
-      result.error = "No Google Ads campaigns matched this event_code in the sync window.";
-      console.log(`[rollup-sync][google-ads] no rows event_id=${args.eventId}`);
-      return result;
+      console.log(
+        `[rollup-sync][google-ads] no rows event_id=${args.eventId}; zero-padding window rows=${paddedRows.length}`,
+      );
     }
 
     await args.deps.upsertRollups(args.supabase, {
       userId: args.userId,
       eventId: args.eventId,
-      rows,
+      rows: paddedRows,
     });
     result.ok = true;
-    result.rowsWritten = rows.length;
+    result.rowsWritten = paddedRows.length;
     console.log(
-      `[rollup-sync][google-ads] upsert ok event_id=${args.eventId} rows_written=${rows.length}`,
+      `[rollup-sync][google-ads] upsert ok event_id=${args.eventId} rows_written=${paddedRows.length} source_rows=${rows.length}`,
     );
     return result;
   } catch (err) {
@@ -124,6 +128,29 @@ export async function runGoogleAdsRollupLeg(
     );
     return result;
   }
+}
+
+function zeroPadGoogleAdsRows(
+  rows: GoogleAdsDailyInsightRow[],
+  window: { since: string; until: string },
+): GoogleAdsDailyInsightRow[] {
+  const byDate = new Map<string, GoogleAdsDailyInsightRow>();
+  for (const row of rows) {
+    byDate.set(row.date, row);
+  }
+  for (const date of eachInclusiveYmd(window.since, window.until)) {
+    if (!byDate.has(date)) {
+      byDate.set(date, {
+        date,
+        google_ads_spend: 0,
+        google_ads_impressions: 0,
+        google_ads_clicks: 0,
+        google_ads_conversions: 0,
+        google_ads_video_views: 0,
+      });
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 async function readGoogleAdsAccount(

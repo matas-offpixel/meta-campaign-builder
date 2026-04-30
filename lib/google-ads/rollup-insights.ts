@@ -60,6 +60,7 @@ interface GoogleAdsDailyCampaignRow {
     clicks?: string | number | null;
     conversions?: string | number | null;
     engagements?: string | number | null;
+    video_quartile_p25_rate?: string | number | null;
   };
 }
 
@@ -104,7 +105,7 @@ export async function fetchGoogleAdsDailyRollupInsights(
     existing.google_ads_impressions += numberMetric(metrics.impressions);
     existing.google_ads_clicks += numberMetric(metrics.clicks);
     existing.google_ads_conversions += numberMetric(metrics.conversions);
-    existing.google_ads_video_views += numberMetric(metrics.engagements);
+    existing.google_ads_video_views += videoViews25(metrics);
     byDate.set(date, existing);
   }
 
@@ -151,7 +152,8 @@ function buildDailyRollupQuery(window: { since: string; until: string }): string
       metrics.impressions,
       metrics.clicks,
       metrics.conversions,
-      metrics.engagements
+      metrics.engagements,
+      metrics.video_quartile_p25_rate
     FROM campaign
     WHERE segments.date BETWEEN '${window.since}' AND '${window.until}'
       AND campaign.status != 'REMOVED'
@@ -174,6 +176,13 @@ function numberMetric(value: string | number | null | undefined): number {
   if (typeof value !== "string") return 0;
   const parsed = Number.parseFloat(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function videoViews25(metrics: GoogleAdsDailyCampaignRow["metrics"]): number {
+  const impressions = numberMetric(metrics?.impressions);
+  const rate = numberMetric(metrics?.video_quartile_p25_rate);
+  if (impressions > 0 && rate > 0) return impressions * rate;
+  return numberMetric(metrics?.engagements);
 }
 
 function round2(n: number): number {

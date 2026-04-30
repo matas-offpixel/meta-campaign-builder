@@ -7,14 +7,23 @@ import {
   type RunTikTokRollupLegInput,
   type TikTokRollupDeps,
 } from "../tiktok-rollup-leg.ts";
+import {
+  runGoogleAdsRollupLeg,
+  type GoogleAdsRollupDeps,
+  type RunGoogleAdsRollupLegInput,
+} from "../google-ads-rollup-leg.ts";
 import { shouldInvokeVenueAllocator } from "../venue-allocator-trigger.ts";
 import { TikTokApiError } from "../../tiktok/client.ts";
 import type { TikTokDailyInsightRow } from "../../tiktok/rollup-insights.ts";
+import type { GoogleAdsCredentials } from "../../google-ads/credentials.ts";
+import type { GoogleAdsDailyInsightRow } from "../../google-ads/rollup-insights.ts";
 
 function fakeSupabase(options?: {
   tiktokAdvertiserId?: string | null;
+  googleCustomerId?: string | null;
 }): SupabaseClient {
   const tiktokAdvertiserId = options?.tiktokAdvertiserId ?? "advertiser-1";
+  const googleCustomerId = options?.googleCustomerId ?? "333-703-8088";
   return {
     from(table: string) {
       if (table === "event_ticketing_links") {
@@ -72,9 +81,78 @@ function fakeSupabase(options?: {
           },
         };
       }
+      if (table === "google_ads_accounts") {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  eq() {
+                    return {
+                      maybeSingle() {
+                        return Promise.resolve({
+                          data:
+                            googleCustomerId === null
+                              ? null
+                              : {
+                                  id: "gads-account-1",
+                                  google_customer_id: googleCustomerId,
+                                  login_customer_id: "999-999-9999",
+                                },
+                          error: null,
+                        });
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
       throw new Error(`Unexpected table ${table}`);
     },
   } as unknown as SupabaseClient;
+}
+
+function googleInput(overrides: {
+  googleAdsAccountId?: string | null;
+  fetchDailyInsights?: () => Promise<GoogleAdsDailyInsightRow[]>;
+  getCredentials?: () => Promise<GoogleAdsCredentials | null>;
+} = {}): { input: RunGoogleAdsRollupLegInput; upserted: GoogleAdsDailyInsightRow[][] } {
+  const upserted: GoogleAdsDailyInsightRow[][] = [];
+  const deps: GoogleAdsRollupDeps = {
+    getCredentials: async () =>
+      overrides.getCredentials
+        ? overrides.getCredentials()
+        : {
+            access_token: "access-token",
+            refresh_token: "refresh-token",
+            customer_id: "333-703-8088",
+            login_customer_id: "999-999-9999",
+          },
+    fetchDailyInsights: async () =>
+      overrides.fetchDailyInsights ? overrides.fetchDailyInsights() : [],
+    upsertRollups: async (_supabase, args) => {
+      upserted.push(args.rows);
+    },
+  };
+  return {
+    upserted,
+    input: {
+      supabase: fakeSupabase(),
+      eventId: "event-1",
+      userId: "user-1",
+      eventCode: "BB26-KAYODE",
+      googleAdsAccountId:
+        "googleAdsAccountId" in overrides
+          ? (overrides.googleAdsAccountId ?? null)
+          : "gads-account-1",
+      since: "2026-04-28",
+      until: "2026-04-30",
+      deps,
+    },
+  };
 }
 
 function baseInput(overrides: {
@@ -206,6 +284,67 @@ describe("runRollupSyncForEvent TikTok leg", () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, "no_credentials");
     assert.equal(upserted.length, 0);
+  });
+});
+
+describe("runRollupSyncForEvent Google Ads leg", () => {
+  it("skips Google Ads when event and client have no google_ads_account_id", async () => {
+    const { input, upserted } = googleInput({ googleAdsAccountId: null });
+
+    const result = await runGoogleAdsRollupLeg(input);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "no_google_ads_account");
+    assert.equal(upserted.length, 0);
+  });
+
+  it("zero-pads the full sync window before upsert", async () => {
+    const rows: GoogleAdsDailyInsightRow[] = [
+      {
+        date: "2026-04-29",
+        google_ads_spend: 42.5,
+        google_ads_impressions: 1000,
+        google_ads_clicks: 25,
+        google_ads_conversions: 3,
+        google_ads_video_views: 600,
+      },
+    ];
+    const { input, upserted } = googleInput({
+      fetchDailyInsights: async () => rows,
+    });
+
+    const result = await runGoogleAdsRollupLeg(input);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.rowsWritten, 3);
+    assert.equal(upserted.length, 1);
+    assert.deepEqual(
+      upserted[0]?.map((row) => ({
+        date: row.date,
+        spend: row.google_ads_spend,
+        impressions: row.google_ads_impressions,
+      })),
+      [
+        { date: "2026-04-28", spend: 0, impressions: 0 },
+        { date: "2026-04-29", spend: 42.5, impressions: 1000 },
+        { date: "2026-04-30", spend: 0, impressions: 0 },
+      ],
+    );
+  });
+
+  it("writes zero rows for connected events with no matching campaigns", async () => {
+    const { input, upserted } = googleInput({
+      fetchDailyInsights: async () => [],
+    });
+
+    const result = await runGoogleAdsRollupLeg(input);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.rowsWritten, 3);
+    assert.deepEqual(
+      upserted[0]?.map((row) => row.google_ads_spend),
+      [0, 0, 0],
+    );
   });
 });
 

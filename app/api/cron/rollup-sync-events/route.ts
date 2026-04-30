@@ -123,13 +123,13 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Pull the union of:
-  //   - events with at least one event_ticketing_links row, and
-  //   - events whose `general_sale_at` is within the last 60 days
+  // Pull:
+  //   - the existing ticketing/date intersection, plus
+  //   - events with event-level Google Ads connected.
   // We query separately and merge on event id, because Supabase's
   // PostgREST doesn't expose a clean OR across a join + a column.
-  // Each query is small (tens of rows on the current 4tF roster),
-  // so a client-side union is cheaper than wiring an RPC.
+  // This also keeps brand campaigns with Google Ads but no ticketing
+  // link (for example BB26-KAYODE) eligible for daily rollups.
 
   // Window: include the next 60 days too so we keep tracking events
   // currently in pre-sale. Past-event window is 60 days as well so
@@ -175,13 +175,30 @@ export async function GET(req: NextRequest) {
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
 
-  // Intersection. The user spec asks for events with BOTH an active
-  // ticketing connection AND a general_sale_at within the last 60
-  // days — we honor that intersection here. (Events with a ticketing
-  // link but `general_sale_at` outside the window are skipped — they
-  // either haven't been planned yet or are old enough that the
-  // rollup window itself doesn't cover them.)
-  const eligibleIds = Array.from(linkedIds).filter((id) => dateIds.has(id));
+  // 3) Events with event-level Google Ads accounts. These may be
+  // awareness campaigns with no ticketing link / general_sale_at.
+  const { data: googleAdsRows, error: googleAdsErr } = await supabase
+    .from("events")
+    .select("id")
+    .not("google_ads_account_id", "is", null);
+  if (googleAdsErr) {
+    return NextResponse.json(
+      { ok: false, error: googleAdsErr.message },
+      { status: 500 },
+    );
+  }
+  const googleAdsIds = new Set<string>(
+    (googleAdsRows ?? [])
+      .map((r) => (r as { id: string }).id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
+  const ticketingEligibleIds = Array.from(linkedIds).filter((id) =>
+    dateIds.has(id),
+  );
+  const eligibleIds = Array.from(
+    new Set([...ticketingEligibleIds, ...googleAdsIds]),
+  );
 
   if (eligibleIds.length === 0) {
     const finishedAt = new Date().toISOString();
@@ -246,6 +263,9 @@ export async function GET(req: NextRequest) {
       const clientGoogleAdsAccountId = Array.isArray(clientRel)
         ? (clientRel[0]?.google_ads_account_id ?? null)
         : (clientRel?.google_ads_account_id ?? null);
+      const hasGoogleAdsAccount = Boolean(
+        event.google_ads_account_id ?? clientGoogleAdsAccountId,
+      );
 
       const result = await runRollupSyncForEvent({
         supabase,
@@ -263,9 +283,12 @@ export async function GET(req: NextRequest) {
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;
+      const eventOk =
+        result.summary.synced &&
+        (!hasGoogleAdsAccount || result.summary.googleAdsOk);
       results.push({
         eventId: event.id,
-        ok: result.ok,
+        ok: eventOk,
         metaOk: result.summary.metaOk,
         metaError: result.summary.metaError,
         eventbriteOk: result.summary.eventbriteOk,
