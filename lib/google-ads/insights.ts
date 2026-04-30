@@ -204,9 +204,7 @@ interface GoogleAdsGeoApiRow {
     country_criterion_id?: string | number | null;
     country_criterion?: string | number | null;
   };
-  country_view?: {
-    country_criterion_id?: string | number | null;
-  };
+  segments?: { geo_target_country?: string | null };
   metrics?: GoogleAdsCampaignRow["metrics"];
 }
 interface GoogleAdsAgeApiRow {
@@ -267,12 +265,11 @@ function buildCreativeInsightsQuery(
 function buildGeoQuery(window: { since: string; until: string }, campaignIds: string[]): string {
   const since = requireIsoDate(window.since, "since");
   const until = requireIsoDate(window.until, "until");
-  void campaignIds;
   return [
-    "SELECT country_view.country_criterion_id, metrics.cost_micros, metrics.impressions, metrics.clicks",
-    "FROM country_view",
+    "SELECT segments.geo_target_country, metrics.cost_micros, metrics.impressions, metrics.clicks",
+    "FROM geographic_view",
     `WHERE segments.date BETWEEN '${since}' AND '${until}'`,
-    "AND metrics.impressions > 0",
+    `AND campaign.id IN (${campaignIds.join(",")})`,
     "ORDER BY metrics.impressions DESC",
     "LIMIT 10",
   ].join(" ");
@@ -361,7 +358,7 @@ function mapBreakdownRows(
     const label =
       kind === "geo"
         ? geoLabel(
-            (row as GoogleAdsGeoApiRow).country_view?.country_criterion_id ??
+            (row as GoogleAdsGeoApiRow).segments?.geo_target_country ??
               (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion_id ??
               (row as GoogleAdsGeoApiRow).geographic_view?.country_criterion,
           )
