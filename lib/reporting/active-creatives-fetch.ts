@@ -25,6 +25,7 @@ import {
   extractPreview,
   type RawCreative,
 } from "@/lib/reporting/creative-preview-extract";
+import type { ActiveCreativeThumbnailSource } from "@/lib/reporting/active-creatives-group";
 
 /**
  * lib/reporting/active-creatives-fetch.ts
@@ -305,6 +306,24 @@ function extractCopy(
     oss?.video_data?.message?.trim() ||
     null;
   return { headline, body };
+}
+
+function extractThumbnailSource(
+  creative: RawCreative | undefined,
+): ActiveCreativeThumbnailSource {
+  const oss = creative?.object_story_spec;
+  return {
+    video_id:
+      oss?.video_data?.video_id?.trim() ||
+      creative?.video_id?.trim() ||
+      creative?.asset_feed_spec?.videos?.[0]?.video_id?.trim() ||
+      null,
+    image_hash:
+      creative?.image_hash?.trim() ||
+      oss?.link_data?.image_hash?.trim() ||
+      creative?.asset_feed_spec?.images?.[0]?.hash?.trim() ||
+      null,
+  };
 }
 
 /**
@@ -1407,6 +1426,7 @@ export async function fetchActiveCreativesForEvent(
     // already computed two lines above so this is zero extra cost.
     ad.thumbnail_url =
       creative.thumbnail_url?.trim() || preview.image_url || null;
+    ad.thumbnail_source = extractThumbnailSource(creative);
     ad.effective_object_story_id =
       creative.effective_object_story_id?.trim() || null;
     ad.object_story_id = creative.object_story_id?.trim() || null;

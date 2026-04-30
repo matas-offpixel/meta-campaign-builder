@@ -81,6 +81,11 @@ export interface CreativePreview {
   tier?: PreviewTier;
 }
 
+export interface ActiveCreativeThumbnailSource {
+  video_id: string | null;
+  image_hash: string | null;
+}
+
 export interface AdInput {
   ad_id: string;
   ad_name: string | null;
@@ -96,6 +101,7 @@ export interface AdInput {
   /** Body / primary text. */
   body: string | null;
   thumbnail_url: string | null;
+  thumbnail_source?: ActiveCreativeThumbnailSource;
   /**
    * Meta's stable post identifier. Two different `creative_id`s
    * pointing at the SAME page post (e.g. an ad that was duplicated
@@ -184,6 +190,7 @@ export interface CreativeRow {
   thumbnail_ad_id: string | null;
   /** Spend for the ad that supplied `thumbnail_url`; null when no thumbnail resolved. */
   thumbnail_spend: number | null;
+  thumbnail_source: ActiveCreativeThumbnailSource;
   /** Same-post identifier used by the second-layer asset-hash grouper. */
   effective_object_story_id: string | null;
   object_story_id: string | null;
@@ -377,6 +384,7 @@ interface Accumulator {
   body: string | null;
   thumbnail_url: string | null;
   thumbnail_ad_id: string | null;
+  thumbnail_source: ActiveCreativeThumbnailSource;
   effective_object_story_id: string | null;
   object_story_id: string | null;
   primary_asset_signature: string | null;
@@ -417,6 +425,13 @@ function emptyPreview(): CreativePreview {
     body: null,
     call_to_action_type: null,
     link_url: null,
+  };
+}
+
+function emptyThumbnailSource(): ActiveCreativeThumbnailSource {
+  return {
+    video_id: null,
+    image_hash: null,
   };
 }
 
@@ -463,6 +478,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       body: ad.body,
       thumbnail_url: ad.thumbnail_url,
       thumbnail_ad_id: ad.thumbnail_url ? ad.ad_id : null,
+      thumbnail_source: ad.thumbnail_source ?? emptyThumbnailSource(),
       effective_object_story_id: ad.effective_object_story_id,
       object_story_id: ad.object_story_id,
       primary_asset_signature: ad.primary_asset_signature,
@@ -547,6 +563,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       acc.thumbnailSpend = adSpend;
       acc.thumbnail_url = ad.thumbnail_url;
       acc.thumbnail_ad_id = ad.ad_id;
+      acc.thumbnail_source = ad.thumbnail_source ?? emptyThumbnailSource();
     }
 
     // Preview tracking: top-spend ad's payload wins. Tie on first-seen
@@ -591,6 +608,7 @@ export function groupAdsByCreative(ads: readonly AdInput[]): CreativeRow[] {
       thumbnail_spend: Number.isFinite(acc.thumbnailSpend)
         ? acc.thumbnailSpend
         : null,
+      thumbnail_source: acc.thumbnail_source,
       effective_object_story_id: acc.effective_object_story_id,
       object_story_id: acc.object_story_id,
       primary_asset_signature: acc.primary_asset_signature,

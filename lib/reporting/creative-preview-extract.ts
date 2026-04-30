@@ -13,6 +13,7 @@ export interface RawCreative {
   body?: string;
   thumbnail_url?: string;
   image_url?: string;
+  image_hash?: string;
   video_id?: string;
   object_story_id?: string;
   effective_object_story_id?: string;
