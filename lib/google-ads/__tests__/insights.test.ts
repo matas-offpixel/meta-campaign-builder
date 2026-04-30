@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
-import { fetchGoogleAdsEventCampaignInsights } from "../insights.ts";
+import { fetchGoogleAdsEventCampaignInsights, fetchGoogleAdsShareExtras } from "../insights.ts";
 import { fetchGoogleAdsDailyRollupInsights } from "../rollup-insights.ts";
 
 function fakeClient(rows: unknown[]) {
@@ -186,5 +186,51 @@ describe("fetchGoogleAdsDailyRollupInsights", () => {
         google_ads_video_views: 64000,
       },
     ]);
+  });
+});
+
+describe("fetchGoogleAdsShareExtras", () => {
+  it("queries Top Regions via country_view without campaign.id filtering", async () => {
+    const queries: string[] = [];
+    const extras = await fetchGoogleAdsShareExtras({
+      customerId: "288-501-5945",
+      refreshToken: "refresh-token",
+      loginCustomerId: "333-703-8088",
+      eventCode: "BB26-KAYODE",
+      window: { since: "2026-04-23", until: "2026-04-30" },
+      campaignIds: ["1234567890"],
+      client: {
+        async query<T>(_credentials: unknown, query: string): Promise<T> {
+          queries.push(query);
+          if (query.includes("FROM country_view")) {
+            return [
+              {
+                country_view: { country_criterion_id: "geoTargetConstants/2566" },
+                metrics: { cost_micros: "10000000", impressions: "398839", clicks: "100" },
+              },
+              {
+                country_view: { country_criterion_id: 2826 },
+                metrics: { cost_micros: "1000000", impressions: "5247", clicks: "10" },
+              },
+            ] as T;
+          }
+          return [] as T;
+        },
+      },
+    });
+
+    const geoQuery = queries.find((query) => query.includes("FROM country_view")) ?? "";
+    assert.match(geoQuery, /country_view\.country_criterion_id/);
+    assert.doesNotMatch(geoQuery, /campaign\.id IN/);
+    assert.deepEqual(
+      extras.demographics.regions.map((row) => ({
+        label: row.label,
+        impressions: row.impressions,
+      })),
+      [
+        { label: "Nigeria", impressions: 398839 },
+        { label: "United Kingdom", impressions: 5247 },
+      ],
+    );
   });
 });
