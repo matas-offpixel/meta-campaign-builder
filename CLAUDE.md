@@ -72,13 +72,24 @@ Managed by `components/wizard/wizard-shell.tsx`, receives `draftId` from `/campa
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+TIKTOK_APP_ID=
+TIKTOK_APP_SECRET=
+TIKTOK_REDIRECT_URI=
+TIKTOK_TOKEN_KEY=
+OFFPIXEL_TIKTOK_WRITES_ENABLED=
+GOOGLE_ADS_DEVELOPER_TOKEN=
+GOOGLE_ADS_CLIENT_ID=
+GOOGLE_ADS_CLIENT_SECRET=
+GOOGLE_ADS_REDIRECT_URI=
+GOOGLE_ADS_TOKEN_KEY=
+EVENTBRITE_TOKEN_KEY=
 ```
 
 ### Database
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `051_drop_deprecated_columns.sql`.
+**Latest migration:** `064_event_daily_rollups_google_ads_columns.sql`.
 
 Notable recently-added tables / columns (dashboard-era, April 2026):
 
@@ -102,6 +113,24 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   (see `lib/ticketing/manual/provider.ts`).
 - `events.total_marketing_budget` was DROPPED in 051 — the total is
   computed live from plan paid media + additional spend entries.
+- TikTok pipeline (April 2026): `tiktok_accounts` (encrypted credentials,
+  migration 054), `tiktok_active_creatives_snapshots` (057),
+  `tiktok_campaign_drafts` + `tiktok_campaign_templates` (058),
+  `tiktok_rollup_breakdowns` (059), `tiktok_write_idempotency` (062). Full
+  integration including OAuth, rollup, share, breakdowns, wizard, library,
+  brief export, and write-API foundation behind feature flag.
+- Google Ads pipeline (April 2026): `google_ads_accounts` (encrypted
+  credentials, migration 060), `event_daily_rollups_google_ads_columns` (064).
+  Includes YouTube via Video campaign subtype. MCC 333-703-8088, Basic Access,
+  15k ops/day.
+- Creative tagging foundation (April 2026): `creative_tags` +
+  `creative_tag_assignments` + `creative_scores` (migration 061).
+  Motion-replacement Phase 1 schema; Phase 2 AI tagging unblocks once tags
+  seed.
+- Snapshot cache auto-invalidation: `build_version` column on
+  `active_creatives_snapshots` and `tiktok_active_creatives_snapshots` stamped
+  with `VERCEL_GIT_COMMIT_SHA`; readers treat mismatched/NULL as stale across
+  deploys.
 
 ### Canonical spec
 
