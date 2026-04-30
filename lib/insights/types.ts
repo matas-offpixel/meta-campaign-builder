@@ -1,3 +1,5 @@
+import type { FunnelStage } from "@/lib/dashboard/funnel-stage-classifier";
+
 /**
  * lib/insights/types.ts
  *
@@ -66,7 +68,9 @@ export interface MetaTotals {
 export interface MetaCampaignRow {
   id: string;
   name: string;
+  objective: string | null;
   status: string;
+  funnelStage: FunnelStage;
   spend: number;
   impressions: number;
   reach: number;
