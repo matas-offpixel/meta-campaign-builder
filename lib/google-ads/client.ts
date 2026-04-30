@@ -129,6 +129,13 @@ export class GoogleAdsClient {
       } catch (err) {
         lastError = err;
         const decision = classifyGoogleAdsRetry({ error: err, attempt });
+        const details = googleAdsInvalidArgumentDetails(err);
+        if (details) {
+          console.error(
+            "[googleAds] INVALID_ARGUMENT details:",
+            JSON.stringify(details, null, 2),
+          );
+        }
         console.error("[googleAds] request failed", {
           label,
           attempt,
@@ -227,6 +234,12 @@ function camelToSnake(value: string): string {
 function errorConstructorName(error: unknown): string {
   if (!error || typeof error !== "object") return typeof error;
   return error.constructor?.name ?? "unknown";
+}
+
+function googleAdsInvalidArgumentDetails(error: unknown): unknown[] | null {
+  const response = (error as { response?: { data?: { error?: { status?: string; details?: unknown } } } } | null)?.response;
+  if (response?.data?.error?.status !== "INVALID_ARGUMENT") return null;
+  return Array.isArray(response.data.error.details) ? response.data.error.details : [];
 }
 
 function safeStringify(value: unknown): string {

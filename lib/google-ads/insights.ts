@@ -108,26 +108,25 @@ async function createDefaultClient(): Promise<GoogleAdsQueryClient> {
 }
 
 function buildCampaignInsightsQuery(window: { since: string; until: string }): string {
-  return `
-    SELECT
-      campaign.id,
-      campaign.name,
-      campaign.status,
-      campaign.advertising_channel_type,
-      campaign.advertising_channel_sub_type,
-      metrics.cost_micros,
-      metrics.impressions,
-      metrics.clicks,
-      metrics.ctr,
-      metrics.average_cpm,
-      metrics.video_views,
-      metrics.conversions
-    FROM campaign
-    WHERE segments.date BETWEEN '${window.since}' AND '${window.until}'
-      AND campaign.status != 'REMOVED'
-      AND campaign.advertising_channel_type IN ('SEARCH', 'VIDEO')
-    ORDER BY metrics.cost_micros DESC
-  `;
+  const since = requireIsoDate(window.since, "since");
+  const until = requireIsoDate(window.until, "until");
+  return [
+    "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,",
+    "campaign.advertising_channel_sub_type, metrics.cost_micros, metrics.impressions,",
+    "metrics.clicks, metrics.ctr, metrics.average_cpm, metrics.video_views, metrics.conversions",
+    "FROM campaign",
+    `WHERE segments.date BETWEEN '${since}' AND '${until}'`,
+    "AND campaign.status != 'REMOVED'",
+    "AND campaign.advertising_channel_type IN (SEARCH, VIDEO)",
+    "ORDER BY metrics.cost_micros DESC",
+  ].join(" ");
+}
+
+function requireIsoDate(value: string, field: "since" | "until"): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`Google Ads insights window.${field} must be YYYY-MM-DD.`);
+  }
+  return value;
 }
 
 function microsToCurrency(value: string | number | null | undefined): number {
