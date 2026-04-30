@@ -8,6 +8,15 @@ export type CampaignDisplayStatus =
 
 export type CampaignStatusReason = "no_delivery_24h";
 
+export const STATUS_PRIORITY: Record<CampaignDisplayStatus, number> = {
+  ACTIVE: 0,
+  WITH_ISSUES: 1,
+  NOT_DELIVERING: 2,
+  PAUSED: 3,
+  ARCHIVED: 4,
+  UNKNOWN: 5,
+};
+
 const DISPLAY_STATUS_BY_META_EFFECTIVE_STATUS: Record<
   string,
   CampaignDisplayStatus
@@ -67,6 +76,17 @@ export function campaignStatusReasonLabel(
     case "no_delivery_24h":
       return "(no delivery in 24h)";
   }
+}
+
+export function sortCampaignsByStatusThenSpend<
+  T extends { status: string; spend: number },
+>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const aPri = STATUS_PRIORITY[a.status as CampaignDisplayStatus] ?? 999;
+    const bPri = STATUS_PRIORITY[b.status as CampaignDisplayStatus] ?? 999;
+    if (aPri !== bPri) return aPri - bPri;
+    return b.spend - a.spend;
+  });
 }
 
 export function campaignStatusTone(status: string): string {

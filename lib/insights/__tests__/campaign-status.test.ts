@@ -7,6 +7,7 @@ import {
   campaignStatusLabel,
   campaignStatusTone,
   normaliseMetaCampaignStatus,
+  sortCampaignsByStatusThenSpend,
 } from "../campaign-status.ts";
 
 test("normaliseMetaCampaignStatus maps Meta effective_status values", () => {
@@ -105,5 +106,32 @@ test("delivery heuristic leaves PAUSED and WITH_ISSUES statuses unchanged", () =
       impressionsLast24h: 0,
     }),
     { status: "WITH_ISSUES" },
+  );
+});
+
+test("sortCampaignsByStatusThenSpend renders ACTIVE before PAUSED, spend within groups", () => {
+  const rows = [
+    { id: "paused-high", status: "PAUSED", spend: 900 },
+    { id: "active-low", status: "ACTIVE", spend: 100 },
+    { id: "not-delivering-high", status: "NOT_DELIVERING", spend: 800 },
+    { id: "active-high", status: "ACTIVE", spend: 300 },
+    { id: "paused-low", status: "PAUSED", spend: 50 },
+    { id: "issues", status: "WITH_ISSUES", spend: 200 },
+    { id: "archived", status: "ARCHIVED", spend: 700 },
+    { id: "unknown", status: "UNKNOWN", spend: 1000 },
+  ];
+
+  assert.deepEqual(
+    sortCampaignsByStatusThenSpend(rows).map((row) => row.id),
+    [
+      "active-high",
+      "active-low",
+      "issues",
+      "not-delivering-high",
+      "paused-high",
+      "paused-low",
+      "archived",
+      "unknown",
+    ],
   );
 });
