@@ -62,6 +62,10 @@ import {
   readActiveCreativesSnapshot,
   type ActiveCreativesSnapshotRecord,
 } from "@/lib/db/active-creatives-snapshots";
+import {
+  resolveCanonicalTikTokWindow,
+  type CanonicalTikTokWindow,
+} from "@/lib/share/tiktok-window";
 import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives-refresh-runner";
 import type { ResolvedShare } from "@/lib/db/report-shares";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -160,6 +164,7 @@ interface ResolvedEvent {
   venueCountry: string | null;
   eventDate: string | null;
   eventStartAt: string | null;
+  kind: string | null;
   eventCode: string | null;
   paidMediaBudget: number | null;
   ticketsSold: number | null;
@@ -253,7 +258,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, client:clients ( meta_ad_account_id, tiktok_account_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -327,6 +332,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     venueCountry: (eventRow.data.venue_country as string | null) ?? null,
     eventDate: (eventRow.data.event_date as string | null) ?? null,
     eventStartAt: (eventRow.data.event_start_at as string | null) ?? null,
+    kind: (eventRow.data.kind as string | null) ?? null,
     eventCode: (eventRow.data.event_code as string | null) ?? null,
     paidMediaBudget,
     ticketsSold: resolvedTicketsSold,
@@ -461,26 +467,26 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     eventDailyData.rollups,
     event.generalSaleAt,
   );
-  const tiktokBase =
-    tiktokRow ??
-    buildEmptyTikTokBlockData({
-      eventName: event.name,
-      rollups: eventDailyData.rollups,
-    });
-  const tiktokRowResolved =
-    tiktokBase && event.eventCode
-      ? await resolveTikTokHybridReport({
-          admin,
-          eventId: event_id,
-          eventCode: event.eventCode,
-          base: tiktokBase,
-          rollups: eventDailyData.rollups,
-          eventDate: event.eventDate,
-          eventStartAt: event.eventStartAt,
-          campaignEndAt: (eventRow.data.campaign_end_at as string | null) ?? null,
-          token,
-        })
-      : tiktokBase;
+  const canonicalTikTokWindow = event.eventCode
+    ? await resolveCanonicalTikTokWindow(admin, {
+        id: event_id,
+        kind: event.kind,
+        event_date: event.eventDate,
+        event_start_at: event.eventStartAt,
+        campaign_end_at: (eventRow.data.campaign_end_at as string | null) ?? null,
+      })
+    : null;
+  const tiktokRowResolved = await resolveTikTokReportBlock({
+    admin,
+    token,
+    eventId: event_id,
+    eventCode: event.eventCode,
+    eventName: event.name,
+    manual: tiktokRow,
+    rollups: eventDailyData.rollups,
+    window: canonicalTikTokWindow,
+    hasTikTokAccount: Boolean(event.tiktokAccountId),
+  });
 
   // Final fatal branch: only when there is genuinely nothing to
   // render — no Meta payload, no TikTok live/manual block, and no
@@ -1037,16 +1043,14 @@ interface ResolveTikTokHybridInput {
   eventCode: string;
   base: TikTokReportBlockData;
   rollups: EventDailyRollup[];
-  eventDate: string | null;
-  eventStartAt: string | null;
-  campaignEndAt: string | null;
+  window: { since: string; until: string };
   token: string;
 }
 
 async function resolveTikTokHybridReport(
   input: ResolveTikTokHybridInput,
 ): Promise<TikTokReportBlockData> {
-  const window = resolveTikTokWindow(input);
+  const window = input.window;
   const liveTotals = aggregateTikTokRollups(input.rollups, window);
   const snapshot = await readActiveTikTokCreativesSnapshot(
     input.admin,
@@ -1104,6 +1108,11 @@ async function resolveTikTokHybridReport(
 
   return {
     ...input.base,
+    source_label: sourceLabel({
+      source: "computed",
+      lastSyncAt: liveTotals.fetchedAt,
+      importedAt: null,
+    }),
     fetched_at: liveTotals.fetchedAt,
     date_range_start: window.since,
     date_range_end: window.until,
@@ -1122,24 +1131,127 @@ async function resolveTikTokHybridReport(
 function buildEmptyTikTokBlockData(input: {
   eventName: string;
   rollups: EventDailyRollup[];
+  window: { since: string; until: string };
 }): TikTokReportBlockData | null {
-  const rows = input.rollups.filter((row) => (row.tiktok_spend ?? 0) > 0);
+  const rows = input.rollups.filter(
+    (row) =>
+      row.date >= input.window.since &&
+      row.date <= input.window.until &&
+      (row.tiktok_spend ?? 0) > 0,
+  );
   if (rows.length === 0) return null;
   const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
   return {
     id: "live-rollup",
     campaign_name: `${input.eventName} TikTok`,
-    date_range_start: sorted[0]?.date ?? todayYmd(),
-    date_range_end: sorted[sorted.length - 1]?.date ?? todayYmd(),
+    date_range_start: input.window.since,
+    date_range_end: input.window.until,
     imported_at:
       sorted[sorted.length - 1]?.source_tiktok_at ?? new Date(0).toISOString(),
     snapshot: {
       v: 1,
       fetchedAt:
         sorted[sorted.length - 1]?.source_tiktok_at ?? new Date().toISOString(),
-      date_range_start: sorted[0]?.date ?? todayYmd(),
-      date_range_end: sorted[sorted.length - 1]?.date ?? todayYmd(),
+      date_range_start: input.window.since,
+      date_range_end: input.window.until,
       campaign: null,
+      ads: [],
+      geo: [],
+      demographics: [],
+      interests: [],
+      searchTerms: [],
+    },
+  };
+}
+
+async function resolveTikTokReportBlock(input: {
+  admin: ReturnType<typeof createServiceRoleClient>;
+  token: string;
+  eventId: string;
+  eventCode: string | null;
+  eventName: string;
+  manual: TikTokReportBlockData | null;
+  rollups: EventDailyRollup[];
+  window: CanonicalTikTokWindow | null;
+  hasTikTokAccount: boolean;
+}): Promise<TikTokReportBlockData | null> {
+  if (input.manual) {
+    return {
+      ...input.manual,
+      source_label: sourceLabel({
+        source: "manual_fallback",
+        lastSyncAt: null,
+        importedAt: input.manual.imported_at,
+      }),
+    };
+  }
+  if (!input.eventCode || !input.window) return null;
+  if (input.window.source === "computed") {
+    const base = buildEmptyTikTokBlockData({
+      eventName: input.eventName,
+      rollups: input.rollups,
+      window: input.window,
+    });
+    if (!base) return null;
+    return resolveTikTokHybridReport({
+      admin: input.admin,
+      eventId: input.eventId,
+      eventCode: input.eventCode,
+      base,
+      rollups: input.rollups,
+      window: input.window,
+      token: input.token,
+    });
+  }
+  if (input.hasTikTokAccount) {
+    return buildTikTokLoadingBlock(input.eventName, input.window);
+  }
+  return null;
+}
+
+function buildTikTokLoadingBlock(
+  eventName: string,
+  window: CanonicalTikTokWindow,
+): TikTokReportBlockData {
+  return {
+    id: "tiktok-loading",
+    campaign_name: "TikTok data still loading — sync runs every 6 hours",
+    date_range_start: window.since,
+    date_range_end: window.until,
+    imported_at: new Date(0).toISOString(),
+    source_label: "TikTok data still loading — sync runs every 6 hours",
+    snapshot: {
+      v: 1,
+      fetchedAt: new Date(0).toISOString(),
+      date_range_start: window.since,
+      date_range_end: window.until,
+      campaign: {
+        campaign_name: `${eventName} TikTok`,
+        primary_status: "SYNC_PENDING",
+        currency: "GBP",
+        cost: null,
+        impressions: null,
+        impressions_raw: null,
+        reach: null,
+        cost_per_1000_reached: null,
+        frequency: null,
+        clicks_all: null,
+        ctr_all: null,
+        cpm: null,
+        clicks_destination: null,
+        cpc_destination: null,
+        ctr_destination: null,
+        video_views_2s: null,
+        video_views_6s: null,
+        video_views_p25: null,
+        video_views_p50: null,
+        video_views_p75: null,
+        video_views_p100: null,
+        avg_play_time_per_user: null,
+        avg_play_time_per_video_view: null,
+        interactive_addon_impressions: null,
+        interactive_addon_destination_clicks: null,
+      },
       ads: [],
       geo: [],
       demographics: [],
@@ -1184,32 +1296,19 @@ function aggregateTikTokRollups(
   };
 }
 
-function resolveTikTokWindow(input: ResolveTikTokHybridInput): {
-  since: string;
-  until: string;
-} {
-  const since =
-    ymd(input.eventStartAt) ??
-    ymd(input.base.date_range_start) ??
-    ymd(input.eventDate) ??
-    todayYmd();
-  const until =
-    ymd(input.campaignEndAt) ??
-    ymd(input.base.date_range_end) ??
-    ymd(input.eventDate) ??
-    todayYmd();
-  return since <= until ? { since, until } : { since: until, until: since };
-}
-
-function ymd(value: string | null): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
-  return d.toISOString().slice(0, 10);
-}
-
-function todayYmd(): string {
-  return new Date().toISOString().slice(0, 10);
+function sourceLabel(input: {
+  source: "computed" | "manual_fallback";
+  lastSyncAt: string | null;
+  importedAt: string | null;
+}): string {
+  if (input.source === "computed") {
+    return input.lastSyncAt
+      ? `live · last sync ${input.lastSyncAt}`
+      : "live · sync pending";
+  }
+  return input.importedAt
+    ? `manual import · imported ${input.importedAt}`
+    : "manual import";
 }
 
 /**
