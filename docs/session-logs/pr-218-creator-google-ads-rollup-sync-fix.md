@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 218
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/218
 - **Branch:** `creator/google-ads-rollup-sync-fix`
 
 ## Summary
