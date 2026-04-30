@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
-import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
+import { getCurrentBuildVersion } from "../build-version.ts";
+import type { CustomDateRange, DatePreset } from "../insights/types.ts";
+import type { ShareActiveCreativesResult } from "../reporting/share-active-creatives.ts";
 
 /**
  * lib/db/active-creatives-snapshots.ts
@@ -109,6 +110,7 @@ interface CacheRow {
   fetched_at: string;
   expires_at: string;
   is_stale: boolean;
+  build_version: string | null;
 }
 
 /**
@@ -143,7 +145,7 @@ export async function readActiveCreativesSnapshot(
   const sb = supabase as unknown as any;
   let q = sb
     .from(TABLE)
-    .select("payload, fetched_at, expires_at, is_stale")
+    .select("payload, fetched_at, expires_at, is_stale, build_version")
     .eq("event_id", key.eventId)
     .eq("date_preset", key.datePreset);
   q = key.customRange
@@ -164,6 +166,8 @@ export async function readActiveCreativesSnapshot(
   if (!data) return null;
 
   const row = data as CacheRow;
+  if (row.build_version !== getCurrentBuildVersion()) return null;
+
   const fetchedAt = new Date(row.fetched_at);
   const expiresAt = new Date(row.expires_at);
   const fetchedMs = fetchedAt.getTime();
@@ -223,6 +227,7 @@ export async function writeActiveCreativesSnapshot(
       custom_since: key.customRange?.since ?? null,
       custom_until: key.customRange?.until ?? null,
       payload,
+      build_version: getCurrentBuildVersion(),
       fetched_at: new Date(now).toISOString(),
       expires_at: new Date(now + ttlMs).toISOString(),
       is_stale: false,

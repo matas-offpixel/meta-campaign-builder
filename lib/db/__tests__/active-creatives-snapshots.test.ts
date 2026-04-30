@@ -23,6 +23,7 @@ import {
   ACS_TIGHT_TTL_MS,
   type ActiveCreativesSnapshotRecord,
 } from "../active-creatives-snapshots.ts";
+import { getCurrentBuildVersion } from "../../build-version.ts";
 import type { ShareActiveCreativesResult } from "../../reporting/share-active-creatives.ts";
 
 // ── tiny mock helpers ──────────────────────────────────────────────────────
@@ -167,6 +168,7 @@ function makeUpdateStub(
 
 const EVENT_ID = "00000000-0000-0000-0000-000000000001";
 const USER_ID = "00000000-0000-0000-0000-000000000002";
+const ORIGINAL_BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA;
 
 const OK_PAYLOAD: ShareActiveCreativesResult = {
   kind: "ok",
@@ -204,9 +206,81 @@ const ERROR_PAYLOAD: ShareActiveCreativesResult = {
   message: "boom",
 };
 
+function setBuildVersion(value: string | undefined) {
+  if (value === undefined) {
+    delete process.env.VERCEL_GIT_COMMIT_SHA;
+  } else {
+    process.env.VERCEL_GIT_COMMIT_SHA = value;
+  }
+}
+
 // ── readActiveCreativesSnapshot ────────────────────────────────────────────
 
 describe("readActiveCreativesSnapshot", () => {
+  it("returns the row when build_version matches current build", async () => {
+    setBuildVersion("build-a");
+    const future = new Date(Date.now() + 60 * 60_000).toISOString();
+    const { client } = makeReadStub({
+      data: {
+        payload: OK_PAYLOAD,
+        fetched_at: new Date(Date.now() - 60_000).toISOString(),
+        expires_at: future,
+        is_stale: false,
+        build_version: "build-a",
+      },
+      error: null,
+    });
+    const out = await readActiveCreativesSnapshot(client, {
+      eventId: EVENT_ID,
+      datePreset: "last_7d",
+    });
+    assert.ok(out, "expected a hit");
+    assert.deepEqual(out!.payload, OK_PAYLOAD);
+    setBuildVersion(ORIGINAL_BUILD_VERSION);
+  });
+
+  it("returns null when build_version differs from current build", async () => {
+    setBuildVersion("build-b");
+    const future = new Date(Date.now() + 60 * 60_000).toISOString();
+    const { client } = makeReadStub({
+      data: {
+        payload: OK_PAYLOAD,
+        fetched_at: new Date(Date.now() - 60_000).toISOString(),
+        expires_at: future,
+        is_stale: false,
+        build_version: "build-a",
+      },
+      error: null,
+    });
+    const out = await readActiveCreativesSnapshot(client, {
+      eventId: EVENT_ID,
+      datePreset: "last_7d",
+    });
+    assert.equal(out, null);
+    setBuildVersion(ORIGINAL_BUILD_VERSION);
+  });
+
+  it("returns null when build_version is null", async () => {
+    setBuildVersion("build-a");
+    const future = new Date(Date.now() + 60 * 60_000).toISOString();
+    const { client } = makeReadStub({
+      data: {
+        payload: OK_PAYLOAD,
+        fetched_at: new Date(Date.now() - 60_000).toISOString(),
+        expires_at: future,
+        is_stale: false,
+        build_version: null,
+      },
+      error: null,
+    });
+    const out = await readActiveCreativesSnapshot(client, {
+      eventId: EVENT_ID,
+      datePreset: "last_7d",
+    });
+    assert.equal(out, null);
+    setBuildVersion(ORIGINAL_BUILD_VERSION);
+  });
+
   it("returns null when Supabase reports an error", async () => {
     const { client } = makeReadStub({
       data: null,
@@ -253,6 +327,7 @@ describe("readActiveCreativesSnapshot", () => {
         fetched_at: past,
         expires_at: past,
         is_stale: false,
+        build_version: getCurrentBuildVersion(),
       },
       error: null,
     });
@@ -310,6 +385,7 @@ describe("writeActiveCreativesSnapshot", () => {
     assert.equal(row.custom_until, null);
     assert.equal(row.is_stale, false);
     assert.equal(row.last_refresh_error, null);
+    assert.equal(row.build_version, getCurrentBuildVersion());
     assert.deepEqual(row.payload, OK_PAYLOAD);
 
     const expiresAt = new Date(row.expires_at as string).getTime();

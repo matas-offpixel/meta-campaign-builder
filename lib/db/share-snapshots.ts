@@ -5,8 +5,9 @@ import type {
   DatePreset,
   EventInsightsPayload,
   InsightsErrorReason,
-} from "@/lib/insights/types";
-import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
+} from "../insights/types.ts";
+import type { ShareActiveCreativesResult } from "../reporting/share-active-creatives.ts";
+import { getCurrentBuildVersion } from "../build-version.ts";
 
 /*
  * activeCreatives left in the payload type as an optional field
@@ -129,6 +130,7 @@ interface CacheRow {
   payload: ShareSnapshotPayload;
   expires_at: string;
   fetched_at: string;
+  build_version: string | null;
 }
 
 /**
@@ -165,7 +167,7 @@ export async function readShareSnapshot(
   // the unique constraint NULLS NOT DISTINCT.
   let q = sb
     .from(TABLE)
-    .select("payload, expires_at, fetched_at")
+    .select("payload, expires_at, fetched_at, build_version")
     .eq("share_token", key.shareToken)
     .eq("date_preset", key.datePreset);
   q = key.customRange
@@ -186,6 +188,8 @@ export async function readShareSnapshot(
   if (!data) return null;
 
   const row = data as CacheRow;
+  if (row.build_version !== getCurrentBuildVersion()) return null;
+
   const now = Date.now();
   const expiresAt = new Date(row.expires_at).getTime();
   if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
@@ -226,6 +230,7 @@ export async function writeShareSnapshot(
       custom_since: key.customRange?.since ?? null,
       custom_until: key.customRange?.until ?? null,
       payload,
+      build_version: getCurrentBuildVersion(),
       fetched_at: new Date(now).toISOString(),
       expires_at: new Date(now + SHARE_SNAPSHOT_TTL_MS).toISOString(),
     },
