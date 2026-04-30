@@ -7,6 +7,7 @@ import {
 } from "@/lib/insights/campaign-status";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import { isPresaleCampaignName } from "@/lib/insights/meta-campaign-phase";
+import { ISO_COUNTRY_CODES } from "@/lib/share/country-codes";
 import {
   graphGetWithToken,
   isReduceDataError,
@@ -1252,6 +1253,9 @@ function formatMetaBreakdownLabel(
   value: string | undefined,
 ): string {
   if (!value) return "Unknown";
+  if (key === "country") {
+    return ISO_COUNTRY_CODES[value.toUpperCase()] ?? value;
+  }
   if (key === "gender") {
     const normalised = value.toLowerCase();
     if (normalised === "male") return "Male";
