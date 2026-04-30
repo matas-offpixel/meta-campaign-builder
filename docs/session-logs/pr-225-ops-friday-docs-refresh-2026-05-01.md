@@ -28,3 +28,4 @@ Friday weekly docs refresh for the Commercial + Ops cadence. This PR ships the d
 - `git checkout main` was blocked because `main` is checked out in `/Users/liebus/mcb-tiktok-oauth`; this branch was created from freshly fetched `origin/main` instead.
 - The migration-tail check returned `067_snapshot_build_version.sql`, not `064_event_daily_rollups_google_ads_columns.sql`; recent migrations are already collision-renamed, and there are newer migration files after 064.
 - `/share/partnership/[token]` was not found under `app/share/partnership/`, so the PUBLIC_PREFIXES section was left unchanged.
+- `gh pr merge 225 --auto --squash --delete-branch` failed because GitHub reports protected branch rules are not configured for this branch (`enablePullRequestAutoMerge`); PR #225 is mergeable and waiting on Vercel Preview.
