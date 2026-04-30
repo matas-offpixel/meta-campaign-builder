@@ -1,6 +1,7 @@
 import "server-only";
 
 import { classifyCampaignFunnelStage } from "@/lib/dashboard/funnel-stage-classifier";
+import { normaliseMetaCampaignStatus } from "@/lib/insights/campaign-status";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import { isPresaleCampaignName } from "@/lib/insights/meta-campaign-phase";
 import {
@@ -988,7 +989,10 @@ function mapCampaignRow(
     id: campaign.id,
     name: campaign.name,
     objective: campaign.objective ?? null,
-    status: campaign.effective_status ?? campaign.status ?? "UNKNOWN",
+    status: normaliseMetaCampaignStatus({
+      status: campaign.status,
+      effectiveStatus: campaign.effective_status,
+    }),
     funnelStage: classifyCampaignFunnelStage(campaign),
     spend,
     impressions,
