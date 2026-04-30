@@ -62,6 +62,11 @@ export interface ConceptInputPreview {
   tier?: PreviewTier;
 }
 
+export interface ActiveCreativeThumbnailSource {
+  video_id: string | null;
+  image_hash: string | null;
+}
+
 export interface ConceptInputRow {
   creative_id: string;
   creative_name: string | null;
@@ -81,6 +86,7 @@ export interface ConceptInputRow {
   thumbnail_ad_id?: string | null;
   /** Spend for the ad that supplied `thumbnail_url`; null when no thumbnail resolved. */
   thumbnail_spend?: number | null;
+  thumbnail_source?: ActiveCreativeThumbnailSource;
   /** Stable post identifier — first tier of the grouping waterfall. */
   effective_object_story_id: string | null;
   object_story_id: string | null;
@@ -165,6 +171,7 @@ export interface ConceptGroupRow {
   representative_thumbnail: string | null;
   /** Ad that supplied `representative_thumbnail`; null when no thumbnail resolved. */
   representative_thumbnail_ad_id: string | null;
+  representative_thumbnail_source: ActiveCreativeThumbnailSource;
   representative_headline: string | null;
   representative_body_preview: string | null;
   /** Top-spend underlying row's modal preview payload. */
@@ -622,6 +629,7 @@ interface Accumulator {
   representative_ad_id: string;
   representative_thumbnail: string | null;
   representative_thumbnail_ad_id: string | null;
+  representative_thumbnail_source: ActiveCreativeThumbnailSource;
   /** Spend attached to the ad that supplied `representative_thumbnail`. */
   representative_thumbnail_spend: number;
   representative_headline: string | null;
@@ -634,6 +642,13 @@ function safeRate(num: number, denom: number, scale = 1): number | null {
   if (!Number.isFinite(denom) || denom <= 0) return null;
   if (!Number.isFinite(num)) return null;
   return (num / denom) * scale;
+}
+
+function emptyThumbnailSource(): ActiveCreativeThumbnailSource {
+  return {
+    video_id: null,
+    image_hash: null,
+  };
 }
 
 /**
@@ -678,6 +693,8 @@ export function groupByAssetSignature(
         representative_thumbnail_ad_id: row.thumbnail_url
           ? (row.thumbnail_ad_id ?? row.representative_ad_id)
           : null,
+        representative_thumbnail_source:
+          row.thumbnail_source ?? emptyThumbnailSource(),
         representative_thumbnail_spend: row.thumbnail_url
           ? (row.thumbnail_spend ?? row.spend)
           : -Infinity,
@@ -735,6 +752,8 @@ export function groupByAssetSignature(
       acc.representative_thumbnail = row.thumbnail_url;
       acc.representative_thumbnail_ad_id =
         row.thumbnail_ad_id ?? row.representative_ad_id;
+      acc.representative_thumbnail_source =
+        row.thumbnail_source ?? emptyThumbnailSource();
     }
 
     buckets.set(key, acc);
@@ -782,6 +801,7 @@ export function groupByAssetSignature(
       representative_ad_id: acc.representative_ad_id,
       representative_thumbnail: acc.representative_thumbnail,
       representative_thumbnail_ad_id: acc.representative_thumbnail_ad_id,
+      representative_thumbnail_source: acc.representative_thumbnail_source,
       representative_headline: acc.representative_headline,
       representative_body_preview: acc.representative_body_preview,
       representative_preview: acc.representative_preview,

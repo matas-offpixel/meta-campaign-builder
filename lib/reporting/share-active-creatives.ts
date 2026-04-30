@@ -12,6 +12,7 @@ import {
   groupByAssetSignature,
   type ConceptGroupRow,
 } from "@/lib/reporting/group-creatives";
+import { enrichActiveCreativesSnapshotThumbnails } from "@/lib/reporting/active-creatives-thumbnail-enrichment";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 /**
@@ -107,10 +108,9 @@ interface FetchInput {
   /** Required when `datePreset === "custom"`. */
   customRange?: CustomDateRange;
   /**
-   * When true, upgrades low-res Advantage+ video posters via
-   * `/{video_id}/thumbnails` in `fetchActiveCreativesForEvent`. Only
-   * the snapshot-refresh path should set this; the share RSC should
-   * leave it false/undefined.
+   * When true, enriches the already-picked concept-group thumbnail
+   * before the snapshot payload is written. Only the snapshot-refresh
+   * path should set this; the share RSC should leave it false/undefined.
    */
   enrichVideoThumbnails?: boolean;
 }
@@ -169,7 +169,6 @@ export async function fetchShareActiveCreatives(
       concurrency: 1,
       datePreset: input.datePreset,
       customRange: input.customRange,
-      enrichVideoThumbnails: input.enrichVideoThumbnails,
     });
   } catch (err) {
     // Surface BOTH error branches in Vercel — the discriminated-
@@ -216,7 +215,7 @@ export async function fetchShareActiveCreatives(
   const allGroups = groupByAssetSignature(result.creatives);
   const groups = allGroups.slice(0, SHARE_GROUPS_CAP);
 
-  return {
+  const payload: ShareActiveCreativesResult = {
     kind: "ok",
     groups,
     ad_account_id: result.ad_account_id,
@@ -234,4 +233,14 @@ export async function fetchShareActiveCreatives(
       unattributed: result.meta.unattributed,
     },
   };
+
+  if (!input.enrichVideoThumbnails) {
+    return payload;
+  }
+
+  return enrichActiveCreativesSnapshotThumbnails({
+    payload,
+    adAccountId: result.ad_account_id,
+    token: ownerToken,
+  });
 }
