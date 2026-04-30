@@ -7,15 +7,25 @@
 export function paidSpendOf(row: {
   ad_spend: number | string | null | undefined;
   tiktok_spend: number | string | null | undefined;
+  google_ads_spend?: number | string | null | undefined;
 }): number {
-  return safeNumber(row.ad_spend) + safeNumber(row.tiktok_spend);
+  return (
+    safeNumber(row.ad_spend) +
+    safeNumber(row.tiktok_spend) +
+    safeNumber(row.google_ads_spend)
+  );
 }
 
 export function paidLinkClicksOf(row: {
   link_clicks: number | string | null | undefined;
   tiktok_clicks: number | string | null | undefined;
+  google_ads_clicks?: number | string | null | undefined;
 }): number {
-  return safeNumber(row.link_clicks) + safeNumber(row.tiktok_clicks);
+  return (
+    safeNumber(row.link_clicks) +
+    safeNumber(row.tiktok_clicks) +
+    safeNumber(row.google_ads_clicks)
+  );
 }
 
 function safeNumber(value: number | string | null | undefined): number {

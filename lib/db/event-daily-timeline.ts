@@ -57,6 +57,10 @@ export interface TimelineRow {
   tiktok_clicks: number | null;
   tiktok_video_views: number | null;
   tiktok_results: number | null;
+  google_ads_spend?: number | null;
+  google_ads_impressions?: number | null;
+  google_ads_clicks?: number | null;
+  google_ads_video_views?: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   notes: string | null;
@@ -121,7 +125,8 @@ export function mergeTimeline(
       ? Date.parse(r.source_eventbrite_at)
       : 0;
     const tt = r.source_tiktok_at ? Date.parse(r.source_tiktok_at) : 0;
-    const fresh = Math.max(meta, eb, tt);
+    const ga = r.source_google_ads_at ? Date.parse(r.source_google_ads_at) : 0;
+    const fresh = Math.max(meta, eb, tt, ga);
     byDate.set(r.date, {
       date: r.date,
       source: "live",
@@ -133,6 +138,11 @@ export function mergeTimeline(
       tiktok_clicks: r.tiktok_clicks ?? null,
       tiktok_video_views: r.tiktok_video_views ?? null,
       tiktok_results: r.tiktok_results ?? null,
+      google_ads_spend:
+        r.google_ads_spend != null ? Number(r.google_ads_spend) : null,
+      google_ads_impressions: r.google_ads_impressions ?? null,
+      google_ads_clicks: r.google_ads_clicks ?? null,
+      google_ads_video_views: r.google_ads_video_views ?? null,
       tickets_sold: r.tickets_sold ?? null,
       revenue: r.revenue != null ? Number(r.revenue) : null,
       notes: r.notes ?? null,
@@ -153,6 +163,10 @@ export function mergeTimeline(
       tiktok_clicks: prev?.tiktok_clicks ?? null,
       tiktok_video_views: prev?.tiktok_video_views ?? null,
       tiktok_results: prev?.tiktok_results ?? null,
+      google_ads_spend: prev?.google_ads_spend ?? null,
+      google_ads_impressions: prev?.google_ads_impressions ?? null,
+      google_ads_clicks: prev?.google_ads_clicks ?? null,
+      google_ads_video_views: prev?.google_ads_video_views ?? null,
       tickets_sold: m.tickets ?? null,
       revenue: m.revenue != null ? Number(m.revenue) : null,
       notes: m.notes ?? null,

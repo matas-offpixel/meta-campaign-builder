@@ -158,6 +158,7 @@ export type TrackerCadence = "daily" | "weekly";
 
 interface Props {
   eventId: string;
+  kind?: string | null;
   /** True when the event has an event_code AND the client has a Meta ad account. */
   hasMetaScope: boolean;
   hasEventbriteLink: boolean;
@@ -231,6 +232,8 @@ interface DisplayRow {
   link_clicks: number | null;
   /** Meta complete_registration count for the day (rollup-sync). */
   meta_regs: number | null;
+  impressions: number | null;
+  video_views: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   notes: string | null;
@@ -243,6 +246,7 @@ interface DisplayRow {
 
 export function DailyTracker({
   eventId,
+  kind,
   hasMetaScope,
   hasEventbriteLink,
   controlled,
@@ -469,6 +473,10 @@ export function DailyTracker({
           tiktok_clicks: null,
           tiktok_video_views: null,
           tiktok_results: null,
+          google_ads_spend: null,
+          google_ads_impressions: null,
+          google_ads_clicks: null,
+          google_ads_video_views: null,
           tickets_sold: patch.tickets_sold ?? null,
           revenue: patch.revenue ?? null,
           notes: patch.notes ?? null,
@@ -574,6 +582,8 @@ export function DailyTracker({
   // subtitle reads as guidance rather than a claim about row count.
   const WEEKLY_WINDOW_LABEL_WEEKS = Math.ceil(60 / 7); // = 9
   const dateColLabel = cadence === "weekly" ? "Week (W/C)" : "Date";
+  const isBrandCampaign = kind === "brand_campaign";
+  const colSpan = isEditable ? (isBrandCampaign ? 9 : 18) : isBrandCampaign ? 8 : 17;
   const windowLabel =
     cadence === "weekly"
       ? `Last ${WEEKLY_WINDOW_LABEL_WEEKS} weeks`
@@ -669,21 +679,21 @@ export function DailyTracker({
             <tr>
               <Th align="left">{dateColLabel}</Th>
               <Th>Day spend</Th>
-              <Th>Day other</Th>
-              <Th>Tickets</Th>
-              <Th>Revenue</Th>
-              <Th>CPT</Th>
-              <Th>ROAS</Th>
-              <Th>Link clicks</Th>
-              <Th>CPL</Th>
-              <Th>Regs</Th>
-              <Th>CPR</Th>
+              {!isBrandCampaign ? <Th>Day other</Th> : null}
+              {isBrandCampaign ? <Th>Impressions</Th> : <Th>Tickets</Th>}
+              {isBrandCampaign ? <Th>Clicks (all)</Th> : <Th>Revenue</Th>}
+              {isBrandCampaign ? <Th>Video views</Th> : <Th>CPT</Th>}
+              {isBrandCampaign ? <Th>CPM</Th> : <Th>ROAS</Th>}
+              {!isBrandCampaign ? <Th>Link clicks</Th> : null}
+              {!isBrandCampaign ? <Th>CPL</Th> : null}
+              {!isBrandCampaign ? <Th>Regs</Th> : null}
+              {!isBrandCampaign ? <Th>CPR</Th> : null}
               <Th>Running spend</Th>
-              <Th>Running tickets</Th>
-              <Th>Running avg CPT</Th>
-              <Th>Running revenue</Th>
-              <Th>Running ROAS</Th>
-              <Th align="left">Notes</Th>
+              {!isBrandCampaign ? <Th>Running tickets</Th> : null}
+              {!isBrandCampaign ? <Th>Running avg CPT</Th> : null}
+              {!isBrandCampaign ? <Th>Running revenue</Th> : null}
+              {!isBrandCampaign ? <Th>Running ROAS</Th> : null}
+              {!isBrandCampaign ? <Th align="left">Notes</Th> : null}
               {isEditable ? (
                 <Th>
                   <span className="sr-only">Edit row</span>
@@ -695,7 +705,7 @@ export function DailyTracker({
             {loading ? (
               <tr>
                 <td
-                  colSpan={isEditable ? 18 : 17}
+                  colSpan={colSpan}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   <Loader2 className="inline h-3.5 w-3.5 animate-spin" />{" "}
@@ -705,7 +715,7 @@ export function DailyTracker({
             ) : display.length === 0 ? (
               <tr>
                 <td
-                  colSpan={isEditable ? 18 : 17}
+                  colSpan={colSpan}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   No data yet — click Refresh to pull the latest.
@@ -731,6 +741,7 @@ export function DailyTracker({
                   // value is the sum of many dates and there's no
                   // single PATCH target.
                   isEditable={isEditable}
+                  isBrandCampaign={isBrandCampaign}
                   onEditClick={(target) => setEditTarget(target)}
                   onNotesSaved={(date, notes) => {
                     // Note edits are only supported in uncontrolled
@@ -791,6 +802,7 @@ function RowEl({
   readOnly,
   cadence,
   isEditable,
+  isBrandCampaign,
   onEditClick,
   onNotesSaved,
 }: {
@@ -805,12 +817,16 @@ function RowEl({
    *  entirely when false (no extra cell) so the colSpan math in the
    *  loading / empty rows in the parent stays in sync. */
   isEditable: boolean;
+  isBrandCampaign: boolean;
   onEditClick: (row: DisplayRow) => void;
   onNotesSaved: (date: string, notes: string | null) => void;
 }) {
   const cpt = derive(row.ad_spend, row.tickets_sold);
   const cpl = derive(row.ad_spend, row.link_clicks);
   const cprRegs = derive(row.meta_ad_spend, row.meta_regs);
+  const cpm = row.ad_spend != null && row.impressions != null && row.impressions > 0
+    ? (row.ad_spend / row.impressions) * 1000
+    : null;
   const roas = row.ad_spend != null && row.ad_spend > 0 && row.revenue != null
     ? row.revenue / row.ad_spend
     : null;
@@ -850,24 +866,26 @@ function RowEl({
         </div>
       </Td>
       <Td>{fmtMoney(row.ad_spend)}</Td>
-      <OtherSpendCell
-        amount={row.other_spend}
-        tooltip={row.other_spend_tooltip}
-      />
-      <Td>{fmtInt(row.tickets_sold)}</Td>
-      <Td>{fmtMoney(row.revenue)}</Td>
-      <Td>{fmtMoney(cpt)}</Td>
-      <Td>{fmtRoas(roas)}</Td>
-      <Td>{fmtInt(row.link_clicks)}</Td>
-      <Td>{fmtMoney(cpl)}</Td>
-      <Td>{fmtInt(row.meta_regs)}</Td>
-      <Td>{fmtMoney(cprRegs)}</Td>
+      {!isBrandCampaign ? (
+        <OtherSpendCell
+          amount={row.other_spend}
+          tooltip={row.other_spend_tooltip}
+        />
+      ) : null}
+      {isBrandCampaign ? <Td>{fmtInt(row.impressions)}</Td> : <Td>{fmtInt(row.tickets_sold)}</Td>}
+      {isBrandCampaign ? <Td>{fmtInt(row.link_clicks)}</Td> : <Td>{fmtMoney(row.revenue)}</Td>}
+      {isBrandCampaign ? <Td>{fmtInt(row.video_views)}</Td> : <Td>{fmtMoney(cpt)}</Td>}
+      {isBrandCampaign ? <Td>{fmtMoney(cpm)}</Td> : <Td>{fmtRoas(roas)}</Td>}
+      {!isBrandCampaign ? <Td>{fmtInt(row.link_clicks)}</Td> : null}
+      {!isBrandCampaign ? <Td>{fmtMoney(cpl)}</Td> : null}
+      {!isBrandCampaign ? <Td>{fmtInt(row.meta_regs)}</Td> : null}
+      {!isBrandCampaign ? <Td>{fmtMoney(cprRegs)}</Td> : null}
       <Td>{fmtMoney(row.running_spend)}</Td>
-      <Td>{fmtInt(row.running_tickets)}</Td>
-      <Td>{fmtMoney(runCpt)}</Td>
-      <Td>{fmtMoney(row.running_revenue)}</Td>
-      <Td>{fmtRoas(runRoas)}</Td>
-      <Td align="left" wide>
+      {!isBrandCampaign ? <Td>{fmtInt(row.running_tickets)}</Td> : null}
+      {!isBrandCampaign ? <Td>{fmtMoney(runCpt)}</Td> : null}
+      {!isBrandCampaign ? <Td>{fmtMoney(row.running_revenue)}</Td> : null}
+      {!isBrandCampaign ? <Td>{fmtRoas(runRoas)}</Td> : null}
+      {!isBrandCampaign ? <Td align="left" wide>
         {row.date ? (
           // When the dialog editor is on (`isEditable`), notes are
           // edited from there alongside tickets / revenue. The
@@ -890,7 +908,7 @@ function RowEl({
         ) : (
           <span className="text-muted-foreground">—</span>
         )}
-      </Td>
+      </Td> : null}
       {isEditable ? (
         <Td>
           {row.date && !row.isPresale ? (
@@ -1126,6 +1144,8 @@ function buildDisplayRows({
     other_spend_tooltip: string | null;
     link_clicks: number | null;
     meta_regs: number | null;
+    impressions: number | null;
+    video_views: number | null;
     tickets_sold: number | null;
     revenue: number | null;
     notes: string | null;
@@ -1151,6 +1171,8 @@ function buildDisplayRows({
       ),
       link_clicks: paidLinkClicksOf(r),
       meta_regs: r.meta_regs,
+      impressions: totalImpressionsOf(r),
+      video_views: totalVideoViewsOf(r),
       tickets_sold: r.tickets_sold,
       revenue: r.revenue,
       notes: r.notes,
@@ -1179,6 +1201,8 @@ function buildDisplayRows({
       ),
       link_clicks: null,
       meta_regs: null,
+      impressions: null,
+      video_views: null,
       tickets_sold: null,
       revenue: null,
       notes: null,
@@ -1212,6 +1236,8 @@ function buildDisplayRows({
       other_spend_tooltip: r.other_spend_tooltip,
       link_clicks: r.link_clicks,
       meta_regs: r.meta_regs,
+      impressions: r.impressions,
+      video_views: r.video_views,
       tickets_sold: r.tickets_sold,
       revenue: r.revenue,
       notes: r.notes,
@@ -1245,6 +1271,8 @@ function buildDisplayRows({
       other_spend_tooltip: null,
       link_clicks: paidLinkClicksOf(presale),
       meta_regs: null,
+      impressions: null,
+      video_views: null,
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
@@ -1380,6 +1408,8 @@ function buildWeeklyDisplayRows({
     otherCategoryTotals: Map<string, number> | null;
     clicks: number | null;
     regs: number | null;
+    impressions: number | null;
+    videoViews: number | null;
     tickets: number | null;
     revenue: number | null;
     /** True when at least one daily row in the week was synthesised
@@ -1404,6 +1434,8 @@ function buildWeeklyDisplayRows({
         otherCategoryTotals: null,
         clicks: null,
         regs: null,
+        impressions: null,
+        videoViews: null,
         tickets: null,
         revenue: null,
         hasManualSource: false,
@@ -1431,6 +1463,12 @@ function buildWeeklyDisplayRows({
       cur.clicks = (cur.clicks ?? 0) + clicks;
     if (r.meta_regs != null)
       cur.regs = (cur.regs ?? 0) + Number(r.meta_regs);
+    const impressions = totalImpressionsOf(r);
+    if (impressions > 0)
+      cur.impressions = (cur.impressions ?? 0) + impressions;
+    const videoViews = totalVideoViewsOf(r);
+    if (videoViews > 0)
+      cur.videoViews = (cur.videoViews ?? 0) + videoViews;
     if (r.tickets_sold !== null)
       cur.tickets = (cur.tickets ?? 0) + Number(r.tickets_sold);
     if (r.revenue !== null)
@@ -1461,6 +1499,8 @@ function buildWeeklyDisplayRows({
     const otherSp = agg?.otherSpend ?? null;
     const clicks = agg?.clicks ?? null;
     const regs = agg?.regs ?? null;
+    const impressions = agg?.impressions ?? null;
+    const videoViews = agg?.videoViews ?? null;
     const tickets = agg?.tickets ?? null;
     const revenue = agg?.revenue ?? null;
     const otherTooltipLines =
@@ -1498,6 +1538,8 @@ function buildWeeklyDisplayRows({
       other_spend_tooltip: fmtOtherSpendTooltipLines(otherTooltipLines),
       link_clicks: clicks,
       meta_regs: regs,
+      impressions,
+      video_views: videoViews,
       tickets_sold: tickets,
       revenue,
       notes: null,
@@ -1531,6 +1573,8 @@ function buildWeeklyDisplayRows({
       other_spend_tooltip: null,
       link_clicks: paidLinkClicksOf(presale),
       meta_regs: null,
+      impressions: null,
+      video_views: null,
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
@@ -1614,6 +1658,20 @@ function derive(
   if (numerator == null) return null;
   if (denominator == null || denominator <= 0) return null;
   return numerator / denominator;
+}
+
+function totalImpressionsOf(row: {
+  tiktok_impressions?: number | null;
+  google_ads_impressions?: number | null;
+}): number {
+  return num(row.tiktok_impressions) + num(row.google_ads_impressions);
+}
+
+function totalVideoViewsOf(row: {
+  tiktok_video_views?: number | null;
+  google_ads_video_views?: number | null;
+}): number {
+  return num(row.tiktok_video_views) + num(row.google_ads_video_views);
 }
 
 function fmtMoney(n: number | null): string {
