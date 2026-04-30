@@ -55,7 +55,7 @@ export function MetaCampaignStatsSection({
                 label="Cost per video play"
                 value={
                   videoPlays > 0
-                    ? fmtCurrency(meta.totals.spend / videoPlays)
+                    ? fmtMoneyOrPence(meta.totals.spend / videoPlays)
                     : "—"
                 }
               />
@@ -63,7 +63,7 @@ export function MetaCampaignStatsSection({
                 label="Cost per engagement"
                 value={
                   engagements > 0
-                    ? fmtCurrency(meta.totals.spend / engagements)
+                    ? fmtMoneyOrPence(meta.totals.spend / engagements)
                     : "—"
                 }
               />
@@ -424,6 +424,18 @@ export function fmtRoas(n: number): string {
 
 function fmtPct(n: number | null): string {
   return n == null ? "—" : `${n.toFixed(2)}%`;
+}
+
+const GBP = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  maximumFractionDigits: 2,
+});
+
+function fmtMoneyOrPence(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value < 0.01) return `${(value * 100).toFixed(1)}p`;
+  return GBP.format(value);
 }
 
 function rate(numerator: number, denominator: number): number | null {
