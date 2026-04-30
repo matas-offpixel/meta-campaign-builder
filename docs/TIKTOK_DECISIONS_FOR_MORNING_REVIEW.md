@@ -133,10 +133,10 @@
 - Reversibility: reversible if the draft schema is later normalized into typed columns.
 - Reviewer action needed: no.
 
-- Decision made: Preserve the Google Ads credential RPC type signatures in the regenerated database types because the live generated schema omitted them while `origin/main` callers already depend on migration `060_encrypt_google_ads_credentials.sql`.
+- Decision made: Preserve the Google Ads credential RPC type signatures in the regenerated database types because the live generated schema omitted them while `origin/main` callers already depend on migration `063_encrypt_google_ads_credentials.sql`.
 - Why: Without preserving those RPC typings, `npx tsc --noEmit` fails in existing Google Ads code even though PR-A is scoped to TikTok wizard polish.
 - Reversibility: reversible after the live Supabase schema generation includes those RPCs directly.
-- Reviewer action needed: yes — confirm whether migration `060_encrypt_google_ads_credentials.sql` has been applied to the project used for type generation.
+- Reviewer action needed: yes — confirm whether migration `063_encrypt_google_ads_credentials.sql` has been applied to the project used for type generation.
 
 ## PR-B — TikTok Wizard Edge Cases + Validation
 
@@ -165,7 +165,7 @@
 ## PR-D — Motion-Replacement Tag Schema
 
 - Decision made: Claim migration `061_creative_tags_schema.sql` for the Motion taxonomy PR rather than `060`.
-- Why: `origin/main` already contains `060_encrypt_google_ads_credentials.sql`, so reusing `060` would add another duplicate migration prefix.
+- Why: `origin/main` already contains the Google Ads credentials migration, so reusing an existing prefix would add another duplicate migration prefix.
 - Reversibility: not worth reversing unless migration numbering is renormalized before merge.
 - Reviewer action needed: yes — apply migration 061 via Cowork MCP after merge.
 

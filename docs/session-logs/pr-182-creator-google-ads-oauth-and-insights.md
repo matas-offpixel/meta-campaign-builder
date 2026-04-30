@@ -10,7 +10,7 @@ Wire Google Ads OAuth, encrypted credential storage, and live campaign insights 
 
 ## Scope / files
 
-- Google Ads credential migration `060_encrypt_google_ads_credentials.sql` with pgcrypto RPCs, Vault/current_setting key fallback, login customer storage, and client FK idempotency.
+- Google Ads credential migration `063_encrypt_google_ads_credentials.sql` with pgcrypto RPCs, Vault/current_setting key fallback, login customer storage, and client FK idempotency.
 - Google Ads OAuth start/callback routes, signed CSRF state, token exchange, account upsert, and encrypted credential writes.
 - Google Ads API client + insights adapter with a platform-specific serial concurrency constant and retry classifier.
 - `/api/google-ads/insights` now resolves the plan/event/account, decrypts credentials, and calls the live adapter.
