@@ -67,6 +67,7 @@ interface Props {
   /** Optional className override for layout adjustments. */
   className?: string;
   title?: string;
+  kind?: string | null;
   defaultGranularity?: TrendGranularity;
   showGranularityToggle?: boolean;
 }
@@ -112,7 +113,22 @@ function pillMetricValue(summary: TrendSummary, key: MetricKey): number | null {
   return summary[key];
 }
 
-export function EventTrendChart({
+export function EventTrendChart(props: Props) {
+  if (props.kind === "brand_campaign" && props.timeline) {
+    return (
+      <AwarenessTrendChart
+        timeline={props.timeline}
+        className={props.className}
+        title={props.title}
+        defaultGranularity={props.defaultGranularity ?? "daily"}
+        showGranularityToggle={props.showGranularityToggle ?? true}
+      />
+    );
+  }
+  return <LegacyTrendChart {...props} />;
+}
+
+function LegacyTrendChart({
   timeline,
   points,
   className,
@@ -468,4 +484,311 @@ export function EventTrendChart({
       </div>
     </div>
   );
+}
+
+type AwarenessMetricKey = "spend" | "impressions" | "clicks" | "videoViews";
+type PlatformKey = "all" | "meta" | "google" | "tiktok";
+
+const AWARENESS_METRICS: {
+  key: AwarenessMetricKey;
+  label: string;
+  format: (n: number) => string;
+}[] = [
+  { key: "spend", label: "Spend", format: (n) => GBP2.format(n) },
+  { key: "impressions", label: "Impressions", format: (n) => NUM.format(n) },
+  { key: "clicks", label: "Clicks", format: (n) => NUM.format(n) },
+  { key: "videoViews", label: "Video Views", format: (n) => NUM.format(n) },
+];
+
+const PLATFORM_META: Record<Exclude<PlatformKey, "all">, { label: string; colour: string }> = {
+  meta: { label: "Meta", colour: "#2563eb" },
+  google: { label: "Google Ads", colour: "#ea4335" },
+  tiktok: { label: "TikTok", colour: "#111827" },
+};
+
+function AwarenessTrendChart({
+  timeline,
+  className,
+  title,
+  defaultGranularity,
+  showGranularityToggle,
+}: {
+  timeline: TimelineRow[];
+  className?: string;
+  title?: string;
+  defaultGranularity: TrendGranularity;
+  showGranularityToggle: boolean;
+}) {
+  const [granularity, setGranularity] =
+    useState<TrendGranularity>(defaultGranularity);
+  const [platform, setPlatform] = useState<PlatformKey>("all");
+  const [metric, setMetric] = useState<AwarenessMetricKey>("spend");
+  const [hover, setHover] = useState<{ index: number; chartWidth: number } | null>(null);
+  const rows = useMemo(
+    () => buildAwarenessRows(timeline, granularity),
+    [timeline, granularity],
+  );
+  const platforms = (["meta", "google", "tiktok"] as const).filter((p) =>
+    rows.some((r) => hasPlatformSignal(r[p])),
+  );
+  const platformOptions: PlatformKey[] =
+    platforms.length > 1 ? ["all", ...platforms] : platforms;
+  const activePlatform =
+    platform === "all" && platforms.length === 1 ? platforms[0]! : platform;
+  const visibleSeries: Exclude<PlatformKey, "all">[] =
+    activePlatform === "all"
+      ? platforms
+      : ([activePlatform] as Exclude<PlatformKey, "all">[]);
+  const metricDef = AWARENESS_METRICS.find((m) => m.key === metric)!;
+  const titleLabel =
+    title ?? `${granularity === "weekly" ? "Weekly" : "Daily"} trend`;
+
+  if (rows.length < 2 || platforms.length === 0) return null;
+
+  const VB_W = 600;
+  const VB_H = 150;
+  const PAD_T = 8;
+  const PAD_R = 8;
+  const PAD_B = 8;
+  const PAD_L = 8;
+  const plotW = VB_W - PAD_L - PAD_R;
+  const plotH = VB_H - PAD_T - PAD_B;
+  const xAt = (i: number) =>
+    rows.length === 1 ? PAD_L + plotW / 2 : PAD_L + (i / (rows.length - 1)) * plotW;
+  const max = Math.max(
+    1,
+    ...visibleSeries.flatMap((p) => rows.map((r) => r[p][metric])),
+  );
+  const yAt = (v: number) => PAD_T + plotH - (v / (max * 1.1)) * plotH;
+  const labelEvery = Math.max(1, Math.ceil(rows.length / 6));
+  const labelRows = rows.filter(
+    (_, i) => i === 0 || i === rows.length - 1 || i % labelEvery === 0,
+  );
+
+  return (
+    <div className={`rounded-md border border-border bg-card ${className ?? ""}`}>
+      <div className="border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="font-heading text-sm tracking-wide">{titleLabel}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] text-muted-foreground">
+              {rows.length} {granularity === "weekly" ? "week" : "day"}
+              {rows.length === 1 ? "" : "s"}
+            </p>
+            {showGranularityToggle ? (
+              <div className="flex gap-1 border-l border-border pl-2">
+                {(["daily", "weekly"] as const).map((value) => (
+                  <Pill
+                    key={value}
+                    active={granularity === value}
+                    onClick={() => setGranularity(value)}
+                  >
+                    {value}
+                  </Pill>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {platformOptions.map((p) => (
+            <Pill key={p} active={activePlatform === p} onClick={() => setPlatform(p)}>
+              {p === "all" ? "All" : PLATFORM_META[p].label}
+            </Pill>
+          ))}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {AWARENESS_METRICS.map((m) => (
+            <Pill key={m.key} active={metric === m.key} onClick={() => setMetric(m.key)}>
+              {m.label}
+            </Pill>
+          ))}
+        </div>
+      </div>
+      <div className="flex p-4">
+        <div className="relative h-[150px] w-12 flex-shrink-0" aria-hidden>
+          {[1, 0.66, 0.33, 0].map((fraction) => (
+            <span
+              key={fraction}
+              className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
+              style={{ top: `${PAD_T + plotH - fraction * plotH}px` }}
+            >
+              {metricDef.format(max * fraction)}
+            </span>
+          ))}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div
+            className="relative h-[150px]"
+            onMouseMove={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              if (rect.width === 0) return;
+              const vbX = ((e.clientX - rect.left) / rect.width) * VB_W;
+              let nearest = 0;
+              let dist = Infinity;
+              rows.forEach((_, i) => {
+                const d = Math.abs(xAt(i) - vbX);
+                if (d < dist) {
+                  dist = d;
+                  nearest = i;
+                }
+              });
+              setHover({ index: nearest, chartWidth: rect.width });
+            }}
+            onMouseLeave={() => setHover(null)}
+          >
+            <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none" width="100%" height={150}>
+              <line x1={PAD_L} x2={VB_W - PAD_R} y1={PAD_T + plotH} y2={PAD_T + plotH} stroke="currentColor" strokeOpacity={0.15} />
+              {visibleSeries.map((p) => (
+                <polyline
+                  key={p}
+                  points={rows.map((r, i) => `${xAt(i)},${yAt(r[p][metric])}`).join(" ")}
+                  fill="none"
+                  stroke={PLATFORM_META[p].colour}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+            </svg>
+            {hover ? (
+              <div
+                className="pointer-events-none absolute z-20 min-w-[170px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-card-foreground shadow-lg"
+                style={{ left: Math.min((xAt(hover.index) / VB_W) * hover.chartWidth + 8, hover.chartWidth - 180), top: 4 }}
+              >
+                <p className="mb-1 font-medium">
+                  {chartTooltipDate(rows[hover.index]!.date, granularity)}
+                </p>
+                {visibleSeries.map((p) => (
+                  <p key={p} className="flex gap-2">
+                    <span style={{ color: PLATFORM_META[p].colour }}>●</span>
+                    <span className="text-muted-foreground">{PLATFORM_META[p].label}</span>
+                    <span className="ml-auto tabular-nums">
+                      {metricDef.format(rows[hover.index]![p][metric])}
+                    </span>
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+            {labelRows.map((d) => (
+              <span key={d.date}>{chartShortDate(d.date, granularity)}</span>
+            ))}
+          </div>
+          {activePlatform === "all" ? (
+            <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+              {visibleSeries.map((p) => (
+                <span key={p} className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: PLATFORM_META[p].colour }} />
+                  {PLATFORM_META[p].label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Pill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium capitalize transition-colors ${
+        active
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function platformValues(
+  row: TimelineRow,
+  platform: Exclude<PlatformKey, "all">,
+): Record<AwarenessMetricKey, number> {
+  if (platform === "meta") {
+    return {
+      spend: Number(row.ad_spend ?? 0),
+      impressions: 0,
+      clicks: Number(row.link_clicks ?? 0),
+      videoViews: 0,
+    };
+  }
+  if (platform === "google") {
+    return {
+      spend: Number(row.google_ads_spend ?? 0),
+      impressions: Number(row.google_ads_impressions ?? 0),
+      clicks: Number(row.google_ads_clicks ?? 0),
+      videoViews: Number(row.google_ads_video_views ?? 0),
+    };
+  }
+  return {
+    spend: Number(row.tiktok_spend ?? 0),
+    impressions: Number(row.tiktok_impressions ?? 0),
+    clicks: Number(row.tiktok_clicks ?? 0),
+    videoViews: Number(row.tiktok_video_views ?? 0),
+  };
+}
+
+function hasPlatformSignal(values: Record<AwarenessMetricKey, number>): boolean {
+  return Object.values(values).some((value) => value > 0);
+}
+
+function buildAwarenessRows(timeline: TimelineRow[], granularity: TrendGranularity) {
+  const daily = timeline
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((r) => ({
+      date: r.date,
+      meta: platformValues(r, "meta"),
+      google: platformValues(r, "google"),
+      tiktok: platformValues(r, "tiktok"),
+    }));
+  if (granularity === "daily") return daily;
+  const byWeek = new Map<string, (typeof daily)[number]>();
+  for (const row of daily) {
+    const week = weekStart(row.date);
+    const cur =
+      byWeek.get(week) ??
+      ({
+        date: week,
+        meta: zeroAwareness(),
+        google: zeroAwareness(),
+        tiktok: zeroAwareness(),
+      } satisfies (typeof daily)[number]);
+    for (const platform of ["meta", "google", "tiktok"] as const) {
+      for (const metric of ["spend", "impressions", "clicks", "videoViews"] as const) {
+        cur[platform][metric] += row[platform][metric];
+      }
+    }
+    byWeek.set(week, cur);
+  }
+  return [...byWeek.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function zeroAwareness(): Record<AwarenessMetricKey, number> {
+  return { spend: 0, impressions: 0, clicks: 0, videoViews: 0 };
+}
+
+function weekStart(iso: string): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  const dow = date.getUTCDay() === 0 ? 7 : date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() - (dow - 1));
+  return date.toISOString().slice(0, 10);
 }

@@ -259,6 +259,11 @@ export function EventReportView({
 
   const eventDateLabel = event.eventDate ? fmtDate(event.eventDate) : "—";
   const isBrandCampaign = event.kind === "brand_campaign";
+  const hasTikTokSignal = Boolean(
+    tiktok?.snapshot.campaign &&
+      ((tiktok.snapshot.campaign.cost ?? 0) > 0 ||
+        (tiktok.snapshot.campaign.impressions ?? 0) > 0),
+  );
 
   const daysUntil = computeDaysUntil(event.eventDate);
   const paidMediaCap = event.paidMediaBudget ?? 0;
@@ -488,7 +493,7 @@ export function EventReportView({
         ) : null}
 
         {/* ─── TikTok block ─────────────────────────────────────── */}
-        {tiktok ? <TikTokReportBlock data={tiktok} /> : null}
+        {hasTikTokSignal && tiktok ? <TikTokReportBlock data={tiktok} /> : null}
 
         {/* ─── Google Ads block ─────────────────────────────────── */}
         {googleAds ? <GoogleAdsReportBlock data={googleAds} /> : null}

@@ -71,7 +71,10 @@ import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives
 import type { ResolvedShare } from "@/lib/db/report-shares";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
-import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
+import {
+  fetchGoogleAdsEventCampaignInsights,
+  fetchGoogleAdsShareExtras,
+} from "@/lib/google-ads/insights";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
 
@@ -1124,10 +1127,23 @@ async function resolveGoogleAdsReportBlock(input: {
   if (campaigns.length === 0) {
     return hasRollup ? { sourceLabel: "rollup", totals: rollup, campaigns: [] } : null;
   }
+  const extras = await fetchGoogleAdsShareExtras({
+    customerId: account.google_customer_id as string,
+    refreshToken: credentials.refresh_token,
+    loginCustomerId: (account.login_customer_id as string | null) ?? credentials.login_customer_id,
+    eventCode: input.eventCode,
+    window,
+    campaignIds: campaigns.map((campaign) => campaign.id),
+  }).catch((err) => {
+    console.warn(`[share/report] Google Ads extras failed token=${input.token}:`, err);
+    return null;
+  });
   return {
     sourceLabel: `${input.eventName} Google Ads · live`,
     totals: aggregateGoogleAdsCampaigns(campaigns),
     campaigns,
+    creatives: extras?.creatives ?? [],
+    demographics: extras?.demographics,
   };
 }
 

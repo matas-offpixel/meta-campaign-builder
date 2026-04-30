@@ -555,11 +555,12 @@ export function EventDailyReportBlock(props: Props) {
         timeframe={performanceSummary}
         additionalSpendEntries={additionalSpendRows}
       />
-      <EventTrendChart timeline={chartTimeline} />
+      <EventTrendChart timeline={chartTimeline} kind={event.kind} />
       <DailyTracker
         eventId={event.id}
         hasMetaScope={hasMetaScope}
         hasEventbriteLink={hasEventbriteLink}
+        kind={event.kind}
         controlled={controlled}
       />
     </div>
