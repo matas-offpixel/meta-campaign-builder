@@ -60,21 +60,54 @@ export function parseGoogleAdsError(error: unknown): {
       ? (record.metadata as Record<string, unknown>)
       : {};
 
+  const message =
+    valueAsString(record.message) ??
+    valueAsString(nestedError.message) ??
+    "Google Ads API request failed.";
+  const httpStatus =
+    valueAsNumber(response.status) ??
+    valueAsNumber(record.httpStatus) ??
+    valueAsNumber(record.statusCode);
+
   return {
     code: valueAsCode(record.code) ?? valueAsCode(nestedError.code),
     status:
       valueAsString(record.status) ??
       valueAsString(nestedError.status) ??
       valueAsString(metadata.status),
-    httpStatus:
-      valueAsNumber(response.status) ??
-      valueAsNumber(record.httpStatus) ??
-      valueAsNumber(record.statusCode),
-    message:
-      valueAsString(record.message) ??
-      valueAsString(nestedError.message) ??
-      "Google Ads API request failed.",
+    httpStatus,
+    message: isBrokenGoogleAdsTemplateMessage(message)
+      ? fallbackGoogleAdsErrorMessage(error, httpStatus)
+      : message,
   };
+}
+
+function isBrokenGoogleAdsTemplateMessage(message: string): boolean {
+  return /^undefined\s+undefined:\s+undefined$/i.test(message.trim());
+}
+
+function fallbackGoogleAdsErrorMessage(error: unknown, httpStatus?: number): string {
+  const ctor =
+    error && typeof error === "object" && "constructor" in error
+      ? (error.constructor as { name?: string } | undefined)?.name
+      : typeof error;
+  const status = httpStatus == null ? "unknown" : String(httpStatus);
+  return `Google Ads API request failed with an unparseable library error (httpStatus=${status}, errorType=${ctor ?? "unknown"}, details=${safeStringify(error).slice(0, 200)})`;
+}
+
+function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (_key, next) => {
+      if (typeof next === "object" && next !== null) {
+        if (seen.has(next)) return "[Circular]";
+        seen.add(next);
+      }
+      return next;
+    }) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function isRateLimitError(error: ReturnType<typeof parseGoogleAdsError>): boolean {

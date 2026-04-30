@@ -97,6 +97,17 @@ export async function GET(req: NextRequest) {
       login_customer_id: loginCustomerId,
     });
   } catch (err) {
+    console.error("[google-ads-oauth-callback] failure", {
+      step: customerId ? "upsert/credentials" : "resolveFirstAccessibleCustomer",
+      errorName: err instanceof Error ? err.name : typeof err,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      errorStack:
+        err instanceof Error
+          ? err.stack?.split("\n").slice(0, 5).join("\n")
+          : null,
+      hasRefreshToken: Boolean(token?.refresh_token),
+      customerId,
+    });
     return redirectWithStatus(
       origin,
       err instanceof Error ? err.message : "Failed to store Google Ads credentials.",
