@@ -14,9 +14,9 @@ export interface GoogleAdsReportBlockData {
 export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData }) {
   const cards = [
     ["Impressions", fmtInt(data.totals.impressions)],
-    ["Video views", fmtInt(data.totals.videoViews)],
+    ["Engagements", fmtInt(data.totals.videoViews)],
     ["Spend", fmtMoney(data.totals.spend)],
-    ["CPV", fmtMoney(data.totals.costPerView)],
+    ["CPE", fmtMoney(data.totals.costPerView)],
     ["Reach", data.totals.reach == null ? "—" : fmtInt(data.totals.reach)],
     ["Frequency", data.totals.frequency == null ? "—" : data.totals.frequency.toFixed(2)],
   ];
