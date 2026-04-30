@@ -29,6 +29,8 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
 
     assert.match(gaql, /segments\.date BETWEEN '2026-04-01' AND '2026-04-30'/);
     assert.match(gaql, /campaign\.advertising_channel_type IN \(SEARCH, VIDEO\)/);
+    assert.match(gaql, /metrics\.engagements/);
+    assert.doesNotMatch(gaql, /metrics\.video_views/);
     assert.doesNotMatch(gaql, /'SEARCH'|'VIDEO'/);
   });
 
@@ -64,7 +66,7 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
             impressions: "10000",
             clicks: "500",
             conversions: "25",
-            video_views: "0",
+            engagements: "0",
           },
         },
       ]),
@@ -76,7 +78,7 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
     assert.equal(rows[0].campaign_type, "SEARCH");
   });
 
-  it("returns a matching VIDEO campaign with cost_per_view", async () => {
+  it("returns a matching VIDEO campaign with engagement-backed cost_per_view", async () => {
     const rows = await fetchGoogleAdsEventCampaignInsights({
       customerId: "333-703-8088",
       refreshToken: "refresh-token",
@@ -96,7 +98,7 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
             impressions: "20000",
             clicks: "300",
             conversions: "0",
-            video_views: "1200",
+            engagements: "1200",
           },
         },
       ]),

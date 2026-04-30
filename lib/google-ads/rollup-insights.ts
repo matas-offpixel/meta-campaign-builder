@@ -59,7 +59,7 @@ interface GoogleAdsDailyCampaignRow {
     impressions?: string | number | null;
     clicks?: string | number | null;
     conversions?: string | number | null;
-    video_views?: string | number | null;
+    engagements?: string | number | null;
   };
 }
 
@@ -104,7 +104,7 @@ export async function fetchGoogleAdsDailyRollupInsights(
     existing.google_ads_impressions += numberMetric(metrics.impressions);
     existing.google_ads_clicks += numberMetric(metrics.clicks);
     existing.google_ads_conversions += numberMetric(metrics.conversions);
-    existing.google_ads_video_views += numberMetric(metrics.video_views);
+    existing.google_ads_video_views += numberMetric(metrics.engagements);
     byDate.set(date, existing);
   }
 
@@ -151,11 +151,11 @@ function buildDailyRollupQuery(window: { since: string; until: string }): string
       metrics.impressions,
       metrics.clicks,
       metrics.conversions,
-      metrics.video_views
+      metrics.engagements
     FROM campaign
     WHERE segments.date BETWEEN '${window.since}' AND '${window.until}'
       AND campaign.status != 'REMOVED'
-      AND campaign.advertising_channel_type IN ('SEARCH', 'VIDEO')
+      AND campaign.advertising_channel_type IN (SEARCH, VIDEO)
     ORDER BY segments.date ASC
   `;
 }

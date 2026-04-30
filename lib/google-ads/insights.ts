@@ -37,7 +37,7 @@ interface GoogleAdsCampaignRow {
     clicks?: string | number | null;
     ctr?: string | number | null;
     average_cpm?: string | number | null;
-    video_views?: string | number | null;
+    engagements?: string | number | null;
     conversions?: string | number | null;
   };
 }
@@ -69,14 +69,17 @@ export async function fetchGoogleAdsEventCampaignInsights(
     const spend = microsToCurrency(metrics.cost_micros);
     const impressions = numberMetric(metrics.impressions);
     const clicks = numberMetric(metrics.clicks);
-    const videoViews = numberMetric(metrics.video_views);
+    // Google Ads API v23 does not expose metrics.video_views in GAQL.
+    // For YouTube awareness campaigns, engagements maps to the UI's
+    // populated "Engagements" metric and is the reporting proxy we need.
+    const engagements = numberMetric(metrics.engagements);
     const conversions = numberMetric(metrics.conversions);
-    const results = conversions > 0 ? conversions : videoViews;
+    const results = conversions > 0 ? conversions : engagements;
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : nullableMetric(metrics.ctr);
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : microsToNullableCurrency(metrics.average_cpm);
     const cpr = results > 0 ? spend / results : null;
     const isVideoCampaign = campaign.advertising_channel_type === "VIDEO";
-    const costPerView = isVideoCampaign && videoViews > 0 ? spend / videoViews : null;
+    const costPerView = isVideoCampaign && engagements > 0 ? spend / engagements : null;
     const campaignType = [
       campaign.advertising_channel_type,
       campaign.advertising_channel_sub_type,
@@ -94,9 +97,9 @@ export async function fetchGoogleAdsEventCampaignInsights(
       cpr,
       results,
       ad_account_id: input.customerId,
-      video_views: videoViews,
+      video_views: engagements,
       cost_per_view: costPerView,
-      thruplays: videoViews,
+      thruplays: engagements,
       campaign_type: campaignType,
     }];
   });
@@ -113,7 +116,7 @@ function buildCampaignInsightsQuery(window: { since: string; until: string }): s
   return [
     "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,",
     "campaign.advertising_channel_sub_type, metrics.cost_micros, metrics.impressions,",
-    "metrics.clicks, metrics.ctr, metrics.average_cpm, metrics.video_views, metrics.conversions",
+    "metrics.clicks, metrics.ctr, metrics.average_cpm, metrics.engagements, metrics.conversions",
     "FROM campaign",
     `WHERE segments.date BETWEEN '${since}' AND '${until}'`,
     "AND campaign.status != 'REMOVED'",
