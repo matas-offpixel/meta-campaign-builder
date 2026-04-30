@@ -3,11 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { GoogleAdsClient } from "@/lib/google-ads/client";
 import { setGoogleAdsCredentials } from "@/lib/google-ads/credentials";
+import { enumerateGoogleAdsAccounts } from "@/lib/google-ads/customer-hierarchy";
 import {
-  customerIdForGoogleAdsApi,
   exchangeGoogleAdsOAuthCode,
   GOOGLE_ADS_LOGIN_CUSTOMER_ID,
-  normaliseCustomerId,
   requireGoogleAdsOAuthConfig,
   verifyGoogleAdsOAuthState,
 } from "@/lib/google-ads/oauth";
@@ -71,34 +70,48 @@ export async function GET(req: NextRequest) {
   }
 
   let customerId = parsedState.customerId ?? null;
+  let connectedCount = 0;
   try {
-    if (!customerId) {
-      customerId = await resolveFirstAccessibleCustomer(token.refresh_token);
-    }
-    if (!customerId) {
+    const client = new GoogleAdsClient();
+    const accessibleIds = customerId
+      ? [customerId]
+      : await client.listAccessibleCustomers(token.refresh_token);
+    if (accessibleIds.length === 0) {
       return redirectWithStatus(origin, "No accessible Google Ads customer found.");
     }
+    const accounts = await enumerateGoogleAdsAccounts({
+      refreshToken: token.refresh_token,
+      accessibleIds,
+      client,
+    });
+    if (accounts.length === 0) {
+      return redirectWithStatus(origin, "No enabled Google Ads accounts found.");
+    }
 
-    const loginCustomerId = GOOGLE_ADS_LOGIN_CUSTOMER_ID;
-    const accountId = await upsertGoogleAdsAccount({
-      userId: user.id,
-      customerId,
-      loginCustomerId,
-      supabase,
-    });
-    await setGoogleAdsCredentials(supabase, accountId, {
-      access_token: token.access_token,
-      refresh_token: token.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_in: token.expires_in ?? null,
-      expiry_date: token.expires_in ? Date.now() + token.expires_in * 1000 : null,
-      customer_id: customerId,
-      login_customer_id: loginCustomerId,
-    });
+    for (const account of accounts) {
+      customerId = account.customerId;
+      const accountId = await upsertGoogleAdsAccount({
+        userId: user.id,
+        customerId: account.customerId,
+        loginCustomerId: account.loginCustomerId,
+        accountName: account.accountName,
+        supabase,
+      });
+      await setGoogleAdsCredentials(supabase, accountId, {
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+        token_type: token.token_type ?? null,
+        scope: token.scope ?? null,
+        expires_in: token.expires_in ?? null,
+        expiry_date: token.expires_in ? Date.now() + token.expires_in * 1000 : null,
+        customer_id: account.customerId,
+        login_customer_id: account.loginCustomerId ?? GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+      });
+      connectedCount += 1;
+    }
   } catch (err) {
     console.error("[google-ads-oauth-callback] failure", {
-      step: customerId ? "upsert/credentials" : "resolveFirstAccessibleCustomer",
+      step: customerId ? "upsert/credentials" : "enumerateGoogleAdsAccounts",
       errorName: err instanceof Error ? err.name : typeof err,
       errorMessage: err instanceof Error ? err.message : String(err),
       errorStack:
@@ -114,30 +127,22 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const res = NextResponse.redirect(`${origin}/settings?connected=google_ads`);
+  const res = NextResponse.redirect(`${origin}/settings?connected=google_ads&count=${connectedCount}`);
   res.cookies.delete(STATE_COOKIE);
   return res;
-}
-
-async function resolveFirstAccessibleCustomer(
-  refreshToken: string,
-): Promise<string | null> {
-  const client = new GoogleAdsClient();
-  const ids = await client.listAccessibleCustomers(refreshToken);
-  const loginId = customerIdForGoogleAdsApi(GOOGLE_ADS_LOGIN_CUSTOMER_ID);
-  const chosen = ids.find((id) => customerIdForGoogleAdsApi(id) !== loginId) ?? ids[0];
-  return chosen ? normaliseCustomerId(chosen) : null;
 }
 
 async function upsertGoogleAdsAccount({
   userId,
   customerId,
   loginCustomerId,
+  accountName,
   supabase,
 }: {
   userId: string;
   customerId: string;
-  loginCustomerId: string;
+  loginCustomerId: string | null;
+  accountName: string;
   supabase: Awaited<ReturnType<typeof createClient>>;
 }): Promise<string> {
   const { data: existing, error: lookupError } = await supabase
@@ -152,7 +157,7 @@ async function upsertGoogleAdsAccount({
   if (existing?.id) {
     const { error: updateError } = await supabase
       .from("google_ads_accounts")
-      .update({ login_customer_id: loginCustomerId })
+      .update({ account_name: accountName, login_customer_id: loginCustomerId })
       .eq("id", existing.id);
     if (updateError) {
       throw new Error(`Failed to update Google Ads account: ${updateError.message}`);
@@ -164,7 +169,7 @@ async function upsertGoogleAdsAccount({
     .from("google_ads_accounts")
     .insert({
       user_id: userId,
-      account_name: `Google Ads — ${customerId}`,
+      account_name: accountName,
       google_customer_id: customerId,
       login_customer_id: loginCustomerId,
     })
