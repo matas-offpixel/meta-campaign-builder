@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normaliseMetaCampaignStatus } from "@/lib/insights/campaign-status";
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
 import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
 import { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
@@ -223,7 +224,10 @@ export async function fetchEventCampaignInsights(
           if (row.id) {
             statuses.set(
               row.id,
-              row.effective_status ?? row.status ?? "UNKNOWN",
+              normaliseMetaCampaignStatus({
+                status: row.status,
+                effectiveStatus: row.effective_status,
+              }),
             );
           }
         }
@@ -233,7 +237,10 @@ export async function fetchEventCampaignInsights(
           if (row) {
             statuses.set(
               id,
-              row.effective_status ?? row.status ?? "UNKNOWN",
+              normaliseMetaCampaignStatus({
+                status: row.status,
+                effectiveStatus: row.effective_status,
+              }),
             );
           }
         }

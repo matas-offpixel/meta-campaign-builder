@@ -1,6 +1,10 @@
 "use client";
 
 import { fmtCurrency } from "@/lib/dashboard/format";
+import {
+  campaignStatusLabel,
+  campaignStatusTone,
+} from "@/lib/insights/campaign-status";
 import type { EventInsightsPayload } from "@/lib/insights/types";
 
 export function MetaCampaignStatsSection({
@@ -206,17 +210,12 @@ export function Td({
 }
 
 export function StatusChip({ status }: { status: string }) {
-  const tone =
-    status === "ACTIVE"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-      : status.includes("PAUSED")
-        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-        : "bg-muted text-muted-foreground";
+  const tone = campaignStatusTone(status);
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${tone}`}
     >
-      {status.toLowerCase().replaceAll("_", " ")}
+      {campaignStatusLabel(status)}
     </span>
   );
 }
