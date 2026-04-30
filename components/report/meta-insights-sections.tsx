@@ -13,10 +13,13 @@ import type { EventInsightsPayload } from "@/lib/insights/types";
 export function MetaCampaignStatsSection({
   meta,
   isRefreshing = false,
+  kind = "event",
 }: {
   meta: EventInsightsPayload;
   isRefreshing?: boolean;
+  kind?: "event" | "brand_campaign";
 }) {
+  const isBrandCampaign = kind === "brand_campaign";
   return (
     <Section title="Meta campaign stats">
       <div
@@ -41,19 +44,19 @@ export function MetaCampaignStatsSection({
           value={fmtInt(meta.totals.clicks)}
           sub={formatCostPerSub(meta.totalSpend, meta.totals.clicks, "click")}
         />
-        <Metric
-          label="Registrations"
-          value={fmtInt(meta.totals.registrations)}
-        />
-        <Metric label="Purchases" value={fmtInt(meta.totals.purchases)} />
-        <Metric label="ROAS" value={fmtRoas(meta.totals.roas)} />
-        <Metric
-          label="Purchase value"
-          value={fmtCurrency(meta.totals.purchaseValue)}
-        />
+        {!isBrandCampaign ? (
+          <Metric label="Registrations" value={fmtInt(meta.totals.registrations)} />
+        ) : null}
+        {!isBrandCampaign ? (
+          <Metric label="Purchases" value={fmtInt(meta.totals.purchases)} />
+        ) : null}
+        {!isBrandCampaign ? <Metric label="ROAS" value={fmtRoas(meta.totals.roas)} /> : null}
+        {!isBrandCampaign ? (
+          <Metric label="Purchase value" value={fmtCurrency(meta.totals.purchaseValue)} />
+        ) : null}
         <Metric label="CPM" value={fmtCurrency(meta.totals.cpm)} />
         <Metric label="Frequency" value={fmtDecimal(meta.totals.frequency)} />
-        <Metric label="CPR" value={fmtCurrency(meta.totals.cpr)} />
+        {!isBrandCampaign ? <Metric label="CPR" value={fmtCurrency(meta.totals.cpr)} /> : null}
       </div>
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         <span className="font-medium text-foreground">Reach (sum)</span> is
@@ -69,10 +72,13 @@ export function MetaCampaignStatsSection({
 
 export function MetaCampaignBreakdownSection({
   meta,
+  kind = "event",
 }: {
   meta: EventInsightsPayload;
+  kind?: "event" | "brand_campaign";
 }) {
   const campaigns = sortCampaignsByStatusThenSpend(meta.campaigns);
+  const isBrandCampaign = kind === "brand_campaign";
 
   return (
     <Section title="Meta campaign breakdown">
@@ -86,15 +92,15 @@ export function MetaCampaignBreakdownSection({
                 <Th align="left">Campaign</Th>
                 <Th>Status</Th>
                 <Th align="right">Spend</Th>
-                <Th align="right">Regs</Th>
+                {!isBrandCampaign ? <Th align="right">Regs</Th> : null}
                 <Th align="right">LPV</Th>
-                <Th align="right">Purch</Th>
+                {!isBrandCampaign ? <Th align="right">Purch</Th> : null}
                 <Th align="right">Reach</Th>
                 <Th align="right">Impr</Th>
-                <Th align="right">CPR</Th>
-                <Th align="right">CPA</Th>
+                {!isBrandCampaign ? <Th align="right">CPR</Th> : null}
+                {!isBrandCampaign ? <Th align="right">CPA</Th> : null}
                 <Th align="right">CPLPV</Th>
-                <Th align="right">ROAS</Th>
+                {!isBrandCampaign ? <Th align="right">ROAS</Th> : null}
               </tr>
             </thead>
             <tbody>
@@ -112,17 +118,17 @@ export function MetaCampaignBreakdownSection({
                     <StatusChip status={c.status} reason={c.statusReason} />
                   </Td>
                   <Td align="right">{fmtCurrency(c.spend)}</Td>
-                  <Td align="right">{fmtInt(c.registrations)}</Td>
+                  {!isBrandCampaign ? <Td align="right">{fmtInt(c.registrations)}</Td> : null}
                   <Td align="right">{fmtInt(c.landingPageViews)}</Td>
-                  <Td align="right">{fmtInt(c.purchases)}</Td>
+                  {!isBrandCampaign ? <Td align="right">{fmtInt(c.purchases)}</Td> : null}
                   <Td align="right">{fmtInt(c.reach)}</Td>
                   <Td align="right">{fmtInt(c.impressions)}</Td>
-                  <Td align="right">{c.cpr > 0 ? fmtCurrency(c.cpr) : "—"}</Td>
-                  <Td align="right">{c.purchases > 0 ? fmtCurrency(c.cpp) : "—"}</Td>
+                  {!isBrandCampaign ? <Td align="right">{c.cpr > 0 ? fmtCurrency(c.cpr) : "—"}</Td> : null}
+                  {!isBrandCampaign ? <Td align="right">{c.purchases > 0 ? fmtCurrency(c.cpp) : "—"}</Td> : null}
                   <Td align="right">
                     {c.cplpv > 0 ? fmtCurrency(c.cplpv) : "—"}
                   </Td>
-                  <Td align="right">{fmtRoas(c.roas)}</Td>
+                  {!isBrandCampaign ? <Td align="right">{fmtRoas(c.roas)}</Td> : null}
                 </tr>
               ))}
             </tbody>

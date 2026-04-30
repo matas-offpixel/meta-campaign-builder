@@ -542,6 +542,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         meta_spend_cached: event.metaSpendCached,
         prereg_spend: event.preregSpend,
         general_sale_at: event.generalSaleAt,
+        kind: event.kind,
         report_cadence: event.reportCadence,
         capacity: event.capacity,
         event_date: event.eventDate,
@@ -550,6 +551,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         datePreset,
         customRange,
         metaSpend: metaPayload?.totals.spend ?? null,
+        additionalPlatformSpend: googleAdsBlock?.totals.spend ?? 0,
         ticketsInWindow: metaPayload?.ticketsSoldInWindow ?? null,
       }}
       additionalSpendEntries={additionalSpendEntries}
@@ -612,6 +614,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         venueCountry: event.venueCountry,
         eventDate: event.eventDate,
         eventStartAt: event.eventStartAt,
+        kind: event.kind,
         paidMediaBudget: event.paidMediaBudget,
         ticketsSold: event.ticketsSold,
         ticketsSoldSource: event.ticketsSoldSource,
@@ -1081,13 +1084,15 @@ async function resolveGoogleAdsReportBlock(input: {
 }): Promise<GoogleAdsReportBlockData | null> {
   const window = resolveGoogleAdsWindow(input.datePreset, input.customRange);
   const rollup = aggregateGoogleAdsRollups(input.rollups, window);
-  if (rollup.spend > 0 || rollup.impressions > 0 || rollup.videoViews > 0) {
+  const hasRollup = rollup.spend > 0 || rollup.impressions > 0 || rollup.engagements > 0;
+  if (!input.eventCode || !input.googleAdsAccountId) {
+    if (!hasRollup) return null;
     return {
       sourceLabel: rollup.fetchedAt ? `rollup · last sync ${rollup.fetchedAt}` : "rollup",
       totals: rollup,
+      campaigns: [],
     };
   }
-  if (!input.eventCode || !input.googleAdsAccountId) return null;
 
   const { data: account, error } = await input.admin
     .from("google_ads_accounts")
@@ -1096,13 +1101,15 @@ async function resolveGoogleAdsReportBlock(input: {
     .maybeSingle();
   if (error || !account?.google_customer_id) {
     console.warn(`[share/report] Google Ads account lookup failed token=${input.token}`);
-    return null;
+    return hasRollup ? { sourceLabel: "rollup", totals: rollup, campaigns: [] } : null;
   }
   const credentials = await getGoogleAdsCredentials(input.admin, account.id as string).catch((err) => {
     console.warn(`[share/report] Google Ads credentials failed token=${input.token}:`, err);
     return null;
   });
-  if (!credentials) return null;
+  if (!credentials) {
+    return hasRollup ? { sourceLabel: "rollup", totals: rollup, campaigns: [] } : null;
+  }
 
   const campaigns = await fetchGoogleAdsEventCampaignInsights({
     customerId: account.google_customer_id as string,
@@ -1114,10 +1121,13 @@ async function resolveGoogleAdsReportBlock(input: {
     console.warn(`[share/report] Google Ads live insights failed token=${input.token}:`, err);
     return [] as CampaignInsightsRow[];
   });
-  if (campaigns.length === 0) return null;
+  if (campaigns.length === 0) {
+    return hasRollup ? { sourceLabel: "rollup", totals: rollup, campaigns: [] } : null;
+  }
   return {
     sourceLabel: `${input.eventName} Google Ads · live`,
     totals: aggregateGoogleAdsCampaigns(campaigns),
+    campaigns,
   };
 }
 
@@ -1140,14 +1150,14 @@ function aggregateGoogleAdsRollups(
   let spend = 0;
   let impressions = 0;
   let clicks = 0;
-  let videoViews = 0;
+  let engagements = 0;
   let fetchedAt: string | null = null;
   for (const row of rows) {
     if (row.date < window.since || row.date > window.until) continue;
     spend += Number(row.google_ads_spend ?? 0);
     impressions += Number(row.google_ads_impressions ?? 0);
     clicks += Number(row.google_ads_clicks ?? 0);
-    videoViews += Number(row.google_ads_video_views ?? 0);
+    engagements += Number(row.google_ads_video_views ?? 0);
     if (row.source_google_ads_at && (!fetchedAt || row.source_google_ads_at > fetchedAt)) {
       fetchedAt = row.source_google_ads_at;
     }
@@ -1155,11 +1165,18 @@ function aggregateGoogleAdsRollups(
   return {
     spend: Math.round(spend * 100) / 100,
     impressions: Math.round(impressions),
-    videoViews: Math.round(videoViews),
     clicks: Math.round(clicks),
+    engagements: Math.round(engagements),
     reach: null,
     frequency: null,
-    costPerView: videoViews > 0 ? spend / videoViews : null,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : null,
+    ctr: impressions > 0 ? (clicks / impressions) * 100 : null,
+    costPerEngagement: engagements > 0 ? spend / engagements : null,
+    costPer1000Reached: null,
+    videoViews25: null,
+    videoViews50: null,
+    videoViews75: null,
+    videoViews100: null,
     fetchedAt,
   };
 }
@@ -1167,16 +1184,33 @@ function aggregateGoogleAdsRollups(
 function aggregateGoogleAdsCampaigns(campaigns: CampaignInsightsRow[]): GoogleAdsReportBlockData["totals"] {
   const spend = campaigns.reduce((sum, c) => sum + c.spend, 0);
   const impressions = campaigns.reduce((sum, c) => sum + c.impressions, 0);
-  const videoViews = campaigns.reduce((sum, c) => sum + (c.video_views ?? c.results), 0);
   const clicks = campaigns.reduce((sum, c) => sum + c.clicks, 0);
+  const engagements = campaigns.reduce((sum, c) => sum + (c.video_views ?? c.results), 0);
+  const quartile = (key: "video_quartile_p25_rate" | "video_quartile_p50_rate" | "video_quartile_p75_rate" | "video_quartile_p100_rate") => {
+    let seen = false;
+    const total = campaigns.reduce((sum, c) => {
+      const rate = c[key];
+      if (rate == null) return sum;
+      seen = true;
+      return sum + rate * c.impressions;
+    }, 0);
+    return seen ? Math.round(total) : null;
+  };
   return {
     spend: Math.round(spend * 100) / 100,
     impressions,
-    videoViews,
     clicks,
+    engagements,
     reach: null,
     frequency: null,
-    costPerView: videoViews > 0 ? spend / videoViews : null,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : null,
+    ctr: impressions > 0 ? (clicks / impressions) * 100 : null,
+    costPerEngagement: engagements > 0 ? spend / engagements : null,
+    costPer1000Reached: null,
+    videoViews25: quartile("video_quartile_p25_rate"),
+    videoViews50: quartile("video_quartile_p50_rate"),
+    videoViews75: quartile("video_quartile_p75_rate"),
+    videoViews100: quartile("video_quartile_p100_rate"),
   };
 }
 

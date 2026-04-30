@@ -24,6 +24,7 @@ interface EventLike {
   general_sale_at: string | null;
   capacity?: number | null;
   event_date?: string | null;
+  kind?: string | null;
 }
 
 export interface PerformanceSummaryTimeframe {
@@ -31,6 +32,8 @@ export interface PerformanceSummaryTimeframe {
   customRange?: CustomDateRange;
   /** Meta `totals.spend` for the selected preset (insights). */
   metaSpend: number | null;
+  /** Optional non-Meta platform spend already present on the report page. */
+  additionalPlatformSpend?: number | null;
   /** Rollup window sum from insights resolver; may be null. */
   ticketsInWindow: number | null;
 }
@@ -203,14 +206,30 @@ export function EventSummaryHeader({
               <th className="px-3 py-2.5 text-right">Ad spend</th>
               <th className="px-3 py-2.5 text-right">Other spend</th>
               <th className="px-3 py-2.5 text-right">Total spend</th>
-              <th className="px-3 py-2.5 text-right">Tickets</th>
-              <th className="px-3 py-2.5 text-right">Prev</th>
-              <th className="px-3 py-2.5 text-right">Δ Tickets</th>
-              <th className="px-3 py-2.5 text-right">CPT</th>
-              <th className="px-3 py-2.5 text-right">CPT Prev</th>
-              <th className="px-3 py-2.5 text-right">Δ CPT</th>
-              <th className="px-3 py-2.5 text-right">Revenue</th>
-              <th className="px-3 py-2.5 text-right">ROAS</th>
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">Tickets</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">Prev</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">Δ Tickets</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">CPT</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">CPT Prev</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">Δ CPT</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">Revenue</th>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <th className="px-3 py-2.5 text-right">ROAS</th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -227,37 +246,54 @@ export function EventSummaryHeader({
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {fmtGBP(m.totalSpendWindow)}
               </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {fmtInt(m.ticketsWindow)}
-              </td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
-                {fmtInt(m.ticketsPrev)}
-              </td>
-              <td className="px-3 py-2.5 text-right font-medium tabular-nums">
-                {fmtChange(m.ticketsChange)}
-              </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {fmtGBP(m.cpt, 2)}
-              </td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
-                {fmtGBP(m.cptPrev, 2)}
-              </td>
-              <td
-                className={`px-3 py-2.5 text-right tabular-nums ${cptChangeClass(m.cptChange)}`}
-              >
-                {fmtCptChange(m.cptChange)}
-              </td>
-              <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {fmtGBP(m.ticketRevenue)}
-              </td>
-              <td
-                className={`px-3 py-2.5 text-right tabular-nums ${roasClass(m.roas)}`}
-              >
-                {fmtRoas(m.roas)}
-              </td>
+              {!m.isBrandCampaign ? (
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                  {fmtInt(m.ticketsWindow)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                  {fmtInt(m.ticketsPrev)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td className="px-3 py-2.5 text-right font-medium tabular-nums">
+                  {fmtChange(m.ticketsChange)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                  {fmtGBP(m.cpt, 2)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                  {fmtGBP(m.cptPrev, 2)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td
+                  className={`px-3 py-2.5 text-right tabular-nums ${cptChangeClass(m.cptChange)}`}
+                >
+                  {fmtCptChange(m.cptChange)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                  {fmtGBP(m.ticketRevenue)}
+                </td>
+              ) : null}
+              {!m.isBrandCampaign ? (
+                <td
+                  className={`px-3 py-2.5 text-right tabular-nums ${roasClass(m.roas)}`}
+                >
+                  {fmtRoas(m.roas)}
+                </td>
+              ) : null}
             </tr>
           </tbody>
-          <thead>
+          {!m.isBrandCampaign ? (
+            <thead>
             <tr className="bg-muted/20 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               <th className="px-3 py-2.5" colSpan={4}>
                 Pacing
@@ -272,8 +308,10 @@ export function EventSummaryHeader({
               </th>
               <th className="px-3 py-2.5 text-right" colSpan={2} />
             </tr>
-          </thead>
-          <tbody>
+            </thead>
+          ) : null}
+          {!m.isBrandCampaign ? (
+            <tbody>
             <tr className="border-t border-border bg-background text-foreground">
               <td className="px-3 py-2.5 text-muted-foreground" colSpan={4}>
                 Based on lifetime running CPT for spend/day estimate.
@@ -298,7 +336,8 @@ export function EventSummaryHeader({
               </td>
               <td className="px-3 py-2.5" colSpan={2} />
             </tr>
-          </tbody>
+            </tbody>
+          ) : null}
         </table>
       </div>
       <p className="border-t border-border px-4 py-2 text-[10px] text-muted-foreground">
@@ -327,6 +366,7 @@ interface Metrics {
   sellThroughPct: number | null;
   ticketsNeededPerDay: number | null;
   spendNeededPerDay: number | null;
+  isBrandCampaign: boolean;
 }
 
 function computeMetrics(
@@ -336,6 +376,7 @@ function computeMetrics(
   additionalSpendEntries: ReadonlyArray<{ date: string; amount: number }>,
 ): Metrics {
   const window = windowDaySet(timeframe.datePreset, timeframe.customRange);
+  const isBrandCampaign = event.kind === "brand_campaign";
   const cutoff = lookbackCutoff();
 
   let liveSpendAll = 0;
@@ -377,7 +418,9 @@ function computeMetrics(
 
   let metaWindow: number | null = timeframe.metaSpend;
   if (metaWindow !== null) {
-    metaWindow += sumTikTokSpendTimeline(timeline, window);
+    metaWindow +=
+      sumTikTokSpendTimeline(timeline, window) +
+      Number(timeframe.additionalPlatformSpend ?? 0);
   }
   if (metaWindow === null) {
     metaWindow =
@@ -496,5 +539,6 @@ function computeMetrics(
     sellThroughPct,
     ticketsNeededPerDay,
     spendNeededPerDay,
+    isBrandCampaign,
   };
 }

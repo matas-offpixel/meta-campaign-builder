@@ -30,6 +30,7 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
     assert.match(gaql, /segments\.date BETWEEN '2026-04-01' AND '2026-04-30'/);
     assert.match(gaql, /campaign\.advertising_channel_type IN \(SEARCH, VIDEO\)/);
     assert.match(gaql, /metrics\.engagements/);
+    assert.match(gaql, /metrics\.video_quartile_p100_rate/);
     assert.doesNotMatch(gaql, /metrics\.video_views/);
     assert.doesNotMatch(gaql, /'SEARCH'|'VIDEO'/);
   });
@@ -99,6 +100,10 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
             clicks: "300",
             conversions: "0",
             engagements: "1200",
+            video_quartile_p25_rate: "0.75",
+            video_quartile_p50_rate: "0.50",
+            video_quartile_p75_rate: "0.25",
+            video_quartile_p100_rate: "0.10",
           },
         },
       ]),
@@ -108,6 +113,7 @@ describe("fetchGoogleAdsEventCampaignInsights", () => {
     assert.equal(rows[0].video_views, 1200);
     assert.equal(rows[0].cost_per_view, 0.05);
     assert.equal(rows[0].campaign_type, "VIDEO:VIDEO_ACTION");
+    assert.equal(rows[0].video_quartile_p100_rate, 0.1);
   });
 
   it("filters out campaigns that do not match event_code", async () => {

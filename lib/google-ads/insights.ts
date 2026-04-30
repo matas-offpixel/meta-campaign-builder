@@ -39,6 +39,10 @@ interface GoogleAdsCampaignRow {
     average_cpm?: string | number | null;
     engagements?: string | number | null;
     conversions?: string | number | null;
+    video_quartile_p25_rate?: string | number | null;
+    video_quartile_p50_rate?: string | number | null;
+    video_quartile_p75_rate?: string | number | null;
+    video_quartile_p100_rate?: string | number | null;
   };
 }
 
@@ -50,14 +54,25 @@ export async function fetchGoogleAdsEventCampaignInsights(
   }
 
   const client = input.client ?? await createDefaultClient();
-  const rows = await client.query<GoogleAdsCampaignRow[]>(
-    {
-      customerId: input.customerId,
-      refreshToken: input.refreshToken,
-      loginCustomerId: input.loginCustomerId,
-    },
-    buildCampaignInsightsQuery(input.window),
-  );
+  const credentials = {
+    customerId: input.customerId,
+    refreshToken: input.refreshToken,
+    loginCustomerId: input.loginCustomerId,
+  };
+  let rows: GoogleAdsCampaignRow[];
+  try {
+    rows = await client.query<GoogleAdsCampaignRow[]>(
+      credentials,
+      buildCampaignInsightsQuery(input.window, true),
+    );
+  } catch (err) {
+    if (!isVideoQuartileQueryError(err)) throw err;
+    console.warn("[googleAds] retrying insights without video quartile fields", err);
+    rows = await client.query<GoogleAdsCampaignRow[]>(
+      credentials,
+      buildCampaignInsightsQuery(input.window, false),
+    );
+  }
 
   return (rows ?? []).flatMap((row) => {
     const campaign = row.campaign ?? {};
@@ -101,6 +116,10 @@ export async function fetchGoogleAdsEventCampaignInsights(
       cost_per_view: costPerView,
       thruplays: engagements,
       campaign_type: campaignType,
+      video_quartile_p25_rate: optionalMetric(metrics.video_quartile_p25_rate),
+      video_quartile_p50_rate: optionalMetric(metrics.video_quartile_p50_rate),
+      video_quartile_p75_rate: optionalMetric(metrics.video_quartile_p75_rate),
+      video_quartile_p100_rate: optionalMetric(metrics.video_quartile_p100_rate),
     }];
   });
 }
@@ -110,13 +129,19 @@ async function createDefaultClient(): Promise<GoogleAdsQueryClient> {
   return new GoogleAdsClient();
 }
 
-function buildCampaignInsightsQuery(window: { since: string; until: string }): string {
+function buildCampaignInsightsQuery(
+  window: { since: string; until: string },
+  includeVideoQuartiles: boolean,
+): string {
   const since = requireIsoDate(window.since, "since");
   const until = requireIsoDate(window.until, "until");
+  const videoFields = includeVideoQuartiles
+    ? ", metrics.video_quartile_p25_rate, metrics.video_quartile_p50_rate, metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate"
+    : "";
   return [
     "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,",
     "campaign.advertising_channel_sub_type, metrics.cost_micros, metrics.impressions,",
-    "metrics.clicks, metrics.ctr, metrics.average_cpm, metrics.engagements, metrics.conversions",
+    `metrics.clicks, metrics.ctr, metrics.average_cpm, metrics.engagements, metrics.conversions${videoFields}`,
     "FROM campaign",
     `WHERE segments.date BETWEEN '${since}' AND '${until}'`,
     "AND campaign.status != 'REMOVED'",
@@ -144,6 +169,18 @@ function microsToNullableCurrency(value: string | number | null | undefined): nu
 function nullableMetric(value: string | number | null | undefined): number | null {
   const parsed = numberMetric(value);
   return parsed > 0 ? parsed : null;
+}
+
+function optionalMetric(value: string | number | null | undefined): number | null {
+  if (value == null) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const parsed = Number.parseFloat(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isVideoQuartileQueryError(err: unknown): boolean {
+  const text = JSON.stringify(err);
+  return /UNRECOGNIZED_FIELD|video_quartile_p(?:25|50|75|100)_rate/.test(text);
 }
 
 function numberMetric(value: string | number | null | undefined): number {
