@@ -19,6 +19,7 @@ import {
   SHARE_SNAPSHOT_TTL_MS,
   type ShareSnapshotPayload,
 } from "../share-snapshots.ts";
+import { getCurrentBuildVersion } from "../../build-version.ts";
 
 // ── tiny mock helpers ──────────────────────────────────────────────────────
 
@@ -126,6 +127,7 @@ function makeWriteStub(
 }
 
 const TOKEN = "tkn_smoke_001";
+const ORIGINAL_BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA;
 
 const FRESH_PAYLOAD: ShareSnapshotPayload = {
   metaPayload: null,
@@ -133,9 +135,81 @@ const FRESH_PAYLOAD: ShareSnapshotPayload = {
   activeCreatives: { kind: "skip", reason: "no_event_code" },
 };
 
+function setBuildVersion(value: string | undefined) {
+  if (value === undefined) {
+    delete process.env.VERCEL_GIT_COMMIT_SHA;
+  } else {
+    process.env.VERCEL_GIT_COMMIT_SHA = value;
+  }
+}
+
 // ── readShareSnapshot ──────────────────────────────────────────────────────
 
 describe("readShareSnapshot", () => {
+  it("returns the payload when build_version matches current build", async () => {
+    setBuildVersion("build-a");
+    const fetchedAt = new Date(Date.now() - 30_000).toISOString();
+    const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
+    const { client } = makeReadStub({
+      data: {
+        payload: FRESH_PAYLOAD,
+        expires_at: expiresAt,
+        fetched_at: fetchedAt,
+        build_version: "build-a",
+      },
+      error: null,
+    });
+    const out = await readShareSnapshot(client, {
+      shareToken: TOKEN,
+      datePreset: "last_7d",
+    });
+    assert.ok(out, "expected a hit");
+    assert.deepEqual(out!.payload, FRESH_PAYLOAD);
+    setBuildVersion(ORIGINAL_BUILD_VERSION);
+  });
+
+  it("returns null when build_version differs from current build", async () => {
+    setBuildVersion("build-b");
+    const fetchedAt = new Date(Date.now() - 30_000).toISOString();
+    const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
+    const { client } = makeReadStub({
+      data: {
+        payload: FRESH_PAYLOAD,
+        expires_at: expiresAt,
+        fetched_at: fetchedAt,
+        build_version: "build-a",
+      },
+      error: null,
+    });
+    const out = await readShareSnapshot(client, {
+      shareToken: TOKEN,
+      datePreset: "last_7d",
+    });
+    assert.equal(out, null);
+    setBuildVersion(ORIGINAL_BUILD_VERSION);
+  });
+
+  it("returns null when build_version is null", async () => {
+    setBuildVersion("build-a");
+    const fetchedAt = new Date(Date.now() - 30_000).toISOString();
+    const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
+    const { client } = makeReadStub({
+      data: {
+        payload: FRESH_PAYLOAD,
+        expires_at: expiresAt,
+        fetched_at: fetchedAt,
+        build_version: null,
+      },
+      error: null,
+    });
+    const out = await readShareSnapshot(client, {
+      shareToken: TOKEN,
+      datePreset: "last_7d",
+    });
+    assert.equal(out, null);
+    setBuildVersion(ORIGINAL_BUILD_VERSION);
+  });
+
   it("returns null when Supabase reports an error", async () => {
     const { client } = makeReadStub({
       data: null,
@@ -178,6 +252,7 @@ describe("readShareSnapshot", () => {
         payload: FRESH_PAYLOAD,
         expires_at: past,
         fetched_at: past,
+        build_version: getCurrentBuildVersion(),
       },
       error: null,
     });
@@ -196,6 +271,7 @@ describe("readShareSnapshot", () => {
         payload: FRESH_PAYLOAD,
         expires_at: expiresAt,
         fetched_at: fetchedAt,
+        build_version: getCurrentBuildVersion(),
       },
       error: null,
     });
@@ -254,6 +330,7 @@ describe("writeShareSnapshot", () => {
     assert.equal(row.custom_since, null);
     assert.equal(row.custom_until, null);
     assert.deepEqual(row.payload, FRESH_PAYLOAD);
+    assert.equal(row.build_version, getCurrentBuildVersion());
 
     const expiresAt = new Date(row.expires_at as string).getTime();
     // Expires_at must land within the TTL window measured against

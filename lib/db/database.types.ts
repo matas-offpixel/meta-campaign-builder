@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       active_creatives_snapshots: {
         Row: {
+          build_version: string | null
           created_at: string
           custom_since: string | null
           custom_until: string | null
@@ -31,6 +32,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          build_version?: string | null
           created_at?: string
           custom_since?: string | null
           custom_until?: string | null
@@ -46,6 +48,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          build_version?: string | null
           created_at?: string
           custom_since?: string | null
           custom_until?: string | null
@@ -2045,6 +2048,7 @@ export type Database = {
       }
       share_insight_snapshots: {
         Row: {
+          build_version: string | null
           created_at: string
           custom_since: string | null
           custom_until: string | null
@@ -2056,6 +2060,7 @@ export type Database = {
           share_token: string
         }
         Insert: {
+          build_version?: string | null
           created_at?: string
           custom_since?: string | null
           custom_until?: string | null
@@ -2067,6 +2072,7 @@ export type Database = {
           share_token: string
         }
         Update: {
+          build_version?: string | null
           created_at?: string
           custom_since?: string | null
           custom_until?: string | null
