@@ -72,13 +72,24 @@ Managed by `components/wizard/wizard-shell.tsx`, receives `draftId` from `/campa
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+TIKTOK_APP_ID=
+TIKTOK_APP_SECRET=
+TIKTOK_REDIRECT_URI=
+TIKTOK_TOKEN_KEY=
+OFFPIXEL_TIKTOK_WRITES_ENABLED=
+GOOGLE_ADS_DEVELOPER_TOKEN=
+GOOGLE_ADS_CLIENT_ID=
+GOOGLE_ADS_CLIENT_SECRET=
+GOOGLE_ADS_REDIRECT_URI=
+GOOGLE_ADS_TOKEN_KEY=
+EVENTBRITE_TOKEN_KEY=
 ```
 
 ### Database
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `051_drop_deprecated_columns.sql`.
+**Latest migration:** `067_snapshot_build_version.sql`.
 
 Notable recently-added tables / columns (dashboard-era, April 2026):
 
@@ -102,12 +113,44 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   (see `lib/ticketing/manual/provider.ts`).
 - `events.total_marketing_budget` was DROPPED in 051 — the total is
   computed live from plan paid media + additional spend entries.
+- Funnel planner (April 2026): `event_funnel_overrides` table
+  (migration 060) stores per-event and per-venue conversion-rate
+  overrides used by the Funnel Planner UI shell on event-report
+  deep-dives.
+- TikTok pipeline (April 2026): `tiktok_accounts` (encrypted credentials,
+  migration 054), `tiktok_active_creatives_snapshots` (057),
+  `tiktok_campaign_drafts` + `tiktok_campaign_templates` (058),
+  `tiktok_rollup_breakdowns` (059), `tiktok_write_idempotency` (062). Full
+  integration including OAuth, rollup, share, breakdowns, wizard, library,
+  brief export, and write-API foundation behind feature flag.
+- Google Ads pipeline (April 2026): `google_ads_accounts` (encrypted
+  credentials, migration 063; customer_id uniqueness constraint 065),
+  `event_daily_rollups` extended with Google Ads columns (064). Includes
+  YouTube via Video campaign subtype. MCC 333-703-8088, Basic Access,
+  15k ops/day.
+- Creative tagging foundation (April 2026): `creative_tags` +
+  `creative_tag_assignments` + `creative_scores` (migration 061).
+  Motion-replacement Phase 1 schema; Phase 2 AI tagging unblocks once tags
+  seed.
+- Meta awareness rollup (April 2026): `event_daily_rollups` extended with
+  `meta_impressions`, `meta_reach`, `meta_video_plays_3s` /
+  `meta_video_plays_15s` / `meta_video_plays_p100`, `meta_engagements`
+  (migration 066). Powers brand-campaign Daily Trend chart cross-platform
+  read and the BB26-KAYODE awareness reporting template.
+- Snapshot cache auto-invalidation: `build_version` column on
+  `active_creatives_snapshots` and `share_insight_snapshots` (migration
+  067) stamped with `VERCEL_GIT_COMMIT_SHA`; readers treat mismatched/NULL
+  as stale across deploys.
 
 ### Canonical spec
 
 `docs/CLIENT_DASHBOARD_BRIEF_2026-04-27.md` is the active reference
 for the 4theFans dashboard rollout. It covers readiness rules, venue
 grouping, spend attribution, and the weekly-snapshot history flow.
+
+`docs/STRATEGIC_REFLECTION_2026-05-01.md` is the most recent ops-level
+strategic reflection, covering the awareness vertical, multi-platform
+reporting completion, and BR-readiness sprint state.
 
 ### PUBLIC_PREFIXES
 
