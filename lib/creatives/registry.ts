@@ -10,21 +10,34 @@ import type {
   CreativeProviderName,
 } from "@/lib/creatives/types";
 import { canvaProvider } from "@/lib/creatives/canva/provider";
-import { bannerbearProvider } from "@/lib/creatives/bannerbear/provider";
+import { getBannerbearProvider } from "@/lib/creatives/bannerbear/provider";
 import { placidProvider } from "@/lib/creatives/placid/provider";
 import { manualProvider } from "@/lib/creatives/manual/provider";
 
-const providers: Record<CreativeProviderName, CreativeProvider> = {
+const providers: Record<
+  Exclude<CreativeProviderName, "bannerbear">,
+  CreativeProvider
+> = {
   canva: canvaProvider,
-  bannerbear: bannerbearProvider,
   placid: placidProvider,
   manual: manualProvider,
 };
 
+const ALL_NAMES: CreativeProviderName[] = [
+  "canva",
+  "bannerbear",
+  "placid",
+  "manual",
+];
+
 export function getCreativeProvider(
   name: CreativeProviderName,
 ): CreativeProvider {
-  const provider = providers[name];
+  if (name === "bannerbear") {
+    return getBannerbearProvider();
+  }
+  const provider =
+    providers[name as Exclude<CreativeProviderName, "bannerbear">];
   if (!provider) {
     throw new Error(`Unknown creative provider: ${name}`);
   }
@@ -32,5 +45,5 @@ export function getCreativeProvider(
 }
 
 export function listCreativeProviderNames(): CreativeProviderName[] {
-  return Object.keys(providers) as CreativeProviderName[];
+  return [...ALL_NAMES];
 }
