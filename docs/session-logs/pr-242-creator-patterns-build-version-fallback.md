@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 242
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/242
 - **Branch:** `creator/patterns-build-version-fallback`
 
 ## Summary
