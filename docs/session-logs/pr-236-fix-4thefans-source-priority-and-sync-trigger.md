@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 236
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/236
 - **Branch:** `fix/4thefans-source-priority-and-sync-trigger`
 
 ## Summary
