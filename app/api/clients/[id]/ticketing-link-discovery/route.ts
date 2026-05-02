@@ -260,6 +260,7 @@ export async function GET(
           nameScore: cand.nameScore,
           dateMatch: cand.dateMatch,
           capacityMatch: cand.capacityMatch,
+          autoSelect: cand.autoSelect,
           autoConfirm: cand.autoConfirm,
           manualDisambiguationRequired: cand.manualDisambiguationRequired,
           connectionId: c.connectionId,

@@ -113,6 +113,8 @@ describe("scoreCandidatesForEvent", () => {
       ),
       1,
     );
+    assert.equal(venueScoreForMatching("Tottenham", "Club360, Tottenham"), 1);
+    assert.equal(venueScoreForMatching("Club360 Tottenham", "Tottenham, Club360"), 1);
   });
 
   it("extracts opponents for matching, including reversed home-team and knockout labels", () => {
@@ -164,6 +166,31 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(candidates.length, 1);
     assert.ok((candidates[0]?.confidence ?? 0) >= 0.55);
     assert.ok((candidates[0]?.confidence ?? 1) < 0.65);
+    assert.equal(candidates[0]?.autoSelect, false);
+    assert.equal(candidates[0]?.autoConfirm, false);
+  });
+
+  it("does not auto-select when total score passes but venue score is weak", () => {
+    const candidates = scoreCandidatesForEvent(
+      intEv({
+        id: "venue-floor",
+        name: "England v Croatia",
+        event_date: "2026-06-17",
+        venue_name: "Club360",
+        venue_city: "Tottenham",
+      }),
+      [
+        extEv({
+          externalEventId: "weak-venue",
+          name: "Tottenham – England v Croatia",
+          startsAt: "2026-06-17",
+          venue: "Club360 Tottenham London Manchester",
+        }),
+      ],
+    );
+    assert.ok((candidates[0]?.confidence ?? 0) >= 0.65);
+    assert.ok((candidates[0]?.venueScore ?? 1) < 0.65);
+    assert.equal(candidates[0]?.autoSelect, false);
     assert.equal(candidates[0]?.autoConfirm, false);
   });
 
@@ -548,6 +575,65 @@ describe("scoreCandidatesForEvent", () => {
         (candidates[0]?.confidence ?? 0) > 0.85,
         `${name} should score above 85%`,
       );
+      assert.equal(candidates[0]?.autoConfirm, true);
+    }
+  });
+
+  it("matches Tottenham events to 4thefans Club360 Tottenham events", () => {
+    const shared = {
+      venue_name: "Club360",
+      venue_city: "Tottenham",
+    };
+    const externals = [
+      extEv({
+        externalEventId: "4012",
+        name: "Tottenham – England v Croatia",
+        startsAt: "2026-06-17",
+        venue: "Club360, Tottenham",
+      }),
+      extEv({
+        externalEventId: "4206",
+        name: "Tottenham – England v Ghana",
+        startsAt: "2026-06-24",
+        venue: "Club360, Tottenham",
+      }),
+      extEv({
+        externalEventId: "4218",
+        name: "Tottenham – England v Panama",
+        startsAt: "2026-06-27",
+        venue: "Club360, Tottenham",
+      }),
+      extEv({
+        externalEventId: "4239",
+        name: "Tottenham – Last 32",
+        startsAt: "2026-06-30",
+        venue: "Club360, Tottenham",
+      }),
+    ];
+
+    const expectations = [
+      ["England v Croatia", "2026-06-17", "4012"],
+      ["England v Ghana", "2026-06-24", "4206"],
+      ["England v Panama", "2026-06-27", "4218"],
+      ["England - Last 32", "2026-06-30", "4239"],
+    ] as const;
+
+    for (const [name, date, expectedId] of expectations) {
+      const candidates = scoreCandidatesForEvent(
+        intEv({
+          id: `tottenham-${expectedId}`,
+          name,
+          event_date: date,
+          ...shared,
+        }),
+        externals,
+      );
+      assert.equal(candidates[0]?.externalEventId, expectedId);
+      assert.ok(
+        (candidates[0]?.confidence ?? 0) > 0.85,
+        `${name} should score above 85%`,
+      );
+      assert.equal(candidates[0]?.autoSelect, true);
       assert.equal(candidates[0]?.autoConfirm, true);
     }
   });
