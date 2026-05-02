@@ -13,7 +13,7 @@ import { selectLatestSnapshotsByEvent } from "@/lib/reporting/creative-patterns-
 const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
 const TOP_CREATIVE_LIMIT = 4;
-const REGISTRATION_PHASE_RE = /\b(?:PRESALE|SIGNUP|LEAD)\b/i;
+const REGISTRATION_PHASE_RE = /(?:PRESALE|SIGNUP|LEAD)/i;
 
 export type CreativePatternPhase = "registration" | "ticket_sale";
 

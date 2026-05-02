@@ -24,6 +24,8 @@ Adds phase and funnel selectors to the internal creative patterns page so operat
 
 - [x] `npm run lint -- lib/reporting/creative-patterns-cross-event.ts 'app/(dashboard)/dashboard/clients/[slug]/patterns/page.tsx'`
 - [x] `npx tsc --noEmit`
+- [x] Vercel preview public regression: `/share/report/i6MRF2-I789FSxdY` still renders the per-event tag performance section.
+- [ ] Dashboard preview visual checks are auth-gated anonymously; validate `/dashboard/clients/4thefans/patterns?window=90&phase=registration&funnel=top` and `[creative-patterns] phase-filter` logs from an authenticated session after deploy.
 
 ## Notes
 
