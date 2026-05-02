@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 238
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/238
 - **Branch:** `creator/creative-patterns-cross-event-page`
 
 ## Summary
