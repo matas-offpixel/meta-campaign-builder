@@ -1,10 +1,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import type OpenAI from "openai";
+import type Anthropic from "@anthropic-ai/sdk";
 
 import {
+  AI_AUTOTAG_MODEL_VERSION,
   autoTag,
   buildAutoTagSystemPrompt,
+  buildAutoTagTool,
   type AutoTagInput,
 } from "../auto-tagger.ts";
 import {
@@ -49,61 +51,63 @@ const INPUT: AutoTagInput = {
 describe("autoTag", () => {
   it("embeds every dimension's full enum in the system prompt", () => {
     const prompt = buildAutoTagSystemPrompt(TAXONOMY);
+    const toolJson = JSON.stringify(buildAutoTagTool(TAXONOMY));
 
     for (const dimension of CREATIVE_TAG_DIMENSIONS) {
       assert.match(prompt, new RegExp(`\\b${dimension}\\b`));
+      assert.match(toolJson, new RegExp(`"const":"${dimension}"`));
       const rows = TAXONOMY.filter((row) => row.dimension === dimension);
       for (const row of rows) {
         assert.match(prompt, new RegExp(`\\b${row.value_key}\\b`));
         assert.match(prompt, new RegExp(row.value_label));
         assert.match(prompt, new RegExp(`${row.value_label} definition`));
+        assert.match(toolJson, new RegExp(`"${row.value_key}"`));
       }
     }
   });
 
   it("filters hallucinated value_keys before returning", async () => {
     let request: unknown;
-    const openai = {
-      chat: {
-        completions: {
-          create(args: unknown) {
-            request = args;
-            return Promise.resolve({
-              choices: [
-                {
-                  message: {
-                    content: JSON.stringify({
-                      tags: [
-                        {
-                          dimension: "asset_type",
-                          value_key: "asset_type_one",
-                          confidence: 0.91,
-                        },
-                        {
-                          dimension: "asset_type",
-                          value_key: "made_up_value",
-                          confidence: 0.99,
-                        },
-                        {
-                          dimension: "visual_format",
-                          value_key: "visual_format_two",
-                          confidence: 1.7,
-                        },
-                      ],
-                    }),
-                  },
+    const anthropic = {
+      messages: {
+        create(args: unknown) {
+          request = args;
+          return Promise.resolve({
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "record_creative_tags",
+                input: {
+                  tags: [
+                    {
+                      dimension: "asset_type",
+                      value_key: "asset_type_one",
+                      confidence: 0.91,
+                    },
+                    {
+                      dimension: "asset_type",
+                      value_key: "made_up_value",
+                      confidence: 0.99,
+                    },
+                    {
+                      dimension: "visual_format",
+                      value_key: "visual_format_two",
+                      confidence: 1.7,
+                    },
+                  ],
                 },
-              ],
-            });
-          },
+              },
+            ],
+          });
         },
       },
-    } as unknown as OpenAI;
+    } as unknown as Anthropic;
 
     const result = await autoTag(INPUT, {
       taxonomy: TAXONOMY,
-      openai,
-      modelVersion: "gpt-4o-mini",
+      anthropic,
+      modelVersion: AI_AUTOTAG_MODEL_VERSION,
     });
 
     assert.deepEqual(result, [
@@ -118,7 +122,9 @@ describe("autoTag", () => {
         confidence: 1,
       },
     ]);
-    assert.match(JSON.stringify(request), /"type":"image_url"/);
+    assert.match(JSON.stringify(request), /"type":"image"/);
+    assert.match(JSON.stringify(request), /"source":\{"type":"url"/);
     assert.match(JSON.stringify(request), /Final tickets/);
+    assert.match(JSON.stringify(request), /record_creative_tags/);
   });
 });

@@ -122,7 +122,7 @@ export interface RefreshInput {
   /**
    * INTERNAL — called only after a fresh ok payload has been written
    * to `active_creatives_snapshots`. Cron uses this to run sidecar
-   * work against persisted payloads without moving any Meta/OpenAI
+   * work against persisted payloads without moving any Meta/AI
    * traffic into the public viewer path.
    */
   onSnapshotWritten?: (args: {

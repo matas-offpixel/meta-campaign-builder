@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
+  AI_AUTOTAG_MODEL_VERSION,
   autoTag,
   type AutoTagInput,
 } from "@/lib/intelligence/auto-tagger";
@@ -71,7 +72,6 @@ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-cr
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
-const AI_AUTOTAG_MODEL_VERSION = "gpt-4o-mini";
 const AI_AUTOTAG_CONCURRENCY = 3;
 
 interface EventToRefresh {
@@ -143,15 +143,15 @@ function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
   };
 }
 
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
+function getAnthropicClient(): Anthropic | null {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     console.warn(
-      "[cron refresh-active-creatives] ENABLE_AI_AUTOTAG=1 but OPENAI_API_KEY is missing",
+      "[cron refresh-active-creatives] ENABLE_AI_AUTOTAG=1 but ANTHROPIC_API_KEY is missing",
     );
     return null;
   }
-  return new OpenAI({ apiKey });
+  return new Anthropic({ apiKey });
 }
 
 export async function GET(req: NextRequest) {
@@ -268,7 +268,7 @@ export async function GET(req: NextRequest) {
   const results: EventRefreshSummary[] = [];
   let totalPresetsRefreshed = 0;
   const autoTagEnabled = isAutoTagEnabled();
-  const openai = autoTagEnabled ? getOpenAIClient() : null;
+  const anthropic = autoTagEnabled ? getAnthropicClient() : null;
 
   for (const event of events) {
     const t0 = Date.now();
@@ -298,14 +298,14 @@ export async function GET(req: NextRequest) {
         adAccountId,
         eventDate,
         onSnapshotWritten:
-          autoTagEnabled && openai
+          autoTagEnabled && anthropic
             ? async ({ payload }) => {
                 await runAutoTagForSnapshot({
                   supabase,
                   userId: event.user_id,
                   eventId: event.id,
                   payload,
-                  openai,
+                  anthropic,
                   summary: aiAutoTag,
                 });
               }
@@ -367,7 +367,7 @@ async function runAutoTagForSnapshot(args: {
   userId: string;
   eventId: string;
   payload: Extract<ShareActiveCreativesResult, { kind: "ok" }>;
-  openai: OpenAI;
+  anthropic: Anthropic;
   summary: AutoTagCronSummary;
 }): Promise<void> {
   args.summary.payloadsSeen += 1;
@@ -431,7 +431,7 @@ async function runAutoTagForSnapshot(args: {
     try {
       const tags = await autoTag(input, {
         taxonomy,
-        openai: args.openai,
+        anthropic: args.anthropic,
         modelVersion: AI_AUTOTAG_MODEL_VERSION,
       });
       const assignments = tags

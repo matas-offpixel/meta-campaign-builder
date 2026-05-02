@@ -218,7 +218,7 @@ describe("creative tag assignments", () => {
       creativeName: `Creative ${index}`,
       tagId: `${TAG_ID}-${index}`,
       source: "manual" as const,
-      modelVersion: index === 0 ? "gpt-4o-mini" : null,
+      modelVersion: index === 0 ? "claude-haiku-4-5-20251001" : null,
     }));
     args.push({ ...args[0] });
 
@@ -240,7 +240,7 @@ describe("creative tag assignments", () => {
       tag_id: `${TAG_ID}-0`,
       source: "manual",
       confidence: null,
-      model_version: "gpt-4o-mini",
+      model_version: "claude-haiku-4-5-20251001",
     });
   });
 });
