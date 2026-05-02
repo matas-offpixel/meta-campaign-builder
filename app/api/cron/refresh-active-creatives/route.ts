@@ -17,6 +17,7 @@ import {
   refreshActiveCreativesForEvent,
   type RefreshResult,
 } from "@/lib/reporting/active-creatives-refresh-runner";
+import { loadActiveCreativesCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 
@@ -51,13 +52,10 @@ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-cr
  * Identical helper to `rollup-sync-events` so the bearer-vs-raw
  * tolerance stays consistent across crons.
  *
- * Eligibility: identical scaffold to `rollup-sync-events` —
- * `event_ticketing_links ∩ events.general_sale_at within ±60d`.
- * Even events on Meta-only clients show up because the cron is
- * walking the same set the rollup runner already covers; if a
- * client doesn't yet have a ticketing connection they don't
- * reach this cron OR the rollup one, which is correct (no Meta
- * leg to refresh either).
+ * Eligibility: existing ticketing-link ∩ sale-date window, plus
+ * on-sale/live event-code rows. The event-code fallback keeps active
+ * Meta campaign snapshots warm for internal-ticketing clients whose
+ * campaigns still follow the bracketed `[EVENT_CODE]` convention.
  *
  * Per-event isolation: each event runs inside its own try/catch
  * so one preset's Meta failure can't abort the whole batch.
@@ -179,52 +177,22 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Eligibility window mirrors rollup-sync-events so the same set
-  // of events is refreshed across both crons. PostgREST doesn't
-  // expose a clean OR across a join + a column, so we query
-  // separately and intersect client-side. Both queries are small
-  // (tens of rows) so the union is cheap.
-  const nowMs = Date.now();
-  const sinceMs = nowMs - 60 * 24 * 60 * 60 * 1000;
-  const untilMs = nowMs + 60 * 24 * 60 * 60 * 1000;
-  const sinceISO = new Date(sinceMs).toISOString();
-  const untilISO = new Date(untilMs).toISOString();
-
-  const { data: linkedRows, error: linkedErr } = await supabase
-    .from("event_ticketing_links")
-    .select("event_id");
-  if (linkedErr) {
+  let eligibility: Awaited<
+    ReturnType<typeof loadActiveCreativesCronEligibility>
+  >;
+  try {
+    eligibility = await loadActiveCreativesCronEligibility(supabase);
+  } catch (err) {
     return NextResponse.json(
-      { ok: false, error: linkedErr.message },
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : "Eligibility query failed",
+      },
       { status: 500 },
     );
   }
-  const linkedIds = new Set<string>(
-    (linkedRows ?? [])
-      .map((r) => (r as { event_id: string | null }).event_id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0),
-  );
 
-  const { data: dateRows, error: dateErr } = await supabase
-    .from("events")
-    .select("id")
-    .gte("general_sale_at", sinceISO)
-    .lte("general_sale_at", untilISO);
-  if (dateErr) {
-    return NextResponse.json(
-      { ok: false, error: dateErr.message },
-      { status: 500 },
-    );
-  }
-  const dateIds = new Set<string>(
-    (dateRows ?? [])
-      .map((r) => (r as { id: string }).id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0),
-  );
-
-  const eligibleIds = Array.from(linkedIds).filter((id) => dateIds.has(id));
-
-  if (eligibleIds.length === 0) {
+  if (eligibility.eligibleIds.length === 0) {
     const finishedAt = new Date().toISOString();
     const empty: CronResponse = {
       ok: true,
@@ -236,7 +204,7 @@ export async function GET(req: NextRequest) {
       results: [],
     };
     console.log(
-      `[cron refresh-active-creatives] no eligible events; window=${sinceISO}..${untilISO}`,
+      `[cron refresh-active-creatives] no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
     );
     return NextResponse.json(empty);
   }
@@ -252,7 +220,7 @@ export async function GET(req: NextRequest) {
     .select(
       "id, user_id, event_code, event_date, client:clients ( meta_ad_account_id )",
     )
-    .in("id", eligibleIds);
+    .in("id", eligibility.eligibleIds);
   if (eventErr) {
     return NextResponse.json(
       { ok: false, error: eventErr.message },
@@ -262,7 +230,7 @@ export async function GET(req: NextRequest) {
   const events = (rawEvents ?? []) as unknown as EventToRefresh[];
 
   console.log(
-    `[cron refresh-active-creatives] considering=${events.length} window=${sinceISO}..${untilISO}`,
+    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO}`,
   );
 
   const results: EventRefreshSummary[] = [];

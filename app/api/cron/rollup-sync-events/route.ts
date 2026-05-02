@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 
 /**
@@ -21,14 +22,12 @@ import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
  * shape as the other cron entries. 401 on mismatch.
  *
  * Eligibility:
- *   - Event has at least one row in `event_ticketing_links` (i.e.
- *     someone bound it to an Eventbrite event in the dashboard).
- *   - Event's `general_sale_at` is within the last 60 days.
- *   - Past-event sweep: a `general_sale_at` 30 days ago covers
- *     events that have already happened — useful because revenue
- *     trickle (refunds, late comps) keeps changing for ~2 weeks
- *     after the show. Bounding to 60 days keeps the cron under any
- *     reasonable function timeout for a typical 4tF roster size.
+ *   - Existing operational legs: ticketing-linked events, sale-date
+ *     window events, and event-level Google Ads accounts.
+ *   - Event-code fallback: on-sale/live events with populated event_code
+ *     and event_date null or within the last 180 days. This keeps Meta
+ *     rollups warm for internal-ticketing clients whose campaigns still
+ *     follow the bracketed `[EVENT_CODE]` convention.
  *
  * Per-event isolation:
  *   - Each event runs inside its own try/catch so one Meta rate-limit
@@ -123,84 +122,20 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Pull:
-  //   - the existing ticketing/date intersection, plus
-  //   - events with event-level Google Ads connected.
-  // We query separately and merge on event id, because Supabase's
-  // PostgREST doesn't expose a clean OR across a join + a column.
-  // This also keeps brand campaigns with Google Ads but no ticketing
-  // link (for example BB26-KAYODE) eligible for daily rollups.
-
-  // Window: include the next 60 days too so we keep tracking events
-  // currently in pre-sale. Past-event window is 60 days as well so
-  // we cover late-arriving refunds / comp scans on already-run shows.
-  const nowMs = Date.now();
-  const sinceMs = nowMs - 60 * 24 * 60 * 60 * 1000;
-  const untilMs = nowMs + 60 * 24 * 60 * 60 * 1000;
-  const sinceISO = new Date(sinceMs).toISOString();
-  const untilISO = new Date(untilMs).toISOString();
-
-  // 1) Events with active ticketing links — a one-row-per-link table,
-  //    so we de-dup downstream.
-  const { data: linkedRows, error: linkedErr } = await supabase
-    .from("event_ticketing_links")
-    .select("event_id");
-  if (linkedErr) {
+  let eligibility: Awaited<ReturnType<typeof loadRollupSyncCronEligibility>>;
+  try {
+    eligibility = await loadRollupSyncCronEligibility(supabase);
+  } catch (err) {
     return NextResponse.json(
-      { ok: false, error: linkedErr.message },
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : "Eligibility query failed",
+      },
       { status: 500 },
     );
   }
-  const linkedIds = new Set<string>(
-    (linkedRows ?? [])
-      .map((r) => (r as { event_id: string | null }).event_id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0),
-  );
 
-  // 2) Events with general_sale_at in the rolling window.
-  const { data: dateRows, error: dateErr } = await supabase
-    .from("events")
-    .select("id")
-    .gte("general_sale_at", sinceISO)
-    .lte("general_sale_at", untilISO);
-  if (dateErr) {
-    return NextResponse.json(
-      { ok: false, error: dateErr.message },
-      { status: 500 },
-    );
-  }
-  const dateIds = new Set<string>(
-    (dateRows ?? [])
-      .map((r) => (r as { id: string }).id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0),
-  );
-
-  // 3) Events with event-level Google Ads accounts. These may be
-  // awareness campaigns with no ticketing link / general_sale_at.
-  const { data: googleAdsRows, error: googleAdsErr } = await supabase
-    .from("events")
-    .select("id")
-    .not("google_ads_account_id", "is", null);
-  if (googleAdsErr) {
-    return NextResponse.json(
-      { ok: false, error: googleAdsErr.message },
-      { status: 500 },
-    );
-  }
-  const googleAdsIds = new Set<string>(
-    (googleAdsRows ?? [])
-      .map((r) => (r as { id: string }).id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0),
-  );
-
-  const ticketingEligibleIds = Array.from(linkedIds).filter((id) =>
-    dateIds.has(id),
-  );
-  const eligibleIds = Array.from(
-    new Set([...ticketingEligibleIds, ...googleAdsIds]),
-  );
-
-  if (eligibleIds.length === 0) {
+  if (eligibility.eligibleIds.length === 0) {
     const finishedAt = new Date().toISOString();
     const empty: CronResponse = {
       ok: true,
@@ -212,7 +147,7 @@ export async function GET(req: NextRequest) {
       results: [],
     };
     console.log(
-      `[cron rollup-sync-events] no eligible events; window=${sinceISO}..${untilISO}`,
+      `[cron rollup-sync-events] no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
     );
     return NextResponse.json(empty);
   }
@@ -223,7 +158,7 @@ export async function GET(req: NextRequest) {
     .select(
       "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
     )
-    .in("id", eligibleIds);
+    .in("id", eligibility.eligibleIds);
   if (eventErr) {
     return NextResponse.json(
       { ok: false, error: eventErr.message },
@@ -233,7 +168,7 @@ export async function GET(req: NextRequest) {
   const events = (rawEvents ?? []) as unknown as EventToSync[];
 
   console.log(
-    `[cron rollup-sync-events] considering=${events.length} window=${sinceISO}..${untilISO}`,
+    `[cron rollup-sync-events] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO}`,
   );
 
   const results: EventSyncResult[] = [];
