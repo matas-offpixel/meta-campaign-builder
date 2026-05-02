@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 243
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/243
 - **Branch:** `fix/4thefans-shoreditch-and-bulk-link-errors`
 
 ## Summary
