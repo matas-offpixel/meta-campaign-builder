@@ -26,6 +26,9 @@ Makes the internal creative patterns page easier to scan for non-marketers by ad
 - [x] `node --experimental-strip-types --test lib/reporting/__tests__/patterns-quartile-rank.test.ts`
 - [x] `npm run lint -- 'app/(dashboard)/dashboard/clients/[slug]/patterns/page.tsx' lib/reporting/patterns-quartile-rank.ts lib/reporting/__tests__/patterns-quartile-rank.test.ts`
 - [x] `npx tsc --noEmit`
+- [x] Vercel preview deployed successfully.
+- [x] Anonymous public preview fetch for `/share/report/i6MRF2-I789FSxdY` renders the event report shell; the active-creatives block remains on its existing loading state in WebFetch.
+- [ ] Dashboard visual checks are auth-gated from anonymous preview fetches.
 
 ## Notes
 
