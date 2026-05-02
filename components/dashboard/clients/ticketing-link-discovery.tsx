@@ -140,6 +140,9 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
   const [payload, setPayload] = useState<DiscoveryResponse | null>(null);
   const [selections, setSelections] = useState<SelectionState>({});
   const [submitting, setSubmitting] = useState(false);
+  const [linkingEventIds, setLinkingEventIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [summary, setSummary] = useState<
     | { linked: number; failed: number; failures: Array<{ eventId: string; reason: string }> }
     | null
@@ -200,23 +203,6 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     [selections],
   );
 
-  const selectAllConfident = () => {
-    setSelections((prev) => {
-      const next: SelectionState = { ...prev };
-      for (const row of events) {
-        const top = row.candidates[0];
-        if (!top) continue;
-        if (top.autoConfirm && !top.manualDisambiguationRequired) {
-          next[row.eventId] = {
-            externalEventId: top.externalEventId,
-            checked: true,
-          };
-        }
-      }
-      return next;
-    });
-  };
-
   const clearAll = () => {
     setSelections((prev) => {
       const next: SelectionState = { ...prev };
@@ -243,33 +229,29 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     });
   };
 
-  const onLinkSelected = async () => {
-    if (!payload) return;
-    const rows: Array<{
+  const linkRows = async (
+    rows: Array<{
       eventId: string;
       connectionId: string;
       externalEventId: string;
       externalEventUrl: string | null;
-    }> = [];
-    for (const row of events) {
-      const sel = selections[row.eventId];
-      if (!sel?.checked) continue;
-      const candidate = row.candidates.find(
-        (c) => c.externalEventId === sel.externalEventId,
-      );
-      if (!candidate) continue;
-      rows.push({
-        eventId: row.eventId,
-        connectionId: candidate.connectionId,
-        externalEventId: candidate.externalEventId,
-        externalEventUrl: candidate.externalEventUrl,
-      });
-    }
+    }>,
+  ) => {
     if (rows.length === 0) return;
+    const rowEventIds = new Set(rows.map((row) => row.eventId));
     setSubmitting(true);
+    setLinkingEventIds(rowEventIds);
     setError(null);
     setSummary(null);
     try {
+      console.info(
+        `[ticketing-link-discovery] linking ${rows.length} row(s)`,
+        rows.map((row) => ({
+          eventId: row.eventId,
+          connectionId: row.connectionId,
+          externalEventId: row.externalEventId,
+        })),
+      );
       const res = await fetch(
         `/api/clients/${encodeURIComponent(clientId)}/ticketing-link-discovery/bulk-link`,
         {
@@ -282,26 +264,29 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       if (!res.ok && !json.results) {
         throw new Error(json.error ?? `Request failed (${res.status})`);
       }
-      const linked = json.linkedCount ?? 0;
-      const failed = json.failedCount ?? 0;
       const failures = (json.results ?? [])
-        .filter((r) => !r.ok)
+        .filter((r) => !r.ok || r.syncOk === false)
         .map((r) => ({
           eventId: r.eventId,
-          reason: r.linkError ?? r.syncError ?? "Unknown error",
+          reason:
+            r.linkError ??
+            r.syncError ??
+            (r.syncOk === false ? "Sync completed with errors" : "Unknown error"),
         }));
-      setSummary({ linked, failed, failures });
-
-      // Strip the successful links from the local table. A full refetch
-      // after bulk-link re-issues every Eventbrite listEvents() call
-      // which is 5–15 seconds for a client with multiple connections —
-      // feels sluggish. Removing locally and waiting for the next
-      // explicit refresh lines up with the per-row flow everywhere else.
       const linkedIds = new Set(
         (json.results ?? [])
           .filter((r) => r.ok)
           .map((r) => r.eventId),
       );
+      setSummary({
+        linked: linkedIds.size,
+        failed: failures.length,
+        failures,
+      });
+
+      // Strip the successful links from the local table. A full refetch
+      // after bulk-link re-issues every provider listEvents() call,
+      // which is sluggish for clients with large rosters.
       if (linkedIds.size > 0) {
         setPayload((prev) =>
           prev
@@ -327,7 +312,44 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       setError(err instanceof Error ? err.message : "Bulk link failed");
     } finally {
       setSubmitting(false);
+      setLinkingEventIds(new Set());
     }
+  };
+
+  const candidateToSelection = (eventId: string, candidate: CandidateRow) => ({
+    eventId,
+    connectionId: candidate.connectionId,
+    externalEventId: candidate.externalEventId,
+    externalEventUrl: candidate.externalEventUrl,
+  });
+
+  const onAutoLinkAll = async () => {
+    const rows = events.flatMap((row) => {
+      const top = row.candidates[0];
+      if (!top?.autoConfirm || top.manualDisambiguationRequired) return [];
+      return [candidateToSelection(row.eventId, top)];
+    });
+    await linkRows(rows);
+  };
+
+  const onLinkSelected = async () => {
+    if (!payload) return;
+    const rows: Array<{
+      eventId: string;
+      connectionId: string;
+      externalEventId: string;
+      externalEventUrl: string | null;
+    }> = [];
+    for (const row of events) {
+      const sel = selections[row.eventId];
+      if (!sel?.checked) continue;
+      const candidate = row.candidates.find(
+        (c) => c.externalEventId === sel.externalEventId,
+      );
+      if (!candidate) continue;
+      rows.push(candidateToSelection(row.eventId, candidate));
+    }
+    await linkRows(rows);
   };
 
   if (loading) {
@@ -490,10 +512,10 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={selectAllConfident}
+                onClick={() => void onAutoLinkAll()}
                 disabled={submitting}
               >
-                Select auto-confirmed
+                Auto-link all
               </Button>
               <Button
                 variant="ghost"
@@ -542,6 +564,12 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                       checked={Boolean(sel?.checked)}
                       disabled={submitting}
                       onToggle={toggleRow}
+                      onLinkCandidate={(candidate) =>
+                        void linkRows([
+                          candidateToSelection(row.eventId, candidate),
+                        ])
+                      }
+                      linking={linkingEventIds.has(row.eventId)}
                       selectedCandidate={selectedCandidate ?? null}
                     />
                   );
@@ -560,8 +588,10 @@ interface RowProps {
   selectedCandidateId: string | null;
   checked: boolean;
   disabled: boolean;
+  linking: boolean;
   selectedCandidate: CandidateRow | null;
   onToggle: (eventId: string, externalEventId: string) => void;
+  onLinkCandidate: (candidate: CandidateRow) => void;
 }
 
 function EventDiscoveryRow({
@@ -569,8 +599,10 @@ function EventDiscoveryRow({
   selectedCandidateId,
   checked,
   disabled,
+  linking,
   selectedCandidate,
   onToggle,
+  onLinkCandidate,
 }: RowProps) {
   const hasCandidates = row.candidates.length > 0;
   return (
@@ -657,15 +689,32 @@ function EventDiscoveryRow({
           )}
         </td>
         <td className="px-4 py-3 text-center">
-          <input
-            type="checkbox"
-            checked={checked}
-            disabled={disabled || !hasCandidates || !selectedCandidateId}
-            onChange={() => {
-              if (!selectedCandidateId) return;
-              onToggle(row.eventId, selectedCandidateId);
-            }}
-          />
+          <div className="flex flex-col items-center gap-2">
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={disabled || !hasCandidates || !selectedCandidateId}
+              onChange={() => {
+                if (!selectedCandidateId) return;
+                onToggle(row.eventId, selectedCandidateId);
+              }}
+            />
+            {selectedCandidate ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled || linking}
+                onClick={() => onLinkCandidate(selectedCandidate)}
+                className="whitespace-nowrap"
+              >
+                {linking ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Link this match
+              </Button>
+            ) : null}
+          </div>
         </td>
       </tr>
     </>

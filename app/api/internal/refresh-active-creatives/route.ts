@@ -69,6 +69,7 @@ interface RequestBody {
   event_id?: unknown;
   preset?: unknown;
   custom_range?: unknown;
+  force_refresh?: unknown;
 }
 
 const VALID_PRESETS: ReadonlySet<DatePreset> = new Set([
@@ -96,6 +97,7 @@ interface ParsedBody {
   eventId: string;
   preset: DatePreset;
   customRange?: CustomDateRange;
+  forceRefresh: boolean;
 }
 
 function parseBody(body: RequestBody): ParsedBody | { error: string } {
@@ -129,7 +131,12 @@ function parseBody(body: RequestBody): ParsedBody | { error: string } {
     customRange = { since: cr.since, until: cr.until };
   }
 
-  return { eventId: body.event_id, preset, customRange };
+  return {
+    eventId: body.event_id,
+    preset,
+    customRange,
+    forceRefresh: body.force_refresh === true,
+  };
 }
 
 function isCronAuthorized(req: NextRequest): boolean {
@@ -157,7 +164,7 @@ export async function POST(req: NextRequest) {
   if ("error" in parsed) {
     return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
   }
-  const { eventId, preset, customRange } = parsed;
+  const { eventId, preset, customRange, forceRefresh } = parsed;
 
   // Auth — try CRON_SECRET first (cheaper, no DB round trip), fall
   // back to session-based ownership check.
@@ -247,7 +254,7 @@ export async function POST(req: NextRequest) {
     datePreset: preset,
     customRange,
   });
-  if (existing && isSnapshotFresh(existing)) {
+  if (!forceRefresh && existing && isSnapshotFresh(existing)) {
     return NextResponse.json({
       ok: true,
       skipped: "fresh",
@@ -255,6 +262,12 @@ export async function POST(req: NextRequest) {
       preset,
       fetchedAt: existing.fetchedAt.toISOString(),
       expiresAt: existing.expiresAt.toISOString(),
+    });
+  }
+  if (forceRefresh) {
+    console.info("[active-creatives-refresh] force-refresh", {
+      eventId,
+      preset,
     });
   }
 

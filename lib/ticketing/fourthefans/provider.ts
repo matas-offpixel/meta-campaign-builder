@@ -113,14 +113,18 @@ export class FourthefansProvider implements TicketingProvider {
     credentials: Record<string, unknown>,
   ): Promise<FetchedTicketSales> {
     const token = extractCredentialsToken(credentials);
-    console.info(`[4thefans] fetch event sales start external_event_id=${externalId}`);
+    console.info(`[fourthefans-sync] API request external_event_id=${externalId}`);
     const payload = await fourthefansGet<unknown>(
       token,
       `/events/${encodeURIComponent(externalId)}`,
     );
+    const bodyLength = safeJsonLength(payload);
+    console.info(
+      `[fourthefans-sync] API response status=ok external_event_id=${externalId} body_length=${bodyLength}`,
+    );
     const sales = readFourthefansEventSales(payload);
     console.info(
-      `[4thefans] fetch event sales parsed external_event_id=${externalId} tickets_sold=${sales.ticketsSold} tickets_available=${sales.ticketsAvailable ?? "<null>"} gross_revenue_cents=${sales.grossRevenueCents ?? "<null>"} currency=${sales.currency ?? "<null>"}`,
+      `[fourthefans-sync] parsed external_event_id=${externalId} tickets_sold=${sales.ticketsSold} tickets_available=${sales.ticketsAvailable ?? "<null>"} gross_revenue_cents=${sales.grossRevenueCents ?? "<null>"} currency=${sales.currency ?? "<null>"}`,
     );
 
     return {
@@ -141,4 +145,12 @@ function extractCredentialsToken(credentials: Record<string, unknown>): string {
     throw new Error("4thefans credentials are missing access_token.");
   }
   return token;
+}
+
+function safeJsonLength(payload: unknown): number {
+  try {
+    return JSON.stringify(payload)?.length ?? 0;
+  } catch {
+    return 0;
+  }
 }

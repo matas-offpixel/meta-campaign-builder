@@ -79,6 +79,7 @@ export async function GET(
     sp.get("since"),
     sp.get("until"),
   );
+  const forceRefresh = sp.get("force") === "1" || sp.get("force") === "true";
   if (!token || token.length > 64) {
     return NextResponse.json(
       { ok: false, error: "Not found" },
@@ -158,7 +159,10 @@ export async function GET(
   if (!adAccountId) {
     // Client has no Meta ad account configured — surfaced as "no data"
     // on the front end rather than a hard error.
-    return NextResponse.json({ ok: true, groups: [], meta: emptyMeta() });
+    return NextResponse.json(
+      { ok: true, groups: [], meta: emptyMeta() },
+      responseOptions(forceRefresh),
+    );
   }
 
   const ownerToken = await getOwnerFacebookToken(share.user_id, admin);
@@ -174,6 +178,13 @@ export async function GET(
   }
 
   try {
+    if (forceRefresh) {
+      console.info("[venue-creatives] force-refresh", {
+        token,
+        eventCode: eventCodeRaw,
+        datePreset,
+      });
+    }
     const result = await fetchActiveCreativesForEvent({
       adAccountId,
       eventCode: eventCodeRaw,
@@ -189,25 +200,31 @@ export async function GET(
     });
 
     if (result.meta.campaigns_total === 0) {
-      return NextResponse.json({ ok: true, groups: [], meta: emptyMeta() });
+      return NextResponse.json(
+        { ok: true, groups: [], meta: emptyMeta() },
+        responseOptions(forceRefresh),
+      );
     }
 
     const allGroups = groupByAssetSignature(result.creatives);
     const groups = allGroups.slice(0, SHARE_GROUPS_CAP);
 
-    return NextResponse.json({
-      ok: true,
-      groups,
-      meta: {
-        campaigns_total: result.meta.campaigns_total,
-        campaigns_failed: result.meta.campaigns_failed,
-        ads_fetched: result.meta.ads_fetched,
-        dropped_no_creative: result.meta.dropped_no_creative,
-        truncated:
-          result.meta.truncated || allGroups.length > SHARE_GROUPS_CAP,
-        unattributed: result.meta.unattributed,
+    return NextResponse.json(
+      {
+        ok: true,
+        groups,
+        meta: {
+          campaigns_total: result.meta.campaigns_total,
+          campaigns_failed: result.meta.campaigns_failed,
+          ads_fetched: result.meta.ads_fetched,
+          dropped_no_creative: result.meta.dropped_no_creative,
+          truncated:
+            result.meta.truncated || allGroups.length > SHARE_GROUPS_CAP,
+          unattributed: result.meta.unattributed,
+        },
       },
-    });
+      responseOptions(forceRefresh),
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof FacebookAuthExpiredError) {
@@ -232,6 +249,12 @@ export async function GET(
       { status: 502 },
     );
   }
+}
+
+function responseOptions(forceRefresh: boolean) {
+  return forceRefresh
+    ? { headers: { "Cache-Control": "no-store, max-age=0" } }
+    : undefined;
 }
 
 function emptyMeta() {

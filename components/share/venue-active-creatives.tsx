@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 
 import ShareActiveCreativesClient from "@/components/share/share-active-creatives-client";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -151,6 +151,8 @@ export function VenueActiveCreatives({
 }: Props) {
   const [state, setState] = useState<State>({ status: "idle" });
   const [showAll, setShowAll] = useState(false);
+  const [manualRefreshNonce, setManualRefreshNonce] = useState(0);
+  const effectiveRefreshNonce = refreshNonce + manualRefreshNonce;
 
   useEffect(() => {
     // Inline AbortController handles React strict-mode's double-
@@ -197,9 +199,9 @@ export function VenueActiveCreatives({
         qs.set("since", customRange.since);
         qs.set("until", customRange.until);
       }
-      if (refreshNonce > 0) {
+      if (effectiveRefreshNonce > 0) {
         qs.set("force", "1");
-        qs.set("nonce", String(refreshNonce));
+        qs.set("nonce", String(effectiveRefreshNonce));
       }
       url = `${url}?${qs.toString()}`;
 
@@ -272,7 +274,7 @@ export function VenueActiveCreatives({
     customRange?.since,
     customRange?.until,
     customRange,
-    refreshNonce,
+    effectiveRefreshNonce,
   ]);
 
   return (
@@ -295,6 +297,7 @@ export function VenueActiveCreatives({
           state={state}
           showAll={showAll}
           onToggle={() => setShowAll((v) => !v)}
+          onRefresh={() => setManualRefreshNonce((value) => value + 1)}
           fullReport={fullReport}
         />
       </header>
@@ -328,11 +331,13 @@ function Caveat({
   state,
   showAll,
   onToggle,
+  onRefresh,
   fullReport,
 }: {
   state: State;
   showAll: boolean;
   onToggle: () => void;
+  onRefresh: () => void;
   fullReport: boolean;
 }) {
   if (state.status === "loading") {
@@ -343,18 +348,26 @@ function Caveat({
       </span>
     );
   }
-  if (state.status !== "ready") return null;
-  const { groups, adsFetched, campaignsTotal } = state;
-  if (fullReport || groups.length <= TOP_N) {
+  if (state.status !== "ready") {
     return (
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="inline-flex items-center gap-1.5 rounded border border-border-strong px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
+      >
+        <RefreshCw className="h-3 w-3" aria-hidden="true" />
+        Refresh Creatives
+      </button>
+    );
+  }
+  const { groups, adsFetched, campaignsTotal } = state;
+  const summary = fullReport || groups.length <= TOP_N ? (
       <span className="text-[11px] text-muted-foreground">
         {groups.length} concept{groups.length === 1 ? "" : "s"} ·{" "}
         {adsFetched} ad{adsFetched === 1 ? "" : "s"} across{" "}
         {campaignsTotal} campaign{campaignsTotal === 1 ? "" : "s"}
       </span>
-    );
-  }
-  return (
+  ) : (
     <button
       type="button"
       onClick={onToggle}
@@ -364,6 +377,19 @@ function Caveat({
         ? `Show top ${TOP_N} only`
         : `View all ${groups.length} concepts →`}
     </button>
+  );
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-2">
+      {summary}
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="inline-flex items-center gap-1.5 rounded border border-border-strong px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
+      >
+        <RefreshCw className="h-3 w-3" aria-hidden="true" />
+        Refresh Creatives
+      </button>
+    </span>
   );
 }
 
