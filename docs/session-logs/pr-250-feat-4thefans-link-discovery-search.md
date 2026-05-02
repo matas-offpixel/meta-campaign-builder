@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 250
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/250
 - **Branch:** `feat/4thefans-link-discovery-search`
 
 ## Summary
