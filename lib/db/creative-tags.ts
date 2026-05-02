@@ -160,13 +160,16 @@ export interface CreativeTagAssignmentRow {
   model_version: string | null;
   created_at: string;
   updated_at: string;
-  tag?: Pick<MotionCreativeTagRow, "dimension" | "value_label"> | null;
+  tag?: Pick<
+    MotionCreativeTagRow,
+    "dimension" | "value_key" | "value_label"
+  > | null;
 }
 
 type CreativeTagAssignmentDbRow = Omit<CreativeTagAssignmentRow, "tag"> & {
   tag?:
-    | Pick<MotionCreativeTagRow, "dimension" | "value_label">
-    | Array<Pick<MotionCreativeTagRow, "dimension" | "value_label">>
+    | Pick<MotionCreativeTagRow, "dimension" | "value_key" | "value_label">
+    | Array<Pick<MotionCreativeTagRow, "dimension" | "value_key" | "value_label">>
     | null;
 };
 
@@ -221,7 +224,7 @@ export interface ImportMotionSeedTagsResult {
 const TAXONOMY_SELECT =
   "id,user_id,dimension,value_key,value_label,description,source,created_at,updated_at";
 const ASSIGNMENT_SELECT =
-  "id,user_id,event_id,creative_name,tag_id,source,confidence,created_at,updated_at,tag:creative_tags(dimension,value_label)";
+  "id,user_id,event_id,creative_name,tag_id,source,confidence,created_at,updated_at,tag:creative_tags(dimension,value_key,value_label)";
 const SCORE_SELECT =
   "id,user_id,event_id,creative_name,axis,score,significance,fetched_at";
 
