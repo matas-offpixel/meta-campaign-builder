@@ -40,6 +40,10 @@ import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueSyncButton } from "./venue-sync-button";
 import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
+import {
+  LastUpdatedIndicator,
+  oldestFreshness,
+} from "./last-updated-indicator";
 
 /**
  * Sentinel for "no expanded cards" — re-used every render so the
@@ -59,7 +63,7 @@ const EMPTY_WOW: VenueWoWTotals = {
   cpt: { current: null, previous: null, delta: null, deltaPct: null },
   roas: { current: null, previous: null, delta: null, deltaPct: null },
 };
-const COL_COUNT = 12;
+const COL_COUNT = 13;
 
 interface SavedSnapshot {
   tickets_sold: number;
@@ -1466,6 +1470,10 @@ function VenueSection({
     });
   }, [dailyRollups, group, spend, totals.ad, venueDisplaySpend]);
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
+  const venueFreshnessAt = useMemo(
+    () => oldestFreshness(group.events),
+    [group.events],
+  );
   const headerLabel =
     group.eventCount > 1 && group.city
       ? `${group.displayName} · ${group.city}`
@@ -1684,7 +1692,13 @@ function VenueSection({
             both collapsed + expanded states so the operator can
             trigger a sweep without first expanding every card. */}
         {isInternal && (
-          <VenueSyncButton eventIds={group.events.map((e) => e.id)} />
+          <div className="flex flex-shrink-0 flex-col items-end gap-1">
+            <VenueSyncButton eventIds={group.events.map((e) => e.id)} />
+            <LastUpdatedIndicator
+              iso={venueFreshnessAt}
+              className="max-w-[180px] truncate text-right"
+            />
+          </div>
         )}
         {/* "View full venue report" CTA. Hidden for solo venues without
             an event_code and while collapsed (no visual room next to
@@ -1757,6 +1771,7 @@ function VenueSection({
           <thead>
             <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
               <th className="px-3 py-2.5">Event</th>
+              <th className="px-3 py-2.5">Last updated</th>
               <th className="px-3 py-2.5 text-right">Pre-reg</th>
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
               <th className="px-3 py-2.5 text-right">Total Spend</th>
@@ -1784,6 +1799,9 @@ function VenueSection({
             ))}
             <tr className="border-t border-border-strong bg-muted text-foreground">
               <td className="px-3 py-2.5 font-semibold">Total</td>
+              <td className="px-3 py-2.5">
+                <LastUpdatedIndicator iso={venueFreshnessAt} />
+              </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.prereg)}
               </td>
@@ -2265,6 +2283,9 @@ function EventRow({
             {event.event_code}
           </span>
         )}
+      </td>
+      <td className="px-3 py-2.5 align-top">
+        <LastUpdatedIndicator iso={event.freshness_at ?? null} />
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.prereg)}
