@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 230
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/230
 - **Branch:** `creative/auto-tagger-validation-fixes`
 
 ## Summary
