@@ -15,6 +15,8 @@ describe("FourthefansProvider", () => {
           id: 123,
           title: "Boiler Room",
           event_date: "2026-06-12 19:00:00",
+          venue: "The Prospect Building, Bristol",
+          capacity: "1,200",
           url: "https://4thefans.book.tickets/e/123",
           status: "on_sale",
         },
@@ -32,6 +34,8 @@ describe("FourthefansProvider", () => {
         name: "Boiler Room",
         startsAt: "2026-06-12 19:00:00",
         url: "https://4thefans.book.tickets/e/123",
+        venue: "The Prospect Building, Bristol",
+        capacity: 1200,
         status: "on_sale",
       },
     ]);

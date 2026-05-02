@@ -90,6 +90,10 @@ export interface ExternalEventSummary {
   name: string;
   startsAt: string | null;
   url: string | null;
+  /** Provider-reported venue/location string when list endpoints expose it. */
+  venue?: string | null;
+  /** Provider-reported event capacity when list endpoints expose it. */
+  capacity?: number | null;
   /**
    * Provider-reported status when present. Used for UI hints only — we
    * never gate sync on this because providers disagree on values.

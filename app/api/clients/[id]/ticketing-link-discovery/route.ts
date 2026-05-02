@@ -108,7 +108,7 @@ export async function GET(
   // cheaper than a second filtered query.
   const { data: events, error: eventsErr } = await supabase
     .from("events")
-    .select("id, name, event_date, venue_name, venue_city")
+    .select("id, name, event_date, venue_name, venue_city, capacity")
     .eq("client_id", id)
     .eq("user_id", user.id)
     .order("event_date", { ascending: true });
@@ -192,6 +192,8 @@ export async function GET(
         name: ev.name,
         startsAt: ev.startsAt,
         url: ev.url,
+        venue: ev.venue ?? null,
+        capacity: ev.capacity ?? null,
         status: ev.status,
       }));
       externalsByConnection.set(connection.id, mapped);
@@ -244,7 +246,20 @@ export async function GET(
     const flat = r.candidatesByConnection
       .flatMap((c) =>
         c.candidates.map((cand) => ({
-          ...cand,
+          externalEventId: cand.externalEventId,
+          externalEventName: cand.externalName,
+          externalEventStartsAt: cand.externalStartsAt,
+          externalEventUrl: cand.externalUrl,
+          externalVenue: cand.externalVenue,
+          externalCapacity: cand.externalCapacity,
+          confidence: cand.confidence,
+          venueScore: cand.venueScore,
+          dateScore: cand.dateScore,
+          nameScore: cand.nameScore,
+          dateMatch: cand.dateMatch,
+          capacityMatch: cand.capacityMatch,
+          autoConfirm: cand.autoConfirm,
+          manualDisambiguationRequired: cand.manualDisambiguationRequired,
           connectionId: c.connectionId,
           connectionProvider: c.connectionProvider,
         })),
