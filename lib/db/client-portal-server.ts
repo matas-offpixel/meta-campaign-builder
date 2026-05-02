@@ -71,6 +71,12 @@ export interface PortalEvent {
   latest_snapshot: PortalSnapshot | null;
   /** Up to 5 most-recent snapshots, newest first. */
   history: PortalSnapshot[];
+  /**
+   * Earliest of the latest ticket sync and latest paid-media sync for
+   * this event. This is the "all data fresh as of" timestamp surfaced on
+   * venue cards/reports.
+   */
+  freshness_at?: string | null;
 }
 
 export interface PortalClient {
@@ -135,6 +141,8 @@ export interface WeeklyTicketSnapshotRow {
     | "xlsx_import"
     | "foursomething";
 }
+
+type TicketSnapshotSource = WeeklyTicketSnapshotRow["source"];
 
 export interface DailyRollupRow {
   event_id: string;
@@ -492,6 +500,7 @@ async function loadPortalForClientId(
   const historyByEvent = new Map<string, PortalSnapshot[]>();
   const latestTicketSnapshotByEvent = new Map<string, number>();
   const previousTicketSnapshotByEvent = new Map<string, number>();
+  const latestTicketSnapshotAtByEvent = new Map<string, string>();
 
   if (eventIds.length > 0) {
     const { data: snapshots } = await admin
@@ -539,6 +548,11 @@ async function loadPortalForClientId(
   if (eventIds.length > 0) {
     dailyRollups = await fetchAllDailyRollups(admin, eventIds);
   }
+  const latestMetaSyncByEvent = latestMetaSyncByEventId(dailyRollups);
+  const activeTicketSourceByEvent =
+    eventIds.length > 0
+      ? await fetchActiveTicketSourceByEvent(admin, eventIds)
+      : new Map<string, TicketSnapshotSource>();
 
   // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
   // every event in one shot so the venue-expansion chart doesn't
@@ -574,6 +588,7 @@ async function loadPortalForClientId(
       // the raw rows, not the dominant-source normalised set below, so
       // a fresh Eventbrite sync can recover a stale manual/event column.
       for (const [eid, rowsForEvent] of byEvent) {
+        const activeSource = activeTicketSourceByEvent.get(eid);
         const ordered = [...rowsForEvent].sort((a, b) => {
           const byDate = b.snapshot_at.localeCompare(a.snapshot_at);
           if (byDate !== 0) return byDate;
@@ -584,6 +599,15 @@ async function loadPortalForClientId(
         }
         if (ordered[1]) {
           previousTicketSnapshotByEvent.set(eid, ordered[1].tickets_sold);
+        }
+        const ticketFreshnessRows = activeSource
+          ? rowsForEvent.filter((row) => normalizeTicketSource(row.source) === activeSource)
+          : rowsForEvent;
+        const latestActiveTicketSnapshot = [...ticketFreshnessRows].sort((a, b) =>
+          b.snapshot_at.localeCompare(a.snapshot_at),
+        )[0];
+        if (latestActiveTicketSnapshot) {
+          latestTicketSnapshotAtByEvent.set(eid, latestActiveTicketSnapshot.snapshot_at);
         }
       }
 
@@ -723,9 +747,59 @@ async function loadPortalForClientId(
           null,
         latest_snapshot: latestSnapshot,
         history,
+        freshness_at: eventFreshnessAt({
+          meta: latestMetaSyncByEvent.get(e.id) ?? null,
+          tickets: latestTicketSnapshotAtByEvent.get(e.id) ?? null,
+        }),
       };
     }),
   };
+}
+
+function eventFreshnessAt(input: {
+  meta: string | null;
+  tickets: string | null;
+}): string | null {
+  if (input.meta && input.tickets) {
+    return input.meta < input.tickets ? input.meta : input.tickets;
+  }
+  return input.meta ?? input.tickets;
+}
+
+function latestMetaSyncByEventId(
+  rows: DailyRollupRow[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const timestamp = row.source_meta_at ?? row.updated_at ?? null;
+    if (!timestamp) continue;
+    const current = out.get(row.event_id);
+    if (!current || timestamp > current) {
+      out.set(row.event_id, timestamp);
+    }
+  }
+  return out;
+}
+
+function normalizeTicketSource(source: string): TicketSnapshotSource {
+  if (
+    source === "eventbrite" ||
+    source === "fourthefans" ||
+    source === "manual" ||
+    source === "xlsx_import" ||
+    source === "foursomething"
+  ) {
+    return source;
+  }
+  return "eventbrite";
+}
+
+function ticketSourceForProvider(provider: string): TicketSnapshotSource | null {
+  if (provider === "eventbrite") return "eventbrite";
+  if (provider === "fourthefans") return "fourthefans";
+  if (provider === "manual") return "manual";
+  if (provider === "foursomething_internal") return "foursomething";
+  return null;
 }
 
 function sourcePriority(source: string): number {
@@ -733,6 +807,71 @@ function sourcePriority(source: string): number {
   if (source === "xlsx_import") return 3;
   if (source === "foursomething" || source === "fourthefans") return 2;
   return 1;
+}
+
+async function fetchActiveTicketSourceByEvent(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  eventIds: string[],
+): Promise<Map<string, TicketSnapshotSource>> {
+  const out = new Map<string, TicketSnapshotSource>();
+  if (eventIds.length === 0) return out;
+
+  const { data: links, error: linksError } = await admin
+    .from("event_ticketing_links")
+    .select("event_id, connection_id")
+    .in("event_id", eventIds);
+  if (linksError || !links || links.length === 0) {
+    if (linksError) {
+      console.warn("[client-portal-server] ticket links load failed", {
+        message: linksError.message,
+      });
+    }
+    return out;
+  }
+
+  const connectionIds = [
+    ...new Set(
+      links
+        .map((link) => (link as { connection_id: string | null }).connection_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  if (connectionIds.length === 0) return out;
+
+  const { data: connections, error: connectionsError } = await admin
+    .from("client_ticketing_connections")
+    .select("id, provider, status")
+    .in("id", connectionIds);
+  if (connectionsError || !connections) {
+    if (connectionsError) {
+      console.warn("[client-portal-server] ticket connections load failed", {
+        message: connectionsError.message,
+      });
+    }
+    return out;
+  }
+
+  const sourceByConnection = new Map<string, TicketSnapshotSource>();
+  for (const connection of connections) {
+    const row = connection as {
+      id: string;
+      provider: string;
+      status: string | null;
+    };
+    if (row.status && row.status !== "active") continue;
+    const source = ticketSourceForProvider(row.provider);
+    if (source) sourceByConnection.set(row.id, source);
+  }
+
+  for (const link of links) {
+    const row = link as { event_id: string; connection_id: string | null };
+    if (out.has(row.event_id)) continue;
+    const source =
+      row.connection_id != null ? sourceByConnection.get(row.connection_id) : null;
+    if (source) out.set(row.event_id, source);
+  }
+
+  return out;
 }
 
 const PORTAL_PAGE_SIZE = 1000;

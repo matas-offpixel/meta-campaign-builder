@@ -25,6 +25,10 @@ import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
+import {
+  LastUpdatedIndicator,
+  oldestFreshness,
+} from "./last-updated-indicator";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueDailyReportBlock } from "./venue-daily-report-block";
 import { VenueLiveReportInsights } from "./venue-live-report-insights";
@@ -208,7 +212,7 @@ function VenueLiveReportTabs({
       ),
     [additionalSpend, dailyRollups, events, weeklyTicketSnapshots],
   );
-  const lastUpdatedIso = latestRollupTimestamp(dailyRollups);
+  const venueFreshnessAt = useMemo(() => oldestFreshness(events), [events]);
 
   return (
     <section className="space-y-4">
@@ -221,30 +225,39 @@ function VenueLiveReportTabs({
             Channel performance
           </h2>
         </div>
-        <div
-          role="tablist"
-          aria-label="Live report channels"
-          className="inline-flex rounded-md border border-border bg-muted/30 p-1 text-xs"
-        >
-          {(["Meta", "TikTok", "Google Ads"] as const).map((label, index) => {
-            const active = index === 0;
-            return (
-              <button
-                key={label}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                disabled={!active}
-                className={`rounded px-3 py-1.5 font-medium transition ${
-                  active
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground opacity-60"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="flex flex-col items-end gap-1">
+            <div
+              role="tablist"
+              aria-label="Live report channels"
+              className="inline-flex rounded-md border border-border bg-muted/30 p-1 text-xs"
+            >
+              {(["Meta", "TikTok", "Google Ads"] as const).map((label, index) => {
+                const active = index === 0;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    disabled={!active}
+                    className={`rounded px-3 py-1.5 font-medium transition ${
+                      active
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground opacity-60"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <LastUpdatedIndicator
+              iso={venueFreshnessAt}
+              className="max-w-[220px] truncate text-right"
+            />
+          </div>
+          <RefreshReportButton onRefresh={onRefresh} />
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -402,12 +415,6 @@ function VenueLiveReportTabs({
         fullReport
       />
       <LinkedCampaigns drafts={linkedDrafts} />
-      <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          Last updated {fmtRelativeShort(lastUpdatedIso)} · click refresh for latest
-        </p>
-        <RefreshReportButton onRefresh={onRefresh} />
-      </div>
     </section>
   );
 }
@@ -659,15 +666,6 @@ function computeVenuePerformance(
     sellThroughPct,
     costPerTicket,
   };
-}
-
-function latestRollupTimestamp(rollups: DailyRollupRow[]): string {
-  const latest = rollups
-    .flatMap((row) => [row.source_meta_at, row.source_eventbrite_at, row.updated_at])
-    .filter((value): value is string => !!value)
-    .sort()
-    .at(-1);
-  return latest ?? new Date().toISOString();
 }
 
 function fmtRelativeShort(iso: string): string {
