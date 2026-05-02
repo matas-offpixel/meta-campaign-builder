@@ -20,6 +20,8 @@ Fixes the internal creative patterns page reading zero active-creative snapshots
 
 - [x] `npm run lint -- lib/reporting/creative-patterns-cross-event.ts`
 - [x] `npx tsc --noEmit`
+- [x] Vercel preview `/share/report/i6MRF2-I789FSxdY` still renders PR #237 tag tiles.
+- [x] Vercel preview `/dashboard/clients/4thefans/patterns?window=90` is auth-gated for unauthenticated `WebFetch`; production dashboard/log validation remains after deploy.
 
 ## Notes
 
