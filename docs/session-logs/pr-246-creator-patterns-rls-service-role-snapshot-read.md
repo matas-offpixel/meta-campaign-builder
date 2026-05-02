@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 246
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/246
 - **Branch:** `creator/patterns-rls-service-role-snapshot-read`
 
 ## Summary
