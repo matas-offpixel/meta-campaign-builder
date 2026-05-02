@@ -297,9 +297,7 @@ export function ClientDetail({
               <Button
                 variant="outline"
                 onClick={() =>
-                  router.push(
-                    `/dashboard/clients/${client.slug ?? client.id}/patterns`,
-                  )
+                  router.push(`/clients/${client.id}/dashboard?tab=insights`)
                 }
               >
                 <Sparkles className="h-3.5 w-3.5" />
@@ -560,7 +558,7 @@ export function ClientDetail({
                   </Link>
                   {hasTaggedEvents && (
                     <Link
-                      href={`/dashboard/clients/${client.slug ?? client.id}/patterns`}
+                      href={`/clients/${client.id}/dashboard?tab=insights`}
                       className="inline-flex items-center gap-1 rounded border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
                     >
                       <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />

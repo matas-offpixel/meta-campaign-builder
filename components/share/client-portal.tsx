@@ -11,6 +11,13 @@ import type {
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import { aggregateClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
+import {
+  CLIENT_REGION_LABELS,
+  defaultClientRegion,
+  groupEventsByClientRegion,
+  visibleClientRegions,
+  type ClientRegionKey,
+} from "@/lib/dashboard/client-regions";
 import { ClientRefreshDailyBudgetsButton } from "./client-refresh-daily-budgets-button";
 import { ClientPortalVenueTable } from "./client-portal-venue-table";
 import { ClientWideTopline } from "./client-wide-topline";
@@ -63,32 +70,6 @@ interface Props {
   isInternal?: boolean;
 }
 
-type TabKey = "scotland" | "england_london" | "england_uk";
-const TAB_ORDER: TabKey[] = ["scotland", "england_london", "england_uk"];
-const TAB_LABELS: Record<TabKey, string> = {
-  scotland: "Scotland",
-  england_london: "England — London",
-  england_uk: "England — UK",
-};
-
-/**
- * Bucket an event into one of the three regional tabs based on its
- * venue_city + venue_country. Order of checks matters — Scotland
- * before "England — UK" catch-all so a Glasgow venue with no country
- * still lands in Scotland.
- */
-function bucketEvent(event: PortalEvent): TabKey {
-  const city = (event.venue_city ?? "").toLowerCase();
-  const country = (event.venue_country ?? "").toLowerCase();
-  if (city.includes("glasgow") || country.includes("scotland")) {
-    return "scotland";
-  }
-  if (city.includes("london")) {
-    return "england_london";
-  }
-  return "england_uk";
-}
-
 function formatNumber(n: number): string {
   return new Intl.NumberFormat("en-GB").format(n);
 }
@@ -134,14 +115,7 @@ export function ClientPortal({
   );
 
   const grouped = useMemo(() => {
-    const map = new Map<TabKey, PortalEvent[]>();
-    for (const ev of events) {
-      const key = bucketEvent(ev);
-      const list = map.get(key) ?? [];
-      list.push(ev);
-      map.set(key, list);
-    }
-    return map;
+    return groupEventsByClientRegion(events);
   }, [events]);
   const venueEventCodes = useMemo(
     () =>
@@ -155,25 +129,15 @@ export function ClientPortal({
     [events],
   );
 
-  const visibleTabs = TAB_ORDER.filter((k) => (grouped.get(k)?.length ?? 0) > 0);
+  const visibleTabs = visibleClientRegions(grouped);
 
   // Default tab = the one with the most events. Ties keep the
-  // canonical TAB_ORDER preference.
+  // canonical region-order preference.
   const defaultTab = useMemo(() => {
-    if (visibleTabs.length === 0) return null;
-    let best: TabKey = visibleTabs[0];
-    let bestCount = grouped.get(best)?.length ?? 0;
-    for (const t of visibleTabs.slice(1)) {
-      const c = grouped.get(t)?.length ?? 0;
-      if (c > bestCount) {
-        best = t;
-        bestCount = c;
-      }
-    }
-    return best;
-  }, [visibleTabs, grouped]);
+    return defaultClientRegion(grouped);
+  }, [grouped]);
 
-  const [activeTab, setActiveTab] = useState<TabKey | null>(defaultTab);
+  const [activeTab, setActiveTab] = useState<ClientRegionKey | null>(defaultTab);
   const tabKey = activeTab && visibleTabs.includes(activeTab) ? activeTab : defaultTab;
 
   const tabEvents = useMemo(
@@ -314,7 +278,7 @@ export function ClientPortal({
                           : "border-b-2 border-transparent text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      {TAB_LABELS[t]}
+                      {CLIENT_REGION_LABELS[t]}
                       <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                         {count}
                       </span>

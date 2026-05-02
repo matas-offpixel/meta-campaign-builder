@@ -9,6 +9,11 @@ import type { DatePreset } from "@/lib/insights/types";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import { selectLatestSnapshotsByEvent } from "@/lib/reporting/creative-patterns-snapshots";
+import {
+  bucketEventToClientRegion,
+  parseClientRegionKey,
+  type ClientRegionKey,
+} from "@/lib/dashboard/client-regions";
 
 const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
@@ -16,6 +21,9 @@ const TOP_CREATIVE_LIMIT = 4;
 const REGISTRATION_PHASE_RE = /(?:PRESALE|SIGNUP|LEAD)/i;
 
 export type CreativePatternPhase = "registration" | "ticket_sale";
+export type CreativePatternRegionFilter =
+  | { type: "country"; value: string }
+  | { type: "venue_code"; value: string };
 
 export interface ConceptThumb {
   event_id: string;
@@ -87,6 +95,9 @@ interface EventRow {
   id: string;
   name: string | null;
   event_date: string | null;
+  event_code: string | null;
+  venue_city: string | null;
+  venue_country: string | null;
 }
 
 interface AssignmentRow {
@@ -140,7 +151,11 @@ interface TileAccumulator {
 
 export async function buildClientCreativePatterns(
   clientId: string,
-  opts: { sinceDays?: number; phase?: CreativePatternPhase } = {},
+  opts: {
+    sinceDays?: number;
+    phase?: CreativePatternPhase;
+    regionFilter?: CreativePatternRegionFilter;
+  } = {},
 ): Promise<ClientCreativePatternsResult> {
   const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
   const phase = opts.phase ?? "ticket_sale";
@@ -150,7 +165,10 @@ export async function buildClientCreativePatterns(
   const untilYmd = toYmd(until);
   const supabase = await createClient();
 
-  const events = await fetchClientEvents(supabase, clientId);
+  const events = applyRegionFilter(
+    await fetchClientEvents(supabase, clientId),
+    opts.regionFilter,
+  );
   const eventIds = events.map((event) => event.id);
   const eventById = new Map(events.map((event) => [event.id, event]));
   const snapshotClient = createServiceRoleClient();
@@ -318,11 +336,37 @@ async function fetchClientEvents(
   return fetchPaged<EventRow>((from, to) =>
     supabase
       .from("events")
-      .select("id,name,event_date")
+      .select("id,name,event_date,event_code,venue_city,venue_country")
       .eq("client_id", clientId)
       .order("event_date", { ascending: false, nullsFirst: false })
       .range(from, to),
   );
+}
+
+function applyRegionFilter(
+  events: EventRow[],
+  filter: CreativePatternRegionFilter | undefined,
+): EventRow[] {
+  if (!filter) return events;
+  if (filter.type === "venue_code") {
+    return events.filter((event) => event.event_code === filter.value);
+  }
+
+  const region = parseClientRegionKey(filter.value) ?? regionKeyForLabel(filter.value);
+  if (!region) return events;
+  return events.filter((event) => bucketEventToClientRegion(event) === region);
+}
+
+function regionKeyForLabel(value: string): ClientRegionKey | null {
+  const normalised = value.trim().toLowerCase();
+  if (normalised === "scotland") return "scotland";
+  if (normalised === "england — london" || normalised === "england - london") {
+    return "england_london";
+  }
+  if (normalised === "england — uk" || normalised === "england - uk") {
+    return "england_uk";
+  }
+  return null;
 }
 
 async function fetchAssignments(
