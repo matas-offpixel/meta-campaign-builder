@@ -16,7 +16,7 @@ import {
  * validation scripts can share the exact same prompt/validation path.
  */
 
-export const AI_AUTOTAG_MODEL_VERSION = "claude-haiku-4-5-20251001";
+export const AI_AUTOTAG_MODEL_VERSION = "claude-sonnet-4-6";
 
 const AUTO_TAG_TOOL_NAME = "record_creative_tags";
 
@@ -134,6 +134,18 @@ export async function autoTagWithDiagnostics(
   input: AutoTagInput,
   deps: AutoTaggerDeps,
 ): Promise<AutoTagDiagnostics> {
+  const imageResponse = await fetch(input.thumbnailUrl);
+  if (!imageResponse.ok) {
+    return { tags: [], rawTagCount: 0, hallucinatedTagCount: 0 };
+  }
+
+  const mediaType = mediaTypeFromContentType(
+    imageResponse.headers.get("content-type"),
+  );
+  const imageData = Buffer.from(await imageResponse.arrayBuffer()).toString(
+    "base64",
+  );
+
   const message = await deps.anthropic.messages.create({
     model: deps.modelVersion,
     max_tokens: 1024,
@@ -152,7 +164,7 @@ export async function autoTagWithDiagnostics(
           { type: "text", text: buildAutoTagUserPrompt(input) },
           {
             type: "image",
-            source: { type: "url", url: input.thumbnailUrl },
+            source: { type: "base64", media_type: mediaType, data: imageData },
           },
         ],
       },
@@ -241,6 +253,16 @@ function groupTaxonomyByDimension(
     grouped.set(row.dimension, rows);
   }
   return grouped;
+}
+
+function mediaTypeFromContentType(
+  contentType: string | null,
+): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
+  const normalized = contentType?.toLowerCase() ?? "";
+  if (normalized.includes("png")) return "image/png";
+  if (normalized.includes("gif")) return "image/gif";
+  if (normalized.includes("webp")) return "image/webp";
+  return "image/jpeg";
 }
 
 function isCreativeTagDimension(value: unknown): value is CreativeTagDimension {

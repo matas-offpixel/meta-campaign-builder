@@ -60,116 +60,125 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 });
 const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
-const taxonomy = (await listCreativeTags(supabase)).filter(
-  (row) => row.user_id === userId,
-);
-const tagById = new Map(taxonomy.map((row) => [row.id, row]));
-
-const manualRows = await loadManualAssignments();
-const manualByCreative = groupManualAssignments(manualRows, tagById);
-const eventIds = [...new Set([...manualByCreative.keys()].map(splitKeyEventId))];
-const snapshotsByEvent = await loadLatestSnapshots(eventIds);
-
-const confusion = Object.fromEntries(
-  CREATIVE_TAG_DIMENSIONS.map((dimension) => [
-    dimension,
-    { tp: 0, fp: 0, fn: 0 } satisfies Confusion,
-  ]),
-) as Record<CreativeTagDimension, Confusion>;
-let totalCreatives = 0;
-let missingSnapshot = 0;
-let missingGroup = 0;
-let missingThumbnail = 0;
-let rawTagCount = 0;
-let hallucinatedTagCount = 0;
-
-for (const [key, manualByDimension] of manualByCreative) {
-  const eventId = splitKeyEventId(key);
-  const creativeName = splitKeyCreativeName(key);
-  const payload = snapshotsByEvent.get(eventId);
-  if (!payload || payload.kind !== "ok") {
-    missingSnapshot += 1;
-    continue;
-  }
-
-  const group = findConceptGroup(payload.groups, creativeName);
-  if (!group) {
-    missingGroup += 1;
-    continue;
-  }
-  if (!group.representative_thumbnail) {
-    missingThumbnail += 1;
-    continue;
-  }
-
-  totalCreatives += 1;
-  const predicted = await autoTagWithDiagnostics(
-    {
-      thumbnailUrl: group.representative_thumbnail,
-      headline: group.representative_headline,
-      body: group.representative_body_preview,
-    },
-    { taxonomy, anthropic, modelVersion: AI_AUTOTAG_MODEL_VERSION },
+async function main() {
+  const taxonomy = (await listCreativeTags(supabase)).filter(
+    (row) => row.user_id === userId,
   );
-  rawTagCount += predicted.rawTagCount;
-  hallucinatedTagCount += predicted.hallucinatedTagCount;
-  const predictedByDimension = groupPredictions(predicted.tags);
+  const tagById = new Map(taxonomy.map((row) => [row.id, row]));
 
-  for (const dimension of CREATIVE_TAG_DIMENSIONS) {
-    const manualSet = manualByDimension.get(dimension) ?? new Set<string>();
-    const predictedSet =
-      predictedByDimension.get(dimension) ?? new Set<string>();
-    for (const valueKey of predictedSet) {
-      if (manualSet.has(valueKey)) {
-        confusion[dimension].tp += 1;
-      } else {
-        confusion[dimension].fp += 1;
+  const manualRows = await loadManualAssignments();
+  const manualByCreative = groupManualAssignments(manualRows, tagById);
+  const eventIds = [
+    ...new Set([...manualByCreative.keys()].map(splitKeyEventId)),
+  ];
+  const snapshotsByEvent = await loadLatestSnapshots(eventIds);
+
+  const confusion = Object.fromEntries(
+    CREATIVE_TAG_DIMENSIONS.map((dimension) => [
+      dimension,
+      { tp: 0, fp: 0, fn: 0 } satisfies Confusion,
+    ]),
+  ) as Record<CreativeTagDimension, Confusion>;
+  let totalCreatives = 0;
+  let missingSnapshot = 0;
+  let missingGroup = 0;
+  let missingThumbnail = 0;
+  let rawTagCount = 0;
+  let hallucinatedTagCount = 0;
+
+  for (const [key, manualByDimension] of manualByCreative) {
+    const eventId = splitKeyEventId(key);
+    const creativeName = splitKeyCreativeName(key);
+    const payload = snapshotsByEvent.get(eventId);
+    if (!payload || payload.kind !== "ok") {
+      missingSnapshot += 1;
+      continue;
+    }
+
+    const group = findConceptGroup(payload.groups, creativeName);
+    if (!group) {
+      missingGroup += 1;
+      continue;
+    }
+    if (!group.representative_thumbnail) {
+      missingThumbnail += 1;
+      continue;
+    }
+
+    totalCreatives += 1;
+    const predicted = await autoTagWithDiagnostics(
+      {
+        thumbnailUrl: group.representative_thumbnail,
+        headline: group.representative_headline,
+        body: group.representative_body_preview,
+      },
+      { taxonomy, anthropic, modelVersion: AI_AUTOTAG_MODEL_VERSION },
+    );
+    rawTagCount += predicted.rawTagCount;
+    hallucinatedTagCount += predicted.hallucinatedTagCount;
+    const predictedByDimension = groupPredictions(predicted.tags);
+
+    for (const dimension of CREATIVE_TAG_DIMENSIONS) {
+      const manualSet = manualByDimension.get(dimension) ?? new Set<string>();
+      const predictedSet =
+        predictedByDimension.get(dimension) ?? new Set<string>();
+      for (const valueKey of predictedSet) {
+        if (manualSet.has(valueKey)) {
+          confusion[dimension].tp += 1;
+        } else {
+          confusion[dimension].fp += 1;
+        }
+      }
+      for (const valueKey of manualSet) {
+        if (!predictedSet.has(valueKey)) confusion[dimension].fn += 1;
       }
     }
-    for (const valueKey of manualSet) {
-      if (!predictedSet.has(valueKey)) confusion[dimension].fn += 1;
-    }
   }
+
+  const byDimension = Object.fromEntries(
+    CREATIVE_TAG_DIMENSIONS.map((dimension) => [
+      dimension,
+      metricsFor(confusion[dimension]),
+    ]),
+  ) as Record<CreativeTagDimension, DimensionMetrics>;
+
+  const output = {
+    total_creatives: totalCreatives,
+    skipped: {
+      missing_snapshot: missingSnapshot,
+      missing_concept_group: missingGroup,
+      missing_thumbnail: missingThumbnail,
+    },
+    by_dimension: byDimension,
+    hallucination: {
+      raw_tags: rawTagCount,
+      hallucinated_tags: hallucinatedTagCount,
+    },
+    hallucination_rate: round(
+      rawTagCount === 0 ? 0 : hallucinatedTagCount / rawTagCount,
+    ),
+    gate: {
+      asset_type: byDimension.asset_type.f1 >= 0.75,
+      visual_format: byDimension.visual_format.f1 >= 0.75,
+      messaging_angle: byDimension.messaging_angle.f1 >= 0.6,
+      hook_tactic: byDimension.hook_tactic.f1 >= 0.6,
+      hallucination_rate:
+        (rawTagCount === 0 ? 0 : hallucinatedTagCount / rawTagCount) < 0.05,
+    },
+  };
+
+  console.log(JSON.stringify(output, null, 2));
+  console.error(
+    `[validate-ai-tagging] model=${AI_AUTOTAG_MODEL_VERSION} creatives=${totalCreatives} estimated_ai_cost_usd=${(
+      totalCreatives * ESTIMATED_USD_PER_CREATIVE
+    ).toFixed(2)}`,
+  );
 }
 
-const byDimension = Object.fromEntries(
-  CREATIVE_TAG_DIMENSIONS.map((dimension) => [
-    dimension,
-    metricsFor(confusion[dimension]),
-  ]),
-) as Record<CreativeTagDimension, DimensionMetrics>;
-
-const output = {
-  total_creatives: totalCreatives,
-  skipped: {
-    missing_snapshot: missingSnapshot,
-    missing_concept_group: missingGroup,
-    missing_thumbnail: missingThumbnail,
-  },
-  by_dimension: byDimension,
-  hallucination: {
-    raw_tags: rawTagCount,
-    hallucinated_tags: hallucinatedTagCount,
-  },
-  hallucination_rate: round(
-    rawTagCount === 0 ? 0 : hallucinatedTagCount / rawTagCount,
-  ),
-  gate: {
-    asset_type: byDimension.asset_type.f1 >= 0.75,
-    visual_format: byDimension.visual_format.f1 >= 0.75,
-    messaging_angle: byDimension.messaging_angle.f1 >= 0.6,
-    hook_tactic: byDimension.hook_tactic.f1 >= 0.6,
-    hallucination_rate:
-      (rawTagCount === 0 ? 0 : hallucinatedTagCount / rawTagCount) < 0.05,
-  },
-};
-
-console.log(JSON.stringify(output, null, 2));
-console.error(
-  `[validate-ai-tagging] model=${AI_AUTOTAG_MODEL_VERSION} creatives=${totalCreatives} estimated_ai_cost_usd=${(
-    totalCreatives * ESTIMATED_USD_PER_CREATIVE
-  ).toFixed(2)}`,
-);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 
 async function loadManualAssignments(): Promise<ManualAssignmentRow[]> {
   const { data, error } = await supabase

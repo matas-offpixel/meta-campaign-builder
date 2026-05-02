@@ -53,6 +53,7 @@ describe("autoTag", () => {
     const prompt = buildAutoTagSystemPrompt(TAXONOMY);
     const toolJson = JSON.stringify(buildAutoTagTool(TAXONOMY));
 
+    assert.equal(AI_AUTOTAG_MODEL_VERSION, "claude-sonnet-4-6");
     for (const dimension of CREATIVE_TAG_DIMENSIONS) {
       assert.match(prompt, new RegExp(`\\b${dimension}\\b`));
       assert.match(toolJson, new RegExp(`"const":"${dimension}"`));
@@ -68,6 +69,23 @@ describe("autoTag", () => {
 
   it("filters hallucinated value_keys before returning", async () => {
     let request: unknown;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      assert.equal(String(url), INPUT.thumbnailUrl);
+      return {
+        ok: true,
+        headers: {
+          get(name: string) {
+            return name.toLowerCase() === "content-type"
+              ? "image/webp"
+              : null;
+          },
+        },
+        async arrayBuffer() {
+          return new Uint8Array([1, 2, 3]).buffer;
+        },
+      } as Response;
+    }) as typeof fetch;
     const anthropic = {
       messages: {
         create(args: unknown) {
@@ -104,27 +122,34 @@ describe("autoTag", () => {
       },
     } as unknown as Anthropic;
 
-    const result = await autoTag(INPUT, {
-      taxonomy: TAXONOMY,
-      anthropic,
-      modelVersion: AI_AUTOTAG_MODEL_VERSION,
-    });
+    try {
+      const result = await autoTag(INPUT, {
+        taxonomy: TAXONOMY,
+        anthropic,
+        modelVersion: AI_AUTOTAG_MODEL_VERSION,
+      });
 
-    assert.deepEqual(result, [
-      {
-        dimension: "asset_type",
-        value_key: "asset_type_one",
-        confidence: 0.91,
-      },
-      {
-        dimension: "visual_format",
-        value_key: "visual_format_two",
-        confidence: 1,
-      },
-    ]);
-    assert.match(JSON.stringify(request), /"type":"image"/);
-    assert.match(JSON.stringify(request), /"source":\{"type":"url"/);
-    assert.match(JSON.stringify(request), /Final tickets/);
-    assert.match(JSON.stringify(request), /record_creative_tags/);
+      assert.deepEqual(result, [
+        {
+          dimension: "asset_type",
+          value_key: "asset_type_one",
+          confidence: 0.91,
+        },
+        {
+          dimension: "visual_format",
+          value_key: "visual_format_two",
+          confidence: 1,
+        },
+      ]);
+      const requestJson = JSON.stringify(request);
+      assert.match(requestJson, /"type":"image"/);
+      assert.match(requestJson, /"source":\{"type":"base64"/);
+      assert.match(requestJson, /"media_type":"image\/webp"/);
+      assert.match(requestJson, /"data":"AQID"/);
+      assert.match(requestJson, /Final tickets/);
+      assert.match(requestJson, /record_creative_tags/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
