@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 226
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/226
 - **Branch:** `creative/motion-replacement-ai-vision-tagger`
 
 ## Summary
