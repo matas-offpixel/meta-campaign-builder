@@ -157,6 +157,7 @@ export interface CreativeTagAssignmentRow {
   tag_id: string;
   source: CreativeTagAssignmentSource;
   confidence: number | null;
+  model_version: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -179,6 +180,7 @@ export interface UpsertCreativeTagAssignmentArgs {
   tagId: string;
   source: CreativeTagAssignmentSource;
   confidence?: number | null;
+  modelVersion?: string | null;
 }
 
 export interface BulkUpsertCreativeTagAssignmentsResult {
@@ -211,7 +213,7 @@ export interface ImportMotionSeedTagsResult {
 const TAXONOMY_SELECT =
   "id,user_id,dimension,value_key,value_label,description,source,created_at,updated_at";
 const ASSIGNMENT_SELECT =
-  "id,user_id,event_id,creative_name,tag_id,source,confidence,created_at,updated_at";
+  "id,user_id,event_id,creative_name,tag_id,source,confidence,model_version,created_at,updated_at";
 const SCORE_SELECT =
   "id,user_id,event_id,creative_name,axis,score,significance,fetched_at";
 
@@ -268,6 +270,7 @@ export async function upsertCreativeTagAssignment(
         tag_id: args.tagId,
         source: args.source,
         confidence: args.confidence ?? null,
+        model_version: args.modelVersion ?? null,
       },
       { onConflict: "event_id,creative_name,tag_id" },
     )
@@ -300,6 +303,7 @@ export async function bulkUpsertCreativeTagAssignments(
       tag_id: row.tagId,
       source: row.source,
       confidence: row.confidence ?? null,
+      model_version: row.modelVersion ?? null,
     }));
 
     const { error } = await supabase.from("creative_tag_assignments").upsert(

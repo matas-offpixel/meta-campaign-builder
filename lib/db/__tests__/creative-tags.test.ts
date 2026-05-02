@@ -133,6 +133,7 @@ describe("creative tag assignments", () => {
         tag_id: TAG_ID,
         source: "manual",
         confidence: null,
+        model_version: null,
         created_at: "2026-04-30T00:00:00Z",
         updated_at: "2026-04-30T00:00:00Z",
       },
@@ -159,6 +160,7 @@ describe("creative tag assignments", () => {
       tag_id: TAG_ID,
       source: "manual",
       confidence: null,
+      model_version: null,
     });
   });
 
@@ -194,6 +196,7 @@ describe("creative tag assignments", () => {
       creativeName: `Creative ${index}`,
       tagId: `${TAG_ID}-${index}`,
       source: "manual" as const,
+      modelVersion: index === 0 ? "gpt-4o-mini" : null,
     }));
     args.push({ ...args[0] });
 
@@ -215,6 +218,7 @@ describe("creative tag assignments", () => {
       tag_id: `${TAG_ID}-0`,
       source: "manual",
       confidence: null,
+      model_version: "gpt-4o-mini",
     });
   });
 });
