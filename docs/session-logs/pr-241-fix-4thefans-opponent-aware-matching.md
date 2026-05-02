@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 241
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/241
 - **Branch:** `fix/4thefans-opponent-aware-matching`
 
 ## Summary
