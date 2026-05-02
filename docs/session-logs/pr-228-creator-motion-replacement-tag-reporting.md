@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 228
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/228
 - **Branch:** `creator/motion-replacement-tag-reporting`
 
 ## Summary
