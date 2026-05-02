@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 256
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/256
 - **Branch:** `creator/dashboard-region-subtab-refactor`
 
 ## Summary
