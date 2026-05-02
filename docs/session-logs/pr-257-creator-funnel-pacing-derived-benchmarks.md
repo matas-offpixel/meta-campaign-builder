@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 257
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/257
 - **Branch:** `creator/funnel-pacing-derived-benchmarks`
 
 ## Summary
