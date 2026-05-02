@@ -81,6 +81,12 @@ type SafeD2CConnection = Omit<D2CConnection, "credentials"> & {
   credentials: null;
 };
 
+interface TicketingLinkDiscoveryStats {
+  totalEvents: number;
+  linkedEvents: number;
+  unlinkedEvents: number;
+}
+
 interface Props {
   client: ClientRow;
   events: EventWithClient[];
@@ -109,6 +115,7 @@ interface Props {
    * Eventbrite slot of the integrations pill on the Overview tab.
    */
   ticketingConnections: SafeTicketingConnection[];
+  ticketingLinkDiscoveryStats: TicketingLinkDiscoveryStats;
   /**
    * Pre-fetched D2C connections for this client (credentials
    * redacted). Drives the D2C tab and Mailchimp/Klaviyo/Bird/Firetext
@@ -176,6 +183,7 @@ export function ClientDetail({
   initialShare,
   latestSnapshots,
   ticketingConnections,
+  ticketingLinkDiscoveryStats,
   d2cConnections,
   d2cTemplates,
   creativeTemplates,
@@ -614,6 +622,7 @@ export function ClientDetail({
             <TicketingConnectionsPanel
               clientId={client.id}
               initial={ticketingConnections}
+              linkDiscoveryStats={ticketingLinkDiscoveryStats}
             />
           </TabPanel>
 

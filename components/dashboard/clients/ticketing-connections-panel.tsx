@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { AlertCircle, CheckCircle2, Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,11 @@ interface ConnectionRow extends Omit<TicketingConnection, "credentials"> {
 interface Props {
   clientId: string;
   initial: ConnectionRow[];
+  linkDiscoveryStats: {
+    totalEvents: number;
+    linkedEvents: number;
+    unlinkedEvents: number;
+  };
 }
 
 const PROVIDERS: Array<{ value: TicketingProviderName; label: string }> = [
@@ -49,7 +55,11 @@ const STATUS_LABELS: Record<TicketingConnectionStatus, string> = {
   error: "Error",
 };
 
-export function TicketingConnectionsPanel({ clientId, initial }: Props) {
+export function TicketingConnectionsPanel({
+  clientId,
+  initial,
+  linkDiscoveryStats,
+}: Props) {
   const [connections, setConnections] = useState<ConnectionRow[]>(initial);
   const [provider, setProvider] = useState<TicketingProviderName>("eventbrite");
   const [token, setToken] = useState("");
@@ -199,20 +209,32 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
                       </p>
                     ) : null}
                   </div>
-                  <Button
-                    variant="ghost"
-                    type="button"
-                    onClick={() => handleRemove(c.id)}
-                    disabled={removingId === c.id}
-                    aria-label={`Remove ${c.provider} connection`}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    {removingId === c.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {c.provider === "fourthefans" ? (
+                      <Link
+                        href={`/clients/${clientId}/ticketing-link-discovery`}
+                        className="inline-flex h-8 items-center gap-2 rounded-md border border-border-strong px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
+                        title="Open auto-match discovery for unlinked ticketing events"
+                      >
+                        Discover matches
+                        <DiscoveryBadge stats={linkDiscoveryStats} />
+                      </Link>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={() => handleRemove(c.id)}
+                      disabled={removingId === c.id}
+                      aria-label={`Remove ${c.provider} connection`}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      {removingId === c.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -293,6 +315,28 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
         </form>
       </div>
     </Card>
+  );
+}
+
+function DiscoveryBadge({
+  stats,
+}: {
+  stats: Props["linkDiscoveryStats"];
+}) {
+  const complete = stats.totalEvents > 0 && stats.unlinkedEvents === 0;
+  const label = complete
+    ? "Linked"
+    : `${stats.unlinkedEvents} event${stats.unlinkedEvents === 1 ? "" : "s"} to match`;
+  const tone = complete
+    ? "bg-emerald-100 text-emerald-800"
+    : "bg-yellow-100 text-yellow-800";
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}
+      title={`${stats.linkedEvents}/${stats.totalEvents} linked`}
+    >
+      {label}
+    </span>
   );
 }
 
