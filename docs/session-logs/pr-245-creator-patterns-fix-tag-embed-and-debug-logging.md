@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 245
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/245
 - **Branch:** `creator/patterns-fix-tag-embed-and-debug-logging`
 
 ## Summary
