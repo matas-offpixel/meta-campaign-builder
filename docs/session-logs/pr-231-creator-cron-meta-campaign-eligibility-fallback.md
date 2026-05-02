@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 231
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/231
 - **Branch:** `creator/cron-meta-campaign-eligibility-fallback`
 
 ## Summary
