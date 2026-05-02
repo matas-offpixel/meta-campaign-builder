@@ -66,6 +66,8 @@ export interface MatchCandidate {
   /** True when both capacities exist and differ by no more than 5%. */
   capacityMatch: boolean;
   /** True when this row is safe to preselect for bulk linking. */
+  autoSelect: boolean;
+  /** True when this row is confident enough to bulk-link automatically. */
   autoConfirm: boolean;
   /**
    * True when scoring and deterministic tie-breaks still cannot separate
@@ -90,6 +92,8 @@ export interface ScoreCandidatesOptions {
   maxPerEvent?: number;
   autoConfirmThreshold?: number;
   autoConfirmVenueThreshold?: number;
+  autoSelectThreshold?: number;
+  autoSelectVenueThreshold?: number;
 }
 
 const DEFAULTS = {
@@ -97,6 +101,8 @@ const DEFAULTS = {
   maxPerEvent: 5,
   autoConfirmThreshold: 0.75,
   autoConfirmVenueThreshold: 0.8,
+  autoSelectThreshold: 0.65,
+  autoSelectVenueThreshold: 0.65,
 } as const;
 
 const VENUE_STOPWORDS = new Set([
@@ -314,6 +320,13 @@ function venueScoringVariants(value: string | null | undefined): string[] {
   if (commaParts.length > 1) {
     variants.push(commaParts[commaParts.length - 1]);
   }
+  const dashParts = raw
+    .split(/\s+[–—-]\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (dashParts.length > 1) {
+    variants.push(dashParts[dashParts.length - 1]);
+  }
   return [...new Set(variants)];
 }
 
@@ -381,6 +394,10 @@ export function scoreCandidatesForEvent(
     options.autoConfirmThreshold ?? DEFAULTS.autoConfirmThreshold;
   const autoConfirmVenueThreshold =
     options.autoConfirmVenueThreshold ?? DEFAULTS.autoConfirmVenueThreshold;
+  const autoSelectThreshold =
+    options.autoSelectThreshold ?? DEFAULTS.autoSelectThreshold;
+  const autoSelectVenueThreshold =
+    options.autoSelectVenueThreshold ?? DEFAULTS.autoSelectVenueThreshold;
   if (isUmbrellaCampaignEvent(event)) return [];
   const internalVenue = internalVenueLabel(event);
   const internalOpponent = opponentLabelForMatching(event.name);
@@ -409,6 +426,11 @@ export function scoreCandidatesForEvent(
         dateScore * WEIGHTS_WITHOUT_OPPONENT.date +
         nameScore * WEIGHTS_WITHOUT_OPPONENT.name;
     if (confidence < minScore) continue;
+    const autoSelect =
+      confidence >= autoSelectThreshold && venueScore >= autoSelectVenueThreshold;
+    console.info(
+      `[link-discovery] auto-select check eventName=${JSON.stringify(event.name)} candidate=${JSON.stringify(ext.name)} score=${confidence.toFixed(4)} venueScore=${venueScore.toFixed(4)} threshold=${autoSelectThreshold}`,
+    );
     const capacityMatch = capacityWithinFivePercent(
       event.capacity,
       ext.capacity,
@@ -427,6 +449,7 @@ export function scoreCandidatesForEvent(
       nameScore,
       dateMatch: dateScore > 0,
       capacityMatch,
+      autoSelect,
       autoConfirm:
         confidence >= autoConfirmThreshold &&
         venueScore >= autoConfirmVenueThreshold,
@@ -451,6 +474,7 @@ export function scoreCandidatesForEvent(
     if (unresolvedTopTies.length > 1) {
       for (const candidate of unresolvedTopTies) {
         candidate.manualDisambiguationRequired = true;
+        candidate.autoSelect = false;
         candidate.autoConfirm = false;
       }
     }

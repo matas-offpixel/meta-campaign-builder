@@ -51,6 +51,7 @@ interface CandidateRow {
   dateScore: number;
   nameScore: number;
   capacityMatch: boolean;
+  autoSelect: boolean;
   autoConfirm: boolean;
   manualDisambiguationRequired: boolean;
   connectionId: string;
@@ -131,7 +132,6 @@ interface LinkSummary {
 }
 
 const AUTO_CONFIRM_THRESHOLD = 0.75;
-const AUTO_SELECT_THRESHOLD = 0.65;
 const SURFACE_THRESHOLD = 0.55;
 
 function fmtConfidence(score: number): string {
@@ -155,7 +155,7 @@ function fmtDate(value: string | null): string {
 
 function confidenceClasses(score: number): string {
   if (score >= AUTO_CONFIRM_THRESHOLD) return "text-green-500";
-  if (score >= AUTO_SELECT_THRESHOLD) return "text-yellow-500";
+  if (score >= 0.65) return "text-yellow-500";
   if (score >= SURFACE_THRESHOLD) return "text-orange-500";
   return "text-muted-foreground";
 }
@@ -163,7 +163,7 @@ function confidenceClasses(score: number): string {
 function isAutoSelectable(candidate: CandidateRow | undefined): boolean {
   return Boolean(
     candidate &&
-      candidate.confidence >= AUTO_SELECT_THRESHOLD &&
+      candidate.autoSelect &&
       !candidate.manualDisambiguationRequired,
   );
 }
