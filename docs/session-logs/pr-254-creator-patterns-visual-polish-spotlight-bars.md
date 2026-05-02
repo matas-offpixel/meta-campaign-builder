@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 254
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/254
 - **Branch:** `creator/patterns-visual-polish-spotlight-bars`
 
 ## Summary
