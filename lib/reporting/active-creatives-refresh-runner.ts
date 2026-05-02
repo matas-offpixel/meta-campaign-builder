@@ -119,6 +119,18 @@ export interface RefreshInput {
    * with the underscore prefix to discourage external callers.
    */
   _fetcher?: typeof fetchShareActiveCreatives;
+  /**
+   * INTERNAL — called only after a fresh ok payload has been written
+   * to `active_creatives_snapshots`. Cron uses this to run sidecar
+   * work against persisted payloads without moving any Meta/OpenAI
+   * traffic into the public viewer path.
+   */
+  onSnapshotWritten?: (args: {
+    eventId: string;
+    userId: string;
+    preset: DatePreset;
+    payload: Extract<ShareActiveCreativesResult, { kind: "ok" }>;
+  }) => Promise<void>;
 }
 
 export interface PresetRefreshResult {
@@ -255,6 +267,14 @@ export async function refreshActiveCreativesForEvent(
             ttlMs,
           );
           wroteSnapshot = true;
+          if (input.onSnapshotWritten) {
+            await input.onSnapshotWritten({
+              eventId: input.eventId,
+              userId: input.userId,
+              preset,
+              payload: result,
+            });
+          }
         } catch (writeErr) {
           // Write failures from inside the helper are already
           // logged + swallowed there; this catch is defence in
