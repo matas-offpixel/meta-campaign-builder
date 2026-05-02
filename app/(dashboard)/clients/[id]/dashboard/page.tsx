@@ -8,6 +8,17 @@ import { ClientRefreshDailyBudgetsButton } from "@/components/share/client-refre
 import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
+import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
+import { FunnelPacingPlaceholder } from "@/components/dashboard/clients/funnel-pacing-placeholder";
+import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
+import {
+  CLIENT_REGION_LABELS,
+  defaultClientRegion,
+  groupEventsByClientRegion,
+  parseClientRegionKey,
+  visibleClientRegions,
+  type ClientRegionKey,
+} from "@/lib/dashboard/client-regions";
 
 /**
  * /clients/[id]/dashboard — internal counterpart to the public
@@ -27,13 +38,16 @@ import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
  */
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ region?: string; tab?: string }>;
 }
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function ClientDashboardPage({ params }: Props) {
-  const { id } = await params;
+type DashboardSubTab = "events" | "insights" | "pacing";
+
+export default async function ClientDashboardPage({ params, searchParams }: Props) {
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
 
   const supabase = await createClient();
   const {
@@ -53,6 +67,17 @@ export default async function ClientDashboardPage({ params }: Props) {
 
   const result = await loadClientPortalByClientId(id);
   if (!result.ok) notFound();
+
+  const grouped = groupEventsByClientRegion(result.events);
+  const visibleRegions = visibleClientRegions(grouped);
+  const fallbackRegion = defaultClientRegion(grouped);
+  const requestedRegion = parseClientRegionKey(sp.region);
+  const activeRegion =
+    requestedRegion && visibleRegions.includes(requestedRegion)
+      ? requestedRegion
+      : fallbackRegion;
+  const activeTab = parseDashboardSubTab(sp.tab);
+  const scopedEvents = activeRegion ? grouped.get(activeRegion) ?? [] : result.events;
 
   const allEventIds = result.events.map((e) => e.id);
   const venueEventCodes = Array.from(
@@ -107,18 +132,97 @@ export default async function ClientDashboardPage({ params }: Props) {
         <span className="mx-1">›</span>
         <span className="text-foreground">Dashboard</span>
       </nav>
-      <ClientPortal
-        token=""
-        client={result.client}
-        events={result.events}
-        londonOnsaleSpend={result.londonOnsaleSpend}
-        londonPresaleSpend={result.londonPresaleSpend}
-        dailyEntries={result.dailyEntries}
-        dailyRollups={result.dailyRollups}
-        additionalSpend={result.additionalSpend}
-        weeklyTicketSnapshots={result.weeklyTicketSnapshots}
-        isInternal
-      />
+      <div className="mx-auto max-w-7xl space-y-4 px-6 pt-4">
+        {visibleRegions.length > 1 && activeRegion ? (
+          <nav
+            aria-label="Region"
+            className="flex flex-wrap gap-1 border-b border-border"
+          >
+            {visibleRegions.map((region) => {
+              const isActive = region === activeRegion;
+              const count = grouped.get(region)?.length ?? 0;
+              return (
+                <Link
+                  key={region}
+                  href={dashboardHref(id, region, activeTab)}
+                  className={`relative -mb-px inline-flex items-center gap-2 px-4 py-2.5 text-sm transition-colors ${
+                    isActive
+                      ? "border-b-2 border-foreground font-medium text-foreground"
+                      : "border-b-2 border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {CLIENT_REGION_LABELS[region]}
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </nav>
+        ) : null}
+        {activeRegion ? (
+          <SubTabBar
+            activeTab={activeTab}
+            tabs={[
+              {
+                id: "events",
+                label: "Events",
+                href: dashboardHref(id, activeRegion, "events"),
+              },
+              {
+                id: "insights",
+                label: "Creative Insights",
+                href: dashboardHref(id, activeRegion, "insights"),
+              },
+              {
+                id: "pacing",
+                label: "Funnel Pacing",
+                href: dashboardHref(id, activeRegion, "pacing"),
+              },
+            ]}
+          />
+        ) : null}
+      </div>
+      {activeTab === "events" ? (
+        <ClientPortal
+          token=""
+          client={result.client}
+          events={scopedEvents}
+          londonOnsaleSpend={result.londonOnsaleSpend}
+          londonPresaleSpend={result.londonPresaleSpend}
+          dailyEntries={result.dailyEntries}
+          dailyRollups={result.dailyRollups}
+          additionalSpend={result.additionalSpend}
+          weeklyTicketSnapshots={result.weeklyTicketSnapshots}
+          isInternal
+        />
+      ) : (
+        <main className="mx-auto max-w-7xl px-6 py-8">
+          {activeTab === "insights" && activeRegion ? (
+            <CreativePatternsPanel
+              clientId={id}
+              scopeLabel={CLIENT_REGION_LABELS[activeRegion]}
+              regionFilter={{ type: "country", value: activeRegion }}
+            />
+          ) : (
+            <FunnelPacingPlaceholder />
+          )}
+        </main>
+      )}
     </>
   );
+}
+
+function parseDashboardSubTab(value: string | undefined): DashboardSubTab {
+  if (value === "insights" || value === "pacing") return value;
+  return "events";
+}
+
+function dashboardHref(
+  clientId: string,
+  region: ClientRegionKey,
+  tab: DashboardSubTab,
+): string {
+  const sp = new URLSearchParams({ region, tab });
+  return `/clients/${clientId}/dashboard?${sp.toString()}`;
 }

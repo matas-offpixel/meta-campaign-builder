@@ -9,6 +9,9 @@ import { VenueFullReport } from "@/components/share/venue-full-report";
 import { getShareForVenue } from "@/lib/db/report-shares";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueShareControls } from "@/components/dashboard/clients/venue-share-controls";
+import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
+import { FunnelPacingPlaceholder } from "@/components/dashboard/clients/funnel-pacing-placeholder";
+import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import {
   DATE_PRESETS,
   type CustomDateRange,
@@ -52,6 +55,8 @@ interface Props {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type VenueSubTab = "performance" | "insights" | "pacing";
+
 export default async function ClientVenueReportPage({
   params,
   searchParams,
@@ -61,6 +66,7 @@ export default async function ClientVenueReportPage({
     searchParams,
   ]);
   const datePreset = parseDatePreset(sp.tf);
+  const activeTab = parseVenueSubTab(pickQueryParam(sp.tab));
   const customRange = parseCustomRange(
     datePreset,
     pickQueryParam(sp.from),
@@ -149,23 +155,63 @@ export default async function ClientVenueReportPage({
           />
         }
       />
-      <VenueFullReport
-        clientId={id}
-        eventCode={eventCode}
-        events={venueEvents}
-        dailyEntries={venueDailyEntries}
-        dailyRollups={venueDailyRollups}
-        additionalSpend={venueAdditionalSpend}
-        weeklyTicketSnapshots={venueWeeklyTicketSnapshots}
-        londonOnsaleSpend={portal.londonOnsaleSpend}
-        londonPresaleSpend={portal.londonPresaleSpend}
-        datePreset={datePreset}
-        customRange={customRange}
-        linkedDrafts={linkedDrafts}
-        isInternal
+      <SubTabBar
+        activeTab={activeTab}
+        tabs={[
+          {
+            id: "performance",
+            label: "Performance",
+            href: venueHref(id, eventCode, "performance"),
+          },
+          {
+            id: "insights",
+            label: "Creative Insights",
+            href: venueHref(id, eventCode, "insights"),
+          },
+          {
+            id: "pacing",
+            label: "Funnel Pacing",
+            href: venueHref(id, eventCode, "pacing"),
+          },
+        ]}
       />
+      {activeTab === "performance" ? (
+        <VenueFullReport
+          clientId={id}
+          eventCode={eventCode}
+          events={venueEvents}
+          dailyEntries={venueDailyEntries}
+          dailyRollups={venueDailyRollups}
+          additionalSpend={venueAdditionalSpend}
+          weeklyTicketSnapshots={venueWeeklyTicketSnapshots}
+          londonOnsaleSpend={portal.londonOnsaleSpend}
+          londonPresaleSpend={portal.londonPresaleSpend}
+          datePreset={datePreset}
+          customRange={customRange}
+          linkedDrafts={linkedDrafts}
+          isInternal
+        />
+      ) : activeTab === "insights" ? (
+        <CreativePatternsPanel
+          clientId={id}
+          scopeLabel={venueTitle}
+          regionFilter={{ type: "venue_code", value: eventCode }}
+        />
+      ) : (
+        <FunnelPacingPlaceholder />
+      )}
     </div>
   );
+}
+
+function parseVenueSubTab(value: string | null): VenueSubTab {
+  if (value === "insights" || value === "pacing") return value;
+  return "performance";
+}
+
+function venueHref(clientId: string, eventCode: string, tab: VenueSubTab): string {
+  const sp = new URLSearchParams({ tab });
+  return `/clients/${clientId}/venues/${encodeURIComponent(eventCode)}?${sp.toString()}`;
 }
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
