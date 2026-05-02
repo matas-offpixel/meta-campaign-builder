@@ -254,6 +254,7 @@ export async function GET(
           externalCapacity: cand.externalCapacity,
           confidence: cand.confidence,
           venueScore: cand.venueScore,
+          opponentScore: cand.opponentScore,
           dateScore: cand.dateScore,
           nameScore: cand.nameScore,
           dateMatch: cand.dateMatch,

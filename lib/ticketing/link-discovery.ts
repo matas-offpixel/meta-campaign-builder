@@ -6,15 +6,18 @@
  * stays unit-testable with no Supabase / no fetch.
  *
  * Algorithm:
- *   1. Venue token overlap is load-bearing (0.6). 4thefans can have
+ *   1. Venue token overlap is load-bearing (0.55). 4thefans can have
  *      many same-name/same-date events across venues, so a confident
  *      venue match is required for auto-confirm.
- *   2. Date proximity contributes 0.25: exact, within 1 day, within
+ *   2. Opponent overlap contributes 0.25. Same-day/same-venue events
+ *      often only differ by opponent.
+ *   3. Date proximity contributes 0.15: exact, within 1 day, within
  *      3 days, then zero.
- *   3. Name token overlap contributes 0.15 after stripping provider
+ *   4. Name token overlap contributes 0.05 after stripping provider
  *      venue prefixes from names such as "Bristol – England v Croatia".
  */
 
+import { extractOpponentName } from "../db/event-opponent-extraction.ts";
 import { normalizeEventLabel } from "./fuzzy-match.ts";
 
 export interface InternalEventForMatching {
@@ -48,10 +51,12 @@ export interface MatchCandidate {
   externalStartsAt: string | null;
   externalVenue: string | null;
   externalCapacity: number | null;
-  /** Final weighted score: venue 0.6 + date 0.25 + name 0.15. */
+  /** Final weighted score: venue + opponent/date/name components. */
   confidence: number;
   /** Venue-token Jaccard score. Must be high for auto-confirm. */
   venueScore: number;
+  /** Opponent-token Jaccard score. */
+  opponentScore: number;
   /** Date proximity score (exact=1, <=1d=.7, <=3d=.3). */
   dateScore: number;
   /** Name-token Jaccard score after stripping external venue prefixes. */
@@ -131,6 +136,24 @@ const NAME_STOPWORDS = new Set([
   "live",
   "screening",
 ]);
+
+const HOME_TEAMS = new Set(["england", "scotland", "wales", "northern ireland"]);
+
+const KNOCKOUT_LABEL_RE =
+  /\b(?:last\s*32|last\s*16|round\s*of\s*16|quarter(?:\s*final)?|semi(?:\s*final)?|final|knockout)\b/i;
+
+const WEIGHTS_WITH_OPPONENT = {
+  venue: 0.55,
+  opponent: 0.25,
+  date: 0.15,
+  name: 0.05,
+} as const;
+
+const WEIGHTS_WITHOUT_OPPONENT = {
+  venue: 0.55,
+  date: 0.15,
+  name: 0.3,
+} as const;
 
 /**
  * Returns true when the two ISO date strings fall within
@@ -213,6 +236,28 @@ export function stripExternalVenuePrefix(name: string): string {
     .map((part) => part.trim())
     .filter(Boolean);
   return parts.length > 1 ? parts.slice(1).join(" ") : name;
+}
+
+export function opponentLabelForMatching(name: string): string | null {
+  const stripped = stripExternalVenuePrefix(name).trim();
+  const extracted = extractOpponentName(stripped);
+  if (extracted && !HOME_TEAMS.has(extracted)) return extracted;
+
+  if (extracted && HOME_TEAMS.has(extracted)) {
+    const parts = stripped
+      .split(/\s+(?:vs?|x|-)\s+/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const left = parts[0]?.toLowerCase() ?? "";
+    if (left && !HOME_TEAMS.has(left)) return left;
+  }
+
+  const knockout = stripped.match(KNOCKOUT_LABEL_RE)?.[0];
+  if (knockout) return normalizeEventLabel(knockout);
+
+  const tokens = tokenSet(stripped, NAME_STOPWORDS);
+  const nonHome = [...tokens].filter((token) => !HOME_TEAMS.has(token));
+  return nonHome.length === 1 ? nonHome[0] : null;
 }
 
 function tokenSet(
@@ -299,8 +344,20 @@ export function scoreCandidatesForEvent(
       stripExternalVenuePrefix(ext.name),
       NAME_STOPWORDS,
     );
-    const confidence =
-      venueScore * 0.6 + dateScore * 0.25 + nameScore * 0.15;
+    const internalOpponent = opponentLabelForMatching(event.name);
+    const externalOpponent = opponentLabelForMatching(ext.name);
+    const hasOpponentScore = Boolean(internalOpponent && externalOpponent);
+    const opponentScore = hasOpponentScore
+      ? tokenJaccard(internalOpponent, externalOpponent, new Set())
+      : 0;
+    const confidence = hasOpponentScore
+      ? venueScore * WEIGHTS_WITH_OPPONENT.venue +
+        opponentScore * WEIGHTS_WITH_OPPONENT.opponent +
+        dateScore * WEIGHTS_WITH_OPPONENT.date +
+        nameScore * WEIGHTS_WITH_OPPONENT.name
+      : venueScore * WEIGHTS_WITHOUT_OPPONENT.venue +
+        dateScore * WEIGHTS_WITHOUT_OPPONENT.date +
+        nameScore * WEIGHTS_WITHOUT_OPPONENT.name;
     if (confidence < minScore) continue;
     const capacityMatch = capacityWithinFivePercent(
       event.capacity,
@@ -315,6 +372,7 @@ export function scoreCandidatesForEvent(
       externalCapacity: ext.capacity ?? null,
       confidence,
       venueScore,
+      opponentScore,
       dateScore,
       nameScore,
       dateMatch: dateScore > 0,

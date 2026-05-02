@@ -6,6 +6,7 @@ import {
   composeMatchableInternalLabel,
   datesWithinWindow,
   discoverMatches,
+  opponentLabelForMatching,
   scoreCandidatesForEvent,
   type ExternalEventForMatching,
   type InternalEventForMatching,
@@ -98,6 +99,14 @@ describe("composeMatchableInternalLabel", () => {
 });
 
 describe("scoreCandidatesForEvent", () => {
+  it("extracts opponents for matching, including reversed home-team and knockout labels", () => {
+    assert.equal(opponentLabelForMatching("England v Croatia"), "croatia");
+    assert.equal(opponentLabelForMatching("Scotland v Brazil"), "brazil");
+    assert.equal(opponentLabelForMatching("Croatia v England"), "croatia");
+    assert.equal(opponentLabelForMatching("England - Last 32"), "last 32");
+    assert.equal(opponentLabelForMatching("Bristol – England v Panama"), "panama");
+  });
+
   it("returns no candidates when every external score is below minScore", () => {
     const internal = intEv({
       id: "i1",
@@ -240,6 +249,85 @@ describe("scoreCandidatesForEvent", () => {
     ]);
     assert.equal(candidates[0]?.externalEventId, "3276");
     assert.equal(candidates[0]?.autoConfirm, true);
+  });
+
+  it("uses opponent overlap to separate same-venue Bristol group-stage events", () => {
+    const shared = {
+      venue_name: "Prospect Building",
+      venue_city: "Bristol",
+    };
+    const externals = [
+      extEv({
+        externalEventId: "3276",
+        name: "Bristol – England v Croatia",
+        startsAt: "2026-06-17",
+        venue: "The Prospect Building, Bristol",
+      }),
+      extEv({
+        externalEventId: "4180",
+        name: "Bristol – England v Panama",
+        startsAt: "2026-06-24",
+        venue: "The Prospect Building, Bristol",
+      }),
+      extEv({
+        externalEventId: "4181",
+        name: "Bristol – England v Ghana",
+        startsAt: "2026-06-27",
+        venue: "The Prospect Building, Bristol",
+      }),
+      extEv({
+        externalEventId: "4194",
+        name: "Bristol – Last 32",
+        startsAt: "2026-06-30",
+        venue: "The Prospect Building, Bristol",
+      }),
+    ];
+
+    const croatia = scoreCandidatesForEvent(
+      intEv({
+        id: "bristol-croatia",
+        name: "England v Croatia",
+        event_date: "2026-06-17",
+        ...shared,
+      }),
+      externals,
+    );
+    assert.equal(croatia[0]?.externalEventId, "3276");
+    assert.ok((croatia[0]?.confidence ?? 0) > 0.85);
+    assert.equal(croatia[0]?.opponentScore, 1);
+    assert.equal(croatia[0]?.autoConfirm, true);
+    assert.ok(
+      croatia
+        .filter((candidate) => candidate.externalEventId !== "3276")
+        .every((candidate) => !candidate.autoConfirm && candidate.confidence < 0.9),
+    );
+
+    const panama = scoreCandidatesForEvent(
+      intEv({
+        id: "bristol-panama",
+        name: "England v Panama",
+        event_date: "2026-06-24",
+        ...shared,
+      }),
+      externals,
+    );
+    assert.equal(panama[0]?.externalEventId, "4180");
+    assert.ok((panama[0]?.confidence ?? 0) > 0.85);
+    assert.equal(panama[0]?.opponentScore, 1);
+    assert.equal(panama[0]?.autoConfirm, true);
+
+    const last32 = scoreCandidatesForEvent(
+      intEv({
+        id: "bristol-last-32",
+        name: "England - Last 32",
+        event_date: "2026-06-30",
+        ...shared,
+      }),
+      externals,
+    );
+    assert.equal(last32[0]?.externalEventId, "4194");
+    assert.ok((last32[0]?.confidence ?? 0) > 0.85);
+    assert.equal(last32[0]?.opponentScore, 1);
   });
 
   it("matches Edinburgh Scotland v Haiti to event 368, not other Scottish venues", () => {

@@ -48,6 +48,7 @@ interface CandidateRow {
   externalCapacity: number | null;
   confidence: number;
   venueScore: number;
+  opponentScore: number;
   dateScore: number;
   nameScore: number;
   capacityMatch: boolean;
@@ -605,6 +606,15 @@ function EventDiscoveryRow({
   onLinkCandidate,
 }: RowProps) {
   const hasCandidates = row.candidates.length > 0;
+  const [debugOpen, setDebugOpen] = useState<Set<string>>(() => new Set());
+  const toggleDebug = (externalEventId: string) => {
+    setDebugOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(externalEventId)) next.delete(externalEventId);
+      else next.add(externalEventId);
+      return next;
+    });
+  };
   return (
     <>
       <tr className="border-t border-border align-top">
@@ -620,10 +630,11 @@ function EventDiscoveryRow({
             <div className="space-y-1">
               {row.candidates.slice(0, 3).map((c) => {
                 const isSelected = c.externalEventId === selectedCandidateId;
+                const isDebugOpen = debugOpen.has(c.externalEventId);
                 return (
-                  <label
+                  <div
                     key={c.externalEventId}
-                    className="flex cursor-pointer items-start gap-2"
+                    className="flex items-start gap-2"
                   >
                     <input
                       type="radio"
@@ -635,9 +646,13 @@ function EventDiscoveryRow({
                       className="mt-1"
                     />
                     <span className="flex-1">
-                      <span className="block text-foreground">
+                      <button
+                        type="button"
+                        className="block text-left text-foreground hover:underline"
+                        onClick={() => onToggle(row.eventId, c.externalEventId)}
+                      >
                         {c.externalEventName}
-                      </span>
+                      </button>
                       <span className="block font-mono text-[10px] text-muted-foreground">
                         {c.connectionProvider} · {c.externalEventId}
                         {c.externalEventStartsAt
@@ -652,19 +667,29 @@ function EventDiscoveryRow({
                             : ""}
                         </span>
                       ) : null}
-                      <span className="block text-[10px] text-muted-foreground">
-                        venue {fmtConfidence(c.venueScore)} · date{" "}
-                        {fmtConfidence(c.dateScore)} · name{" "}
-                        {fmtConfidence(c.nameScore)}
-                        {c.capacityMatch ? " · capacity match" : ""}
-                      </span>
+                      <button
+                        type="button"
+                        className="mt-0.5 block text-left text-[10px] font-medium text-primary hover:text-primary-hover underline underline-offset-2"
+                        onClick={() => toggleDebug(c.externalEventId)}
+                      >
+                        {isDebugOpen ? "Hide" : "Show"} debug breakdown
+                      </button>
+                      {isDebugOpen ? (
+                        <span className="block text-[10px] text-muted-foreground">
+                          venue {fmtConfidence(c.venueScore)} · opponent{" "}
+                          {fmtConfidence(c.opponentScore)} · date{" "}
+                          {fmtConfidence(c.dateScore)} · name{" "}
+                          {fmtConfidence(c.nameScore)}
+                          {c.capacityMatch ? " · capacity match" : ""}
+                        </span>
+                      ) : null}
                       {c.manualDisambiguationRequired ? (
                         <span className="block text-[11px] font-medium text-yellow-600">
                           Manual disambiguation needed
                         </span>
                       ) : null}
                     </span>
-                  </label>
+                  </div>
                 );
               })}
               {row.candidates.length > 3 ? (
