@@ -22,7 +22,10 @@ Replaces the per-event creative tag breakdown table with a tile-grid plus collap
 - [x] `npx tsc --noEmit`
 - [x] `node --experimental-strip-types --test lib/reporting/__tests__/creative-tag-breakdowns.test.ts`
 - [x] `npm test`
+- [x] Vercel preview `/share/report/i6MRF2-I789FSxdY` renders tile cards and collapsed details for available trusted tag dimensions.
+- [x] Vercel preview `/share/report/Rul8DeLZBVTZ0kZr` renders the awareness active-creatives section and hides tag breakdowns because there are no matching assignments for that event.
+- [x] Vercel preview `/share/venue/wI2XvJF0t-XzMi59` does not render the tag performance section.
 
 ## Notes
 
-Local `next dev` could not reach the share URLs because the current app route tree has an existing dynamic slug conflict under `app/api/events/[id]` and `app/api/events/[eventId]`. Preview validation should cover the requested share URLs after PR creation. The tile join may surface fewer creatives until the duplicate event rows Phase 5 dedupe lands, matching the 2026-05-02 duplicate-events finding.
+Local `next dev` could not reach the share URLs because the current app route tree has an existing dynamic slug conflict under `app/api/events/[id]` and `app/api/events/[eventId]`. Vercel preview covered the requested share URL regressions. The tile join may surface fewer creatives until the duplicate event rows Phase 5 dedupe lands, matching the 2026-05-02 duplicate-events finding.
