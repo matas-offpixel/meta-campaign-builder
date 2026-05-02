@@ -7,6 +7,7 @@ import {
   extractMotionSeedTags,
   importMotionSeedTags,
   listCreativeTagAssignments,
+  listCreativeTagAssignmentsByEvents,
   listCreativeTags,
   upsertCreativeScore,
   upsertCreativeTagAssignment,
@@ -160,7 +161,6 @@ describe("creative tag assignments", () => {
       tag_id: TAG_ID,
       source: "manual",
       confidence: null,
-      model_version: null,
     });
   });
 
@@ -175,6 +175,28 @@ describe("creative tag assignments", () => {
       { col: "creative_name", val: "EVT - Hero - v1" },
     ]);
     assert.deepEqual(rec.orders, [
+      { col: "creative_name", opts: { ascending: true } },
+    ]);
+  });
+
+  it("lists assignments for multiple events in one batch", async () => {
+    const { client, rec } = makeStub({ data: [], error: null });
+
+    await listCreativeTagAssignmentsByEvents(client, [
+      EVENT_ID,
+      "00000000-0000-0000-0000-000000000004",
+      EVENT_ID,
+    ]);
+
+    assert.equal(rec.table, "creative_tag_assignments");
+    assert.deepEqual(rec.ins, [
+      {
+        col: "event_id",
+        vals: [EVENT_ID, "00000000-0000-0000-0000-000000000004"],
+      },
+    ]);
+    assert.deepEqual(rec.orders, [
+      { col: "event_id", opts: { ascending: true } },
       { col: "creative_name", opts: { ascending: true } },
     ]);
   });

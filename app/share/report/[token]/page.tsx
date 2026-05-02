@@ -77,6 +77,7 @@ import {
 } from "@/lib/google-ads/insights";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
+import { listCreativeTagAssignments } from "@/lib/db/creative-tags";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -430,6 +431,16 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   });
   const { creativesResult, deferredCreatives, snapshot } =
     activeCreativesResolution;
+  const tagAssignments = await listCreativeTagAssignments(admin, event_id).catch(
+    (err) => {
+      console.warn(
+        `[share/report] creative tag assignments failed for token=${token}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return [];
+    },
+  );
 
   // True when the creative breakdown actually has something to
   // render. `kind === "skip"` (no_event_code / no_ad_account /
@@ -591,6 +602,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           <DeferredCreativesSlot
             promise={deferredCreatives}
             kind={event.kind}
+            tagAssignments={tagAssignments}
           />
         </Suspense>
       </>
@@ -609,6 +621,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         <ShareActiveCreativesSection
           result={creativesResult}
           kind={event.kind}
+          tagAssignments={tagAssignments}
         />
       </>
     );
@@ -1069,9 +1082,11 @@ function withTimeout(
 async function DeferredCreativesSlot({
   promise,
   kind,
+  tagAssignments,
 }: {
   promise: Promise<ShareActiveCreativesResult>;
   kind?: string | null;
+  tagAssignments: Awaited<ReturnType<typeof listCreativeTagAssignments>>;
 }) {
   const result = await promise;
   if (
@@ -1080,7 +1095,13 @@ async function DeferredCreativesSlot({
   ) {
     return <ShareActiveCreativesWarming />;
   }
-  return <ShareActiveCreativesSection result={result} kind={kind} />;
+  return (
+    <ShareActiveCreativesSection
+      result={result}
+      kind={kind}
+      tagAssignments={tagAssignments}
+    />
+  );
 }
 
 async function resolveGoogleAdsReportBlock(input: {

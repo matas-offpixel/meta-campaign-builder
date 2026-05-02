@@ -160,7 +160,15 @@ export interface CreativeTagAssignmentRow {
   model_version: string | null;
   created_at: string;
   updated_at: string;
+  tag?: Pick<MotionCreativeTagRow, "dimension" | "value_label"> | null;
 }
+
+type CreativeTagAssignmentDbRow = Omit<CreativeTagAssignmentRow, "tag"> & {
+  tag?:
+    | Pick<MotionCreativeTagRow, "dimension" | "value_label">
+    | Array<Pick<MotionCreativeTagRow, "dimension" | "value_label">>
+    | null;
+};
 
 export interface CreativeScoreRow {
   id: string;
@@ -213,7 +221,7 @@ export interface ImportMotionSeedTagsResult {
 const TAXONOMY_SELECT =
   "id,user_id,dimension,value_key,value_label,description,source,created_at,updated_at";
 const ASSIGNMENT_SELECT =
-  "id,user_id,event_id,creative_name,tag_id,source,confidence,model_version,created_at,updated_at";
+  "id,user_id,event_id,creative_name,tag_id,source,confidence,model_version,created_at,updated_at,tag:creative_tags(dimension,value_label)";
 const SCORE_SELECT =
   "id,user_id,event_id,creative_name,axis,score,significance,fetched_at";
 
@@ -270,7 +278,7 @@ export async function upsertCreativeTagAssignment(
         tag_id: args.tagId,
         source: args.source,
         confidence: args.confidence ?? null,
-        model_version: args.modelVersion ?? null,
+        ...(args.modelVersion ? { model_version: args.modelVersion } : {}),
       },
       { onConflict: "event_id,creative_name,tag_id" },
     )
@@ -279,7 +287,7 @@ export async function upsertCreativeTagAssignment(
 
   if (error) throw new Error(error.message);
   if (!data) throw new Error("upsertCreativeTagAssignment returned no row");
-  return data as CreativeTagAssignmentRow;
+  return normalizeAssignmentRow(data as CreativeTagAssignmentDbRow);
 }
 
 export async function bulkUpsertCreativeTagAssignments(
@@ -303,7 +311,7 @@ export async function bulkUpsertCreativeTagAssignments(
       tag_id: row.tagId,
       source: row.source,
       confidence: row.confidence ?? null,
-      model_version: row.modelVersion ?? null,
+      ...(row.modelVersion ? { model_version: row.modelVersion } : {}),
     }));
 
     const { error } = await supabase.from("creative_tag_assignments").upsert(
@@ -334,7 +342,25 @@ export async function listCreativeTagAssignments(
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data ?? []) as CreativeTagAssignmentRow[];
+  return normalizeAssignmentRows(data ?? []);
+}
+
+export async function listCreativeTagAssignmentsByEvents(
+  supabase: DbClient,
+  eventIds: string[],
+): Promise<CreativeTagAssignmentRow[]> {
+  const uniqueEventIds = [...new Set(eventIds.filter(Boolean))];
+  if (uniqueEventIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("creative_tag_assignments")
+    .select(ASSIGNMENT_SELECT)
+    .in("event_id", uniqueEventIds)
+    .order("event_id", { ascending: true })
+    .order("creative_name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return normalizeAssignmentRows(data ?? []);
 }
 
 export async function upsertCreativeScore(
@@ -602,4 +628,20 @@ function assignmentKey(
   tagId: string,
 ): string {
   return `${eventId}\u0000${creativeName}\u0000${tagId}`;
+}
+
+function normalizeAssignmentRows(rows: unknown[]): CreativeTagAssignmentRow[] {
+  return rows.map((row) =>
+    normalizeAssignmentRow(row as CreativeTagAssignmentDbRow),
+  );
+}
+
+function normalizeAssignmentRow(
+  row: CreativeTagAssignmentDbRow,
+): CreativeTagAssignmentRow {
+  const tag = Array.isArray(row.tag) ? row.tag[0] : row.tag;
+  return {
+    ...row,
+    tag: tag ?? null,
+  };
 }
