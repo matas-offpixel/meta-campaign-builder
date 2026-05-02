@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 229
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/229
 - **Branch:** `creative/auto-tagger-swap-to-anthropic`
 
 ## Summary
