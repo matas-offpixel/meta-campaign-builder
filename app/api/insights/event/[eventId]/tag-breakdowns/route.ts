@@ -31,9 +31,9 @@ function parseCustomRange(
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ eventId: string }> },
 ) {
-  const { id: eventId } = await params;
+  const { eventId } = await params;
   const sp = req.nextUrl.searchParams;
   const datePreset = parseDatePreset(sp.get("datePreset"));
   const customRange = parseCustomRange(
