@@ -142,6 +142,10 @@ export async function buildClientCreativePatterns(
     fetchLatestSnapshots(supabase, eventIds, sinceDays),
     fetchRollups(supabase, eventIds, sinceYmd, untilYmd),
   ]);
+  const sampleTagPopulated = assignments.filter((row) => {
+    const tag = Array.isArray(row.tag) ? row.tag[0] : row.tag;
+    return Boolean(tag?.dimension);
+  }).length;
 
   console.log("[creative-patterns] rows", {
     clientId,
@@ -151,6 +155,11 @@ export async function buildClientCreativePatterns(
     rollups: rollups.length,
     sinceDays,
   });
+  console.log("[creative-patterns] tag-embed", {
+    totalAssignments: assignments.length,
+    populated: sampleTagPopulated,
+    sample: assignments[0],
+  });
 
   const rollupEventIds = new Set(rollups.map((row) => row.event_id));
   const totalSpend = rollups.reduce((sum, row) => sum + rollupSpend(row), 0);
@@ -159,6 +168,15 @@ export async function buildClientCreativePatterns(
   let totalAdConcepts = 0;
 
   for (const snapshot of snapshots) {
+    console.log("[creative-patterns] snapshot-loop", {
+      event_id: snapshot.event_id,
+      in_rollup: rollupEventIds.has(snapshot.event_id),
+      payload_kind: snapshot.payload.kind,
+      groups: snapshot.payload.kind === "ok" ? snapshot.payload.groups.length : 0,
+      assignments_for_event: [...assignmentsByEventCreative.entries()].filter(
+        ([key]) => key.startsWith(`${snapshot.event_id}\u0000`),
+      ).length,
+    });
     if (!rollupEventIds.has(snapshot.event_id)) continue;
     if (snapshot.payload.kind !== "ok") continue;
 
@@ -267,7 +285,7 @@ async function fetchAssignments(
     supabase
       .from("creative_tag_assignments")
       .select(
-        "event_id,creative_name,tag_id,tag:creative_tags(dimension,value_key,value_label)",
+        "event_id,creative_name,tag_id,tag:creative_tags!creative_tag_assignments_tag_id_fkey(dimension,value_key,value_label)",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
