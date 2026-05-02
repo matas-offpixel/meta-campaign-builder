@@ -44,7 +44,15 @@ interface CandidateRow {
   externalEventName: string;
   externalEventStartsAt: string | null;
   externalEventUrl: string | null;
+  externalVenue: string | null;
+  externalCapacity: number | null;
   confidence: number;
+  venueScore: number;
+  dateScore: number;
+  nameScore: number;
+  capacityMatch: boolean;
+  autoConfirm: boolean;
+  manualDisambiguationRequired: boolean;
   connectionId: string;
   connectionProvider: string;
 }
@@ -94,7 +102,7 @@ interface BulkLinkResponse {
 
 type SelectionState = Record<string, { externalEventId: string; checked: boolean }>;
 
-const AUTO_CONFIRM_THRESHOLD = 0.5;
+const AUTO_CONFIRM_THRESHOLD = 0.9;
 
 function fmtConfidence(score: number): string {
   return `${Math.round(score * 100)}%`;
@@ -116,8 +124,8 @@ function fmtDate(value: string | null): string {
 }
 
 function confidenceClasses(score: number): string {
-  if (score >= 0.75) return "text-green-500";
-  if (score >= AUTO_CONFIRM_THRESHOLD) return "text-yellow-500";
+  if (score >= AUTO_CONFIRM_THRESHOLD) return "text-green-500";
+  if (score >= 0.55) return "text-yellow-500";
   return "text-muted-foreground";
 }
 
@@ -158,7 +166,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
           if (top) {
             initial[row.eventId] = {
               externalEventId: top.externalEventId,
-              checked: top.confidence >= AUTO_CONFIRM_THRESHOLD,
+              checked: top.autoConfirm && !top.manualDisambiguationRequired,
             };
           }
         }
@@ -198,7 +206,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       for (const row of events) {
         const top = row.candidates[0];
         if (!top) continue;
-        if (top.confidence >= AUTO_CONFIRM_THRESHOLD) {
+        if (top.autoConfirm && !top.manualDisambiguationRequired) {
           next[row.eventId] = {
             externalEventId: top.externalEventId,
             checked: true,
@@ -485,7 +493,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                 onClick={selectAllConfident}
                 disabled={submitting}
               >
-                Select confident
+                Select auto-confirmed
               </Button>
               <Button
                 variant="ghost"
@@ -604,6 +612,25 @@ function EventDiscoveryRow({
                           ? ` · ${fmtDate(c.externalEventStartsAt)}`
                           : ""}
                       </span>
+                      {c.externalVenue ? (
+                        <span className="block text-[11px] text-muted-foreground">
+                          {c.externalVenue}
+                          {c.externalCapacity != null
+                            ? ` · cap ${c.externalCapacity.toLocaleString("en-GB")}`
+                            : ""}
+                        </span>
+                      ) : null}
+                      <span className="block text-[10px] text-muted-foreground">
+                        venue {fmtConfidence(c.venueScore)} · date{" "}
+                        {fmtConfidence(c.dateScore)} · name{" "}
+                        {fmtConfidence(c.nameScore)}
+                        {c.capacityMatch ? " · capacity match" : ""}
+                      </span>
+                      {c.manualDisambiguationRequired ? (
+                        <span className="block text-[11px] font-medium text-yellow-600">
+                          Manual disambiguation needed
+                        </span>
+                      ) : null}
                     </span>
                   </label>
                 );
@@ -616,7 +643,7 @@ function EventDiscoveryRow({
             </div>
           ) : (
             <span className="text-xs italic text-muted-foreground">
-              No candidates above 0.25 similarity
+              No candidates above 55% confidence
             </span>
           )}
         </td>

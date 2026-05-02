@@ -3,6 +3,8 @@ export interface ParsedFourthefansSummary {
   name: string;
   startsAt: string | null;
   url: string | null;
+  venue: string | null;
+  capacity: number | null;
   status?: string | null;
 }
 
@@ -61,6 +63,14 @@ export function readFourthefansEventSummary(
       "start",
     ]),
     url: readString(event, ["url", "link", "permalink"]),
+    venue: readVenue(event),
+    capacity: readNumber(event, [
+      "capacity",
+      "event_capacity",
+      "tickets_available",
+      "total_capacity",
+      "quantity_total",
+    ]),
     status: readString(event, ["status", "event_status"]),
   };
 }
@@ -122,6 +132,31 @@ function readString(
     const value = record[key];
     if (typeof value === "string" && value.trim()) return value.trim();
     if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+function readVenue(record: Record<string, unknown>): string | null {
+  const direct = readString(record, [
+    "venue",
+    "location",
+    "venue_name",
+    "event_venue",
+    "address",
+  ]);
+  if (direct) return direct;
+  for (const key of ["venue", "location"]) {
+    const value = record[key];
+    if (isRecord(value)) {
+      const nested = readString(value, [
+        "name",
+        "title",
+        "address",
+        "address_full",
+        "city",
+      ]);
+      if (nested) return nested;
+    }
   }
   return null;
 }
