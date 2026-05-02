@@ -8,7 +8,6 @@ import {
   fetchEventTodayMetaSnapshot,
 } from "@/lib/insights/meta";
 import {
-  getEarliestSnapshotForEventSource,
   getLatestSnapshotForEventBeforeDate,
   getConnectionWithDecryptedCredentials,
   insertSnapshot,
@@ -27,7 +26,10 @@ import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { getProvider } from "@/lib/ticketing/registry";
 import type { TicketingConnection } from "@/lib/ticketing/types";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
-import { currentSnapshotDailyDelta } from "@/lib/ticketing/current-snapshot-delta";
+import {
+  currentSnapshotDailyDelta,
+  currentSnapshotMoneyDelta,
+} from "@/lib/ticketing/current-snapshot-delta";
 import {
   allocateVenueSpendForCode,
   type VenueAllocatorResult,
@@ -815,7 +817,10 @@ export async function runRollupSyncForEvent(
           // inside fetchDailyOrdersForEvent remains event-timezone
           // aware; the padding range matches the sync window endpoints.
           const isCurrentSnapshotProvider = connection.provider !== "eventbrite";
-          const ebByDate = new Map<string, { tickets_sold: number; revenue: number }>();
+          const ebByDate = new Map<
+            string,
+            { tickets_sold: number; revenue: number | null }
+          >();
           for (const r of rows) {
             ebByDate.set(r.date, {
               tickets_sold: r.ticketsSold,
@@ -859,6 +864,19 @@ export async function runRollupSyncForEvent(
             eventId,
             rows: ebUpsertRows,
           });
+          if (isCurrentSnapshotProvider) {
+            try {
+              await clearHistoricalCurrentSnapshotTicketPadding(supabase, {
+                eventId,
+              });
+            } catch (err) {
+              console.warn(
+                `[rollup-sync] current snapshot padding cleanup skipped event_id=${eventId}: ${
+                  err instanceof Error ? err.message : "Unknown error"
+                }`,
+              );
+            }
+          }
           await recordConnectionSync(supabase, connection.id, { ok: true });
           totalRows += ebUpsertRows.length;
           console.log(
@@ -1044,30 +1062,46 @@ async function fetchCurrentTicketingSnapshotRows(args: {
   externalEventId: string;
   todayStr: string;
 }): Promise<{
-  rows: Array<{ date: string; ticketsSold: number; revenue: number }>;
+  rows: Array<{ date: string; ticketsSold: number; revenue: number | null }>;
 }> {
   const provider = getProvider(args.connection.provider);
+  const source = snapshotSourceForProvider(args.connection.provider);
   const previousSnapshot = await getLatestSnapshotForEventBeforeDate(
     args.supabase,
     { eventId: args.eventId, beforeDate: args.todayStr },
   );
+  const previousRevenueSnapshot = source
+    ? await getLatestSnapshotForEventBeforeDate(args.supabase, {
+        eventId: args.eventId,
+        beforeDate: args.todayStr,
+        source,
+        requireGrossRevenue: true,
+      })
+    : null;
   const fetched = await provider.getEventSales(
     args.connection,
     args.externalEventId,
   );
+  const currentRevenue =
+    fetched.grossRevenueCents == null
+      ? null
+      : Number((fetched.grossRevenueCents / 100).toFixed(2));
+  const previousRevenue =
+    previousRevenueSnapshot?.gross_revenue_cents == null
+      ? null
+      : Number((previousRevenueSnapshot.gross_revenue_cents / 100).toFixed(2));
   const ticketsSold = currentSnapshotDailyDelta({
     currentTotal: fetched.ticketsSold,
     previousTotal: previousSnapshot?.tickets_sold ?? null,
   });
-  const source = snapshotSourceForProvider(args.connection.provider);
+  const revenue = currentSnapshotMoneyDelta({
+    currentTotal: currentRevenue,
+    previousTotal: previousRevenue,
+  });
   if (source) {
-    const revenue =
-      fetched.grossRevenueCents == null
-        ? 0
-        : Number((fetched.grossRevenueCents / 100).toFixed(2));
     if (args.connection.provider === "fourthefans") {
       console.info(
-        `[fourthefans-sync] writing snapshot lifetime_tickets=${fetched.ticketsSold} previous_lifetime_tickets=${previousSnapshot?.tickets_sold ?? "<none>"} daily_delta=${ticketsSold} revenue=£${revenue.toFixed(2)}`,
+        `[fourthefans-sync] delta event_id=${args.eventId} external_event_id=${args.externalEventId} current_tickets=${fetched.ticketsSold} previous_tickets=${previousSnapshot?.tickets_sold ?? "<none>"} delta_tickets=${ticketsSold} current_revenue=${formatMetric(currentRevenue)} previous_revenue=${formatMetric(previousRevenue)} delta_revenue=${formatMetric(revenue)}`,
       );
     }
     const snapshot = await insertSnapshot(args.supabase, {
@@ -1090,41 +1124,20 @@ async function fetchCurrentTicketingSnapshotRows(args: {
         fetched.ticketsSold
       }`,
     );
-    const firstSourceSnapshot = await getEarliestSnapshotForEventSource(
-      args.supabase,
-      {
-        eventId: args.eventId,
-        source,
-      },
-    );
-    const firstSourceDate = firstSourceSnapshot?.snapshot_at?.slice(0, 10);
-    if (firstSourceDate) {
-      try {
-        await clearHistoricalCurrentSnapshotTicketPadding(args.supabase, {
-          eventId: args.eventId,
-          beforeDate: firstSourceDate,
-        });
-      } catch (err) {
-        console.warn(
-          `[rollup-sync] current snapshot padding cleanup skipped event_id=${args.eventId} before_date=${firstSourceDate}: ${
-            err instanceof Error ? err.message : "Unknown error"
-          }`,
-        );
-      }
-    }
   }
   return {
     rows: [
       {
         date: args.todayStr,
         ticketsSold,
-        revenue:
-          fetched.grossRevenueCents == null
-            ? 0
-            : Number((fetched.grossRevenueCents / 100).toFixed(2)),
+        revenue,
       },
     ],
   };
+}
+
+function formatMetric(value: number | null): string {
+  return value == null ? "<null>" : value.toFixed(2);
 }
 
 function snapshotSourceForProvider(
