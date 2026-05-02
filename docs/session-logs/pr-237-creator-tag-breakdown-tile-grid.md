@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 237
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/237
 - **Branch:** `creator/tag-breakdown-tile-grid`
 
 ## Summary
