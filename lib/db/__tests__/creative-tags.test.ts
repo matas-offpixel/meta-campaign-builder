@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  bulkUpsertCreativeTagAssignments,
   extractMotionSeedTags,
   importMotionSeedTags,
   listCreativeTagAssignments,
@@ -16,6 +17,7 @@ interface Recorder {
   selects: string[];
   eqs: Array<{ col: string; val: unknown }>;
   nots: Array<{ col: string; op: string; val: unknown }>;
+  ins: Array<{ col: string; vals: unknown[] }>;
   orders: Array<{ col: string; opts: Record<string, unknown> }>;
   upserts: unknown[];
   upsertOpts: Array<Record<string, unknown> | undefined>;
@@ -31,6 +33,7 @@ function makeStub(result: Recorder["result"]): {
     selects: [],
     eqs: [],
     nots: [],
+    ins: [],
     orders: [],
     upserts: [],
     upsertOpts: [],
@@ -48,6 +51,10 @@ function makeStub(result: Recorder["result"]): {
     },
     not(col: string, op: string, val: unknown) {
       rec.nots.push({ col, op, val });
+      return builder;
+    },
+    in(col: string, vals: unknown[]) {
+      rec.ins.push({ col, vals });
       return builder;
     },
     order(col: string, opts: Record<string, unknown>) {
@@ -169,6 +176,47 @@ describe("creative tag assignments", () => {
       { col: "creative_name", opts: { ascending: true } },
     ]);
   });
+
+  it("bulk upserts assignments in deduped 200-row chunks", async () => {
+    const { client, rec } = makeStub({
+      data: [
+        {
+          event_id: EVENT_ID,
+          creative_name: "Creative 0",
+          tag_id: `${TAG_ID}-0`,
+        },
+      ],
+      error: null,
+    });
+    const args = Array.from({ length: 201 }, (_, index) => ({
+      userId: USER_ID,
+      eventId: EVENT_ID,
+      creativeName: `Creative ${index}`,
+      tagId: `${TAG_ID}-${index}`,
+      source: "manual" as const,
+    }));
+    args.push({ ...args[0] });
+
+    const result = await bulkUpsertCreativeTagAssignments(client, args);
+
+    assert.deepEqual(result, { inserted: 200, updated: 1 });
+    assert.equal(rec.upserts.length, 2);
+    assert.equal((rec.upserts[0] as unknown[]).length, 200);
+    assert.equal((rec.upserts[1] as unknown[]).length, 1);
+    assert.deepEqual(rec.upsertOpts, [
+      { onConflict: "event_id,creative_name,tag_id" },
+      { onConflict: "event_id,creative_name,tag_id" },
+    ]);
+    assert.equal(rec.ins.filter((entry) => entry.col === "event_id").length, 2);
+    assert.deepEqual((rec.upserts[0] as Array<Record<string, unknown>>)[0], {
+      user_id: USER_ID,
+      event_id: EVENT_ID,
+      creative_name: "Creative 0",
+      tag_id: `${TAG_ID}-0`,
+      source: "manual",
+      confidence: null,
+    });
+  });
 });
 
 describe("upsertCreativeScore", () => {
@@ -227,6 +275,18 @@ describe("importMotionSeedTags", () => {
           description: "Leads with pricing pressure.",
         },
       ],
+      data: [
+        {
+          name: "Messaging theme",
+          values: [
+            {
+              name: "Urgency / Scarcity / FOMO",
+              definition: "Urgency from limited availability.",
+              creativeIds: ["motion-creative-1"],
+            },
+          ],
+        },
+      ],
     });
 
     assert.deepEqual(
@@ -235,6 +295,11 @@ describe("importMotionSeedTags", () => {
         ["asset_type", "ugc", "UGC"],
         ["asset_type", "venue_footage", "Venue footage"],
         ["messaging_angle", "price_drop", "Price drop"],
+        [
+          "messaging_angle",
+          "urgency_scarcity_fomo",
+          "Urgency / Scarcity / FOMO",
+        ],
       ],
     );
   });
