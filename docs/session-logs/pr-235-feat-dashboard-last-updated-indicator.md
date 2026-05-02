@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 235
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/235
 - **Branch:** `feat/dashboard-last-updated-indicator`
 
 ## Summary
