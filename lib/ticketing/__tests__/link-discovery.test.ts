@@ -144,23 +144,27 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(scoreCandidatesForEvent(internal, externals).length, 0);
   });
 
-  it("raises the surface threshold for local events without an opponent", () => {
+  it("surfaces low-confidence review candidates without auto-confirming them", () => {
     const internal = intEv({
-      id: "generic-london",
-      name: "London FanPark",
-      event_date: null,
-      venue_name: "London FanPark",
+      id: "tottenham-six-nations",
+      name: "Tottenham Six Nations",
+      event_date: "2026-03-14",
+      venue_name: "Tottenham",
       venue_city: "London",
     });
     const externals = [
       extEv({
-        externalEventId: "chelsea-final",
-        name: "Chelsea FanPark – FA Cup Final",
-        startsAt: "2026-05-16",
-        venue: "The Steel Yard, London",
+        externalEventId: "tottenham-review",
+        name: "Tottenham – Rugby",
+        startsAt: "2026-03-20",
+        venue: "Tottenham, London",
       }),
     ];
-    assert.equal(scoreCandidatesForEvent(internal, externals).length, 0);
+    const candidates = scoreCandidatesForEvent(internal, externals);
+    assert.equal(candidates.length, 1);
+    assert.ok((candidates[0]?.confidence ?? 0) >= 0.55);
+    assert.ok((candidates[0]?.confidence ?? 1) < 0.65);
+    assert.equal(candidates[0]?.autoConfirm, false);
   });
 
   it("returns no candidates when every external score is below minScore", () => {
@@ -384,6 +388,51 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(last32[0]?.externalEventId, "4194");
     assert.ok((last32[0]?.confidence ?? 0) > 0.85);
     assert.equal(last32[0]?.opponentScore, 1);
+  });
+
+  it("auto-confirms Central Park matches above the lowered threshold", () => {
+    const shared = {
+      venue_name: "Central Park",
+      venue_city: "Brighton",
+    };
+    const externals = [
+      extEv({
+        externalEventId: "central-croatia",
+        name: "Central Park – England v Croatia",
+        startsAt: "2026-06-17",
+        venue: "Central Park, Brighton",
+      }),
+      extEv({
+        externalEventId: "central-last-32",
+        name: "Central Park – Last 32",
+        startsAt: "2026-06-30",
+        venue: "Central Park, Brighton",
+      }),
+    ];
+
+    const croatia = scoreCandidatesForEvent(
+      intEv({
+        id: "central-croatia",
+        name: "England v Croatia",
+        event_date: "2026-06-17",
+        ...shared,
+      }),
+      externals,
+    );
+    assert.equal(croatia[0]?.externalEventId, "central-croatia");
+    assert.equal(croatia[0]?.autoConfirm, true);
+
+    const last32 = scoreCandidatesForEvent(
+      intEv({
+        id: "central-last-32",
+        name: "England - Last 32",
+        event_date: "2026-06-30",
+        ...shared,
+      }),
+      externals,
+    );
+    assert.equal(last32[0]?.externalEventId, "central-last-32");
+    assert.equal(last32[0]?.autoConfirm, true);
   });
 
   it("matches stage labels to stage labels instead of wrong opponents", () => {

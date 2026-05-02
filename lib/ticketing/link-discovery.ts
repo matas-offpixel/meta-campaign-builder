@@ -95,7 +95,7 @@ export interface ScoreCandidatesOptions {
 const DEFAULTS = {
   minScore: 0.55,
   maxPerEvent: 5,
-  autoConfirmThreshold: 0.9,
+  autoConfirmThreshold: 0.75,
   autoConfirmVenueThreshold: 0.8,
 } as const;
 
@@ -144,7 +144,6 @@ const KNOCKOUT_LABEL_RE =
   /\b(?:last\s*32|last\s*16|round\s*of\s*16|quarter(?:\s*final)?|semi(?:\s*final)?|final|knockout)\b/i;
 const UMBRELLA_CAMPAIGN_RE =
   /\b(?:presale\s+campaign|pre\s*sale\s+campaign|on\s*sale\s+campaign|title\s+run\s+in)\b/i;
-const NO_OPPONENT_MIN_SCORE = 0.75;
 const UMBRELLA_SKIP_REASON =
   "This appears to be a campaign-level row. Skip linking unless you have a specific 4thefans event.";
 
@@ -385,7 +384,6 @@ export function scoreCandidatesForEvent(
   if (isUmbrellaCampaignEvent(event)) return [];
   const internalVenue = internalVenueLabel(event);
   const internalOpponent = opponentLabelForMatching(event.name);
-  const effectiveMinScore = internalOpponent ? minScore : Math.max(minScore, NO_OPPONENT_MIN_SCORE);
 
   const scored: MatchCandidate[] = [];
   for (const ext of externals) {
@@ -410,7 +408,7 @@ export function scoreCandidatesForEvent(
       : venueScore * WEIGHTS_WITHOUT_OPPONENT.venue +
         dateScore * WEIGHTS_WITHOUT_OPPONENT.date +
         nameScore * WEIGHTS_WITHOUT_OPPONENT.name;
-    if (confidence < effectiveMinScore) continue;
+    if (confidence < minScore) continue;
     const capacityMatch = capacityWithinFivePercent(
       event.capacity,
       ext.capacity,
