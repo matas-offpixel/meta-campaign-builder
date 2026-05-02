@@ -15,7 +15,8 @@
 
 const DEFAULT_API_BASE = "https://4thefans.book.tickets/wp-json/agency/v1";
 const DEFAULT_TIMEOUT_MS = 8000;
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3;
+const DEFAULT_RATE_LIMIT_BACKOFF_MS = 60_000;
 
 export class FourthefansApiError extends Error {
   readonly status: number;
@@ -128,7 +129,10 @@ export async function fourthefansGet<T = unknown>(
         // Fall back to status text when the body isn't JSON.
       }
       const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
-      const message = extractErrorMessage(body) ?? res.statusText;
+      const message =
+        res.status === 429
+          ? `Rate limit exceeded. Retry in ${Math.ceil((retryAfterMs ?? DEFAULT_RATE_LIMIT_BACKOFF_MS) / 1000)}s.`
+          : (extractErrorMessage(body) ?? res.statusText);
       lastError = new FourthefansApiError(
         res.status,
         endpoint,
@@ -136,7 +140,7 @@ export async function fourthefansGet<T = unknown>(
         retryAfterMs,
       );
       if (attempt < MAX_RETRIES && shouldRetry(res.status)) {
-        await sleep(backoffMs(attempt, retryAfterMs));
+        await sleep(fourthefansRetryDelayMs(attempt, retryAfterMs, res.status));
         continue;
       }
       throw lastError;
@@ -166,6 +170,16 @@ function parseRetryAfter(raw: string | null): number | null {
 function backoffMs(attempt: number, retryAfterMs: number | null): number {
   if (retryAfterMs != null) return retryAfterMs;
   return 250 * 2 ** attempt;
+}
+
+export function fourthefansRetryDelayMs(
+  attempt: number,
+  retryAfterMs: number | null,
+  status: number,
+): number {
+  if (retryAfterMs != null) return retryAfterMs;
+  if (status === 429) return DEFAULT_RATE_LIMIT_BACKOFF_MS * 2 ** attempt;
+  return backoffMs(attempt, null);
 }
 
 function sleep(ms: number): Promise<void> {

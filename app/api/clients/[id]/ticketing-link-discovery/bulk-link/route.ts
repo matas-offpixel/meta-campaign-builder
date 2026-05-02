@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { upsertEventLink } from "@/lib/db/ticketing";
@@ -25,9 +25,8 @@ import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
  *
  * Concurrency:
  *   - Links are inserted serially (fast, tiny DB churn).
- *   - Rollup syncs run with a concurrency cap of 5 — same budget the
- *     dashboard "Sync all" button uses (PR 1). Prevents a 60-event
- *     bulk link from saturating Meta / Eventbrite API rate limits.
+ *   - Rollup syncs are scheduled after the response with a concurrency
+ *     cap of 2 and a 500ms launch gap to respect 4thefans rate limits.
  */
 
 interface Selection {
@@ -49,8 +48,9 @@ interface BulkLinkResult {
   linkError: string | null;
 }
 
-const DEFAULT_SYNC_CONCURRENCY = 3;
+const DEFAULT_SYNC_CONCURRENCY = 2;
 const SYNC_RETRY_DELAY_MS = 750;
+const SYNC_LAUNCH_GAP_MS = 500;
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
@@ -130,6 +130,18 @@ async function runWithConcurrency<T, R>(
   }
   await Promise.all(runners);
   return results;
+}
+
+function createLaunchGapper(gapMs: number): () => Promise<void> {
+  let nextStartAt = Date.now();
+  return async () => {
+    const now = Date.now();
+    const waitMs = Math.max(0, nextStartAt - now);
+    nextStartAt = Math.max(now, nextStartAt) + gapMs;
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  };
 }
 
 export async function POST(
@@ -353,14 +365,15 @@ export async function POST(
     }
   }
 
-  // Optional post-link rollup-sync fan-out. Same concurrency budget
-  // as the dashboard Sync all button (5) so we don't double-book
-  // Meta / Eventbrite rate limits if an operator triggers bulk-link
-  // while another sync is already running.
+  // Optional post-link rollup-sync fan-out. Schedule after the JSON
+  // response so link persistence stays fast and 4thefans backoff doesn't
+  // make the operator wait on every event.
+  let syncQueuedCount = 0;
   if (syncAfterLink) {
     const toSync = results
       .map((r, idx) => ({ r, idx }))
       .filter(({ r }) => r.ok && r.linkId != null);
+    syncQueuedCount = toSync.length;
 
     const adAccountId = (client as { meta_ad_account_id: string | null })
       .meta_ad_account_id;
@@ -369,59 +382,69 @@ export async function POST(
     const clientGoogleAdsAccountId = (client as { google_ads_account_id: string | null })
       .google_ads_account_id;
 
-    await runWithConcurrency(toSync, DEFAULT_SYNC_CONCURRENCY, async ({ r, idx }) => {
-      const ev = eventById.get(r.eventId);
-      if (!ev) {
-        results[idx] = {
-          ...r,
-          syncOk: false,
-          syncError: "Event not found post-link",
-        };
-        console.warn(
-          `[bulk-link] event_id=${r.eventId} status=error reason=${JSON.stringify(results[idx].syncError)}`,
-        );
-        return;
-      }
-      try {
-        const sync = await runSyncWithRetry({
-          supabase,
-          eventId: ev.id,
-          userId: user.id,
-          eventCode: ev.event_code,
-          eventTimezone: ev.event_timezone,
-          adAccountId,
-          clientId: ev.client_id,
-          eventDate: ev.event_date,
-          eventTikTokAccountId:
-            (ev as typeof ev & { tiktok_account_id: string | null })
-              .tiktok_account_id,
-          clientTikTokAccountId,
-          eventGoogleAdsAccountId:
-            (ev as typeof ev & { google_ads_account_id: string | null })
-              .google_ads_account_id,
-          clientGoogleAdsAccountId,
-        });
-        const syncOk = sync.summary.synced;
-        const syncError = syncOk ? null : syncFailureReason(sync);
-        results[idx] = {
-          ...r,
-          syncOk,
-          syncError,
-        };
-        console.info(
-          `[bulk-link] event_id=${ev.id} status=${syncOk ? "ok" : "error"} reason=${JSON.stringify(syncError)} provider=${r.connectionProvider ?? "<unknown>"} external_event_id=${r.externalEventId ?? "<null>"}`,
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown sync error";
-        results[idx] = {
-          ...r,
-          syncOk: false,
-          syncError: message,
-        };
-        console.warn(
-          `[bulk-link] event_id=${ev.id} status=error reason=${JSON.stringify(message)} provider=${r.connectionProvider ?? "<unknown>"} external_event_id=${r.externalEventId ?? "<null>"}`,
-        );
-      }
+    after(async () => {
+      const waitForLaunchGap = createLaunchGapper(SYNC_LAUNCH_GAP_MS);
+      await runWithConcurrency(toSync, DEFAULT_SYNC_CONCURRENCY, async ({ r, idx }) => {
+        await waitForLaunchGap();
+        const ev = eventById.get(r.eventId);
+        if (!ev) {
+          results[idx] = {
+            ...r,
+            syncOk: false,
+            syncError: "Event not found post-link",
+          };
+          console.warn(
+            `[bulk-link] event_id=${r.eventId} status=error reason=${JSON.stringify(results[idx].syncError)}`,
+          );
+          return;
+        }
+        try {
+          const sync = await runSyncWithRetry({
+            supabase,
+            eventId: ev.id,
+            userId: user.id,
+            eventCode: ev.event_code,
+            eventTimezone: ev.event_timezone,
+            adAccountId,
+            clientId: ev.client_id,
+            eventDate: ev.event_date,
+            eventTikTokAccountId:
+              (ev as typeof ev & { tiktok_account_id: string | null })
+                .tiktok_account_id,
+            clientTikTokAccountId,
+            eventGoogleAdsAccountId:
+              (ev as typeof ev & { google_ads_account_id: string | null })
+                .google_ads_account_id,
+            clientGoogleAdsAccountId,
+          });
+          const syncOk = sync.summary.synced;
+          const syncError = syncOk ? null : syncFailureReason(sync);
+          results[idx] = {
+            ...r,
+            syncOk,
+            syncError,
+          };
+          console.info(
+            `[bulk-link] event_id=${ev.id} status=${syncOk ? "ok" : "error"} reason=${JSON.stringify(syncError)} provider=${r.connectionProvider ?? "<unknown>"} external_event_id=${r.externalEventId ?? "<null>"}`,
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Unknown sync error";
+          results[idx] = {
+            ...r,
+            syncOk: false,
+            syncError: message,
+          };
+          console.warn(
+            `[bulk-link] event_id=${ev.id} status=error reason=${JSON.stringify(message)} provider=${r.connectionProvider ?? "<unknown>"} external_event_id=${r.externalEventId ?? "<null>"}`,
+          );
+        }
+      });
+      const backgroundWarnings = results.filter(
+        (r) => r.ok && r.syncOk === false,
+      ).length;
+      console.info(
+        `[bulk-link] background_sync_complete client_id=${id} synced=${syncQueuedCount - backgroundWarnings} warnings=${backgroundWarnings}`,
+      );
     });
   }
 
@@ -446,6 +469,8 @@ export async function POST(
     ok: failedCount === 0,
     linkedCount,
     failedCount,
+    syncQueuedCount,
+    throttled: syncQueuedCount > 0,
     syncWarningCount,
     results,
   });

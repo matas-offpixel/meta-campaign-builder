@@ -219,6 +219,7 @@ export async function GET(
       eventName: event.name,
       eventDate: event.event_date,
       venueName: event.venue_name,
+      skipReason: null,
       candidates: [],
       candidatesByConnection: [],
     });
@@ -272,6 +273,7 @@ export async function GET(
       eventName: r.eventName,
       eventDate: r.eventDate,
       venueName: r.venueName,
+      skipReason: r.skipReason,
       candidates: flat,
       candidatesByConnection: r.candidatesByConnection,
     };

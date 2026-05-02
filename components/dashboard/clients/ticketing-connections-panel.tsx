@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Loader2, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,6 +67,11 @@ export function TicketingConnectionsPanel({
   const [error, setError] = useState<string | null>(null);
   const [okMessage, setOkMessage] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [autoRetriedKeys, setAutoRetriedKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // Re-hydrate from server props if the parent rerenders with a fresh
   // server fetch (e.g. after `router.refresh()`). Without this, manual
@@ -74,6 +79,23 @@ export function TicketingConnectionsPanel({
   useEffect(() => {
     setConnections(initial);
   }, [initial]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    for (const connection of connections) {
+      const rateLimit = getRateLimitState(connection, nowMs);
+      if (!rateLimit || rateLimit.remainingMs > 0 || retryingId) continue;
+      const key = `${connection.id}:${connection.last_error ?? ""}:${connection.last_synced_at ?? connection.updated_at}`;
+      if (autoRetriedKeys.has(key)) continue;
+      setAutoRetriedKeys((prev) => new Set(prev).add(key));
+      void handleRetryConnection(connection.id);
+      break;
+    }
+  }, [autoRetriedKeys, connections, nowMs, retryingId]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -161,6 +183,51 @@ export function TicketingConnectionsPanel({
     }
   }
 
+  async function handleRetryConnection(id: string) {
+    setError(null);
+    setOkMessage(null);
+    setRetryingId(id);
+    try {
+      const res = await fetch(`/api/ticketing/connections/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retry: true }),
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        connection?: ConnectionRow | null;
+      };
+      if (!res.ok || !json.ok) {
+        const message = json.error ?? "Retry failed.";
+        setConnections((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  status: "error",
+                  last_error: message,
+                  last_synced_at: new Date().toISOString(),
+                }
+              : c,
+          ),
+        );
+        return;
+      }
+      if (json.connection) {
+        setConnections((prev) =>
+          prev.map((c) => (c.id === id ? json.connection! : c)),
+        );
+      }
+      setOkMessage("Connection retry succeeded.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Retry failed.";
+      setError(message);
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -208,6 +275,12 @@ export function TicketingConnectionsPanel({
                         {c.last_error}
                       </p>
                     ) : null}
+                    <RateLimitNotice
+                      connection={c}
+                      nowMs={nowMs}
+                      retrying={retryingId === c.id}
+                      onRetry={() => void handleRetryConnection(c.id)}
+                    />
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-2">
                     {c.provider === "fourthefans" ? (
@@ -316,6 +389,61 @@ export function TicketingConnectionsPanel({
       </div>
     </Card>
   );
+}
+
+function RateLimitNotice({
+  connection,
+  nowMs,
+  retrying,
+  onRetry,
+}: {
+  connection: ConnectionRow;
+  nowMs: number;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const rateLimit = getRateLimitState(connection, nowMs);
+  if (!rateLimit) return null;
+  const seconds = Math.max(0, Math.ceil(rateLimit.remainingMs / 1000));
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-yellow-700">
+      <span>
+        Rate limit hit.{" "}
+        {seconds > 0 ? `Retry in ${seconds}s` : "Retrying now..."}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        disabled={retrying}
+      >
+        {retrying ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" />
+        )}
+        Retry now
+      </Button>
+    </div>
+  );
+}
+
+function getRateLimitState(
+  connection: ConnectionRow,
+  nowMs: number,
+): { remainingMs: number } | null {
+  const error = connection.last_error ?? "";
+  if (!/rate limit/i.test(error)) return null;
+  const retrySecondsMatch = error.match(/retry in\s+(\d+)s/i);
+  const retrySeconds = retrySecondsMatch
+    ? Number(retrySecondsMatch[1])
+    : 60;
+  const anchor = Date.parse(connection.last_synced_at ?? connection.updated_at);
+  const hitAt = Number.isFinite(anchor) ? anchor : nowMs;
+  return {
+    remainingMs: hitAt + retrySeconds * 1000 - nowMs,
+  };
 }
 
 function DiscoveryBadge({

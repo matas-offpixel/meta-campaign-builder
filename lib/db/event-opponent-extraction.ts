@@ -21,10 +21,9 @@
  * Detection rules (case-insensitive, in order):
  *
  *   1. Knockout markers — any of "last 32", "last 16", "round of
- *      16", "quarter", "semi", "final", "knockout" → null. These
- *      matches have no single opponent (the opponent is not known
- *      yet, or the match spans several rounds), so every ad in
- *      the venue defaults to the generic pool.
+ *      16", "quarter", "semi", "final", "knockout" is treated as a
+ *      stage label. These labels are useful for ticketing/event
+ *      matching even when the opponent is not known yet.
  *
  *   2. "v" / "vs" / "-" / "x" separator pattern —
  *      "<host> <separator> <opponent>" picks the opponent.
@@ -85,15 +84,26 @@ function normalise(name: string): string {
 }
 
 /**
- * True when the event name reads as a knockout-stage match (no
- * single opponent). Exposed so callers that want to bucket events
- * into "has opponent" vs "knockout pool" before walking the list
- * don't have to re-implement the marker check.
+ * True when the event name reads as a knockout-stage match.
  */
 export function isKnockoutStageName(name: string | null | undefined): boolean {
   if (!name) return false;
   const n = normalise(name);
   return KNOCKOUT_MARKERS.some((m) => n.includes(m));
+}
+
+export function extractStageLabel(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const n = normalise(name);
+  if (/\blast\s*32\b/.test(n)) return "last 32";
+  if (/\blast\s*16\b/.test(n) || /\bround\s*of\s*16\b/.test(n)) {
+    return "round of 16";
+  }
+  if (/\bquarter(?:\s*final)?\b/.test(n)) return "quarter final";
+  if (/\bsemi(?:\s*final)?\b/.test(n)) return "semi final";
+  if (/\bfinal\b/.test(n)) return "final";
+  if (/\bknockout\b/.test(n)) return "knockout";
+  return null;
 }
 
 /**
@@ -105,8 +115,8 @@ export function isKnockoutStageName(name: string | null | undefined): boolean {
  *   "England vs Croatia"     → "croatia"
  *   "England-Croatia"        → "croatia"
  *   "Scotland v Brazil"      → "brazil"
- *   "Last 32"                → null     (knockout)
- *   "England Quarter Final"  → null     (knockout marker wins)
+ *   "Last 32"                → "last 32"
+ *   "England Quarter Final"  → "quarter final"
  *   "Fan Park Opening"       → null     (no separator)
  *   null / ""                → null
  *
@@ -132,12 +142,11 @@ export function extractOpponentName(
   const raw = eventName.trim();
   if (!raw) return null;
 
-  // Knockout gate runs BEFORE the separator match so
-  // "England v Croatia (Last 32)" is still treated as a knockout —
-  // a bracket-suffixed round label overrides any opponent parse.
-  // Operators have done this in practice to flag a knockout match
-  // whose opponent is still TBD.
-  if (isKnockoutStageName(raw)) return null;
+  // Stage labels are first-class match labels for ticketing discovery.
+  // A bracket-suffixed round label overrides any opponent parse because
+  // operators use it to flag a match whose opponent is still TBD.
+  const stageLabel = extractStageLabel(raw);
+  if (stageLabel) return stageLabel;
 
   // Normalise separator whitespace so "England v Croatia" and
   // "England  v  Croatia" both split. Keep original casing for the
@@ -156,10 +165,8 @@ export function extractOpponentName(
   const opponentCandidate = parts[parts.length - 1]?.trim();
   if (!opponentCandidate) return null;
 
-  // If the right-hand side is itself a knockout marker (e.g.
-  // "England v Last 32"), reject — again belt-and-braces on top of
-  // the whole-name gate.
-  if (isKnockoutStageName(opponentCandidate)) return null;
+  const opponentStageLabel = extractStageLabel(opponentCandidate);
+  if (opponentStageLabel) return opponentStageLabel;
 
   return opponentCandidate.toLowerCase();
 }

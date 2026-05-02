@@ -6,8 +6,15 @@ import {
   readFourthefansEventSales,
   readFourthefansEventSummary,
 } from "../fourthefans/parse.ts";
+import { fourthefansRetryDelayMs } from "../fourthefans/client.ts";
 
 describe("FourthefansProvider", () => {
+  it("uses Retry-After or a 60s default for 429 backoff", () => {
+    assert.equal(fourthefansRetryDelayMs(0, 47_000, 429), 47_000);
+    assert.equal(fourthefansRetryDelayMs(0, null, 429), 60_000);
+    assert.equal(fourthefansRetryDelayMs(1, null, 429), 120_000);
+  });
+
   it("lists events from the agency API response", async () => {
     const events = extractFourthefansEventArray({
       events: [
