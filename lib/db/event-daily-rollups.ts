@@ -306,6 +306,30 @@ export async function upsertEventbriteRollups(
   }
 }
 
+export async function clearHistoricalCurrentSnapshotTicketPadding(
+  supabase: AnySupabaseClient,
+  args: { eventId: string; beforeDate: string },
+): Promise<void> {
+  const { error } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .update({
+      tickets_sold: null,
+      revenue: null,
+      source_eventbrite_at: null,
+    })
+    .eq("event_id", args.eventId)
+    .lt("date", args.beforeDate)
+    .eq("tickets_sold", 0)
+    .eq("revenue", 0);
+  if (error) {
+    console.warn(
+      "[event-daily-rollups clearCurrentSnapshotPadding]",
+      error.message,
+    );
+    throw new Error(error.message);
+  }
+}
+
 export interface TikTokUpsertRow {
   date: string;
   tiktok_spend: number;

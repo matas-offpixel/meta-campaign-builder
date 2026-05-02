@@ -476,6 +476,47 @@ export async function getLatestSnapshotForEvent(
   return (data as unknown as TicketSalesSnapshot) ?? null;
 }
 
+export async function getLatestSnapshotForEventBeforeDate(
+  supabase: AnySupabaseClient,
+  args: { eventId: string; beforeDate: string },
+): Promise<TicketSalesSnapshot | null> {
+  const sb = asAnyTable(supabase);
+  const beforeIso = `${args.beforeDate}T00:00:00.000Z`;
+  const { data, error } = await sb
+    .from("ticket_sales_snapshots")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .lt("snapshot_at", beforeIso)
+    .order("snapshot_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[ticketing getLatestSnapshotForEventBeforeDate]", error.message);
+    return null;
+  }
+  return (data as unknown as TicketSalesSnapshot) ?? null;
+}
+
+export async function getEarliestSnapshotForEventSource(
+  supabase: AnySupabaseClient,
+  args: { eventId: string; source: TicketSalesSnapshot["source"] },
+): Promise<TicketSalesSnapshot | null> {
+  const sb = asAnyTable(supabase);
+  const { data, error } = await sb
+    .from("ticket_sales_snapshots")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .eq("source", args.source)
+    .order("snapshot_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[ticketing getEarliestSnapshotForEventSource]", error.message);
+    return null;
+  }
+  return (data as unknown as TicketSalesSnapshot) ?? null;
+}
+
 export async function mirrorEventTicketsSold(
   supabase: AnySupabaseClient,
   input: { eventId: string; userId: string; ticketsSold: number },

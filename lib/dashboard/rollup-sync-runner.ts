@@ -8,12 +8,15 @@ import {
   fetchEventTodayMetaSnapshot,
 } from "@/lib/insights/meta";
 import {
+  getEarliestSnapshotForEventSource,
+  getLatestSnapshotForEventBeforeDate,
   getConnectionWithDecryptedCredentials,
   insertSnapshot,
   listLinksForEvent,
   recordConnectionSync,
 } from "@/lib/db/ticketing";
 import {
+  clearHistoricalCurrentSnapshotTicketPadding,
   upsertEventbriteRollups,
   upsertGoogleAdsRollups,
   upsertMetaRollups,
@@ -24,6 +27,7 @@ import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { getProvider } from "@/lib/ticketing/registry";
 import type { TicketingConnection } from "@/lib/ticketing/types";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
+import { currentSnapshotDailyDelta } from "@/lib/ticketing/current-snapshot-delta";
 import {
   allocateVenueSpendForCode,
   type VenueAllocatorResult,
@@ -810,6 +814,7 @@ export async function runRollupSyncForEvent(
           // rolling window (see eachInclusiveYmd). Order bucketing
           // inside fetchDailyOrdersForEvent remains event-timezone
           // aware; the padding range matches the sync window endpoints.
+          const isCurrentSnapshotProvider = connection.provider !== "eventbrite";
           const ebByDate = new Map<string, { tickets_sold: number; revenue: number }>();
           for (const r of rows) {
             ebByDate.set(r.date, {
@@ -819,7 +824,7 @@ export async function runRollupSyncForEvent(
           }
           const hadOrdersToday = ebByDate.has(todayStr);
           diagnostics.eventbriteTodayInWindow = diagnostics.eventbriteTodayInWindow || hadOrdersToday;
-          if (!hadOrdersToday) {
+          if (!hadOrdersToday && !isCurrentSnapshotProvider) {
             diagnostics.eventbriteTodayPadded = true;
             console.warn(
               `[rollup-sync] eventbrite today has no paid orders; will zero-pad in window link=${link.external_event_id}`,
@@ -827,10 +832,12 @@ export async function runRollupSyncForEvent(
           }
           const ebBeforePad = ebByDate.size;
           let ebPadded = 0;
-          for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
-            if (!ebByDate.has(d)) {
-              ebByDate.set(d, { tickets_sold: 0, revenue: 0 });
-              ebPadded++;
+          if (!isCurrentSnapshotProvider) {
+            for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
+              if (!ebByDate.has(d)) {
+                ebByDate.set(d, { tickets_sold: 0, revenue: 0 });
+                ebPadded++;
+              }
             }
           }
           if (totalRows === 0) {
@@ -845,7 +852,7 @@ export async function runRollupSyncForEvent(
             }));
           diagnostics.eventbriteRowsAttempted += ebUpsertRows.length;
           console.log(
-            `[rollup-sync] eventbrite window zero-pad added=${ebPadded} dates (with orders before pad=${ebBeforePad}) link=${link.external_event_id}`,
+            `[rollup-sync] eventbrite window zero-pad added=${ebPadded} dates (with orders before pad=${ebBeforePad}) link=${link.external_event_id} provider=${connection.provider}`,
           );
           await upsertEventbriteRollups(supabase, {
             userId,
@@ -1040,10 +1047,18 @@ async function fetchCurrentTicketingSnapshotRows(args: {
   rows: Array<{ date: string; ticketsSold: number; revenue: number }>;
 }> {
   const provider = getProvider(args.connection.provider);
+  const previousSnapshot = await getLatestSnapshotForEventBeforeDate(
+    args.supabase,
+    { eventId: args.eventId, beforeDate: args.todayStr },
+  );
   const fetched = await provider.getEventSales(
     args.connection,
     args.externalEventId,
   );
+  const ticketsSold = currentSnapshotDailyDelta({
+    currentTotal: fetched.ticketsSold,
+    previousTotal: previousSnapshot?.tickets_sold ?? null,
+  });
   const source = snapshotSourceForProvider(args.connection.provider);
   if (source) {
     const revenue =
@@ -1052,7 +1067,7 @@ async function fetchCurrentTicketingSnapshotRows(args: {
         : Number((fetched.grossRevenueCents / 100).toFixed(2));
     if (args.connection.provider === "fourthefans") {
       console.info(
-        `[fourthefans-sync] writing snapshot tickets=${fetched.ticketsSold} revenue=£${revenue.toFixed(2)}`,
+        `[fourthefans-sync] writing snapshot lifetime_tickets=${fetched.ticketsSold} previous_lifetime_tickets=${previousSnapshot?.tickets_sold ?? "<none>"} daily_delta=${ticketsSold} revenue=£${revenue.toFixed(2)}`,
       );
     }
     const snapshot = await insertSnapshot(args.supabase, {
@@ -1075,12 +1090,34 @@ async function fetchCurrentTicketingSnapshotRows(args: {
         fetched.ticketsSold
       }`,
     );
+    const firstSourceSnapshot = await getEarliestSnapshotForEventSource(
+      args.supabase,
+      {
+        eventId: args.eventId,
+        source,
+      },
+    );
+    const firstSourceDate = firstSourceSnapshot?.snapshot_at?.slice(0, 10);
+    if (firstSourceDate) {
+      try {
+        await clearHistoricalCurrentSnapshotTicketPadding(args.supabase, {
+          eventId: args.eventId,
+          beforeDate: firstSourceDate,
+        });
+      } catch (err) {
+        console.warn(
+          `[rollup-sync] current snapshot padding cleanup skipped event_id=${args.eventId} before_date=${firstSourceDate}: ${
+            err instanceof Error ? err.message : "Unknown error"
+          }`,
+        );
+      }
+    }
   }
   return {
     rows: [
       {
         date: args.todayStr,
-        ticketsSold: fetched.ticketsSold,
+        ticketsSold,
         revenue:
           fetched.grossRevenueCents == null
             ? 0
