@@ -1,7 +1,6 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentBuildVersion } from "@/lib/build-version";
 import {
   CREATIVE_TAG_DIMENSIONS,
   type CreativeTagDimension,
@@ -9,6 +8,7 @@ import {
 import type { DatePreset } from "@/lib/insights/types";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
+import { selectLatestSnapshotsByEvent } from "@/lib/reporting/creative-patterns-snapshots";
 
 const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
@@ -289,16 +289,15 @@ async function fetchLatestSnapshots(
       .select("event_id,payload,fetched_at,build_version")
       .in("event_id", eventIds)
       .eq("date_preset", preset)
-      .eq("build_version", getCurrentBuildVersion())
+      // Unlike public share reads, the internal patterns page intentionally
+      // accepts stale-build snapshots. It reads creative metadata and
+      // thumbnails, not display-render-sensitive metrics, and SHA-gating here
+      // leaves most events empty between 6h cron refreshes after each deploy.
       .order("fetched_at", { ascending: false })
       .range(from, to),
   );
 
-  const latest = new Map<string, SnapshotRow>();
-  for (const row of rows) {
-    if (!latest.has(row.event_id)) latest.set(row.event_id, row);
-  }
-  return [...latest.values()];
+  return selectLatestSnapshotsByEvent(rows);
 }
 
 async function fetchRollups(
