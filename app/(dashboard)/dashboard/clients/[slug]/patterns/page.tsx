@@ -170,7 +170,7 @@ export default async function ClientCreativePatternsPage({
                     </div>
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                      {sortRowsForFunnel(dimension.values, funnel).map((row) => (
+                      {sortTilesForFunnel(dimension.values, funnel).map((row) => (
                         <PatternTile
                           key={row.value_key}
                           row={row}
@@ -505,19 +505,36 @@ function funnelLabel(funnel: FunnelView): string {
   return "Bottom";
 }
 
-function sortRowsForFunnel(rows: TileRow[], funnel: FunnelView): TileRow[] {
-  return [...rows].sort((a, b) => {
-    if (funnel === "top") return ascMetric(a.cpm, b.cpm);
-    if (funnel === "mid") return ascMetric(a.cpc, b.cpc);
-    return ascMetric(a.cpa, b.cpa);
+function sortTilesForFunnel(tiles: TileRow[], funnel: FunnelView): TileRow[] {
+  return [...tiles].sort((a, b) => {
+    const primary = compareFunnelMetric(a, b, funnel);
+    if (primary !== 0) return primary;
+    return b.total_spend - a.total_spend;
   });
 }
 
+function compareFunnelMetric(
+  a: TileRow,
+  b: TileRow,
+  funnel: FunnelView,
+): number {
+  return ascMetric(metricForSort(a, funnel), metricForSort(b, funnel));
+}
+
+function metricForSort(tile: TileRow, funnel: FunnelView): number | null {
+  if (tile.total_spend <= 0) return null;
+  if (funnel === "top") return tile.cpm;
+  if (funnel === "mid") return tile.cpc;
+  return tile.cpa;
+}
+
 function ascMetric(a: number | null, b: number | null): number {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-  return a - b;
+  const aValid = a != null && Number.isFinite(a);
+  const bValid = b != null && Number.isFinite(b);
+  if (!aValid && !bValid) return 0;
+  if (!aValid) return 1;
+  if (!bValid) return -1;
+  return a! - b!;
 }
 
 function miniStatsForLens(

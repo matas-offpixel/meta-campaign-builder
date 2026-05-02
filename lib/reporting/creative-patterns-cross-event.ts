@@ -64,6 +64,7 @@ export interface CreativePatternsSummary {
   taggedEventCount: number;
   tagAssignmentCount: number;
   totalSpend: number;
+  phaseSpend: number;
   totalAdConcepts: number;
   highestCpaDimension: {
     dimension: CreativeTagDimension;
@@ -184,10 +185,11 @@ export async function buildClientCreativePatterns(
   });
 
   const rollupEventIds = new Set(rollups.map((row) => row.event_id));
+  const totalSpend = rollups.reduce((sum, row) => sum + rollupSpend(row), 0);
   const assignmentsByEventCreative = groupAssignments(assignments);
   const tiles = new Map<string, TileAccumulator>();
   let totalAdConcepts = 0;
-  let totalSpend = 0;
+  let phaseSpend = 0;
   let totalGroups = 0;
   let filteredGroups = 0;
 
@@ -209,6 +211,7 @@ export async function buildClientCreativePatterns(
       totalGroups += 1;
       if (classifyPhaseForGroup(group) !== phase) continue;
       filteredGroups += 1;
+      phaseSpend += group.spend;
 
       const matchedTags = tagsForGroup(
         assignmentsByEventCreative,
@@ -218,7 +221,6 @@ export async function buildClientCreativePatterns(
       if (matchedTags.length === 0) continue;
 
       totalAdConcepts += 1;
-      totalSpend += group.spend;
       for (const tag of matchedTags) {
         const key = `${tag.dimension}\u0000${tag.value_key}`;
         const acc = tiles.get(key) ?? createAccumulator(tag);
@@ -231,6 +233,8 @@ export async function buildClientCreativePatterns(
     phase,
     total_groups: totalGroups,
     filtered_groups: filteredGroups,
+    phase_spend: phaseSpend,
+    total_spend: totalSpend,
   });
 
   const dimensions = CREATIVE_TAG_DIMENSIONS.map((dimension) => ({
@@ -249,6 +253,7 @@ export async function buildClientCreativePatterns(
       taggedEventCount: new Set(assignments.map((row) => row.event_id)).size,
       tagAssignmentCount: assignments.length,
       totalSpend,
+      phaseSpend,
       totalAdConcepts,
       highestCpaDimension: highestCpaDimension(dimensions),
       since: sinceYmd,
@@ -560,6 +565,14 @@ function highestCpaDimension(
     if (!highest || cpa > highest.cpa) highest = { dimension: dimension.dimension, cpa };
   }
   return highest;
+}
+
+function rollupSpend(row: RollupRow): number {
+  return (
+    row.ad_spend_allocated ??
+    row.ad_spend ??
+    0
+  ) + (row.ad_spend_presale ?? 0);
 }
 
 function assignmentKey(eventId: string, creativeName: string): string {
