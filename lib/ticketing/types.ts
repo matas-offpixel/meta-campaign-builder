@@ -26,7 +26,7 @@ export type TicketingConnectionStatus = "active" | "paused" | "error";
  * In-memory view of `client_ticketing_connections`. The credentials blob
  * is provider-specific:
  *   - eventbrite v1:    { personal_token: string }
- *   - fourthefans v1:   { access_token: string } (TBD when their API ships)
+ *   - fourthefans v1:   { access_token: string }
  */
 export interface TicketingConnection {
   id: string;
@@ -71,6 +71,12 @@ export interface TicketSalesSnapshot {
   tickets_available: number | null;
   gross_revenue_cents: number | null;
   currency: string | null;
+  source:
+    | "eventbrite"
+    | "fourthefans"
+    | "manual"
+    | "xlsx_import"
+    | "foursomething";
   raw_payload: unknown;
   created_at: string;
 }

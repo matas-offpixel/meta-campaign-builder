@@ -14,7 +14,12 @@
 export interface WeeklySnapshot {
   snapshot_at: string;
   tickets_sold: number;
-  source: "eventbrite" | "manual" | "xlsx_import" | "foursomething";
+  source:
+    | "eventbrite"
+    | "fourthefans"
+    | "manual"
+    | "xlsx_import"
+    | "foursomething";
 }
 
 /**
@@ -27,13 +32,14 @@ export interface WeeklySnapshot {
 const SOURCE_PRIORITY: Record<string, number> = {
   eventbrite: 1,
   foursomething: 2,
+  fourthefans: 2,
   xlsx_import: 3,
   manual: 4,
 };
 
 /**
  * Resolve one snapshot per (eventId, snapshot_at week bucket),
- * preferring manual > xlsx_import > eventbrite when multiple rows
+ * preferring manual > xlsx_import > fourthefans > eventbrite when multiple rows
  * exist for the same week. Week bucket = the snapshot_at date
  * converted to YYYY-MM-DD (UTC), so two same-week rows with
  * different HH:MM still collapse correctly.
@@ -126,6 +132,7 @@ export function collapseWeeklyNormalizedPerEvent(
 function normalizeSource(s: string): WeeklySnapshot["source"] {
   if (
     s === "eventbrite" ||
+    s === "fourthefans" ||
     s === "manual" ||
     s === "xlsx_import" ||
     s === "foursomething"

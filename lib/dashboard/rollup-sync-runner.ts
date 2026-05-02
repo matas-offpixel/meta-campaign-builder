@@ -20,6 +20,8 @@ import {
 } from "@/lib/db/event-daily-rollups";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
+import { getProvider } from "@/lib/ticketing/registry";
+import type { TicketingConnection } from "@/lib/ticketing/types";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
 import {
   allocateVenueSpendForCode,
@@ -770,20 +772,20 @@ export async function runRollupSyncForEvent(
             );
             continue;
           }
-          if (connection.provider !== "eventbrite") {
-            firstError ??= `Daily breakdown not implemented for provider "${connection.provider}".`;
-            console.warn(
-              `[rollup-sync] eventbrite skip provider=${connection.provider}`,
-            );
-            continue;
-          }
-          const { rows } = await fetchDailyOrdersForEvent({
-            connection,
-            externalEventId: link.external_event_id,
-            eventTimezone,
-          });
+          const { rows } =
+            connection.provider === "eventbrite"
+              ? await fetchDailyOrdersForEvent({
+                  connection,
+                  externalEventId: link.external_event_id,
+                  eventTimezone,
+                })
+              : await fetchCurrentTicketingSnapshotRows({
+                  connection,
+                  externalEventId: link.external_event_id,
+                  todayStr,
+                });
           console.log(
-            `[rollup-sync] eventbrite link=${link.external_event_id} fetched_rows=${rows.length}`,
+            `[rollup-sync] eventbrite link=${link.external_event_id} provider=${connection.provider} fetched_rows=${rows.length}`,
           );
 
           // ── Full-window zero-pad (Eventbrite) ───────────────────
@@ -1015,6 +1017,32 @@ export async function runRollupSyncForEvent(
     tiktok: tiktokResult,
     googleAds: googleAdsResult,
     diagnostics,
+  };
+}
+
+async function fetchCurrentTicketingSnapshotRows(args: {
+  connection: TicketingConnection;
+  externalEventId: string;
+  todayStr: string;
+}): Promise<{
+  rows: Array<{ date: string; ticketsSold: number; revenue: number }>;
+}> {
+  const provider = getProvider(args.connection.provider);
+  const fetched = await provider.getEventSales(
+    args.connection,
+    args.externalEventId,
+  );
+  return {
+    rows: [
+      {
+        date: args.todayStr,
+        ticketsSold: fetched.ticketsSold,
+        revenue:
+          fetched.grossRevenueCents == null
+            ? 0
+            : Number((fetched.grossRevenueCents / 100).toFixed(2)),
+      },
+    ],
   };
 }
 

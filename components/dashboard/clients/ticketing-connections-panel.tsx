@@ -39,8 +39,8 @@ interface Props {
 
 const PROVIDERS: Array<{ value: TicketingProviderName; label: string }> = [
   { value: "eventbrite", label: "Eventbrite (paste personal token)" },
+  { value: "fourthefans", label: "4thefans (paste API key)" },
   { value: "manual", label: "Manual entry (no upstream API)" },
-  { value: "fourthefans", label: "4TheFans (pending — flag-gated)" },
 ];
 
 const STATUS_LABELS: Record<TicketingConnectionStatus, string> = {
@@ -70,8 +70,15 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
     setError(null);
     setOkMessage(null);
 
-    if (provider === "eventbrite" && !token.trim()) {
-      setError("Paste your Eventbrite personal token to continue.");
+    if (
+      (provider === "eventbrite" || provider === "fourthefans") &&
+      !token.trim()
+    ) {
+      setError(
+        provider === "eventbrite"
+          ? "Paste your Eventbrite personal token to continue."
+          : "Paste your 4thefans API key to continue.",
+      );
       return;
     }
 
@@ -80,11 +87,12 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
       // Manual is a "null provider" — no upstream to authenticate
       // against. Ship an empty credentials blob; the server-side
       // `validateCredentials` for the manual provider always returns
-      // ok. 4TheFans sends a placeholder that the pending-provider
-      // path would reject anyway (feature-flag gate in registry).
+      // ok.
       const credentials =
         provider === "eventbrite"
           ? { personal_token: token.trim() }
+          : provider === "fourthefans"
+            ? { access_token: token.trim() }
           : {};
 
       const res = await fetch("/api/ticketing/connections", {
@@ -230,15 +238,21 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
                 }))}
               />
             </label>
-            {provider === "eventbrite" ? (
+            {provider === "eventbrite" || provider === "fourthefans" ? (
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">
-                  Personal OAuth token
+                  {provider === "eventbrite"
+                    ? "Personal OAuth token"
+                    : "4thefans API key"}
                 </span>
                 <Input
                   type="password"
                   autoComplete="off"
-                  placeholder="paste from eventbrite.com → account → developer"
+                  placeholder={
+                    provider === "eventbrite"
+                      ? "paste from eventbrite.com -> account -> developer"
+                      : "paste agency API key"
+                  }
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                 />
@@ -248,15 +262,7 @@ export function TicketingConnectionsPanel({ clientId, initial }: Props) {
                 No credentials needed. Ticket counts are entered by hand
                 on each event&rsquo;s manual-tickets page.
               </p>
-            ) : (
-              <p className="text-xs text-muted-foreground sm:col-span-1">
-                The 4TheFans native API is pending. Save will be enabled once
-                <code className="ml-1 rounded bg-muted px-1">
-                  FEATURE_FOURTHEFANS_API
-                </code>{" "}
-                is set.
-              </p>
-            )}
+            ) : null}
           </div>
 
           {error ? (

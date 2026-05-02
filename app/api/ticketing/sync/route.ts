@@ -145,6 +145,8 @@ export async function POST(req: NextRequest) {
         ticketsAvailable: fetched.ticketsAvailable,
         grossRevenueCents: fetched.grossRevenueCents,
         currency: fetched.currency,
+        source:
+          connection.provider === "fourthefans" ? "fourthefans" : "eventbrite",
         rawPayload: fetched.rawPayload,
       });
       await recordConnectionSync(supabase, connection.id, { ok: true });

@@ -28,6 +28,17 @@ describe("collapseWeekly", () => {
     assert.equal(out[0].source, "manual");
   });
 
+  it("prefers xlsx_import over fourthefans over eventbrite for the same week", () => {
+    const out = collapseWeekly([
+      { snapshot_at: "2026-02-23", tickets_sold: 200, source: "eventbrite" },
+      { snapshot_at: "2026-02-23", tickets_sold: 205, source: "fourthefans" },
+      { snapshot_at: "2026-02-23", tickets_sold: 210, source: "xlsx_import" },
+    ]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].tickets_sold, 210);
+    assert.equal(out[0].source, "xlsx_import");
+  });
+
   it("normalizes unknown sources to eventbrite", () => {
     const out = collapseWeekly([
       { snapshot_at: "2026-02-23", tickets_sold: 100, source: "bogus" },

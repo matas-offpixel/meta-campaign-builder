@@ -20,11 +20,11 @@ import type { SafeTicketingConnection } from "@/lib/db/event-ticketing-summary";
 /**
  * components/dashboard/events/eventbrite-live-block.tsx
  *
- * Top-of-page Eventbrite block for the event detail view. Renders one
+ * Top-of-page live ticketing block for the event detail view. Renders one
  * of three states based on the prefetched summary:
  *
  *   1. No connection on the client    → CTA pointing to /clients/.../?tab=ticketing
- *   2. Connection but no link         → "Link Eventbrite event" deferred
+ *   2. Connection but no link         → "Link ticketing event" deferred
  *                                       to <EventbriteLinkPanel />, only
  *                                       a tiny banner here.
  *   3. Linked + at least one snapshot → live capacity / sold / revenue /
@@ -97,7 +97,7 @@ export function EventbriteLiveBlock({
       summary?: FetchedSummary;
     };
     if (!res.ok || !json.ok || !json.summary) {
-      throw new Error(json.error ?? "Failed to refresh Eventbrite stats.");
+      throw new Error(json.error ?? "Failed to refresh ticketing stats.");
     }
     setLink(json.summary.link);
     setConnection(json.summary.connection);
@@ -120,7 +120,7 @@ export function EventbriteLiveBlock({
       // 207 (multi-status) means partial success — show the first
       // failing link's error but keep going to refresh the snapshot.
       if (!res.ok && res.status !== 207) {
-        throw new Error(json.error ?? "Eventbrite sync failed.");
+        throw new Error(json.error ?? "Ticketing sync failed.");
       }
       const firstFailure = (json.results ?? []).find((r) => !r.ok);
       if (firstFailure) {
@@ -165,16 +165,17 @@ export function EventbriteLiveBlock({
         <div className="flex items-start gap-3">
           <Ticket className="mt-0.5 h-4 w-4 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-medium">Eventbrite</h3>
+            <h3 className="text-sm font-medium">Ticketing</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Connect Eventbrite on the client&rsquo;s Ticketing tab to pull
-              live capacity, tickets sold and revenue into this page.
+              Connect Eventbrite or 4thefans on the client&rsquo;s Ticketing
+              tab to pull live capacity, tickets sold and revenue into
+              this page.
             </p>
             <a
               href={`/clients/${clientId}?tab=ticketing`}
               className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground underline-offset-2 hover:underline"
             >
-              Connect Eventbrite
+              Connect ticketing
               <ExternalLink className="h-3 w-3" />
             </a>
           </div>
@@ -183,16 +184,16 @@ export function EventbriteLiveBlock({
     );
   }
 
-  // State 2: connection but not yet linked to a specific Eventbrite event
+  // State 2: connection but not yet linked to a specific ticketing event
   if (!link) {
     return (
       <section className="rounded-md border border-dashed border-border bg-muted/10 p-4">
         <div className="flex items-start gap-3">
           <Ticket className="mt-0.5 h-4 w-4 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-medium">Eventbrite</h3>
+            <h3 className="text-sm font-medium">Ticketing</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Connection saved on the client. Pick the matching Eventbrite
+              Connection saved on the client. Pick the matching ticketing
               event in the panel below to start pulling live numbers.
             </p>
           </div>
@@ -219,7 +220,7 @@ export function EventbriteLiveBlock({
           <Ticket className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
           <div className="min-w-0">
             <h2 className="font-heading text-base tracking-wide">
-              Eventbrite — live
+              {providerLabel(connection.provider)} — live
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {link.external_event_url ? (
@@ -277,7 +278,7 @@ export function EventbriteLiveBlock({
         <p className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground">
           <CheckCircle2 className="h-3 w-3" />
           No snapshot yet — click Refresh to pull current sales from
-          Eventbrite.
+          ticketing.
         </p>
       ) : null}
     </section>
@@ -297,6 +298,10 @@ function Stat({ label, value }: { label: string; value: string }) {
       </dd>
     </div>
   );
+}
+
+function providerLabel(provider: SafeTicketingConnection["provider"]): string {
+  return provider === "fourthefans" ? "4thefans" : "Eventbrite";
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────
