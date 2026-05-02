@@ -1,4 +1,5 @@
-import type OpenAI from "openai";
+import type Anthropic from "@anthropic-ai/sdk";
+import type { Tool, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages";
 
 import {
   CREATIVE_TAG_DIMENSIONS,
@@ -9,11 +10,15 @@ import {
 /**
  * lib/intelligence/auto-tagger.ts
  *
- * Pure OpenAI vision wrapper for Motion-replacement creative tags.
- * Callers provide the closed taxonomy and the OpenAI client; this
+ * Pure Anthropic vision wrapper for Motion-replacement creative tags.
+ * Callers provide the closed taxonomy and the Anthropic client; this
  * module does no filesystem or database work so cron routes and
  * validation scripts can share the exact same prompt/validation path.
  */
+
+export const AI_AUTOTAG_MODEL_VERSION = "claude-haiku-4-5-20251001";
+
+const AUTO_TAG_TOOL_NAME = "record_creative_tags";
 
 export interface AutoTagInput {
   thumbnailUrl: string;
@@ -35,7 +40,7 @@ export interface AutoTagDiagnostics {
 
 export interface AutoTaggerDeps {
   taxonomy: MotionCreativeTagRow[];
-  openai: OpenAI;
+  anthropic: Pick<Anthropic, "messages">;
   modelVersion: string;
 }
 
@@ -63,12 +68,51 @@ export function buildAutoTagSystemPrompt(
   return [
     "You tag Meta event-ad creatives against a closed Motion taxonomy.",
     "Use only the exact value_key strings listed below. Never invent new value_key strings.",
-    "Return strict JSON only, shaped as {\"tags\":[{\"dimension\":\"asset_type\",\"value_key\":\"example\",\"confidence\":0.82}]}.",
+    `Return your answer by calling the ${AUTO_TAG_TOOL_NAME} tool exactly once.`,
     "Confidence must be a number from 0 to 1. Omit dimensions when the image and copy do not provide enough evidence.",
     "",
     "Closed taxonomy:",
     blocks.join("\n\n"),
   ].join("\n");
+}
+
+export function buildAutoTagTool(taxonomy: MotionCreativeTagRow[]): Tool {
+  const grouped = groupTaxonomyByDimension(taxonomy);
+  const tagVariants = CREATIVE_TAG_DIMENSIONS.map((dimension) => {
+    const valueKeys = (grouped.get(dimension) ?? []).map((row) => row.value_key);
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["dimension", "value_key", "confidence"],
+      properties: {
+        dimension: { type: "string", const: dimension },
+        value_key: { type: "string", enum: valueKeys },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+        },
+      },
+    };
+  });
+
+  return {
+    name: AUTO_TAG_TOOL_NAME,
+    description:
+      "Record all visible creative tags using only the closed Motion taxonomy enums.",
+    input_schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["tags"],
+      properties: {
+        tags: {
+          type: "array",
+          maxItems: CREATIVE_TAG_DIMENSIONS.length * 3,
+          items: { anyOf: tagVariants },
+        },
+      },
+    },
+  };
 }
 
 export function buildAutoTagUserPrompt(input: AutoTagInput): string {
@@ -90,35 +134,41 @@ export async function autoTagWithDiagnostics(
   input: AutoTagInput,
   deps: AutoTaggerDeps,
 ): Promise<AutoTagDiagnostics> {
-  const completion = await deps.openai.chat.completions.create({
+  const message = await deps.anthropic.messages.create({
     model: deps.modelVersion,
+    max_tokens: 1024,
     temperature: 0,
-    response_format: { type: "json_object" },
+    system: buildAutoTagSystemPrompt(deps.taxonomy),
+    tools: [buildAutoTagTool(deps.taxonomy)],
+    tool_choice: {
+      type: "tool",
+      name: AUTO_TAG_TOOL_NAME,
+      disable_parallel_tool_use: true,
+    },
     messages: [
-      {
-        role: "system",
-        content: buildAutoTagSystemPrompt(deps.taxonomy),
-      },
       {
         role: "user",
         content: [
           { type: "text", text: buildAutoTagUserPrompt(input) },
           {
-            type: "image_url",
-            image_url: { url: input.thumbnailUrl, detail: "low" },
+            type: "image",
+            source: { type: "url", url: input.thumbnailUrl },
           },
         ],
       },
     ],
   });
 
-  const content = completion.choices[0]?.message?.content;
-  if (!content) {
+  const toolUse = message.content.find(
+    (block): block is ToolUseBlock =>
+      block.type === "tool_use" && block.name === AUTO_TAG_TOOL_NAME,
+  );
+  if (!toolUse) {
     return { tags: [], rawTagCount: 0, hallucinatedTagCount: 0 };
   }
 
   return validateAutoTagResponseWithDiagnostics(
-    parseJsonObject(content),
+    toolUse.input,
     deps.taxonomy,
   );
 }
@@ -191,14 +241,6 @@ function groupTaxonomyByDimension(
     grouped.set(row.dimension, rows);
   }
   return grouped;
-}
-
-function parseJsonObject(content: string): unknown {
-  try {
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
 }
 
 function isCreativeTagDimension(value: unknown): value is CreativeTagDimension {

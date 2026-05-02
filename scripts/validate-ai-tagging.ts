@@ -1,8 +1,11 @@
 #!/usr/bin/env node
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import OpenAI from "openai";
 
-import { autoTagWithDiagnostics } from "../lib/intelligence/auto-tagger.ts";
+import {
+  AI_AUTOTAG_MODEL_VERSION,
+  autoTagWithDiagnostics,
+} from "../lib/intelligence/auto-tagger.ts";
 import {
   CREATIVE_TAG_DIMENSIONS,
   listCreativeTags,
@@ -12,13 +15,12 @@ import {
 import type { ShareActiveCreativesResult } from "../lib/reporting/share-active-creatives.ts";
 import type { ConceptGroupRow } from "../lib/reporting/group-creatives.ts";
 
-const MODEL_VERSION = "gpt-4o-mini";
 const ESTIMATED_USD_PER_CREATIVE = 0.001;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const userId = process.env.SEED_USER_ID;
-const openaiApiKey = process.env.OPENAI_API_KEY;
+const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error(
@@ -26,7 +28,7 @@ if (!supabaseUrl || !serviceRoleKey) {
   );
 }
 if (!userId) throw new Error("Missing SEED_USER_ID.");
-if (!openaiApiKey) throw new Error("Missing OPENAI_API_KEY.");
+if (!anthropicApiKey) throw new Error("Missing ANTHROPIC_API_KEY.");
 
 interface ManualAssignmentRow {
   event_id: string;
@@ -56,7 +58,7 @@ interface DimensionMetrics {
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const openai = new OpenAI({ apiKey: openaiApiKey });
+const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
 const taxonomy = (await listCreativeTags(supabase)).filter(
   (row) => row.user_id === userId,
@@ -107,7 +109,7 @@ for (const [key, manualByDimension] of manualByCreative) {
       headline: group.representative_headline,
       body: group.representative_body_preview,
     },
-    { taxonomy, openai, modelVersion: MODEL_VERSION },
+    { taxonomy, anthropic, modelVersion: AI_AUTOTAG_MODEL_VERSION },
   );
   rawTagCount += predicted.rawTagCount;
   hallucinatedTagCount += predicted.hallucinatedTagCount;
@@ -164,7 +166,7 @@ const output = {
 
 console.log(JSON.stringify(output, null, 2));
 console.error(
-  `[validate-ai-tagging] model=${MODEL_VERSION} creatives=${totalCreatives} estimated_openai_cost_usd=${(
+  `[validate-ai-tagging] model=${AI_AUTOTAG_MODEL_VERSION} creatives=${totalCreatives} estimated_ai_cost_usd=${(
     totalCreatives * ESTIMATED_USD_PER_CREATIVE
   ).toFixed(2)}`,
 );
