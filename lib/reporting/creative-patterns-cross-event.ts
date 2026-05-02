@@ -13,6 +13,9 @@ import { selectLatestSnapshotsByEvent } from "@/lib/reporting/creative-patterns-
 const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
 const TOP_CREATIVE_LIMIT = 4;
+const REGISTRATION_PHASE_RE = /\b(?:PRESALE|SIGNUP|LEAD)\b/i;
+
+export type CreativePatternPhase = "registration" | "ticket_sale";
 
 export interface ConceptThumb {
   event_id: string;
@@ -33,8 +36,18 @@ export interface TileRow {
   total_purchases: number;
   total_regs: number;
   total_impressions: number;
+  total_clicks: number;
+  total_reach: number;
+  lpv_count: number;
   ctr: number | null;
+  cpm: number | null;
+  cpc: number | null;
+  cplpv: number | null;
   cpa: number | null;
+  cpreg: number | null;
+  cpp: number | null;
+  roas: number | null;
+  frequency: number | null;
   ad_count: number;
   event_count: number;
   top_creatives: ConceptThumb[];
@@ -117,6 +130,8 @@ interface TileAccumulator {
   total_regs: number;
   total_impressions: number;
   total_clicks: number;
+  total_reach: number;
+  total_lpv: number;
   ad_count: number;
   eventIds: Set<string>;
   top_creatives: ConceptThumb[];
@@ -124,9 +139,10 @@ interface TileAccumulator {
 
 export async function buildClientCreativePatterns(
   clientId: string,
-  opts: { sinceDays?: number } = {},
+  opts: { sinceDays?: number; phase?: CreativePatternPhase } = {},
 ): Promise<ClientCreativePatternsResult> {
   const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const phase = opts.phase ?? "ticket_sale";
   const until = new Date();
   const since = new Date(until.getTime() - sinceDays * 24 * 60 * 60 * 1000);
   const sinceYmd = toYmd(since);
@@ -168,10 +184,12 @@ export async function buildClientCreativePatterns(
   });
 
   const rollupEventIds = new Set(rollups.map((row) => row.event_id));
-  const totalSpend = rollups.reduce((sum, row) => sum + rollupSpend(row), 0);
   const assignmentsByEventCreative = groupAssignments(assignments);
   const tiles = new Map<string, TileAccumulator>();
   let totalAdConcepts = 0;
+  let totalSpend = 0;
+  let totalGroups = 0;
+  let filteredGroups = 0;
 
   for (const snapshot of snapshots) {
     console.log("[creative-patterns] snapshot-loop", {
@@ -188,6 +206,10 @@ export async function buildClientCreativePatterns(
 
     const event = eventById.get(snapshot.event_id);
     for (const group of snapshot.payload.groups) {
+      totalGroups += 1;
+      if (classifyPhaseForGroup(group) !== phase) continue;
+      filteredGroups += 1;
+
       const matchedTags = tagsForGroup(
         assignmentsByEventCreative,
         snapshot.event_id,
@@ -196,6 +218,7 @@ export async function buildClientCreativePatterns(
       if (matchedTags.length === 0) continue;
 
       totalAdConcepts += 1;
+      totalSpend += group.spend;
       for (const tag of matchedTags) {
         const key = `${tag.dimension}\u0000${tag.value_key}`;
         const acc = tiles.get(key) ?? createAccumulator(tag);
@@ -204,6 +227,11 @@ export async function buildClientCreativePatterns(
       }
     }
   }
+  console.log("[creative-patterns] phase-filter", {
+    phase,
+    total_groups: totalGroups,
+    filtered_groups: filteredGroups,
+  });
 
   const dimensions = CREATIVE_TAG_DIMENSIONS.map((dimension) => ({
     dimension,
@@ -231,6 +259,16 @@ export async function buildClientCreativePatterns(
       snapshotRowsRead: snapshots.length,
     },
   };
+}
+
+export function classifyPhaseForGroup(
+  group: ConceptGroupRow,
+): CreativePatternPhase {
+  return group.campaigns.some((campaign) =>
+    REGISTRATION_PHASE_RE.test(campaign.name ?? ""),
+  )
+    ? "registration"
+    : "ticket_sale";
 }
 
 export async function clientHasTaggedEvents(clientId: string): Promise<boolean> {
@@ -429,6 +467,8 @@ function createAccumulator(tag: {
     total_regs: 0,
     total_impressions: 0,
     total_clicks: 0,
+    total_reach: 0,
+    total_lpv: 0,
     ad_count: 0,
     eventIds: new Set(),
     top_creatives: [],
@@ -446,6 +486,8 @@ function addGroup(
   acc.total_regs += group.registrations;
   acc.total_impressions += group.impressions;
   acc.total_clicks += group.clicks;
+  acc.total_reach += group.reach;
+  acc.total_lpv += group.landingPageViews;
   acc.ad_count += group.ad_count;
   acc.eventIds.add(eventId);
   acc.top_creatives.push({
@@ -472,15 +514,35 @@ function finalizeTile(acc: TileAccumulator): TileRow {
     total_purchases: acc.total_purchases,
     total_regs: acc.total_regs,
     total_impressions: acc.total_impressions,
+    total_clicks: acc.total_clicks,
+    total_reach: acc.total_reach,
+    lpv_count: acc.total_lpv,
     ctr:
       acc.total_impressions > 0
         ? (acc.total_clicks / acc.total_impressions) * 100
         : null,
+    cpm: safeRate(acc.total_spend, acc.total_impressions, 1000),
+    cpc: safeRate(acc.total_spend, acc.total_clicks),
+    cplpv: safeRate(acc.total_spend, acc.total_lpv),
     cpa: acquisition > 0 ? acc.total_spend / acquisition : null,
+    cpreg: safeRate(acc.total_spend, acc.total_regs),
+    cpp: safeRate(acc.total_spend, acc.total_purchases),
+    roas: null,
+    frequency: safeRate(acc.total_impressions, acc.total_reach),
     ad_count: acc.ad_count,
     event_count: acc.eventIds.size,
     top_creatives: acc.top_creatives,
   };
+}
+
+function safeRate(
+  numerator: number,
+  denominator: number,
+  multiplier = 1,
+): number | null {
+  if (denominator <= 0) return null;
+  const value = (numerator / denominator) * multiplier;
+  return Number.isFinite(value) ? value : null;
 }
 
 function highestCpaDimension(
@@ -498,14 +560,6 @@ function highestCpaDimension(
     if (!highest || cpa > highest.cpa) highest = { dimension: dimension.dimension, cpa };
   }
   return highest;
-}
-
-function rollupSpend(row: RollupRow): number {
-  return (
-    row.ad_spend_allocated ??
-    row.ad_spend ??
-    0
-  ) + (row.ad_spend_presale ?? 0);
 }
 
 function assignmentKey(eventId: string, creativeName: string): string {
