@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 247
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/247
 - **Branch:** `fix/4thefans-auto-select-best-match`
 
 ## Summary
