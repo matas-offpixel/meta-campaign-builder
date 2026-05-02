@@ -10,7 +10,7 @@ import { getShareForVenue } from "@/lib/db/report-shares";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueShareControls } from "@/components/dashboard/clients/venue-share-controls";
 import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
-import { FunnelPacingPlaceholder } from "@/components/dashboard/clients/funnel-pacing-placeholder";
+import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import {
   DATE_PRESETS,
@@ -198,7 +198,10 @@ export default async function ClientVenueReportPage({
           regionFilter={{ type: "venue_code", value: eventCode }}
         />
       ) : (
-        <FunnelPacingPlaceholder />
+        <FunnelPacingSection
+          clientId={id}
+          regionFilter={{ type: "venue_code", value: eventCode }}
+        />
       )}
     </div>
   );

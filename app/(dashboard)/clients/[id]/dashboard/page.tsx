@@ -9,7 +9,7 @@ import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
-import { FunnelPacingPlaceholder } from "@/components/dashboard/clients/funnel-pacing-placeholder";
+import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import {
   CLIENT_REGION_LABELS,
@@ -205,7 +205,12 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
               regionFilter={{ type: "country", value: activeRegion }}
             />
           ) : (
-            <FunnelPacingPlaceholder />
+            <FunnelPacingSection
+              clientId={id}
+              regionFilter={
+                activeRegion ? { type: "country", value: activeRegion } : undefined
+              }
+            />
           )}
         </main>
       )}
