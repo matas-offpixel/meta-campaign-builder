@@ -26,9 +26,9 @@ function isCategory(s: string): s is AdditionalSpendCategory {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { eventId } = await params;
+  const { id: eventId } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -53,9 +53,9 @@ export async function GET(
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { eventId } = await params;
+  const { id: eventId } = await params;
   const supabase = await createClient();
   const {
     data: { user },

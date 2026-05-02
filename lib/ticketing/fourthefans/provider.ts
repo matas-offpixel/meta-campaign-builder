@@ -113,11 +113,15 @@ export class FourthefansProvider implements TicketingProvider {
     credentials: Record<string, unknown>,
   ): Promise<FetchedTicketSales> {
     const token = extractCredentialsToken(credentials);
+    console.info(`[4thefans] fetch event sales start external_event_id=${externalId}`);
     const payload = await fourthefansGet<unknown>(
       token,
       `/events/${encodeURIComponent(externalId)}`,
     );
     const sales = readFourthefansEventSales(payload);
+    console.info(
+      `[4thefans] fetch event sales parsed external_event_id=${externalId} tickets_sold=${sales.ticketsSold} tickets_available=${sales.ticketsAvailable ?? "<null>"} gross_revenue_cents=${sales.grossRevenueCents ?? "<null>"} currency=${sales.currency ?? "<null>"}`,
+    );
 
     return {
       ticketsSold: sales.ticketsSold,

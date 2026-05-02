@@ -10,6 +10,7 @@ import {
   Trash2,
   Rocket,
   LayoutDashboard,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
@@ -157,6 +158,7 @@ interface Props {
         weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
       }
     | null;
+  hasTaggedEvents?: boolean;
 }
 
 /**
@@ -180,6 +182,7 @@ export function ClientDetail({
   creativeProviderStatus,
   initialTab = "overview",
   portal,
+  hasTaggedEvents = false,
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -282,6 +285,19 @@ export function ClientDetail({
               <Rocket className="h-3.5 w-3.5" />
               Rollout
             </Button>
+            {hasTaggedEvents && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  router.push(
+                    `/dashboard/clients/${client.slug ?? client.id}/patterns`,
+                  )
+                }
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Creative Patterns
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => router.push(`/clients/${client.id}/edit`)}
@@ -534,6 +550,15 @@ export function ClientDetail({
                     <LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />
                     View dashboard
                   </Link>
+                  {hasTaggedEvents && (
+                    <Link
+                      href={`/dashboard/clients/${client.slug ?? client.id}/patterns`}
+                      className="inline-flex items-center gap-1 rounded border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                      Creative Patterns
+                    </Link>
+                  )}
                   <RefreshAllSpendButton
                     events={events.map((e) => ({
                       id: e.id,
