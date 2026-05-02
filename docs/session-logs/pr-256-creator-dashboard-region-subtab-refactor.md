@@ -40,6 +40,9 @@ Reorganises internal client dashboard and venue report pages around region/venue
 
 - [x] `npm run lint -- 'app/(dashboard)/clients/[id]/dashboard/page.tsx' 'app/(dashboard)/clients/[id]/venues/[event_code]/page.tsx' 'app/(dashboard)/dashboard/clients/[slug]/patterns/page.tsx' components/dashboard/clients/sub-tab-bar.tsx components/dashboard/clients/funnel-pacing-placeholder.tsx components/dashboard/clients/creative-patterns-panel.tsx components/dashboard/clients/client-detail.tsx components/share/client-portal.tsx lib/dashboard/client-regions.ts lib/reporting/creative-patterns-cross-event.ts`
 - [x] `npx tsc --noEmit`
+- [x] Vercel preview deployed successfully.
+- [x] Anonymous preview confirms internal dashboard routes remain auth-gated.
+- [x] Public preview `/share/report/i6MRF2-I789FSxdY` still renders the event report and tag performance section.
 
 ## Notes
 
