@@ -157,6 +157,7 @@ export interface CreativeTagAssignmentRow {
   tag_id: string;
   source: CreativeTagAssignmentSource;
   confidence: number | null;
+  model_version: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -179,6 +180,12 @@ export interface UpsertCreativeTagAssignmentArgs {
   tagId: string;
   source: CreativeTagAssignmentSource;
   confidence?: number | null;
+  modelVersion?: string | null;
+}
+
+export interface BulkUpsertCreativeTagAssignmentsResult {
+  inserted: number;
+  updated: number;
 }
 
 export interface UpsertCreativeScoreArgs {
@@ -206,7 +213,7 @@ export interface ImportMotionSeedTagsResult {
 const TAXONOMY_SELECT =
   "id,user_id,dimension,value_key,value_label,description,source,created_at,updated_at";
 const ASSIGNMENT_SELECT =
-  "id,user_id,event_id,creative_name,tag_id,source,confidence,created_at,updated_at";
+  "id,user_id,event_id,creative_name,tag_id,source,confidence,model_version,created_at,updated_at";
 const SCORE_SELECT =
   "id,user_id,event_id,creative_name,axis,score,significance,fetched_at";
 
@@ -217,6 +224,7 @@ const DIMENSION_ALIASES: Record<string, CreativeTagDimension> = {
   "visual format": "visual_format",
   messaging_angle: "messaging_angle",
   "messaging angle": "messaging_angle",
+  "messaging theme": "messaging_angle",
   intended_audience: "intended_audience",
   "intended audience": "intended_audience",
   hook_tactic: "hook_tactic",
@@ -262,6 +270,7 @@ export async function upsertCreativeTagAssignment(
         tag_id: args.tagId,
         source: args.source,
         confidence: args.confidence ?? null,
+        model_version: args.modelVersion ?? null,
       },
       { onConflict: "event_id,creative_name,tag_id" },
     )
@@ -271,6 +280,41 @@ export async function upsertCreativeTagAssignment(
   if (error) throw new Error(error.message);
   if (!data) throw new Error("upsertCreativeTagAssignment returned no row");
   return data as CreativeTagAssignmentRow;
+}
+
+export async function bulkUpsertCreativeTagAssignments(
+  supabase: DbClient,
+  args: UpsertCreativeTagAssignmentArgs[],
+): Promise<BulkUpsertCreativeTagAssignmentsResult> {
+  const rows = dedupeAssignmentArgs(args);
+  let inserted = 0;
+  let updated = 0;
+
+  for (let start = 0; start < rows.length; start += 200) {
+    const chunk = rows.slice(start, start + 200);
+    const existingKeys = await listExistingAssignmentKeys(supabase, chunk);
+    inserted += chunk.length - existingKeys.size;
+    updated += existingKeys.size;
+
+    const payload = chunk.map((row) => ({
+      user_id: row.userId,
+      event_id: row.eventId,
+      creative_name: row.creativeName,
+      tag_id: row.tagId,
+      source: row.source,
+      confidence: row.confidence ?? null,
+      model_version: row.modelVersion ?? null,
+    }));
+
+    const { error } = await supabase.from("creative_tag_assignments").upsert(
+      payload,
+      { onConflict: "event_id,creative_name,tag_id" },
+    );
+
+    if (error) throw new Error(error.message);
+  }
+
+  return { inserted, updated };
 }
 
 export async function listCreativeTagAssignments(
@@ -414,6 +458,12 @@ function collectSeedTags(
     "tag_type",
     "tagType",
   ]));
+  const namedDimension = normalizeDimension(readString(value, ["name"]));
+  if (namedDimension && Array.isArray(value.values)) {
+    collectSeedTags(value.values, namedDimension, out);
+    return;
+  }
+
   const dimension = directDimension ?? inheritedDimension;
   const directTag = seedTagFromRecord(value, dimension);
   if (directTag) out.push(directTag);
@@ -422,7 +472,12 @@ function collectSeedTags(
     const nestedDimension = normalizeDimension(key);
     if (nestedDimension) {
       collectSeedTags(nestedValue, nestedDimension, out);
-    } else if (key === "tags" || key === "glossary" || key === "values") {
+    } else if (
+      key === "data" ||
+      key === "tags" ||
+      key === "glossary" ||
+      key === "values"
+    ) {
       collectSeedTags(nestedValue, dimension, out);
     }
   }
@@ -495,4 +550,56 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function seedKey(dimension: string, valueKey: string): string {
   return `${dimension}:${valueKey}`;
+}
+
+function dedupeAssignmentArgs(
+  args: UpsertCreativeTagAssignmentArgs[],
+): UpsertCreativeTagAssignmentArgs[] {
+  const byKey = new Map<string, UpsertCreativeTagAssignmentArgs>();
+  for (const arg of args) {
+    byKey.set(assignmentKey(arg.eventId, arg.creativeName, arg.tagId), arg);
+  }
+  return [...byKey.values()];
+}
+
+async function listExistingAssignmentKeys(
+  supabase: DbClient,
+  args: UpsertCreativeTagAssignmentArgs[],
+): Promise<Set<string>> {
+  if (args.length === 0) return new Set();
+
+  const eventIds = [...new Set(args.map((arg) => arg.eventId))];
+  const creativeNames = [...new Set(args.map((arg) => arg.creativeName))];
+  const tagIds = [...new Set(args.map((arg) => arg.tagId))];
+  const { data, error } = await supabase
+    .from("creative_tag_assignments")
+    .select("event_id,creative_name,tag_id")
+    .in("event_id", eventIds)
+    .in("creative_name", creativeNames)
+    .in("tag_id", tagIds);
+
+  if (error) throw new Error(error.message);
+
+  const wanted = new Set(
+    args.map((arg) => assignmentKey(arg.eventId, arg.creativeName, arg.tagId)),
+  );
+  return new Set(
+    (
+      (data ?? []) as Array<{
+        event_id: string;
+        creative_name: string;
+        tag_id: string;
+      }>
+    )
+      .map((row) => assignmentKey(row.event_id, row.creative_name, row.tag_id))
+      .filter((key) => wanted.has(key)),
+  );
+}
+
+function assignmentKey(
+  eventId: string,
+  creativeName: string,
+  tagId: string,
+): string {
+  return `${eventId}\u0000${creativeName}\u0000${tagId}`;
 }

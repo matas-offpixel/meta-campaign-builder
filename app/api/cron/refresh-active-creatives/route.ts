@@ -1,10 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
+import OpenAI from "openai";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  autoTag,
+  type AutoTagInput,
+} from "@/lib/intelligence/auto-tagger";
+import {
+  bulkUpsertCreativeTagAssignments,
+  listCreativeTagAssignments,
+  listCreativeTags,
+  type MotionCreativeTagRow,
+} from "@/lib/db/creative-tags";
 import {
   refreshActiveCreativesForEvent,
   type RefreshResult,
 } from "@/lib/reporting/active-creatives-refresh-runner";
+import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
+import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 
 /**
  * GET /api/cron/refresh-active-creatives
@@ -58,6 +71,9 @@ import {
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
+const AI_AUTOTAG_MODEL_VERSION = "gpt-4o-mini";
+const AI_AUTOTAG_CONCURRENCY = 3;
+
 interface EventToRefresh {
   id: string;
   user_id: string;
@@ -73,6 +89,7 @@ interface EventRefreshSummary {
   presetsWritten: number;
   durationMs: number;
   presetResults: RefreshResult["presetResults"];
+  aiAutoTag?: AutoTagCronSummary;
   error?: string;
 }
 
@@ -86,6 +103,18 @@ interface CronResponse {
   results: EventRefreshSummary[];
 }
 
+interface AutoTagCronSummary {
+  enabled: boolean;
+  modelVersion: string;
+  payloadsSeen: number;
+  creativesConsidered: number;
+  creativesSkippedExisting: number;
+  creativesSkippedNoThumbnail: number;
+  creativesTagged: number;
+  assignmentsUpserted: number;
+  errors: number;
+}
+
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
   if (!expected) return false;
@@ -94,6 +123,35 @@ function isAuthorized(req: NextRequest): boolean {
     return header.slice(7).trim() === expected.trim();
   }
   return header.trim() === expected.trim();
+}
+
+function isAutoTagEnabled(): boolean {
+  return process.env.ENABLE_AI_AUTOTAG === "1";
+}
+
+function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
+  return {
+    enabled,
+    modelVersion: AI_AUTOTAG_MODEL_VERSION,
+    payloadsSeen: 0,
+    creativesConsidered: 0,
+    creativesSkippedExisting: 0,
+    creativesSkippedNoThumbnail: 0,
+    creativesTagged: 0,
+    assignmentsUpserted: 0,
+    errors: 0,
+  };
+}
+
+function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn(
+      "[cron refresh-active-creatives] ENABLE_AI_AUTOTAG=1 but OPENAI_API_KEY is missing",
+    );
+    return null;
+  }
+  return new OpenAI({ apiKey });
 }
 
 export async function GET(req: NextRequest) {
@@ -209,9 +267,12 @@ export async function GET(req: NextRequest) {
 
   const results: EventRefreshSummary[] = [];
   let totalPresetsRefreshed = 0;
+  const autoTagEnabled = isAutoTagEnabled();
+  const openai = autoTagEnabled ? getOpenAIClient() : null;
 
   for (const event of events) {
     const t0 = Date.now();
+    const aiAutoTag = createAutoTagSummary(autoTagEnabled);
     try {
       const clientRel = event.client as
         | { meta_ad_account_id: string | null }
@@ -236,6 +297,19 @@ export async function GET(req: NextRequest) {
         eventCode: event.event_code,
         adAccountId,
         eventDate,
+        onSnapshotWritten:
+          autoTagEnabled && openai
+            ? async ({ payload }) => {
+                await runAutoTagForSnapshot({
+                  supabase,
+                  userId: event.user_id,
+                  eventId: event.id,
+                  payload,
+                  openai,
+                  summary: aiAutoTag,
+                });
+              }
+            : undefined,
       });
 
       const presetsWritten = result.presetResults.filter(
@@ -249,6 +323,7 @@ export async function GET(req: NextRequest) {
         presetsWritten,
         durationMs: Date.now() - t0,
         presetResults: result.presetResults,
+        ...(autoTagEnabled ? { aiAutoTag } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -262,6 +337,7 @@ export async function GET(req: NextRequest) {
         presetsWritten: 0,
         durationMs: Date.now() - t0,
         presetResults: [],
+        ...(autoTagEnabled ? { aiAutoTag } : {}),
         error: message,
       });
     }
@@ -284,4 +360,132 @@ export async function GET(req: NextRequest) {
   );
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
+}
+
+async function runAutoTagForSnapshot(args: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  userId: string;
+  eventId: string;
+  payload: Extract<ShareActiveCreativesResult, { kind: "ok" }>;
+  openai: OpenAI;
+  summary: AutoTagCronSummary;
+}): Promise<void> {
+  args.summary.payloadsSeen += 1;
+  args.summary.creativesConsidered += args.payload.groups.length;
+
+  let taxonomy: MotionCreativeTagRow[];
+  let existingAiCreatives: Set<string>;
+  try {
+    taxonomy = (await listCreativeTags(args.supabase)).filter(
+      (row) => row.user_id === args.userId,
+    );
+    const assignments = await listCreativeTagAssignments(
+      args.supabase,
+      args.eventId,
+    );
+    existingAiCreatives = new Set(
+      assignments
+        .filter(
+          (row) =>
+            row.source === "ai" &&
+            row.model_version === AI_AUTOTAG_MODEL_VERSION,
+        )
+        .map((row) => row.creative_name),
+    );
+  } catch (err) {
+    args.summary.errors += 1;
+    console.error("[cron refresh-active-creatives] ai autotag preflight failed", {
+      eventId: args.eventId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  const taxonomyByKey = new Map(
+    taxonomy.map((row) => [`${row.dimension}\u0000${row.value_key}`, row]),
+  );
+  const candidates: Array<{ group: ConceptGroupRow; creativeName: string }> = [];
+
+  for (const group of args.payload.groups) {
+    const creativeName = creativeNameForGroup(group);
+    if (!creativeName) continue;
+    if (existingAiCreatives.has(creativeName)) {
+      args.summary.creativesSkippedExisting += 1;
+      continue;
+    }
+    if (!group.representative_thumbnail) {
+      args.summary.creativesSkippedNoThumbnail += 1;
+      continue;
+    }
+    existingAiCreatives.add(creativeName);
+    candidates.push({ group, creativeName });
+  }
+
+  await runWithConcurrency(candidates, AI_AUTOTAG_CONCURRENCY, async (item) => {
+    const input: AutoTagInput = {
+      thumbnailUrl: item.group.representative_thumbnail as string,
+      headline: item.group.representative_headline,
+      body: item.group.representative_body_preview,
+    };
+
+    try {
+      const tags = await autoTag(input, {
+        taxonomy,
+        openai: args.openai,
+        modelVersion: AI_AUTOTAG_MODEL_VERSION,
+      });
+      const assignments = tags
+        .map((tag) => {
+          const taxonomyRow = taxonomyByKey.get(
+            `${tag.dimension}\u0000${tag.value_key}`,
+          );
+          if (!taxonomyRow) return null;
+          return {
+            userId: args.userId,
+            eventId: args.eventId,
+            creativeName: item.creativeName,
+            tagId: taxonomyRow.id,
+            source: "ai" as const,
+            confidence: tag.confidence,
+            modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+      if (assignments.length === 0) return;
+      await bulkUpsertCreativeTagAssignments(args.supabase, assignments);
+      args.summary.creativesTagged += 1;
+      args.summary.assignmentsUpserted += assignments.length;
+    } catch (err) {
+      args.summary.errors += 1;
+      console.error("[cron refresh-active-creatives] ai autotag failed", {
+        eventId: args.eventId,
+        creativeName: item.creativeName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+}
+
+function creativeNameForGroup(group: ConceptGroupRow): string | null {
+  return group.ad_names[0]?.trim() || group.display_name.trim() || null;
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (index < items.length) {
+        const item = items[index];
+        index += 1;
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(workers);
 }
