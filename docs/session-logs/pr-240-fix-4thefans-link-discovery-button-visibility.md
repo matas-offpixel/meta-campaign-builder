@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 240
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/240
 - **Branch:** `fix/4thefans-link-discovery-button-visibility`
 
 ## Summary
