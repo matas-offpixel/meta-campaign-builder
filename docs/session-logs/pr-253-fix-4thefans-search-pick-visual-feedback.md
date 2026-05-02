@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 253
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/253
 - **Branch:** `fix/4thefans-search-pick-visual-feedback`
 
 ## Summary
