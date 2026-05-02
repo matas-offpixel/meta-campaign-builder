@@ -7,24 +7,25 @@ import "server-only";
  * `pgp_sym_decrypt` when reading and writing
  * `client_ticketing_connections.credentials_encrypted`.
  *
- * The key lives in env (`EVENTBRITE_TOKEN_KEY`) and is passed into the
- * SQL RPC as a parameter on every call — pgcrypto stretches it
- * internally, so any random ≥32 character string is fine. It is never
+ * The key lives in env and is passed into the SQL RPC as a parameter on
+ * every call — pgcrypto stretches it internally, so any random ≥32
+ * character string is fine. It is never
  * returned to the browser, never logged, never written to the DB.
  *
- * Naming: kept "EVENTBRITE_TOKEN_KEY" rather than something
- * provider-agnostic ("TICKETING_SECRET") so it's obvious what the key
- * unlocks when reviewing Vercel envs. If we ever encrypt non-ticketing
- * credentials with a different key we'll add a sibling helper rather
- * than reusing this one.
+ * Naming: Eventbrite originally used `EVENTBRITE_TOKEN_KEY`. 4thefans
+ * gets its own `FOURTHEFANS_TOKEN_KEY` so token rotation can happen per
+ * upstream provider while reusing the same SQL RPCs.
  */
 
-const ENV_VAR = "EVENTBRITE_TOKEN_KEY";
+import type { TicketingProviderName } from "@/lib/ticketing/types";
+
+const EVENTBRITE_ENV_VAR = "EVENTBRITE_TOKEN_KEY";
+const FOURTHEFANS_ENV_VAR = "FOURTHEFANS_TOKEN_KEY";
 
 export class MissingTokenKeyError extends Error {
-  constructor() {
+  constructor(envVar: string) {
     super(
-      `${ENV_VAR} is not set. Add it to .env.local and Vercel (production + preview) before saving or syncing Eventbrite connections.`,
+      `${envVar} is not set. Add it to .env.local and Vercel (production + preview) before saving or syncing ticketing connections.`,
     );
     this.name = "MissingTokenKeyError";
   }
@@ -42,11 +43,22 @@ export class MissingTokenKeyError extends Error {
  * plaintext column for new writes.
  */
 export function getEventbriteTokenKey(): string {
-  const value = process.env[ENV_VAR];
+  const value = process.env[EVENTBRITE_ENV_VAR];
   if (!value || value.length < 8) {
-    throw new MissingTokenKeyError();
+    throw new MissingTokenKeyError(EVENTBRITE_ENV_VAR);
   }
   return value;
+}
+
+export function getTicketingTokenKey(provider: TicketingProviderName): string {
+  if (provider === "fourthefans") {
+    const value = process.env[FOURTHEFANS_ENV_VAR];
+    if (!value || value.length < 8) {
+      throw new MissingTokenKeyError(FOURTHEFANS_ENV_VAR);
+    }
+    return value;
+  }
+  return getEventbriteTokenKey();
 }
 
 /**
@@ -56,7 +68,17 @@ export function getEventbriteTokenKey(): string {
  * still render with a banner instead of 500-ing on every request.
  */
 export function tryGetEventbriteTokenKey(): string | null {
-  const value = process.env[ENV_VAR];
+  const value = process.env[EVENTBRITE_ENV_VAR];
+  if (!value || value.length < 8) return null;
+  return value;
+}
+
+export function tryGetTicketingTokenKey(
+  provider: TicketingProviderName,
+): string | null {
+  const envVar =
+    provider === "fourthefans" ? FOURTHEFANS_ENV_VAR : EVENTBRITE_ENV_VAR;
+  const value = process.env[envVar];
   if (!value || value.length < 8) return null;
   return value;
 }

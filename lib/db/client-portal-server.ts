@@ -127,10 +127,13 @@ export interface WeeklyTicketSnapshotRow {
   /** Canonical YYYY-MM-DD of the week-ending snapshot (UTC). */
   snapshot_at: string;
   tickets_sold: number;
-  /** Provenance — `eventbrite` for cron-backed rows, `xlsx_import`
-   *  for historical catch-up, `manual` once PR 3 lands, and
-   *  `foursomething` once the 4theFans API is wired. */
-  source: "eventbrite" | "manual" | "xlsx_import" | "foursomething";
+  /** Provenance — API, import, or operator-entered rows. */
+  source:
+    | "eventbrite"
+    | "fourthefans"
+    | "manual"
+    | "xlsx_import"
+    | "foursomething";
 }
 
 export interface DailyRollupRow {
@@ -728,7 +731,7 @@ async function loadPortalForClientId(
 function sourcePriority(source: string): number {
   if (source === "manual") return 4;
   if (source === "xlsx_import") return 3;
-  if (source === "foursomething") return 2;
+  if (source === "foursomething" || source === "fourthefans") return 2;
   return 1;
 }
 

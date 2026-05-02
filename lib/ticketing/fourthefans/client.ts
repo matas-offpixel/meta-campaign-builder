@@ -1,12 +1,9 @@
 /**
  * lib/ticketing/fourthefans/client.ts
  *
- * Fetch wrapper for the 4TheFans native API. Their spec is not yet
- * published — every endpoint string and field name in this file is a
- * placeholder marked with TODO so a single editor pass replaces them
- * once docs land. The shape of `fourthefansGet` mirrors
- * `eventbriteGet` so the provider implementation is shaped identically
- * across both adapters.
+ * Fetch wrapper for the 4TheFans native API. The shape of
+ * `fourthefansGet` mirrors `eventbriteGet` so the provider implementation
+ * is shaped identically across both adapters.
  *
  * The base URL is configurable via `FOURTHEFANS_API_BASE` so we can
  * point at a staging endpoint during integration without code changes.
@@ -16,16 +13,25 @@
  * publish their app registration flow.
  */
 
-const DEFAULT_API_BASE = "https://api.4thefans.tv/";
+const DEFAULT_API_BASE = "https://4thefans.book.tickets/wp-json/agency/v1";
+const DEFAULT_TIMEOUT_MS = 8000;
+const MAX_RETRIES = 2;
 
 export class FourthefansApiError extends Error {
   readonly status: number;
   readonly endpoint: string;
-  constructor(status: number, endpoint: string, message: string) {
+  readonly retryAfterMs: number | null;
+  constructor(
+    status: number,
+    endpoint: string,
+    message: string,
+    retryAfterMs: number | null = null,
+  ) {
     super(message);
     this.name = "FourthefansApiError";
     this.status = status;
     this.endpoint = endpoint;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -74,49 +80,104 @@ export async function fourthefansGet<T = unknown>(
   options: FourthefansFetchOptions = {},
 ): Promise<T> {
   const url = buildUrl(endpoint, options.query);
+  let lastError: FourthefansApiError | null = null;
 
-  const controller = new AbortController();
-  const timeoutMs = options.timeoutMs ?? 8000;
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  if (options.signal) {
-    if (options.signal.aborted) controller.abort();
-    options.signal.addEventListener("abort", () => controller.abort(), {
-      once: true,
-    });
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-      cache: "no-store",
-    });
-  } catch (err) {
-    clearTimeout(timeout);
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new FourthefansApiError(0, endpoint, `Network error: ${reason}`);
-  }
-  clearTimeout(timeout);
-
-  if (!res.ok) {
-    let body: unknown = null;
-    try {
-      body = await res.json();
-    } catch {
-      // 4TheFans error envelope is TBD; fall back to status text when
-      // the body isn't JSON.
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    if (options.signal) {
+      if (options.signal.aborted) controller.abort();
+      options.signal.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
     }
-    const message =
-      (body && typeof body === "object" && "message" in body
-        ? String((body as { message?: unknown }).message)
-        : null) ?? res.statusText;
-    throw new FourthefansApiError(res.status, endpoint, message);
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      const reason = err instanceof Error ? err.message : String(err);
+      lastError = new FourthefansApiError(
+        0,
+        endpoint,
+        `Network error: ${reason}`,
+      );
+      if (attempt < MAX_RETRIES) {
+        await sleep(backoffMs(attempt, null));
+        continue;
+      }
+      throw lastError;
+    }
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        // Fall back to status text when the body isn't JSON.
+      }
+      const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
+      const message = extractErrorMessage(body) ?? res.statusText;
+      lastError = new FourthefansApiError(
+        res.status,
+        endpoint,
+        message,
+        retryAfterMs,
+      );
+      if (attempt < MAX_RETRIES && shouldRetry(res.status)) {
+        await sleep(backoffMs(attempt, retryAfterMs));
+        continue;
+      }
+      throw lastError;
+    }
+
+    return (await res.json()) as T;
   }
 
-  return (await res.json()) as T;
+  throw lastError ?? new FourthefansApiError(0, endpoint, "Unknown error");
+}
+
+function shouldRetry(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function parseRetryAfter(raw: string | null): number | null {
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    return Math.max(0, date.getTime() - Date.now());
+  }
+  return null;
+}
+
+function backoffMs(attempt: number, retryAfterMs: number | null): number {
+  if (retryAfterMs != null) return retryAfterMs;
+  return 250 * 2 ** attempt;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractErrorMessage(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  for (const key of ["message", "error", "error_description", "detail"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
 }

@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getEventbriteTokenKey } from "@/lib/ticketing/secrets";
+import { getTicketingTokenKey } from "@/lib/ticketing/secrets";
 import type {
   EventTicketingLink,
   TicketingConnection,
@@ -100,11 +100,9 @@ export async function getConnectionById(
  *      provider's `validateCredentials` / `getEventSales` will then
  *      throw a clear "missing personal_token" error.
  *
- * Throws `MissingTokenKeyError` when `EVENTBRITE_TOKEN_KEY` is unset,
- * which is the right blast radius — without the key we have no way
- * to talk to Eventbrite for THIS connection regardless of provider,
- * and we'd rather surface that as a 500 than as an opaque "Eventbrite
- * rejected the token".
+ * Throws `MissingTokenKeyError` when the provider-specific encryption key
+ * is unset. Without the key we have no way to decrypt this connection,
+ * and we'd rather surface that as a 500 than as an opaque provider error.
  */
 export async function getConnectionWithDecryptedCredentials(
   supabase: AnySupabaseClient,
@@ -119,7 +117,7 @@ export async function getConnectionWithDecryptedCredentials(
   const hasEncryptedBlob = rawRow.credentials_encrypted != null;
 
   if (hasEncryptedBlob) {
-    const key = getEventbriteTokenKey();
+    const key = getTicketingTokenKey(row.provider);
     const { data, error } = await sb.rpc("get_ticketing_credentials", {
       p_connection_id: id,
       p_key: key,
@@ -130,7 +128,7 @@ export async function getConnectionWithDecryptedCredentials(
         error.message,
       );
       throw new Error(
-        "Could not decrypt the saved Eventbrite credentials. Re-save the connection on the client's Ticketing tab.",
+        "Could not decrypt the saved ticketing credentials. Re-save the connection on the client's Ticketing tab.",
       );
     }
     if (typeof data === "string" && data.length > 0) {
@@ -180,8 +178,8 @@ export interface UpsertConnectionInput {
  *      `credentials_encrypted` and re-asserts the empty jsonb in the
  *      same statement.
  *
- * Callers must have `EVENTBRITE_TOKEN_KEY` set; we throw via
- * `MissingTokenKeyError` otherwise so the API route can surface a
+ * Callers must have the provider-specific encryption key set; we throw
+ * via `MissingTokenKeyError` otherwise so the API route can surface a
  * clear 500 rather than silently storing a row that nothing can ever
  * decrypt.
  */
@@ -192,7 +190,7 @@ export async function upsertConnection(
   const sb = asAnyTable(supabase);
   // Read the key BEFORE any write so a misconfigured environment fails
   // fast instead of leaving a half-saved row behind.
-  const key = getEventbriteTokenKey();
+  const key = getTicketingTokenKey(input.provider);
 
   const { data, error } = await sb
     .from("client_ticketing_connections")
@@ -385,6 +383,12 @@ export interface InsertSnapshotInput {
   ticketsAvailable: number | null;
   grossRevenueCents: number | null;
   currency: string | null;
+  source?:
+    | "eventbrite"
+    | "fourthefans"
+    | "manual"
+    | "xlsx_import"
+    | "foursomething";
   rawPayload: unknown;
 }
 
@@ -403,6 +407,7 @@ export async function insertSnapshot(
       tickets_available: input.ticketsAvailable,
       gross_revenue_cents: input.grossRevenueCents,
       currency: input.currency,
+      source: input.source ?? "eventbrite",
       raw_payload: input.rawPayload,
     })
     .select("*")

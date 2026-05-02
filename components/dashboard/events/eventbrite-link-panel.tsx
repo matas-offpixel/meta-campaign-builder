@@ -17,14 +17,14 @@ import type { SafeTicketingConnection } from "@/lib/db/event-ticketing-summary";
  * components/dashboard/events/eventbrite-link-panel.tsx
  *
  * Two-step linking UI for binding an internal event to its
- * Eventbrite counterpart.
+ * external ticketing counterpart.
  *
  *   Step 1  Pick a connection. Skipped automatically when the client
  *           has exactly one connection (the common case for v1).
  *
  *   Step 2  Pick the external event from a dropdown populated by
  *           GET /api/ticketing/events?connectionId=…. Lazy-loaded so
- *           the page-load doesn't pay for an Eventbrite list fetch
+ *           the page-load doesn't pay for an upstream list fetch
  *           every time the event detail renders — only the first time
  *           the user actually opens the panel.
  *
@@ -54,15 +54,15 @@ export function EventbriteLinkPanel({
 }: Props) {
   const router = useRouter();
 
-  // Limit the dropdown to active Eventbrite connections — fourthefans
-  // and paused/error connections are not actionable from this UI.
-  const eventbriteConnections = availableConnections.filter(
-    (c) => c.provider === "eventbrite",
+  // Limit the dropdown to live API providers. Manual connections don't
+  // expose provider-side events to pick.
+  const liveConnections = availableConnections.filter(
+    (c) => c.provider === "eventbrite" || c.provider === "fourthefans",
   );
 
   const [editing, setEditing] = useState(!existingLink);
   const [connectionId, setConnectionId] = useState<string>(
-    existingLink?.connection_id ?? eventbriteConnections[0]?.id ?? "",
+    existingLink?.connection_id ?? liveConnections[0]?.id ?? "",
   );
   const [externalEventId, setExternalEventId] = useState<string>(
     existingLink?.external_event_id ?? "",
@@ -101,7 +101,7 @@ export function EventbriteLinkPanel({
         if (cancelled) return;
         if (!res.ok || !json.ok) {
           setError(
-            json.error ?? "Failed to load Eventbrite events for this connection.",
+            json.error ?? "Failed to load ticketing events for this connection.",
           );
           return;
         }
@@ -122,7 +122,7 @@ export function EventbriteLinkPanel({
     setError(null);
     setOkMessage(null);
     if (!connectionId || !externalEventId) {
-      setError("Pick a connection and an Eventbrite event to link.");
+      setError("Pick a connection and an external event to link.");
       return;
     }
     setSubmitting(true);
@@ -161,9 +161,9 @@ export function EventbriteLinkPanel({
 
   // ─── Render ─────────────────────────────────────────────────────────
 
-  if (eventbriteConnections.length === 0) {
-    // No active Eventbrite connection on this client — the live block
-    // already renders the "Connect Eventbrite" CTA, so we show
+  if (liveConnections.length === 0) {
+    // No active ticketing API connection on this client — the live block
+    // already renders the connection CTA, so we show
     // nothing here to avoid duplicate guidance.
     return null;
   }
@@ -178,7 +178,7 @@ export function EventbriteLinkPanel({
           <div className="flex items-start gap-3 min-w-0">
             <LinkIcon className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">
-              <h3 className="text-sm font-medium">Eventbrite link</h3>
+              <h3 className="text-sm font-medium">Ticketing link</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Bound to{" "}
                 <span className="font-medium text-foreground">
@@ -205,31 +205,31 @@ export function EventbriteLinkPanel({
         <LinkIcon className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
         <div className="min-w-0">
           <h3 className="text-sm font-medium">
-            {existingLink ? "Re-link Eventbrite event" : "Link Eventbrite event"}
+            {existingLink ? "Re-link ticketing event" : "Link ticketing event"}
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Pick the Eventbrite event that matches this dashboard event.
+            Pick the ticketing event that matches this dashboard event.
             Saving triggers an immediate sync.
           </p>
         </div>
       </header>
 
-      {eventbriteConnections.length > 1 && (
+      {liveConnections.length > 1 && (
         <Select
           value={connectionId}
           onChange={(e) => setConnectionId(e.target.value)}
-          options={eventbriteConnections.map((c) => ({
+          options={liveConnections.map((c) => ({
             value: c.id,
             label: c.external_account_id
-              ? `Eventbrite · org ${c.external_account_id}`
-              : "Eventbrite (no org)",
+              ? `${providerLabel(c.provider)} · ${c.external_account_id}`
+              : providerLabel(c.provider),
           }))}
         />
       )}
 
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">
-          Eventbrite event
+          Ticketing event
         </label>
         {loadingEvents ? (
           <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
@@ -238,8 +238,8 @@ export function EventbriteLinkPanel({
           </div>
         ) : externalEvents && externalEvents.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            This connection has no events on Eventbrite (yet). Create one
-            in Eventbrite, then click Refresh.
+            This connection has no events yet. Create one in the ticketing
+            platform, then click Refresh.
           </p>
         ) : (
           <ExternalEventPicker
@@ -249,7 +249,7 @@ export function EventbriteLinkPanel({
               setExternalEventId(id);
               setExternalEventUrl(ev?.url ?? null);
             }}
-            placeholder="Select an Eventbrite event"
+            placeholder="Select a ticketing event"
           />
         )}
       </div>
@@ -301,5 +301,9 @@ export function EventbriteLinkPanel({
       </div>
     </section>
   );
+}
+
+function providerLabel(provider: SafeTicketingConnection["provider"]): string {
+  return provider === "fourthefans" ? "4thefans" : "Eventbrite";
 }
 
