@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 239
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/239
 - **Branch:** `fix/4thefans-link-persistence-and-creatives-coverage`
 
 ## Summary
