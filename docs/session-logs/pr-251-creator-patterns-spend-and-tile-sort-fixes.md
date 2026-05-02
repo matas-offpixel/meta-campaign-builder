@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 251
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/251
 - **Branch:** `creator/patterns-spend-and-tile-sort-fixes`
 
 ## Summary
