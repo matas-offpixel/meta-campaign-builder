@@ -9,16 +9,22 @@ import {
   buildClientCreativePatterns,
   type ClientCreativePatternsResult,
   type ConceptThumb,
+  type CreativePatternPhase,
   type TileRow,
 } from "@/lib/reporting/creative-patterns-cross-event";
 import type { CreativeTagDimension } from "@/lib/db/creative-tags";
 
 interface Props {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ window?: string }>;
+  searchParams: Promise<{ window?: string; phase?: string; funnel?: string }>;
 }
 
 const WINDOWS = [30, 90, 180] as const;
+const PHASES = ["registration", "ticket_sale"] as const;
+const FUNNELS = ["top", "mid", "bottom"] as const;
+
+type FunnelView = (typeof FUNNELS)[number];
+
 const DIMENSION_LABELS: Record<CreativeTagDimension, string> = {
   asset_type: "Asset Type",
   hook_tactic: "Hook Tactic",
@@ -50,8 +56,10 @@ export default async function ClientCreativePatternsPage({
   searchParams,
 }: Props) {
   const { slug } = await params;
-  const { window } = await searchParams;
+  const { window, phase: phaseParam, funnel: funnelParam } = await searchParams;
   const sinceDays = parseWindow(window);
+  const phase = parsePhase(phaseParam);
+  const funnel = parseFunnel(funnelParam);
 
   const supabase = await createClient();
   const {
@@ -62,7 +70,10 @@ export default async function ClientCreativePatternsPage({
   const client = await loadOwnedClient(slug, user.id);
   if (!client) notFound();
 
-  const patterns = await buildClientCreativePatterns(client.id, { sinceDays });
+  const patterns = await buildClientCreativePatterns(client.id, {
+    sinceDays,
+    phase,
+  });
   const dateRange = formatDateRange(
     patterns.summary.since,
     patterns.summary.until,
@@ -75,7 +86,9 @@ export default async function ClientCreativePatternsPage({
         title={`Creative Patterns — ${client.name}`}
         description={`Cross-event intelligence across ${NUM.format(
           patterns.summary.taggedEventCount,
-        )} events, ${formatMoney(patterns.summary.totalSpend)} spend, ${dateRange}.`}
+        )} events, ${formatMoney(patterns.summary.totalSpend)} spend, ${phaseLabel(
+          phase,
+        ).toLowerCase()} phase, ${funnelLabel(funnel).toLowerCase()} funnel view, ${dateRange}.`}
         actions={
           <Link
             href={`/clients/${client.id}`}
@@ -107,10 +120,29 @@ export default async function ClientCreativePatternsPage({
               <span className="mx-1">›</span>
               <span className="text-foreground">Creative Patterns</span>
             </nav>
-            <TimeframeToggle slug={client.slug ?? client.id} active={sinceDays} />
+            <div className="flex flex-wrap items-center gap-2">
+              <TimeframeToggle
+                slug={client.slug ?? client.id}
+                active={sinceDays}
+                phase={phase}
+                funnel={funnel}
+              />
+              <PhaseToggle
+                slug={client.slug ?? client.id}
+                windowDays={sinceDays}
+                active={phase}
+                funnel={funnel}
+              />
+              <FunnelToggle
+                slug={client.slug ?? client.id}
+                windowDays={sinceDays}
+                phase={phase}
+                active={funnel}
+              />
+            </div>
           </div>
 
-          <SummaryStrip patterns={patterns} />
+          <SummaryStrip patterns={patterns} funnel={funnel} phase={phase} />
 
           {!hasTags ? (
             <EmptyState />
@@ -138,8 +170,13 @@ export default async function ClientCreativePatternsPage({
                     </div>
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                      {dimension.values.map((row) => (
-                        <PatternTile key={row.value_key} row={row} />
+                      {sortRowsForFunnel(dimension.values, funnel).map((row) => (
+                        <PatternTile
+                          key={row.value_key}
+                          row={row}
+                          funnel={funnel}
+                          phase={phase}
+                        />
                       ))}
                     </div>
                   )}
@@ -179,8 +216,16 @@ async function loadOwnedClient(
   return (idResult.data as ClientRow | null) ?? null;
 }
 
-function SummaryStrip({ patterns }: { patterns: ClientCreativePatternsResult }) {
-  const highest = patterns.summary.highestCpaDimension;
+function SummaryStrip({
+  patterns,
+  funnel,
+  phase,
+}: {
+  patterns: ClientCreativePatternsResult;
+  funnel: FunnelView;
+  phase: CreativePatternPhase;
+}) {
+  const best = bestDimensionForLens(patterns.dimensions, funnel, phase);
   return (
     <section className="grid gap-3 md:grid-cols-4">
       <KpiTile label="Total spend" value={formatMoney(patterns.summary.totalSpend)} />
@@ -195,9 +240,9 @@ function SummaryStrip({ patterns }: { patterns: ClientCreativePatternsResult }) 
         sub={`${NUM.format(patterns.summary.tagAssignmentCount)} tag rows`}
       />
       <KpiTile
-        label="Highest-CPA dimension"
-        value={highest ? DIMENSION_LABELS[highest.dimension] : "—"}
-        sub={highest ? `${GBP2.format(highest.cpa)} CPA` : "No conversions"}
+        label={bestDimensionLabel(funnel, phase)}
+        value={best ? DIMENSION_LABELS[best.dimension] : "—"}
+        sub={best ? best.sub : "No eligible values"}
       />
     </section>
   );
@@ -228,16 +273,20 @@ function KpiTile({
 function TimeframeToggle({
   slug,
   active,
+  phase,
+  funnel,
 }: {
   slug: string;
   active: number;
+  phase: CreativePatternPhase;
+  funnel: FunnelView;
 }) {
   return (
     <div className="inline-flex rounded-full border border-border bg-card p-1 text-xs">
       {WINDOWS.map((days) => (
         <Link
           key={days}
-          href={`/dashboard/clients/${slug}/patterns?window=${days}`}
+          href={patternsHref(slug, days, phase, funnel)}
           className={`rounded-full px-3 py-1.5 transition-colors ${
             active === days
               ? "bg-foreground text-background"
@@ -251,7 +300,76 @@ function TimeframeToggle({
   );
 }
 
-function PatternTile({ row }: { row: TileRow }) {
+function PhaseToggle({
+  slug,
+  windowDays,
+  active,
+  funnel,
+}: {
+  slug: string;
+  windowDays: number;
+  active: CreativePatternPhase;
+  funnel: FunnelView;
+}) {
+  return (
+    <div className="inline-flex rounded-full border border-border bg-card p-1 text-xs">
+      {PHASES.map((phase) => (
+        <Link
+          key={phase}
+          href={patternsHref(slug, windowDays, phase, funnel)}
+          className={`rounded-full px-3 py-1.5 transition-colors ${
+            active === phase
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {phaseLabel(phase)}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function FunnelToggle({
+  slug,
+  windowDays,
+  phase,
+  active,
+}: {
+  slug: string;
+  windowDays: number;
+  phase: CreativePatternPhase;
+  active: FunnelView;
+}) {
+  return (
+    <div className="inline-flex rounded-full border border-border bg-card p-1 text-xs">
+      {FUNNELS.map((funnel) => (
+        <Link
+          key={funnel}
+          href={patternsHref(slug, windowDays, phase, funnel)}
+          className={`rounded-full px-3 py-1.5 transition-colors ${
+            active === funnel
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {funnelLabel(funnel)}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function PatternTile({
+  row,
+  funnel,
+  phase,
+}: {
+  row: TileRow;
+  funnel: FunnelView;
+  phase: CreativePatternPhase;
+}) {
+  const stats = miniStatsForLens(row, funnel, phase);
   return (
     <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -269,10 +387,9 @@ function PatternTile({ row }: { row: TileRow }) {
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
-        <MiniStat label="Spend" value={formatMoney(row.total_spend)} />
-        <MiniStat label="CPA" value={row.cpa != null ? GBP2.format(row.cpa) : "—"} />
-        <MiniStat label="CTR" value={row.ctr != null ? `${row.ctr.toFixed(2)}%` : "—"} />
-        <MiniStat label="Regs" value={NUM.format(row.total_regs)} />
+        {stats.map((stat) => (
+          <MiniStat key={stat.label} label={stat.label} value={stat.value} />
+        ))}
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-2">
@@ -354,8 +471,180 @@ function parseWindow(value: string | undefined): number {
   return WINDOWS.includes(parsed as (typeof WINDOWS)[number]) ? parsed : 90;
 }
 
+function parsePhase(value: string | undefined): CreativePatternPhase {
+  return PHASES.includes(value as CreativePatternPhase)
+    ? (value as CreativePatternPhase)
+    : "ticket_sale";
+}
+
+function parseFunnel(value: string | undefined): FunnelView {
+  return FUNNELS.includes(value as FunnelView) ? (value as FunnelView) : "bottom";
+}
+
+function patternsHref(
+  slug: string,
+  windowDays: number,
+  phase: CreativePatternPhase,
+  funnel: FunnelView,
+): string {
+  const sp = new URLSearchParams({
+    window: String(windowDays),
+    phase,
+    funnel,
+  });
+  return `/dashboard/clients/${slug}/patterns?${sp.toString()}`;
+}
+
+function phaseLabel(phase: CreativePatternPhase): string {
+  return phase === "registration" ? "Registration" : "Ticket Sale";
+}
+
+function funnelLabel(funnel: FunnelView): string {
+  if (funnel === "top") return "Top";
+  if (funnel === "mid") return "Mid";
+  return "Bottom";
+}
+
+function sortRowsForFunnel(rows: TileRow[], funnel: FunnelView): TileRow[] {
+  return [...rows].sort((a, b) => {
+    if (funnel === "top") return ascMetric(a.cpm, b.cpm);
+    if (funnel === "mid") return ascMetric(a.cpc, b.cpc);
+    return ascMetric(a.cpa, b.cpa);
+  });
+}
+
+function ascMetric(a: number | null, b: number | null): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a - b;
+}
+
+function miniStatsForLens(
+  row: TileRow,
+  funnel: FunnelView,
+  phase: CreativePatternPhase,
+): Array<{ label: string; value: string }> {
+  if (funnel === "top") {
+    return [
+      { label: "CPM", value: moneyOrDash(row.cpm) },
+      { label: "CTR", value: pctOrDash(row.ctr) },
+      { label: "Freq", value: numberOrDash(row.frequency, 2) },
+      { label: "Reach", value: NUM.format(row.total_reach) },
+    ];
+  }
+  if (funnel === "mid") {
+    return [
+      { label: "CPC", value: moneyOrDash(row.cpc) },
+      { label: "CPLPV", value: moneyOrDash(row.cplpv) },
+      { label: "CTR", value: pctOrDash(row.ctr) },
+      { label: "LPV", value: NUM.format(row.lpv_count) },
+    ];
+  }
+  if (phase === "registration") {
+    return [
+      { label: "CPReg", value: moneyOrDash(row.cpreg) },
+      { label: "CPP", value: moneyOrDash(row.cpp) },
+      { label: "ROAS", value: roasOrDash(row.roas) },
+      { label: "Regs", value: NUM.format(row.total_regs) },
+    ];
+  }
+  return [
+    { label: "CPA", value: moneyOrDash(row.cpa) },
+    { label: "CPP", value: moneyOrDash(row.cpp) },
+    { label: "ROAS", value: roasOrDash(row.roas) },
+    { label: "Purch", value: NUM.format(row.total_purchases) },
+  ];
+}
+
+function bestDimensionLabel(
+  funnel: FunnelView,
+  phase: CreativePatternPhase,
+): string {
+  if (funnel === "top") return "Cheapest CPM dimension";
+  if (funnel === "mid") return "Lowest CPC dimension";
+  return phase === "registration"
+    ? "Lowest CPReg dimension"
+    : "Lowest CPA dimension";
+}
+
+function bestDimensionForLens(
+  dimensions: ClientCreativePatternsResult["dimensions"],
+  funnel: FunnelView,
+  phase: CreativePatternPhase,
+): { dimension: CreativeTagDimension; sub: string } | null {
+  let best: { dimension: CreativeTagDimension; value: number; sub: string } | null =
+    null;
+  for (const dimension of dimensions) {
+    const value = dimensionMetricForLens(dimension.values, funnel, phase);
+    if (value == null) continue;
+    if (!best || value < best.value) {
+      best = {
+        dimension: dimension.dimension,
+        value,
+        sub: dimensionMetricLabel(value, funnel, phase),
+      };
+    }
+  }
+  return best;
+}
+
+function dimensionMetricForLens(
+  rows: TileRow[],
+  funnel: FunnelView,
+  phase: CreativePatternPhase,
+): number | null {
+  const spend = rows.reduce((sum, row) => sum + row.total_spend, 0);
+  if (spend <= 0) return null;
+  if (funnel === "top") {
+    const impressions = rows.reduce((sum, row) => sum + row.total_impressions, 0);
+    return impressions > 0 ? (spend / impressions) * 1000 : null;
+  }
+  if (funnel === "mid") {
+    const clicks = rows.reduce((sum, row) => sum + row.total_clicks, 0);
+    return clicks > 0 ? spend / clicks : null;
+  }
+  if (phase === "registration") {
+    const regs = rows.reduce((sum, row) => sum + row.total_regs, 0);
+    return regs > 0 ? spend / regs : null;
+  }
+  const acquisitions = rows.reduce(
+    (sum, row) => sum + row.total_purchases + row.total_regs,
+    0,
+  );
+  return acquisitions > 0 ? spend / acquisitions : null;
+}
+
+function dimensionMetricLabel(
+  value: number,
+  funnel: FunnelView,
+  phase: CreativePatternPhase,
+): string {
+  if (funnel === "top") return `${GBP2.format(value)} CPM`;
+  if (funnel === "mid") return `${GBP2.format(value)} CPC`;
+  return phase === "registration"
+    ? `${GBP2.format(value)} CPReg`
+    : `${GBP2.format(value)} CPA`;
+}
+
 function formatMoney(value: number): string {
   return GBP.format(value);
+}
+
+function moneyOrDash(value: number | null): string {
+  return value == null || !Number.isFinite(value) ? "—" : GBP2.format(value);
+}
+
+function pctOrDash(value: number | null): string {
+  return value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(2)}%`;
+}
+
+function numberOrDash(value: number | null, digits: number): string {
+  return value == null || !Number.isFinite(value) ? "—" : value.toFixed(digits);
+}
+
+function roasOrDash(value: number | null): string {
+  return value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(2)}×`;
 }
 
 function formatDateRange(since: string, until: string): string {
