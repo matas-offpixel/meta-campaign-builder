@@ -11,6 +11,10 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  searchTicketingEvents,
+  type SearchableTicketingEvent,
+} from "@/lib/ticketing/event-search";
 
 /**
  * components/dashboard/clients/ticketing-link-discovery.tsx
@@ -31,11 +35,9 @@ import { Card } from "@/components/ui/card";
  *      doing a full refetch — the operator keeps a live list of what's
  *      still outstanding.
  *
- * We deliberately avoid per-row inline edits for the external event
- * selection. Operators should either (a) use one of the top candidates
- * or (b) drop into the per-event `EventbriteLinkPanel` for a bespoke
- * link. Giving them a third, bespoke "type the external id" flow here
- * tripled the code-path count with little gain.
+ * Rows keep auto-matching as the happy path and expose client-side
+ * search across the full provider event list as the escape hatch for
+ * odd venue payloads.
  */
 
 interface CandidateRow {
@@ -82,6 +84,7 @@ interface DiscoveryResponse {
   clientId?: string;
   clientName?: string;
   events?: EventRow[];
+  externalEvents?: SearchableTicketingEvent[];
   connections?: ConnectionRow[];
   unlinkedEventCount?: number;
   totalEventCount?: number;
@@ -108,7 +111,10 @@ interface BulkLinkResponse {
   }>;
 }
 
-type SelectionState = Record<string, { externalEventId: string; checked: boolean }>;
+type SelectionState = Record<
+  string,
+  { externalEventId: string; connectionId: string; checked: boolean }
+>;
 
 interface LinkSelection {
   eventId: string;
@@ -160,6 +166,10 @@ function confidenceClasses(score: number): string {
   return "text-muted-foreground";
 }
 
+function externalEventKey(connectionId: string, externalEventId: string): string {
+  return `${connectionId}:${externalEventId}`;
+}
+
 function isAutoSelectable(candidate: CandidateRow | undefined): boolean {
   return Boolean(
     candidate &&
@@ -175,6 +185,7 @@ function seedSelectionsFromEvents(events: EventRow[]): SelectionState {
     if (top) {
       initial[row.eventId] = {
         externalEventId: top.externalEventId,
+        connectionId: top.connectionId,
         checked: isAutoSelectable(top),
       };
     }
@@ -238,6 +249,10 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
   }, [fetchDiscovery]);
 
   const events = useMemo(() => payload?.events ?? [], [payload?.events]);
+  const externalEvents = useMemo(
+    () => payload?.externalEvents ?? [],
+    [payload?.externalEvents],
+  );
   const connections = useMemo(
     () => payload?.connections ?? [],
     [payload?.connections],
@@ -282,18 +297,51 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     });
   };
 
-  const toggleRow = (eventId: string, externalEventId: string) => {
+  const selectExternalEvent = (
+    eventId: string,
+    event: Pick<SearchableTicketingEvent, "externalEventId" | "connectionId">,
+  ) => {
+    setSelections((prev) => ({
+      ...prev,
+      [eventId]: {
+        externalEventId: event.externalEventId,
+        connectionId: event.connectionId,
+        checked: true,
+      },
+    }));
+  };
+
+  const toggleSelectedRow = (eventId: string) => {
     setSelections((prev) => {
       const cur = prev[eventId];
-      if (cur && cur.externalEventId === externalEventId) {
+      if (!cur) return prev;
+      return {
+        ...prev,
+        [eventId]: { ...cur, checked: !cur.checked },
+      };
+    });
+  };
+
+  const toggleCandidate = (eventId: string, candidate: CandidateRow) => {
+    setSelections((prev) => {
+      const cur = prev[eventId];
+      if (
+        cur &&
+        cur.externalEventId === candidate.externalEventId &&
+        cur.connectionId === candidate.connectionId
+      ) {
         return {
           ...prev,
-          [eventId]: { externalEventId, checked: !cur.checked },
+          [eventId]: { ...cur, checked: !cur.checked },
         };
       }
       return {
         ...prev,
-        [eventId]: { externalEventId, checked: true },
+        [eventId]: {
+          externalEventId: candidate.externalEventId,
+          connectionId: candidate.connectionId,
+          checked: true,
+        },
       };
     });
   };
@@ -393,11 +441,14 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     }
   };
 
-  const candidateToSelection = (eventId: string, candidate: CandidateRow) => ({
+  const externalEventToSelection = (
+    eventId: string,
+    event: SearchableTicketingEvent | CandidateRow,
+  ) => ({
     eventId,
-    connectionId: candidate.connectionId,
-    externalEventId: candidate.externalEventId,
-    externalEventUrl: candidate.externalEventUrl,
+    connectionId: event.connectionId,
+    externalEventId: event.externalEventId,
+    externalEventUrl: event.externalEventUrl,
   });
 
   const onAutoLinkAll = () => {
@@ -415,11 +466,19 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     for (const row of events) {
       const sel = selections[row.eventId];
       if (!sel?.checked) continue;
-      const candidate = row.candidates.find(
-        (c) => c.externalEventId === sel.externalEventId,
+      const event = externalEvents.find(
+        (external) =>
+          external.externalEventId === sel.externalEventId &&
+          external.connectionId === sel.connectionId,
       );
-      if (!candidate) continue;
-      rows.push(candidateToSelection(row.eventId, candidate));
+      const candidate = row.candidates.find(
+        (c) =>
+          c.externalEventId === sel.externalEventId &&
+          c.connectionId === sel.connectionId,
+      );
+      const selected = event ?? candidate;
+      if (!selected) continue;
+      rows.push(externalEventToSelection(row.eventId, selected));
     }
     await linkRows(rows);
   };
@@ -684,23 +743,38 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                 {events.map((row) => {
                   const sel = selections[row.eventId];
                   const selectedCandidate = row.candidates.find(
-                    (c) => c.externalEventId === sel?.externalEventId,
+                    (c) =>
+                      c.externalEventId === sel?.externalEventId &&
+                      c.connectionId === sel?.connectionId,
+                  );
+                  const selectedExternalEvent = externalEvents.find(
+                    (external) =>
+                      external.externalEventId === sel?.externalEventId &&
+                      external.connectionId === sel?.connectionId,
                   );
                   return (
                     <EventDiscoveryRow
                       key={row.eventId}
                       row={row}
-                      selectedCandidateId={sel?.externalEventId ?? null}
+                      selectedExternalKey={
+                        sel
+                          ? externalEventKey(sel.connectionId, sel.externalEventId)
+                          : null
+                      }
                       checked={Boolean(sel?.checked)}
                       disabled={submitting}
-                      onToggle={toggleRow}
+                      externalEvents={externalEvents}
+                      onToggleCandidate={toggleCandidate}
+                      onSelectExternalEvent={selectExternalEvent}
+                      onToggleSelected={toggleSelectedRow}
                       onLinkCandidate={(candidate) =>
                         void linkRows([
-                          candidateToSelection(row.eventId, candidate),
+                          externalEventToSelection(row.eventId, candidate),
                         ])
                       }
                       linking={linkingEventIds.has(row.eventId)}
                       selectedCandidate={selectedCandidate ?? null}
+                      selectedExternalEvent={selectedExternalEvent ?? null}
                     />
                   );
                 })}
@@ -715,27 +789,43 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
 
 interface RowProps {
   row: EventRow;
-  selectedCandidateId: string | null;
+  selectedExternalKey: string | null;
   checked: boolean;
   disabled: boolean;
   linking: boolean;
   selectedCandidate: CandidateRow | null;
-  onToggle: (eventId: string, externalEventId: string) => void;
+  selectedExternalEvent: SearchableTicketingEvent | null;
+  externalEvents: SearchableTicketingEvent[];
+  onToggleCandidate: (eventId: string, candidate: CandidateRow) => void;
+  onSelectExternalEvent: (
+    eventId: string,
+    event: Pick<SearchableTicketingEvent, "externalEventId" | "connectionId">,
+  ) => void;
+  onToggleSelected: (eventId: string) => void;
   onLinkCandidate: (candidate: CandidateRow) => void;
 }
 
 function EventDiscoveryRow({
   row,
-  selectedCandidateId,
+  selectedExternalKey,
   checked,
   disabled,
   linking,
   selectedCandidate,
-  onToggle,
+  selectedExternalEvent,
+  externalEvents,
+  onToggleCandidate,
+  onSelectExternalEvent,
+  onToggleSelected,
   onLinkCandidate,
 }: RowProps) {
   const hasCandidates = row.candidates.length > 0;
+  const [searchQuery, setSearchQuery] = useState("");
   const [debugOpen, setDebugOpen] = useState<Set<string>>(() => new Set());
+  const searchResults = useMemo(
+    () => searchTicketingEvents(externalEvents, searchQuery, 10),
+    [externalEvents, searchQuery],
+  );
   const toggleDebug = (externalEventId: string) => {
     setDebugOpen((prev) => {
       const next = new Set(prev);
@@ -755,26 +845,39 @@ function EventDiscoveryRow({
           {fmtDate(row.eventDate)}
         </td>
         <td className="px-4 py-3 text-muted-foreground">
-          {hasCandidates ? (
-            <div className="space-y-1">
+          <div className="space-y-3">
+            {hasCandidates ? (
+              <div className="space-y-1">
               <select
-                value={selectedCandidateId ?? ""}
+                value={selectedExternalKey ?? ""}
                 disabled={disabled}
                 onChange={(event) => {
                   if (!event.target.value) return;
-                  onToggle(row.eventId, event.target.value);
+                  const candidate = row.candidates.find(
+                    (c) =>
+                      externalEventKey(c.connectionId, c.externalEventId) ===
+                      event.target.value,
+                  );
+                  if (candidate) onToggleCandidate(row.eventId, candidate);
                 }}
                 className="mb-2 h-8 w-full max-w-md rounded-md border border-border bg-background px-2 text-xs text-foreground"
               >
                 <option value="">Pick a candidate…</option>
                 {row.candidates.map((c) => (
-                  <option key={c.externalEventId} value={c.externalEventId}>
+                  <option
+                    key={externalEventKey(c.connectionId, c.externalEventId)}
+                    value={externalEventKey(c.connectionId, c.externalEventId)}
+                  >
                     {fmtConfidence(c.confidence)} · {c.externalEventName}
                   </option>
                 ))}
               </select>
               {row.candidates.slice(0, 3).map((c) => {
-                const isSelected = c.externalEventId === selectedCandidateId;
+                const candidateKey = externalEventKey(
+                  c.connectionId,
+                  c.externalEventId,
+                );
+                const isSelected = candidateKey === selectedExternalKey;
                 const isDebugOpen = debugOpen.has(c.externalEventId);
                 return (
                   <div
@@ -784,17 +887,17 @@ function EventDiscoveryRow({
                     <input
                       type="radio"
                       name={`candidate-${row.eventId}`}
-                      value={c.externalEventId}
+                      value={candidateKey}
                       checked={isSelected}
                       disabled={disabled}
-                      onChange={() => onToggle(row.eventId, c.externalEventId)}
+                      onChange={() => onToggleCandidate(row.eventId, c)}
                       className="mt-1"
                     />
                     <span className="flex-1">
                       <button
                         type="button"
                         className="block text-left text-foreground hover:underline"
-                        onClick={() => onToggle(row.eventId, c.externalEventId)}
+                        onClick={() => onToggleCandidate(row.eventId, c)}
                       >
                         {c.externalEventName}
                       </button>
@@ -842,22 +945,96 @@ function EventDiscoveryRow({
                   …{row.candidates.length - 3} more below threshold
                 </p>
               ) : null}
+              </div>
+            ) : row.skipReason ? (
+              <span className="text-xs italic text-yellow-600">
+                {row.skipReason}
+              </span>
+            ) : (
+              <span className="text-xs italic text-muted-foreground">
+                No candidates above 55% confidence
+              </span>
+            )}
+            <div className="rounded-md border border-dashed border-border bg-background/70 p-2">
+              <label className="block text-[11px] font-medium text-foreground">
+                Or search:
+              </label>
+              <input
+                type="search"
+                value={searchQuery}
+                disabled={disabled}
+                placeholder="e.g. Tottenham England v Croatia"
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="mt-1 h-8 w-full max-w-md rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              />
+              {searchQuery.trim() ? (
+                <div className="mt-2 max-w-md rounded-md border border-primary/30 bg-primary/5 p-1">
+                  {searchResults.length > 0 ? (
+                    <ul className="max-h-56 overflow-y-auto">
+                      {searchResults.map((result) => {
+                        const resultKey = externalEventKey(
+                          result.connectionId,
+                          result.externalEventId,
+                        );
+                        const isSelected = resultKey === selectedExternalKey;
+                        return (
+                          <li key={resultKey}>
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => {
+                                onSelectExternalEvent(row.eventId, result);
+                                setSearchQuery("");
+                              }}
+                              className={`block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-primary/10 ${
+                                isSelected
+                                  ? "bg-primary/10 text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              <span className="block font-medium text-foreground">
+                                {result.externalEventName}
+                              </span>
+                              <span className="block font-mono text-[10px]">
+                                {result.connectionProvider} ·{" "}
+                                {result.externalEventId}
+                                {result.externalEventStartsAt
+                                  ? ` · ${fmtDate(result.externalEventStartsAt)}`
+                                  : ""}
+                              </span>
+                              {result.externalVenue ? (
+                                <span className="block text-[11px]">
+                                  {result.externalVenue}
+                                </span>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                      No 4thefans events found.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {selectedExternalEvent && !selectedCandidate ? (
+                <p className="mt-2 text-[11px] font-medium text-primary">
+                  Search pick: {selectedExternalEvent.externalEventName} ·{" "}
+                  {selectedExternalEvent.externalEventId}
+                </p>
+              ) : null}
             </div>
-          ) : row.skipReason ? (
-            <span className="text-xs italic text-yellow-600">
-              {row.skipReason}
-            </span>
-          ) : (
-            <span className="text-xs italic text-muted-foreground">
-              No candidates above 55% confidence
-            </span>
-          )}
+          </div>
         </td>
         <td className="px-4 py-3 text-right font-mono">
           {selectedCandidate ? (
             <span className={confidenceClasses(selectedCandidate.confidence)}>
               {fmtConfidence(selectedCandidate.confidence)}
             </span>
+          ) : selectedExternalEvent ? (
+            <span className="text-primary">Manual</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
@@ -867,11 +1044,8 @@ function EventDiscoveryRow({
             <input
               type="checkbox"
               checked={checked}
-              disabled={disabled || !hasCandidates || !selectedCandidateId}
-              onChange={() => {
-                if (!selectedCandidateId) return;
-                onToggle(row.eventId, selectedCandidateId);
-              }}
+              disabled={disabled || !selectedExternalKey}
+              onChange={() => onToggleSelected(row.eventId)}
             />
             {selectedCandidate ? (
               <Button
