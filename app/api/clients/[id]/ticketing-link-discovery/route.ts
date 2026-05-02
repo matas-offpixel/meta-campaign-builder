@@ -14,6 +14,7 @@ import {
   type InternalEventForMatching,
   type MatchResult,
 } from "@/lib/ticketing/link-discovery";
+import type { SearchableTicketingEvent } from "@/lib/ticketing/event-search";
 
 /**
  * GET /api/clients/[id]/ticketing-link-discovery
@@ -123,10 +124,11 @@ export async function GET(
   const eventIds = eventRows.map((e) => e.id);
 
   let linkedEventIds: Set<string> = new Set();
+  const linkedExternalKeys = new Set<string>();
   if (eventIds.length > 0) {
     const { data: links, error: linksErr } = await supabase
       .from("event_ticketing_links")
-      .select("event_id")
+      .select("event_id, ticketing_connection_id, external_event_id")
       .in("event_id", eventIds);
     if (linksErr) {
       return NextResponse.json(
@@ -137,6 +139,17 @@ export async function GET(
     linkedEventIds = new Set(
       (links ?? []).map((r) => (r as { event_id: string }).event_id),
     );
+    for (const link of links ?? []) {
+      const row = link as {
+        ticketing_connection_id: string | null;
+        external_event_id: string | null;
+      };
+      if (row.ticketing_connection_id && row.external_event_id) {
+        linkedExternalKeys.add(
+          `${row.ticketing_connection_id}:${row.external_event_id}`,
+        );
+      }
+    }
   }
 
   const unlinkedEvents = eventRows.filter((e) => !linkedEventIds.has(e.id));
@@ -157,6 +170,7 @@ export async function GET(
     string,
     ExternalEventForMatching[]
   >();
+  const searchableExternalEvents: SearchableTicketingEvent[] = [];
 
   for (const connection of connections) {
     const diag: ConnectionDiagnostic = {
@@ -197,6 +211,20 @@ export async function GET(
         status: ev.status,
       }));
       externalsByConnection.set(connection.id, mapped);
+      for (const ev of mapped) {
+        const key = `${connection.id}:${ev.externalEventId}`;
+        if (linkedExternalKeys.has(key)) continue;
+        searchableExternalEvents.push({
+          externalEventId: ev.externalEventId,
+          externalEventName: ev.name,
+          externalEventStartsAt: ev.startsAt,
+          externalEventUrl: ev.url,
+          externalVenue: ev.venue ?? null,
+          externalCapacity: ev.capacity ?? null,
+          connectionId: connection.id,
+          connectionProvider: connection.provider,
+        });
+      }
       diag.externalEventCount = mapped.length;
     } catch (err) {
       if (err instanceof TicketingProviderDisabledError) {
@@ -285,6 +313,7 @@ export async function GET(
     clientId: id,
     clientName: client.name,
     events: events_out,
+    externalEvents: searchableExternalEvents,
     connections: diagnostics,
     unlinkedEventCount: unlinkedEvents.length,
     totalEventCount: eventRows.length,
