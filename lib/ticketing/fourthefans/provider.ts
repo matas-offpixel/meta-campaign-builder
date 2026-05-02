@@ -58,7 +58,7 @@ export class FourthefansProvider implements TicketingProvider {
             err.status === 401
               ? "4thefans rejected the API key. Check it was copied in full and has agency event read access."
               : err.status === 429
-                ? "4thefans rate-limited the connection test. Wait a minute and try again."
+                ? rateLimitMessage(err.retryAfterMs)
                 : `4thefans error (${err.status}): ${err.message}`,
         };
       }
@@ -153,4 +153,10 @@ function safeJsonLength(payload: unknown): number {
   } catch {
     return 0;
   }
+}
+
+function rateLimitMessage(retryAfterMs: number | null): string {
+  const seconds =
+    retryAfterMs == null ? 60 : Math.max(1, Math.ceil(retryAfterMs / 1000));
+  return `Rate limit exceeded. Retry in ${seconds}s.`;
 }

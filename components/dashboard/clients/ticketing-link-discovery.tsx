@@ -63,6 +63,7 @@ interface EventRow {
   eventName: string;
   eventDate: string | null;
   venueName: string | null;
+  skipReason: string | null;
   candidates: CandidateRow[];
 }
 
@@ -91,6 +92,8 @@ interface BulkLinkResponse {
   error?: string;
   linkedCount?: number;
   failedCount?: number;
+  syncQueuedCount?: number;
+  throttled?: boolean;
   syncWarningCount?: number;
   results?: Array<{
     eventId: string;
@@ -124,6 +127,8 @@ interface LinkSummary {
     reason: string;
   }>;
   retryRows: LinkSelection[];
+  syncQueued: number;
+  throttled: boolean;
 }
 
 const AUTO_CONFIRM_THRESHOLD = 0.9;
@@ -309,6 +314,8 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
         failures,
         syncWarnings,
         retryRows,
+        syncQueued: json.syncQueuedCount ?? 0,
+        throttled: Boolean(json.throttled),
       });
 
       // Strip the successful links from the local table. A full refetch
@@ -498,7 +505,18 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                       summary.syncWarnings.length === 1 ? "" : "s"
                     } needs attention.`
                   : ""}
+                {summary.syncQueued > 0 && summary.syncWarnings.length === 0
+                  ? `. Syncing ${summary.syncQueued} ticket update${
+                      summary.syncQueued === 1 ? "" : "s"
+                    } in background.`
+                  : ""}
               </p>
+              {summary.throttled ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Throttled to respect 4thefans rate limits — sync continues in
+                  background.
+                </p>
+              ) : null}
               {summary.failures.length > 0 ? (
                 <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
                   {summary.failures.map((f) => (
@@ -752,6 +770,10 @@ function EventDiscoveryRow({
                 </p>
               ) : null}
             </div>
+          ) : row.skipReason ? (
+            <span className="text-xs italic text-yellow-600">
+              {row.skipReason}
+            </span>
           ) : (
             <span className="text-xs italic text-muted-foreground">
               No candidates above 55% confidence

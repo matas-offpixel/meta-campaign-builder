@@ -59,16 +59,19 @@ describe("extractOpponentName", () => {
     );
   });
 
-  it("returns null for knockout-labelled events", () => {
-    assert.equal(extractOpponentName("Last 32"), null);
-    assert.equal(extractOpponentName("England Quarter Final"), null);
-    assert.equal(extractOpponentName("Semi-Final"), null);
+  it("returns stage labels for knockout-labelled events", () => {
+    assert.equal(extractOpponentName("Last 32"), "last 32");
+    assert.equal(extractOpponentName("England Last 32"), "last 32");
+    assert.equal(extractOpponentName("England - Round of 16"), "round of 16");
+    assert.equal(extractOpponentName("England Quarter Final"), "quarter final");
+    assert.equal(extractOpponentName("England - Semi Final"), "semi final");
+    assert.equal(extractOpponentName("England - Final"), "final");
     // Even when a separator is present, a knockout marker elsewhere
     // in the name takes precedence — operators tag TBD knockouts as
     // "England v Winner Group B - Last 16".
     assert.equal(
       extractOpponentName("England v Winner Group B - Last 16"),
-      null,
+      "round of 16",
     );
   });
 

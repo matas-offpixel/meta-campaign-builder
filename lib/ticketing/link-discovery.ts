@@ -79,6 +79,7 @@ export interface MatchResult {
   eventName: string;
   eventDate: string | null;
   venueName: string | null;
+  skipReason: string | null;
   candidates: MatchCandidate[];
 }
 
@@ -141,6 +142,11 @@ const HOME_TEAMS = new Set(["england", "scotland", "wales", "northern ireland"])
 
 const KNOCKOUT_LABEL_RE =
   /\b(?:last\s*32|last\s*16|round\s*of\s*16|quarter(?:\s*final)?|semi(?:\s*final)?|final|knockout)\b/i;
+const UMBRELLA_CAMPAIGN_RE =
+  /\b(?:presale\s+campaign|pre\s*sale\s+campaign|on\s*sale\s+campaign|title\s+run\s+in)\b/i;
+const NO_OPPONENT_MIN_SCORE = 0.75;
+const UMBRELLA_SKIP_REASON =
+  "This appears to be a campaign-level row. Skip linking unless you have a specific 4thefans event.";
 
 const WEIGHTS_WITH_OPPONENT = {
   venue: 0.55,
@@ -260,6 +266,14 @@ export function opponentLabelForMatching(name: string): string | null {
   return nonHome.length === 1 ? nonHome[0] : null;
 }
 
+export function isUmbrellaCampaignEvent(
+  event: InternalEventForMatching,
+): boolean {
+  const hasOpponent = Boolean(opponentLabelForMatching(event.name));
+  if (UMBRELLA_CAMPAIGN_RE.test(event.name)) return true;
+  return !hasOpponent && !event.event_date && /\bcampaign\b/i.test(event.name);
+}
+
 function tokenSet(
   value: string | null | undefined,
   stopwords: Set<string>,
@@ -368,7 +382,10 @@ export function scoreCandidatesForEvent(
     options.autoConfirmThreshold ?? DEFAULTS.autoConfirmThreshold;
   const autoConfirmVenueThreshold =
     options.autoConfirmVenueThreshold ?? DEFAULTS.autoConfirmVenueThreshold;
+  if (isUmbrellaCampaignEvent(event)) return [];
   const internalVenue = internalVenueLabel(event);
+  const internalOpponent = opponentLabelForMatching(event.name);
+  const effectiveMinScore = internalOpponent ? minScore : Math.max(minScore, NO_OPPONENT_MIN_SCORE);
 
   const scored: MatchCandidate[] = [];
   for (const ext of externals) {
@@ -380,7 +397,6 @@ export function scoreCandidatesForEvent(
       stripExternalVenuePrefix(ext.name),
       NAME_STOPWORDS,
     );
-    const internalOpponent = opponentLabelForMatching(event.name);
     const externalOpponent = opponentLabelForMatching(ext.name);
     const hasOpponentScore = Boolean(internalOpponent && externalOpponent);
     const opponentScore = hasOpponentScore
@@ -394,7 +410,7 @@ export function scoreCandidatesForEvent(
       : venueScore * WEIGHTS_WITHOUT_OPPONENT.venue +
         dateScore * WEIGHTS_WITHOUT_OPPONENT.date +
         nameScore * WEIGHTS_WITHOUT_OPPONENT.name;
-    if (confidence < minScore) continue;
+    if (confidence < effectiveMinScore) continue;
     const capacityMatch = capacityWithinFivePercent(
       event.capacity,
       ext.capacity,
@@ -467,6 +483,7 @@ export function discoverMatches(
     eventName: event.name,
     eventDate: event.event_date,
     venueName: event.venue_name,
+    skipReason: isUmbrellaCampaignEvent(event) ? UMBRELLA_SKIP_REASON : null,
     candidates: scoreCandidatesForEvent(event, externals, options),
   }));
 }

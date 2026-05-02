@@ -6,6 +6,7 @@ import {
   composeMatchableInternalLabel,
   datesWithinWindow,
   discoverMatches,
+  isUmbrellaCampaignEvent,
   opponentLabelForMatching,
   scoreCandidatesForEvent,
   venueScoreForMatching,
@@ -119,7 +120,47 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(opponentLabelForMatching("Scotland v Brazil"), "brazil");
     assert.equal(opponentLabelForMatching("Croatia v England"), "croatia");
     assert.equal(opponentLabelForMatching("England - Last 32"), "last 32");
+    assert.equal(opponentLabelForMatching("England Last 32"), "last 32");
     assert.equal(opponentLabelForMatching("Bristol – England v Panama"), "panama");
+  });
+
+  it("does not surface candidates for umbrella campaign-level rows", () => {
+    const internal = intEv({
+      id: "london-presale",
+      name: "WC26 London Presale Campaign",
+      event_date: null,
+      venue_name: "London FanPark",
+      venue_city: "London",
+    });
+    const externals = [
+      extEv({
+        externalEventId: "chelsea-final",
+        name: "Chelsea FanPark – FA Cup Final",
+        startsAt: "2026-05-16",
+        venue: "The Steel Yard, London",
+      }),
+    ];
+    assert.equal(isUmbrellaCampaignEvent(internal), true);
+    assert.equal(scoreCandidatesForEvent(internal, externals).length, 0);
+  });
+
+  it("raises the surface threshold for local events without an opponent", () => {
+    const internal = intEv({
+      id: "generic-london",
+      name: "London FanPark",
+      event_date: null,
+      venue_name: "London FanPark",
+      venue_city: "London",
+    });
+    const externals = [
+      extEv({
+        externalEventId: "chelsea-final",
+        name: "Chelsea FanPark – FA Cup Final",
+        startsAt: "2026-05-16",
+        venue: "The Steel Yard, London",
+      }),
+    ];
+    assert.equal(scoreCandidatesForEvent(internal, externals).length, 0);
   });
 
   it("returns no candidates when every external score is below minScore", () => {
@@ -343,6 +384,65 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(last32[0]?.externalEventId, "4194");
     assert.ok((last32[0]?.confidence ?? 0) > 0.85);
     assert.equal(last32[0]?.opponentScore, 1);
+  });
+
+  it("matches stage labels to stage labels instead of wrong opponents", () => {
+    const manchester = scoreCandidatesForEvent(
+      intEv({
+        id: "manchester-last-32",
+        name: "England - Last 32",
+        event_date: "2026-06-30",
+        venue_name: "Depot Mayfield",
+        venue_city: "Manchester",
+      }),
+      [
+        extEv({
+          externalEventId: "m-ghana",
+          name: "Depot Mayfield · Manchester – England v Ghana",
+          startsAt: "2026-06-27",
+          venue: "Depot Mayfield, Manchester",
+        }),
+        extEv({
+          externalEventId: "m-last-32",
+          name: "Depot Mayfield · Manchester – Last 32",
+          startsAt: "2026-06-30",
+          venue: "Depot Mayfield, Manchester",
+        }),
+      ],
+    );
+    assert.equal(manchester[0]?.externalEventId, "m-last-32");
+    assert.equal(manchester[0]?.opponentScore, 1);
+    assert.equal(manchester[0]?.autoConfirm, true);
+    assert.ok(
+      manchester
+        .filter((candidate) => candidate.externalEventId !== "m-last-32")
+        .every((candidate) => !candidate.autoConfirm),
+    );
+
+    const bristol = scoreCandidatesForEvent(
+      intEv({
+        id: "bristol-last-32-regression",
+        name: "England - Last 32",
+        event_date: "2026-06-30",
+        venue_name: "Prospect Building",
+        venue_city: "Bristol",
+      }),
+      [
+        extEv({
+          externalEventId: "3276",
+          name: "Bristol – England v Croatia",
+          startsAt: "2026-06-17",
+          venue: "The Prospect Building, Bristol",
+        }),
+        extEv({
+          externalEventId: "4194",
+          name: "Bristol – Last 32",
+          startsAt: "2026-06-30",
+          venue: "The Prospect Building, Bristol",
+        }),
+      ],
+    );
+    assert.equal(bristol[0]?.externalEventId, "4194");
   });
 
   it("matches all Shoreditch events when provider venue includes building prefix", () => {

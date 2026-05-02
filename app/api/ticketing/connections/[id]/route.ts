@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   deleteConnection,
   getConnectionById,
+  getConnectionWithDecryptedCredentials,
   setConnectionStatus,
   upsertConnection,
 } from "@/lib/db/ticketing";
@@ -32,6 +33,7 @@ const ALLOWED_STATUSES: TicketingConnectionStatus[] = [
 interface PatchBody {
   credentials?: unknown;
   status?: unknown;
+  retry?: unknown;
 }
 
 async function loadOwnedConnection(
@@ -89,6 +91,7 @@ export async function PATCH(
     body.credentials && typeof body.credentials === "object"
       ? (body.credentials as Record<string, unknown>)
       : null;
+  const retry = body.retry === true;
 
   if (status && !ALLOWED_STATUSES.includes(status)) {
     return NextResponse.json(
@@ -98,6 +101,44 @@ export async function PATCH(
       },
       { status: 400 },
     );
+  }
+
+  if (retry && !credentials) {
+    const decrypted = await getConnectionWithDecryptedCredentials(
+      supabase,
+      owned.connection.id,
+    );
+    if (!decrypted) {
+      return NextResponse.json(
+        { ok: false, error: "Connection credentials could not be loaded." },
+        { status: 404 },
+      );
+    }
+    const providerImpl = getProvider(decrypted.provider);
+    const validation = await providerImpl.validateCredentials(
+      decrypted.credentials,
+    );
+    if (!validation.ok) {
+      await setConnectionStatus(
+        supabase,
+        owned.connection.id,
+        "error",
+        validation.error ?? "Provider rejected the credentials.",
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: validation.error ?? "Provider rejected the credentials.",
+        },
+        { status: 400 },
+      );
+    }
+    await setConnectionStatus(supabase, owned.connection.id, "active", null);
+    const updated = await getConnectionById(supabase, owned.connection.id);
+    return NextResponse.json({
+      ok: true,
+      connection: updated ? { ...updated, credentials: null } : null,
+    });
   }
 
   // Credential update path — re-validate via the provider, then upsert.
