@@ -21,6 +21,8 @@ Adds creative-tag performance breakdowns to public share active-creative section
 - [x] `npm test`
 - [x] `npm run lint -- lib/reporting/creative-tag-breakdowns.ts lib/reporting/__tests__/creative-tag-breakdowns.test.ts lib/db/creative-tags.ts components/share/share-creative-tag-breakdowns.tsx components/share/share-active-creatives-section.tsx components/dashboard/events/event-active-creatives-panel.tsx app/api/insights/event/[id]/tag-breakdowns/route.ts`
 - [x] `npx tsc --noEmit`
+- [x] Vercel preview `/share/report/Rul8DeLZBVTZ0kZr`: active creatives render; tag table hidden/no ticketed columns because this awareness event has no assignments.
+- [x] Vercel preview `/share/report/i6MRF2-I789FSxdY`: tag table renders with ticketed `Regs`, `CPR`, and `Purch` columns.
 
 ## Notes
 
