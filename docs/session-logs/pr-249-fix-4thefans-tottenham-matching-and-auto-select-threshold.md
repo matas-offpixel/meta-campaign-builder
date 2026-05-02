@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 249
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/249
 - **Branch:** `fix/4thefans-tottenham-matching-and-auto-select-threshold`
 
 ## Summary
