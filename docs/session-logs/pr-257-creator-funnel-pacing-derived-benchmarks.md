@@ -32,7 +32,11 @@ Fills in the Funnel Pacing sub-tab with auto-derived benchmark targets from sold
 - [x] `node --experimental-strip-types --test lib/reporting/__tests__/funnel-pacing-derive.test.ts`
 - [x] `npm run lint -- 'app/(dashboard)/clients/[id]/dashboard/page.tsx' 'app/(dashboard)/clients/[id]/venues/[event_code]/page.tsx' app/api/cron/funnel-pacing-refresh/route.ts components/dashboard/clients/funnel-pacing-section.tsx components/dashboard/clients/funnel-stage-card.tsx components/dashboard/clients/funnel-creative-pacing.tsx lib/reporting/funnel-pacing.ts lib/reporting/funnel-pacing-derive.ts lib/reporting/__tests__/funnel-pacing-derive.test.ts`
 - [x] `npx tsc --noEmit`
+- [x] Vercel preview deployed successfully.
+- [x] Anonymous preview confirms the internal pacing route remains auth-gated.
+- [x] Public preview `/share/report/i6MRF2-I789FSxdY` still renders the event report and tag performance section.
 - [ ] Migration 069 not applied from this session; Supabase MCP is not available in this tool environment.
+- [ ] Supabase CLI is not installed in this environment (`supabase: command not found`).
 
 ## Notes
 
