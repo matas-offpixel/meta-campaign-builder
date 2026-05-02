@@ -195,7 +195,7 @@ export async function POST(
       .in("id", eventIds),
     supabase
       .from("client_ticketing_connections")
-      .select("id, user_id, client_id")
+      .select("id, user_id, client_id, provider")
       .in("id", connectionIds),
   ]);
 
@@ -228,7 +228,12 @@ export async function POST(
   const connById = new Map(
     (connections ?? []).map((c) => [
       (c as { id: string }).id,
-      c as { id: string; user_id: string; client_id: string | null },
+      c as {
+        id: string;
+        user_id: string;
+        client_id: string | null;
+        provider: string;
+      },
     ]),
   );
 
@@ -281,6 +286,10 @@ export async function POST(
       continue;
     }
     try {
+      const connection = connById.get(p.selection.connectionId);
+      console.info(
+        `[ticketing-link-discovery] upsert attempt client_id=${id} event_id=${p.selection.eventId} connection_id=${p.selection.connectionId} provider=${connection?.provider ?? "<unknown>"} external_event_id=${p.selection.externalEventId}`,
+      );
       const link = await upsertEventLink(supabase, {
         userId: user.id,
         eventId: p.selection.eventId,
@@ -299,6 +308,9 @@ export async function POST(
         });
         continue;
       }
+      console.info(
+        `[ticketing-link-discovery] upsert ok link_id=${(link as { id: string }).id} event_id=${p.selection.eventId} connection_id=${p.selection.connectionId} external_event_id=${p.selection.externalEventId}`,
+      );
       results.push({
         eventId: p.selection.eventId,
         ok: true,
@@ -308,6 +320,11 @@ export async function POST(
         syncError: null,
       });
     } catch (err) {
+      console.warn(
+        `[ticketing-link-discovery] upsert failed event_id=${p.selection.eventId} connection_id=${p.selection.connectionId} external_event_id=${p.selection.externalEventId}: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`,
+      );
       results.push({
         eventId: p.selection.eventId,
         ok: false,
@@ -364,10 +381,11 @@ export async function POST(
               .google_ads_account_id,
           clientGoogleAdsAccountId,
         });
+        const syncOk = sync.summary.synced;
         results[idx] = {
           ...r,
-          syncOk: sync.ok,
-          syncError: sync.ok ? null : "Sync completed with errors",
+          syncOk,
+          syncError: syncOk ? null : "Sync completed with errors",
         };
       } catch (err) {
         results[idx] = {

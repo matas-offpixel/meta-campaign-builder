@@ -6,7 +6,7 @@ import {
   useImperativeHandle,
   useState,
 } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -115,6 +115,7 @@ export const InternalActiveCreativesSection = forwardRef<
   ref,
 ) {
   const [state, setState] = useState<State>({ kind: "idle" });
+  const [refreshing, setRefreshing] = useState(false);
 
   // Reset to idle whenever the report window changes — datePreset OR
   // either bound of customRange. Mirrors `CreativePerformanceLazy`'s
@@ -233,6 +234,18 @@ export const InternalActiveCreativesSection = forwardRef<
     await load({ force: true, markLoadingOnRefresh: false });
   }, [load, state.kind]);
 
+  const handleManualRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await load({ force: true, markLoadingOnRefresh: state.kind !== "loaded" });
+    } catch {
+      // load() already moved the section into an error state.
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load, refreshing, state.kind]);
+
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
   if (state.kind === "idle") {
@@ -297,9 +310,25 @@ export const InternalActiveCreativesSection = forwardRef<
         <h2 className="font-heading text-base tracking-wide text-foreground">
           Active creatives
         </h2>
-        <p className="text-sm text-muted-foreground">
-          No active creatives in this window.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            No active creatives in this window.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleManualRefresh()}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh Creatives
+          </Button>
+        </div>
       </section>
     );
   }
@@ -310,12 +339,28 @@ export const InternalActiveCreativesSection = forwardRef<
         <h2 className="font-heading text-base tracking-wide text-foreground">
           Active creatives
         </h2>
-        <span className="text-xs text-muted-foreground">
-          {state.groups.length} concept{state.groups.length === 1 ? "" : "s"} ·{" "}
-          {state.adsFetched} ad{state.adsFetched === 1 ? "" : "s"} across{" "}
-          {state.campaignsTotal} campaign
-          {state.campaignsTotal === 1 ? "" : "s"}
-        </span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-xs text-muted-foreground">
+            {state.groups.length} concept{state.groups.length === 1 ? "" : "s"} ·{" "}
+            {state.adsFetched} ad{state.adsFetched === 1 ? "" : "s"} across{" "}
+            {state.campaignsTotal} campaign
+            {state.campaignsTotal === 1 ? "" : "s"}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleManualRefresh()}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh Creatives
+          </Button>
+        </div>
       </div>
 
       <ShareActiveCreativesClient groups={state.groups} />

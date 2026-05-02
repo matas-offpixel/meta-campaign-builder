@@ -305,6 +305,9 @@ export async function upsertEventLink(
   input: UpsertLinkInput,
 ): Promise<EventTicketingLink | null> {
   const sb = asAnyTable(supabase);
+  console.info(
+    `[ticketing upsertEventLink] attempt event_id=${input.eventId} connection_id=${input.connectionId} external_event_id=${input.externalEventId}`,
+  );
   const { data, error } = await sb
     .from("event_ticketing_links")
     .upsert(
@@ -321,10 +324,18 @@ export async function upsertEventLink(
     .select("*")
     .maybeSingle();
   if (error) {
-    console.warn("[ticketing upsertEventLink]", error.message);
+    console.warn(
+      `[ticketing upsertEventLink] failed event_id=${input.eventId} connection_id=${input.connectionId} external_event_id=${input.externalEventId}: ${error.message}`,
+    );
     return null;
   }
-  return (data as unknown as EventTicketingLink) ?? null;
+  const link = (data as unknown as EventTicketingLink) ?? null;
+  if (link) {
+    console.info(
+      `[ticketing upsertEventLink] ok link_id=${link.id} event_id=${link.event_id} connection_id=${link.connection_id} external_event_id=${link.external_event_id}`,
+    );
+  }
+  return link;
 }
 
 export async function listLinksForEvent(

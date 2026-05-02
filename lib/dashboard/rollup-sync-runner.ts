@@ -773,6 +773,11 @@ export async function runRollupSyncForEvent(
             );
             continue;
           }
+          if (connection.provider === "fourthefans") {
+            console.info(
+              `[fourthefans-sync] event_id=${eventId} external_id=${link.external_event_id} connection_id=${connection.id}`,
+            );
+          }
           const { rows } =
             connection.provider === "eventbrite"
               ? await fetchDailyOrdersForEvent({
@@ -1041,6 +1046,15 @@ async function fetchCurrentTicketingSnapshotRows(args: {
   );
   const source = snapshotSourceForProvider(args.connection.provider);
   if (source) {
+    const revenue =
+      fetched.grossRevenueCents == null
+        ? 0
+        : Number((fetched.grossRevenueCents / 100).toFixed(2));
+    if (args.connection.provider === "fourthefans") {
+      console.info(
+        `[fourthefans-sync] writing snapshot tickets=${fetched.ticketsSold} revenue=£${revenue.toFixed(2)}`,
+      );
+    }
     const snapshot = await insertSnapshot(args.supabase, {
       userId: args.userId,
       eventId: args.eventId,
