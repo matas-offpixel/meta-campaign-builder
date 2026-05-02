@@ -91,8 +91,12 @@ interface BulkLinkResponse {
   error?: string;
   linkedCount?: number;
   failedCount?: number;
+  syncWarningCount?: number;
   results?: Array<{
     eventId: string;
+    eventName: string | null;
+    externalEventId: string | null;
+    connectionProvider: string | null;
     ok: boolean;
     linkId: string | null;
     syncOk: boolean | null;
@@ -102,6 +106,25 @@ interface BulkLinkResponse {
 }
 
 type SelectionState = Record<string, { externalEventId: string; checked: boolean }>;
+
+interface LinkSelection {
+  eventId: string;
+  connectionId: string;
+  externalEventId: string;
+  externalEventUrl: string | null;
+}
+
+interface LinkSummary {
+  linked: number;
+  failed: number;
+  failures: Array<{ eventId: string; eventName: string | null; reason: string }>;
+  syncWarnings: Array<{
+    eventId: string;
+    eventName: string | null;
+    reason: string;
+  }>;
+  retryRows: LinkSelection[];
+}
 
 const AUTO_CONFIRM_THRESHOLD = 0.9;
 
@@ -144,10 +167,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
   const [linkingEventIds, setLinkingEventIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [summary, setSummary] = useState<
-    | { linked: number; failed: number; failures: Array<{ eventId: string; reason: string }> }
-    | null
-  >(null);
+  const [summary, setSummary] = useState<LinkSummary | null>(null);
 
   const fetchDiscovery = useCallback(
     async (mode: "initial" | "refresh") => {
@@ -231,15 +251,11 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
   };
 
   const linkRows = async (
-    rows: Array<{
-      eventId: string;
-      connectionId: string;
-      externalEventId: string;
-      externalEventUrl: string | null;
-    }>,
+    rows: LinkSelection[],
   ) => {
     if (rows.length === 0) return;
     const rowEventIds = new Set(rows.map((row) => row.eventId));
+    const rowByEventId = new Map(rows.map((row) => [row.eventId, row]));
     setSubmitting(true);
     setLinkingEventIds(rowEventIds);
     setError(null);
@@ -266,14 +282,22 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
         throw new Error(json.error ?? `Request failed (${res.status})`);
       }
       const failures = (json.results ?? [])
-        .filter((r) => !r.ok || r.syncOk === false)
+        .filter((r) => !r.ok)
         .map((r) => ({
           eventId: r.eventId,
-          reason:
-            r.linkError ??
-            r.syncError ??
-            (r.syncOk === false ? "Sync completed with errors" : "Unknown error"),
+          eventName: r.eventName,
+          reason: r.linkError ?? "Unknown link error",
         }));
+      const syncWarnings = (json.results ?? [])
+        .filter((r) => r.ok && r.syncOk === false)
+        .map((r) => ({
+          eventId: r.eventId,
+          eventName: r.eventName,
+          reason: r.syncError ?? "Sync completed with errors",
+        }));
+      const retryRows = syncWarnings
+        .map((warning) => rowByEventId.get(warning.eventId))
+        .filter((row): row is LinkSelection => Boolean(row));
       const linkedIds = new Set(
         (json.results ?? [])
           .filter((r) => r.ok)
@@ -283,6 +307,8 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
         linked: linkedIds.size,
         failed: failures.length,
         failures,
+        syncWarnings,
+        retryRows,
       });
 
       // Strip the successful links from the local table. A full refetch
@@ -335,12 +361,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
 
   const onLinkSelected = async () => {
     if (!payload) return;
-    const rows: Array<{
-      eventId: string;
-      connectionId: string;
-      externalEventId: string;
-      externalEventUrl: string | null;
-    }> = [];
+    const rows: LinkSelection[] = [];
     for (const row of events) {
       const sel = selections[row.eventId];
       if (!sel?.checked) continue;
@@ -456,13 +477,13 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       {summary ? (
         <Card
           className={
-            summary.failed === 0
+            summary.failed === 0 && summary.syncWarnings.length === 0
               ? "border-green-500/40 bg-green-500/5"
               : "border-yellow-500/40 bg-yellow-500/5"
           }
         >
           <div className="flex items-start gap-2 text-sm">
-            {summary.failed === 0 ? (
+            {summary.failed === 0 && summary.syncWarnings.length === 0 ? (
               <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-500" />
             ) : (
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-500" />
@@ -472,15 +493,48 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                 Linked {summary.linked} event
                 {summary.linked === 1 ? "" : "s"}
                 {summary.failed > 0 ? `, ${summary.failed} failed` : ""}
+                {summary.syncWarnings.length > 0
+                  ? `. Syncing tickets for ${summary.syncWarnings.length} event${
+                      summary.syncWarnings.length === 1 ? "" : "s"
+                    } needs attention.`
+                  : ""}
               </p>
               {summary.failures.length > 0 ? (
                 <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
                   {summary.failures.map((f) => (
                     <li key={f.eventId} className="font-mono">
-                      {f.eventId} — {f.reason}
+                      {f.eventName ?? f.eventId} — {f.reason}
                     </li>
                   ))}
                 </ul>
+              ) : null}
+              {summary.syncWarnings.length > 0 ? (
+                <div className="mt-2 space-y-2">
+                  <ul className="space-y-0.5 text-xs text-muted-foreground">
+                    {summary.syncWarnings.map((warning) => (
+                      <li key={warning.eventId}>
+                        <span className="font-medium text-foreground">
+                          {warning.eventName ?? warning.eventId}
+                        </span>{" "}
+                        — {warning.reason}
+                      </li>
+                    ))}
+                  </ul>
+                  {summary.retryRows.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void linkRows(summary.retryRows)}
+                      disabled={submitting}
+                    >
+                      {submitting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      Retry ticket sync
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>
