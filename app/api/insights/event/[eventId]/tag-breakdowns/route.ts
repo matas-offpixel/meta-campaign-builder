@@ -74,7 +74,7 @@ export async function GET(
   ]);
 
   if (!snapshot || snapshot.payload.kind !== "ok") {
-    return NextResponse.json({ ok: true, breakdowns: [] });
+    return NextResponse.json({ ok: true, breakdowns: [], assignments: [] });
   }
 
   return NextResponse.json({
@@ -83,5 +83,6 @@ export async function GET(
       snapshot.payload.groups,
       assignments,
     ),
+    assignments,
   });
 }

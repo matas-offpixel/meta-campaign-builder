@@ -23,7 +23,10 @@ import {
 } from "@/lib/reporting/group-creatives";
 import CreativePreviewModal from "@/components/dashboard/events/creative-preview-modal";
 import { ShareCreativeTagBreakdowns } from "@/components/share/share-creative-tag-breakdowns";
-import type { CreativeTagBreakdown } from "@/lib/reporting/creative-tag-breakdowns";
+import type {
+  CreativeTagAssignmentWithTag,
+  CreativeTagBreakdown,
+} from "@/lib/reporting/creative-tag-breakdowns";
 
 /**
  * components/dashboard/events/event-active-creatives-panel.tsx
@@ -145,6 +148,7 @@ interface FailureResponse {
 interface TagBreakdownsResponse {
   ok: true;
   breakdowns: CreativeTagBreakdown[];
+  assignments: CreativeTagAssignmentWithTag[];
 }
 
 type SortKey = "spend_desc" | "ctr_desc" | "cpr_asc" | "freq_desc";
@@ -290,6 +294,9 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
   const [topError, setTopError] = useState<string | null>(null);
   const [authExpired, setAuthExpired] = useState(false);
   const [tagBreakdowns, setTagBreakdowns] = useState<CreativeTagBreakdown[]>([]);
+  const [tagAssignments, setTagAssignments] = useState<
+    CreativeTagAssignmentWithTag[]
+  >([]);
   const [sortKey, setSortKey] = useState<SortKey>("spend_desc");
   // "Group by concept" defaults ON — Matas's main complaint with PR
   // #38 was that re-uploaded creatives (Meta mints a new creative_id
@@ -344,7 +351,10 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
         if (breakdownRes.ok) {
           const breakdownJson =
             (await breakdownRes.json()) as TagBreakdownsResponse;
-          if (breakdownJson.ok) setTagBreakdowns(breakdownJson.breakdowns);
+          if (breakdownJson.ok) {
+            setTagBreakdowns(breakdownJson.breakdowns);
+            setTagAssignments(breakdownJson.assignments ?? []);
+          }
         }
       } catch (err) {
         setTopError(
@@ -508,6 +518,8 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
       {data && groupedRows.length > 0 ? (
         <ShareCreativeTagBreakdowns
           breakdowns={tagBreakdowns}
+          groups={groupedRows}
+          assignments={tagAssignments}
           kind="event"
         />
       ) : null}

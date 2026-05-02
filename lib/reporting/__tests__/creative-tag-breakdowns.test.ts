@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   buildCreativeTagBreakdowns,
+  buildCreativeTagTiles,
   type CreativeTagAssignmentWithTag,
 } from "../creative-tag-breakdowns.ts";
 import type { ConceptGroupRow } from "../group-creatives.ts";
@@ -26,6 +27,7 @@ describe("buildCreativeTagBreakdowns", () => {
 
     assert.equal(rows[0].dimension, "asset_type");
     assert.deepEqual(rows[0].rows[0], {
+      value_key: "ugc",
       value_label: "UGC",
       ad_count: 2,
       spend: 150,
@@ -43,8 +45,8 @@ describe("buildCreativeTagBreakdowns", () => {
     const rows = buildCreativeTagBreakdowns(
       [group("Offer Static", { spend: 200, registrations: 4, purchases: 1 })],
       [
-        assignment("Offer Static", "visual_format", "Headline"),
-        assignment("Offer Static", "visual_format", "Offer-first banner"),
+        assignment("Offer Static", "hook_tactic", "Headline"),
+        assignment("Offer Static", "hook_tactic", "Offer-first banner"),
       ],
     );
 
@@ -77,6 +79,84 @@ describe("buildCreativeTagBreakdowns", () => {
     assert.equal(rows[0].rows[0].cpr, null);
     assert.equal(rows[0].rows[0].purchases, 0);
   });
+
+  it("omits low-trust dimensions from per-event share breakdowns", () => {
+    assert.deepEqual(
+      buildCreativeTagBreakdowns(
+        [group("Static")],
+        [assignment("Static", "visual_format", "Static image")],
+      ),
+      [],
+    );
+  });
+
+  it("builds tile data with top thumbnails and fallback labels", () => {
+    const tiles = buildCreativeTagTiles(
+      [
+        group("Hero A", {
+          spend: 50,
+          purchases: 1,
+          representative_thumbnail: "https://img.example/a.jpg",
+        }),
+        group("Hero B", {
+          spend: 200,
+          purchases: 3,
+          representative_thumbnail: "https://img.example/b.jpg",
+        }),
+        group("Hero C", {
+          spend: 75,
+          purchases: 2,
+          representative_thumbnail: "https://img.example/c.jpg",
+        }),
+        group("Hero D", {
+          spend: 25,
+          purchases: 1,
+          representative_thumbnail: "https://img.example/d.jpg",
+        }),
+        group("Hero E", {
+          spend: 150,
+          purchases: 5,
+          representative_thumbnail: "https://img.example/e.jpg",
+        }),
+        group("No Thumb", { spend: 10, representative_thumbnail: null }),
+      ],
+      [
+        assignment("Hero A", "asset_type", "UGC"),
+        assignment("Hero B", "asset_type", "UGC"),
+        assignment("Hero C", "asset_type", "UGC"),
+        assignment("Hero D", "asset_type", "UGC"),
+        assignment("Hero E", "asset_type", "UGC"),
+        assignment("No Thumb", "messaging_angle", "Urgency"),
+      ],
+    );
+
+    assert.deepEqual(
+      tiles.find((tile) => tile.value_key === "ugc")?.thumbnails,
+      [
+        "https://img.example/b.jpg",
+        "https://img.example/e.jpg",
+        "https://img.example/c.jpg",
+        "https://img.example/a.jpg",
+      ],
+    );
+    assert.equal(tiles.find((tile) => tile.value_key === "ugc")?.spend, 500);
+    assert.deepEqual(
+      tiles.find((tile) => tile.value_key === "urgency"),
+      {
+        dimension: "messaging_angle",
+        value_key: "urgency",
+        value_label: "Urgency",
+        spend: 10,
+        registrations: 2,
+        impressions: 1_000,
+        reach: 400,
+        clicks: 20,
+        purchases: 0,
+        thumbnails: [],
+        fallbackLabel: "Urgency",
+      },
+    );
+  });
 });
 
 function assignment(
@@ -97,6 +177,7 @@ function assignment(
     updated_at: "2026-05-02T00:00:00Z",
     tag: {
       dimension,
+      value_key: valueLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
       value_label: valueLabel,
     },
   } as CreativeTagAssignmentWithTag;
