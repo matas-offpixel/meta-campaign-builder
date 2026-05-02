@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 252
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/252
 - **Branch:** `fix/4thefans-discovery-column-name`
 
 ## Summary
