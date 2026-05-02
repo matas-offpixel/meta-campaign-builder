@@ -478,15 +478,27 @@ export async function getLatestSnapshotForEvent(
 
 export async function getLatestSnapshotForEventBeforeDate(
   supabase: AnySupabaseClient,
-  args: { eventId: string; beforeDate: string },
+  args: {
+    eventId: string;
+    beforeDate: string;
+    source?: TicketSalesSnapshot["source"];
+    requireGrossRevenue?: boolean;
+  },
 ): Promise<TicketSalesSnapshot | null> {
   const sb = asAnyTable(supabase);
   const beforeIso = `${args.beforeDate}T00:00:00.000Z`;
-  const { data, error } = await sb
+  let query = sb
     .from("ticket_sales_snapshots")
     .select("*")
     .eq("event_id", args.eventId)
-    .lt("snapshot_at", beforeIso)
+    .lt("snapshot_at", beforeIso);
+  if (args.source) {
+    query = query.eq("source", args.source);
+  }
+  if (args.requireGrossRevenue) {
+    query = query.not("gross_revenue_cents", "is", null);
+  }
+  const { data, error } = await query
     .order("snapshot_at", { ascending: false })
     .limit(1)
     .maybeSingle();

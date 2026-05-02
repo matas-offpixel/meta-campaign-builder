@@ -280,7 +280,7 @@ export async function upsertMetaRollups(
 export interface EventbriteUpsertRow {
   date: string;
   tickets_sold: number;
-  revenue: number;
+  revenue: number | null;
 }
 
 export async function upsertEventbriteRollups(
@@ -308,8 +308,28 @@ export async function upsertEventbriteRollups(
 
 export async function clearHistoricalCurrentSnapshotTicketPadding(
   supabase: AnySupabaseClient,
-  args: { eventId: string; beforeDate: string },
+  args: { eventId: string },
 ): Promise<void> {
+  const { data: firstData, error: firstError } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .select("date")
+    .eq("event_id", args.eventId)
+    .not("source_eventbrite_at", "is", null)
+    .or("tickets_sold.gt.0,revenue.gt.0")
+    .order("date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (firstError) {
+    console.warn(
+      "[event-daily-rollups clearCurrentSnapshotPadding:first]",
+      firstError.message,
+    );
+    throw new Error(firstError.message);
+  }
+  const firstDataDate =
+    typeof firstData?.date === "string" ? firstData.date : null;
+  if (!firstDataDate) return;
+
   const { error } = await asAny(supabase)
     .from("event_daily_rollups")
     .update({
@@ -318,7 +338,8 @@ export async function clearHistoricalCurrentSnapshotTicketPadding(
       source_eventbrite_at: null,
     })
     .eq("event_id", args.eventId)
-    .lt("date", args.beforeDate)
+    .lt("date", firstDataDate)
+    .not("source_eventbrite_at", "is", null)
     .eq("tickets_sold", 0)
     .eq("revenue", 0);
   if (error) {

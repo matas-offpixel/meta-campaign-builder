@@ -16,3 +16,22 @@ export function currentSnapshotDailyDelta(args: {
   const previous = Math.max(0, Math.round(args.previousTotal));
   return Math.max(0, current - previous);
 }
+
+export function currentSnapshotMoneyDelta(args: {
+  currentTotal: number | null;
+  previousTotal: number | null;
+}): number | null {
+  if (args.currentTotal == null || !Number.isFinite(args.currentTotal)) {
+    return null;
+  }
+  const current = Math.max(0, args.currentTotal);
+  if (args.previousTotal == null || !Number.isFinite(args.previousTotal)) {
+    return round2(current);
+  }
+  const previous = Math.max(0, args.previousTotal);
+  return Math.max(0, round2(current - previous));
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
