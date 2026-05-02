@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 244
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/244
 - **Branch:** `fix/4thefans-rate-limit-and-attribution-bugs`
 
 ## Summary
