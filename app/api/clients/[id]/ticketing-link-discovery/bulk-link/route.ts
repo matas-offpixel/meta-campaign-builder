@@ -39,6 +39,9 @@ interface Selection {
 
 interface BulkLinkResult {
   eventId: string;
+  eventName: string | null;
+  externalEventId: string | null;
+  connectionProvider: string | null;
   ok: boolean;
   linkId: string | null;
   syncOk: boolean | null;
@@ -46,7 +49,8 @@ interface BulkLinkResult {
   linkError: string | null;
 }
 
-const DEFAULT_SYNC_CONCURRENCY = 5;
+const DEFAULT_SYNC_CONCURRENCY = 3;
+const SYNC_RETRY_DELAY_MS = 750;
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
@@ -191,7 +195,7 @@ export async function POST(
   const [{ data: events, error: eventsErr }, { data: connections, error: connErr }] = await Promise.all([
     supabase
       .from("events")
-      .select("id, user_id, client_id, event_code, event_timezone, event_date, tiktok_account_id, google_ads_account_id")
+      .select("id, name, user_id, client_id, event_code, event_timezone, event_date, tiktok_account_id, google_ads_account_id")
       .in("id", eventIds),
     supabase
       .from("client_ticketing_connections")
@@ -217,6 +221,7 @@ export async function POST(
       (e as { id: string }).id,
       e as {
         id: string;
+        name: string;
         user_id: string;
         client_id: string | null;
         event_code: string | null;
@@ -277,6 +282,9 @@ export async function POST(
     if (!p.ok) {
       results.push({
         eventId: p.selection.eventId,
+        eventName: eventById.get(p.selection.eventId)?.name ?? null,
+        externalEventId: p.selection.externalEventId,
+        connectionProvider: connById.get(p.selection.connectionId)?.provider ?? null,
         ok: false,
         linkId: null,
         linkError: p.error,
@@ -300,6 +308,9 @@ export async function POST(
       if (!link) {
         results.push({
           eventId: p.selection.eventId,
+          eventName: eventById.get(p.selection.eventId)?.name ?? null,
+          externalEventId: p.selection.externalEventId,
+          connectionProvider: connection?.provider ?? null,
           ok: false,
           linkId: null,
           linkError: "Failed to persist the link",
@@ -313,6 +324,9 @@ export async function POST(
       );
       results.push({
         eventId: p.selection.eventId,
+        eventName: eventById.get(p.selection.eventId)?.name ?? null,
+        externalEventId: p.selection.externalEventId,
+        connectionProvider: connection?.provider ?? null,
         ok: true,
         linkId: (link as { id: string }).id,
         linkError: null,
@@ -327,6 +341,9 @@ export async function POST(
       );
       results.push({
         eventId: p.selection.eventId,
+        eventName: eventById.get(p.selection.eventId)?.name ?? null,
+        externalEventId: p.selection.externalEventId,
+        connectionProvider: connById.get(p.selection.connectionId)?.provider ?? null,
         ok: false,
         linkId: null,
         linkError: err instanceof Error ? err.message : "Unknown error",
@@ -360,10 +377,13 @@ export async function POST(
           syncOk: false,
           syncError: "Event not found post-link",
         };
+        console.warn(
+          `[bulk-link] event_id=${r.eventId} status=error reason=${JSON.stringify(results[idx].syncError)}`,
+        );
         return;
       }
       try {
-        const sync = await runRollupSyncForEvent({
+        const sync = await runSyncWithRetry({
           supabase,
           eventId: ev.id,
           userId: user.id,
@@ -382,28 +402,83 @@ export async function POST(
           clientGoogleAdsAccountId,
         });
         const syncOk = sync.summary.synced;
+        const syncError = syncOk ? null : syncFailureReason(sync);
         results[idx] = {
           ...r,
           syncOk,
-          syncError: syncOk ? null : "Sync completed with errors",
+          syncError,
         };
+        console.info(
+          `[bulk-link] event_id=${ev.id} status=${syncOk ? "ok" : "error"} reason=${JSON.stringify(syncError)} provider=${r.connectionProvider ?? "<unknown>"} external_event_id=${r.externalEventId ?? "<null>"}`,
+        );
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown sync error";
         results[idx] = {
           ...r,
           syncOk: false,
-          syncError: err instanceof Error ? err.message : "Unknown sync error",
+          syncError: message,
         };
+        console.warn(
+          `[bulk-link] event_id=${ev.id} status=error reason=${JSON.stringify(message)} provider=${r.connectionProvider ?? "<unknown>"} external_event_id=${r.externalEventId ?? "<null>"}`,
+        );
       }
     });
   }
 
   const linkedCount = results.filter((r) => r.ok).length;
   const failedCount = results.length - linkedCount;
+  const syncWarningCount = results.filter(
+    (r) => r.ok && r.syncOk === false,
+  ).length;
+  const syncWarningsByReason = results
+    .filter((r) => r.ok && r.syncOk === false)
+    .reduce<Record<string, number>>((acc, result) => {
+      const reason = result.syncError ?? "unknown";
+      acc[reason] = (acc[reason] ?? 0) + 1;
+      return acc;
+    }, {});
+
+  console.info(
+    `[bulk-link] complete client_id=${id} linked=${linkedCount} failed=${failedCount} sync_warnings=${syncWarningCount} sync_warning_reasons=${JSON.stringify(syncWarningsByReason)}`,
+  );
 
   return NextResponse.json({
     ok: failedCount === 0,
     linkedCount,
     failedCount,
+    syncWarningCount,
     results,
   });
+}
+
+async function runSyncWithRetry(
+  input: Parameters<typeof runRollupSyncForEvent>[0],
+): Promise<Awaited<ReturnType<typeof runRollupSyncForEvent>>> {
+  const first = await runRollupSyncForEvent(input);
+  if (first.summary.synced) return first;
+  const reason = syncFailureReason(first);
+  console.warn(
+    `[bulk-link] event_id=${input.eventId} status=error reason=${JSON.stringify(reason)} retrying_after_ms=${SYNC_RETRY_DELAY_MS}`,
+  );
+  await new Promise((resolve) => setTimeout(resolve, SYNC_RETRY_DELAY_MS));
+  return runRollupSyncForEvent(input);
+}
+
+function syncFailureReason(
+  sync: Awaited<ReturnType<typeof runRollupSyncForEvent>>,
+): string {
+  const summary = sync.summary;
+  return (
+    summary.eventbriteError ??
+    summary.metaError ??
+    summary.tiktokError ??
+    summary.googleAdsError ??
+    summary.allocatorError ??
+    summary.eventbriteReason ??
+    summary.metaReason ??
+    summary.tiktokReason ??
+    summary.googleAdsReason ??
+    summary.allocatorReason ??
+    "Sync completed with errors"
+  );
 }

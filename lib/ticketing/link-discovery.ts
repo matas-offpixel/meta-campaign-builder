@@ -286,6 +286,42 @@ function internalVenueLabel(event: InternalEventForMatching): string {
     .join(" ");
 }
 
+function venueScoringVariants(value: string | null | undefined): string[] {
+  const raw = value?.trim();
+  if (!raw) return [];
+  const variants = [raw];
+  const tokens = [...tokenSet(raw, VENUE_STOPWORDS)];
+  if (tokens.length > 1 && tokens.length <= 3) {
+    variants.push(...tokens);
+  }
+  const commaParts = raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (commaParts.length > 1) {
+    variants.push(commaParts[commaParts.length - 1]);
+  }
+  return [...new Set(variants)];
+}
+
+export function venueScoreForMatching(
+  internalVenue: string | null | undefined,
+  externalVenue: string | null | undefined,
+): number {
+  const internalVariants = venueScoringVariants(internalVenue);
+  const externalVariants = venueScoringVariants(externalVenue);
+  let best = 0;
+  for (const internal of internalVariants) {
+    for (const external of externalVariants) {
+      best = Math.max(
+        best,
+        tokenJaccard(internal, external, VENUE_STOPWORDS),
+      );
+    }
+  }
+  return best;
+}
+
 function capacityWithinFivePercent(
   internalCapacity: number | null | undefined,
   externalCapacity: number | null | undefined,
@@ -337,7 +373,7 @@ export function scoreCandidatesForEvent(
   const scored: MatchCandidate[] = [];
   for (const ext of externals) {
     const extVenue = externalVenueLabel(ext);
-    const venueScore = tokenJaccard(internalVenue, extVenue, VENUE_STOPWORDS);
+    const venueScore = venueScoreForMatching(internalVenue, extVenue);
     const dateScore = dateProximityScore(event.event_date, ext.startsAt);
     const nameScore = tokenJaccard(
       event.name,

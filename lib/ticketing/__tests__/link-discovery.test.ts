@@ -8,6 +8,7 @@ import {
   discoverMatches,
   opponentLabelForMatching,
   scoreCandidatesForEvent,
+  venueScoreForMatching,
   type ExternalEventForMatching,
   type InternalEventForMatching,
 } from "../link-discovery.ts";
@@ -99,6 +100,20 @@ describe("composeMatchableInternalLabel", () => {
 });
 
 describe("scoreCandidatesForEvent", () => {
+  it("scores venue aliases from the last comma-separated provider location", () => {
+    assert.equal(
+      venueScoreForMatching("Shoreditch", "Village Underground, Shoreditch"),
+      1,
+    );
+    assert.equal(
+      venueScoreForMatching(
+        "Prospect Building Bristol",
+        "The Prospect Building, Bristol",
+      ),
+      1,
+    );
+  });
+
   it("extracts opponents for matching, including reversed home-team and knockout labels", () => {
     assert.equal(opponentLabelForMatching("England v Croatia"), "croatia");
     assert.equal(opponentLabelForMatching("Scotland v Brazil"), "brazil");
@@ -328,6 +343,64 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(last32[0]?.externalEventId, "4194");
     assert.ok((last32[0]?.confidence ?? 0) > 0.85);
     assert.equal(last32[0]?.opponentScore, 1);
+  });
+
+  it("matches all Shoreditch events when provider venue includes building prefix", () => {
+    const shared = {
+      venue_name: "Shoreditch",
+      venue_city: "London",
+    };
+    const externals = [
+      extEv({
+        externalEventId: "4053",
+        name: "Shoreditch – England v Croatia",
+        startsAt: "2026-06-17",
+        venue: "Village Underground, Shoreditch",
+      }),
+      extEv({
+        externalEventId: "4078",
+        name: "Shoreditch – England v Ghana",
+        startsAt: "2026-06-24",
+        venue: "Village Underground, Shoreditch",
+      }),
+      extEv({
+        externalEventId: "4086",
+        name: "Shoreditch – England v Panama",
+        startsAt: "2026-06-27",
+        venue: "Village Underground, Shoreditch",
+      }),
+      extEv({
+        externalEventId: "4094",
+        name: "Shoreditch – Last 32",
+        startsAt: "2026-06-30",
+        venue: "Village Underground, Shoreditch",
+      }),
+    ];
+
+    const expectations = [
+      ["England v Croatia", "2026-06-17", "4053"],
+      ["England v Ghana", "2026-06-24", "4078"],
+      ["England v Panama", "2026-06-27", "4086"],
+      ["England - Last 32", "2026-06-30", "4094"],
+    ] as const;
+
+    for (const [name, date, expectedId] of expectations) {
+      const candidates = scoreCandidatesForEvent(
+        intEv({
+          id: `shoreditch-${expectedId}`,
+          name,
+          event_date: date,
+          ...shared,
+        }),
+        externals,
+      );
+      assert.equal(candidates[0]?.externalEventId, expectedId);
+      assert.ok(
+        (candidates[0]?.confidence ?? 0) > 0.85,
+        `${name} should score above 85%`,
+      );
+      assert.equal(candidates[0]?.autoConfirm, true);
+    }
   });
 
   it("matches Edinburgh Scotland v Haiti to event 368, not other Scottish venues", () => {
