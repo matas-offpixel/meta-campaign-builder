@@ -113,7 +113,12 @@ interface BulkLinkResponse {
 
 type SelectionState = Record<
   string,
-  { externalEventId: string; connectionId: string; checked: boolean }
+  {
+    externalEventId: string;
+    connectionId: string;
+    checked: boolean;
+    source: "auto" | "manual";
+  }
 >;
 
 interface LinkSelection {
@@ -187,6 +192,7 @@ function seedSelectionsFromEvents(events: EventRow[]): SelectionState {
         externalEventId: top.externalEventId,
         connectionId: top.connectionId,
         checked: isAutoSelectable(top),
+        source: "auto",
       };
     }
   }
@@ -307,6 +313,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
         externalEventId: event.externalEventId,
         connectionId: event.connectionId,
         checked: true,
+        source: "manual",
       },
     }));
   };
@@ -341,8 +348,17 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
           externalEventId: candidate.externalEventId,
           connectionId: candidate.connectionId,
           checked: true,
+          source: "auto",
         },
       };
+    });
+  };
+
+  const clearRowSelection = (eventId: string) => {
+    setSelections((prev) => {
+      const next: SelectionState = { ...prev };
+      delete next[eventId];
+      return next;
     });
   };
 
@@ -762,11 +778,13 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                           : null
                       }
                       checked={Boolean(sel?.checked)}
+                      selectionSource={sel?.source ?? null}
                       disabled={submitting}
                       externalEvents={externalEvents}
                       onToggleCandidate={toggleCandidate}
                       onSelectExternalEvent={selectExternalEvent}
                       onToggleSelected={toggleSelectedRow}
+                      onClearSelection={clearRowSelection}
                       onLinkCandidate={(candidate) =>
                         void linkRows([
                           externalEventToSelection(row.eventId, candidate),
@@ -791,6 +809,7 @@ interface RowProps {
   row: EventRow;
   selectedExternalKey: string | null;
   checked: boolean;
+  selectionSource: "auto" | "manual" | null;
   disabled: boolean;
   linking: boolean;
   selectedCandidate: CandidateRow | null;
@@ -802,6 +821,7 @@ interface RowProps {
     event: Pick<SearchableTicketingEvent, "externalEventId" | "connectionId">,
   ) => void;
   onToggleSelected: (eventId: string) => void;
+  onClearSelection: (eventId: string) => void;
   onLinkCandidate: (candidate: CandidateRow) => void;
 }
 
@@ -809,6 +829,7 @@ function EventDiscoveryRow({
   row,
   selectedExternalKey,
   checked,
+  selectionSource,
   disabled,
   linking,
   selectedCandidate,
@@ -817,11 +838,17 @@ function EventDiscoveryRow({
   onToggleCandidate,
   onSelectExternalEvent,
   onToggleSelected,
+  onClearSelection,
   onLinkCandidate,
 }: RowProps) {
   const hasCandidates = row.candidates.length > 0;
   const [searchQuery, setSearchQuery] = useState("");
   const [debugOpen, setDebugOpen] = useState<Set<string>>(() => new Set());
+  const selectedEvent = selectedExternalEvent ?? selectedCandidate;
+  const isManualPick =
+    checked && selectionSource === "manual" && Boolean(selectedEvent);
+  const isAutoPick = checked && selectionSource === "auto" && Boolean(selectedEvent);
+  const hasVisibleSelection = isManualPick || isAutoPick;
   const searchResults = useMemo(
     () => searchTicketingEvents(externalEvents, searchQuery, 10),
     [externalEvents, searchQuery],
@@ -955,7 +982,42 @@ function EventDiscoveryRow({
                 No candidates above 55% confidence
               </span>
             )}
-            <div className="rounded-md border border-dashed border-border bg-background/70 p-2">
+            <div
+              className={`rounded-md border border-dashed bg-background/70 p-2 ${
+                isManualPick
+                  ? "border-green-500/60 bg-green-500/5"
+                  : isAutoPick
+                    ? "border-primary/50 bg-primary/5"
+                    : "border-border"
+              }`}
+            >
+              {hasVisibleSelection && selectedEvent ? (
+                <div
+                  className={`mb-2 flex max-w-md items-start justify-between gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                    isManualPick
+                      ? "border-green-500/40 bg-green-500/10 text-green-700"
+                      : "border-primary/40 bg-primary/10 text-primary"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    ✓ {isManualPick ? "Manual pick" : "Auto-match"}:{" "}
+                    {selectedEvent.externalEventName} ·{" "}
+                    {selectedEvent.externalEventId}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      onClearSelection(row.eventId);
+                      setSearchQuery("");
+                    }}
+                    className="ml-1 rounded-full px-1 text-current hover:bg-background/80 disabled:opacity-50"
+                    aria-label="Clear selected 4thefans event"
+                  >
+                    x
+                  </button>
+                </div>
+              ) : null}
               <label className="block text-[11px] font-medium text-foreground">
                 Or search:
               </label>
@@ -965,7 +1027,13 @@ function EventDiscoveryRow({
                 disabled={disabled}
                 placeholder="e.g. Tottenham England v Croatia"
                 onChange={(event) => setSearchQuery(event.target.value)}
-                className="mt-1 h-8 w-full max-w-md rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                className={`mt-1 h-8 w-full max-w-md rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 ${
+                  isManualPick
+                    ? "border-green-500 focus:ring-green-500"
+                    : isAutoPick
+                      ? "border-primary/70 focus:ring-primary"
+                      : "border-border focus:ring-primary"
+                }`}
               />
               {searchQuery.trim() ? (
                 <div className="mt-2 max-w-md rounded-md border border-primary/30 bg-primary/5 p-1">
@@ -1019,22 +1087,19 @@ function EventDiscoveryRow({
                   )}
                 </div>
               ) : null}
-              {selectedExternalEvent && !selectedCandidate ? (
-                <p className="mt-2 text-[11px] font-medium text-primary">
-                  Search pick: {selectedExternalEvent.externalEventName} ·{" "}
-                  {selectedExternalEvent.externalEventId}
-                </p>
-              ) : null}
             </div>
           </div>
         </td>
         <td className="px-4 py-3 text-right font-mono">
-          {selectedCandidate ? (
+          {isManualPick && selectedEvent ? (
+            <span className="inline-flex items-center justify-end gap-1 rounded-full bg-green-500/10 px-2 py-1 text-[11px] font-medium text-green-700">
+              <CheckCircle2 className="h-3 w-3" />
+              Manual pick: {selectedEvent.externalEventId}
+            </span>
+          ) : selectedCandidate ? (
             <span className={confidenceClasses(selectedCandidate.confidence)}>
               {fmtConfidence(selectedCandidate.confidence)}
             </span>
-          ) : selectedExternalEvent ? (
-            <span className="text-primary">Manual</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
