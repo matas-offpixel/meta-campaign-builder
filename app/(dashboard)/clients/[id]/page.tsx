@@ -119,6 +119,29 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     ...c,
     credentials: null as null,
   }));
+  const eventIds = events.map((event) => event.id);
+  const linkedEventIds = new Set<string>();
+  if (eventIds.length > 0) {
+    const { data: links, error: linksError } = await supabase
+      .from("event_ticketing_links")
+      .select("event_id")
+      .in("event_id", eventIds);
+    if (linksError) {
+      console.warn(
+        "[client detail ticketing link stats]",
+        linksError.message,
+      );
+    } else {
+      for (const link of links ?? []) {
+        linkedEventIds.add((link as { event_id: string }).event_id);
+      }
+    }
+  }
+  const ticketingLinkDiscoveryStats = {
+    totalEvents: eventIds.length,
+    linkedEvents: linkedEventIds.size,
+    unlinkedEvents: Math.max(0, eventIds.length - linkedEventIds.size),
+  };
 
   const creativeProviderStatus: ProviderStatus[] = [
     {
@@ -160,6 +183,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       initialShare={initialShare}
       latestSnapshots={latestSnapshots}
       ticketingConnections={safeTicketing}
+      ticketingLinkDiscoveryStats={ticketingLinkDiscoveryStats}
       d2cConnections={safeD2C}
       d2cTemplates={d2cTemplates}
       creativeTemplates={creativeTemplates}

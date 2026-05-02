@@ -49,7 +49,7 @@ export default async function TicketingLinkDiscoveryPage({ params }: Props) {
   return (
     <>
       <PageHeader
-        title={`${client.name} · Eventbrite link discovery`}
+        title={`${client.name} · Ticketing link discovery`}
         description="Scan unlinked events for candidate ticketing matches and bulk-link them. Linked events kick off a rollup-sync immediately so tickets + revenue land without waiting for the cron."
         actions={
           <Link
