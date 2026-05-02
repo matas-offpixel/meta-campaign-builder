@@ -9,6 +9,7 @@ import {
 } from "@/lib/insights/meta";
 import {
   getConnectionWithDecryptedCredentials,
+  insertSnapshot,
   listLinksForEvent,
   recordConnectionSync,
 } from "@/lib/db/ticketing";
@@ -780,6 +781,9 @@ export async function runRollupSyncForEvent(
                   eventTimezone,
                 })
               : await fetchCurrentTicketingSnapshotRows({
+                  supabase,
+                  userId,
+                  eventId,
                   connection,
                   externalEventId: link.external_event_id,
                   todayStr,
@@ -1021,6 +1025,9 @@ export async function runRollupSyncForEvent(
 }
 
 async function fetchCurrentTicketingSnapshotRows(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  eventId: string;
   connection: TicketingConnection;
   externalEventId: string;
   todayStr: string;
@@ -1032,6 +1039,29 @@ async function fetchCurrentTicketingSnapshotRows(args: {
     args.connection,
     args.externalEventId,
   );
+  const source = snapshotSourceForProvider(args.connection.provider);
+  if (source) {
+    const snapshot = await insertSnapshot(args.supabase, {
+      userId: args.userId,
+      eventId: args.eventId,
+      connectionId: args.connection.id,
+      ticketsSold: fetched.ticketsSold,
+      ticketsAvailable: fetched.ticketsAvailable,
+      grossRevenueCents: fetched.grossRevenueCents,
+      currency: fetched.currency,
+      source,
+      rawPayload: fetched.rawPayload,
+    });
+    console.info(
+      `[rollup-sync] ticket snapshot ${
+        snapshot ? "inserted" : "insert failed"
+      } provider=${args.connection.provider} source=${source} event_id=${
+        args.eventId
+      } external_event_id=${args.externalEventId} tickets_sold=${
+        fetched.ticketsSold
+      }`,
+    );
+  }
   return {
     rows: [
       {
@@ -1044,6 +1074,14 @@ async function fetchCurrentTicketingSnapshotRows(args: {
       },
     ],
   };
+}
+
+function snapshotSourceForProvider(
+  provider: TicketingConnection["provider"],
+): "fourthefans" | "foursomething" | null {
+  if (provider === "fourthefans") return "fourthefans";
+  if (provider === "foursomething_internal") return "foursomething";
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {
