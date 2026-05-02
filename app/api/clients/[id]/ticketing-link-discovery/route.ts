@@ -128,7 +128,7 @@ export async function GET(
   if (eventIds.length > 0) {
     const { data: links, error: linksErr } = await supabase
       .from("event_ticketing_links")
-      .select("event_id, ticketing_connection_id, external_event_id")
+      .select("event_id, connection_id, external_event_id")
       .in("event_id", eventIds);
     if (linksErr) {
       return NextResponse.json(
@@ -141,12 +141,12 @@ export async function GET(
     );
     for (const link of links ?? []) {
       const row = link as {
-        ticketing_connection_id: string | null;
+        connection_id: string | null;
         external_event_id: string | null;
       };
-      if (row.ticketing_connection_id && row.external_event_id) {
+      if (row.connection_id && row.external_event_id) {
         linkedExternalKeys.add(
-          `${row.ticketing_connection_id}:${row.external_event_id}`,
+          `${row.connection_id}:${row.external_event_id}`,
         );
       }
     }
