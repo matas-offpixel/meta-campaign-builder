@@ -21,6 +21,7 @@ import {
   isCanvaEnabled,
   isPlacidEnabled,
 } from "@/lib/creatives/types";
+import { clientHasTaggedEvents } from "@/lib/reporting/creative-patterns-cross-event";
 import type { ProviderStatus } from "@/components/dashboard/clients/creative-templates-panel";
 import type { SettlementTiming } from "@/lib/pricing/calculator";
 
@@ -73,6 +74,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     d2c,
     d2cTemplates,
     creativeTemplates,
+    hasTaggedEvents,
     // PR D3 — fetch the client-portal payload alongside the other
     // loads so the Events tab can render the same venue-grouped
     // layout as `/clients/[id]/dashboard`. Fails soft (returns
@@ -90,6 +92,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listD2CConnectionsForUser(supabase, { clientId: id }),
     listD2CTemplatesForUser(supabase, { clientId: id }),
     listCreativeTemplatesForUser(supabase),
+    clientHasTaggedEvents(id),
     loadClientPortalByClientId(id),
   ]);
 
@@ -163,6 +166,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       creativeProviderStatus={creativeProviderStatus}
       initialTab={initialTab}
       portal={portal.ok ? portal : null}
+      hasTaggedEvents={hasTaggedEvents}
     />
   );
 }

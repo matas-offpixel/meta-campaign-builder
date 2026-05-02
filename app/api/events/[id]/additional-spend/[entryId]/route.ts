@@ -26,9 +26,9 @@ function isCategory(s: string): s is AdditionalSpendCategory {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ eventId: string; entryId: string }> },
+  { params }: { params: Promise<{ id: string; entryId: string }> },
 ) {
-  const { eventId, entryId } = await params;
+  const { id: eventId, entryId } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -117,9 +117,9 @@ export async function PATCH(
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: Promise<{ eventId: string; entryId: string }> },
+  { params }: { params: Promise<{ id: string; entryId: string }> },
 ) {
-  const { eventId, entryId } = await params;
+  const { id: eventId, entryId } = await params;
   const supabase = await createClient();
   const {
     data: { user },
