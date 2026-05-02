@@ -1,5 +1,7 @@
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 import ShareActiveCreativesClient from "@/components/share/share-active-creatives-client";
+import { ShareCreativeTagBreakdowns } from "@/components/share/share-creative-tag-breakdowns";
+import type { CreativeTagAssignmentWithTag } from "@/lib/reporting/creative-tag-breakdowns";
 
 /**
  * components/share/share-active-creatives-section.tsx
@@ -20,9 +22,14 @@ import ShareActiveCreativesClient from "@/components/share/share-active-creative
 interface Props {
   result: ShareActiveCreativesResult;
   kind?: string | null;
+  tagAssignments?: CreativeTagAssignmentWithTag[];
 }
 
-export function ShareActiveCreativesSection({ result, kind }: Props) {
+export function ShareActiveCreativesSection({
+  result,
+  kind,
+  tagAssignments = [],
+}: Props) {
   if (result.kind === "skip") {
     // No section at all — the event simply isn't running anything.
     // Different from `error`, where we want the muted note so the
@@ -66,6 +73,12 @@ export function ShareActiveCreativesSection({ result, kind }: Props) {
       <ShareActiveCreativesClient
         groups={groups}
         kind={isBrandCampaign ? "brand_campaign" : "event"}
+      />
+
+      <ShareCreativeTagBreakdowns
+        groups={groups}
+        assignments={tagAssignments}
+        kind={kind}
       />
 
       <p className="text-xs text-muted-foreground">
