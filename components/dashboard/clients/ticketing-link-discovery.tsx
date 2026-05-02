@@ -21,13 +21,12 @@ import { Card } from "@/components/ui/card";
  *   1. On mount, fetches `GET /api/clients/[id]/ticketing-link-discovery`.
  *      The server returns every unlinked internal event plus a pre-sorted
  *      list of candidate matches from every active ticketing connection.
- *   2. Each row seeds its selection with the top candidate IFF the
- *      confidence is >= 0.5 (the brief's auto-confirm threshold). Below
- *      that we leave the checkbox unticked so the operator consciously
- *      opts in.
+ *   2. Each row seeds its selection with the top candidate when the
+ *      confidence is >= 0.65. These are pre-checked for operator review
+ *      but still require clicking "Link N selected" to persist.
  *   3. "Link selected" → `POST .../bulk-link` in one shot. Server upserts
- *      each `event_ticketing_links` row, then triggers rollup-sync per
- *      event with a concurrency of 5 (same budget as "Sync all").
+ *      each `event_ticketing_links` row, then queues throttled rollup-sync
+ *      in the background.
  *   4. On success we clear the linked rows from the table rather than
  *      doing a full refetch — the operator keeps a live list of what's
  *      still outstanding.
@@ -131,7 +130,9 @@ interface LinkSummary {
   throttled: boolean;
 }
 
-const AUTO_CONFIRM_THRESHOLD = 0.9;
+const AUTO_CONFIRM_THRESHOLD = 0.75;
+const AUTO_SELECT_THRESHOLD = 0.65;
+const SURFACE_THRESHOLD = 0.55;
 
 function fmtConfidence(score: number): string {
   return `${Math.round(score * 100)}%`;
@@ -154,8 +155,31 @@ function fmtDate(value: string | null): string {
 
 function confidenceClasses(score: number): string {
   if (score >= AUTO_CONFIRM_THRESHOLD) return "text-green-500";
-  if (score >= 0.55) return "text-yellow-500";
+  if (score >= AUTO_SELECT_THRESHOLD) return "text-yellow-500";
+  if (score >= SURFACE_THRESHOLD) return "text-orange-500";
   return "text-muted-foreground";
+}
+
+function isAutoSelectable(candidate: CandidateRow | undefined): boolean {
+  return Boolean(
+    candidate &&
+      candidate.confidence >= AUTO_SELECT_THRESHOLD &&
+      !candidate.manualDisambiguationRequired,
+  );
+}
+
+function seedSelectionsFromEvents(events: EventRow[]): SelectionState {
+  const initial: SelectionState = {};
+  for (const row of events) {
+    const top = row.candidates[0];
+    if (top) {
+      initial[row.eventId] = {
+        externalEventId: top.externalEventId,
+        checked: isAutoSelectable(top),
+      };
+    }
+  }
+  return initial;
 }
 
 interface Props {
@@ -173,6 +197,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     () => new Set(),
   );
   const [summary, setSummary] = useState<LinkSummary | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
 
   const fetchDiscovery = useCallback(
     async (mode: "initial" | "refresh") => {
@@ -189,17 +214,15 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
           throw new Error(json.error ?? `Request failed (${res.status})`);
         }
         setPayload(json);
-        const initial: SelectionState = {};
-        for (const row of json.events ?? []) {
-          const top = row.candidates[0];
-          if (top) {
-            initial[row.eventId] = {
-              externalEventId: top.externalEventId,
-              checked: top.autoConfirm && !top.manualDisambiguationRequired,
-            };
-          }
-        }
+        const rows = json.events ?? [];
+        const initial = seedSelectionsFromEvents(rows);
+        const autoMatched = Object.values(initial).filter((s) => s.checked).length;
         setSelections(initial);
+        setSelectionNotice(
+          autoMatched > 0
+            ? `${autoMatched} of ${rows.length} events auto-matched. Review and adjust below.`
+            : null,
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Discovery failed");
       } finally {
@@ -214,8 +237,11 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     void fetchDiscovery("initial");
   }, [fetchDiscovery]);
 
-  const events = payload?.events ?? [];
-  const connections = payload?.connections ?? [];
+  const events = useMemo(() => payload?.events ?? [], [payload?.events]);
+  const connections = useMemo(
+    () => payload?.connections ?? [],
+    [payload?.connections],
+  );
   const hasAnyConnection = connections.length > 0;
   const activeConnectionCount = connections.filter(
     (c) => c.error === null && c.status !== "paused",
@@ -228,6 +254,23 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       ).length,
     [selections],
   );
+
+  const matchStats = useMemo(() => {
+    let autoMatched = 0;
+    let needsReview = 0;
+    let noCandidates = 0;
+    for (const row of events) {
+      const selected = selections[row.eventId];
+      if (selected?.checked) {
+        autoMatched += 1;
+      } else if (row.candidates.length > 0) {
+        needsReview += 1;
+      } else {
+        noCandidates += 1;
+      }
+    }
+    return { autoMatched, needsReview, noCandidates };
+  }, [events, selections]);
 
   const clearAll = () => {
     setSelections((prev) => {
@@ -357,13 +400,13 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
     externalEventUrl: candidate.externalEventUrl,
   });
 
-  const onAutoLinkAll = async () => {
-    const rows = events.flatMap((row) => {
-      const top = row.candidates[0];
-      if (!top?.autoConfirm || top.manualDisambiguationRequired) return [];
-      return [candidateToSelection(row.eventId, top)];
-    });
-    await linkRows(rows);
+  const onAutoLinkAll = () => {
+    const next = seedSelectionsFromEvents(events);
+    const autoMatched = Object.values(next).filter((s) => s.checked).length;
+    setSelections(next);
+    setSelectionNotice(
+      `${autoMatched} of ${events.length} events auto-matched. Review and adjust below.`,
+    );
   };
 
   const onLinkSelected = async () => {
@@ -430,6 +473,11 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
               {payload?.totalEventCount ?? 0} total ·{" "}
               {activeConnectionCount} active connection
               {activeConnectionCount === 1 ? "" : "s"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {matchStats.autoMatched} events auto-matched,{" "}
+              {matchStats.needsReview} need review, {matchStats.noCandidates} no
+              candidates
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -555,6 +603,15 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                 </div>
               ) : null}
             </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {selectionNotice ? (
+        <Card className="border-yellow-500/40 bg-yellow-500/5">
+          <div className="flex items-start gap-2 text-sm text-yellow-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <p>{selectionNotice}</p>
           </div>
         </Card>
       ) : null}
@@ -700,6 +757,22 @@ function EventDiscoveryRow({
         <td className="px-4 py-3 text-muted-foreground">
           {hasCandidates ? (
             <div className="space-y-1">
+              <select
+                value={selectedCandidateId ?? ""}
+                disabled={disabled}
+                onChange={(event) => {
+                  if (!event.target.value) return;
+                  onToggle(row.eventId, event.target.value);
+                }}
+                className="mb-2 h-8 w-full max-w-md rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              >
+                <option value="">Pick a candidate…</option>
+                {row.candidates.map((c) => (
+                  <option key={c.externalEventId} value={c.externalEventId}>
+                    {fmtConfidence(c.confidence)} · {c.externalEventName}
+                  </option>
+                ))}
+              </select>
               {row.candidates.slice(0, 3).map((c) => {
                 const isSelected = c.externalEventId === selectedCandidateId;
                 const isDebugOpen = debugOpen.has(c.externalEventId);
