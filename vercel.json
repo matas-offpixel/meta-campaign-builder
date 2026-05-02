@@ -3,27 +3,27 @@
   "crons": [
     {
       "path": "/api/cron/sync-ticketing",
-      "schedule": "0 3 * * *"
+      "schedule": "0 6,10,14,18,22 * * *"
     },
     {
       "path": "/api/cron/refresh-creative-insights",
-      "schedule": "0 */2 * * *"
+      "schedule": "10 6,10,14,18,22 * * *"
     },
     {
       "path": "/api/cron/rollup-sync-events",
-      "schedule": "30 */6 * * *"
+      "schedule": "15 6,10,14,18,22 * * *"
     },
     {
       "path": "/api/cron/refresh-active-creatives",
-      "schedule": "15 */6 * * *"
+      "schedule": "30 6,10,14,18,22 * * *"
     },
     {
       "path": "/api/cron/tiktok-active-creatives",
-      "schedule": "15 */6 * * *"
+      "schedule": "30 6,10,14,18,22 * * *"
     },
     {
       "path": "/api/cron/tiktok-breakdowns",
-      "schedule": "30 */6 * * *"
+      "schedule": "45 6,10,14,18,22 * * *"
     },
     {
       "path": "/api/cron/d2c-send",
