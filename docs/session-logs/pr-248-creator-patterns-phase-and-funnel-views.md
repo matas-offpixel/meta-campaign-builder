@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 248
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/248
 - **Branch:** `creator/patterns-phase-and-funnel-views`
 
 ## Summary
