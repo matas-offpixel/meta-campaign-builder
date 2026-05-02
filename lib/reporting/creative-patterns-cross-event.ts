@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
   CREATIVE_TAG_DIMENSIONS,
   type CreativeTagDimension,
@@ -136,12 +136,18 @@ export async function buildClientCreativePatterns(
   const events = await fetchClientEvents(supabase, clientId);
   const eventIds = events.map((event) => event.id);
   const eventById = new Map(events.map((event) => [event.id, event]));
+  const snapshotClient = createServiceRoleClient();
 
   const [assignments, snapshots, rollups] = await Promise.all([
     fetchAssignments(supabase, eventIds),
-    fetchLatestSnapshots(supabase, eventIds, sinceDays),
+    fetchLatestSnapshots(snapshotClient, eventIds, sinceDays),
     fetchRollups(supabase, eventIds, sinceYmd, untilYmd),
   ]);
+  console.log("[creative-patterns] snapshot-fetch", {
+    requested: eventIds.length,
+    returned: snapshots.length,
+    preset: snapshotPresetForWindow(sinceDays),
+  });
   const sampleTagPopulated = assignments.filter((row) => {
     const tag = Array.isArray(row.tag) ? row.tag[0] : row.tag;
     return Boolean(tag?.dimension);
