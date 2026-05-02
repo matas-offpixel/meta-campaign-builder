@@ -221,7 +221,7 @@ export interface ImportMotionSeedTagsResult {
 const TAXONOMY_SELECT =
   "id,user_id,dimension,value_key,value_label,description,source,created_at,updated_at";
 const ASSIGNMENT_SELECT =
-  "id,user_id,event_id,creative_name,tag_id,source,confidence,model_version,created_at,updated_at,tag:creative_tags(dimension,value_label)";
+  "id,user_id,event_id,creative_name,tag_id,source,confidence,created_at,updated_at,tag:creative_tags(dimension,value_label)";
 const SCORE_SELECT =
   "id,user_id,event_id,creative_name,axis,score,significance,fetched_at";
 
@@ -642,6 +642,7 @@ function normalizeAssignmentRow(
   const tag = Array.isArray(row.tag) ? row.tag[0] : row.tag;
   return {
     ...row,
+    model_version: row.model_version ?? null,
     tag: tag ?? null,
   };
 }
