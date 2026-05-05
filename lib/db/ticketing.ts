@@ -541,20 +541,46 @@ export async function replaceEventTicketTiers(
 ): Promise<number> {
   const sb = asAnyTable(supabase);
   const snapshotAt = args.snapshotAt ?? new Date().toISOString();
-  const rows = args.tiers
-    .map((tier) => ({
-      event_id: args.eventId,
-      tier_name: tier.tierName.trim(),
-      price: tier.price,
-      quantity_sold: Math.max(0, Math.trunc(tier.quantitySold)),
-      quantity_available:
-        tier.quantityAvailable == null
+  const rowsByName = new Map<
+    string,
+    {
+      event_id: string;
+      tier_name: string;
+      price: number | null;
+      quantity_sold: number;
+      quantity_available: number | null;
+      snapshot_at: string;
+      updated_at: string;
+    }
+  >();
+  for (const tier of args.tiers) {
+    const tierName = tier.tierName.trim();
+    if (!tierName) continue;
+    const quantitySold = Math.max(0, Math.trunc(tier.quantitySold));
+    const quantityAvailable =
+      tier.quantityAvailable == null
+        ? null
+        : Math.max(0, Math.trunc(tier.quantitySold + tier.quantityAvailable));
+    const existing = rowsByName.get(tierName);
+    if (existing) {
+      existing.quantity_sold += quantitySold;
+      existing.quantity_available =
+        existing.quantity_available == null || quantityAvailable == null
           ? null
-          : Math.max(0, Math.trunc(tier.quantitySold + tier.quantityAvailable)),
+          : existing.quantity_available + quantityAvailable;
+      continue;
+    }
+    rowsByName.set(tierName, {
+      event_id: args.eventId,
+      tier_name: tierName,
+      price: tier.price,
+      quantity_sold: quantitySold,
+      quantity_available: quantityAvailable,
       snapshot_at: snapshotAt,
       updated_at: snapshotAt,
-    }))
-    .filter((tier) => tier.tier_name.length > 0);
+    });
+  }
+  const rows = Array.from(rowsByName.values());
 
   if (rows.length === 0) {
     const { error } = await sb
