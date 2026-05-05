@@ -181,6 +181,8 @@ function synthesizeShareForRunner(
     user_id: userId,
     token: "cron-refresh",
     can_edit: false,
+    show_creative_insights: true,
+    show_funnel_pacing: true,
     enabled: true,
     expires_at: null,
     view_count: 0,

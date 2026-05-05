@@ -19,6 +19,9 @@ const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
 const TOP_CREATIVE_LIMIT = 3;
 const REGISTRATION_PHASE_RE = /(?:PRESALE|SIGNUP|LEAD)/i;
+type PatternsSupabaseClient =
+  | Awaited<ReturnType<typeof createClient>>
+  | ReturnType<typeof createServiceRoleClient>;
 
 export type CreativePatternPhase = "registration" | "ticket_sale";
 export type CreativePatternRegionFilter =
@@ -170,6 +173,7 @@ export async function buildClientCreativePatterns(
     sinceDays?: number;
     phase?: CreativePatternPhase;
     regionFilter?: CreativePatternRegionFilter;
+    useServiceRole?: boolean;
   } = {},
 ): Promise<ClientCreativePatternsResult> {
   const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
@@ -178,7 +182,9 @@ export async function buildClientCreativePatterns(
   const since = new Date(until.getTime() - sinceDays * 24 * 60 * 60 * 1000);
   const sinceYmd = toYmd(since);
   const untilYmd = toYmd(until);
-  const supabase = await createClient();
+  const supabase = opts.useServiceRole
+    ? createServiceRoleClient()
+    : await createClient();
 
   const events = applyRegionFilter(
     await fetchClientEvents(supabase, clientId),
@@ -348,7 +354,7 @@ export async function clientHasTaggedEvents(clientId: string): Promise<boolean> 
 }
 
 async function fetchClientEvents(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: PatternsSupabaseClient,
   clientId: string,
 ): Promise<EventRow[]> {
   return fetchPaged<EventRow>((from, to) =>
@@ -388,7 +394,7 @@ function regionKeyForLabel(value: string): ClientRegionKey | null {
 }
 
 async function fetchAssignments(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: PatternsSupabaseClient,
   eventIds: string[],
 ): Promise<AssignmentRow[]> {
   if (eventIds.length === 0) return [];
@@ -406,7 +412,7 @@ async function fetchAssignments(
 }
 
 async function fetchLatestSnapshots(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: PatternsSupabaseClient,
   eventIds: string[],
   sinceDays: number,
 ): Promise<SnapshotRow[]> {
@@ -430,7 +436,7 @@ async function fetchLatestSnapshots(
 }
 
 async function fetchRollups(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: PatternsSupabaseClient,
   eventIds: string[],
   sinceYmd: string,
   untilYmd: string,

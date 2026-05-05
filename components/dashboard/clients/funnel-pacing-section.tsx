@@ -11,13 +11,16 @@ import type { CreativePatternRegionFilter } from "@/lib/reporting/creative-patte
 export async function FunnelPacingSection({
   clientId,
   regionFilter,
+  isShared = false,
 }: {
   clientId: string;
   regionFilter?: CreativePatternRegionFilter;
+  isShared?: boolean;
 }) {
   const pacing = await buildClientFunnelPacing(clientId, {
     regionFilter,
     sinceDays: 90,
+    useServiceRole: isShared,
   });
 
   return <FunnelPacingView pacing={pacing} />;

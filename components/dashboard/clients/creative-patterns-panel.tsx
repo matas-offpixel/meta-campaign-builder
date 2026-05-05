@@ -32,6 +32,7 @@ interface Props {
   regionFilter?: CreativePatternRegionFilter;
   sinceDays?: number;
   phase?: CreativePatternPhase;
+  isShared?: boolean;
 }
 
 export async function CreativePatternsPanel({
@@ -40,11 +41,13 @@ export async function CreativePatternsPanel({
   regionFilter,
   sinceDays = 90,
   phase = "ticket_sale",
+  isShared = false,
 }: Props) {
   const patterns = await buildClientCreativePatterns(clientId, {
     sinceDays,
     phase,
     regionFilter,
+    useServiceRole: isShared,
   });
   const hasValues = patterns.dimensions.some((dimension) => dimension.values.length > 0);
 
