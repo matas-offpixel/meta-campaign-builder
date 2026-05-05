@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (after `gh pr create`)
+- **Number:** 291
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/291
 - **Branch:** `creator/funnel-pacing-cap-and-scope`
 
 ## Summary
