@@ -260,7 +260,7 @@ export async function GET(req: NextRequest) {
           });
           lastError = "Snapshot insert returned no row";
         }
-        if (connection.provider === "fourthefans") {
+        if (sales.ticketTiers) {
           await replaceEventTicketTiers(supabase, {
             eventId: link.event_id,
             tiers: sales.ticketTiers ?? [],
@@ -270,6 +270,7 @@ export async function GET(req: NextRequest) {
             eventId: link.event_id,
             userId: connection.user_id,
             tiers: sales.ticketTiers ?? [],
+            source: connection.provider,
           });
         }
       } catch (err) {

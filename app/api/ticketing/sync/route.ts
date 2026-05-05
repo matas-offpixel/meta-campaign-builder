@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
           connection.provider === "fourthefans" ? "fourthefans" : "eventbrite",
         rawPayload: fetched.rawPayload,
       });
-      if (connection.provider === "fourthefans") {
+      if (fetched.ticketTiers) {
         await replaceEventTicketTiers(supabase, {
           eventId,
           tiers: fetched.ticketTiers ?? [],
@@ -161,6 +161,7 @@ export async function POST(req: NextRequest) {
           eventId,
           userId: user.id,
           tiers: fetched.ticketTiers ?? [],
+          source: connection.provider,
         });
       }
       await recordConnectionSync(supabase, connection.id, { ok: true });

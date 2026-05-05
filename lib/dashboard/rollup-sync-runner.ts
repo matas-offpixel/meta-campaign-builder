@@ -1092,14 +1092,14 @@ async function fetchCurrentTicketingSnapshotRows(args: {
         fetched.ticketsSold
       }`,
     );
-    if (args.connection.provider === "fourthefans") {
+    if (fetched.ticketTiers) {
       const tiersWritten = await replaceEventTicketTiers(args.supabase, {
         eventId: args.eventId,
         tiers: fetched.ticketTiers ?? [],
         snapshotAt: snapshot?.snapshot_at,
       });
       console.info(
-        `[fourthefans-sync] ticket tiers event_id=${args.eventId} external_event_id=${args.externalEventId} tiers_written=${tiersWritten}`,
+        `[${args.connection.provider}-sync] ticket tiers event_id=${args.eventId} external_event_id=${args.externalEventId} tiers_written=${tiersWritten}`,
       );
       const capacityResult = await updateEventCapacityFromTicketTiers(
         args.supabase,
@@ -1107,10 +1107,11 @@ async function fetchCurrentTicketingSnapshotRows(args: {
           eventId: args.eventId,
           userId: args.userId,
           tiers: fetched.ticketTiers ?? [],
+          source: args.connection.provider,
         },
       );
       console.info(
-        `[fourthefans-sync] capacity event_id=${args.eventId} external_event_id=${args.externalEventId} computed_capacity=${capacityResult.computedCapacity} current_capacity=${capacityResult.currentCapacity ?? "<null>"} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
+        `[${args.connection.provider}-sync] capacity event_id=${args.eventId} external_event_id=${args.externalEventId} computed_capacity=${capacityResult.computedCapacity} current_capacity=${capacityResult.currentCapacity ?? "<null>"} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
       );
     }
     const firstSourceSnapshot = await getEarliestSnapshotForEventSource(

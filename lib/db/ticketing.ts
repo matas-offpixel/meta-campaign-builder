@@ -625,6 +625,7 @@ export async function updateEventCapacityFromTicketTiers(
     eventId: string;
     userId?: string;
     tiers: TicketTierBreakdown[];
+    source?: string;
   },
 ): Promise<{
   computedCapacity: number;
@@ -669,7 +670,7 @@ export async function updateEventCapacityFromTicketTiers(
     oldCapacity: currentCapacity,
     newCapacity: computedCapacity,
     tierCount: args.tiers.length,
-    source: "fourthefans",
+    source: args.source ?? "fourthefans",
   });
 
   let update = sb
