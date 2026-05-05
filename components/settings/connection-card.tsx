@@ -71,42 +71,7 @@ export function ConnectionCard({
     if (!connection.reconnectHref) return;
     setBusy(true);
     setInlineError(null);
-    const popup = window.open(
-      connection.reconnectHref,
-      "facebook_reconnect",
-      "popup,width=760,height=760",
-    );
-    if (!popup) {
-      setBusy(false);
-      setInlineError("Popup blocked - allow popups and try again.");
-      return;
-    }
-
-    const startedAt = Date.now();
-    const timer = window.setInterval(async () => {
-      if (Date.now() - startedAt > 30_000) {
-        window.clearInterval(timer);
-        setBusy(false);
-        setInlineError("Token exchange failed - try again.");
-        return;
-      }
-      try {
-        const res = await fetch("/api/auth/facebook-token", {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const json = (await res.json()) as { token?: string | null };
-        if (json.token) {
-          window.clearInterval(timer);
-          setStatus("connected");
-          setBusy(false);
-          popup.close();
-        }
-      } catch {
-        // Keep polling until the 30s budget expires.
-      }
-    }, 2000);
+    window.location.href = connection.reconnectHref;
   }
 
   async function handleFacebookDisconnect() {
