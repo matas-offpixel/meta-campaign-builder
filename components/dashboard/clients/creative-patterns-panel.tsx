@@ -4,19 +4,14 @@ import {
   buildClientCreativePatterns,
   type CreativePatternPhase,
   type CreativePatternRegionFilter,
-  type TileRow,
 } from "@/lib/reporting/creative-patterns-cross-event";
 import type { CreativeTagDimension } from "@/lib/db/creative-tags";
+import { PatternSummaryTile } from "@/components/dashboard/clients/creative-patterns-tiles";
 
 const GBP = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "GBP",
   maximumFractionDigits: 0,
-});
-const GBP2 = new Intl.NumberFormat("en-GB", {
-  style: "currency",
-  currency: "GBP",
-  maximumFractionDigits: 2,
 });
 const NUM = new Intl.NumberFormat("en-GB");
 
@@ -130,29 +125,6 @@ function MiniKpi({ label, value }: { label: string; value: string }) {
       </p>
       <p className="mt-1 font-medium tabular-nums">{value}</p>
     </div>
-  );
-}
-
-function PatternSummaryTile({ row }: { row: TileRow }) {
-  return (
-    <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="font-heading text-lg tracking-wide">{row.value_label}</h4>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {NUM.format(row.event_count)} events · {NUM.format(row.ad_count)} ads
-          </p>
-        </div>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
-          {row.value_key}
-        </span>
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-        <MiniKpi label="Spend" value={formatMoney(row.total_spend)} />
-        <MiniKpi label="CPA" value={row.cpa == null ? "—" : GBP2.format(row.cpa)} />
-        <MiniKpi label="CTR" value={row.ctr == null ? "—" : `${row.ctr.toFixed(2)}%`} />
-      </div>
-    </article>
   );
 }
 
