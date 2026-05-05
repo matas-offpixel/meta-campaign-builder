@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** `pending`
-- **URL:** _populated after `gh pr create`_
+- **Number:** 285
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/285
 - **Branch:** `fix/tier-table-channel-cells-and-event-rollup`
 
 ## Summary
