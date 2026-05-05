@@ -10,7 +10,7 @@ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-cr
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import { selectLatestSnapshotsByEvent } from "@/lib/reporting/creative-patterns-snapshots";
 import {
-  bucketEventToClientRegion,
+  assignEventToDashboardTab,
   parseClientRegionKey,
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
@@ -378,7 +378,7 @@ function applyRegionFilter(
 
   const region = parseClientRegionKey(filter.value) ?? regionKeyForLabel(filter.value);
   if (!region) return events;
-  return events.filter((event) => bucketEventToClientRegion(event) === region);
+  return events.filter((event) => assignEventToDashboardTab(event) === region);
 }
 
 function regionKeyForLabel(value: string): ClientRegionKey | null {
@@ -389,6 +389,14 @@ function regionKeyForLabel(value: string): ClientRegionKey | null {
   }
   if (normalised === "england — uk" || normalised === "england - uk") {
     return "england_uk";
+  }
+  if (normalised === "club football") return "club_football";
+  if (
+    normalised === "off/pixel own" ||
+    normalised === "off-pixel-own" ||
+    normalised === "off pixel own"
+  ) {
+    return "op_own";
   }
   return null;
 }
