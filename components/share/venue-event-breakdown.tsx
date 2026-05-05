@@ -14,13 +14,17 @@ import type {
 } from "@/lib/db/client-portal-server";
 import { fmtDate } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
-import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
+import {
+  suggestedPct,
+  tierSaleStatus,
+  type SuggestedPct,
+} from "@/lib/dashboard/suggested-pct";
 import {
   venueSpend,
   type GroupSpend,
   type VenueSpendGroup,
 } from "@/lib/dashboard/venue-spend-model";
-import { LastUpdatedIndicator } from "./last-updated-indicator";
+import { EventTicketingStatusBadge } from "./last-updated-indicator";
 
 interface Props {
   events: PortalEvent[];
@@ -202,7 +206,7 @@ function VenueEventBreakdownRows({
           </button>
         </td>
         <td className="px-3 py-2.5 align-top">
-          <LastUpdatedIndicator iso={event.freshness_at ?? null} />
+          <EventTicketingStatusBadge event={event} />
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
           {formatNumber(metrics.tickets)}
@@ -265,7 +269,9 @@ function computeEventMetrics(
       ? tierTotals.sold >= tierTotals.allocation
       : capacity != null && capacity > 0 && tickets >= capacity;
   const suggested =
-    soldPct == null
+    tierTotals.allTiersOnSaleSoon
+      ? "ON SALE SOON"
+      : soldPct == null
       ? null
       : suggestedPct(Math.max(0, Math.min(100, soldPct)), { isSoldOut });
   const cpt =
@@ -295,19 +301,31 @@ function computeEventMetrics(
 function tierAllocationTotals(event: PortalEvent): {
   sold: number;
   allocation: number | null;
+  allTiersOnSaleSoon: boolean;
 } {
-  if (event.ticket_tiers.length === 0) return { sold: 0, allocation: null };
+  if (event.ticket_tiers.length === 0) {
+    return { sold: 0, allocation: null, allTiersOnSaleSoon: false };
+  }
   let sold = 0;
   let allocation = 0;
   let hasAllocation = false;
+  let onSaleCount = 0;
   for (const tier of event.ticket_tiers) {
+    if (tierSaleStatus(tier.quantity_sold, tier.quantity_available) === "on_sale_soon") {
+      continue;
+    }
+    onSaleCount += 1;
     sold += tier.quantity_sold;
     if (tier.quantity_available != null && tier.quantity_available > 0) {
       allocation += tier.quantity_available;
       hasAllocation = true;
     }
   }
-  return { sold, allocation: hasAllocation ? allocation : null };
+  return {
+    sold,
+    allocation: hasAllocation ? allocation : null,
+    allTiersOnSaleSoon: onSaleCount === 0,
+  };
 }
 
 function SuggestedValue({ value }: { value: SuggestedPct | null }) {
@@ -318,6 +336,9 @@ function SuggestedValue({ value }: { value: SuggestedPct | null }) {
         SOLD OUT
       </span>
     );
+  }
+  if (value === "ON SALE SOON") {
+    return <span className="italic text-muted-foreground">On Sale Soon</span>;
   }
   return <>{Math.round(value)}%</>;
 }

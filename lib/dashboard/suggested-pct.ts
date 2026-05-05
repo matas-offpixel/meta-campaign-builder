@@ -1,4 +1,14 @@
-export type SuggestedPct = number | "SOLD OUT";
+export type TierSaleStatus = "sold_out" | "on_sale" | "on_sale_soon";
+export type SuggestedPct = number | "SOLD OUT" | "ON SALE SOON";
+
+export function tierSaleStatus(
+  quantitySold: number,
+  quantityAvailable: number | null,
+): TierSaleStatus {
+  if (quantityAvailable === 0 && quantitySold > 0) return "sold_out";
+  if (quantityAvailable === 0 && quantitySold === 0) return "on_sale_soon";
+  return "on_sale";
+}
 
 export function suggestedPct(
   actualPct: number,
@@ -18,6 +28,7 @@ export function suggestedPct(
 
 export function suggestedCommsPhrase(suggested: SuggestedPct): string {
   if (suggested === "SOLD OUT") return "SOLD OUT";
+  if (suggested === "ON SALE SOON") return "On Sale Soon";
   if (suggested >= 99) return "Final tickets remaining";
   if (suggested >= 90) return "Almost sold out";
   if (suggested >= 80) return "Limited tickets remaining";

@@ -9,6 +9,8 @@ import {
   isSyncSuccessful,
   runWithConcurrency,
   safeJson,
+  skippedTicketEvents,
+  syncedTicketEvents,
   type SyncResponseBody,
 } from "@/lib/dashboard/sync-button-helpers";
 
@@ -64,6 +66,8 @@ type Status =
       total: number;
       ok: number;
       failed: number;
+      ticketsSynced: number;
+      ticketsSkipped: number;
       firstError: string | null;
     };
 
@@ -120,6 +124,17 @@ export function ClientSyncAllButton({ eventIds }: Props) {
     );
 
     const okCount = results.filter((r) => r.status === "fulfilled").length;
+    const fulfilledBodies = results
+      .filter((r): r is PromiseFulfilledResult<SyncResponseBody> => r.status === "fulfilled")
+      .map((r) => r.value);
+    const ticketsSynced = fulfilledBodies.reduce(
+      (sum, body) => sum + syncedTicketEvents(body),
+      0,
+    );
+    const ticketsSkipped = fulfilledBodies.reduce(
+      (sum, body) => sum + skippedTicketEvents(body),
+      0,
+    );
     const failed = total - okCount;
     const firstErr = results.find((r) => r.status === "rejected") as
       | PromiseRejectedResult
@@ -138,7 +153,15 @@ export function ClientSyncAllButton({ eventIds }: Props) {
       }`,
     );
 
-    setStatus({ kind: "done", total, ok: okCount, failed, firstError });
+    setStatus({
+      kind: "done",
+      total,
+      ok: okCount,
+      failed,
+      ticketsSynced,
+      ticketsSkipped,
+      firstError,
+    });
 
     if (okCount > 0) router.refresh();
   }, [eventIds, router, status.kind, total]);
@@ -218,9 +241,24 @@ function SyncAllResult({
   onToggleError: () => void;
 }) {
   if (status.failed === 0) {
+    if (status.ticketsSkipped === status.total) {
+      return (
+        <span className="text-[11px] text-amber-600">
+          No linked events to sync. Use Link Discovery to connect a ticketing provider.
+        </span>
+      );
+    }
+    if (status.ticketsSkipped > 0) {
+      return (
+        <span className="text-[11px] text-amber-600">
+          Synced {status.ticketsSynced} of {status.total} events ·{" "}
+          {status.ticketsSkipped} not linked
+        </span>
+      );
+    }
     return (
       <span className="text-[11px] text-emerald-600">
-        {status.ok} of {status.total} synced
+        Synced {status.ticketsSynced} events successfully
       </span>
     );
   }

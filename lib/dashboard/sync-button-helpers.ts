@@ -27,6 +27,10 @@
 export interface SyncResponseBody {
   ok?: boolean;
   error?: string;
+  eventsSynced?: number;
+  eventsSkipped?: number;
+  skippedReason?: string;
+  message?: string;
   summary?: {
     synced?: boolean;
     metaOk?: boolean;
@@ -43,6 +47,16 @@ export interface SyncResponseBody {
     allocatorClassErrors?: number;
     rowsUpserted?: number;
   };
+}
+
+export function syncedTicketEvents(body: SyncResponseBody): number {
+  if (typeof body.eventsSynced === "number") return body.eventsSynced;
+  return body.summary?.eventbriteOk ? 1 : 0;
+}
+
+export function skippedTicketEvents(body: SyncResponseBody): number {
+  if (typeof body.eventsSkipped === "number") return body.eventsSkipped;
+  return body.summary?.eventbriteReason === "not_linked" ? 1 : 0;
 }
 
 /**

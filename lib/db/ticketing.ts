@@ -528,6 +528,8 @@ export interface EventTicketTierRow {
   price: number | null;
   quantity_sold: number;
   quantity_available: number | null;
+  additional_quantity_sold?: number;
+  api_quantity_sold?: number;
   snapshot_at: string;
   created_at?: string;
   updated_at?: string;

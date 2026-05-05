@@ -43,8 +43,8 @@ import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueSyncButton } from "./venue-sync-button";
 import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
 import {
-  LastUpdatedIndicator,
-  oldestFreshness,
+  EventTicketingStatusBadge,
+  VenueTicketingStatusBadge,
 } from "./last-updated-indicator";
 
 /**
@@ -1475,10 +1475,6 @@ function VenueSection({
     });
   }, [dailyRollups, group, spend, totals.ad, venueDisplaySpend]);
   const soloEvent = group.eventCount === 1 ? group.events[0] : null;
-  const venueFreshnessAt = useMemo(
-    () => oldestFreshness(group.events),
-    [group.events],
-  );
   const headerLabel =
     group.eventCount > 1 && group.city
       ? `${group.displayName} · ${group.city}`
@@ -1699,10 +1695,7 @@ function VenueSection({
         {isInternal && (
           <div className="flex flex-shrink-0 flex-col items-end gap-1">
             <VenueSyncButton eventIds={group.events.map((e) => e.id)} />
-            <LastUpdatedIndicator
-              iso={venueFreshnessAt}
-              className="max-w-[180px] truncate text-right"
-            />
+            <VenueTicketingStatusBadge events={group.events} clientId={clientId} />
           </div>
         )}
         {/* "View full venue report" CTA. Hidden for solo venues without
@@ -1825,7 +1818,7 @@ function VenueSection({
             <tr className="border-t border-border-strong bg-muted text-foreground">
               <td className="px-3 py-2.5 font-semibold">Total</td>
               <td className="px-3 py-2.5">
-                <LastUpdatedIndicator iso={venueFreshnessAt} />
+                <VenueTicketingStatusBadge events={group.events} clientId={clientId} />
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.prereg)}
@@ -2310,7 +2303,7 @@ function EventRow({
         )}
       </td>
       <td className="px-3 py-2.5 align-top">
-        <LastUpdatedIndicator iso={event.freshness_at ?? null} />
+        <EventTicketingStatusBadge event={event} clientId={undefined} />
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
         {formatGBP(m.prereg)}
@@ -2426,6 +2419,12 @@ function NumericCell({
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
 
   const isCurrency = field === "revenue";
+  const breakdownTitle =
+    field === "tickets_sold" && event.additional_tickets_sold > 0
+      ? `${formatNumber(event.api_tickets_sold ?? 0)} via API + ${formatNumber(event.additional_tickets_sold)} additional = ${formatNumber(currentValue ?? 0)} total`
+      : field === "revenue" && event.additional_ticket_revenue > 0
+        ? `Includes ${formatGBP(event.additional_ticket_revenue, 2)} additional ticket revenue`
+        : undefined;
 
   const submit = async () => {
     const raw = inputRef.current?.value ?? "";
@@ -2572,7 +2571,10 @@ function NumericCell({
   }
 
   return (
-    <div className="inline-flex items-center justify-end gap-1.5 tabular-nums text-foreground">
+    <div
+      className="inline-flex items-center justify-end gap-1.5 tabular-nums text-foreground"
+      title={breakdownTitle}
+    >
       <span className="font-medium">
         {currentValue === null
           ? "—"
