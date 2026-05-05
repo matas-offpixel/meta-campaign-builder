@@ -14,12 +14,14 @@ import {
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { listAudiencesForClient } from "@/lib/db/meta-custom-audiences";
 import { createClient } from "@/lib/supabase/server";
+import { AudienceListActions } from "./audience-list-actions";
 import type {
   AudienceStatus,
   FunnelStage,
   MetaCustomAudience,
 } from "@/lib/types/audience";
 import { AudienceRowActions } from "./audience-row-actions";
+import { CopyableMetaId } from "./copyable-meta-id";
 
 interface Props {
   params: Promise<{ clientId: string }>;
@@ -66,19 +68,23 @@ export default async function AudiencesPage({ params, searchParams }: Props) {
     supabase,
     scopedAudiences.map((audience) => audience.eventId).filter(Boolean) as string[],
   );
+  const writesEnabled =
+    process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true";
+  const draftAudienceIds = scopedAudiences
+    .filter((audience) => audience.status === "draft")
+    .map((audience) => audience.id);
 
   return (
     <>
       <PageHeader
         title={`${client.name} audiences`}
-        description="Draft Meta custom audience definitions. PR-A does not call the live Meta write API."
+        description={`Meta custom audiences bound to ${client.meta_ad_account_id ?? "no ad account"}.`}
         actions={
-          <Link
-            href={`/audiences/${clientId}/new`}
-            className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
-          >
-            New audience
-          </Link>
+          <AudienceListActions
+            clientId={clientId}
+            draftAudienceIds={draftAudienceIds}
+            writesEnabled={writesEnabled}
+          />
         }
       />
       <main className="flex-1 px-6 py-6">
@@ -98,6 +104,25 @@ export default async function AudiencesPage({ params, searchParams }: Props) {
               </FilterLink>
             ))}
           </nav>
+          <div className="flex flex-wrap gap-2">
+            {(["all", "draft", "ready", "failed", "archived"] as const).map(
+              (status) => (
+                <FilterLink
+                  key={status}
+                  href={buildHref(clientId, {
+                    stage: activeStage,
+                    status: status === "all" ? "all" : status,
+                    scope,
+                  })}
+                  active={(sp.status ?? "default") === (status === "all" ? "all" : status)}
+                >
+                  {status === "all"
+                    ? "All statuses"
+                    : AUDIENCE_STATUS_LABELS[status]}
+                </FilterLink>
+              ),
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             {(["default", "client", "event"] as const).map((scopeOption) => (
               <FilterLink
@@ -119,6 +144,7 @@ export default async function AudiencesPage({ params, searchParams }: Props) {
               audiences={scopedAudiences}
               clientId={clientId}
               eventMap={eventMap}
+              writesEnabled={writesEnabled}
             />
           ) : (
             <EmptyState clientId={clientId} />
@@ -133,10 +159,12 @@ function AudienceTable({
   audiences,
   clientId,
   eventMap,
+  writesEnabled,
 }: {
   audiences: MetaCustomAudience[];
   clientId: string;
   eventMap: Map<string, { name: string; event_code: string | null }>;
+  writesEnabled: boolean;
 }) {
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -146,8 +174,10 @@ function AudienceTable({
             <th className="px-4 py-3">Name</th>
             <th className="px-4 py-3">Funnel</th>
             <th className="px-4 py-3">Subtype</th>
+            <th className="px-4 py-3">Source</th>
             <th className="px-4 py-3">Retention</th>
             <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Meta ID</th>
             <th className="px-4 py-3">Event</th>
             <th className="px-4 py-3 text-right">Actions</th>
           </tr>
@@ -168,11 +198,21 @@ function AudienceTable({
                 <td className="px-4 py-3">
                   {AUDIENCE_SUBTYPE_LABELS[audience.audienceSubtype]}
                 </td>
+                <td className="px-4 py-3 text-muted-foreground">
+                  {sourceDescription(audience)}
+                </td>
                 <td className="px-4 py-3">{audience.retentionDays}d</td>
                 <td className="px-4 py-3">
                   <Badge variant={statusVariant(audience.status)}>
                     {AUDIENCE_STATUS_LABELS[audience.status]}
                   </Badge>
+                </td>
+                <td className="px-4 py-3">
+                  {audience.metaAudienceId ? (
+                    <CopyableMetaId id={audience.metaAudienceId} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {audience.eventId && event ? (
@@ -190,6 +230,8 @@ function AudienceTable({
                   <AudienceRowActions
                     audienceId={audience.id}
                     clientId={clientId}
+                    status={audience.status}
+                    writesEnabled={writesEnabled}
                   />
                 </td>
               </tr>
@@ -206,8 +248,8 @@ function EmptyState({ clientId }: { clientId: string }) {
     <div className="rounded-md border border-border bg-card p-8 text-center">
       <p className="font-heading text-xl tracking-wide">No audience drafts yet</p>
       <p className="mt-2 text-sm text-muted-foreground">
-        Start from Matas-approved presets, then fill the source IDs before PR-B
-        writes them to Meta.
+        Start from Matas-approved presets, choose live sources, then save drafts
+        or create them in Meta when writes are enabled.
       </p>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         {(["top_of_funnel", "mid_funnel", "bottom_funnel"] as const).map(
@@ -272,9 +314,10 @@ async function loadEventMap(
 }
 
 function parseStatuses(raw: string | undefined): AudienceStatus[] {
-  if (!raw) return ["draft", "ready"];
+  if (raw === "all") return [];
+  if (!raw) return ["draft", "ready", "failed"];
   const statuses = raw.split(",").filter(isAudienceStatus);
-  return statuses.length > 0 ? statuses : ["draft", "ready"];
+  return statuses.length > 0 ? statuses : ["draft", "ready", "failed"];
 }
 
 function parseScope(raw: string | undefined): "default" | "client" | "event" {
@@ -298,7 +341,7 @@ function buildHref(
 ): string {
   const sp = new URLSearchParams();
   if (params.stage) sp.set("stage", params.stage);
-  if (params.status) sp.set("status", params.status);
+  if (params.status && params.status !== "default") sp.set("status", params.status);
   if (params.scope && params.scope !== "default") sp.set("scope", params.scope);
   const query = sp.toString();
   return query ? `/audiences/${clientId}?${query}` : `/audiences/${clientId}`;
@@ -309,4 +352,20 @@ function statusVariant(status: AudienceStatus) {
   if (status === "failed") return "destructive";
   if (status === "creating") return "warning";
   return "outline";
+}
+
+function sourceDescription(audience: MetaCustomAudience): string {
+  const meta = audience.sourceMeta as Record<string, unknown>;
+  if (audience.audienceSubtype.startsWith("page_")) {
+    const source = audience.audienceSubtype.endsWith("_ig") ? "IG" : "FB Page";
+    return `${source}: ${String(meta.pageName ?? meta.pageSlug ?? audience.sourceId)}`;
+  }
+  if (audience.audienceSubtype === "video_views") {
+    const videos = Array.isArray(meta.videoIds) ? meta.videoIds.length : 0;
+    return `Campaign: ${String(meta.campaignName ?? "Selected campaign")} (${videos} videos)`;
+  }
+  if (audience.audienceSubtype === "website_pixel") {
+    return `Pixel: ${String(meta.pixelName ?? audience.sourceId)} (${String(meta.pixelEvent ?? "PageView")})`;
+  }
+  return audience.sourceId;
 }

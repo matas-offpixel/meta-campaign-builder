@@ -23,6 +23,8 @@ export type AudienceSourceMeta =
   | {
       subtype: "video_views";
       threshold: 25 | 50 | 75 | 95 | 100;
+      campaignId?: string;
+      campaignName?: string;
       videoIds: string[];
     }
   | {
@@ -32,16 +34,20 @@ export type AudienceSourceMeta =
         | "ViewContent"
         | "InitiateCheckout"
         | "Purchase"
+        | "AddToCart"
         | string;
       urlContains?: string;
+      pixelName?: string;
     }
   | {
       subtype: "page_engagement_fb" | "page_engagement_ig";
       pageSlug?: string;
+      pageName?: string;
     }
   | {
       subtype: "page_followers_fb" | "page_followers_ig";
       pageSlug?: string;
+      pageName?: string;
     };
 
 export interface MetaCustomAudience {

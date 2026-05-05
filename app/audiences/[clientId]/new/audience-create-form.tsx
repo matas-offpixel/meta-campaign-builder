@@ -1,16 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { SourcePicker, type SourceSelection } from "@/components/audiences/source-picker";
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
 import {
   AUDIENCE_SUBTYPE_LABELS,
+  AUDIENCE_SUBTYPES,
   FUNNEL_STAGE_LABELS,
   FUNNEL_STAGES,
-  AUDIENCE_SUBTYPES,
 } from "@/lib/audiences/metadata";
 import type {
   AudienceSubtype,
@@ -30,76 +31,108 @@ interface EventOption {
   eventCode: string | null;
 }
 
-type SourceIds = Partial<Record<AudienceSubtype, string>>;
+interface AudienceDraftRow {
+  localId: string;
+  enabled: boolean;
+  name: string;
+  funnelStage: FunnelStage;
+  audienceSubtype: AudienceSubtype;
+  retentionDays: number;
+  source: SourceSelection;
+  scope: "client" | "event";
+  eventId: string;
+}
 
 export function AudienceCreateForm({
   client,
   events,
   initialEventId,
   initialPresetBundle,
+  writesEnabled,
 }: {
   client: ClientOption;
   events: EventOption[];
   initialEventId?: string;
   initialPresetBundle?: FunnelStage;
+  writesEnabled: boolean;
 }) {
   const router = useRouter();
-  const [funnelStage, setFunnelStage] = useState<FunnelStage>(
-    initialPresetBundle ?? "top_of_funnel",
-  );
   const [mode, setMode] = useState<"single" | "bundle">(
     initialPresetBundle ? "bundle" : "single",
   );
+  const [funnelStage, setFunnelStage] = useState<FunnelStage>(
+    initialPresetBundle ?? "top_of_funnel",
+  );
   const [audienceSubtype, setAudienceSubtype] =
     useState<AudienceSubtype>("page_engagement_fb");
-  const [retentionDays, setRetentionDays] = useState(365);
+  const [singleSource, setSingleSource] = useState<SourceSelection>({});
+  const [singleRetention, setSingleRetention] = useState(365);
   const [scope, setScope] = useState<"client" | "event">(
     initialEventId ? "event" : "client",
   );
   const [eventId, setEventId] = useState(initialEventId ?? "");
-  const [sourceId, setSourceId] = useState("");
-  const [sourceIds, setSourceIds] = useState<SourceIds>({});
-  const [videoThreshold, setVideoThreshold] = useState("50");
-  const [pixelEvent, setPixelEvent] = useState("PageView");
-  const [urlContains, setUrlContains] = useState("");
-  const [pageSlug, setPageSlug] = useState("");
   const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [bundleRows, setBundleRows] = useState<AudienceDraftRow[]>(() =>
+    buildBundleRows(funnelStage, client, events, initialEventId),
+  );
+  const [saving, setSaving] = useState<"draft" | "write" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    window.localStorage.setItem("lastAudienceClientId", client.id);
+  }, [client.id]);
+
+  useEffect(() => {
+    if (mode === "bundle") {
+      setBundleRows(buildBundleRows(funnelStage, client, events, initialEventId));
+    }
+  }, [client, events, funnelStage, initialEventId, mode]);
+
   const selectedEvent = events.find((event) => event.id === eventId) ?? null;
-  const suggestedName = useMemo(() => {
-    const prefix =
-      scope === "event" && selectedEvent
-        ? selectedEvent.eventCode || selectedEvent.name
-        : client.slug || client.name;
-    return `[${prefix}] ${AUDIENCE_SUBTYPE_LABELS[audienceSubtype]} ${retentionDays}d`;
-  }, [audienceSubtype, client.name, client.slug, retentionDays, scope, selectedEvent]);
+  const suggestedName = useMemo(
+    () =>
+      buildName({
+        client,
+        event: scope === "event" ? selectedEvent : null,
+        subtype: audienceSubtype,
+        retentionDays: singleRetention,
+      }),
+    [audienceSubtype, client, scope, selectedEvent, singleRetention],
+  );
 
-  const activePresets = FUNNEL_STAGE_PRESETS[funnelStage];
+  const metaBlocked = !client.metaAdAccountId;
 
-  async function submit() {
-    setSaving(true);
+  async function submit(kind: "draft" | "write") {
+    setSaving(kind);
     setError(null);
     try {
+      const createOnMeta = kind === "write";
       const payload =
-        mode === "bundle"
+        mode === "single"
           ? {
-              clientId: client.id,
-              eventId: scope === "event" ? eventId || null : null,
-              presetBundle: funnelStage,
-              sourceIds,
-              sourceMeta: { urlContains: urlContains || undefined },
-            }
-          : {
               clientId: client.id,
               eventId: scope === "event" ? eventId || null : null,
               funnelStage,
               audienceSubtype,
-              retentionDays,
-              sourceId,
-              sourceMeta: buildSourceMeta(),
+              retentionDays: clampRetention(singleRetention),
               name: name || suggestedName,
+              ...sourcePayload(audienceSubtype, singleSource),
+              createOnMeta,
+            }
+          : {
+              clientId: client.id,
+              audiences: bundleRows
+                .filter((row) => row.enabled)
+                .map((row) => ({
+                  clientId: client.id,
+                  eventId: row.scope === "event" ? row.eventId || null : null,
+                  funnelStage: row.funnelStage,
+                  audienceSubtype: row.audienceSubtype,
+                  retentionDays: clampRetention(row.retentionDays),
+                  name: row.name,
+                  ...sourcePayload(row.audienceSubtype, row.source),
+                })),
+              createOnMeta,
             };
 
       const res = await fetch("/api/audiences", {
@@ -112,193 +145,129 @@ export function AudienceCreateForm({
         | { ok: false; error: string }
         | null;
       if (!res.ok || !json?.ok) {
-        throw new Error(json && !json.ok ? json.error : "Failed to create audience");
+        throw new Error(json && !json.ok ? json.error : "Failed to save audiences");
       }
       router.push(`/audiences/${client.id}`);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create audience");
-      setSaving(false);
+      setError(err instanceof Error ? err.message : "Failed to save audiences");
+      setSaving(null);
     }
-  }
-
-  function buildSourceMeta() {
-    if (audienceSubtype === "video_views") {
-      return {
-        subtype: audienceSubtype,
-        threshold: Number(videoThreshold),
-        videoIds: sourceId.split(",").map((id) => id.trim()).filter(Boolean),
-      };
-    }
-    if (audienceSubtype === "website_pixel") {
-      return {
-        subtype: audienceSubtype,
-        pixelEvent,
-        urlContains: urlContains || undefined,
-      };
-    }
-    return { subtype: audienceSubtype, pageSlug: pageSlug || undefined };
-  }
-
-  function setSourceFor(key: AudienceSubtype, value: string) {
-    setSourceIds((current) => ({ ...current, [key]: value }));
   }
 
   return (
-    <div className="space-y-6 rounded-md border border-border bg-card p-5">
-      {!client.metaAdAccountId && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          This client needs a Meta ad account ID before audience drafts can be created.
+    <div className="space-y-5">
+      <div className="rounded-md border border-border bg-card p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Bound Meta destination
         </p>
-      )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-muted px-3 py-1 text-sm">
+            Will be created in: {client.name} ·{" "}
+            {client.metaAdAccountId ?? "No ad account linked"}
+          </span>
+        </div>
+        {metaBlocked && (
+          <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            This client has no Meta ad account linked. Connect Meta in client
+            settings first.
+          </p>
+        )}
+      </div>
+
       {error && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </p>
       )}
 
-      <section className="space-y-3">
-        <StepLabel step="1" label="Choose funnel stage" />
-        <div className="grid gap-2 md:grid-cols-4">
-          {FUNNEL_STAGES.map((stage) => (
-            <button
-              key={stage}
-              type="button"
-              onClick={() => setFunnelStage(stage)}
-              className={`rounded-md border px-3 py-2 text-left text-sm ${
-                funnelStage === stage
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-background"
-              }`}
-            >
-              {FUNNEL_STAGE_LABELS[stage]}
-            </button>
-          ))}
-        </div>
-      </section>
+      <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+        <aside className="space-y-4 rounded-md border border-border bg-card p-4">
+          <div>
+            <h2 className="font-heading text-lg tracking-wide">Audience shape</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Choose a single custom audience or a signed-off funnel stack.
+            </p>
+          </div>
 
-      <section className="space-y-3">
-        <StepLabel step="2" label="Choose subtype or preset bundle" />
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant={mode === "single" ? "primary" : "outline"}
-            onClick={() => setMode("single")}
-          >
-            Single audience
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "bundle" ? "primary" : "outline"}
-            onClick={() => setMode("bundle")}
-          >
-            Preset bundle ({activePresets.length})
-          </Button>
-        </div>
-        {mode === "single" ? (
-          <Select
-            id="audience-subtype"
-            label="Subtype"
-            value={audienceSubtype}
-            onChange={(event) =>
-              setAudienceSubtype(event.target.value as AudienceSubtype)
-            }
-            options={AUDIENCE_SUBTYPES.map((subtype) => ({
-              value: subtype,
-              label: AUDIENCE_SUBTYPE_LABELS[subtype],
-            }))}
-          />
-        ) : (
-          <div className="grid gap-2 md:grid-cols-2">
-            {activePresets.map((preset) => (
-              <div
-                key={preset.id}
-                className="rounded-md border border-border bg-background p-3 text-sm"
+          <div className="grid gap-2">
+            {FUNNEL_STAGES.map((stage) => (
+              <button
+                key={stage}
+                type="button"
+                onClick={() => setFunnelStage(stage)}
+                className={`rounded-md border px-3 py-2 text-left text-sm ${
+                  funnelStage === stage
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-background"
+                }`}
               >
-                <p className="font-medium">{preset.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  {AUDIENCE_SUBTYPE_LABELS[preset.audienceSubtype]}
-                </p>
-              </div>
+                {FUNNEL_STAGE_LABELS[stage]}
+              </button>
             ))}
           </div>
-        )}
-      </section>
 
-      <section className="space-y-3">
-        <StepLabel step="3" label="Configure retention and source fields" />
-        {mode === "single" ? (
-          <SingleSourceFields
-            audienceSubtype={audienceSubtype}
-            retentionDays={retentionDays}
-            setRetentionDays={setRetentionDays}
-            sourceId={sourceId}
-            setSourceId={setSourceId}
-            videoThreshold={videoThreshold}
-            setVideoThreshold={setVideoThreshold}
-            pixelEvent={pixelEvent}
-            setPixelEvent={setPixelEvent}
-            urlContains={urlContains}
-            setUrlContains={setUrlContains}
-            pageSlug={pageSlug}
-            setPageSlug={setPageSlug}
-          />
-        ) : (
-          <BundleSourceFields
-            sourceIds={sourceIds}
-            setSourceFor={setSourceFor}
-            urlContains={urlContains}
-            setUrlContains={setUrlContains}
-          />
-        )}
-      </section>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={mode === "single" ? "primary" : "outline"}
+              onClick={() => setMode("single")}
+            >
+              Single
+            </Button>
+            <Button
+              type="button"
+              variant={mode === "bundle" ? "primary" : "outline"}
+              onClick={() => setMode("bundle")}
+            >
+              Preset bundle
+            </Button>
+          </div>
 
-      <section className="space-y-3">
-        <StepLabel step="4" label="Scope" />
-        <div className="grid gap-3 md:grid-cols-2">
-          <Select
-            id="audience-scope"
-            label="Audience scope"
-            value={scope}
-            onChange={(event) => setScope(event.target.value as "client" | "event")}
-            options={[
-              { value: "client", label: "Client-wide" },
-              { value: "event", label: "Link to event" },
-            ]}
-          />
-          {scope === "event" && (
+          {mode === "single" && (
             <Select
-              id="audience-event"
-              label="Event"
-              value={eventId}
-              onChange={(event) => setEventId(event.target.value)}
-              placeholder="Choose event"
-              options={events.map((event) => ({
-                value: event.id,
-                label: event.eventCode
-                  ? `${event.eventCode} · ${event.name}`
-                  : event.name,
+              id="audience-subtype"
+              label="Subtype"
+              value={audienceSubtype}
+              onChange={(event) =>
+                setAudienceSubtype(event.target.value as AudienceSubtype)
+              }
+              options={AUDIENCE_SUBTYPES.map((subtype) => ({
+                value: subtype,
+                label: AUDIENCE_SUBTYPE_LABELS[subtype],
               }))}
             />
           )}
-        </div>
-      </section>
+        </aside>
 
-      {mode === "single" && (
-        <section className="space-y-3">
-          <StepLabel step="5" label="Naming" />
-          <TextField
-            id="audience-name"
-            label="Audience name"
-            value={name}
-            placeholder={suggestedName}
-            onChange={setName}
-          />
-          <p className="text-xs text-muted-foreground">
-            Suggested: {suggestedName}
-          </p>
+        <section className="rounded-md border border-border bg-card p-4">
+          {mode === "single" ? (
+            <SingleAudienceEditor
+              clientId={client.id}
+              events={events}
+              audienceSubtype={audienceSubtype}
+              retentionDays={singleRetention}
+              setRetentionDays={setSingleRetention}
+              source={singleSource}
+              setSource={setSingleSource}
+              scope={scope}
+              setScope={setScope}
+              eventId={eventId}
+              setEventId={setEventId}
+              name={name}
+              setName={setName}
+              suggestedName={suggestedName}
+            />
+          ) : (
+            <BundleAudienceEditor
+              clientId={client.id}
+              events={events}
+              rows={bundleRows}
+              setRows={setBundleRows}
+            />
+          )}
         </section>
-      )}
+      </div>
 
       <div className="flex justify-end gap-2">
         <Button
@@ -310,172 +279,220 @@ export function AudienceCreateForm({
         </Button>
         <Button
           type="button"
-          onClick={() => void submit()}
-          disabled={saving || !client.metaAdAccountId}
+          variant="outline"
+          onClick={() => void submit("draft")}
+          disabled={saving !== null || metaBlocked}
         >
-          {saving ? "Creating..." : "Create draft audience"}
+          {saving === "draft" ? "Saving..." : "Save as draft"}
         </Button>
+        {writesEnabled && (
+          <Button
+            type="button"
+            onClick={() => void submit("write")}
+            disabled={saving !== null || metaBlocked}
+          >
+            {saving === "write" ? "Creating..." : "Save + create on Meta"}
+          </Button>
+        )}
       </div>
     </div>
   );
 }
 
-function SingleSourceFields({
+function SingleAudienceEditor({
+  clientId,
+  events,
   audienceSubtype,
   retentionDays,
   setRetentionDays,
-  sourceId,
-  setSourceId,
-  videoThreshold,
-  setVideoThreshold,
-  pixelEvent,
-  setPixelEvent,
-  urlContains,
-  setUrlContains,
-  pageSlug,
-  setPageSlug,
+  source,
+  setSource,
+  scope,
+  setScope,
+  eventId,
+  setEventId,
+  name,
+  setName,
+  suggestedName,
 }: {
+  clientId: string;
+  events: EventOption[];
   audienceSubtype: AudienceSubtype;
   retentionDays: number;
   setRetentionDays: (value: number) => void;
-  sourceId: string;
-  setSourceId: (value: string) => void;
-  videoThreshold: string;
-  setVideoThreshold: (value: string) => void;
-  pixelEvent: string;
-  setPixelEvent: (value: string) => void;
-  urlContains: string;
-  setUrlContains: (value: string) => void;
-  pageSlug: string;
-  setPageSlug: (value: string) => void;
+  source: SourceSelection;
+  setSource: (value: SourceSelection) => void;
+  scope: "client" | "event";
+  setScope: (value: "client" | "event") => void;
+  eventId: string;
+  setEventId: (value: string) => void;
+  name: string;
+  setName: (value: string) => void;
+  suggestedName: string;
 }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <TextField
-        id="audience-retention"
-        label="Retention days"
-        type="number"
-        value={String(retentionDays)}
-        onChange={(value) => setRetentionDays(Number(value))}
+    <div className="space-y-4">
+      <SourcePicker
+        clientId={clientId}
+        subtype={audienceSubtype}
+        value={source}
+        onChange={setSource}
       />
+      <div className="grid gap-3 md:grid-cols-2">
+        <TextField
+          id="audience-retention"
+          label="Retention days"
+          type="number"
+          value={String(retentionDays)}
+          onChange={(value) => setRetentionDays(clampRetention(Number(value)))}
+        />
+        <ScopeFields
+          events={events}
+          scope={scope}
+          setScope={setScope}
+          eventId={eventId}
+          setEventId={setEventId}
+        />
+      </div>
       <TextField
-        id="audience-source"
-        label={audienceSubtype === "video_views" ? "Video IDs" : "Source ID"}
-        value={sourceId}
-        placeholder={
-          audienceSubtype === "website_pixel"
-            ? "Pixel ID"
-            : audienceSubtype === "video_views"
-              ? "Comma-separated video IDs"
-              : "Page or IG account ID"
-        }
-        onChange={setSourceId}
+        id="audience-name"
+        label="Name"
+        value={name}
+        placeholder={suggestedName}
+        onChange={setName}
       />
-      {audienceSubtype === "video_views" && (
+      <p className="text-xs text-muted-foreground">Suggested: {suggestedName}</p>
+    </div>
+  );
+}
+
+function BundleAudienceEditor({
+  clientId,
+  events,
+  rows,
+  setRows,
+}: {
+  clientId: string;
+  events: EventOption[];
+  rows: AudienceDraftRow[];
+  setRows: (rows: AudienceDraftRow[]) => void;
+}) {
+  function updateRow(localId: string, patch: Partial<AudienceDraftRow>) {
+    setRows(rows.map((row) => (row.localId === localId ? { ...row, ...patch } : row)));
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-heading text-lg tracking-wide">Preset detail</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Toggle rows off, edit names/retention, and choose required sources
+          before creating the stack.
+        </p>
+      </div>
+      {rows.map((row) => (
+        <div
+          key={row.localId}
+          className={`rounded-md border p-4 ${
+            row.enabled ? "border-border bg-background" : "border-border bg-muted/40"
+          }`}
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={row.enabled}
+                onChange={(event) =>
+                  updateRow(row.localId, { enabled: event.target.checked })
+                }
+              />
+              {AUDIENCE_SUBTYPE_LABELS[row.audienceSubtype]}
+            </label>
+            <span className="rounded-full bg-muted px-2 py-1 text-xs">
+              {row.retentionDays}d
+            </span>
+          </div>
+          <div className="grid gap-3">
+            <TextField
+              id={`${row.localId}-name`}
+              label="Name"
+              value={row.name}
+              onChange={(name) => updateRow(row.localId, { name })}
+            />
+            <SourcePicker
+              clientId={clientId}
+              subtype={row.audienceSubtype}
+              value={row.source}
+              onChange={(source) => updateRow(row.localId, { source })}
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <TextField
+                id={`${row.localId}-retention`}
+                label="Retention days"
+                type="number"
+                value={String(row.retentionDays)}
+                onChange={(value) =>
+                  updateRow(row.localId, {
+                    retentionDays: clampRetention(Number(value)),
+                  })
+                }
+              />
+              <ScopeFields
+                events={events}
+                scope={row.scope}
+                setScope={(scope) => updateRow(row.localId, { scope })}
+                eventId={row.eventId}
+                setEventId={(eventId) => updateRow(row.localId, { eventId })}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScopeFields({
+  events,
+  scope,
+  setScope,
+  eventId,
+  setEventId,
+}: {
+  events: EventOption[];
+  scope: "client" | "event";
+  setScope: (scope: "client" | "event") => void;
+  eventId: string;
+  setEventId: (eventId: string) => void;
+}) {
+  return (
+    <div className="grid gap-3">
+      <Select
+        id={`scope-${eventId || "client"}`}
+        label="Scope"
+        value={scope}
+        onChange={(event) => setScope(event.target.value as "client" | "event")}
+        options={[
+          { value: "client", label: "Client-wide" },
+          { value: "event", label: "Link to event" },
+        ]}
+      />
+      {scope === "event" && (
         <Select
-          id="audience-video-threshold"
-          label="Video threshold"
-          value={videoThreshold}
-          onChange={(event) => setVideoThreshold(event.target.value)}
-          options={[25, 50, 75, 95, 100].map((value) => ({
-            value: String(value),
-            label: `${value}%`,
+          id={`event-${eventId || "empty"}`}
+          label="Event"
+          value={eventId}
+          onChange={(event) => setEventId(event.target.value)}
+          placeholder="Choose event"
+          options={events.map((event) => ({
+            value: event.id,
+            label: event.eventCode
+              ? `${event.eventCode} · ${event.name}`
+              : event.name,
           }))}
         />
       )}
-      {audienceSubtype === "website_pixel" && (
-        <>
-          <Select
-            id="audience-pixel-event"
-            label="Pixel event"
-            value={pixelEvent}
-            onChange={(event) => setPixelEvent(event.target.value)}
-            options={["PageView", "ViewContent", "InitiateCheckout", "Purchase"].map(
-              (value) => ({ value, label: value }),
-            )}
-          />
-          <TextField
-            id="audience-url-contains"
-            label="URL contains"
-            value={urlContains}
-            placeholder="Optional site-specific URL filter"
-            onChange={setUrlContains}
-          />
-        </>
-      )}
-      {audienceSubtype.startsWith("page_") && (
-        <TextField
-          id="audience-page-slug"
-          label="Page slug"
-          value={pageSlug}
-          placeholder="Optional"
-          onChange={setPageSlug}
-        />
-      )}
     </div>
-  );
-}
-
-function BundleSourceFields({
-  sourceIds,
-  setSourceFor,
-  urlContains,
-  setUrlContains,
-}: {
-  sourceIds: SourceIds;
-  setSourceFor: (key: AudienceSubtype, value: string) => void;
-  urlContains: string;
-  setUrlContains: (value: string) => void;
-}) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <TextField
-        id="bundle-fb-source"
-        label="FB page ID"
-        value={sourceIds.page_engagement_fb ?? ""}
-        onChange={(value) => {
-          setSourceFor("page_engagement_fb", value);
-          setSourceFor("page_followers_fb", value);
-        }}
-      />
-      <TextField
-        id="bundle-ig-source"
-        label="IG account ID"
-        value={sourceIds.page_engagement_ig ?? ""}
-        onChange={(value) => {
-          setSourceFor("page_engagement_ig", value);
-          setSourceFor("page_followers_ig", value);
-        }}
-      />
-      <TextField
-        id="bundle-video-source"
-        label="Video IDs"
-        value={sourceIds.video_views ?? ""}
-        placeholder="Comma-separated video IDs"
-        onChange={(value) => setSourceFor("video_views", value)}
-      />
-      <TextField
-        id="bundle-pixel-source"
-        label="Pixel ID"
-        value={sourceIds.website_pixel ?? ""}
-        onChange={(value) => setSourceFor("website_pixel", value)}
-      />
-      <TextField
-        id="bundle-url-contains"
-        label="URL contains"
-        value={urlContains}
-        placeholder="Optional for mid-funnel ViewContent"
-        onChange={setUrlContains}
-      />
-    </div>
-  );
-}
-
-function StepLabel({ step, label }: { step: string; label: string }) {
-  return (
-    <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-      Step {step}: {label}
-    </h2>
   );
 }
 
@@ -507,4 +524,98 @@ function TextField({
       />
     </label>
   );
+}
+
+function buildBundleRows(
+  stage: FunnelStage,
+  client: ClientOption,
+  events: EventOption[],
+  initialEventId?: string,
+): AudienceDraftRow[] {
+  const event = events.find((candidate) => candidate.id === initialEventId) ?? null;
+  return FUNNEL_STAGE_PRESETS[stage].map((preset) => ({
+    localId: preset.id,
+    enabled: true,
+    name: buildName({
+      client,
+      event,
+      subtype: preset.audienceSubtype,
+      retentionDays: preset.retentionDays,
+    }),
+    funnelStage: stage,
+    audienceSubtype: preset.audienceSubtype,
+    retentionDays: preset.retentionDays,
+    source: sourceFromPreset(preset.defaultSourceMeta),
+    scope: initialEventId ? "event" : "client",
+    eventId: initialEventId ?? "",
+  }));
+}
+
+function sourceFromPreset(meta: { subtype: AudienceSubtype } & Record<string, unknown>) {
+  if (meta.subtype === "video_views") {
+    return { threshold: meta.threshold as SourceSelection["threshold"] };
+  }
+  if (meta.subtype === "website_pixel") {
+    return {
+      pixelEvent: String(meta.pixelEvent ?? "PageView"),
+      urlContains: typeof meta.urlContains === "string" ? meta.urlContains : "",
+      useUrlFilter:
+        meta.pixelEvent === "ViewContent" && typeof meta.urlContains === "string",
+    };
+  }
+  return {};
+}
+
+function buildName({
+  client,
+  event,
+  subtype,
+  retentionDays,
+}: {
+  client: ClientOption;
+  event: EventOption | null;
+  subtype: AudienceSubtype;
+  retentionDays: number;
+}) {
+  const prefix = event ? event.eventCode || event.name : client.slug || client.name;
+  return `[${prefix}] ${AUDIENCE_SUBTYPE_LABELS[subtype]} ${retentionDays}d`;
+}
+
+function sourcePayload(subtype: AudienceSubtype, source: SourceSelection) {
+  if (subtype === "video_views") {
+    return {
+      sourceId: source.videoIds?.join(",") ?? "",
+      sourceMeta: {
+        subtype,
+        threshold: source.threshold ?? 50,
+        campaignId: source.campaignId,
+        campaignName: source.campaignName,
+        videoIds: source.videoIds ?? [],
+      },
+    };
+  }
+  if (subtype === "website_pixel") {
+    return {
+      sourceId: source.pixelId ?? "",
+      sourceMeta: {
+        subtype,
+        pixelEvent: source.pixelEvent || "PageView",
+        urlContains: source.useUrlFilter ? source.urlContains : undefined,
+        pixelName: source.pixelName,
+      },
+    };
+  }
+  return {
+    sourceId: source.sourceId ?? "",
+    sourceMeta: {
+      subtype,
+      pageSlug: source.pageSlug,
+      pageName: source.sourceName,
+    },
+  };
+}
+
+function clampRetention(value: number) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.trunc(value), 1), 365);
 }
