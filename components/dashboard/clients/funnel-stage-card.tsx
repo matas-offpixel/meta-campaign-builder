@@ -8,7 +8,8 @@ const GBP = new Intl.NumberFormat("en-GB", {
 });
 
 export function FunnelStageCard({ stage }: { stage: FunnelStage }) {
-  const pct = stage.pacingPct == null ? 0 : Math.min(140, Math.max(0, stage.pacingPct));
+  const fillPct =
+    stage.pacingPct == null ? 0 : Math.min(100, Math.max(0, stage.pacingPct));
   return (
     <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -28,7 +29,7 @@ export function FunnelStageCard({ stage }: { stage: FunnelStage }) {
             stage.status,
           )}`}
         >
-          {statusLabel(stage.status)}
+          {pacingStatusLabel(stage.status, stage.pacingPct)}
         </span>
       </div>
 
@@ -43,15 +44,24 @@ export function FunnelStageCard({ stage }: { stage: FunnelStage }) {
             {stage.metricLabel.toLowerCase()}
             {stage.pacingPct != null && (
               <span className="text-muted-foreground">
-                {" "}
-                ({Math.round(stage.pacingPct)}%)
+                {stage.pacingPct > 100 ? (
+                  <>
+                    {" "}
+                    — {Math.round(stage.pacingPct)}% of target — ahead
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    ({Math.round(stage.pacingPct)}%)
+                  </>
+                )}
               </span>
             )}
           </p>
           <div className="relative mt-2 h-2 overflow-hidden rounded-full bg-muted">
             <div
               className={`h-full rounded-full ${barClass(stage.status)}`}
-              style={{ width: `${Math.min(100, pct)}%` }}
+              style={{ width: `${fillPct}%` }}
             />
             <div className="absolute right-0 top-0 h-full w-px bg-foreground/60" />
           </div>
@@ -68,7 +78,13 @@ export function FunnelStageCard({ stage }: { stage: FunnelStage }) {
   );
 }
 
-function statusLabel(status: FunnelStage["status"]): string {
+function pacingStatusLabel(
+  status: FunnelStage["status"],
+  pacingPct: number | null,
+): string {
+  if (status === "green" && pacingPct != null && pacingPct >= 130) {
+    return "🟢🟢 EXCEEDED";
+  }
   if (status === "green") return "🟢 ON TRACK";
   if (status === "amber") return "🟡 BEHIND";
   return "🔴 OFF TRACK";

@@ -14,6 +14,9 @@ export interface FunnelRollupInput {
   meta_reach?: number | null;
 }
 
+/** When rollup LPV is unavailable, BOFU targets use this factor vs link clicks (snapshot LPV preferred at derive time). */
+export const FUNNEL_LPV_CLICKS_FALLBACK_RATIO = 0.7;
+
 export interface DerivedFunnelTargets {
   tofu_target_reach: number;
   tofu_target_cpm: number | null;
@@ -49,6 +52,7 @@ export const FALLBACK_FUNNEL_TARGETS: DerivedFunnelTargets = {
 export function deriveFunnelTargetsFromSoldOutEvents(
   events: FunnelDeriveEvent[],
   rollups: FunnelRollupInput[],
+  lpvByEvent?: ReadonlyMap<string, number>,
 ): DerivedFunnelTargets | null {
   if (events.length === 0) return null;
   const rollupsByEvent = new Map<string, FunnelRollupInput[]>();
@@ -60,14 +64,15 @@ export function deriveFunnelTargetsFromSoldOutEvents(
 
   const totals = events.map((event) => {
     const rows = rollupsByEvent.get(event.id) ?? [];
+    const clicks = rows.reduce((sum, row) => sum + (row.link_clicks ?? 0), 0);
+    const lpvFromRollups = Math.round(clicks * FUNNEL_LPV_CLICKS_FALLBACK_RATIO);
+    const lpv = lpvByEvent?.get(event.id) ?? lpvFromRollups;
     return {
       event,
       spend: rows.reduce((sum, row) => sum + rollupSpend(row), 0),
       reach: rows.reduce((sum, row) => sum + (row.meta_reach ?? 0), 0),
-      clicks: rows.reduce((sum, row) => sum + (row.link_clicks ?? 0), 0),
-      // event_daily_rollups does not have a first-class LPV column yet.
-      // Use clicks as the conservative LPV proxy until the rollup widens.
-      lpv: rows.reduce((sum, row) => sum + (row.link_clicks ?? 0), 0),
+      clicks,
+      lpv,
       purchases: rows.reduce((sum, row) => sum + (row.tickets_sold ?? 0), 0),
     };
   });
