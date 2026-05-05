@@ -13,8 +13,8 @@ import { createClient } from "@/lib/supabase/server";
  * Cookie-auth read of the channel set + allocations + sales for events
  * sharing the given event's (client_id, event_code) — i.e. the venue
  * group the event belongs to. Returns the same shape as the share-
- * token version so MultiChannelTicketEntryCard can hit either endpoint
- * without forking its render path.
+ * token version for the compact tier-row channel editor and any future
+ * refresh path.
  */
 export async function GET(
   _req: NextRequest,

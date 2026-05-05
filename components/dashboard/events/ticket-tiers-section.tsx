@@ -3,6 +3,7 @@
 import { Info } from "lucide-react";
 
 import { CopyToClipboard } from "@/components/dashboard/events/copy-to-clipboard";
+import { TicketTierChannelBreakdown } from "@/components/dashboard/events/ticket-tier-channel-breakdown";
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
 import { suggestedCommsPhrase, type CommsPhrase } from "@/lib/dashboard/comms-phrase";
 import {
@@ -16,6 +17,10 @@ interface Props {
   title?: string;
   emptyMessage?: string;
   compact?: boolean;
+  eventId?: string;
+  channelEditApiBase?: string;
+  canEditChannels?: boolean;
+  onAfterChannelMutate?: () => void;
 }
 
 const GBP = new Intl.NumberFormat("en-GB", {
@@ -32,6 +37,10 @@ export function TicketTiersSection({
   title = "Ticket Tiers",
   emptyMessage = "No ticket tier breakdown has been synced yet.",
   compact = false,
+  eventId,
+  channelEditApiBase,
+  canEditChannels = false,
+  onAfterChannelMutate,
 }: Props) {
   const sortedTiers = [...tiers].sort(compareTierRows);
 
@@ -61,7 +70,7 @@ export function TicketTiersSection({
         </p>
       ) : (
         <div className="overflow-hidden rounded-md border border-border bg-card">
-          <table className="w-full min-w-[560px] border-collapse text-sm">
+          <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead>
               <tr className="bg-muted/70 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2">Tier</th>
@@ -69,6 +78,9 @@ export function TicketTiersSection({
                 <th className="px-3 py-2 text-right">% sold</th>
                 <th className="px-3 py-2 text-right">Suggested</th>
                 <th className="px-3 py-2 text-right">Comms</th>
+                <th className="px-3 py-2 text-right">Channel allocation</th>
+                <th className="px-3 py-2 text-right">Channel sold</th>
+                <th className="px-3 py-2 text-right">Channels</th>
                 <th className="px-3 py-2 text-right">Price</th>
               </tr>
             </thead>
@@ -119,6 +131,13 @@ export function TicketTiersSection({
                     <td className="px-3 py-2 text-right">
                       <CommsChip phrase={comms} />
                     </td>
+                    <TicketTierChannelBreakdown
+                      eventId={eventId}
+                      tier={tier}
+                      canEdit={canEditChannels}
+                      apiBase={channelEditApiBase}
+                      onAfterMutate={onAfterChannelMutate}
+                    />
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
                       {price == null || !Number.isFinite(price)
                         ? "—"

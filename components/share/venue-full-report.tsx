@@ -25,7 +25,6 @@ import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/additional-ticket-entries-card";
-import { MultiChannelTicketEntryCard } from "@/components/dashboard/events/multi-channel-ticket-entry-card";
 import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
 import { VenueBudgetClickEdit } from "./venue-budget-click-edit";
 import { VenueTicketingStatusBadge } from "./last-updated-indicator";
@@ -112,22 +111,6 @@ export function VenueFullReport({
       })),
     [initialEvents],
   );
-  const multiChannelEvents = useMemo(
-    () =>
-      initialEvents.map((event) => ({
-        id: event.id,
-        name: event.name,
-        tiers: event.ticket_tiers.map((tier) => ({
-          tier_name: tier.tier_name,
-          price: tier.price,
-        })),
-      })),
-    [initialEvents],
-  );
-  const multiChannelApiBase = isInternal
-    ? `/api/events/${initialEvents[0]?.id ?? ""}`
-    : `/api/share/venue/${token}`;
-  const multiChannelFetchEventId = initialEvents[0]?.id ?? "";
   const budgetEvents = useMemo(
     () =>
       initialEvents.map((event) => ({
@@ -168,15 +151,6 @@ export function VenueFullReport({
         datePreset={datePreset}
         customRange={customRange}
       />
-      <MultiChannelTicketEntryCard
-        mode={mode}
-        apiBase={multiChannelApiBase}
-        fetchEventId={multiChannelFetchEventId}
-        events={multiChannelEvents}
-        readOnly={readOnly}
-        className="rounded-md border border-border bg-card p-4"
-        onAfterMutate={() => router.refresh()}
-      />
       <AdditionalEntriesPanel
         mode={mode}
         clientId={clientId}
@@ -192,16 +166,6 @@ export function VenueFullReport({
         shareToken={mode === "share" ? token : ""}
         onSaved={() => router.refresh()}
       />
-      {/* Internal surface still exposes the legacy event-scope additional ticket entries
-       *  card alongside the new multi-channel card so existing operator
-       *  flows keep working until we migrate that data into the new tables. */}
-      {isInternal ? (
-        <LegacyTicketEntriesPanel
-          events={additionalEntryEvents}
-          readOnly={readOnly}
-          onAfterMutate={() => router.refresh()}
-        />
-      ) : null}
       <VenueLiveReportTabs
         clientId={clientId}
         eventCode={eventCode}
@@ -216,6 +180,7 @@ export function VenueFullReport({
         londonOnsaleSpend={londonOnsaleSpend}
         refreshNonce={refreshNonce}
         isInternal={isInternal}
+        canEdit={canEdit}
         onRefresh={handleRefresh}
         onTimeframeChange={handleTimeframeChange}
       />
@@ -240,61 +205,34 @@ function AdditionalEntriesPanel({
   shareToken: string;
   onAfterMutate: () => void;
 }) {
-  // Tickets are now expressed via the multi-channel card; this
-  // section keeps the venue-scope financial entries (PR spend,
-  // partner fees, comps as £). The card consumes `shareToken` to
-  // route through the share-token endpoints when rendered on the
-  // public report — fixing the regression where the venue surface
-  // showed an Add button that always 401'd in share mode.
   return (
     <section className="space-y-4 rounded-md border border-border bg-background p-4">
       <div>
         <h2 className="font-heading text-base tracking-wide text-foreground">
-          Additional spend
+          Additional entries
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Track event-specific PR fees, partner allocations, OOH boards, and
-          other paid-media-adjacent spend for this venue.
+          Track extra spend and non-tier-specific manual ticket sales for this
+          venue. Tier/channel sales are edited inside the tier breakdown table.
         </p>
       </div>
-      <VenueAdditionalSpendCard
-        events={events}
-        venueScope={{ clientId, eventCode }}
-        className="rounded-md border border-border bg-card p-3"
-        readOnly={readOnly}
-        shareToken={mode === "share" ? shareToken : undefined}
-        onAfterMutate={onAfterMutate}
-      />
-    </section>
-  );
-}
-
-function LegacyTicketEntriesPanel({
-  events,
-  readOnly,
-  onAfterMutate,
-}: {
-  events: Array<{ id: string; name: string; ticketTiers: string[] }>;
-  readOnly: boolean;
-  onAfterMutate: () => void;
-}) {
-  return (
-    <section className="space-y-4 rounded-md border border-border bg-background p-4">
-      <div>
-        <h2 className="font-heading text-base tracking-wide text-foreground">
-          Legacy ticket entries
-        </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Pre-channel running totals (kept visible on the internal surface
-          while we migrate the data into the multi-channel tables above).
-        </p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <VenueAdditionalSpendCard
+          events={events}
+          venueScope={{ clientId, eventCode }}
+          className="rounded-md border border-border bg-card p-3"
+          readOnly={readOnly}
+          shareToken={mode === "share" ? shareToken : undefined}
+          onAfterMutate={onAfterMutate}
+        />
+        <AdditionalTicketEntriesCard
+          events={events}
+          className="rounded-md border border-border bg-card p-3"
+          readOnly={readOnly}
+          shareToken={mode === "share" ? shareToken : undefined}
+          onAfterMutate={onAfterMutate}
+        />
       </div>
-      <AdditionalTicketEntriesCard
-        events={events}
-        className="rounded-md border border-border bg-card p-3"
-        readOnly={readOnly}
-        onAfterMutate={onAfterMutate}
-      />
     </section>
   );
 }
@@ -345,6 +283,7 @@ function VenueLiveReportTabs({
   londonOnsaleSpend,
   refreshNonce,
   isInternal,
+  canEdit,
   onRefresh,
   onTimeframeChange,
 }: {
@@ -361,6 +300,7 @@ function VenueLiveReportTabs({
   londonOnsaleSpend: number | null;
   refreshNonce: number;
   isInternal: boolean;
+  canEdit: boolean;
   onRefresh: () => Promise<void>;
   onTimeframeChange: (
     preset: DatePreset,
@@ -572,6 +512,9 @@ function VenueLiveReportTabs({
         dailyRollups={dailyRollups}
         londonOnsaleSpend={londonOnsaleSpend}
         additionalSpend={additionalSpend}
+        channelEditApiBase={shareToken ? `/api/share/venue/${shareToken}` : undefined}
+        canEditChannels={!isInternal && canEdit && !!shareToken}
+        onAfterChannelMutate={onRefresh}
       />
       <VenueLiveReportInsights
         clientId={clientId}

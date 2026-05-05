@@ -41,6 +41,9 @@ interface Props {
   dailyRollups: DailyRollupRow[];
   londonOnsaleSpend: number | null;
   additionalSpend?: AdditionalSpendRow[];
+  channelEditApiBase?: string;
+  canEditChannels?: boolean;
+  onAfterChannelMutate?: () => void;
 }
 
 interface EventMetrics {
@@ -75,6 +78,9 @@ export function VenueEventBreakdown({
   dailyRollups,
   londonOnsaleSpend,
   additionalSpend = [],
+  channelEditApiBase,
+  canEditChannels = false,
+  onAfterChannelMutate,
 }: Props) {
   const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(
     () => new Set(),
@@ -179,6 +185,9 @@ export function VenueEventBreakdown({
                     metrics={metrics}
                     expanded={expanded}
                     onToggle={() => toggleEvent(event.id)}
+                    channelEditApiBase={channelEditApiBase}
+                    canEditChannels={canEditChannels}
+                    onAfterChannelMutate={onAfterChannelMutate}
                   />
                 );
               })}
@@ -195,11 +204,17 @@ function VenueEventBreakdownRows({
   metrics,
   expanded,
   onToggle,
+  channelEditApiBase,
+  canEditChannels,
+  onAfterChannelMutate,
 }: {
   event: PortalEvent;
   metrics: EventMetrics;
   expanded: boolean;
   onToggle: () => void;
+  channelEditApiBase?: string;
+  canEditChannels: boolean;
+  onAfterChannelMutate?: () => void;
 }) {
   return (
     <>
@@ -268,6 +283,10 @@ function VenueEventBreakdownRows({
                 title={`${event.name} ticket tiers`}
                 emptyMessage="Tier breakdown will appear after next sync."
                 compact
+                eventId={event.id}
+                channelEditApiBase={channelEditApiBase}
+                canEditChannels={canEditChannels}
+                onAfterChannelMutate={onAfterChannelMutate}
               />
               <RecommendedActionPanel action={buildMarketingAction(event, metrics)} />
             </div>
