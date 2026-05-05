@@ -300,6 +300,7 @@ export interface UpsertLinkInput {
   connectionId: string;
   externalEventId: string;
   externalEventUrl?: string | null;
+  manualLock?: boolean;
 }
 
 export async function upsertEventLink(
@@ -319,6 +320,7 @@ export async function upsertEventLink(
         connection_id: input.connectionId,
         external_event_id: input.externalEventId,
         external_event_url: input.externalEventUrl ?? null,
+        manual_lock: input.manualLock ?? false,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "event_id,connection_id" },

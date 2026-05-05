@@ -14,6 +14,7 @@ import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
  *       connectionId: string,
  *       externalEventId: string,
  *       externalEventUrl?: string | null,
+ *       source?: "auto" | "manual",
  *     }>,
  *     syncAfterLink?: boolean,   // defaults true
  *   }
@@ -34,6 +35,7 @@ interface Selection {
   connectionId: string;
   externalEventId: string;
   externalEventUrl: string | null;
+  source: "auto" | "manual";
 }
 
 interface BulkLinkResult {
@@ -95,6 +97,7 @@ function validateBody(body: unknown): {
         i.externalEventUrl.trim().length > 0
           ? i.externalEventUrl.trim()
           : null,
+      source: i.source === "auto" ? "auto" : "manual",
     });
   }
   const syncAfterLink =
@@ -316,6 +319,7 @@ export async function POST(
         connectionId: p.selection.connectionId,
         externalEventId: p.selection.externalEventId,
         externalEventUrl: p.selection.externalEventUrl,
+        manualLock: p.selection.source !== "auto",
       });
       if (!link) {
         results.push({

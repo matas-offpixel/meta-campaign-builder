@@ -53,6 +53,7 @@ export interface EventTicketingLink {
   connection_id: string;
   external_event_id: string;
   external_event_url: string | null;
+  manual_lock?: boolean;
   created_at: string;
   updated_at: string;
 }

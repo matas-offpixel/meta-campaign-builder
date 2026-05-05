@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  Lock,
   RefreshCw,
   SearchX,
 } from "lucide-react";
@@ -74,6 +75,19 @@ interface EventRow {
   candidates: CandidateRow[];
 }
 
+interface LinkedEventRow {
+  eventId: string;
+  eventName: string;
+  eventDate: string | null;
+  venueName: string | null;
+  linkId: string;
+  connectionId: string;
+  connectionProvider: string | null;
+  externalEventId: string;
+  externalEventUrl: string | null;
+  manualLock: boolean;
+}
+
 interface ConnectionRow {
   id: string;
   provider: string;
@@ -89,9 +103,12 @@ interface DiscoveryResponse {
   clientId?: string;
   clientName?: string;
   events?: EventRow[];
+  linkedEvents?: LinkedEventRow[];
   externalEvents?: SearchableTicketingEvent[];
   connections?: ConnectionRow[];
   unlinkedEventCount?: number;
+  linkedEventCount?: number;
+  manualLockedEventCount?: number;
   totalEventCount?: number;
 }
 
@@ -131,6 +148,7 @@ interface LinkSelection {
   connectionId: string;
   externalEventId: string;
   externalEventUrl: string | null;
+  source: "auto" | "manual";
 }
 
 interface LinkSummary {
@@ -279,6 +297,10 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
   }, [fetchDiscovery]);
 
   const events = useMemo(() => payload?.events ?? [], [payload?.events]);
+  const linkedEvents = useMemo(
+    () => payload?.linkedEvents ?? [],
+    [payload?.linkedEvents],
+  );
   const externalEvents = useMemo(
     () => payload?.externalEvents ?? [],
     [payload?.externalEvents],
@@ -372,7 +394,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
           externalEventId: candidate.externalEventId,
           connectionId: candidate.connectionId,
           checked: true,
-          source: "auto",
+          source: "manual",
         },
       };
     });
@@ -384,6 +406,57 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       delete next[eventId];
       return next;
     });
+  };
+
+  const setManualLock = async (linkId: string, manualLock: boolean) => {
+    setError(null);
+    try {
+      const res = await fetch("/api/ticketing/links", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId, manualLock }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? `Request failed (${res.status})`);
+      }
+      setPayload((prev) =>
+        prev
+          ? {
+              ...prev,
+              linkedEvents: (prev.linkedEvents ?? []).map((link) =>
+                link.linkId === linkId ? { ...link, manualLock } : link,
+              ),
+              manualLockedEventCount: (prev.linkedEvents ?? []).filter((link) =>
+                link.linkId === linkId ? manualLock : link.manualLock,
+              ).length,
+            }
+          : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update link");
+    }
+  };
+
+  const unlinkAndResearch = async (link: LinkedEventRow) => {
+    const confirmed = window.confirm(
+      `Unlink ${link.eventName} and return it to discovery?`,
+    );
+    if (!confirmed) return;
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/ticketing/links?linkId=${encodeURIComponent(link.linkId)}`,
+        { method: "DELETE" },
+      );
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? `Request failed (${res.status})`);
+      }
+      await fetchDiscovery("refresh");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unlink event");
+    }
   };
 
   const linkRows = async (
@@ -484,11 +557,13 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
   const externalEventToSelection = (
     eventId: string,
     event: SearchableTicketingEvent | CandidateRow,
+    source: "auto" | "manual",
   ) => ({
     eventId,
     connectionId: event.connectionId,
     externalEventId: event.externalEventId,
     externalEventUrl: event.externalEventUrl,
+    source,
   });
 
   const onAutoLinkAll = () => {
@@ -518,7 +593,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
       );
       const selected = event ?? candidate;
       if (!selected) continue;
-      rows.push(externalEventToSelection(row.eventId, selected));
+      rows.push(externalEventToSelection(row.eventId, selected, sel.source));
     }
     await linkRows(rows);
   };
@@ -570,6 +645,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
               {payload?.unlinkedEventCount ?? 0} unlinked event
               {(payload?.unlinkedEventCount ?? 0) === 1 ? "" : "s"} of{" "}
               {payload?.totalEventCount ?? 0} total ·{" "}
+              {payload?.manualLockedEventCount ?? 0} locked ·{" "}
               {activeConnectionCount} active connection
               {activeConnectionCount === 1 ? "" : "s"}
             </p>
@@ -724,6 +800,77 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
         </Card>
       ) : null}
 
+      {linkedEvents.length > 0 ? (
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-border bg-muted/30 px-4 py-3">
+            <p className="text-sm font-medium text-foreground">
+              Linked events
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Manual locks are excluded from auto-pick suggestions on every
+              re-scan.
+            </p>
+          </div>
+          <div className="divide-y divide-border">
+            {linkedEvents.map((link) => (
+              <div
+                key={link.linkId}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">
+                    {link.eventName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {link.venueName ?? "—"} · {fmtDate(link.eventDate)} ·{" "}
+                    {link.connectionProvider ?? "ticketing"} ·{" "}
+                    <span className="font-mono">{link.externalEventId}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    title={
+                      link.manualLock
+                        ? "Manually verified — won't be overwritten on re-scan"
+                        : "Auto-picked match"
+                    }
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${
+                      link.manualLock
+                        ? "bg-green-500/10 text-green-700"
+                        : "bg-primary/10 text-primary"
+                    }`}
+                  >
+                    {link.manualLock ? <Lock className="h-3 w-3" /> : null}
+                    Linked{link.manualLock ? " locked" : ""}
+                  </span>
+                  {link.manualLock ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={submitting || reloading}
+                      onClick={() => void unlinkAndResearch(link)}
+                    >
+                      Unlink and re-search
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={submitting || reloading}
+                      onClick={() => void setManualLock(link.linkId, true)}
+                    >
+                      Lock this match
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       {events.length === 0 ? (
         <Card>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -735,7 +882,8 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
         <Card className="overflow-hidden p-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-3">
             <p className="text-sm text-foreground">
-              {selectedCount} selected / {events.length} unlinked
+              {selectedCount} selected / {events.length} unlinked ·{" "}
+              {payload?.manualLockedEventCount ?? 0} locked
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -811,7 +959,7 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
                       onClearSelection={clearRowSelection}
                       onLinkCandidate={(candidate) =>
                         void linkRows([
-                          externalEventToSelection(row.eventId, candidate),
+                          externalEventToSelection(row.eventId, candidate, "manual"),
                         ])
                       }
                       linking={linkingEventIds.has(row.eventId)}

@@ -27,6 +27,7 @@ interface PostBody {
   connectionId?: unknown;
   externalEventId?: unknown;
   externalEventUrl?: unknown;
+  manualLock?: unknown;
 }
 
 export async function POST(req: NextRequest) {
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
     typeof body.externalEventUrl === "string" && body.externalEventUrl.trim()
       ? body.externalEventUrl.trim()
       : null;
+  const manualLock = body.manualLock === true;
 
   if (!eventId || !connectionId || !externalEventId) {
     return NextResponse.json(
@@ -127,6 +129,7 @@ export async function POST(req: NextRequest) {
     connectionId,
     externalEventId,
     externalEventUrl,
+    manualLock,
   });
 
   if (!link) {
@@ -137,4 +140,110 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, link }, { status: 201 });
+}
+
+async function getOwnedLink(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  linkId: string,
+  userId: string,
+) {
+  const { data, error } = await supabase
+    .from("event_ticketing_links")
+    .select("id, user_id")
+    .eq("id", linkId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || data.user_id !== userId) return null;
+  return data;
+}
+
+export async function PATCH(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { ok: false, error: "Not signed in" },
+      { status: 401 },
+    );
+  }
+
+  const body = (await req.json().catch(() => null)) as {
+    linkId?: unknown;
+    manualLock?: unknown;
+  } | null;
+  const linkId = typeof body?.linkId === "string" ? body.linkId.trim() : "";
+  if (!linkId) {
+    return NextResponse.json(
+      { ok: false, error: "linkId is required." },
+      { status: 400 },
+    );
+  }
+
+  const link = await getOwnedLink(supabase, linkId, user.id);
+  if (!link) {
+    return NextResponse.json(
+      { ok: false, error: "Link not found" },
+      { status: 404 },
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("event_ticketing_links")
+    .update({
+      manual_lock: body?.manualLock === true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", linkId)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
+  }
+  return NextResponse.json({ ok: true, link: data });
+}
+
+export async function DELETE(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { ok: false, error: "Not signed in" },
+      { status: 401 },
+    );
+  }
+
+  const linkId = req.nextUrl.searchParams.get("linkId")?.trim() ?? "";
+  if (!linkId) {
+    return NextResponse.json(
+      { ok: false, error: "linkId is required." },
+      { status: 400 },
+    );
+  }
+
+  const link = await getOwnedLink(supabase, linkId, user.id);
+  if (!link) {
+    return NextResponse.json(
+      { ok: false, error: "Link not found" },
+      { status: 404 },
+    );
+  }
+
+  const { error } = await supabase
+    .from("event_ticketing_links")
+    .delete()
+    .eq("id", linkId);
+  if (error) {
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
+  }
+  return NextResponse.json({ ok: true });
 }

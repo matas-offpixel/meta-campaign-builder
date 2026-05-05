@@ -66,6 +66,43 @@ interface ConnectionDiagnostic {
   error: string | null;
 }
 
+interface LinkedEventRow {
+  eventId: string;
+  eventName: string;
+  eventDate: string | null;
+  venueName: string | null;
+  linkId: string;
+  connectionId: string;
+  connectionProvider: string | null;
+  externalEventId: string;
+  externalEventUrl: string | null;
+  manualLock: boolean;
+}
+
+interface CandidateCacheRow {
+  connection_id: string;
+  provider: string;
+  external_event_id: string;
+  event_name: string;
+  venue: string | null;
+  start_date: string | null;
+  url: string | null;
+  capacity: number | null;
+  status: string | null;
+}
+
+function mapCachedCandidate(row: CandidateCacheRow): ExternalEventForMatching {
+  return {
+    externalEventId: row.external_event_id,
+    name: row.event_name,
+    startsAt: row.start_date,
+    url: row.url,
+    venue: row.venue,
+    capacity: row.capacity,
+    status: row.status,
+  };
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -129,10 +166,13 @@ export async function GET(
 
   let linkedEventIds: Set<string> = new Set();
   const linkedExternalKeys = new Set<string>();
+  const linkedEventsOut: LinkedEventRow[] = [];
   if (eventIds.length > 0) {
     const { data: links, error: linksErr } = await supabase
       .from("event_ticketing_links")
-      .select("event_id, connection_id, external_event_id")
+      .select(
+        "id, event_id, connection_id, external_event_id, external_event_url, manual_lock, client_ticketing_connections(provider)",
+      )
       .in("event_id", eventIds);
     if (linksErr) {
       return NextResponse.json(
@@ -143,15 +183,37 @@ export async function GET(
     linkedEventIds = new Set(
       (links ?? []).map((r) => (r as { event_id: string }).event_id),
     );
+    const eventById = new Map(eventRows.map((event) => [event.id, event]));
     for (const link of links ?? []) {
       const row = link as {
+        id: string;
+        event_id: string;
         connection_id: string | null;
         external_event_id: string | null;
+        external_event_url: string | null;
+        manual_lock?: boolean | null;
+        client_ticketing_connections?: { provider?: string | null } | null;
       };
       if (row.connection_id && row.external_event_id) {
         linkedExternalKeys.add(
           `${row.connection_id}:${row.external_event_id}`,
         );
+      }
+      const event = eventById.get(row.event_id);
+      if (event && row.connection_id && row.external_event_id) {
+        linkedEventsOut.push({
+          eventId: event.id,
+          eventName: event.name,
+          eventDate: event.event_date,
+          venueName: event.venue_name,
+          linkId: row.id,
+          connectionId: row.connection_id,
+          connectionProvider:
+            row.client_ticketing_connections?.provider ?? null,
+          externalEventId: row.external_event_id,
+          externalEventUrl: row.external_event_url,
+          manualLock: row.manual_lock === true,
+        });
       }
     }
   }
@@ -167,6 +229,9 @@ export async function GET(
   const connections = await listConnectionsForUser(supabase, {
     clientId: id,
   });
+  const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
+  const cachedByConnection = new Map<string, ExternalEventForMatching[]>();
+  const searchableKeys = new Set<string>();
   const diagnostics: ConnectionDiagnostic[] = [];
   // externalEventId is NOT globally unique across providers, so the
   // tuple is (connectionId, externalEventId).
@@ -175,7 +240,45 @@ export async function GET(
     ExternalEventForMatching[]
   >();
   const searchableExternalEvents: SearchableTicketingEvent[] = [];
-
+  if (connections.length > 0) {
+    const { data: cachedCandidates, error: cacheErr } = await supabase
+      .from("external_event_candidates")
+      .select(
+        "connection_id, provider, external_event_id, event_name, venue, start_date, url, capacity, status",
+      )
+      .eq("client_id", id)
+      .eq("user_id", user.id)
+      .in(
+        "connection_id",
+        connections.map((connection) => connection.id),
+      );
+    if (cacheErr && cacheErr.code !== "42P01" && cacheErr.code !== "42703") {
+      return NextResponse.json(
+        { ok: false, error: cacheErr.message },
+        { status: 500 },
+      );
+    }
+    for (const row of (cachedCandidates ?? []) as CandidateCacheRow[]) {
+      const cached = mapCachedCandidate(row);
+      const current = cachedByConnection.get(row.connection_id) ?? [];
+      current.push(cached);
+      cachedByConnection.set(row.connection_id, current);
+      const key = `${row.connection_id}:${row.external_event_id}`;
+      if (!linkedExternalKeys.has(key)) {
+        searchableKeys.add(key);
+        searchableExternalEvents.push({
+          externalEventId: row.external_event_id,
+          externalEventName: row.event_name,
+          externalEventStartsAt: row.start_date,
+          externalEventUrl: row.url,
+          externalVenue: row.venue,
+          externalCapacity: row.capacity,
+          connectionId: row.connection_id,
+          connectionProvider: row.provider,
+        });
+      }
+    }
+  }
   for (const connection of connections) {
     const diag: ConnectionDiagnostic = {
       id: connection.id,
@@ -205,7 +308,7 @@ export async function GET(
       const externalEvents: ExternalEventSummary[] = await provider.listEvents(
         decrypted,
       );
-      const mapped: ExternalEventForMatching[] = externalEvents.map((ev) => ({
+      const liveMapped: ExternalEventForMatching[] = externalEvents.map((ev) => ({
         externalEventId: ev.externalEventId,
         name: ev.name,
         startsAt: ev.startsAt,
@@ -214,10 +317,25 @@ export async function GET(
         capacity: ev.capacity ?? null,
         status: ev.status,
       }));
+      const merged = new Map<string, ExternalEventForMatching>();
+      for (const ev of cachedByConnection.get(connection.id) ?? []) {
+        merged.set(ev.externalEventId, ev);
+      }
+      for (const ev of liveMapped) {
+        const cached = merged.get(ev.externalEventId);
+        merged.set(ev.externalEventId, {
+          ...ev,
+          venue: ev.venue ?? cached?.venue ?? null,
+          capacity: ev.capacity ?? cached?.capacity ?? null,
+        });
+      }
+      const mapped = [...merged.values()];
       externalsByConnection.set(connection.id, mapped);
       for (const ev of mapped) {
         const key = `${connection.id}:${ev.externalEventId}`;
         if (linkedExternalKeys.has(key)) continue;
+        if (searchableKeys.has(key)) continue;
+        searchableKeys.add(key);
         searchableExternalEvents.push({
           externalEventId: ev.externalEventId,
           externalEventName: ev.name,
@@ -272,8 +390,7 @@ export async function GET(
     });
   }
   for (const [connectionId, externals] of externalsByConnection.entries()) {
-    const provider =
-      connections.find((c) => c.id === connectionId)?.provider ?? "unknown";
+    const provider = connectionById.get(connectionId)?.provider ?? "unknown";
     const scopedEvents = unlinkedEvents.filter(
       (event) =>
         !event.preferred_provider || event.preferred_provider === provider,
@@ -353,9 +470,17 @@ export async function GET(
     clientId: id,
     clientName: client.name,
     events: events_out,
+    linkedEvents: linkedEventsOut.sort((a, b) => {
+      const ta = a.eventDate ? Date.parse(a.eventDate) : Number.POSITIVE_INFINITY;
+      const tb = b.eventDate ? Date.parse(b.eventDate) : Number.POSITIVE_INFINITY;
+      return ta - tb;
+    }),
     externalEvents: searchableExternalEvents,
     connections: diagnostics,
     unlinkedEventCount: unlinkedEvents.length,
+    linkedEventCount: linkedEventsOut.length,
+    manualLockedEventCount: linkedEventsOut.filter((event) => event.manualLock)
+      .length,
     totalEventCount: eventRows.length,
   });
 }
