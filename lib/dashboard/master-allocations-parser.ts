@@ -187,6 +187,37 @@ interface EventSection {
 }
 
 /**
+ * True when column A looks like a fixture title row (not a tier label —
+ * tier rows such as "GA - 4 for 3" must NOT match).
+ */
+function isEventSectionTitleCell(col0: string): boolean {
+  const flat = col0.replace(/\s+/g, " ").trim();
+  if (/^Last 32\b/i.test(flat)) return true;
+  if (/England\s+v\s+/i.test(flat)) return true;
+  return EVENT_TITLE_RE.test(col0);
+}
+
+/**
+ * Opponent key for the section. Handles date-prefixed sheet titles
+ * ("17th June: England v Croatia") and plain `Last 32` headers.
+ */
+function opponentFromSheetTitle(titleCell: string): string | null {
+  const flat = titleCell.replace(/\s+/g, " ").trim();
+  if (/^Last 32\b/i.test(flat)) return "last 32";
+  const m = flat.match(/England\s+v\s+([A-Za-z][\w'’\- ]+)/i);
+  if (m) {
+    return m[1]
+      .replace(/\s*\([^)]*\)\s*$/, "")
+      .trim()
+      .toLowerCase();
+  }
+  if (EVENT_TITLE_RE.test(titleCell)) {
+    return extractOpponentName(titleCell);
+  }
+  return null;
+}
+
+/**
  * Walk a tab's rows top-to-bottom and produce one EventSection per
  * "Country v Country" header. Each section spans from the row after
  * the header until the next event title or the end of the tab.
@@ -196,14 +227,15 @@ function locateEventSections(rows: unknown[][]): EventSection[] {
   for (let i = 0; i < rows.length; i++) {
     const c0 = rows[i]?.[0];
     if (typeof c0 !== "string") continue;
-    if (EVENT_TITLE_RE.test(c0)) titles.push(i);
+    if (!isEventSectionTitleCell(c0)) continue;
+    titles.push(i);
   }
   const sections: EventSection[] = [];
   for (let t = 0; t < titles.length; t++) {
     const titleRowIndex = titles[t];
     const titleCell = rows[titleRowIndex]?.[0];
     if (typeof titleCell !== "string") continue;
-    const opponent = extractOpponentName(titleCell);
+    const opponent = opponentFromSheetTitle(titleCell);
     if (!opponent) continue;
     let headerRowIndex = -1;
     const nextTitleIndex = titles[t + 1] ?? rows.length;
