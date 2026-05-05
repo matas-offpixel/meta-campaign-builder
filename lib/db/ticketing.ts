@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getTicketingTokenKey } from "@/lib/ticketing/secrets";
+import { ticketTierCapacity } from "@/lib/ticketing/tier-capacity";
 import type {
   EventTicketingLink,
   TicketTierBreakdown,
@@ -588,6 +589,91 @@ export async function replaceEventTicketTiers(
   }
 
   return rows.length;
+}
+
+export async function updateEventCapacityFromTicketTiers(
+  supabase: AnySupabaseClient,
+  args: {
+    eventId: string;
+    userId?: string;
+    tiers: TicketTierBreakdown[];
+  },
+): Promise<{
+  computedCapacity: number;
+  currentCapacity: number | null;
+  updated: boolean;
+  skippedReason: string | null;
+}> {
+  const computedCapacity = ticketTierCapacity(args.tiers);
+  if (computedCapacity <= 0) {
+    return {
+      computedCapacity,
+      currentCapacity: null,
+      updated: false,
+      skippedReason: "no_tier_capacity",
+    };
+  }
+
+  const sb = asAnyTable(supabase);
+  let query = sb.from("events").select("id, capacity").eq("id", args.eventId);
+  if (args.userId) query = query.eq("user_id", args.userId);
+  const { data: event, error: readError } = await query.maybeSingle();
+  if (readError || !event) {
+    console.warn(
+      `[ticketing updateEventCapacityFromTicketTiers] read failed event_id=${args.eventId}: ${
+        readError?.message ?? "Event not found"
+      }`,
+    );
+    return {
+      computedCapacity,
+      currentCapacity: null,
+      updated: false,
+      skippedReason: "read_failed",
+    };
+  }
+
+  const currentCapacity =
+    typeof event.capacity === "number" && Number.isFinite(event.capacity)
+      ? event.capacity
+      : null;
+  if (currentCapacity != null && currentCapacity !== 5000) {
+    if (currentCapacity !== computedCapacity) {
+      console.warn(
+        `[ticketing updateEventCapacityFromTicketTiers] preserving manual capacity event_id=${args.eventId} current=${currentCapacity} computed=${computedCapacity}`,
+      );
+    }
+    return {
+      computedCapacity,
+      currentCapacity,
+      updated: false,
+      skippedReason: "manual_capacity_preserved",
+    };
+  }
+
+  let update = sb
+    .from("events")
+    .update({ capacity: computedCapacity })
+    .eq("id", args.eventId);
+  if (args.userId) update = update.eq("user_id", args.userId);
+  const { error: updateError } = await update;
+  if (updateError) {
+    console.warn(
+      `[ticketing updateEventCapacityFromTicketTiers] update failed event_id=${args.eventId}: ${updateError.message}`,
+    );
+    return {
+      computedCapacity,
+      currentCapacity,
+      updated: false,
+      skippedReason: "update_failed",
+    };
+  }
+
+  return {
+    computedCapacity,
+    currentCapacity,
+    updated: true,
+    skippedReason: null,
+  };
 }
 
 export async function listEventTicketTiers(

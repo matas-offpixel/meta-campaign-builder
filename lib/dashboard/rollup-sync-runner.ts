@@ -15,6 +15,7 @@ import {
   listLinksForEvent,
   recordConnectionSync,
   replaceEventTicketTiers,
+  updateEventCapacityFromTicketTiers,
 } from "@/lib/db/ticketing";
 import {
   clearHistoricalCurrentSnapshotTicketPadding,
@@ -1099,6 +1100,17 @@ async function fetchCurrentTicketingSnapshotRows(args: {
       });
       console.info(
         `[fourthefans-sync] ticket tiers event_id=${args.eventId} external_event_id=${args.externalEventId} tiers_written=${tiersWritten}`,
+      );
+      const capacityResult = await updateEventCapacityFromTicketTiers(
+        args.supabase,
+        {
+          eventId: args.eventId,
+          userId: args.userId,
+          tiers: fetched.ticketTiers ?? [],
+        },
+      );
+      console.info(
+        `[fourthefans-sync] capacity event_id=${args.eventId} external_event_id=${args.externalEventId} computed_capacity=${capacityResult.computedCapacity} current_capacity=${capacityResult.currentCapacity ?? "<null>"} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
       );
     }
     const firstSourceSnapshot = await getEarliestSnapshotForEventSource(

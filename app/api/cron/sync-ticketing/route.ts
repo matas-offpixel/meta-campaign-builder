@@ -5,6 +5,8 @@ import {
   getConnectionWithDecryptedCredentials,
   insertSnapshot,
   recordConnectionSync,
+  replaceEventTicketTiers,
+  updateEventCapacityFromTicketTiers,
 } from "@/lib/db/ticketing";
 import { getProvider } from "@/lib/ticketing/registry";
 import {
@@ -255,6 +257,18 @@ export async function GET(req: NextRequest) {
             message: "Snapshot insert returned no row",
           });
           lastError = "Snapshot insert returned no row";
+        }
+        if (connection.provider === "fourthefans") {
+          await replaceEventTicketTiers(supabase, {
+            eventId: link.event_id,
+            tiers: sales.ticketTiers ?? [],
+            snapshotAt: snapshot?.snapshot_at,
+          });
+          await updateEventCapacityFromTicketTiers(supabase, {
+            eventId: link.event_id,
+            userId: connection.user_id,
+            tiers: sales.ticketTiers ?? [],
+          });
         }
       } catch (err) {
         const isDisabled = err instanceof TicketingProviderDisabledError;

@@ -84,7 +84,7 @@ describe("FourthefansProvider", () => {
         tierName: "Earlybird",
         price: 10,
         quantitySold: 100,
-        quantityAvailable: 100,
+        quantityAvailable: 200,
       },
       {
         tierName: "Second Release",
