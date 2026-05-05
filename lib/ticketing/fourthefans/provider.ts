@@ -124,7 +124,7 @@ export class FourthefansProvider implements TicketingProvider {
     );
     const sales = readFourthefansEventSales(payload);
     console.info(
-      `[fourthefans-sync] parsed external_event_id=${externalId} tickets_sold=${sales.ticketsSold} tickets_available=${sales.ticketsAvailable ?? "<null>"} gross_revenue_cents=${sales.grossRevenueCents ?? "<null>"} currency=${sales.currency ?? "<null>"}`,
+      `[fourthefans-sync] parsed external_event_id=${externalId} tickets_sold=${sales.ticketsSold} tickets_available=${sales.ticketsAvailable ?? "<null>"} gross_revenue_cents=${sales.grossRevenueCents ?? "<null>"} currency=${sales.currency ?? "<null>"} ticket_tiers=${sales.ticketTiers.length}`,
     );
 
     return {
@@ -132,6 +132,7 @@ export class FourthefansProvider implements TicketingProvider {
       ticketsAvailable: sales.ticketsAvailable,
       grossRevenueCents: sales.grossRevenueCents,
       currency: sales.currency,
+      ticketTiers: sales.ticketTiers,
       rawPayload: payload,
     };
   }

@@ -14,6 +14,7 @@ import {
   insertSnapshot,
   listLinksForEvent,
   recordConnectionSync,
+  replaceEventTicketTiers,
 } from "@/lib/db/ticketing";
 import {
   clearHistoricalCurrentSnapshotTicketPadding,
@@ -1090,6 +1091,16 @@ async function fetchCurrentTicketingSnapshotRows(args: {
         fetched.ticketsSold
       }`,
     );
+    if (args.connection.provider === "fourthefans") {
+      const tiersWritten = await replaceEventTicketTiers(args.supabase, {
+        eventId: args.eventId,
+        tiers: fetched.ticketTiers ?? [],
+        snapshotAt: snapshot?.snapshot_at,
+      });
+      console.info(
+        `[fourthefans-sync] ticket tiers event_id=${args.eventId} external_event_id=${args.externalEventId} tiers_written=${tiersWritten}`,
+      );
+    }
     const firstSourceSnapshot = await getEarliestSnapshotForEventSource(
       args.supabase,
       {

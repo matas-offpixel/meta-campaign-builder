@@ -37,8 +37,10 @@ import { LinkedCampaignsPerformance } from "@/components/dashboard/events/linked
 import { EventbriteLiveBlock } from "@/components/dashboard/events/eventbrite-live-block";
 import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-link-panel";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
+import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
 import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
+import type { EventTicketTierRow } from "@/lib/db/ticketing";
 import { ShareLinkStrip } from "@/components/dashboard/events/share-link-strip";
 import { TicketsSoldPanel } from "@/app/(dashboard)/events/[id]/tickets-sold-panel";
 import { InternalEventReport } from "@/components/report/internal-event-report";
@@ -140,6 +142,7 @@ interface Props {
    * the connect / link CTA instead of the live numbers".
    */
   ticketingSummary: EventTicketingSummary;
+  ticketTiers: EventTicketTierRow[];
   /** Existing Google Ads plan id for the Reporting tab, when present. */
   initialGoogleAdsPlanId: string | null;
 }
@@ -164,6 +167,7 @@ export function EventDetail({
   linkedQuote,
   linkedInvoices,
   ticketingSummary,
+  ticketTiers,
   initialGoogleAdsPlanId,
 }: Props) {
   // Plan-side cumulative wins over the manual override on the report —
@@ -717,6 +721,10 @@ export function EventDetail({
                   // this is the single opt-in.
                   isEditable
                 />
+              )}
+
+              {!isBrand && event.client_id && (
+                <TicketTiersSection tiers={ticketTiers} />
               )}
 
               {/*
