@@ -12,9 +12,8 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  * GET /api/share/venue/[token]/tier-channels
  *
  * Token-scoped read of the channel set + per-event allocations + per-
- * event sales for the events under the venue share. Used by the
- * MultiChannelTicketEntryCard to populate its initial state. View-only
- * tokens succeed (requireCanEdit=false).
+ * event sales for the events under the venue share. Kept for the
+ * compact tier-row channel editor and any future refresh path.
  *
  * Response shape mirrors the server-side payload — `channels` is the
  * channel lookup for the client, `allocations` and `sales` are flat

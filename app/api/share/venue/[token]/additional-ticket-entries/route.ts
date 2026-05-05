@@ -1,0 +1,137 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+import {
+  listAdditionalTicketsForEvent,
+  upsertAdditionalTicketEntryByNaturalKey,
+  type AdditionalTicketScope,
+  type AdditionalTicketSource,
+} from "@/lib/db/additional-tickets";
+import {
+  parseMoneyAmountInput,
+  parseSpendDateToIso,
+} from "@/lib/additional-spend-parse";
+import { assertVenueShareTokenWritable } from "@/lib/db/share-token-venue-write-scope";
+import { createServiceRoleClient } from "@/lib/supabase/server";
+
+const SOURCES: readonly AdditionalTicketSource[] = [
+  "partner_allocation",
+  "complimentary",
+  "offline_sale",
+  "sponsor_pass",
+  "group_booking",
+  "reseller",
+  "other",
+] as const;
+
+function isSource(value: string): value is AdditionalTicketSource {
+  return (SOURCES as readonly string[]).includes(value);
+}
+
+function parsePayload(body: Record<string, unknown>) {
+  const eventId = typeof body.event_id === "string" ? body.event_id : "";
+  const scope: AdditionalTicketScope = body.scope === "tier" ? "tier" : "event";
+  const tierName =
+    scope === "tier" && typeof body.tier_name === "string"
+      ? body.tier_name.trim()
+      : null;
+  const ticketsCount = Number(body.tickets_count);
+  const revenueResult =
+    body.revenue_amount === null ||
+    body.revenue_amount === undefined ||
+    body.revenue_amount === ""
+      ? { ok: true as const, value: 0 }
+      : parseMoneyAmountInput(body.revenue_amount);
+  const label = typeof body.label === "string" ? body.label.trim() : "";
+  const sourceRaw = typeof body.source === "string" ? body.source : "other";
+  const dateResult =
+    typeof body.date === "string" && body.date.trim()
+      ? parseSpendDateToIso(body.date)
+      : { ok: true as const, isoDate: null };
+  const notes =
+    body.notes === null || body.notes === undefined ? null : String(body.notes);
+
+  if (!eventId) return { ok: false as const, error: "event_id is required." };
+  if (scope === "tier" && !tierName) {
+    return { ok: false as const, error: "Tier is required." };
+  }
+  if (!Number.isInteger(ticketsCount) || ticketsCount < 0) {
+    return {
+      ok: false as const,
+      error: "Tickets count must be a non-negative whole number.",
+    };
+  }
+  if (!revenueResult.ok) return { ok: false as const, error: revenueResult.message };
+  if (!dateResult.ok) return { ok: false as const, error: dateResult.message };
+  if (!label) return { ok: false as const, error: "Label is required." };
+  return {
+    ok: true as const,
+    value: {
+      eventId,
+      scope,
+      tierName,
+      ticketsCount,
+      revenueAmount: revenueResult.value,
+      date: dateResult.isoDate,
+      source: isSource(sourceRaw) ? sourceRaw : "other",
+      label,
+      notes,
+    },
+  };
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ token: string }> },
+) {
+  const { token } = await params;
+  const eventId = req.nextUrl.searchParams.get("event_id") ?? "";
+  const supabase = createServiceRoleClient();
+  const scope = await assertVenueShareTokenWritable(token, supabase, {
+    requireCanEdit: false,
+    eventId,
+  });
+  if (!scope.ok) return NextResponse.json(scope.body, { status: scope.status });
+  const entries = await listAdditionalTicketsForEvent(supabase, eventId);
+  return NextResponse.json({ ok: true, entries });
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ token: string }> },
+) {
+  const { token } = await params;
+  const supabase = createServiceRoleClient();
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+  const parsed = parsePayload(body);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+  }
+  const scope = await assertVenueShareTokenWritable(token, supabase, {
+    eventId: parsed.value.eventId,
+  });
+  if (!scope.ok) return NextResponse.json(scope.body, { status: scope.status });
+
+  try {
+    const result = await upsertAdditionalTicketEntryByNaturalKey(supabase, {
+      userId: scope.ownerUserId,
+      ...parsed.value,
+    });
+    return NextResponse.json({
+      ok: true,
+      entry: result.entry,
+      action: result.action,
+      previousTicketsCount: result.previousTicketsCount,
+      previousRevenueAmount: result.previousRevenueAmount,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "Save failed" },
+      { status: 500 },
+    );
+  }
+}
