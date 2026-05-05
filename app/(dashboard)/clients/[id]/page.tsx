@@ -138,9 +138,19 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     }
   }
   const ticketingLinkDiscoveryStats = {
-    totalEvents: eventIds.length,
+    totalEvents: events.filter(
+      (event) =>
+        hasPreferredTicketingProvider(event) ||
+        ticketing.length > 0,
+    ).length,
     linkedEvents: linkedEventIds.size,
-    unlinkedEvents: Math.max(0, eventIds.length - linkedEventIds.size),
+    unlinkedEvents: events.filter((event) => {
+      if (linkedEventIds.has(event.id)) return false;
+      return (
+        hasPreferredTicketingProvider(event) ||
+        ticketing.length > 0
+      );
+    }).length,
   };
 
   const creativeProviderStatus: ProviderStatus[] = [
@@ -193,4 +203,10 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       hasTaggedEvents={hasTaggedEvents}
     />
   );
+}
+
+function hasPreferredTicketingProvider(event: unknown): boolean {
+  const preferred = (event as { preferred_provider?: string | null })
+    .preferred_provider;
+  return preferred != null && preferred !== "";
 }
