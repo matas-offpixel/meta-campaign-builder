@@ -39,10 +39,41 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const DIRECT_STATE_PREFIX = "direct_";
+const DIRECT_STATE_NEXT_MARKER = "_next-";
 
 function safeNext(v: string | null | undefined): string {
   if (!v || !v.startsWith("/") || v.startsWith("//")) return "/";
   return v;
+}
+
+function decodeEmbeddedNext(state: string): string | null {
+  const markerIdx = state.indexOf(DIRECT_STATE_NEXT_MARKER);
+  if (markerIdx === -1) return null;
+  const encoded = state.slice(markerIdx + DIRECT_STATE_NEXT_MARKER.length);
+  if (!encoded) return null;
+  try {
+    const decoded = decodeURIComponent(
+      Buffer.from(encoded, "base64url").toString("utf8"),
+    );
+    return decoded.startsWith("/") && !decoded.startsWith("//") ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveDirectNext(request: NextRequest, state: string): {
+  next: string;
+  source: "cookie" | "state-embedded" | "fallback";
+} {
+  const cookieNext = request.cookies.get("fb_oauth_next")?.value;
+  if (cookieNext && cookieNext.startsWith("/") && !cookieNext.startsWith("//")) {
+    return { next: cookieNext, source: "cookie" };
+  }
+  const embeddedNext = decodeEmbeddedNext(state);
+  if (embeddedNext) {
+    return { next: embeddedNext, source: "state-embedded" };
+  }
+  return { next: "/", source: "fallback" };
 }
 
 function errorRedirect(origin: string, reason: string, detail?: string): NextResponse {
@@ -281,9 +312,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // redirect_uri: must match exactly what /api/auth/facebook-start sent
     const storedRedirectUri = request.cookies.get("fb_oauth_redirect_uri")?.value
       ?? `${origin}/auth/facebook-callback`;
-    const next = safeNext(request.cookies.get("fb_oauth_next")?.value);
+    const { next, source: nextSource } = resolveDirectNext(request, stateParam);
 
     console.info("[fb-callback/direct] redirect_uri:", storedRedirectUri);
+    console.info(`[fb-callback/direct] next source: ${nextSource}`);
     console.info("[fb-callback/direct] next:", next);
 
     // ── Stage 1: Exchange auth code for short-lived token ─────────────────

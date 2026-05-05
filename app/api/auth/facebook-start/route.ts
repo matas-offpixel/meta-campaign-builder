@@ -42,6 +42,15 @@ const FB_SCOPES =
 
 const COOKIE_MAX_AGE = 10 * 60; // 10 minutes — enough for the round-trip
 
+function safeNext(v: string | null | undefined): string {
+  if (!v || !v.startsWith("/") || v.startsWith("//")) return "/";
+  return v;
+}
+
+function encodeStateNext(next: string): string {
+  return Buffer.from(encodeURIComponent(next)).toString("base64url");
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { origin, searchParams } = new URL(request.url);
 
@@ -74,13 +83,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Redirect URIs.  It MUST NOT have a query string because we store `next`
   // separately in a cookie.
   const redirectUri = `${origin}/auth/facebook-callback`;
-  const next = searchParams.get("next") ?? "/";
+  const next = safeNext(searchParams.get("next"));
 
   // ── CSRF state ────────────────────────────────────────────────────────────
   // Prefix with "direct_" so /auth/facebook-callback can identify this as the
   // app-owned direct OAuth flow purely from the echoed-back state param —
   // no cookie dependency needed for mode detection.
-  const state = "direct_" + crypto.randomBytes(20).toString("hex");
+  const state = `direct_${crypto.randomBytes(16).toString("hex")}_next-${encodeStateNext(next)}`;
 
   // ── Facebook dialog URL ───────────────────────────────────────────────────
   const fbUrl = new URL("https://www.facebook.com/dialog/oauth");
