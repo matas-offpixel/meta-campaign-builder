@@ -550,7 +550,7 @@ export async function replaceEventTicketTiers(
       quantity_available:
         tier.quantityAvailable == null
           ? null
-          : Math.max(0, Math.trunc(tier.quantityAvailable)),
+          : Math.max(0, Math.trunc(tier.quantitySold + tier.quantityAvailable)),
       snapshot_at: snapshotAt,
       updated_at: snapshotAt,
     }))

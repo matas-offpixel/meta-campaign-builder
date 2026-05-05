@@ -89,7 +89,8 @@ export function readFourthefansEventSales(
   const event = unwrapEvent(payload);
   const ticketTiers = readTicketTiers(event);
   const tierCapacity = ticketTiers.reduce(
-    (sum, tier) => sum + (tier.quantityAvailable ?? 0),
+    (sum, tier) =>
+      sum + tier.quantitySold + (tier.quantityAvailable ?? 0),
     0,
   );
   const ticketsSold = readNumber(event, [
@@ -112,7 +113,8 @@ export function readFourthefansEventSales(
 
   return {
     ticketsSold: ticketsSold ?? 0,
-    ticketsAvailable: capacity != null && capacity > 0 ? capacity : tierCapacity || null,
+    ticketsAvailable:
+      capacity != null && capacity > 0 ? capacity : tierCapacity || null,
     grossRevenueCents:
       revenueMajor == null ? null : Math.round(revenueMajor * 100),
     currency,
@@ -243,7 +245,10 @@ function readTicketTiers(
       price: readNumber(rawTier, ["price", "ticket_price", "amount"]),
       quantitySold,
       quantityAvailable:
-        declaredAllocation ?? (remaining == null ? null : quantitySold + remaining),
+        remaining ??
+        (declaredAllocation == null
+          ? null
+          : Math.max(0, declaredAllocation - quantitySold)),
     });
   }
   return tiers;
