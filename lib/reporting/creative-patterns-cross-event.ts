@@ -17,7 +17,7 @@ import {
 
 const PAGE_SIZE = 1000;
 const DEFAULT_SINCE_DAYS = 90;
-const TOP_CREATIVE_LIMIT = 4;
+const TOP_CREATIVE_LIMIT = 3;
 const REGISTRATION_PHASE_RE = /(?:PRESALE|SIGNUP|LEAD)/i;
 
 export type CreativePatternPhase = "registration" | "ticket_sale";
@@ -28,13 +28,28 @@ export type CreativePatternRegionFilter =
 export interface ConceptThumb {
   event_id: string;
   event_name: string | null;
+  event_code: string | null;
   creative_name: string;
+  ad_id: string;
+  ad_names: string[];
   thumbnail_url: string | null;
+  preview_image_url: string | null;
+  preview_permalink_url: string | null;
   spend: number;
   impressions: number;
+  clicks: number;
   ctr: number | null;
+  cpm: number | null;
+  cpa: number | null;
   total_regs: number;
   total_purchases: number;
+  tags: Array<{
+    dimension: CreativeTagDimension;
+    value_key: string;
+    value_label: string;
+  }>;
+  active_since: string;
+  active_until: string;
 }
 
 export interface TileRow {
@@ -242,7 +257,10 @@ export async function buildClientCreativePatterns(
       for (const tag of matchedTags) {
         const key = `${tag.dimension}\u0000${tag.value_key}`;
         const acc = tiles.get(key) ?? createAccumulator(tag);
-        addGroup(acc, snapshot.event_id, event?.name ?? null, group);
+        addGroup(acc, snapshot.event_id, event ?? null, group, matchedTags, {
+          since: sinceYmd,
+          until: untilYmd,
+        });
         tiles.set(key, acc);
       }
     }
@@ -527,8 +545,10 @@ function createAccumulator(tag: {
 function addGroup(
   acc: TileAccumulator,
   eventId: string,
-  eventName: string | null,
+  event: EventRow | null,
   group: ConceptGroupRow,
+  tags: Array<{ dimension: CreativeTagDimension; value_key: string; value_label: string }>,
+  activeRange: { since: string; until: string },
 ): void {
   acc.total_spend += group.spend;
   acc.total_purchases += group.purchases;
@@ -541,16 +561,32 @@ function addGroup(
   acc.eventIds.add(eventId);
   acc.top_creatives.push({
     event_id: eventId,
-    event_name: eventName,
+    event_name: event?.name ?? null,
+    event_code: event?.event_code ?? null,
     creative_name: group.display_name,
+    ad_id: group.representative_thumbnail_ad_id ?? group.representative_ad_id,
+    ad_names: group.ad_names,
     thumbnail_url: group.representative_thumbnail,
+    preview_image_url: group.representative_preview.image_url,
+    preview_permalink_url: group.representative_preview.instagram_permalink_url,
     spend: group.spend,
     impressions: group.impressions,
+    clicks: group.clicks,
     ctr: group.ctr,
+    cpm: group.cpm,
+    cpa:
+      group.purchases + group.registrations > 0
+        ? group.spend / (group.purchases + group.registrations)
+        : null,
     total_regs: group.registrations,
     total_purchases: group.purchases,
+    tags,
+    active_since: activeRange.since,
+    active_until: activeRange.until,
   });
-  acc.top_creatives.sort((a, b) => b.spend - a.spend);
+  acc.top_creatives.sort(
+    (a, b) => b.spend - a.spend || (b.ctr ?? 0) - (a.ctr ?? 0),
+  );
   acc.top_creatives = acc.top_creatives.slice(0, TOP_CREATIVE_LIMIT);
 }
 
