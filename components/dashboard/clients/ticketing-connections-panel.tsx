@@ -242,9 +242,21 @@ export function TicketingConnectionsPanel({
       <div className="space-y-6">
         {/* Existing connections */}
         <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Connected providers
-          </h4>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Connected providers
+            </h4>
+            <Link
+              href={`/clients/${clientId}/ticketing-link-discovery`}
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-border-strong px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
+              title="Open unified auto-match discovery for unlinked ticketing events across all connected providers"
+            >
+              Discover matches ·{" "}
+              {linkDiscoveryStats.unlinkedEvents} event
+              {linkDiscoveryStats.unlinkedEvents === 1 ? "" : "s"} to match
+              across all providers
+            </Link>
+          </div>
           {connections.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No providers connected yet.
@@ -283,16 +295,6 @@ export function TicketingConnectionsPanel({
                     />
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-2">
-                    {c.provider === "fourthefans" ? (
-                      <Link
-                        href={`/clients/${clientId}/ticketing-link-discovery`}
-                        className="inline-flex h-8 items-center gap-2 rounded-md border border-border-strong px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
-                        title="Open auto-match discovery for unlinked ticketing events"
-                      >
-                        Discover matches
-                        <DiscoveryBadge stats={linkDiscoveryStats} />
-                      </Link>
-                    ) : null}
                     <Button
                       variant="ghost"
                       type="button"
@@ -444,28 +446,6 @@ function getRateLimitState(
   return {
     remainingMs: hitAt + retrySeconds * 1000 - nowMs,
   };
-}
-
-function DiscoveryBadge({
-  stats,
-}: {
-  stats: Props["linkDiscoveryStats"];
-}) {
-  const complete = stats.totalEvents > 0 && stats.unlinkedEvents === 0;
-  const label = complete
-    ? "Linked"
-    : `${stats.unlinkedEvents} event${stats.unlinkedEvents === 1 ? "" : "s"} to match`;
-  const tone = complete
-    ? "bg-emerald-100 text-emerald-800"
-    : "bg-yellow-100 text-yellow-800";
-  return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}
-      title={`${stats.linkedEvents}/${stats.totalEvents} linked`}
-    >
-      {label}
-    </span>
-  );
 }
 
 function StatusPill({ status }: { status: TicketingConnectionStatus }) {
