@@ -38,6 +38,7 @@ import {
   type CommsPhrase,
 } from "@/lib/dashboard/comms-phrase";
 import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
+import { eventTierSalesRollup } from "@/lib/dashboard/tier-channel-rollups";
 import {
   venueSpend,
   type GroupSpend,
@@ -606,7 +607,7 @@ function computeEventMetrics(
     perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
   }
 
-  const tickets = ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+  const tickets = eventTierSalesRollup(ev.ticket_tiers).sold;
   const prev = ev.tickets_sold_previous ?? 0;
   const cpt =
     perEventTotal !== null && perEventTotal > 0 && tickets > 0
@@ -674,7 +675,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
         ? 0
         : ev.prereg_spend ?? 0;
     prereg += rowPrereg;
-    const sold = ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+    const sold = eventTierSalesRollup(ev.ticket_tiers).sold;
     tickets += sold;
     prevTickets += ev.tickets_sold_previous ?? 0;
     const r = ev.latest_snapshot?.revenue;
@@ -1031,7 +1032,7 @@ function computeOverallLondon(
     }
     for (const ev of group.events) {
       prereg += ev.prereg_spend ?? 0;
-      tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+      tickets += eventTierSalesRollup(ev.ticket_tiers).sold;
       prevTickets += ev.tickets_sold_previous ?? 0;
       const r = ev.latest_snapshot?.revenue;
       if (r !== null && r !== undefined) {

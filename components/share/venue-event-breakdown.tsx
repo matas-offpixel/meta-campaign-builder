@@ -30,6 +30,10 @@ import {
   type SuggestedPct,
 } from "@/lib/dashboard/suggested-pct";
 import {
+  eventTierSalesRollup,
+  tierSalesRollup,
+} from "@/lib/dashboard/tier-channel-rollups";
+import {
   venueSpend,
   type GroupSpend,
   type VenueSpendGroup,
@@ -254,7 +258,7 @@ function VenueEventBreakdownRows({
           {metrics.capacity == null ? "—" : formatNumber(metrics.capacity)}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
-          {formatPct(metrics.soldPct)}
+          {formatPct(metrics.soldPct, 1)}
         </td>
         <td className="hidden px-3 py-2.5 text-right tabular-nums text-muted-foreground sm:table-cell">
           <SuggestedValue value={metrics.suggestedPct} />
@@ -314,8 +318,8 @@ function computeEventMetrics(
     .reduce((sum, row) => sum + row.amount, 0);
   const totalSpend =
     paidMedia == null ? null : prereg + paidMedia + eventAdditionalSpend;
-  const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0;
   const tierTotals = tierAllocationTotals(event);
+  const tickets = tierTotals.sold;
   const capacity = tierTotals.allocation ?? event.capacity;
   const soldPct =
     capacity != null && capacity > 0 ? (tickets / capacity) * 100 : null;
@@ -394,8 +398,8 @@ function buildMarketingAction(event: PortalEvent, metrics: EventMetrics): Market
     pct_sold: metrics.soldPct ?? 0,
     tiers: event.ticket_tiers.map((tier) => ({
       tier_name: tier.tier_name,
-      quantity_sold: tier.quantity_sold,
-      quantity_available: tier.quantity_available ?? 0,
+      quantity_sold: tierSalesRollup(tier).sold,
+      quantity_available: tierSalesRollup(tier).allocation ?? 0,
       price: Number.isFinite(Number(tier.price)) ? Number(tier.price) : 0,
     })),
   });
@@ -461,24 +465,18 @@ function tierAllocationTotals(event: PortalEvent): {
   if (event.ticket_tiers.length === 0) {
     return { sold: 0, allocation: null, allTiersOnSaleSoon: false };
   }
-  let sold = 0;
-  let allocation = 0;
-  let hasAllocation = false;
   let onSaleCount = 0;
   for (const tier of event.ticket_tiers) {
-    if (tierSaleStatus(tier.quantity_sold, tier.quantity_available) === "on_sale_soon") {
+    const rollup = tierSalesRollup(tier);
+    if (tierSaleStatus(rollup.sold, rollup.allocation) === "on_sale_soon") {
       continue;
     }
     onSaleCount += 1;
-    sold += tier.quantity_sold;
-    if (tier.quantity_available != null && tier.quantity_available > 0) {
-      allocation += tier.quantity_available;
-      hasAllocation = true;
-    }
   }
+  const rollup = eventTierSalesRollup(event.ticket_tiers);
   return {
-    sold,
-    allocation: hasAllocation ? allocation : null,
+    sold: rollup.sold,
+    allocation: rollup.allocation,
     allTiersOnSaleSoon: onSaleCount === 0,
   };
 }
@@ -561,9 +559,9 @@ function formatNumber(n: number | null): string {
   return NUM.format(n);
 }
 
-function formatPct(n: number | null): string {
+function formatPct(n: number | null, dp: 0 | 1 = 0): string {
   if (n == null || !Number.isFinite(n)) return "—";
-  return `${Math.round(n)}%`;
+  return dp === 1 ? `${n.toFixed(1)}%` : `${Math.round(n)}%`;
 }
 
 function formatGBP(n: number | null, dp: 0 | 2 = 0): string {

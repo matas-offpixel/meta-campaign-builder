@@ -3,8 +3,15 @@
 import { Info } from "lucide-react";
 
 import { CopyToClipboard } from "@/components/dashboard/events/copy-to-clipboard";
-import { TicketTierChannelBreakdown } from "@/components/dashboard/events/ticket-tier-channel-breakdown";
+import { TicketTierChannelEditCell } from "@/components/dashboard/events/ticket-tier-channel-breakdown";
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
+import {
+  activeChannelsForTiers,
+  channelCellForTier,
+  tierPctFromRollup,
+  tierSalesRollup,
+  type TierChannelDescriptor,
+} from "@/lib/dashboard/tier-channel-rollups";
 import { suggestedCommsPhrase, type CommsPhrase } from "@/lib/dashboard/comms-phrase";
 import {
   suggestedPct,
@@ -31,6 +38,15 @@ const GBP = new Intl.NumberFormat("en-GB", {
 });
 
 const NUM = new Intl.NumberFormat("en-GB");
+const CHANNEL_TINT: Record<string, string> = {
+  "4TF": "bg-emerald-50 text-emerald-950",
+  Eventbrite: "bg-emerald-50 text-emerald-950",
+  Venue: "bg-blue-50 text-blue-950",
+  SeeTickets: "bg-amber-50 text-amber-950",
+  CP: "bg-purple-50 text-purple-950",
+  DS: "bg-purple-50 text-purple-950",
+  Other: "bg-slate-50 text-slate-950",
+};
 
 export function TicketTiersSection({
   tiers,
@@ -43,6 +59,7 @@ export function TicketTiersSection({
   onAfterChannelMutate,
 }: Props) {
   const sortedTiers = [...tiers].sort(compareTierRows);
+  const activeChannels = activeChannelsForTiers(tiers);
 
   return (
     <section className={compact ? "space-y-2" : "space-y-3"}>
@@ -75,24 +92,34 @@ export function TicketTiersSection({
               <tr className="bg-muted/70 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2">Tier</th>
                 <th className="px-3 py-2 text-right">Sold / Allocation</th>
+                {activeChannels.map((channel) => (
+                  <th
+                    key={channel.channel_id}
+                    className="px-3 py-2 text-right"
+                  >
+                    {channel.display_label}
+                  </th>
+                ))}
                 <th className="px-3 py-2 text-right">% sold</th>
                 <th className="px-3 py-2 text-right">Suggested</th>
                 <th className="px-3 py-2 text-right">Comms</th>
-                <th className="px-3 py-2 text-right">Channel allocation</th>
-                <th className="px-3 py-2 text-right">Channel sold</th>
-                <th className="px-3 py-2 text-right">Channels</th>
                 <th className="px-3 py-2 text-right">Price</th>
+                <th className="px-3 py-2 text-right">Edit</th>
               </tr>
             </thead>
             <tbody>
               {sortedTiers.map((tier) => {
                 const price = tier.price == null ? null : Number(tier.price);
-                const actualPct = tierPct(tier);
+                const rollup = tierSalesRollup(tier);
+                const actualPct = tierPctFromRollup(rollup);
                 const saleStatus = tierSaleStatus(
-                  tier.quantity_sold,
-                  tier.quantity_available,
+                  rollup.sold,
+                  rollup.allocation,
                 );
-                const soldOut = saleStatus === "sold_out" || isTierSoldOut(tier);
+                const soldOut =
+                  rollup.allocation != null &&
+                  rollup.allocation > 0 &&
+                  rollup.sold >= rollup.allocation;
                 const suggested =
                   saleStatus === "on_sale_soon"
                     ? "ON SALE SOON"
@@ -100,28 +127,30 @@ export function TicketTiersSection({
                       ? null
                       : suggestedPct(actualPct, { isSoldOut: soldOut });
                 const comms = suggestedCommsPhrase(suggested, saleStatus);
-                const apiSold = tier.api_quantity_sold ?? tier.quantity_sold;
-                const additionalSold = tier.additional_quantity_sold ?? 0;
                 return (
                   <tr key={tier.id} className="border-t border-border">
                     <td className="px-3 py-2 font-medium text-foreground">
                       {tier.tier_name}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
-                      <span
-                        title={
-                          additionalSold > 0
-                            ? `${NUM.format(apiSold)} via API + ${NUM.format(additionalSold)} additional = ${NUM.format(tier.quantity_sold)} total`
-                            : undefined
-                        }
-                      >
-                        {NUM.format(tier.quantity_sold)}
-                      </span>
+                      <span>{NUM.format(rollup.sold)}</span>
                       {" / "}
-                      {tier.quantity_available == null
+                      {rollup.allocation == null
                         ? "—"
-                        : NUM.format(tier.quantity_available)}
+                        : NUM.format(rollup.allocation)}
+                      {soldOut ? (
+                        <span className="ml-2 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                          Sold out
+                        </span>
+                      ) : null}
                     </td>
+                    {activeChannels.map((channel) => (
+                      <ChannelValueCell
+                        key={channel.channel_id}
+                        channel={channel}
+                        tier={tier}
+                      />
+                    ))}
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
                       {actualPct == null ? "—" : `${Math.round(actualPct)}%`}
                     </td>
@@ -131,18 +160,18 @@ export function TicketTiersSection({
                     <td className="px-3 py-2 text-right">
                       <CommsChip phrase={comms} />
                     </td>
-                    <TicketTierChannelBreakdown
+                    <td className="px-3 py-2 text-right tabular-nums text-foreground">
+                      {price == null || !Number.isFinite(price)
+                        ? "—"
+                        : GBP.format(price)}
+                    </td>
+                    <TicketTierChannelEditCell
                       eventId={eventId}
                       tier={tier}
                       canEdit={canEditChannels}
                       apiBase={channelEditApiBase}
                       onAfterMutate={onAfterChannelMutate}
                     />
-                    <td className="px-3 py-2 text-right tabular-nums text-foreground">
-                      {price == null || !Number.isFinite(price)
-                        ? "—"
-                        : GBP.format(price)}
-                    </td>
                   </tr>
                 );
               })}
@@ -151,6 +180,35 @@ export function TicketTiersSection({
         </div>
       )}
     </section>
+  );
+}
+
+function ChannelValueCell({
+  channel,
+  tier,
+}: {
+  channel: TierChannelDescriptor;
+  tier: EventTicketTierRow;
+}) {
+  const value = channelCellForTier(tier, channel.channel_id);
+  const oversold = value.allocation == null && value.sold > 0;
+  const tint =
+    CHANNEL_TINT[channel.channel_name] ?? "bg-muted text-muted-foreground";
+  return (
+    <td className="px-3 py-2 text-right tabular-nums">
+      {value.hasData ? (
+        <span
+          className={`inline-flex rounded px-1.5 py-0.5 text-[11px] ${oversold ? "bg-destructive/10 text-destructive" : tint}`}
+          title={oversold ? "Sold count exists without a channel allocation" : undefined}
+        >
+          {NUM.format(value.sold)}
+          {" / "}
+          {value.allocation == null ? "—" : NUM.format(value.allocation)}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      )}
+    </td>
   );
 }
 
@@ -168,17 +226,7 @@ function CommsChip({ phrase }: { phrase: CommsPhrase }) {
 }
 
 function tierPct(tier: EventTicketTierRow): number | null {
-  return tier.quantity_available && tier.quantity_available > 0
-    ? (tier.quantity_sold / tier.quantity_available) * 100
-    : null;
-}
-
-function isTierSoldOut(tier: EventTicketTierRow): boolean {
-  return (
-    tier.quantity_available != null &&
-    tier.quantity_available > 0 &&
-    tier.quantity_sold >= tier.quantity_available
-  );
+  return tierPctFromRollup(tierSalesRollup(tier));
 }
 
 function SuggestedValue({
