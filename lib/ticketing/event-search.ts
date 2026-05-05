@@ -35,10 +35,31 @@ function searchHaystack(event: SearchableTicketingEvent): string {
   );
 }
 
+function venueTokenBoost(
+  event: SearchableTicketingEvent,
+  localVenueName: string | null | undefined,
+): number {
+  const localTokens = normalizeEventLabel(localVenueName ?? "")
+    .split(" ")
+    .filter((token) => token.length > 1);
+  if (localTokens.length === 0) return 0;
+  const externalTokens = new Set(
+    normalizeEventLabel(
+      [event.externalVenue, event.externalEventName].filter(Boolean).join(" "),
+    )
+      .split(" ")
+      .filter(Boolean),
+  );
+  if (externalTokens.size === 0) return 0;
+  const matches = localTokens.filter((token) => externalTokens.has(token)).length;
+  return (matches / localTokens.length) * 300;
+}
+
 function scoreEventSearch(
   event: SearchableTicketingEvent,
   normalizedQuery: string,
   queryTokens: string[],
+  localVenueName?: string | null,
 ): number {
   const normalizedId = normalizeEventLabel(event.externalEventId);
   const haystack = searchHaystack(event);
@@ -62,13 +83,14 @@ function scoreEventSearch(
     }
   }
 
-  return score;
+  return score + venueTokenBoost(event, localVenueName);
 }
 
 export function searchTicketingEvents(
   events: SearchableTicketingEvent[],
   query: string,
   limit = 10,
+  localVenueName?: string | null,
 ): SearchableTicketingEvent[] {
   const normalizedQuery = normalizeEventLabel(query);
   if (!normalizedQuery) return [];
@@ -77,7 +99,7 @@ export function searchTicketingEvents(
   return events
     .map((event): ScoredSearchResult => ({
       event,
-      score: scoreEventSearch(event, normalizedQuery, queryTokens),
+      score: scoreEventSearch(event, normalizedQuery, queryTokens, localVenueName),
     }))
     .filter((result) => result.score > 0)
     .sort((a, b) => {

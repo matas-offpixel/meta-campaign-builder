@@ -79,4 +79,25 @@ describe("searchTicketingEvents", () => {
     const results = searchTicketingEvents(events, "Tottenham", 2);
     assert.equal(results.length, 2);
   });
+
+  it("boosts candidates that match the local venue", () => {
+    const results = searchTicketingEvents(
+      [
+        ev({
+          externalEventId: "wrong-venue",
+          externalEventName: "England v Panama",
+          externalVenue: "O2 Academy Birmingham",
+        }),
+        ev({
+          externalEventId: "right-venue",
+          externalEventName: "England v Panama",
+          externalVenue: "Depot Mayfield",
+        }),
+      ],
+      "england v panama",
+      10,
+      "Depot Mayfield",
+    );
+    assert.equal(results[0]?.externalEventId, "right-venue");
+  });
 });

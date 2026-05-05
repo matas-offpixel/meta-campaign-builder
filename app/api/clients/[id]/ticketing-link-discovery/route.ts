@@ -10,6 +10,8 @@ import { TicketingProviderDisabledError } from "@/lib/ticketing/types";
 import type { ExternalEventSummary } from "@/lib/ticketing/types";
 import {
   discoverMatches,
+  opponentLabelForMatching,
+  scoreCandidatesForEvent,
   type ExternalEventForMatching,
   type InternalEventForMatching,
   type MatchResult,
@@ -109,7 +111,9 @@ export async function GET(
   // cheaper than a second filtered query.
   const { data: events, error: eventsErr } = await supabase
     .from("events")
-    .select("id, name, event_date, venue_name, venue_city, capacity")
+    .select(
+      "id, name, event_date, venue_name, venue_city, capacity, preferred_provider",
+    )
     .eq("client_id", id)
     .eq("user_id", user.id)
     .order("event_date", { ascending: true });
@@ -240,7 +244,19 @@ export async function GET(
   // fourthefans), we score against each pool separately and tag
   // candidates with their source connection so the UI can ladder
   // them side-by-side.
-  const byEvent = new Map<string, MatchResult & { candidatesByConnection: Array<{ connectionId: string; connectionProvider: string; candidates: MatchResult["candidates"] }> }>();
+  const byEvent = new Map<
+    string,
+    MatchResult & {
+      preferredProvider: string | null;
+      opponentName: string | null;
+      providerFilteredCandidateProviders: string[];
+      candidatesByConnection: Array<{
+        connectionId: string;
+        connectionProvider: string;
+        candidates: MatchResult["candidates"];
+      }>;
+    }
+  >();
   for (const event of unlinkedEvents) {
     byEvent.set(event.id, {
       eventId: event.id,
@@ -248,13 +264,34 @@ export async function GET(
       eventDate: event.event_date,
       venueName: event.venue_name,
       skipReason: null,
+      preferredProvider: event.preferred_provider ?? null,
+      opponentName: opponentLabelForMatching(event.name),
+      providerFilteredCandidateProviders: [],
       candidates: [],
       candidatesByConnection: [],
     });
   }
   for (const [connectionId, externals] of externalsByConnection.entries()) {
-    const provider = connections.find((c) => c.id === connectionId)?.provider ?? "unknown";
-    const results = discoverMatches(unlinkedEvents, externals);
+    const provider =
+      connections.find((c) => c.id === connectionId)?.provider ?? "unknown";
+    const scopedEvents = unlinkedEvents.filter(
+      (event) =>
+        !event.preferred_provider || event.preferred_provider === provider,
+    );
+    const filteredEvents = unlinkedEvents.filter(
+      (event) => event.preferred_provider && event.preferred_provider !== provider,
+    );
+    for (const event of filteredEvents) {
+      const existing = byEvent.get(event.id);
+      if (!existing) continue;
+      const filteredCandidates = scoreCandidatesForEvent(event, externals);
+      if (filteredCandidates.length > 0) {
+        existing.providerFilteredCandidateProviders = [
+          ...new Set([...existing.providerFilteredCandidateProviders, provider]),
+        ];
+      }
+    }
+    const results = discoverMatches(scopedEvents, externals);
     for (const r of results) {
       const existing = byEvent.get(r.eventId);
       if (!existing) continue;
@@ -303,6 +340,9 @@ export async function GET(
       eventDate: r.eventDate,
       venueName: r.venueName,
       skipReason: r.skipReason,
+      preferredProvider: r.preferredProvider,
+      opponentName: r.opponentName,
+      providerFilteredCandidateProviders: r.providerFilteredCandidateProviders,
       candidates: flat,
       candidatesByConnection: r.candidatesByConnection,
     };

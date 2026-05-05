@@ -239,6 +239,25 @@ describe("scoreCandidatesForEvent", () => {
     assert.equal(candidates.some((c) => c.externalEventId === "e2"), false);
   });
 
+  it("does not surface same-venue candidates with the wrong opponent", () => {
+    const internal = intEv({
+      id: "manchester-croatia",
+      name: "England v Croatia",
+      event_date: "2026-06-17",
+      venue_name: "Depot Mayfield",
+      venue_city: "Manchester",
+    });
+    const candidates = scoreCandidatesForEvent(internal, [
+      extEv({
+        externalEventId: "ghana",
+        name: "Manchester – England v Ghana",
+        startsAt: "2026-06-17",
+        venue: "Depot Mayfield, Manchester",
+      }),
+    ]);
+    assert.equal(candidates.length, 0);
+  });
+
   it("matches Eventbrite-style names that prefix venue context", () => {
     const internal = intEv({
       id: "i1",

@@ -15,6 +15,8 @@ import {
   searchTicketingEvents,
   type SearchableTicketingEvent,
 } from "@/lib/ticketing/event-search";
+import { normalizeEventLabel } from "@/lib/ticketing/fuzzy-match";
+import { opponentLabelForMatching } from "@/lib/ticketing/link-discovery";
 
 /**
  * components/dashboard/clients/ticketing-link-discovery.tsx
@@ -65,6 +67,9 @@ interface EventRow {
   eventName: string;
   eventDate: string | null;
   venueName: string | null;
+  preferredProvider: string | null;
+  opponentName: string | null;
+  providerFilteredCandidateProviders: string[];
   skipReason: string | null;
   candidates: CandidateRow[];
 }
@@ -181,6 +186,25 @@ function isAutoSelectable(candidate: CandidateRow | undefined): boolean {
       candidate.autoSelect &&
       !candidate.manualDisambiguationRequired,
   );
+}
+
+function opponentConfidence(
+  localOpponent: string | null,
+  externalName: string,
+): number {
+  if (!localOpponent) return 1;
+  const externalOpponent = opponentLabelForMatching(externalName);
+  if (!externalOpponent) return 0;
+  const localTokens = new Set(
+    normalizeEventLabel(localOpponent).split(" ").filter(Boolean),
+  );
+  const externalTokens = new Set(
+    normalizeEventLabel(externalOpponent).split(" ").filter(Boolean),
+  );
+  if (localTokens.size === 0 || externalTokens.size === 0) return 0;
+  let intersection = 0;
+  for (const token of localTokens) if (externalTokens.has(token)) intersection += 1;
+  return intersection / (localTokens.size + externalTokens.size - intersection);
 }
 
 function seedSelectionsFromEvents(events: EventRow[]): SelectionState {
@@ -849,9 +873,24 @@ function EventDiscoveryRow({
     checked && selectionSource === "manual" && Boolean(selectedEvent);
   const isAutoPick = checked && selectionSource === "auto" && Boolean(selectedEvent);
   const hasVisibleSelection = isManualPick || isAutoPick;
+  const scopedExternalEvents = useMemo(
+    () =>
+      row.preferredProvider
+        ? externalEvents.filter(
+            (event) => event.connectionProvider === row.preferredProvider,
+          )
+        : externalEvents,
+    [externalEvents, row.preferredProvider],
+  );
   const searchResults = useMemo(
-    () => searchTicketingEvents(externalEvents, searchQuery, 10),
-    [externalEvents, searchQuery],
+    () =>
+      searchTicketingEvents(
+        scopedExternalEvents,
+        searchQuery,
+        10,
+        row.venueName,
+      ),
+    [row.venueName, scopedExternalEvents, searchQuery],
   );
   const toggleDebug = (externalEventId: string) => {
     setDebugOpen((prev) => {
@@ -977,6 +1016,19 @@ function EventDiscoveryRow({
               <span className="text-xs italic text-yellow-600">
                 {row.skipReason}
               </span>
+            ) : row.providerFilteredCandidateProviders.length > 0 &&
+              row.preferredProvider ? (
+              <span className="text-xs italic text-yellow-600">
+                Candidates exist on{" "}
+                {row.providerFilteredCandidateProviders.join(", ")} but this
+                venue uses {row.preferredProvider}. Override with manual search
+                if needed.
+              </span>
+            ) : row.opponentName ? (
+              <span className="text-xs italic text-muted-foreground">
+                No matching opponent on this event&apos;s preferred provider —
+                try search
+              </span>
             ) : (
               <span className="text-xs italic text-muted-foreground">
                 No candidates above 55% confidence
@@ -1045,6 +1097,11 @@ function EventDiscoveryRow({
                           result.externalEventId,
                         );
                         const isSelected = resultKey === selectedExternalKey;
+                        const lowOpponentConfidence =
+                          opponentConfidence(
+                            row.opponentName,
+                            result.externalEventName,
+                          ) < 0.5;
                         return (
                           <li key={resultKey}>
                             <button
@@ -1075,6 +1132,11 @@ function EventDiscoveryRow({
                                   {result.externalVenue}
                                 </span>
                               ) : null}
+                              {lowOpponentConfidence ? (
+                                <span className="mt-1 inline-flex rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-medium text-yellow-700">
+                                  Low opponent confidence
+                                </span>
+                              ) : null}
                             </button>
                           </li>
                         );
@@ -1082,7 +1144,7 @@ function EventDiscoveryRow({
                     </ul>
                   ) : (
                     <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                      No 4thefans events found.
+                      No {row.preferredProvider ?? "ticketing"} events found.
                     </p>
                   )}
                 </div>
