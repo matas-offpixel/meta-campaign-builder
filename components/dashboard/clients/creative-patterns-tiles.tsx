@@ -79,7 +79,7 @@ export function PatternSummaryTile({
             <h4 className="font-heading text-lg tracking-wide">{row.value_label}</h4>
             {spotlight === "gold" ? (
               <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                Top performer
+                TOP PERFORMER
               </span>
             ) : null}
           </div>
