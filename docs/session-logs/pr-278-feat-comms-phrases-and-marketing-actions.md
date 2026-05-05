@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 278
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/278
 - **Branch:** `feat/comms-phrases-and-marketing-actions`
 
 ## Summary
