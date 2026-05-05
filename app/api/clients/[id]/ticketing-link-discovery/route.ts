@@ -98,6 +98,7 @@ function mapCachedCandidate(row: CandidateCacheRow): ExternalEventForMatching {
     startsAt: row.start_date,
     url: row.url,
     venue: row.venue,
+    venueCity: null,
     capacity: row.capacity,
     status: row.status,
   };
@@ -272,6 +273,7 @@ export async function GET(
           externalEventStartsAt: row.start_date,
           externalEventUrl: row.url,
           externalVenue: row.venue,
+          externalVenueCity: null,
           externalCapacity: row.capacity,
           connectionId: row.connection_id,
           connectionProvider: row.provider,
@@ -314,6 +316,7 @@ export async function GET(
         startsAt: ev.startsAt,
         url: ev.url,
         venue: ev.venue ?? null,
+        venueCity: null,
         capacity: ev.capacity ?? null,
         status: ev.status,
       }));
@@ -326,6 +329,7 @@ export async function GET(
         merged.set(ev.externalEventId, {
           ...ev,
           venue: ev.venue ?? cached?.venue ?? null,
+          venueCity: ev.venueCity ?? cached?.venueCity ?? null,
           capacity: ev.capacity ?? cached?.capacity ?? null,
         });
       }
@@ -342,6 +346,7 @@ export async function GET(
           externalEventStartsAt: ev.startsAt,
           externalEventUrl: ev.url,
           externalVenue: ev.venue ?? null,
+          externalVenueCity: ev.venueCity ?? null,
           externalCapacity: ev.capacity ?? null,
           connectionId: connection.id,
           connectionProvider: connection.provider,
@@ -438,6 +443,7 @@ export async function GET(
           externalEventStartsAt: cand.externalStartsAt,
           externalEventUrl: cand.externalUrl,
           externalVenue: cand.externalVenue,
+          externalVenueCity: cand.externalVenueCity,
           externalCapacity: cand.externalCapacity,
           confidence: cand.confidence,
           venueScore: cand.venueScore,

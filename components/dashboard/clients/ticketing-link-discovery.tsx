@@ -49,6 +49,7 @@ interface CandidateRow {
   externalEventStartsAt: string | null;
   externalEventUrl: string | null;
   externalVenue: string | null;
+  externalVenueCity?: string | null;
   externalCapacity: number | null;
   confidence: number;
   venueScore: number;
@@ -1140,9 +1141,12 @@ function EventDiscoveryRow({
                           ? ` · ${fmtDate(c.externalEventStartsAt)}`
                           : ""}
                       </span>
-                      {c.externalVenue ? (
+                      {c.externalVenue || c.externalVenueCity ? (
                         <span className="block text-[11px] text-muted-foreground">
-                          {c.externalVenue}
+                          {formatVenueWithCity(
+                            c.externalVenue,
+                            c.externalVenueCity ?? null,
+                          )}
                           {c.externalCapacity != null
                             ? ` · cap ${c.externalCapacity.toLocaleString("en-GB")}`
                             : ""}
@@ -1294,9 +1298,12 @@ function EventDiscoveryRow({
                                   ? ` · ${fmtDate(result.externalEventStartsAt)}`
                                   : ""}
                               </span>
-                              {result.externalVenue ? (
+                              {result.externalVenue || result.externalVenueCity ? (
                                 <span className="block text-[11px]">
-                                  {result.externalVenue}
+                                  {formatVenueWithCity(
+                                    result.externalVenue,
+                                    result.externalVenueCity ?? null,
+                                  )}
                                 </span>
                               ) : null}
                               {lowOpponentConfidence ? (
