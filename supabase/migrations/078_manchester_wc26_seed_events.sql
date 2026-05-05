@@ -1,10 +1,13 @@
--- Seed three WC26 Depot Mayfield (Manchester) events missing from prod:
--- England v Croatia, England v Panama, Last 32 — cloned from the existing
--- Manchester Ghana row for venue/capacity/genres, with calendar dates from the
--- ops sheet and tier ladder + channel rows derived from `MASTER Allocations.xlsx`
--- tab "Depot (Manchester)" (same source as `master-allocations-parser`).
+-- Backfill three existing WC26 Depot Mayfield (Manchester) shell events
+-- (Croatia, Panama, Last 32): UPDATE venue/capacity/dates from the Ghana template,
+-- then seed tiers + channel rows from `MASTER Allocations.xlsx` tab "Depot (Manchester)".
 --
--- Idempotent: skips when slugs already exist for the 4theFans client.
+-- Shell rows must already exist with slugs:
+--   wc26-manchester-croatia, wc26-manchester-panama, wc26-manchester-last32
+--
+-- Idempotent: always applies UPDATE from Ghana. INSERT tiers/allocs/sales only when
+-- Croatia still has zero `event_ticket_tiers` rows (clears orphan tier_channel_allocations
+-- on Croatia/Panama and tier_channel_sales on all three before seed).
 
 begin;
 
@@ -12,12 +15,9 @@ do $$
 declare
   cid constant uuid := '37906506-56b7-4d58-ab62-1b042e2b561a';
   tmpl record;
-  e_croatia uuid := gen_random_uuid();
-  e_panama uuid := gen_random_uuid();
-  e_last32 uuid := gen_random_uuid();
-  slug_croatia text;
-  slug_panama text;
-  slug_last32 text;
+  e_croatia uuid;
+  e_panama uuid;
+  e_last32 uuid;
 begin
   select e.* into tmpl
   from public.events e
@@ -30,110 +30,60 @@ begin
     raise exception 'Migration 078: template Manchester Ghana event not found for client %', cid;
   end if;
 
-  slug_croatia := regexp_replace(tmpl.slug, 'ghana', 'croatia', 'i');
-  slug_panama := regexp_replace(tmpl.slug, 'ghana', 'panama', 'i');
-  slug_last32 := regexp_replace(tmpl.slug, 'ghana', 'last-32', 'i');
+  select id into e_croatia
+  from public.events
+  where client_id = cid
+    and slug = 'wc26-manchester-croatia'
+  limit 1;
 
-  if exists (select 1 from public.events where user_id = tmpl.user_id and slug = slug_croatia) then
-    raise notice 'Migration 078: Croatia slug already present — skipping seed.';
-    return;
+  select id into e_panama
+  from public.events
+  where client_id = cid
+    and slug = 'wc26-manchester-panama'
+  limit 1;
+
+  select id into e_last32
+  from public.events
+  where client_id = cid
+    and slug = 'wc26-manchester-last32'
+  limit 1;
+
+  if e_croatia is null or e_panama is null or e_last32 is null then
+    raise exception
+      'Migration 078: missing shell event(s). Expected slugs wc26-manchester-croatia, wc26-manchester-panama, wc26-manchester-last32 for client %',
+      cid;
   end if;
 
-  insert into public.events (
-    id, user_id, client_id, name, slug, event_code, capacity, genres,
-    venue_name, venue_city, venue_country, event_timezone,
-    event_date, event_start_at,
-    ticket_url, signup_url, status, budget_marketing, notes, favourite, report_cadence,
-    venue_id, preferred_provider
-  ) values (
-    e_croatia,
-    tmpl.user_id,
-    cid,
-    regexp_replace(tmpl.name, 'Ghana', 'Croatia', 'i'),
-    slug_croatia,
-    'WC26-MANCHESTER',
-    tmpl.capacity,
-    tmpl.genres,
-    tmpl.venue_name,
-    tmpl.venue_city,
-    tmpl.venue_country,
-    tmpl.event_timezone,
-    date '2026-06-17',
-    timestamptz '2026-06-17 21:00:00+01',
-    null,
-    tmpl.signup_url,
-    tmpl.status,
-    tmpl.budget_marketing,
-    tmpl.notes,
-    false,
-    tmpl.report_cadence,
-    tmpl.venue_id,
-    null
-  );
+  update public.events e
+  set
+    capacity = g.capacity,
+    venue_id = g.venue_id,
+    genres = g.genres,
+    venue_country = g.venue_country,
+    venue_name = g.venue_name,
+    venue_city = g.venue_city,
+    event_timezone = g.event_timezone,
+    preferred_provider = null,
+    event_date = case e.id
+      when e_croatia then date '2026-06-17'
+      when e_panama then date '2026-06-27'
+      when e_last32 then date '2026-07-01'
+    end,
+    event_start_at = case e.id
+      when e_croatia then timestamptz '2026-06-17 21:00:00+01'
+      when e_panama then timestamptz '2026-06-27 22:00:00+01'
+      when e_last32 then null::timestamptz
+    end
+  from public.events g
+  where g.id = tmpl.id
+    and e.id in (e_croatia, e_panama, e_last32);
 
-  insert into public.events (
-    id, user_id, client_id, name, slug, event_code, capacity, genres,
-    venue_name, venue_city, venue_country, event_timezone,
-    event_date, event_start_at,
-    ticket_url, signup_url, status, budget_marketing, notes, favourite, report_cadence,
-    venue_id, preferred_provider
-  ) values (
-    e_panama,
-    tmpl.user_id,
-    cid,
-    regexp_replace(tmpl.name, 'Ghana', 'Panama', 'i'),
-    slug_panama,
-    'WC26-MANCHESTER',
-    tmpl.capacity,
-    tmpl.genres,
-    tmpl.venue_name,
-    tmpl.venue_city,
-    tmpl.venue_country,
-    tmpl.event_timezone,
-    date '2026-06-27',
-    timestamptz '2026-06-27 22:00:00+01',
-    null,
-    tmpl.signup_url,
-    tmpl.status,
-    tmpl.budget_marketing,
-    tmpl.notes,
-    false,
-    tmpl.report_cadence,
-    tmpl.venue_id,
-    null
-  );
+  if (select count(*)::int from public.event_ticket_tiers where event_id = e_croatia) = 0 then
+    delete from public.tier_channel_allocations
+    where event_id in (e_croatia, e_panama);
 
-  insert into public.events (
-    id, user_id, client_id, name, slug, event_code, capacity, genres,
-    venue_name, venue_city, venue_country, event_timezone,
-    event_date, event_start_at,
-    ticket_url, signup_url, status, budget_marketing, notes, favourite, report_cadence,
-    venue_id, preferred_provider
-  ) values (
-    e_last32,
-    tmpl.user_id,
-    cid,
-    regexp_replace(tmpl.name, 'England[[:space:]]+v[[:space:]]+Ghana', 'Last 32', 'i'),
-    slug_last32,
-    'WC26-MANCHESTER',
-    tmpl.capacity,
-    tmpl.genres,
-    tmpl.venue_name,
-    tmpl.venue_city,
-    tmpl.venue_country,
-    tmpl.event_timezone,
-    date '2026-07-01',
-    null,
-    null,
-    tmpl.signup_url,
-    tmpl.status,
-    tmpl.budget_marketing,
-    tmpl.notes,
-    false,
-    tmpl.report_cadence,
-    tmpl.venue_id,
-    null
-  );
+    delete from public.tier_channel_sales
+    where event_id in (e_croatia, e_panama, e_last32);
     -- Croatia: event_ticket_tiers
     INSERT INTO public.event_ticket_tiers (event_id, tier_name, price, quantity_sold, quantity_available, snapshot_at)
       VALUES (e_croatia, 'GA - 4 for 3 (Earlybird)', 4.5, 124, 0, now());
@@ -556,6 +506,8 @@ begin
     INSERT INTO public.tier_channel_sales (event_id, tier_name, channel_id, tickets_sold, revenue_amount, revenue_overridden, snapshot_at)
       SELECT e_panama, 'Platform VIP Front Row - Own Table of 8 (Final Release)', tc.id, 8, (8::numeric * 40::numeric), false, now()
       FROM public.tier_channels tc WHERE tc.client_id = cid AND tc.channel_name = 'Venue';
+
+  end if;
 
 end;
 $$;

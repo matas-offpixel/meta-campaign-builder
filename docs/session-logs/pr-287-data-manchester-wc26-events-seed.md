@@ -8,7 +8,9 @@
 
 ## Summary
 
-Adds migration `078` to seed three missing WC26 Manchester (Depot Mayfield) events—England v Croatia, England v Panama, and Last 32—by cloning the existing Manchester Ghana event for venue linkage and rolling tier/channel rows from the same `MASTER Allocations.xlsx` logic as `master-allocations-parser`. Fixes parser section detection so date-prefixed fixture titles (e.g. Manchester tab) import correctly instead of being skipped.
+Adds migration `078` to backfill three **existing** WC26 Manchester shell events (slugs `wc26-manchester-croatia`, `wc26-manchester-panama`, `wc26-manchester-last32`): `UPDATE` venue/capacity/dates from Ghana, delete orphan `tier_channel_allocations` on Croatia/Panama + clear `tier_channel_sales`, then insert tiers/channel rows from `MASTER Allocations.xlsx` (Depot Manchester tab). Inserts run only when Croatia has zero `event_ticket_tiers`. Parser fix for date-prefixed fixture titles remains in `master-allocations-parser.ts`.
+
+**Note:** If an environment already applied an older `078` body that no-op’d early, Supabase will not re-run this file—use a follow-up migration or manual SQL there.
 
 ## Scope / files
 
@@ -21,6 +23,19 @@ Adds migration `078` to seed three missing WC26 Manchester (Depot Mayfield) even
 - [x] `npx eslint lib/dashboard/master-allocations-parser.ts`
 - [ ] `npm run lint` (workspace has unrelated broken paths in another thread)
 - [ ] Apply migration on staging/prod Supabase when ready
+- [ ] Post-apply SQL (paste results into PR when run):
+
+```sql
+SELECT name, capacity, event_date, event_start_at FROM events WHERE event_code='WC26-MANCHESTER';
+
+SELECT e.name, COUNT(ett.id) AS tiers,
+       COALESCE(SUM(tcs.tickets_sold) FILTER (WHERE tc.channel_name='Venue'), 0) AS venue_sold
+FROM events e
+LEFT JOIN event_ticket_tiers ett ON ett.event_id = e.id
+LEFT JOIN tier_channel_sales tcs ON tcs.event_id = e.id
+LEFT JOIN tier_channels tc ON tc.id = tcs.channel_id
+WHERE e.event_code='WC26-MANCHESTER' GROUP BY e.id, e.name;
+```
 
 ## Notes
 
