@@ -8,6 +8,8 @@ import {
   extractErrorMessage,
   isSyncSuccessful,
   safeJson,
+  skippedTicketEvents,
+  syncedTicketEvents,
   type SyncResponseBody,
 } from "@/lib/dashboard/sync-button-helpers";
 
@@ -78,7 +80,14 @@ interface Props {
 type Status =
   | { kind: "idle" }
   | { kind: "pending" }
-  | { kind: "done"; total: number; ok: number; firstError: string | null }
+  | {
+      kind: "done";
+      total: number;
+      ok: number;
+      ticketsSynced: number;
+      ticketsSkipped: number;
+      firstError: string | null;
+    }
   | { kind: "fatal"; message: string };
 
 export function VenueSyncButton({
@@ -146,6 +155,17 @@ export function VenueSyncButton({
     );
 
     const okCount = results.filter((r) => r.status === "fulfilled").length;
+    const fulfilledBodies = results
+      .filter((r): r is PromiseFulfilledResult<SyncResponseBody> => r.status === "fulfilled")
+      .map((r) => r.value);
+    const ticketsSynced = fulfilledBodies.reduce(
+      (sum, body) => sum + syncedTicketEvents(body),
+      0,
+    );
+    const ticketsSkipped = fulfilledBodies.reduce(
+      (sum, body) => sum + skippedTicketEvents(body),
+      0,
+    );
     const firstErr = results.find((r) => r.status === "rejected") as
       | PromiseRejectedResult
       | undefined;
@@ -167,6 +187,8 @@ export function VenueSyncButton({
       kind: "done",
       total: eventIds.length,
       ok: okCount,
+      ticketsSynced,
+      ticketsSkipped,
       firstError: message,
     });
 
@@ -182,7 +204,7 @@ export function VenueSyncButton({
     const tail = (() => {
       if (status.kind === "done") {
         const failed = status.total - status.ok;
-        if (failed === 0) {
+        if (failed === 0 && status.ticketsSkipped === 0) {
           return (
             <span
               className="ml-1 text-emerald-600"
@@ -195,7 +217,11 @@ export function VenueSyncButton({
         return (
           <span
             className="ml-1 text-amber-600"
-            title={status.firstError ?? `${failed} failed`}
+            title={
+              status.ticketsSkipped > 0
+                ? "No linked ticketing provider"
+                : status.firstError ?? `${failed} failed`
+            }
           >
             !
           </span>
@@ -265,10 +291,27 @@ function StatusLine({ status }: { status: Status }) {
     );
   }
   const failed = status.total - status.ok;
+  if (failed === 0 && status.ticketsSkipped === status.total) {
+    return (
+      <span className="text-[11px] text-amber-600">
+        No linked events to sync. Use Link Discovery to connect a ticketing provider.
+      </span>
+    );
+  }
+  if (failed === 0 && status.ticketsSkipped > 0) {
+    return (
+      <span className="text-[11px] text-amber-600">
+        Synced {status.ticketsSynced} of {status.total} events.{" "}
+        {status.ticketsSkipped} not linked.
+      </span>
+    );
+  }
   if (failed === 0) {
     return (
       <span className="text-[11px] text-emerald-600">
-        {status.ok === 1 ? "Synced" : `${status.ok} of ${status.total} synced`}
+        {status.ticketsSynced === 1
+          ? "Synced 1 event successfully"
+          : `Synced ${status.ticketsSynced} events successfully`}
       </span>
     );
   }

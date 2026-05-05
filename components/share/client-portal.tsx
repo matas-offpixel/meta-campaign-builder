@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   AdditionalSpendRow,
@@ -102,6 +102,10 @@ export function ClientPortal({
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
   const [events, setEvents] = useState<PortalEvent[]>(initial);
+
+  useEffect(() => {
+    setEvents(initial);
+  }, [initial]);
 
   // Client-wide totals — always lifetime, regardless of the per-card
   // timeframe pills. Folds the WC26 on-sale shared-campaign spend

@@ -5,6 +5,7 @@ import {
   listEventTicketTiersForEvents,
   type EventTicketTierRow,
 } from "@/lib/db/ticketing";
+import type { AdditionalTicketEntry } from "@/lib/db/additional-tickets";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -65,6 +66,9 @@ export interface PortalEvent {
   prereg_spend: number | null;
   /** Manual tickets_sold override on the event row itself (legacy). */
   tickets_sold: number | null;
+  api_tickets_sold: number | null;
+  additional_tickets_sold: number;
+  additional_ticket_revenue: number;
   /**
    * Second-most-recent snapshot reading. Populated from history[1] —
    * the snapshot list is captured-at DESC, so [0] is "this week" and
@@ -81,7 +85,17 @@ export interface PortalEvent {
    * venue cards/reports.
    */
   freshness_at?: string | null;
+  ticketing_status: PortalTicketingStatus;
   ticket_tiers: EventTicketTierRow[];
+}
+
+export interface PortalTicketingStatus {
+  linked_count: number;
+  provider: TicketSnapshotSource | null;
+  active_source: TicketSnapshotSource | null;
+  latest_ticket_snapshot_at: string | null;
+  latest_ticket_source: TicketSnapshotSource | null;
+  preferred_provider: string | null;
 }
 
 export interface PortalClient {
@@ -482,7 +496,7 @@ async function loadPortalForClientId(
   const { data: events, error: eventsErr } = await admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider",
     )
     .eq("client_id", clientId)
     .order("event_date", { ascending: true, nullsFirst: false });
@@ -519,6 +533,7 @@ async function loadPortalForClientId(
   const latestTicketSnapshotByEvent = new Map<string, number>();
   const previousTicketSnapshotByEvent = new Map<string, number>();
   const latestTicketSnapshotAtByEvent = new Map<string, string>();
+  const latestTicketSnapshotSourceByEvent = new Map<string, TicketSnapshotSource>();
 
   if (eventIds.length > 0) {
     const { data: snapshots } = await admin
@@ -567,12 +582,18 @@ async function loadPortalForClientId(
     dailyRollups = await fetchAllDailyRollups(admin, eventIds);
   }
   const latestMetaSyncByEvent = latestMetaSyncByEventId(dailyRollups);
-  const activeTicketSourceByEvent =
+  const ticketingStatusByEvent =
     eventIds.length > 0
-      ? await fetchActiveTicketSourceByEvent(admin, eventIds)
-      : new Map<string, TicketSnapshotSource>();
+      ? await fetchTicketingStatusByEvent(admin, eventIds)
+      : new Map<string, PortalTicketingStatus>();
   const ticketTiers = await listEventTicketTiersForEvents(admin, eventIds);
   const ticketTiersByEvent = groupTicketTiersByEvent(ticketTiers);
+  const additionalTickets =
+    eventIds.length > 0 ? await fetchAllAdditionalTickets(admin, eventIds) : [];
+  const additionalTicketTotals = additionalTicketTotalsByEvent(additionalTickets);
+  const additionalTicketRevenueTotals =
+    additionalTicketRevenueTotalsByEvent(additionalTickets);
+  applyTierAdditionalTickets(ticketTiersByEvent, additionalTickets);
 
   // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
   // every event in one shot so the venue-expansion chart doesn't
@@ -608,7 +629,8 @@ async function loadPortalForClientId(
       // the raw rows, not the dominant-source normalised set below, so
       // a fresh Eventbrite sync can recover a stale manual/event column.
       for (const [eid, rowsForEvent] of byEvent) {
-        const activeSource = activeTicketSourceByEvent.get(eid);
+        const ticketingStatus = ticketingStatusByEvent.get(eid);
+        const activeSource = ticketingStatus?.active_source ?? null;
         const ordered = [...rowsForEvent].sort((a, b) => {
           const byDate = b.snapshot_at.localeCompare(a.snapshot_at);
           if (byDate !== 0) return byDate;
@@ -628,6 +650,10 @@ async function loadPortalForClientId(
         )[0];
         if (latestActiveTicketSnapshot) {
           latestTicketSnapshotAtByEvent.set(eid, latestActiveTicketSnapshot.snapshot_at);
+          latestTicketSnapshotSourceByEvent.set(
+            eid,
+            normalizeTicketSource(latestActiveTicketSnapshot.source),
+          );
         }
       }
 
@@ -733,13 +759,20 @@ async function loadPortalForClientId(
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       const resolvedTicketsSold =
-        latestTicketSnapshotByEvent.get(e.id) ?? e.tickets_sold;
+        (latestTicketSnapshotByEvent.get(e.id) ?? e.tickets_sold ?? 0) +
+        (additionalTicketTotals.get(e.id) ?? 0);
+      const apiTicketsSold = latestTicketSnapshotByEvent.get(e.id) ?? e.tickets_sold ?? null;
+      const additionalTicketsSold = additionalTicketTotals.get(e.id) ?? 0;
+      const additionalTicketRevenue = additionalTicketRevenueTotals.get(e.id) ?? 0;
       const latestClientSnapshot = snapshotsByEvent.get(e.id) ?? null;
       const latestSnapshot =
         latestClientSnapshot && latestTicketSnapshotByEvent.has(e.id)
           ? {
               ...latestClientSnapshot,
-              tickets_sold: latestTicketSnapshotByEvent.get(e.id) ?? null,
+              tickets_sold: resolvedTicketsSold,
+              revenue:
+                (latestClientSnapshot.revenue ?? 0) +
+                (additionalTicketRevenueTotals.get(e.id) ?? 0),
             }
           : latestClientSnapshot;
       return {
@@ -762,6 +795,9 @@ async function loadPortalForClientId(
         meta_spend_cached: e.meta_spend_cached,
         prereg_spend: e.prereg_spend,
         tickets_sold: resolvedTicketsSold,
+        api_tickets_sold: apiTicketsSold,
+        additional_tickets_sold: additionalTicketsSold,
+        additional_ticket_revenue: additionalTicketRevenue,
         // history is newest-first, so index [1] is the previous week's
         // entry. Fall back to ticket_sales_snapshots history when the
         // client-report table has never been used for this event.
@@ -775,6 +811,12 @@ async function loadPortalForClientId(
           meta: latestMetaSyncByEvent.get(e.id) ?? null,
           tickets: latestTicketSnapshotAtByEvent.get(e.id) ?? null,
         }),
+        ticketing_status: {
+          ...(ticketingStatusByEvent.get(e.id) ?? emptyTicketingStatus()),
+          latest_ticket_snapshot_at: latestTicketSnapshotAtByEvent.get(e.id) ?? null,
+          latest_ticket_source: latestTicketSnapshotSourceByEvent.get(e.id) ?? null,
+          preferred_provider: (e.preferred_provider as string | null) ?? null,
+        },
         ticket_tiers: ticketTiersByEvent.get(e.id) ?? [],
       };
     }),
@@ -791,6 +833,44 @@ function groupTicketTiersByEvent(
     byEvent.set(row.event_id, list);
   }
   return byEvent;
+}
+
+function additionalTicketTotalsByEvent(
+  rows: AdditionalTicketEntry[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    out.set(row.event_id, (out.get(row.event_id) ?? 0) + row.tickets_count);
+  }
+  return out;
+}
+
+function additionalTicketRevenueTotalsByEvent(
+  rows: AdditionalTicketEntry[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    out.set(row.event_id, (out.get(row.event_id) ?? 0) + Number(row.revenue_amount ?? 0));
+  }
+  return out;
+}
+
+function applyTierAdditionalTickets(
+  tiersByEvent: Map<string, EventTicketTierRow[]>,
+  rows: AdditionalTicketEntry[],
+) {
+  for (const row of rows) {
+    if (row.scope !== "tier" || !row.tier_name) continue;
+    const tiers = tiersByEvent.get(row.event_id);
+    if (!tiers) continue;
+    const tier = tiers.find((item) => item.tier_name === row.tier_name);
+    if (!tier) continue;
+    const apiQuantitySold = tier.api_quantity_sold ?? tier.quantity_sold;
+    const additional = (tier.additional_quantity_sold ?? 0) + row.tickets_count;
+    tier.api_quantity_sold = apiQuantitySold;
+    tier.additional_quantity_sold = additional;
+    tier.quantity_sold = apiQuantitySold + additional;
+  }
 }
 
 function eventFreshnessAt(input: {
@@ -846,11 +926,22 @@ function sourcePriority(source: string): number {
   return 1;
 }
 
-async function fetchActiveTicketSourceByEvent(
+function emptyTicketingStatus(): PortalTicketingStatus {
+  return {
+    linked_count: 0,
+    provider: null,
+    active_source: null,
+    latest_ticket_snapshot_at: null,
+    latest_ticket_source: null,
+    preferred_provider: null,
+  };
+}
+
+async function fetchTicketingStatusByEvent(
   admin: ReturnType<typeof createServiceRoleClient>,
   eventIds: string[],
-): Promise<Map<string, TicketSnapshotSource>> {
-  const out = new Map<string, TicketSnapshotSource>();
+): Promise<Map<string, PortalTicketingStatus>> {
+  const out = new Map<string, PortalTicketingStatus>();
   if (eventIds.length === 0) return out;
 
   const { data: links, error: linksError } = await admin
@@ -902,10 +993,15 @@ async function fetchActiveTicketSourceByEvent(
 
   for (const link of links) {
     const row = link as { event_id: string; connection_id: string | null };
-    if (out.has(row.event_id)) continue;
+    const existing = out.get(row.event_id) ?? emptyTicketingStatus();
     const source =
       row.connection_id != null ? sourceByConnection.get(row.connection_id) : null;
-    if (source) out.set(row.event_id, source);
+    existing.linked_count += 1;
+    if (source && !existing.provider) {
+      existing.provider = source;
+      existing.active_source = source;
+    }
+    out.set(row.event_id, existing);
   }
 
   return out;
@@ -1105,6 +1201,33 @@ async function fetchAllAdditionalSpend(
       })),
     );
 
+    if (data.length < PORTAL_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function fetchAllAdditionalTickets(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  eventIds: string[],
+): Promise<AdditionalTicketEntry[]> {
+  const rows: AdditionalTicketEntry[] = [];
+  for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
+    const to = from + PORTAL_PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("additional_ticket_entries")
+      .select("*")
+      .in("event_id", eventIds)
+      .range(from, to);
+    if (error) {
+      console.warn("[client-portal-server] additional tickets load failed", {
+        from,
+        to,
+        message: error.message,
+      });
+      return rows;
+    }
+    if (!data || data.length === 0) break;
+    rows.push(...((data ?? []) as unknown as AdditionalTicketEntry[]));
     if (data.length < PORTAL_PAGE_SIZE) break;
   }
   return rows;

@@ -128,9 +128,22 @@ export async function POST(req: NextRequest) {
     clientGoogleAdsAccountId,
   });
 
+  const ticketingSkipped = result.summary.eventbriteReason === "not_linked";
+  const eventsSynced = result.summary.eventbriteOk ? 1 : 0;
+  const eventsSkipped = ticketingSkipped ? 1 : 0;
+  const message = ticketingSkipped
+    ? "No connected ticketing provider for this event. Link events first."
+    : result.summary.eventbriteOk
+      ? "Ticketing provider synced successfully."
+      : undefined;
+
   return NextResponse.json(
     {
       ok: result.ok,
+      eventsSynced,
+      eventsSkipped,
+      skippedReason: ticketingSkipped ? "Not linked" : undefined,
+      message,
       summary: result.summary,
       meta: result.meta,
       tiktok: result.tiktok,

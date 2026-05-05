@@ -118,9 +118,20 @@ function event({
     meta_spend_cached: null,
     prereg_spend: null,
     tickets_sold: tickets,
+    api_tickets_sold: tickets,
+    additional_tickets_sold: 0,
+    additional_ticket_revenue: 0,
     tickets_sold_previous: null,
     latest_snapshot: null,
     history: [],
+    ticketing_status: {
+      linked_count: 0,
+      provider: null,
+      active_source: null,
+      latest_ticket_snapshot_at: null,
+      latest_ticket_source: null,
+      preferred_provider: null,
+    },
     ticket_tiers: [],
   };
 }

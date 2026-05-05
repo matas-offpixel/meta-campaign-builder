@@ -39,6 +39,7 @@ import { EventbriteLinkPanel } from "@/components/dashboard/events/eventbrite-li
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
+import { AdditionalTicketSalesCard } from "@/components/dashboard/events/additional-ticket-sales-card";
 import type { EventTicketingSummary } from "@/lib/db/event-ticketing-summary";
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
 import { ShareLinkStrip } from "@/components/dashboard/events/share-link-strip";
@@ -769,9 +770,18 @@ export function EventDetail({
                       <InternalEventReport
                         eventId={event.id}
                         additionalSpendSlot={
-                          <section className="rounded-md border border-border bg-card p-4">
-                            <AdditionalSpendCard eventId={event.id} />
-                          </section>
+                          <div className="space-y-4">
+                            <section className="rounded-md border border-border bg-card p-4">
+                              <AdditionalSpendCard eventId={event.id} />
+                            </section>
+                            <section className="rounded-md border border-border bg-card p-4">
+                              <AdditionalTicketSalesCard
+                                eventId={event.id}
+                                tiers={ticketTiers.map((tier) => tier.tier_name)}
+                                onAfterMutate={() => router.refresh()}
+                              />
+                            </section>
+                          </div>
                         }
                         event={{
                           name: event.name,

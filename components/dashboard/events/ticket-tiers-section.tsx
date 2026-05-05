@@ -1,7 +1,11 @@
 import { Info } from "lucide-react";
 
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
-import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
+import {
+  suggestedPct,
+  tierSaleStatus,
+  type SuggestedPct,
+} from "@/lib/dashboard/suggested-pct";
 
 interface Props {
   tiers: EventTicketTierRow[];
@@ -67,16 +71,34 @@ export function TicketTiersSection({
               {sortedTiers.map((tier) => {
                 const price = tier.price == null ? null : Number(tier.price);
                 const actualPct = tierPct(tier);
-                const soldOut = isTierSoldOut(tier);
+                const saleStatus = tierSaleStatus(
+                  tier.quantity_sold,
+                  tier.quantity_available,
+                );
+                const soldOut = saleStatus === "sold_out" || isTierSoldOut(tier);
                 const suggested =
-                  actualPct == null ? null : suggestedPct(actualPct, { isSoldOut: soldOut });
+                  saleStatus === "on_sale_soon"
+                    ? "ON SALE SOON"
+                    : actualPct == null
+                      ? null
+                      : suggestedPct(actualPct, { isSoldOut: soldOut });
+                const apiSold = tier.api_quantity_sold ?? tier.quantity_sold;
+                const additionalSold = tier.additional_quantity_sold ?? 0;
                 return (
                   <tr key={tier.id} className="border-t border-border">
                     <td className="px-3 py-2 font-medium text-foreground">
                       {tier.tier_name}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
-                      {NUM.format(tier.quantity_sold)}
+                      <span
+                        title={
+                          additionalSold > 0
+                            ? `${NUM.format(apiSold)} via API + ${NUM.format(additionalSold)} additional = ${NUM.format(tier.quantity_sold)} total`
+                            : undefined
+                        }
+                      >
+                        {NUM.format(tier.quantity_sold)}
+                      </span>
                       {" / "}
                       {tier.quantity_available == null
                         ? "—"
@@ -134,6 +156,9 @@ function SuggestedValue({
         SOLD OUT
       </span>
     );
+  }
+  if (value === "ON SALE SOON") {
+    return <span className="italic text-muted-foreground">On Sale Soon</span>;
   }
   return (
     <span className="text-muted-foreground">

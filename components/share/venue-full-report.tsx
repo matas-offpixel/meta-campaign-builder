@@ -25,10 +25,8 @@ import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
-import {
-  LastUpdatedIndicator,
-  oldestFreshness,
-} from "./last-updated-indicator";
+import { AdditionalTicketSalesCard } from "@/components/dashboard/events/additional-ticket-sales-card";
+import { VenueTicketingStatusBadge } from "./last-updated-indicator";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueDailyReportBlock } from "./venue-daily-report-block";
 import { VenueEventBreakdown } from "./venue-event-breakdown";
@@ -147,6 +145,7 @@ export function VenueFullReport({
         weeklyTicketSnapshots={weeklyTicketSnapshots}
         londonOnsaleSpend={londonOnsaleSpend}
         refreshNonce={refreshNonce}
+        isInternal={isInternal}
         onRefresh={handleRefresh}
         onTimeframeChange={handleTimeframeChange}
       />
@@ -159,6 +158,29 @@ export function VenueFullReport({
           onAfterMutate={() => router.refresh()}
         />
       </div>
+      {isInternal ? (
+        <div className="rounded-md border border-border bg-background p-4">
+          <div className="mb-3">
+            <h2 className="font-heading text-base tracking-wide text-foreground">
+              Additional ticket sales
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Layer partner allocations, comps, and offline sales on top of provider tickets.
+            </p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {initialEvents.map((event) => (
+              <AdditionalTicketSalesCard
+                key={event.id}
+                eventId={event.id}
+                tiers={event.ticket_tiers.map((tier) => tier.tier_name)}
+                className="rounded-md border border-border bg-card p-3"
+                onAfterMutate={() => router.refresh()}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -176,6 +198,7 @@ function VenueLiveReportTabs({
   weeklyTicketSnapshots,
   londonOnsaleSpend,
   refreshNonce,
+  isInternal,
   onRefresh,
   onTimeframeChange,
 }: {
@@ -191,6 +214,7 @@ function VenueLiveReportTabs({
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   londonOnsaleSpend: number | null;
   refreshNonce: number;
+  isInternal: boolean;
   onRefresh: () => Promise<void>;
   onTimeframeChange: (
     preset: DatePreset,
@@ -217,8 +241,6 @@ function VenueLiveReportTabs({
       ),
     [additionalSpend, dailyRollups, events, weeklyTicketSnapshots],
   );
-  const venueFreshnessAt = useMemo(() => oldestFreshness(events), [events]);
-
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -257,9 +279,9 @@ function VenueLiveReportTabs({
                 );
               })}
             </div>
-            <LastUpdatedIndicator
-              iso={venueFreshnessAt}
-              className="max-w-[220px] truncate text-right"
+            <VenueTicketingStatusBadge
+              events={events}
+              clientId={isInternal ? clientId : undefined}
             />
           </div>
           <RefreshReportButton onRefresh={onRefresh} />
