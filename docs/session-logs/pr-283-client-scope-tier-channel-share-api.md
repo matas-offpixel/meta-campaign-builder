@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** `pending`
-- **URL:** _populated after `gh pr create`_
+- **Number:** 283
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/283
 - **Branch:** `fix/client-scope-tier-channel-share-api`
 
 ## Summary
