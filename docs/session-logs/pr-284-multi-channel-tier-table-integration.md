@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** `pending`
-- **URL:** _populated after `gh pr create`_
+- **Number:** 284
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/284
 - **Branch:** `fix/multi-channel-tier-table-integration`
 
 ## Summary
