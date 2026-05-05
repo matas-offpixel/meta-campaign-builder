@@ -6,6 +6,10 @@ import {
   type AdditionalTicketScope,
   type AdditionalTicketSource,
 } from "@/lib/db/additional-tickets";
+import {
+  parseMoneyAmountInput,
+  parseSpendDateToIso,
+} from "@/lib/additional-spend-parse";
 import { createClient } from "@/lib/supabase/server";
 
 const SOURCES: readonly AdditionalTicketSource[] = [
@@ -56,23 +60,30 @@ export async function PATCH(
 
   const scope: AdditionalTicketScope = body.scope === "tier" ? "tier" : "event";
   const ticketsCount = Number(body.tickets_count);
-  const revenueAmount =
+  const revenueResult =
     body.revenue_amount === null || body.revenue_amount === undefined || body.revenue_amount === ""
-      ? 0
-      : Number(body.revenue_amount);
+      ? { ok: true as const, value: 0 }
+      : parseMoneyAmountInput(body.revenue_amount);
   const label = typeof body.label === "string" ? body.label.trim() : "";
   const tierName = scope === "tier" && typeof body.tier_name === "string"
     ? body.tier_name.trim()
     : null;
   const sourceRaw = typeof body.source === "string" ? body.source : "other";
+  const dateResult =
+    typeof body.date === "string" && body.date.trim()
+      ? parseSpendDateToIso(body.date)
+      : { ok: true as const, isoDate: null };
   if (scope === "tier" && !tierName) {
     return NextResponse.json({ ok: false, error: "Tier is required." }, { status: 400 });
   }
   if (!Number.isInteger(ticketsCount) || ticketsCount < 0) {
     return NextResponse.json({ ok: false, error: "Tickets count must be a non-negative whole number." }, { status: 400 });
   }
-  if (!Number.isFinite(revenueAmount) || revenueAmount < 0) {
-    return NextResponse.json({ ok: false, error: "Revenue must be a non-negative number." }, { status: 400 });
+  if (!revenueResult.ok) {
+    return NextResponse.json({ ok: false, error: revenueResult.message }, { status: 400 });
+  }
+  if (!dateResult.ok) {
+    return NextResponse.json({ ok: false, error: dateResult.message }, { status: 400 });
   }
   if (!label) {
     return NextResponse.json({ ok: false, error: "Label is required." }, { status: 400 });
@@ -85,8 +96,8 @@ export async function PATCH(
       scope,
       tierName: scope === "tier" ? tierName : null,
       ticketsCount,
-      revenueAmount,
-      date: typeof body.date === "string" && body.date.trim() ? body.date : null,
+      revenueAmount: revenueResult.value,
+      date: dateResult.isoDate,
       source: isSource(sourceRaw) ? sourceRaw : "other",
       label,
       notes: body.notes === null || body.notes === undefined ? null : String(body.notes),

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, Loader2, Pencil } from "lucide-react";
 
 import type {
@@ -42,6 +43,8 @@ import {
   type GroupSpend,
 } from "@/lib/dashboard/venue-spend-model";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
+import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/additional-ticket-entries-card";
+import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
@@ -1454,6 +1457,7 @@ function VenueSection({
   isInternal,
   onSnapshotSaved,
 }: VenueSectionProps) {
+  const router = useRouter();
   const [editMode, setEditMode] = useState(false);
   const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
   const venueDisplaySpend = useMemo(
@@ -1552,6 +1556,15 @@ function VenueSection({
   const hasVenueTrend = useMemo(
     () => new Set(venueTrendPoints.map((point) => point.date)).size >= 2,
     [venueTrendPoints],
+  );
+  const additionalEntryEvents = useMemo(
+    () =>
+      group.events.map((event) => ({
+        id: event.id,
+        name: event.name,
+        ticketTiers: event.ticket_tiers.map((tier) => tier.tier_name),
+      })),
+    [group.events],
   );
 
   return (
@@ -1808,12 +1821,23 @@ function VenueSection({
           />
         </div>
       )}
+      {isExpanded && isInternal ? (
+        <div className="border-b border-border px-4 py-4">
+          <VenueAdditionalEntriesPanel
+            clientId={clientId}
+            eventCode={group.eventCode}
+            events={additionalEntryEvents}
+            onAfterMutate={() => router.refresh()}
+          />
+        </div>
+      ) : null}
       {isExpanded ? (
         <div id={bodyId} className="border-b border-border px-4 py-4">
           <VenueEventBreakdown
             events={group.events}
             dailyRollups={dailyRollups}
             londonOnsaleSpend={londonOnsaleSpend}
+            additionalSpend={additionalSpend}
           />
         </div>
       ) : null}
@@ -1971,6 +1995,47 @@ function VenueSection({
           </p>
         </div>
       )}
+    </section>
+  );
+}
+
+function VenueAdditionalEntriesPanel({
+  clientId,
+  eventCode,
+  events,
+  onAfterMutate,
+}: {
+  clientId: string;
+  eventCode: string | null;
+  events: Array<{ id: string; name: string; ticketTiers: string[] }>;
+  onAfterMutate: () => void;
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Additional entries
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Add PR spend, partner allocations, comps, and offline sales to the
+          correct event row in this venue.
+        </p>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <VenueAdditionalSpendCard
+          events={events}
+          venueScope={
+            eventCode === null ? undefined : { clientId, eventCode }
+          }
+          className="rounded-md border border-border bg-background p-3"
+          onAfterMutate={onAfterMutate}
+        />
+        <AdditionalTicketEntriesCard
+          events={events}
+          className="rounded-md border border-border bg-background p-3"
+          onAfterMutate={onAfterMutate}
+        />
+      </div>
     </section>
   );
 }

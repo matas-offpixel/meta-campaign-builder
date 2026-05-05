@@ -14,6 +14,7 @@ import {
   type CommsPhrase,
 } from "@/lib/dashboard/comms-phrase";
 import type {
+  AdditionalSpendRow,
   DailyRollupRow,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
@@ -39,6 +40,7 @@ interface Props {
   events: PortalEvent[];
   dailyRollups: DailyRollupRow[];
   londonOnsaleSpend: number | null;
+  additionalSpend?: AdditionalSpendRow[];
 }
 
 interface EventMetrics {
@@ -72,6 +74,7 @@ export function VenueEventBreakdown({
   events,
   dailyRollups,
   londonOnsaleSpend,
+  additionalSpend = [],
 }: Props) {
   const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(
     () => new Set(),
@@ -90,7 +93,10 @@ export function VenueEventBreakdown({
 
   if (orderedEvents.length === 0) return null;
   const metricsByEventId = new Map(
-    orderedEvents.map((event) => [event.id, computeEventMetrics(event, spend)]),
+    orderedEvents.map((event) => [
+      event.id,
+      computeEventMetrics(event, spend, additionalSpend),
+    ]),
   );
   const venueMetrics = computeVenueMetrics([...metricsByEventId.values()]);
   const showFloorNote =
@@ -275,6 +281,7 @@ function VenueEventBreakdownRows({
 function computeEventMetrics(
   event: PortalEvent,
   spend: GroupSpend,
+  additionalSpend: AdditionalSpendRow[],
 ): EventMetrics {
   const prereg =
     spend.kind === "allocated" &&
@@ -283,7 +290,11 @@ function computeEventMetrics(
       : (event.prereg_spend ?? 0);
 
   const paidMedia = eventPaidMediaSpend(event, spend);
-  const totalSpend = paidMedia == null ? null : prereg + paidMedia;
+  const eventAdditionalSpend = additionalSpend
+    .filter((row) => row.scope === "event" && row.event_id === event.id)
+    .reduce((sum, row) => sum + row.amount, 0);
+  const totalSpend =
+    paidMedia == null ? null : prereg + paidMedia + eventAdditionalSpend;
   const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0;
   const tierTotals = tierAllocationTotals(event);
   const capacity = tierTotals.allocation ?? event.capacity;
