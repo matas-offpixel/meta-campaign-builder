@@ -33,6 +33,7 @@ import {
   PENDING_HORIZON_DAYS,
   today,
 } from "@/lib/dashboard/format";
+import { BenchmarkAlertsWidget } from "@/components/today/benchmark-alerts-widget";
 
 // ─── Partition helpers ───────────────────────────────────────────────────────
 
@@ -238,6 +239,9 @@ export function TodayDashboard() {
                   <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
+
+              <BenchmarkAlertsWidget />
+
               {/* ───── Pending action ───── */}
               {pendingAction.visible.length > 0 && (
                 <section className="space-y-3">
