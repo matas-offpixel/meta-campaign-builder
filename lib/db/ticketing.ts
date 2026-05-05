@@ -662,19 +662,13 @@ export async function updateEventCapacityFromTicketTiers(
     typeof event.capacity === "number" && Number.isFinite(event.capacity)
       ? event.capacity
       : null;
-  if (currentCapacity != null && currentCapacity !== 5000) {
-    if (currentCapacity !== computedCapacity) {
-      console.warn(
-        `[ticketing updateEventCapacityFromTicketTiers] preserving manual capacity event_id=${args.eventId} current=${currentCapacity} computed=${computedCapacity}`,
-      );
-    }
-    return {
-      computedCapacity,
-      currentCapacity,
-      updated: false,
-      skippedReason: "manual_capacity_preserved",
-    };
-  }
+  console.log("[capacity-update]", {
+    eventId: args.eventId,
+    oldCapacity: currentCapacity,
+    newCapacity: computedCapacity,
+    tierCount: args.tiers.length,
+    source: "fourthefans",
+  });
 
   let update = sb
     .from("events")
