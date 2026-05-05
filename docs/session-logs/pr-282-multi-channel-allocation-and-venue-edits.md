@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** `pending`
-- **URL:** _populated after `gh pr create`_
+- **Number:** 282
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/282
 - **Branch:** `feat/multi-channel-allocation-and-venue-edits`
 
 ## Summary
