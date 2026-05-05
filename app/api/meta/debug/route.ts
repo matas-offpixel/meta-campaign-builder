@@ -10,6 +10,7 @@
  * Only intended for development / troubleshooting.
  */
 
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { createClient } from "@/lib/supabase/server";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
@@ -65,7 +66,7 @@ async function probeUpload(
     fd.append("filename", blob, "debug_test.png");
 
     // Token is in the form body, not the URL — matches uploadImageAsset() exactly.
-    const url = `${BASE}/${adAccountId}/adimages`;
+    const url = `${BASE}/${withActPrefix(adAccountId)}/adimages`;
     const res = await fetch(url, { method: "POST", body: fd });
     const json = (await res.json()) as Record<string, unknown>;
 
@@ -152,11 +153,12 @@ export async function GET() {
   );
 
   if (adAccountId) {
+    const accountPath = withActPrefix(adAccountId);
     // 4. Ad account detail — confirms access to the specific account from env
     results.push(
       await probe(
-        `Ad account detail (/${adAccountId})`,
-        `${BASE}/${adAccountId}?fields=id,name,account_status,business&access_token=${token}`,
+        `Ad account detail (/${accountPath})`,
+        `${BASE}/${accountPath}?fields=id,name,account_status,business&access_token=${token}`,
       ),
     );
 
@@ -171,8 +173,8 @@ export async function GET() {
     // 6. GET /adimages — confirms ads_read on the account
     results.push(
       await probe(
-        `Ad images list — GET (/${adAccountId}/adimages)`,
-        `${BASE}/${adAccountId}/adimages?fields=hash,url&limit=100&access_token=${token}`,
+        `Ad images list — GET (/${accountPath}/adimages)`,
+        `${BASE}/${accountPath}/adimages?fields=hash,url&limit=100&access_token=${token}`,
       ),
     );
 
@@ -180,7 +182,7 @@ export async function GET() {
     //    This uses the EXACT same code path as the production upload (no cache option).
     results.push(
       await probeUpload(
-        `Test image upload — POST (/${adAccountId}/adimages)`,
+        `Test image upload — POST (/${accountPath}/adimages)`,
         adAccountId,
         token,
       ),

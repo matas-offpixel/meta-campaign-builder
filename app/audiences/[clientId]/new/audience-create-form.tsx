@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { SourcePicker, type SourceSelection } from "@/components/audiences/source-picker";
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
   AUDIENCE_SUBTYPE_LABELS,
   AUDIENCE_SUBTYPES,
@@ -164,7 +165,9 @@ export function AudienceCreateForm({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-muted px-3 py-1 text-sm">
             Will be created in: {client.name} ·{" "}
-            {client.metaAdAccountId ?? "No ad account linked"}
+            {client.metaAdAccountId
+              ? withActPrefix(client.metaAdAccountId)
+              : "No ad account linked"}
           </span>
         </div>
         {metaBlocked && (

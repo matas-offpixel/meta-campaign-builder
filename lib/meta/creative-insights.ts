@@ -13,6 +13,7 @@
  * separate follow-up.
  */
 
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { graphGetWithToken } from "@/lib/meta/client";
 import type {
   CreativeDatePreset,
@@ -88,10 +89,6 @@ const DEFAULT_DATE_PRESET: CreativeDatePreset = "last_30d";
  * safe for any caller; the data layer also normalises so cache rows
  * key consistently.
  */
-function ensureActPrefix(adAccountId: string): string {
-  const trimmed = adAccountId.trim();
-  return trimmed.startsWith("act_") ? trimmed : `act_${trimmed}`;
-}
 
 function num(v: string | undefined): number {
   if (v == null) return 0;
@@ -149,7 +146,7 @@ export async function fetchCreativeInsights(
   options: FetchOptions,
 ): Promise<CreativeInsightRow[]> {
   const datePreset = options.datePreset ?? DEFAULT_DATE_PRESET;
-  const accountPath = ensureActPrefix(adAccountId);
+  const accountPath = withActPrefix(adAccountId.trim());
 
   const fields = [
     "id",

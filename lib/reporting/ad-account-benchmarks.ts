@@ -1,5 +1,6 @@
 import "server-only";
 
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
 
 // Re-export the verdict helper so callers that already import from
@@ -110,9 +111,7 @@ export async function computeBenchmarks(params: {
   until?: string | null;
 }): Promise<AdAccountBenchmarks> {
   const { adAccountId: rawAccount, token } = params;
-  const adAccountId = rawAccount.startsWith("act_")
-    ? rawAccount
-    : `act_${rawAccount}`;
+  const adAccountId = withActPrefix(rawAccount);
 
   const { since, until } = resolveWindow(params.since, params.until);
   const cacheKey = `${adAccountId}|${since}|${until}`;
