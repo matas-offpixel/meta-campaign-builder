@@ -84,13 +84,13 @@ describe("FourthefansProvider", () => {
         tierName: "Earlybird",
         price: 10,
         quantitySold: 100,
-        quantityAvailable: 200,
+        quantityAvailable: 100,
       },
       {
         tierName: "Second Release",
         price: 12.5,
         quantitySold: 25,
-        quantityAvailable: 200,
+        quantityAvailable: 175,
       },
     ]);
   });
