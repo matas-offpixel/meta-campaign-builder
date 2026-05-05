@@ -31,6 +31,12 @@ import {
   paidLinkClicksOf,
   paidSpendOf,
 } from "@/lib/dashboard/paid-spend";
+import { CopyToClipboard } from "@/components/dashboard/events/copy-to-clipboard";
+import {
+  suggestedCommsPhrase,
+  type CommsPhrase,
+} from "@/lib/dashboard/comms-phrase";
+import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
 import {
   venueSpend,
   type GroupSpend,
@@ -265,6 +271,26 @@ function formatNumber(n: number | null): string {
 function formatPct(n: number | null, dp: 0 | 1 = 0): string {
   if (n === null || !Number.isFinite(n)) return "—";
   return `${n.toFixed(dp)}%`;
+}
+
+function formatSuggestedPct(n: SuggestedPct | null): string {
+  if (n === null) return "—";
+  if (n === "SOLD OUT") return "SOLD OUT";
+  if (n === "ON SALE SOON") return "On Sale Soon";
+  return `${Math.round(n)}%`;
+}
+
+function CommsChip({ phrase }: { phrase: CommsPhrase }) {
+  const display = phrase.primary === "SOLD OUT" ? "SOLD OUT" : phrase.short;
+  return (
+    <CopyToClipboard
+      text={phrase.primary}
+      title={`${phrase.primary} — click to copy`}
+      className="inline-flex rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+    >
+      {display}
+    </CopyToClipboard>
+  );
 }
 
 function formatCompactDate(raw: string): string {
@@ -1445,6 +1471,19 @@ function VenueSection({
       ),
     [group.events, additionalSpend, dailyRollups, venueDisplaySpend],
   );
+  const venueSuggestedPct =
+    campaignPerformance.sellThroughPct === null
+      ? null
+      : suggestedPct(Math.max(0, Math.min(100, campaignPerformance.sellThroughPct)), {
+          isSoldOut:
+            campaignPerformance.capacity !== null &&
+            campaignPerformance.capacity > 0 &&
+            campaignPerformance.ticketsSold >= campaignPerformance.capacity,
+        });
+  const venueCommsPhrase = suggestedCommsPhrase(
+    venueSuggestedPct,
+    venueSuggestedPct === "SOLD OUT" ? "sold_out" : "on_sale",
+  );
   useEffect(() => {
     if (!isBristolVenueGroup(group)) return;
     console.info("[venue-spend] Bristol diagnostics", {
@@ -1660,6 +1699,12 @@ function VenueSection({
             </span>
           )}
         </button>
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 text-xs">
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
+            Suggested: {formatSuggestedPct(venueSuggestedPct)}
+          </span>
+          <CommsChip phrase={venueCommsPhrase} />
+        </div>
         {/* Inline edit only makes sense on the public share surface
             where the NumericCell POST hits `/api/share/client/[token]/tickets`
             with a real token. Internal admin route skips the Edit
@@ -1763,7 +1808,7 @@ function VenueSection({
           />
         </div>
       )}
-      {isExpanded && isInternal ? (
+      {isExpanded ? (
         <div id={bodyId} className="border-b border-border px-4 py-4">
           <VenueEventBreakdown
             events={group.events}
@@ -1771,9 +1816,10 @@ function VenueSection({
             londonOnsaleSpend={londonOnsaleSpend}
           />
         </div>
-      ) : !isExpanded ? null : (
-      <div id={bodyId} className="overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-sm">
+      ) : null}
+      {isExpanded && !isInternal ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] border-collapse text-sm">
           <thead>
             <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
               <th className="px-3 py-2.5">Event</th>
@@ -1859,12 +1905,12 @@ function VenueSection({
               </td>
             </tr>
           </tbody>
-        </table>
-        {/* Defensive: keep the column count in sync with the header so a
+          </table>
+          {/* Defensive: keep the column count in sync with the header so a
             future edit doesn't silently desync the grid. */}
-        <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
-      </div>
-      )}
+          <span aria-hidden="true" className="sr-only" data-col-count={COL_COUNT} />
+        </div>
+      ) : null}
       {/* The old daily tracker table is intentionally not rendered here:
           the shared trend chart above covers daily and ISO-week views. */}
       {/* Active creatives strip — lazy-fetched the first time the card

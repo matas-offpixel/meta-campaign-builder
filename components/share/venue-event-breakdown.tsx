@@ -3,16 +3,25 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Info } from "lucide-react";
 
+import { CopyToClipboard } from "@/components/dashboard/events/copy-to-clipboard";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import {
   aggregateAllocationByEvent,
   sortEventsGroupStageFirst,
 } from "@/lib/db/client-dashboard-aggregations";
+import {
+  suggestedCommsPhrase,
+  type CommsPhrase,
+} from "@/lib/dashboard/comms-phrase";
 import type {
   DailyRollupRow,
   PortalEvent,
 } from "@/lib/db/client-portal-server";
 import { fmtDate } from "@/lib/dashboard/format";
+import {
+  recommendMarketingAction,
+  type MarketingAction,
+} from "@/lib/dashboard/marketing-actions";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import {
   suggestedPct,
@@ -37,6 +46,7 @@ interface EventMetrics {
   capacity: number | null;
   soldPct: number | null;
   suggestedPct: SuggestedPct | null;
+  commsPhrase: CommsPhrase;
   isSoldOut: boolean;
   spend: number | null;
   cpt: number | null;
@@ -82,6 +92,7 @@ export function VenueEventBreakdown({
   const metricsByEventId = new Map(
     orderedEvents.map((event) => [event.id, computeEventMetrics(event, spend)]),
   );
+  const venueMetrics = computeVenueMetrics([...metricsByEventId.values()]);
   const showFloorNote =
     orderedEvents.length > 0 &&
     orderedEvents.every((event) => {
@@ -104,16 +115,23 @@ export function VenueEventBreakdown({
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="font-heading text-lg tracking-wide text-foreground">
-          Event Breakdown
-        </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Per-event sales and spend using the same venue portal rollups as the
-          dashboard event rows.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-lg tracking-wide text-foreground">
+            Event Breakdown
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Per-event sales and spend using the same venue portal rollups as the
+            dashboard event rows.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
+            Suggested: <SuggestedValue value={venueMetrics.suggestedPct} />
+          </span>
+          <CommsChip phrase={venueMetrics.commsPhrase} />
+        </div>
       </div>
-
       {showFloorNote ? (
         <p className="text-xs italic text-muted-foreground">
           All events early in sales window — Suggested figures show 60% floor
@@ -123,7 +141,7 @@ export function VenueEventBreakdown({
 
       <div className="overflow-hidden rounded-md border border-border bg-card">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[780px] border-collapse text-sm">
+          <table className="w-full min-w-[860px] border-collapse text-sm">
             <thead>
               <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
                 <th className="px-3 py-2.5">Event</th>
@@ -138,6 +156,7 @@ export function VenueEventBreakdown({
                     Suggested <Info className="h-3 w-3" />
                   </span>
                 </th>
+                <th className="px-3 py-2.5 text-right">Comms</th>
                 <th className="px-3 py-2.5 text-right">Spend</th>
                 <th className="px-3 py-2.5 text-right">CPT</th>
                 <th className="px-3 py-2.5 text-right">Pacing</th>
@@ -219,6 +238,9 @@ function VenueEventBreakdownRows({
         <td className="hidden px-3 py-2.5 text-right tabular-nums text-muted-foreground sm:table-cell">
           <SuggestedValue value={metrics.suggestedPct} />
         </td>
+        <td className="px-3 py-2.5 text-right">
+          <CommsChip phrase={metrics.commsPhrase} />
+        </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
           {formatGBP(metrics.spend)}
         </td>
@@ -233,13 +255,16 @@ function VenueEventBreakdownRows({
       </tr>
       {expanded ? (
         <tr className="border-t border-border bg-muted/30">
-          <td colSpan={8} className="px-6 py-4">
-            <TicketTiersSection
-              tiers={event.ticket_tiers}
-              title={`${event.name} ticket tiers`}
-              emptyMessage="Tier breakdown will appear after next sync."
-              compact
-            />
+          <td colSpan={9} className="px-6 py-4">
+            <div className="space-y-3">
+              <TicketTiersSection
+                tiers={event.ticket_tiers}
+                title={`${event.name} ticket tiers`}
+                emptyMessage="Tier breakdown will appear after next sync."
+                compact
+              />
+              <RecommendedActionPanel action={buildMarketingAction(event, metrics)} />
+            </div>
           </td>
         </tr>
       ) : null}
@@ -291,11 +316,111 @@ function computeEventMetrics(
     capacity,
     soldPct,
     suggestedPct: suggested,
+    commsPhrase: suggestedCommsPhrase(
+      suggested,
+      tierTotals.allTiersOnSaleSoon ? "on_sale_soon" : isSoldOut ? "sold_out" : "on_sale",
+    ),
     isSoldOut,
     spend: totalSpend,
     cpt,
     pacingTicketsPerDay,
   };
+}
+
+function computeVenueMetrics(metrics: EventMetrics[]): {
+  suggestedPct: SuggestedPct | null;
+  commsPhrase: CommsPhrase;
+} {
+  let tickets = 0;
+  let capacity = 0;
+  let hasCapacity = false;
+  let allSoldOut = metrics.length > 0;
+  for (const metric of metrics) {
+    tickets += metric.tickets;
+    if (metric.capacity != null) {
+      capacity += metric.capacity;
+      hasCapacity = true;
+      if (metric.tickets < metric.capacity) allSoldOut = false;
+    } else {
+      allSoldOut = false;
+    }
+  }
+  const actualPct = hasCapacity && capacity > 0 ? (tickets / capacity) * 100 : null;
+  const value =
+    actualPct == null
+      ? null
+      : suggestedPct(Math.max(0, Math.min(100, actualPct)), { isSoldOut: allSoldOut });
+  return {
+    suggestedPct: value,
+    commsPhrase: suggestedCommsPhrase(value, allSoldOut ? "sold_out" : "on_sale"),
+  };
+}
+
+function buildMarketingAction(event: PortalEvent, metrics: EventMetrics): MarketingAction {
+  return recommendMarketingAction({
+    tickets_sold: metrics.tickets,
+    capacity: metrics.capacity ?? 0,
+    days_until_event: daysUntilEvent(event.event_date) ?? 0,
+    pct_sold: metrics.soldPct ?? 0,
+    tiers: event.ticket_tiers.map((tier) => ({
+      tier_name: tier.tier_name,
+      quantity_sold: tier.quantity_sold,
+      quantity_available: tier.quantity_available ?? 0,
+      price: Number.isFinite(Number(tier.price)) ? Number(tier.price) : 0,
+    })),
+  });
+}
+
+function CommsChip({ phrase }: { phrase: CommsPhrase }) {
+  const display = phrase.primary === "SOLD OUT" ? "SOLD OUT" : phrase.short;
+  return (
+    <CopyToClipboard
+      text={phrase.primary}
+      title={`${phrase.primary} — click to copy`}
+      className="inline-flex rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+    >
+      {display}
+    </CopyToClipboard>
+  );
+}
+
+function RecommendedActionPanel({ action }: { action: MarketingAction }) {
+  return (
+    <div className={`rounded-md border p-3 text-sm ${actionPanelClass(action.kind)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide">
+            Recommended Action
+          </p>
+          <p className="mt-1 leading-snug">{action.reason}</p>
+        </div>
+        <CopyToClipboard
+          text={action.reason}
+          className="rounded border border-current/30 px-2 py-1 text-xs font-medium hover:bg-background/60"
+        >
+          Copy
+        </CopyToClipboard>
+      </div>
+    </div>
+  );
+}
+
+function actionPanelClass(kind: MarketingAction["kind"]): string {
+  switch (kind) {
+    case "sold_out_celebrate":
+    case "scale_spend":
+      return "border-emerald-200 bg-emerald-50 text-emerald-950";
+    case "promote_next_tier":
+    case "release_next_tier":
+      return "border-blue-200 bg-blue-50 text-blue-950";
+    case "premium_underperforming":
+      return "border-amber-200 bg-amber-50 text-amber-950";
+    case "reduce_spend":
+      return "border-red-200 bg-red-50 text-red-950";
+    case "pre_sale_hold":
+    case "hold":
+      return "border-border bg-background text-muted-foreground";
+  }
 }
 
 function tierAllocationTotals(event: PortalEvent): {

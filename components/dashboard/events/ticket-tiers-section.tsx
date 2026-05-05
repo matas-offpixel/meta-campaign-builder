@@ -1,6 +1,10 @@
+"use client";
+
 import { Info } from "lucide-react";
 
+import { CopyToClipboard } from "@/components/dashboard/events/copy-to-clipboard";
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
+import { suggestedCommsPhrase, type CommsPhrase } from "@/lib/dashboard/comms-phrase";
 import {
   suggestedPct,
   tierSaleStatus,
@@ -64,6 +68,7 @@ export function TicketTiersSection({
                 <th className="px-3 py-2 text-right">Sold / Allocation</th>
                 <th className="px-3 py-2 text-right">% sold</th>
                 <th className="px-3 py-2 text-right">Suggested</th>
+                <th className="px-3 py-2 text-right">Comms</th>
                 <th className="px-3 py-2 text-right">Price</th>
               </tr>
             </thead>
@@ -82,6 +87,7 @@ export function TicketTiersSection({
                     : actualPct == null
                       ? null
                       : suggestedPct(actualPct, { isSoldOut: soldOut });
+                const comms = suggestedCommsPhrase(suggested, saleStatus);
                 const apiSold = tier.api_quantity_sold ?? tier.quantity_sold;
                 const additionalSold = tier.additional_quantity_sold ?? 0;
                 return (
@@ -110,6 +116,9 @@ export function TicketTiersSection({
                     <td className="px-3 py-2 text-right tabular-nums">
                       <SuggestedValue value={suggested} suffix=" sold" />
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <CommsChip phrase={comms} />
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
                       {price == null || !Number.isFinite(price)
                         ? "—"
@@ -123,6 +132,19 @@ export function TicketTiersSection({
         </div>
       )}
     </section>
+  );
+}
+
+function CommsChip({ phrase }: { phrase: CommsPhrase }) {
+  const display = phrase.primary === "SOLD OUT" ? "SOLD OUT" : phrase.short;
+  return (
+    <CopyToClipboard
+      text={phrase.primary}
+      title={`${phrase.primary} — click to copy`}
+      className="inline-flex rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+    >
+      {display}
+    </CopyToClipboard>
   );
 }
 
