@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 280
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/280
 - **Branch:** `feat/venue-report-additional-entries-ui`
 
 ## Summary
