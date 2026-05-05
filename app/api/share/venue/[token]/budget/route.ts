@@ -9,10 +9,11 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  * Body: { event_id, budget_marketing }
  *
  * Updates a single event's `events.budget_marketing` figure when the
- * caller holds a venue share token with `can_edit=true`. The venue
- * report header sums per-event budgets; the click-edit popover writes
- * one event at a time so the operator can rebalance per-event budgets
- * without inventing a venue-level budget pivot.
+ * caller holds a venue share token or client share token with
+ * `can_edit=true`. The venue report header sums per-event budgets; the
+ * click-edit popover writes one event at a time so the operator can
+ * rebalance per-event budgets without inventing a venue-level budget
+ * pivot.
  *
  * The route asserts the event belongs to the venue (client_id +
  * event_code match) before mutating.
@@ -36,11 +37,6 @@ export async function PATCH(
     );
   }
 
-  const scope = await assertVenueShareTokenWritable(token, supabase);
-  if (!scope.ok) {
-    return NextResponse.json(scope.body, { status: scope.status });
-  }
-
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -58,6 +54,13 @@ export async function PATCH(
       { ok: false, error: "event_id is required" },
       { status: 400 },
     );
+  }
+
+  const scope = await assertVenueShareTokenWritable(token, supabase, {
+    eventId,
+  });
+  if (!scope.ok) {
+    return NextResponse.json(scope.body, { status: scope.status });
   }
   let budget: number | null;
   if (budgetRaw === null || budgetRaw === "" || budgetRaw === undefined) {

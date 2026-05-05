@@ -102,12 +102,11 @@ export function MultiChannelTicketEntryCard({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(
-        mode === "dashboard"
-          ? `${apiBase}/tier-channels`
-          : `${apiBase}/tier-channels`,
-        { cache: "no-store" },
-      );
+      const url =
+        mode === "share" && fetchEventId
+          ? `${apiBase}/tier-channels?event_id=${encodeURIComponent(fetchEventId)}`
+          : `${apiBase}/tier-channels`;
+      const res = await fetch(url, { cache: "no-store" });
       const json = (await res.json()) as ApiPayload | { ok: false; error?: string };
       if (!res.ok || !("ok" in json) || !json.ok) {
         throw new Error(
@@ -121,7 +120,7 @@ export function MultiChannelTicketEntryCard({
         message: err instanceof Error ? err.message : "Failed to load",
       });
     }
-  }, [apiBase, mode]);
+  }, [apiBase, fetchEventId, mode]);
 
   useEffect(() => {
     void load();

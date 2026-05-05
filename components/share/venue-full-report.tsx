@@ -125,8 +125,8 @@ export function VenueFullReport({
     [initialEvents],
   );
   const multiChannelApiBase = isInternal
-    ? `/api/events/${initialEvents[0]?.id ?? ""}/tier-channels`
-    : `/api/share/venue/${token}/tier-channels`;
+    ? `/api/events/${initialEvents[0]?.id ?? ""}`
+    : `/api/share/venue/${token}`;
   const multiChannelFetchEventId = initialEvents[0]?.id ?? "";
   const budgetEvents = useMemo(
     () =>
