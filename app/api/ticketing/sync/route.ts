@@ -7,6 +7,8 @@ import {
   insertSnapshot,
   listLinksForEvent,
   recordConnectionSync,
+  replaceEventTicketTiers,
+  updateEventCapacityFromTicketTiers,
 } from "@/lib/db/ticketing";
 import { getProvider } from "@/lib/ticketing/registry";
 import { TicketingProviderDisabledError } from "@/lib/ticketing/types";
@@ -137,7 +139,7 @@ export async function POST(req: NextRequest) {
         connection,
         link.external_event_id,
       );
-      await insertSnapshot(supabase, {
+      const snapshot = await insertSnapshot(supabase, {
         userId: user.id,
         eventId,
         connectionId: connection.id,
@@ -149,6 +151,18 @@ export async function POST(req: NextRequest) {
           connection.provider === "fourthefans" ? "fourthefans" : "eventbrite",
         rawPayload: fetched.rawPayload,
       });
+      if (connection.provider === "fourthefans") {
+        await replaceEventTicketTiers(supabase, {
+          eventId,
+          tiers: fetched.ticketTiers ?? [],
+          snapshotAt: snapshot?.snapshot_at,
+        });
+        await updateEventCapacityFromTicketTiers(supabase, {
+          eventId,
+          userId: user.id,
+          tiers: fetched.ticketTiers ?? [],
+        });
+      }
       await recordConnectionSync(supabase, connection.id, { ok: true });
       results.push({
         linkId: link.id,
