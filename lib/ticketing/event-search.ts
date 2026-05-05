@@ -6,6 +6,7 @@ export interface SearchableTicketingEvent {
   externalEventStartsAt: string | null;
   externalEventUrl: string | null;
   externalVenue: string | null;
+  externalVenueCity?: string | null;
   externalCapacity: number | null;
   connectionId: string;
   connectionProvider: string;

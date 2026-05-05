@@ -23,6 +23,7 @@ import { normalizeEventLabel } from "./fuzzy-match.ts";
 export interface InternalEventForMatching {
   id: string;
   name: string;
+  event_code?: string | null;
   event_date: string | null;
   venue_name: string | null;
   venue_city: string | null;
@@ -41,6 +42,7 @@ export interface ExternalEventForMatching {
    * confidence score.
    */
   venue?: string | null;
+  venueCity?: string | null;
   capacity?: number | null;
   status?: string | null;
 }
@@ -51,6 +53,7 @@ export interface MatchCandidate {
   externalUrl: string | null;
   externalStartsAt: string | null;
   externalVenue: string | null;
+  externalVenueCity: string | null;
   externalCapacity: number | null;
   /** Final weighted score: venue + opponent/date/name components. */
   confidence: number;
@@ -443,6 +446,7 @@ export function scoreCandidatesForEvent(
       externalUrl: ext.url,
       externalStartsAt: ext.startsAt,
       externalVenue: extVenue,
+      externalVenueCity: ext.venueCity ?? null,
       externalCapacity: ext.capacity ?? null,
       confidence,
       venueScore,
