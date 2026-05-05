@@ -100,4 +100,27 @@ describe("searchTicketingEvents", () => {
     );
     assert.equal(results[0]?.externalEventId, "right-venue");
   });
+
+  it("matches short O2 venue prefixes and boosts Eventbrite O2 venues", () => {
+    const results = searchTicketingEvents(
+      [
+        ev({
+          externalEventId: "non-o2",
+          externalEventName: "England v Croatia",
+          externalVenue: "Institute Liverpool",
+          connectionProvider: "eventbrite",
+        }),
+        ev({
+          externalEventId: "o2-institute",
+          externalEventName: "England v Croatia",
+          externalVenue: "O2 Institute Birmingham",
+          connectionProvider: "eventbrite",
+        }),
+      ],
+      "inst",
+      10,
+      "O2 Institute Birmingham",
+    );
+    assert.equal(results[0]?.externalEventId, "o2-institute");
+  });
 });

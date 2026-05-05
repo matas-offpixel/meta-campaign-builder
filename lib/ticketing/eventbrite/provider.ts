@@ -52,6 +52,14 @@ interface EventbriteEventListResponse {
     url?: string | null;
     start?: { utc?: string | null } | null;
     status?: string | null;
+    venue?: {
+      name?: string | null;
+      address?: {
+        city?: string | null;
+        localized_address_display?: string | null;
+      } | null;
+    } | null;
+    capacity?: number | null;
   }>;
 }
 
@@ -158,6 +166,7 @@ export class EventbriteProvider implements TicketingProvider {
         {
           query: {
             order_by: "start_desc",
+            expand: "venue",
             page,
           },
         },
@@ -168,6 +177,12 @@ export class EventbriteProvider implements TicketingProvider {
           name: ev.name?.text ?? "(untitled)",
           startsAt: ev.start?.utc ?? null,
           url: ev.url ?? null,
+          venue:
+            ev.venue?.name ??
+            ev.venue?.address?.localized_address_display ??
+            ev.venue?.address?.city ??
+            null,
+          capacity: ev.capacity ?? null,
           status: ev.status ?? null,
         });
       }

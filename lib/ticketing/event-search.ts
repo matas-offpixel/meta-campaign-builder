@@ -39,20 +39,28 @@ function venueTokenBoost(
   event: SearchableTicketingEvent,
   localVenueName: string | null | undefined,
 ): number {
-  const localTokens = normalizeEventLabel(localVenueName ?? "")
+  const normalizedLocalVenue = normalizeEventLabel(localVenueName ?? "");
+  const localTokens = normalizedLocalVenue
     .split(" ")
     .filter((token) => token.length > 1);
   if (localTokens.length === 0) return 0;
+  const normalizedExternalVenue = normalizeEventLabel(
+    [event.externalVenue, event.externalEventName].filter(Boolean).join(" "),
+  );
   const externalTokens = new Set(
-    normalizeEventLabel(
-      [event.externalVenue, event.externalEventName].filter(Boolean).join(" "),
-    )
+    normalizedExternalVenue
       .split(" ")
       .filter(Boolean),
   );
   if (externalTokens.size === 0) return 0;
   const matches = localTokens.filter((token) => externalTokens.has(token)).length;
-  return (matches / localTokens.length) * 300;
+  const o2Boost =
+    event.connectionProvider === "eventbrite" &&
+    normalizedLocalVenue.includes("o2") &&
+    normalizedExternalVenue.includes("o2")
+      ? 400
+      : 0;
+  return (matches / localTokens.length) * 300 + o2Boost;
 }
 
 function scoreEventSearch(
