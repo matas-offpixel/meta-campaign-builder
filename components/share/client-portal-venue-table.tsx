@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil } from "lucide-react";
 
 import type {
@@ -36,6 +36,7 @@ import {
   type GroupSpend,
 } from "@/lib/dashboard/venue-spend-model";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
+import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueSyncButton } from "./venue-sync-button";
@@ -1787,15 +1788,27 @@ function VenueSection({
           </thead>
           <tbody>
             {group.events.map((ev, i) => (
-              <EventRow
-                key={ev.id}
-                token={token}
-                event={ev}
-                striped={i % 2 === 1}
-                editMode={effectiveEditMode}
-                spend={spend}
-                onSnapshotSaved={onSnapshotSaved}
-              />
+              <Fragment key={ev.id}>
+                <EventRow
+                  token={token}
+                  event={ev}
+                  striped={i % 2 === 1}
+                  editMode={effectiveEditMode}
+                  spend={spend}
+                  onSnapshotSaved={onSnapshotSaved}
+                />
+                {ev.ticket_tiers.length > 0 && (
+                  <tr className="border-t border-border bg-background">
+                    <td colSpan={COL_COUNT} className="px-3 py-3">
+                      <TicketTiersSection
+                        tiers={ev.ticket_tiers}
+                        title={`${ev.name} ticket tiers`}
+                        compact
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
             <tr className="border-t border-border-strong bg-muted text-foreground">
               <td className="px-3 py-2.5 font-semibold">Total</td>

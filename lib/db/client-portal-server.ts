@@ -1,6 +1,10 @@
 import "server-only";
 
 import { bumpShareView, resolveShareByToken } from "@/lib/db/report-shares";
+import {
+  listEventTicketTiersForEvents,
+  type EventTicketTierRow,
+} from "@/lib/db/ticketing";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -77,6 +81,7 @@ export interface PortalEvent {
    * venue cards/reports.
    */
   freshness_at?: string | null;
+  ticket_tiers: EventTicketTierRow[];
 }
 
 export interface PortalClient {
@@ -553,6 +558,8 @@ async function loadPortalForClientId(
     eventIds.length > 0
       ? await fetchActiveTicketSourceByEvent(admin, eventIds)
       : new Map<string, TicketSnapshotSource>();
+  const ticketTiers = await listEventTicketTiersForEvents(admin, eventIds);
+  const ticketTiersByEvent = groupTicketTiersByEvent(ticketTiers);
 
   // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
   // every event in one shot so the venue-expansion chart doesn't
@@ -751,9 +758,22 @@ async function loadPortalForClientId(
           meta: latestMetaSyncByEvent.get(e.id) ?? null,
           tickets: latestTicketSnapshotAtByEvent.get(e.id) ?? null,
         }),
+        ticket_tiers: ticketTiersByEvent.get(e.id) ?? [],
       };
     }),
   };
+}
+
+function groupTicketTiersByEvent(
+  rows: EventTicketTierRow[],
+): Map<string, EventTicketTierRow[]> {
+  const byEvent = new Map<string, EventTicketTierRow[]>();
+  for (const row of rows) {
+    const list = byEvent.get(row.event_id) ?? [];
+    list.push(row);
+    byEvent.set(row.event_id, list);
+  }
+  return byEvent;
 }
 
 function eventFreshnessAt(input: {

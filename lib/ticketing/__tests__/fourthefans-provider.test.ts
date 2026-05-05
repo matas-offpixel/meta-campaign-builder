@@ -58,6 +58,20 @@ describe("FourthefansProvider", () => {
         tickets_sold: "345",
         revenue: "£12,345.67",
         currency: "GBP",
+        ticket_tiers: [
+          {
+            name: "Earlybird",
+            price: "£10.00",
+            quantity_sold: "100",
+            quantity_available: "100",
+          },
+          {
+            tier_name: "Second Release",
+            ticket_price: "12.50",
+            sold: 25,
+            allocation: 200,
+          },
+        ],
       },
     });
 
@@ -65,5 +79,19 @@ describe("FourthefansProvider", () => {
     assert.equal(sales.ticketsAvailable, 1200);
     assert.equal(sales.grossRevenueCents, 1234567);
     assert.equal(sales.currency, "GBP");
+    assert.deepEqual(sales.ticketTiers, [
+      {
+        tierName: "Earlybird",
+        price: 10,
+        quantitySold: 100,
+        quantityAvailable: 100,
+      },
+      {
+        tierName: "Second Release",
+        price: 12.5,
+        quantitySold: 25,
+        quantityAvailable: 200,
+      },
+    ]);
   });
 });

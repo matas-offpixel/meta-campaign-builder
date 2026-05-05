@@ -13,6 +13,14 @@ export interface ParsedFourthefansSales {
   ticketsAvailable: number | null;
   grossRevenueCents: number | null;
   currency: string | null;
+  ticketTiers: ParsedFourthefansTicketTier[];
+}
+
+export interface ParsedFourthefansTicketTier {
+  tierName: string;
+  price: number | null;
+  quantitySold: number;
+  quantityAvailable: number | null;
 }
 
 export function extractFourthefansEventArray(
@@ -103,6 +111,7 @@ export function readFourthefansEventSales(
     grossRevenueCents:
       revenueMajor == null ? null : Math.round(revenueMajor * 100),
     currency,
+    ticketTiers: readTicketTiers(event),
   };
 }
 
@@ -187,6 +196,45 @@ function readRevenueMajor(record: Record<string, unknown>): number | null {
     "total_revenue",
     "sales_value",
   ]);
+}
+
+function readTicketTiers(
+  event: Record<string, unknown>,
+): ParsedFourthefansTicketTier[] {
+  const rawTiers =
+    event.ticket_tiers ?? event.ticketTiers ?? event.tiers ?? event.ticket_types;
+  if (!Array.isArray(rawTiers)) return [];
+
+  const tiers: ParsedFourthefansTicketTier[] = [];
+  for (const rawTier of rawTiers) {
+    if (!isRecord(rawTier)) continue;
+    const tierName = readString(rawTier, [
+      "name",
+      "tier_name",
+      "ticket_name",
+      "title",
+      "label",
+    ]);
+    if (!tierName) continue;
+    tiers.push({
+      tierName,
+      price: readNumber(rawTier, ["price", "ticket_price", "amount"]),
+      quantitySold: readNumber(rawTier, [
+        "quantity_sold",
+        "tickets_sold",
+        "sold",
+        "sold_count",
+      ]) ?? 0,
+      quantityAvailable: readNumber(rawTier, [
+        "quantity_available",
+        "allocation",
+        "capacity",
+        "quantity_total",
+        "total",
+      ]),
+    });
+  }
+  return tiers;
 }
 
 function parseNumeric(value: unknown): number | null {

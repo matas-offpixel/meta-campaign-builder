@@ -121,6 +121,7 @@ function event({
     tickets_sold_previous: null,
     latest_snapshot: null,
     history: [],
+    ticket_tiers: [],
   };
 }
 

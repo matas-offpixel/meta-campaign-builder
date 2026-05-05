@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTicketingTokenKey } from "@/lib/ticketing/secrets";
 import type {
   EventTicketingLink,
+  TicketTierBreakdown,
   TicketingConnection,
   TicketingConnectionStatus,
   TicketingProviderName,
@@ -515,6 +516,120 @@ export async function getEarliestSnapshotForEventSource(
     return null;
   }
   return (data as unknown as TicketSalesSnapshot) ?? null;
+}
+
+export interface EventTicketTierRow {
+  id: string;
+  event_id: string;
+  tier_name: string;
+  price: number | null;
+  quantity_sold: number;
+  quantity_available: number | null;
+  snapshot_at: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function replaceEventTicketTiers(
+  supabase: AnySupabaseClient,
+  args: {
+    eventId: string;
+    tiers: TicketTierBreakdown[];
+    snapshotAt?: string;
+  },
+): Promise<number> {
+  const sb = asAnyTable(supabase);
+  const snapshotAt = args.snapshotAt ?? new Date().toISOString();
+  const rows = args.tiers
+    .map((tier) => ({
+      event_id: args.eventId,
+      tier_name: tier.tierName.trim(),
+      price: tier.price,
+      quantity_sold: Math.max(0, Math.trunc(tier.quantitySold)),
+      quantity_available:
+        tier.quantityAvailable == null
+          ? null
+          : Math.max(0, Math.trunc(tier.quantityAvailable)),
+      snapshot_at: snapshotAt,
+      updated_at: snapshotAt,
+    }))
+    .filter((tier) => tier.tier_name.length > 0);
+
+  if (rows.length === 0) {
+    const { error } = await sb
+      .from("event_ticket_tiers")
+      .delete()
+      .eq("event_id", args.eventId);
+    if (error) {
+      console.warn("[ticketing replaceEventTicketTiers delete]", error.message);
+    }
+    return 0;
+  }
+
+  const { error } = await sb
+    .from("event_ticket_tiers")
+    .upsert(rows, { onConflict: "event_id,tier_name" });
+  if (error) {
+    console.warn("[ticketing replaceEventTicketTiers upsert]", error.message);
+    return 0;
+  }
+
+  const tierNames = rows.map((tier) => tier.tier_name);
+  const { error: staleError } = await sb
+    .from("event_ticket_tiers")
+    .delete()
+    .eq("event_id", args.eventId)
+    .not("tier_name", "in", `(${tierNames.map(quotePostgrestValue).join(",")})`);
+  if (staleError) {
+    console.warn(
+      "[ticketing replaceEventTicketTiers stale delete]",
+      staleError.message,
+    );
+  }
+
+  return rows.length;
+}
+
+export async function listEventTicketTiers(
+  supabase: AnySupabaseClient,
+  eventId: string,
+): Promise<EventTicketTierRow[]> {
+  const sb = asAnyTable(supabase);
+  const { data, error } = await sb
+    .from("event_ticket_tiers")
+    .select("*")
+    .eq("event_id", eventId)
+    .order("price", { ascending: true, nullsFirst: false })
+    .order("tier_name", { ascending: true });
+  if (error) {
+    console.warn("[ticketing listEventTicketTiers]", error.message);
+    return [];
+  }
+  return (data ?? []) as unknown as EventTicketTierRow[];
+}
+
+export async function listEventTicketTiersForEvents(
+  supabase: AnySupabaseClient,
+  eventIds: string[],
+): Promise<EventTicketTierRow[]> {
+  if (eventIds.length === 0) return [];
+  const sb = asAnyTable(supabase);
+  const { data, error } = await sb
+    .from("event_ticket_tiers")
+    .select("*")
+    .in("event_id", eventIds)
+    .order("event_id", { ascending: true })
+    .order("price", { ascending: true, nullsFirst: false })
+    .order("tier_name", { ascending: true });
+  if (error) {
+    console.warn("[ticketing listEventTicketTiersForEvents]", error.message);
+    return [];
+  }
+  return (data ?? []) as unknown as EventTicketTierRow[];
+}
+
+function quotePostgrestValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 export async function mirrorEventTicketsSold(

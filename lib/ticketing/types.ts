@@ -81,6 +81,13 @@ export interface TicketSalesSnapshot {
   created_at: string;
 }
 
+export interface TicketTierBreakdown {
+  tierName: string;
+  price: number | null;
+  quantitySold: number;
+  quantityAvailable: number | null;
+}
+
 /**
  * Provider-side view of an external event. Used by the linking UI: the
  * user picks a row from `listEvents` to bind to an internal event.
@@ -111,6 +118,7 @@ export interface FetchedTicketSales {
   ticketsAvailable: number | null;
   grossRevenueCents: number | null;
   currency: string | null;
+  ticketTiers?: TicketTierBreakdown[];
   /**
    * Untyped provider payload kept for debugging. Persisted into
    * `raw_payload` on the snapshot row — never read by the app code.

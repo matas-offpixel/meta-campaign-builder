@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { EventDetail } from "@/components/dashboard/events/event-detail";
 import { parseEventTab } from "@/lib/dashboard/format";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
   getEventByIdServer,
   listDraftsForEventServer,
@@ -18,6 +18,7 @@ import {
   listInvoicesForEventServer,
 } from "@/lib/db/invoicing-server";
 import { getEventTicketingSummary } from "@/lib/db/event-ticketing-summary";
+import { listEventTicketTiers } from "@/lib/db/ticketing";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -124,7 +125,8 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
   // rather than joining it. Wrapped defensively for the same reason
   // as the snapshot fetch — migration 029/038 may not be applied
   // everywhere.
-  const [planDays, ticketingSummary] = await Promise.all([
+  const admin = createServiceRoleClient();
+  const [planDays, ticketingSummary, ticketTiers] = await Promise.all([
     plan
       ? listDaysForPlanServer(plan.id).catch((err) => {
           console.error("[EventDetailPage] listDaysForPlanServer failed:", err);
@@ -145,6 +147,10 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
         };
       },
     ),
+    listEventTicketTiers(admin, event.id).catch((err) => {
+      console.error("[EventDetailPage] listEventTicketTiers failed:", err);
+      return [];
+    }),
   ]);
 
   return (
@@ -162,6 +168,7 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
       linkedQuote={linkedQuote}
       linkedInvoices={linkedInvoices}
       ticketingSummary={ticketingSummary}
+      ticketTiers={ticketTiers}
       initialGoogleAdsPlanId={googleAdsPlan?.id ?? null}
     />
   );
