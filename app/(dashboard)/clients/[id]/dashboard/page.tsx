@@ -8,6 +8,10 @@ import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
+import {
+  parseCreativePatternPhase,
+  parseCreativePatternFunnel,
+} from "@/lib/dashboard/creative-patterns-funnel-view";
 
 /**
  * /clients/[id]/dashboard — internal counterpart to the public
@@ -27,7 +31,7 @@ import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
  */
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ region?: string; tab?: string }>;
+  searchParams: Promise<{ region?: string; tab?: string; phase?: string; funnel?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -123,6 +127,8 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
         isShared={false}
         activeTab={sp.tab}
         activeRegion={sp.region}
+        patternsPhase={parseCreativePatternPhase(sp.phase)}
+        patternsFunnel={parseCreativePatternFunnel(sp.funnel)}
       />
     </>
   );
