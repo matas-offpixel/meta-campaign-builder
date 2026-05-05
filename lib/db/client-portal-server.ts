@@ -6,6 +6,13 @@ import {
   type EventTicketTierRow,
 } from "@/lib/db/ticketing";
 import type { AdditionalTicketEntry } from "@/lib/db/additional-tickets";
+import {
+  buildTierChannelBreakdownMap,
+  listAllocationsForEvents,
+  listChannelsForClient,
+  listSalesForEvents,
+  type TierChannelRow,
+} from "@/lib/db/tier-channels";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -309,6 +316,13 @@ export type ClientPortalData =
        * well under any payload concern.
        */
       weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+      /**
+       * Channel set for this client (migration 076). One row per
+       * (client_id, channel_name). Threaded onto the portal payload so
+       * the venue report can render the operator-facing inline edit
+       * UI without an extra round-trip.
+       */
+      tierChannels: TierChannelRow[];
       shareVisibility: {
         showCreativeInsights: boolean;
         showFunnelPacing: boolean;
@@ -475,6 +489,7 @@ export async function loadVenuePortalByToken(
     dailyRollups: venueDailyRollups,
     additionalSpend: venueAdditionalSpend,
     weeklyTicketSnapshots: venueWeeklyTicketSnapshots,
+    tierChannels: portal.tierChannels,
     shareVisibility: portal.shareVisibility,
   };
 }
@@ -594,6 +609,21 @@ async function loadPortalForClientId(
   const additionalTicketRevenueTotals =
     additionalTicketRevenueTotalsByEvent(additionalTickets);
   applyTierAdditionalTickets(ticketTiersByEvent, additionalTickets);
+
+  // Multi-channel allocations + sales (migrations 076–077). Loaded in
+  // parallel with the existing ticket-tier reads so we don't pay an
+  // extra round-trip latency. `tierChannels` is per-client; the
+  // allocations + sales are per-event under the client.
+  const tierChannels = await listChannelsForClient(admin, clientId);
+  const tierChannelAllocations =
+    eventIds.length > 0 ? await listAllocationsForEvents(admin, eventIds) : [];
+  const tierChannelSales =
+    eventIds.length > 0 ? await listSalesForEvents(admin, eventIds) : [];
+  applyTierChannelBreakdowns(ticketTiersByEvent, {
+    channels: tierChannels,
+    allocations: tierChannelAllocations,
+    sales: tierChannelSales,
+  });
 
   // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
   // every event in one shot so the venue-expansion chart doesn't
@@ -752,6 +782,7 @@ async function loadPortalForClientId(
     dailyRollups,
     additionalSpend,
     weeklyTicketSnapshots,
+    tierChannels,
     shareVisibility: {
       showCreativeInsights: true,
       showFunnelPacing: true,
@@ -870,6 +901,56 @@ function applyTierAdditionalTickets(
     tier.api_quantity_sold = apiQuantitySold;
     tier.additional_quantity_sold = additional;
     tier.quantity_sold = apiQuantitySold + additional;
+  }
+}
+
+/**
+ * Attach per-tier `channel_breakdowns` to each EventTicketTierRow
+ * using the (event, tier) pair from `tier_channel_allocations` and
+ * `tier_channel_sales`. The 4TF channel falls back to the existing
+ * event_ticket_tiers.quantity_sold + price when no explicit sales
+ * row exists, which is how the auto-sync surfaces in the per-channel
+ * display.
+ */
+function applyTierChannelBreakdowns(
+  tiersByEvent: Map<string, EventTicketTierRow[]>,
+  bundle: {
+    channels: TierChannelRow[];
+    allocations: import("./tier-channels").TierChannelAllocationRow[];
+    sales: import("./tier-channels").TierChannelSaleRow[];
+  },
+) {
+  if (bundle.channels.length === 0) return;
+  const fourTfFallback = new Map<
+    string,
+    { quantity_sold: number; price: number | null }
+  >();
+  for (const [eventId, tiers] of tiersByEvent.entries()) {
+    for (const tier of tiers) {
+      const apiSold = tier.api_quantity_sold ?? tier.quantity_sold;
+      fourTfFallback.set(`${eventId}::${tier.tier_name}`, {
+        quantity_sold: apiSold,
+        price: tier.price,
+      });
+    }
+  }
+  const map = buildTierChannelBreakdownMap(bundle, fourTfFallback);
+  for (const [eventId, tiers] of tiersByEvent.entries()) {
+    for (const tier of tiers) {
+      const breakdowns = map.get(`${eventId}::${tier.tier_name}`);
+      if (breakdowns && breakdowns.length > 0) {
+        // Sort: automatic channels first (4TF, Eventbrite), then the
+        // operator-managed channels in stable name order. Keeps the
+        // venue report row layout predictable across deploys.
+        breakdowns.sort((a, b) => {
+          if (a.is_automatic !== b.is_automatic) {
+            return a.is_automatic ? -1 : 1;
+          }
+          return a.channel_name.localeCompare(b.channel_name);
+        });
+        tier.channel_breakdowns = breakdowns;
+      }
+    }
   }
 }
 

@@ -533,6 +533,16 @@ export interface EventTicketTierRow {
   snapshot_at: string;
   created_at?: string;
   updated_at?: string;
+  /**
+   * Per-channel breakdown attached server-side from
+   * `tier_channel_allocations` + `tier_channel_sales` (migrations
+   * 076–077). Empty when no channel rows exist for this tier yet.
+   * The 4TF entry, when present, mirrors `quantity_sold`/`price`
+   * via the read-time fallback in `buildTierChannelBreakdownMap`
+   * — so the existing 4thefans rollup-sync continues to drive the
+   * automatic channel without dual-writing.
+   */
+  channel_breakdowns?: import("./tier-channels").TierChannelBreakdown[];
 }
 
 export async function replaceEventTicketTiers(

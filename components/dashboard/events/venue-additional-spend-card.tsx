@@ -66,12 +66,20 @@ async function safeJson<T = unknown>(res: Response): Promise<T> {
 export function VenueAdditionalSpendCard({
   events,
   venueScope,
+  shareToken,
   className = "",
   onAfterMutate,
   readOnly = false,
 }: {
   events: VenueAdditionalSpendEventOption[];
   venueScope?: { clientId: string; eventCode: string };
+  /**
+   * When set, the card switches every read/write to the venue
+   * share-token routes (`/api/venues/by-share-token/{token}/...`).
+   * In this mode the per-event additional-spend rows are hidden —
+   * the share-token contract scopes to venue-only entries.
+   */
+  shareToken?: string;
   className?: string;
   onAfterMutate?: () => void;
   readOnly?: boolean;
@@ -104,6 +112,32 @@ export function VenueAdditionalSpendCard({
     setError(null);
     if (events.length === 0) {
       setEntries([]);
+      return;
+    }
+    // Share-token mode: the venue share token only authorises the
+    // venue-scope route. Per-event entries aren't accessible here, so
+    // we skip that fanout entirely. Internal mode keeps the existing
+    // per-event + venue load.
+    if (shareToken) {
+      const res = await fetch(
+        `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`,
+        { cache: "no-store" },
+      );
+      const json = await safeJson<{
+        ok?: boolean;
+        entries?: Entry[];
+        error?: string;
+      }>(res);
+      if (!res.ok || !json.ok || !json.entries) {
+        throw new Error(json.error ?? "Could not load venue additional spend.");
+      }
+      setEntries(
+        json.entries.map((entry) => ({
+          ...entry,
+          origin: "venue" as const,
+          event_id: "__venue__",
+        })),
+      );
       return;
     }
     const loaded = await Promise.all(
@@ -150,7 +184,7 @@ export function VenueAdditionalSpendCard({
             }));
           })();
     setEntries([...venueEntries, ...loaded.flat()]);
-  }, [events, venueScope]);
+  }, [events, venueScope, shareToken]);
 
   useEffect(() => {
     setSelectedEventId((current) =>
@@ -255,8 +289,16 @@ export function VenueAdditionalSpendCard({
       const existing = editingId
         ? entries.find((entry) => entry.id === editingId)
         : null;
-      const url =
-        existing?.origin === "venue" && venueScope
+      // URL routing has three branches:
+      //   1) shareToken set → always use the venue share-token route.
+      //   2) editing a venue-scope row → use the cookie-auth venue
+      //      route so the same row stays venue-scope.
+      //   3) otherwise → per-event cookie-auth route.
+      const url = shareToken
+        ? `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend${
+            editingId ? `/${encodeURIComponent(editingId)}` : ""
+          }`
+        : existing?.origin === "venue" && venueScope
           ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(editingId!)}`
           : `/api/events/${encodeURIComponent(parsed.eventId)}/additional-spend${
               editingId ? `/${encodeURIComponent(editingId)}` : ""
@@ -287,9 +329,11 @@ export function VenueAdditionalSpendCard({
     setError(null);
     try {
       const res = await fetch(
-        entry.origin === "venue" && venueScope
-          ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(entry.id)}`
-          : `/api/events/${encodeURIComponent(entry.event_id)}/additional-spend/${encodeURIComponent(entry.id)}`,
+        shareToken
+          ? `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend/${encodeURIComponent(entry.id)}`
+          : entry.origin === "venue" && venueScope
+            ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(entry.id)}`
+            : `/api/events/${encodeURIComponent(entry.event_id)}/additional-spend/${encodeURIComponent(entry.id)}`,
         { method: "DELETE" },
       );
       const json = await safeJson<{ ok?: boolean; error?: string }>(res);
