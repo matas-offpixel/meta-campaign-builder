@@ -43,6 +43,7 @@ export async function listAdditionalTicketsForEvent(
     .from("additional_ticket_entries")
     .select("*")
     .eq("event_id", eventId)
+    .order("updated_at", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) {
     console.warn("[additional-tickets list]", error.message);
@@ -87,6 +88,87 @@ export async function insertAdditionalTicketEntry(
     throw new Error(error.message);
   }
   return (data as unknown as AdditionalTicketEntry) ?? null;
+}
+
+export async function findAdditionalTicketEntryByNaturalKey(
+  supabase: AnySupabase,
+  args: {
+    eventId: string;
+    scope: AdditionalTicketScope;
+    tierName: string | null;
+    source: AdditionalTicketSource | null;
+    label: string;
+  },
+): Promise<AdditionalTicketEntry | null> {
+  let query = asAny(supabase)
+    .from("additional_ticket_entries")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .eq("scope", args.scope)
+    .eq("label", args.label);
+
+  query =
+    args.scope === "tier" && args.tierName
+      ? query.eq("tier_name", args.tierName)
+      : query.is("tier_name", null);
+  query = args.source ? query.eq("source", args.source) : query.is("source", null);
+
+  const { data, error } = await query
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[additional-tickets find natural key]", error.message);
+    throw new Error(error.message);
+  }
+  return (data as unknown as AdditionalTicketEntry) ?? null;
+}
+
+export async function upsertAdditionalTicketEntryByNaturalKey(
+  supabase: AnySupabase,
+  args: {
+    userId: string;
+    eventId: string;
+    scope: AdditionalTicketScope;
+    tierName: string | null;
+    ticketsCount: number;
+    revenueAmount: number;
+    date: string | null;
+    source: AdditionalTicketSource | null;
+    label: string;
+    notes: string | null;
+  },
+): Promise<{
+  entry: AdditionalTicketEntry | null;
+  action: "inserted" | "updated";
+  previousTicketsCount: number | null;
+  previousRevenueAmount: number | null;
+}> {
+  const existing = await findAdditionalTicketEntryByNaturalKey(supabase, args);
+  if (existing) {
+    const entry = await updateAdditionalTicketEntry(supabase, {
+      id: existing.id,
+      userId: args.userId,
+      ticketsCount: args.ticketsCount,
+      revenueAmount: args.revenueAmount,
+      date: args.date,
+      notes: args.notes,
+    });
+    return {
+      entry,
+      action: "updated",
+      previousTicketsCount: existing.tickets_count,
+      previousRevenueAmount: Number(existing.revenue_amount ?? 0),
+    };
+  }
+
+  const entry = await insertAdditionalTicketEntry(supabase, args);
+  return {
+    entry,
+    action: "inserted",
+    previousTicketsCount: null,
+    previousRevenueAmount: null,
+  };
 }
 
 export async function updateAdditionalTicketEntry(
