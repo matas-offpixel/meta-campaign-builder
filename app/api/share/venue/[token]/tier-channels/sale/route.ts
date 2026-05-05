@@ -94,11 +94,6 @@ export async function POST(
     );
   }
 
-  const scope = await assertVenueShareTokenWritable(token, supabase);
-  if (!scope.ok) {
-    return NextResponse.json(scope.body, { status: scope.status });
-  }
-
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -120,6 +115,13 @@ export async function POST(
       ? 0
       : Number(body.revenue_amount);
   const notes = typeof body.notes === "string" ? body.notes : null;
+
+  const scope = await assertVenueShareTokenWritable(token, supabase, {
+    eventId,
+  });
+  if (!scope.ok) {
+    return NextResponse.json(scope.body, { status: scope.status });
+  }
 
   if (!eventId || !tierName || !channelId) {
     return NextResponse.json(
@@ -210,11 +212,6 @@ export async function DELETE(
     );
   }
 
-  const scope = await assertVenueShareTokenWritable(token, supabase);
-  if (!scope.ok) {
-    return NextResponse.json(scope.body, { status: scope.status });
-  }
-
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -229,6 +226,13 @@ export async function DELETE(
   const tierName =
     typeof body.tier_name === "string" ? body.tier_name.trim() : "";
   const channelId = typeof body.channel_id === "string" ? body.channel_id : "";
+
+  const scope = await assertVenueShareTokenWritable(token, supabase, {
+    eventId,
+  });
+  if (!scope.ok) {
+    return NextResponse.json(scope.body, { status: scope.status });
+  }
   if (!eventId || !tierName || !channelId) {
     return NextResponse.json(
       { ok: false, error: "event_id, tier_name and channel_id are required" },

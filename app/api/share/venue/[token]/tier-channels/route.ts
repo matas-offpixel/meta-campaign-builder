@@ -21,7 +21,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  * arrays the client filters by event_id.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
@@ -43,6 +43,7 @@ export async function GET(
 
   const scope = await assertVenueShareTokenWritable(token, supabase, {
     requireCanEdit: false,
+    eventId: req.nextUrl.searchParams.get("event_id") ?? undefined,
   });
   if (!scope.ok) {
     return NextResponse.json(scope.body, { status: scope.status });
@@ -66,6 +67,6 @@ export async function GET(
     channels,
     allocations,
     sales,
-    can_edit: true,
+    can_edit: scope.canEdit,
   });
 }
