@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 279
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/279
 - **Branch:** `fix/discovery-local-event-city-render`
 
 ## Summary
