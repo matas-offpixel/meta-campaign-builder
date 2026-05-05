@@ -25,14 +25,3 @@ export function suggestedPct(
   }
   return 99;
 }
-
-export function suggestedCommsPhrase(suggested: SuggestedPct): string {
-  if (suggested === "SOLD OUT") return "SOLD OUT";
-  if (suggested === "ON SALE SOON") return "On Sale Soon";
-  if (suggested >= 99) return "Final tickets remaining";
-  if (suggested >= 90) return "Almost sold out";
-  if (suggested >= 80) return "Limited tickets remaining";
-  if (suggested >= 70) return "Selling fast";
-  if (suggested >= 60) return "Over half sold";
-  return "On sale now";
-}
