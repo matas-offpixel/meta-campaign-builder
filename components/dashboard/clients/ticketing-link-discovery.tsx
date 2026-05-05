@@ -66,8 +66,10 @@ interface CandidateRow {
 interface EventRow {
   eventId: string;
   eventName: string;
+  eventCode: string | null;
   eventDate: string | null;
   venueName: string | null;
+  venueCity: string | null;
   preferredProvider: string | null;
   opponentName: string | null;
   providerFilteredCandidateProviders: string[];
@@ -192,6 +194,16 @@ function confidenceClasses(score: number): string {
   if (score >= 0.65) return "text-yellow-500";
   if (score >= SURFACE_THRESHOLD) return "text-orange-500";
   return "text-muted-foreground";
+}
+
+function formatVenueWithCity(
+  venueName: string | null,
+  venueCity: string | null,
+): string {
+  const venue = venueName?.trim();
+  const city = venueCity?.trim();
+  if (venue && city) return `${venue} · ${city}`;
+  return venue || city || "—";
 }
 
 function externalEventKey(connectionId: string, externalEventId: string): string {
@@ -919,9 +931,9 @@ export function TicketingLinkDiscovery({ clientId }: Props) {
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2 text-left font-medium">Event</th>
-                  <th className="px-4 py-2 text-left font-medium">Venue</th>
-                  <th className="px-4 py-2 text-left font-medium">Date</th>
+                  <th className="min-w-[22rem] px-4 py-2 text-left font-medium">
+                    Local event
+                  </th>
                   <th className="px-4 py-2 text-left font-medium">Candidate</th>
                   <th className="px-4 py-2 text-right font-medium">Score</th>
                   <th className="px-4 py-2 text-center font-medium">Link</th>
@@ -1051,12 +1063,19 @@ function EventDiscoveryRow({
   return (
     <>
       <tr className="border-t border-border align-top">
-        <td className="px-4 py-3 text-foreground">{row.eventName}</td>
-        <td className="px-4 py-3 text-muted-foreground">
-          {row.venueName ?? "—"}
-        </td>
-        <td className="px-4 py-3 text-muted-foreground">
-          {fmtDate(row.eventDate)}
+        <td className="min-w-[22rem] px-4 py-3">
+          <p className="font-medium text-foreground">{row.eventName}</p>
+          <p className="whitespace-nowrap text-xs text-muted-foreground">
+            {formatVenueWithCity(row.venueName, row.venueCity)}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {fmtDate(row.eventDate)}
+          </p>
+          {row.eventCode ? (
+            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+              {row.eventCode}
+            </p>
+          ) : null}
         </td>
         <td className="px-4 py-3 text-muted-foreground">
           <div className="space-y-3">

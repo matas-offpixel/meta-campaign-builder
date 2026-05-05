@@ -149,7 +149,7 @@ export async function GET(
   const { data: events, error: eventsErr } = await supabase
     .from("events")
     .select(
-      "id, name, event_date, venue_name, venue_city, capacity, preferred_provider",
+      "id, name, event_code, event_date, venue_name, venue_city, capacity, preferred_provider",
     )
     .eq("client_id", id)
     .eq("user_id", user.id)
@@ -365,6 +365,8 @@ export async function GET(
   const byEvent = new Map<
     string,
     MatchResult & {
+      eventCode: string | null;
+      venueCity: string | null;
       preferredProvider: string | null;
       opponentName: string | null;
       providerFilteredCandidateProviders: string[];
@@ -379,8 +381,10 @@ export async function GET(
     byEvent.set(event.id, {
       eventId: event.id,
       eventName: event.name,
+      eventCode: event.event_code ?? null,
       eventDate: event.event_date,
       venueName: event.venue_name,
+      venueCity: event.venue_city,
       skipReason: null,
       preferredProvider: event.preferred_provider ?? null,
       opponentName: opponentLabelForMatching(event.name),
@@ -454,8 +458,10 @@ export async function GET(
     return {
       eventId: r.eventId,
       eventName: r.eventName,
+      eventCode: r.eventCode,
       eventDate: r.eventDate,
       venueName: r.venueName,
+      venueCity: r.venueCity,
       skipReason: r.skipReason,
       preferredProvider: r.preferredProvider,
       opponentName: r.opponentName,

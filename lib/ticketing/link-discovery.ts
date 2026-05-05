@@ -23,6 +23,7 @@ import { normalizeEventLabel } from "./fuzzy-match.ts";
 export interface InternalEventForMatching {
   id: string;
   name: string;
+  event_code?: string | null;
   event_date: string | null;
   venue_name: string | null;
   venue_city: string | null;
