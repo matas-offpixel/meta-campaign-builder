@@ -246,6 +246,8 @@ export async function GET(req: NextRequest) {
           ticketsAvailable: sales.ticketsAvailable,
           grossRevenueCents: sales.grossRevenueCents,
           currency: sales.currency,
+          source:
+            connection.provider === "fourthefans" ? "fourthefans" : "eventbrite",
           rawPayload: sales.rawPayload,
         });
         if (snapshot) {
