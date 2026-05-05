@@ -6,6 +6,10 @@ import {
   type AdditionalTicketScope,
   type AdditionalTicketSource,
 } from "@/lib/db/additional-tickets";
+import {
+  parseMoneyAmountInput,
+  parseSpendDateToIso,
+} from "@/lib/additional-spend-parse";
 import { createClient } from "@/lib/supabase/server";
 
 const SOURCES: readonly AdditionalTicketSource[] = [
@@ -28,13 +32,18 @@ function parsePayload(body: Record<string, unknown>) {
     ? body.tier_name.trim()
     : null;
   const ticketsCount = Number(body.tickets_count);
-  const revenueAmount =
-    body.revenue_amount === null || body.revenue_amount === undefined || body.revenue_amount === ""
-      ? 0
-      : Number(body.revenue_amount);
+  const revenueResult =
+    body.revenue_amount === null ||
+    body.revenue_amount === undefined ||
+    body.revenue_amount === ""
+      ? { ok: true as const, value: 0 }
+      : parseMoneyAmountInput(body.revenue_amount);
   const label = typeof body.label === "string" ? body.label.trim() : "";
   const sourceRaw = typeof body.source === "string" ? body.source : "other";
-  const date = typeof body.date === "string" && body.date.trim() ? body.date : null;
+  const dateResult =
+    typeof body.date === "string" && body.date.trim()
+      ? parseSpendDateToIso(body.date)
+      : { ok: true as const, isoDate: null };
   const notes =
     body.notes === null || body.notes === undefined ? null : String(body.notes);
 
@@ -42,9 +51,8 @@ function parsePayload(body: Record<string, unknown>) {
   if (!Number.isInteger(ticketsCount) || ticketsCount < 0) {
     return { ok: false as const, error: "Tickets count must be a non-negative whole number." };
   }
-  if (!Number.isFinite(revenueAmount) || revenueAmount < 0) {
-    return { ok: false as const, error: "Revenue must be a non-negative number." };
-  }
+  if (!revenueResult.ok) return { ok: false as const, error: revenueResult.message };
+  if (!dateResult.ok) return { ok: false as const, error: dateResult.message };
   if (!label) return { ok: false as const, error: "Label is required." };
   return {
     ok: true as const,
@@ -52,8 +60,8 @@ function parsePayload(body: Record<string, unknown>) {
       scope,
       tierName,
       ticketsCount,
-      revenueAmount,
-      date,
+      revenueAmount: revenueResult.value,
+      date: dateResult.isoDate,
       source: isSource(sourceRaw) ? sourceRaw : "other",
       label,
       notes,

@@ -24,8 +24,8 @@ import type {
 import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
-import { AdditionalSpendCard } from "@/components/dashboard/events/additional-spend-card";
-import { AdditionalTicketSalesCard } from "@/components/dashboard/events/additional-ticket-sales-card";
+import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/additional-ticket-entries-card";
+import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
 import { VenueTicketingStatusBadge } from "./last-updated-indicator";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueDailyReportBlock } from "./venue-daily-report-block";
@@ -101,6 +101,15 @@ export function VenueFullReport({
   // share row was minted with `can_edit=true`.
   const mode: "dashboard" | "share" = isInternal ? "dashboard" : "share";
   const readOnly = !isInternal && !canEdit;
+  const additionalEntryEvents = useMemo(
+    () =>
+      initialEvents.map((event) => ({
+        id: event.id,
+        name: event.name,
+        ticketTiers: event.ticket_tiers.map((tier) => tier.tier_name),
+      })),
+    [initialEvents],
+  );
   const handleRefresh = async () => {
     setRefreshNonce((value) => value + 1);
     router.refresh();
@@ -132,6 +141,15 @@ export function VenueFullReport({
         datePreset={datePreset}
         customRange={customRange}
       />
+      {isInternal ? (
+        <AdditionalEntriesPanel
+          clientId={clientId}
+          eventCode={eventCode}
+          events={additionalEntryEvents}
+          readOnly={readOnly}
+          onAfterMutate={() => router.refresh()}
+        />
+      ) : null}
       <VenueLiveReportTabs
         clientId={clientId}
         eventCode={eventCode}
@@ -149,39 +167,50 @@ export function VenueFullReport({
         onRefresh={handleRefresh}
         onTimeframeChange={handleTimeframeChange}
       />
-      <div className="rounded-md border border-border bg-background p-4">
-        <AdditionalSpendCard
-          scope={{ kind: "venue", clientId, venueEventCode: eventCode }}
-          mode={mode}
-          shareToken={mode === "share" ? token : undefined}
+    </div>
+  );
+}
+
+function AdditionalEntriesPanel({
+  clientId,
+  eventCode,
+  events,
+  readOnly,
+  onAfterMutate,
+}: {
+  clientId: string;
+  eventCode: string;
+  events: Array<{ id: string; name: string; ticketTiers: string[] }>;
+  readOnly: boolean;
+  onAfterMutate: () => void;
+}) {
+  return (
+    <section className="space-y-4 rounded-md border border-border bg-background p-4">
+      <div>
+        <h2 className="font-heading text-base tracking-wide text-foreground">
+          Additional entries
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Add event-specific PR spend, partner allocations, comps, and offline
+          ticket sales for this venue.
+        </p>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <VenueAdditionalSpendCard
+          events={events}
+          venueScope={{ clientId, eventCode }}
+          className="rounded-md border border-border bg-card p-3"
           readOnly={readOnly}
-          onAfterMutate={() => router.refresh()}
+          onAfterMutate={onAfterMutate}
+        />
+        <AdditionalTicketEntriesCard
+          events={events}
+          className="rounded-md border border-border bg-card p-3"
+          readOnly={readOnly}
+          onAfterMutate={onAfterMutate}
         />
       </div>
-      {isInternal ? (
-        <div className="rounded-md border border-border bg-background p-4">
-          <div className="mb-3">
-            <h2 className="font-heading text-base tracking-wide text-foreground">
-              Additional ticket sales
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Layer partner allocations, comps, and offline sales on top of provider tickets.
-            </p>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {initialEvents.map((event) => (
-              <AdditionalTicketSalesCard
-                key={event.id}
-                eventId={event.id}
-                tiers={event.ticket_tiers.map((tier) => tier.tier_name)}
-                className="rounded-md border border-border bg-card p-3"
-                onAfterMutate={() => router.refresh()}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -425,6 +454,7 @@ function VenueLiveReportTabs({
         events={events}
         dailyRollups={dailyRollups}
         londonOnsaleSpend={londonOnsaleSpend}
+        additionalSpend={additionalSpend}
       />
       <VenueLiveReportInsights
         clientId={clientId}
@@ -681,7 +711,9 @@ function computeVenuePerformance(
   );
   const capacity = nullableSum(events.map((event) => event.capacity));
   const tickets =
-    sumTickets(rollups, null) ?? latestVenueSnapshotTickets(weeklyTicketSnapshots);
+    latestVenueEventTickets(events) ??
+    sumTickets(rollups, null) ??
+    latestVenueSnapshotTickets(weeklyTicketSnapshots);
   const paidSpend = sumWindowMetaSpend(rollups, events.length > 1, null);
   const sellThroughPct =
     capacity != null && capacity > 0 && tickets != null
@@ -743,6 +775,19 @@ function latestVenueSnapshotTickets(
   let total = 0;
   for (const row of latestByEvent.values()) total += row.tickets_sold;
   return total;
+}
+
+function latestVenueEventTickets(events: PortalEvent[]): number | null {
+  if (events.length === 0) return null;
+  let total = 0;
+  let any = false;
+  for (const event of events) {
+    const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold;
+    if (tickets == null) continue;
+    total += tickets;
+    any = true;
+  }
+  return any ? total : null;
 }
 
 function nullableSum(values: Array<number | null | undefined>): number | null {
