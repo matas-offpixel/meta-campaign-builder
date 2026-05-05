@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { loadClientPortalData } from "@/lib/db/client-portal-server";
-import { ClientPortal } from "@/components/share/client-portal";
+import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import { ClientPortalUnavailable } from "@/components/share/client-portal-unavailable";
 
 /**
@@ -25,6 +25,7 @@ import { ClientPortalUnavailable } from "@/components/share/client-portal-unavai
 
 interface Props {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ region?: string; tab?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -37,8 +38,8 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function ClientPortalPage({ params }: Props) {
-  const { token } = await params;
+export default async function ClientPortalPage({ params, searchParams }: Props) {
+  const [{ token }, sp] = await Promise.all([params, searchParams]);
   const result = await loadClientPortalData(token, { bumpView: true });
 
   if (!result.ok) {
@@ -46,7 +47,8 @@ export default async function ClientPortalPage({ params }: Props) {
   }
 
   return (
-    <ClientPortal
+    <DashboardTabs
+      clientId={result.client.id}
       token={token}
       client={result.client}
       events={result.events}
@@ -56,6 +58,11 @@ export default async function ClientPortalPage({ params }: Props) {
       dailyRollups={result.dailyRollups}
       additionalSpend={result.additionalSpend}
       weeklyTicketSnapshots={result.weeklyTicketSnapshots}
+      showCreativeInsights={result.shareVisibility.showCreativeInsights}
+      showFunnelPacing={result.shareVisibility.showFunnelPacing}
+      isShared
+      activeTab={sp.tab}
+      activeRegion={sp.region}
     />
   );
 }

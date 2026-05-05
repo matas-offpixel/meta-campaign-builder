@@ -68,6 +68,8 @@ interface Props {
    * the default (false) and gets the read-only surface.
    */
   isInternal?: boolean;
+  hideChrome?: boolean;
+  showRefreshDailyBudgets?: boolean;
 }
 
 function formatNumber(n: number): string {
@@ -94,6 +96,8 @@ export function ClientPortal({
   additionalSpend,
   weeklyTicketSnapshots,
   isInternal = false,
+  hideChrome = false,
+  showRefreshDailyBudgets = true,
 }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
@@ -193,16 +197,19 @@ export function ClientPortal({
   // the public `<main>` chrome for a simple wrapper so the page
   // inherits the dashboard nav + background. The external share
   // surface keeps the branded chrome below.
-  const Wrapper = isInternal ? "div" : "main";
-  const wrapperClass = isInternal
+  const showPublicChrome = !isInternal && !hideChrome;
+  const Wrapper = showPublicChrome ? "main" : "div";
+  const wrapperClass = showPublicChrome
+    ? "min-h-screen bg-background text-foreground"
+    : isInternal
     ? "bg-background text-foreground"
-    : "min-h-screen bg-background text-foreground";
+    : "";
 
   return (
     <Wrapper className={wrapperClass}>
       {/* Header — only on the public share surface. The internal
           dashboard route owns its own PageHeader. */}
-      {!isInternal && (
+      {showPublicChrome && (
         <header className="border-b border-border">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
             <p className="font-heading text-base tracking-[0.2em] text-foreground">
@@ -226,7 +233,7 @@ export function ClientPortal({
               figure to update it.
             </p>
           </div>
-          {!isInternal ? (
+          {!isInternal && showRefreshDailyBudgets ? (
             <ClientRefreshDailyBudgetsButton
               clientId={client.id}
               eventCodes={venueEventCodes}
@@ -336,7 +343,7 @@ export function ClientPortal({
         )}
       </div>
 
-      {!isInternal && (
+      {showPublicChrome && (
         <footer className="border-t border-border mt-12">
           <div className="mx-auto max-w-7xl px-6 py-4 text-[11px] text-muted-foreground">
             Off Pixel · campaign analytics for {client.name}

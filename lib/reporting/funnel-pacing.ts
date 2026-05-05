@@ -18,6 +18,9 @@ import {
 type ScopeType = "client_region" | "venue_code" | "event_id";
 type TargetSource = "manual" | "derived" | "fallback";
 type StageStatus = "green" | "amber" | "red";
+type FunnelSupabaseClient =
+  | Awaited<ReturnType<typeof createClient>>
+  | ReturnType<typeof createServiceRoleClient>;
 
 export interface FunnelPacingResult {
   scope: { type: ScopeType; value: string };
@@ -84,9 +87,15 @@ interface FunnelTargetRow {
 
 export async function buildClientFunnelPacing(
   clientId: string,
-  opts: { regionFilter?: CreativePatternRegionFilter; sinceDays?: number } = {},
+  opts: {
+    regionFilter?: CreativePatternRegionFilter;
+    sinceDays?: number;
+    useServiceRole?: boolean;
+  } = {},
 ): Promise<FunnelPacingResult> {
-  const supabase = await createClient();
+  const supabase = opts.useServiceRole
+    ? createServiceRoleClient()
+    : await createClient();
   const events = applyRegionFilter(await fetchEvents(supabase, clientId), opts.regionFilter);
   const scope = scopeFromFilter(opts.regionFilter);
   const target = await loadOrCreateTarget(supabase, clientId, scope, events);
@@ -187,7 +196,7 @@ function stage(
 }
 
 async function loadOrCreateTarget(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: FunnelSupabaseClient,
   clientId: string,
   scope: { type: ScopeType; value: string },
   events: EventRow[],
@@ -205,7 +214,7 @@ async function loadOrCreateTarget(
 }
 
 async function deriveAndUpsertTarget(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: FunnelSupabaseClient,
   clientId: string,
   scope: { type: ScopeType; value: string },
   events: EventRow[],
@@ -269,7 +278,7 @@ function targetPayload(
 }
 
 async function fetchEvents(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: FunnelSupabaseClient,
   clientId: string,
 ): Promise<EventRow[]> {
   const { data, error } = await supabase
@@ -282,7 +291,7 @@ async function fetchEvents(
 }
 
 async function fetchRollups(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: FunnelSupabaseClient,
   eventIds: string[],
   sinceYmd: string,
 ): Promise<RollupRow[]> {
@@ -360,7 +369,7 @@ function daysAgoYmd(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function targetTable(supabase: Awaited<ReturnType<typeof createClient>>) {
+function targetTable(supabase: FunnelSupabaseClient) {
   // Generated Supabase types lag new migrations in this repo; keep the
   // untyped escape hatch local to the new table.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

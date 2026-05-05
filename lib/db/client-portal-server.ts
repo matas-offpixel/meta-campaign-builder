@@ -295,6 +295,10 @@ export type ClientPortalData =
        * well under any payload concern.
        */
       weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+      shareVisibility: {
+        showCreativeInsights: boolean;
+        showFunnelPacing: boolean;
+      };
     }
   | {
       ok: false;
@@ -334,7 +338,15 @@ export async function loadClientPortalData(
     void bumpShareView(token, admin);
   }
 
-  return loadPortalForClientId(share.client_id);
+  const portal = await loadPortalForClientId(share.client_id);
+  if (!portal.ok) return portal;
+  return {
+    ...portal,
+    shareVisibility: {
+      showCreativeInsights: share.show_creative_insights,
+      showFunnelPacing: share.show_funnel_pacing,
+    },
+  };
 }
 
 /**
@@ -449,6 +461,7 @@ export async function loadVenuePortalByToken(
     dailyRollups: venueDailyRollups,
     additionalSpend: venueAdditionalSpend,
     weeklyTicketSnapshots: venueWeeklyTicketSnapshots,
+    shareVisibility: portal.shareVisibility,
   };
 }
 
@@ -713,6 +726,10 @@ async function loadPortalForClientId(
     dailyRollups,
     additionalSpend,
     weeklyTicketSnapshots,
+    shareVisibility: {
+      showCreativeInsights: true,
+      showFunnelPacing: true,
+    },
     events: eventRows.map((e) => {
       const history = historyByEvent.get(e.id) ?? [];
       const resolvedTicketsSold =

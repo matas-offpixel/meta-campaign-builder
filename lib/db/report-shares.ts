@@ -376,6 +376,8 @@ type ResolvedShareBase = {
   token: string;
   /** True when the token grants edit operations (e.g. tickets-sold capture). */
   can_edit: boolean;
+  show_creative_insights: boolean;
+  show_funnel_pacing: boolean;
   user_id: string;
   enabled: boolean;
   expires_at: string | null;
@@ -516,7 +518,7 @@ export async function resolveShareByToken(
       // `event_code` is populated only for scope='venue'; we still
       // select it unconditionally so the discriminated union can be
       // assembled without a second round-trip.
-      "token, event_id, client_id, event_code, scope, can_edit, user_id, enabled, expires_at, view_count, last_viewed_at, created_at",
+      "token, event_id, client_id, event_code, scope, can_edit, show_creative_insights, show_funnel_pacing, user_id, enabled, expires_at, view_count, last_viewed_at, created_at",
     )
     .eq("token", token)
     .maybeSingle();
@@ -539,9 +541,15 @@ export async function resolveShareByToken(
   // which means any site that read `share.event_id as string` post-cast
   // would crash on the first client-scope token through the door. Build
   // the discriminated union explicitly so callers narrow safely.
+  const shareRow = data as typeof data & {
+    show_creative_insights?: boolean | null;
+    show_funnel_pacing?: boolean | null;
+  };
   const base = {
     token: data.token,
     can_edit: data.can_edit,
+    show_creative_insights: shareRow.show_creative_insights !== false,
+    show_funnel_pacing: shareRow.show_funnel_pacing !== false,
     user_id: data.user_id,
     enabled: data.enabled,
     expires_at: data.expires_at,
