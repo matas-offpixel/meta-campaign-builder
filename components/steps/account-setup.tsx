@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AlertCircle, AlertTriangle, RefreshCw, Loader2, Link2, CheckCircle2 } from "lucide-react";
+import { useEffect } from "react";
+import Link from "next/link";
+import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
-import { connectFacebookAccount, FB_SCOPES, type ScopeDebugInfo } from "@/lib/facebook-connect";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import { Sparkles } from "lucide-react";
 
@@ -95,13 +95,10 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
     });
   };
 
-  const [fbConnectBusy, setFbConnectBusy] = useState(false);
-  const [fbScopeDebug, setFbScopeDebug] = useState<ScopeDebugInfo | null>(null);
   const {
     connected: facebookConnected,
     expired: fbTokenExpired,
     loading: fbStatusLoading,
-    refresh: refreshFbStatus,
   } = useFacebookConnectionStatus();
 
   // ── Data fetching ──────────────────────────────────────────────────────────
@@ -190,21 +187,11 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
     }
   }
 
-  async function handleConnectFacebook() {
-    setFbConnectBusy(true);
-    setFbScopeDebug(null);
-    try {
-      const returnPath = campaignId ? `/campaign/${campaignId}` : "/";
-      await connectFacebookAccount({
-        returnPath,
-        onScopeDebug: (info) => setFbScopeDebug(info),
-      });
-    } catch (e) {
-      console.error("[AccountSetup] Connect Facebook:", e);
-      alert(e instanceof Error ? e.message : "Could not start Facebook connection.");
-      setFbConnectBusy(false);
-    }
-  }
+  const facebookConnectionIssue =
+    !fbStatusLoading && (!facebookConnected || fbTokenExpired);
+  const settingsHref = campaignId
+    ? `/settings?returnTo=${encodeURIComponent(`/campaign/${campaignId}`)}`
+    : "/settings";
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -234,126 +221,34 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
         </div>
       )}
 
-      {/* ── Facebook (user token) ─────────────────────────────────────────── */}
-      <Card>
-        <CardTitle>Facebook connection</CardTitle>
-        <CardDescription>
-          Link Facebook to load <strong>your</strong> pages (&quot;Load My Pages&quot;), Instagram identities, and other Meta features that use your personal Facebook access.
-          Ad accounts and pixels below still use the app&apos;s Meta integration.
-        </CardDescription>
-        {/* ── Expiry warning — shown when a Meta API call detected a stale token */}
-        {fbTokenExpired && (
-          <div className="mt-3 flex items-start gap-3 rounded-lg border border-warning/50 bg-warning/10 px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-warning-foreground">
-                Facebook session expired
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Your Facebook token is no longer valid. Reconnect to reload ad
-                accounts, pages, and pixels.
-              </p>
-            </div>
+      {facebookConnectionIssue ? (
+        <div className="flex items-start gap-3 rounded-lg border border-warning/50 bg-warning/10 px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-warning-foreground">
+              {fbTokenExpired
+                ? "Facebook connection issue"
+                : "No Meta connection"}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {fbTokenExpired
+                ? "Fix your Facebook connection in Settings to reload ad accounts and pixels."
+                : "No Meta connection. Connect in Settings to load ad accounts and pixels."}
+            </p>
           </div>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          {fbStatusLoading ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Checking connection…
-            </p>
-          ) : fbTokenExpired ? (
-            <p className="flex items-center gap-2 text-xs text-warning">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Session expired
-            </p>
-          ) : facebookConnected ? (
-            <p className="flex items-center gap-2 text-xs text-success">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Facebook connected
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Not connected — required for &quot;Load My Pages&quot; and similar features.
-            </p>
-          )}
-          <Button
-            type="button"
-            variant={fbTokenExpired ? "primary" : facebookConnected ? "outline" : "primary"}
-            size="sm"
-            className="gap-1.5"
-            disabled={fbConnectBusy}
-            onClick={() => {
-              void handleConnectFacebook();
-            }}
+          <Link
+            href={settingsHref}
+            className="shrink-0 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
           >
-            {fbConnectBusy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Link2 className="h-3.5 w-3.5" />
-            )}
-            {fbTokenExpired
-              ? "Reconnect Facebook"
-              : facebookConnected
-                ? "Reconnect Facebook"
-                : "Connect Facebook"}
-          </Button>
-          {facebookConnected && !fbTokenExpired && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-xs"
-              onClick={() => void refreshFbStatus()}
-            >
-              Refresh status
-            </Button>
-          )}
+            Fix in Settings →
+          </Link>
         </div>
-
-        {/* ── [DEBUG] Scope inspector — remove once confirmed working ──────── */}
-        {fbScopeDebug && (
-          <div className="mt-3 rounded-md border border-dashed border-warning/60 bg-warning/5 p-3 font-mono text-[11px] leading-relaxed text-foreground">
-            <p className="mb-1 font-sans text-xs font-semibold text-warning">
-              DEBUG — OAuth scope (remove once verified)
-            </p>
-            <p>
-              <span className="text-muted-foreground">Desired (FB_SCOPES):&nbsp;&nbsp;</span>
-              <span className="text-foreground">{FB_SCOPES}</span>
-            </p>
-            <p>
-              <span className="text-muted-foreground">GoTrue URL scope:&nbsp;&nbsp;&nbsp;&nbsp;</span>
-              <span className={fbScopeDebug.goTrueScope !== FB_SCOPES ? "text-warning" : "text-foreground"}>
-                {fbScopeDebug.goTrueScope || "(empty)"}
-              </span>
-            </p>
-            <p>
-              <span className="text-muted-foreground">GoTrue tokens parsed:&nbsp;</span>
-              <span className="text-foreground">
-                [{fbScopeDebug.goTrueTokens.join(", ") || "—"}]
-              </span>
-            </p>
-            <p>
-              <span className="text-muted-foreground">Final tokens (forced):&nbsp;</span>
-              <span className="text-foreground">
-                [{fbScopeDebug.finalTokens.join(", ")}]
-              </span>
-            </p>
-            <p>
-              <span className="text-muted-foreground">Sent to Facebook:&nbsp;&nbsp;&nbsp;&nbsp;</span>
-              <span className={fbScopeDebug.finalScope === FB_SCOPES ? "text-success" : "text-destructive"}>
-                {fbScopeDebug.finalScope || "(EMPTY — bug!)"}
-              </span>{" "}
-              {fbScopeDebug.finalScope === FB_SCOPES ? "✓" : "✗"}
-            </p>
-            <p className="mt-1 break-all text-[10px] text-muted-foreground">
-              URL: {fbScopeDebug.finalUrl.slice(0, 300)}
-            </p>
-          </div>
-        )}
-        {/* ── end DEBUG ────────────────────────────────────────────────────── */}
-      </Card>
+      ) : facebookConnected ? (
+        <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-xs text-success">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Facebook connected. Choose the campaign ad account and pixel below.
+        </div>
+      ) : null}
 
       {/* ── Ad Account ─────────────────────────────────────────────────────── */}
       <Card>
@@ -396,14 +291,14 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             value={settings.metaAdAccountId ?? ""}
             onChange={handleAccountChange}
             placeholder={
-              fbTokenExpired
-                ? "Reconnect Facebook to load accounts"
+              facebookConnectionIssue
+                ? "Connect in Settings to load accounts"
                 : accounts.loading
                   ? "Loading accounts…"
                   : "Select ad account…"
             }
             loading={accounts.loading && accounts.data.length === 0}
-            disabled={fbTokenExpired || (accounts.data.length === 0 && !accounts.loading)}
+            disabled={facebookConnectionIssue || (accounts.data.length === 0 && !accounts.loading)}
             emptyText="No ad accounts found"
             options={accounts.data.map((a) => ({
               value: a.id,
@@ -416,8 +311,8 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             loading={accounts.loading && accounts.data.length === 0}
             // Don't surface raw Meta token-error text — the expiry banner above
             // already explains the issue clearly.
-            error={fbTokenExpired ? null : accounts.error}
-            count={fbTokenExpired ? 0 : accounts.data.length}
+            error={facebookConnectionIssue ? null : accounts.error}
+            count={facebookConnectionIssue ? 0 : accounts.data.length}
           />
           {settings.metaAdAccountId && (
             <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
@@ -443,15 +338,15 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             value={settings.metaPixelId ?? ""}
             onChange={(e) => handlePixelChange(e.target.value)}
             placeholder={
-              fbTokenExpired
-                ? "Reconnect Facebook to load pixels"
+              facebookConnectionIssue
+                ? "Connect in Settings to load pixels"
                 : !settings.metaAdAccountId
                   ? "Select an ad account first…"
                   : pixels.loading
                     ? "Loading pixels…"
                     : "Select pixel (optional)…"
             }
-            disabled={fbTokenExpired || !settings.metaAdAccountId || pixels.loading}
+            disabled={facebookConnectionIssue || !settings.metaAdAccountId || pixels.loading}
             options={[
               { value: "", label: "None" },
               ...pixels.data.map((p) => ({
@@ -461,9 +356,9 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             ]}
           />
           <FieldStatus
-            loading={pixels.loading && !fbTokenExpired}
-            error={fbTokenExpired ? null : pixels.error}
-            count={fbTokenExpired ? 0 : pixels.data.length}
+            loading={pixels.loading && !facebookConnectionIssue}
+            error={facebookConnectionIssue ? null : pixels.error}
+            count={facebookConnectionIssue ? 0 : pixels.data.length}
           />
         </div>
       </Card>
