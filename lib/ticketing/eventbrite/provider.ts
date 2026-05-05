@@ -19,6 +19,7 @@ import {
   EventbriteApiError,
   eventbriteGet,
 } from "@/lib/ticketing/eventbrite/client";
+import { parseEventbriteTiers } from "@/lib/ticketing/eventbrite/parse";
 import type {
   ExternalEventSummary,
   FetchedTicketSales,
@@ -66,7 +67,12 @@ interface EventbriteEventListResponse {
 interface EventbriteTicketClass {
   id: string;
   name?: string | null;
-  cost?: { value?: number; currency?: string } | null;
+  cost?: {
+    value?: number | null;
+    major_value?: string | number | null;
+    currency?: string;
+  } | null;
+  capacity?: number | null;
   quantity_total?: number | null;
   quantity_sold?: number | null;
 }
@@ -204,6 +210,7 @@ export class EventbriteProvider implements TicketingProvider {
     );
 
     const ticketClasses = detail.ticket_classes ?? [];
+    const ticketTiers = parseEventbriteTiers(detail);
 
     let ticketsSold = 0;
     let ticketsAvailable: number | null = null;
@@ -236,6 +243,7 @@ export class EventbriteProvider implements TicketingProvider {
       ticketsAvailable,
       grossRevenueCents: ticketClasses.length === 0 ? null : grossRevenueCents,
       currency,
+      ticketTiers,
       rawPayload: detail,
     };
   }
