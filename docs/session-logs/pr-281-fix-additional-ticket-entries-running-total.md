@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 281
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/281
 - **Branch:** `fix/additional-ticket-entries-running-total`
 
 ## Summary
