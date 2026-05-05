@@ -21,6 +21,7 @@ import type {
   MetaAdPayload,
 } from "./creative";
 import type { UploadAssetResult } from "./upload";
+import { withActPrefix } from "./ad-account-id.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -480,10 +481,11 @@ export async function fetchBusinessIdForAccount(
   adAccountId: string,
   token?: string,
 ): Promise<string | null> {
+  const accountPath = withActPrefix(adAccountId);
   try {
     const res = token
-      ? await graphGetWithToken<{ business?: { id: string } }>(`/${adAccountId}`, { fields: "business" }, token)
-      : await graphGet<{ business?: { id: string } }>(`/${adAccountId}`, { fields: "business" });
+      ? await graphGetWithToken<{ business?: { id: string } }>(`/${accountPath}`, { fields: "business" }, token)
+      : await graphGet<{ business?: { id: string } }>(`/${accountPath}`, { fields: "business" });
     return res.business?.id ?? null;
   } catch {
     return null;
@@ -604,9 +606,10 @@ export async function fetchCampaignsForAccount(params: {
 
   if (after) queryParams.after = after;
 
+  const accountPath = withActPrefix(adAccountId);
   const res = token
-    ? await graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(`/${adAccountId}/campaigns`, queryParams, token)
-    : await graphGet<GraphPagedResponse<RawMetaCampaign>>(`/${adAccountId}/campaigns`, queryParams);
+    ? await graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(`/${accountPath}/campaigns`, queryParams, token)
+    : await graphGet<GraphPagedResponse<RawMetaCampaign>>(`/${accountPath}/campaigns`, queryParams);
 
   // Sort newest first by updated_time then created_time so the picker's
   // "recency" promise holds even when Meta returns a non-deterministic order.
@@ -845,10 +848,11 @@ export async function fetchAdditionalPages(
  * @param adAccountId - e.g. "act_1234567890"
  */
 export async function fetchPixels(adAccountId: string, token?: string): Promise<MetaApiPixel[]> {
+  const accountPath = withActPrefix(adAccountId);
   const params = { fields: "id,name", limit: "100" };
   const res = token
-    ? await graphGetWithToken<GraphPagedResponse<MetaApiPixel>>(`/${adAccountId}/adspixels`, params, token)
-    : await graphGet<GraphPagedResponse<MetaApiPixel>>(`/${adAccountId}/adspixels`, params);
+    ? await graphGetWithToken<GraphPagedResponse<MetaApiPixel>>(`/${accountPath}/adspixels`, params, token)
+    : await graphGet<GraphPagedResponse<MetaApiPixel>>(`/${accountPath}/adspixels`, params);
   return res.data;
 }
 
@@ -975,6 +979,7 @@ export async function fetchAdAccountIgActors(
   adAccountId: string,
   token?: string,
 ): Promise<Array<{ id: string; username?: string; name?: string }>> {
+  const accountPath = withActPrefix(adAccountId);
   const t = token ?? process.env.META_ACCESS_TOKEN ?? "";
   if (!t) {
     console.warn("[fetchAdAccountIgActors] no token available");
@@ -982,7 +987,7 @@ export async function fetchAdAccountIgActors(
   }
   try {
     const res = await graphGetWithToken<GraphPagedResponse<{ id: string; username?: string; name?: string }>>(
-      `/${adAccountId}/instagram_accounts`,
+      `/${accountPath}/instagram_accounts`,
       { fields: "id,username,name", limit: "50" },
       t,
     );
@@ -1020,13 +1025,14 @@ export async function fetchAdAccountTosStatus(
   rawTosAccepted: Record<string, unknown> | null;
   error?: string;
 }> {
+  const accountPath = withActPrefix(adAccountId);
   const effectiveToken = token || process.env.META_ACCESS_TOKEN;
   if (!effectiveToken) {
     return { fetched: false, customAudienceTos: null, rawTosAccepted: null, error: "no token available" };
   }
   try {
     const res = await graphGetWithToken<{ tos_accepted?: Record<string, unknown> }>(
-      `/${adAccountId}`,
+      `/${accountPath}`,
       { fields: "tos_accepted" },
       effectiveToken,
     );
@@ -1274,7 +1280,8 @@ export async function createEngagementAudience(
   }
 
   const params = paramsOrUnsupported;
-  const endpoint = `${BASE}/${adAccountId}/customaudiences`;
+  const accountPath = withActPrefix(adAccountId);
+  const endpoint = `${BASE}/${accountPath}/customaudiences`;
 
   // ── Full pre-attempt context log ──────────────────────────────────────────
   console.log(
@@ -1369,6 +1376,7 @@ export async function createLookalikeAudience(
   // identically — the `url.searchParams.set("access_token", token)` call below
   // was using the old `const token` declaration.
   const resolvedToken = effectiveToken;
+  const accountPath = withActPrefix(adAccountId);
 
   const params: Record<string, string> = {
     name: spec.name,
@@ -1388,7 +1396,7 @@ export async function createLookalikeAudience(
     `\n  Full params: ${JSON.stringify(params, null, 2)}`,
   );
 
-  const url = new URL(`${BASE}/${adAccountId}/customaudiences`);
+  const url = new URL(`${BASE}/${accountPath}/customaudiences`);
   url.searchParams.set("access_token", resolvedToken);
 
   const formBody = new URLSearchParams(params);
@@ -1483,8 +1491,9 @@ export async function createMetaAdSet(
   payload: MetaAdSetPayload,
   token?: string,
 ): Promise<{ id: string }> {
+  const accountPath = withActPrefix(adAccountId);
   return graphPost<{ id: string }>(
-    `/${adAccountId}/adsets`,
+    `/${accountPath}/adsets`,
     payload as unknown as Record<string, unknown>,
     token,
   );
@@ -1502,13 +1511,14 @@ export async function createMetaAdSets(
   payloads: MetaAdSetPayload[],
   token?: string,
 ): Promise<CreateAdSetsResult> {
+  const accountPath = withActPrefix(adAccountId);
   const created: CreateAdSetsResult["created"] = [];
   const failed: CreateAdSetsResult["failed"] = [];
 
   for (const payload of payloads) {
     try {
       const { id } = await graphPost<{ id: string }>(
-        `/${adAccountId}/adsets`,
+        `/${accountPath}/adsets`,
         payload as unknown as Record<string, unknown>,
         token,
       );
@@ -1536,8 +1546,9 @@ export async function createMetaCreative(
   payload: MetaCreativePayload,
   token?: string,
 ): Promise<{ id: string }> {
+  const accountPath = withActPrefix(adAccountId);
   return graphPost<{ id: string }>(
-    `/${adAccountId}/adcreatives`,
+    `/${accountPath}/adcreatives`,
     payload as unknown as Record<string, unknown>,
     token,
   );
@@ -1554,8 +1565,9 @@ export async function createMetaAd(
   payload: MetaAdPayload,
   token?: string,
 ): Promise<{ id: string }> {
+  const accountPath = withActPrefix(adAccountId);
   return graphPost<{ id: string }>(
-    `/${adAccountId}/ads`,
+    `/${accountPath}/ads`,
     payload as unknown as Record<string, unknown>,
     token,
   );
@@ -1618,7 +1630,8 @@ export async function uploadImageAsset(
   // The real image name travels in Content-Disposition; field name is irrelevant.
   formData.append("filename", file, safeFilename);
 
-  const endpoint = `${BASE}/${adAccountId}/adimages`;
+  const accountPath = withActPrefix(adAccountId);
+  const endpoint = `${BASE}/${accountPath}/adimages`;
 
   let response: Response;
   try {
@@ -1701,7 +1714,8 @@ export async function uploadVideoAsset(
   formData.append("source", file, safeFilename);
   formData.append("title", safeFilename.replace(/\.[^.]+$/, ""));
 
-  const endpoint = `${BASE}/${adAccountId}/advideos`;
+  const accountPath = withActPrefix(adAccountId);
+  const endpoint = `${BASE}/${accountPath}/advideos`;
 
   let response: Response;
   try {
@@ -1746,6 +1760,7 @@ export async function createMetaCampaign(params: {
   token?: string;
 }): Promise<{ id: string }> {
   const { adAccountId, name, objective, status = "PAUSED", token } = params;
+  const accountPath = withActPrefix(adAccountId);
 
   // Minimal valid payload — only fields that belong at campaign level.
   // buying_type is required by Meta; omitting it triggers code 100 "Invalid parameter".
@@ -1762,9 +1777,9 @@ export async function createMetaCampaign(params: {
 
   console.log(
     "[createMetaCampaign] Sending payload to",
-    `/${adAccountId}/campaigns`,
+    `/${accountPath}/campaigns`,
     JSON.stringify(payload, null, 2),
   );
 
-  return graphPost<{ id: string }>(`/${adAccountId}/campaigns`, payload, token);
+  return graphPost<{ id: string }>(`/${accountPath}/campaigns`, payload, token);
 }

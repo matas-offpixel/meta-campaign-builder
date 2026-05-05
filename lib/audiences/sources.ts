@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { withActPrefix, withoutActPrefix } from "../meta/ad-account-id.ts";
 import {
   fetchBusinessIdForAccount,
   graphGetWithToken,
@@ -204,7 +205,7 @@ export async function fetchAudiencePixels(
   token: string,
 ): Promise<AudiencePixelSource[]> {
   const res = await graphGetWithToken<GraphPagedResponse<RawPixel>>(
-    `/${adAccountId}/adspixels`,
+    `/${withActPrefix(adAccountId)}/adspixels`,
     { fields: "id,name,last_fired_time", limit: "100" },
     token,
   );
@@ -228,7 +229,7 @@ export async function fetchAudienceCampaigns(
       insights?: { data?: Array<{ spend?: string }> };
     }
   >>(
-    `/${adAccountId}/campaigns`,
+    `/${withActPrefix(adAccountId)}/campaigns`,
     {
       fields: "id,name,effective_status,created_time,insights.date_preset(last_year){spend}",
       filtering: JSON.stringify([
@@ -259,7 +260,7 @@ export async function fetchAudienceCampaignVideos(
     name?: string;
     account_id?: string;
   }>(`/${campaignId}`, { fields: "id,name,account_id" }, token);
-  const expectedAccountId = adAccountId.replace(/^act_/, "");
+  const expectedAccountId = withoutActPrefix(adAccountId);
   if (campaign.account_id && campaign.account_id !== expectedAccountId) {
     throw new Error("Campaign does not belong to this client's Meta ad account");
   }

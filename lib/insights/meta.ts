@@ -8,6 +8,7 @@ import {
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import { isPresaleCampaignName } from "@/lib/insights/meta-campaign-phase";
 import { ISO_COUNTRY_CODES } from "@/lib/share/country-codes";
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
   graphGetWithToken,
   isReduceDataError,
@@ -317,6 +318,7 @@ async function listCampaignsForEvent(args: {
   token: string;
 }): Promise<RawCampaign[]> {
   const { adAccountId, eventCode, token } = args;
+  const accountPath = withActPrefix(adAccountId);
   const needle = `[${eventCode}]`;
   const fields = "id,name,objective,status,effective_status";
 
@@ -338,7 +340,7 @@ async function listCampaignsForEvent(args: {
     if (after) params.after = after;
 
     const res = await graphGetWithToken<GraphPaged<RawCampaign>>(
-      `/${adAccountId}/campaigns`,
+      `/${accountPath}/campaigns`,
       params,
       token,
     );
@@ -363,7 +365,7 @@ async function listCampaignsForEvent(args: {
     if (after) params.after = after;
 
     const res = await graphGetWithToken<GraphPaged<RawCampaign>>(
-      `/${adAccountId}/campaigns`,
+      `/${accountPath}/campaigns`,
       params,
       token,
     );

@@ -1,4 +1,5 @@
 import type { ConceptGroupRow } from "./group-creatives";
+import { withActPrefix } from "../meta/ad-account-id.ts";
 
 type GraphGetter = (
   path: string,
@@ -95,7 +96,7 @@ async function enrichGroupThumbnail(input: {
     enriched = pickVideoThumbnail(res.data);
   } else if (source.image_hash) {
     const res = (await input.graphGet(
-      `/${input.adAccountId}/adimages`,
+      `/${withActPrefix(input.adAccountId)}/adimages`,
       {
         hashes: JSON.stringify([source.image_hash]),
         fields: "permalink_url,url",

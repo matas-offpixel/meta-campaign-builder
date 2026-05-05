@@ -12,6 +12,7 @@ import {
   withMetaAudienceWriteIdempotency,
 } from "@/lib/meta/audience-idempotency";
 import { buildMetaCustomAudiencePayload } from "@/lib/meta/audience-payload";
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { MetaApiError } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
@@ -89,7 +90,7 @@ export async function createMetaCustomAudience(
       },
       async () => {
         const result = await post(
-          `/${audience.metaAdAccountId}/customaudiences`,
+          `/${withActPrefix(audience.metaAdAccountId)}/customaudiences`,
           payload,
           token,
         );
@@ -213,7 +214,9 @@ async function deleteMetaAudience(
   metaAudienceId: string,
   token: string,
 ): Promise<void> {
-  const url = new URL(`${BASE}/${adAccountId}/customaudiences/${metaAudienceId}`);
+  const url = new URL(
+    `${BASE}/${withActPrefix(adAccountId)}/customaudiences/${metaAudienceId}`,
+  );
   url.searchParams.set("access_token", token);
   const response = await fetch(url.toString(), {
     method: "DELETE",
