@@ -534,6 +534,8 @@ export function WizardShell({ draftId }: WizardShellProps) {
             audiences={draft.audiences}
             onChange={updateAudiences}
             adAccountId={draft.settings.metaAdAccountId}
+            clientId={draft.settings.clientId}
+            eventId={draft.settings.eventId}
             campaignName={draft.settings.campaignName}
           />
         )}

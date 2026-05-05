@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { PageAudiencesPanel } from "./page-audiences-panel";
@@ -15,11 +16,21 @@ interface AudiencesStepProps {
   onChange: (audiences: AudienceSettings) => void;
   /** Meta ad account ID — used to auto-load Business Manager pages */
   adAccountId?: string;
+  /** Client/event context for opening the standalone Audience Creator. */
+  clientId?: string;
+  eventId?: string;
   /** Campaign/event name passed to AI interest discovery for richer suggestions */
   campaignName?: string;
 }
 
-export function AudiencesStep({ audiences, onChange, adAccountId, campaignName }: AudiencesStepProps) {
+export function AudiencesStep({
+  audiences,
+  onChange,
+  adAccountId,
+  clientId,
+  eventId,
+  campaignName,
+}: AudiencesStepProps) {
   const [activeTab, setActiveTab] = useState<AudienceTab>("pages");
 
   const suggestedAge = useMemo(() => suggestAgeRange(audiences), [audiences]);
@@ -48,6 +59,24 @@ export function AudiencesStep({ audiences, onChange, adAccountId, campaignName }
           </div>
         )}
       </div>
+
+      {clientId && (
+        <div className="rounded-md border border-border bg-card p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-muted-foreground">
+              Need a new custom audience? Open the Audience Creator in a new tab.
+            </p>
+            <Link
+              href={`/audiences/${clientId}/new${eventId ? `?event_id=${eventId}` : ""}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+            >
+              Create new audience
+            </Link>
+          </div>
+        </div>
+      )}
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as AudienceTab)} />
 
