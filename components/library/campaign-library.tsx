@@ -9,7 +9,6 @@ import {
   Rocket,
   Archive,
   Loader2,
-  LogOut,
   Copy,
   BookmarkPlus,
   Trash2,
@@ -20,7 +19,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
 import { saveDraftToDb, loadCampaignList, duplicateCampaign, deleteCampaign, updateCampaignStatus } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { applyTemplate } from "@/lib/templates";
@@ -243,13 +241,6 @@ export function CampaignLibrary() {
     setTemplates((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    clearFacebookTokenStorage();
-    router.push("/login");
-  };
-
   // ─── Tab config ──────────────────────────────────────────────────────────────
   const tabs: { id: LibraryTab; label: string; count: number }[] = [
     { id: "drafts", label: "Drafts", count: campaigns.filter((c) => c.status === "draft").length },
@@ -273,15 +264,6 @@ export function CampaignLibrary() {
               <Plus className="h-4 w-4" />
               New Campaign
             </Button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground
-                hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Log out</span>
-            </button>
           </div>
         </div>
       </header>
