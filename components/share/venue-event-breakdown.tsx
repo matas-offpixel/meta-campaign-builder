@@ -14,7 +14,7 @@ import type {
 } from "@/lib/db/client-portal-server";
 import { fmtDate } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
-import { suggestedPct } from "@/lib/dashboard/suggested-pct";
+import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
 import {
   venueSpend,
   type GroupSpend,
@@ -32,7 +32,8 @@ interface EventMetrics {
   tickets: number;
   capacity: number | null;
   soldPct: number | null;
-  suggestedPct: number | null;
+  suggestedPct: SuggestedPct | null;
+  isSoldOut: boolean;
   spend: number | null;
   cpt: number | null;
   pacingTicketsPerDay: number | null;
@@ -74,6 +75,19 @@ export function VenueEventBreakdown({
   );
 
   if (orderedEvents.length === 0) return null;
+  const metricsByEventId = new Map(
+    orderedEvents.map((event) => [event.id, computeEventMetrics(event, spend)]),
+  );
+  const showFloorNote =
+    orderedEvents.length > 0 &&
+    orderedEvents.every((event) => {
+      const metrics = metricsByEventId.get(event.id);
+      return (
+        metrics?.suggestedPct === 60 &&
+        metrics.soldPct != null &&
+        metrics.soldPct < 50
+      );
+    });
 
   const toggleEvent = (eventId: string) => {
     setExpandedEventIds((prev) => {
@@ -96,6 +110,13 @@ export function VenueEventBreakdown({
         </p>
       </div>
 
+      {showFloorNote ? (
+        <p className="text-xs italic text-muted-foreground">
+          All events early in sales window — Suggested figures show 60% floor
+          until events pass 40% sold
+        </p>
+      ) : null}
+
       <div className="overflow-hidden rounded-md border border-border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[780px] border-collapse text-sm">
@@ -107,7 +128,7 @@ export function VenueEventBreakdown({
                 <th className="px-3 py-2.5 text-right">% Sold</th>
                 <th
                   className="hidden px-3 py-2.5 text-right sm:table-cell"
-                  title="Marketing comms figure. Floor 60%, +20% padding through to 95% suggested at 75% actual, then linear to 99%. Never below 60%, never above 99%."
+                  title="Marketing comms figure. Floor 60%, +20% padding through to 95% suggested at 75% actual, then linear to 99%. Sold-out events show SOLD OUT."
                 >
                   <span className="inline-flex items-center justify-end gap-1">
                     Suggested <Info className="h-3 w-3" />
@@ -120,7 +141,7 @@ export function VenueEventBreakdown({
             </thead>
             <tbody>
               {orderedEvents.map((event) => {
-                const metrics = computeEventMetrics(event, spend);
+                const metrics = metricsByEventId.get(event.id)!;
                 const expanded = expandedEventIds.has(event.id);
                 return (
                   <VenueEventBreakdownRows
@@ -192,9 +213,7 @@ function VenueEventBreakdownRows({
           {formatPct(metrics.soldPct)}
         </td>
         <td className="hidden px-3 py-2.5 text-right tabular-nums text-muted-foreground sm:table-cell">
-          {metrics.suggestedPct == null
-            ? "—"
-            : `${Math.round(metrics.suggestedPct)}%`}
+          <SuggestedValue value={metrics.suggestedPct} />
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
           {formatGBP(metrics.spend)}
@@ -237,11 +256,18 @@ function computeEventMetrics(
   const paidMedia = eventPaidMediaSpend(event, spend);
   const totalSpend = paidMedia == null ? null : prereg + paidMedia;
   const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0;
-  const capacity = event.capacity;
+  const tierTotals = tierAllocationTotals(event);
+  const capacity = tierTotals.allocation ?? event.capacity;
   const soldPct =
     capacity != null && capacity > 0 ? (tickets / capacity) * 100 : null;
+  const isSoldOut =
+    tierTotals.allocation != null
+      ? tierTotals.sold >= tierTotals.allocation
+      : capacity != null && capacity > 0 && tickets >= capacity;
   const suggested =
-    soldPct == null ? null : suggestedPct(Math.max(0, Math.min(100, soldPct)));
+    soldPct == null
+      ? null
+      : suggestedPct(Math.max(0, Math.min(100, soldPct)), { isSoldOut });
   const cpt =
     totalSpend != null && totalSpend > 0 && tickets > 0
       ? totalSpend / tickets
@@ -259,10 +285,41 @@ function computeEventMetrics(
     capacity,
     soldPct,
     suggestedPct: suggested,
+    isSoldOut,
     spend: totalSpend,
     cpt,
     pacingTicketsPerDay,
   };
+}
+
+function tierAllocationTotals(event: PortalEvent): {
+  sold: number;
+  allocation: number | null;
+} {
+  if (event.ticket_tiers.length === 0) return { sold: 0, allocation: null };
+  let sold = 0;
+  let allocation = 0;
+  let hasAllocation = false;
+  for (const tier of event.ticket_tiers) {
+    sold += tier.quantity_sold;
+    if (tier.quantity_available != null && tier.quantity_available > 0) {
+      allocation += tier.quantity_available;
+      hasAllocation = true;
+    }
+  }
+  return { sold, allocation: hasAllocation ? allocation : null };
+}
+
+function SuggestedValue({ value }: { value: SuggestedPct | null }) {
+  if (value == null) return <>—</>;
+  if (value === "SOLD OUT") {
+    return (
+      <span className="font-semibold uppercase tracking-wide text-destructive">
+        SOLD OUT
+      </span>
+    );
+  }
+  return <>{Math.round(value)}%</>;
 }
 
 function eventPaidMediaSpend(

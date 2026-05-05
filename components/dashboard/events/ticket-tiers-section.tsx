@@ -1,7 +1,7 @@
 import { Info } from "lucide-react";
 
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
-import { suggestedPct } from "@/lib/dashboard/suggested-pct";
+import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
 
 interface Props {
   tiers: EventTicketTierRow[];
@@ -41,7 +41,7 @@ export function TicketTiersSection({
         </h2>
         <span
           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-          title="Marketing comms figure. Floor 60%, +20% padding through to 95% suggested at 75% actual, then linear to 99%. Never below 60%, never above 99%."
+          title="Marketing comms figure. Floor 60%, +20% padding through to 95% suggested at 75% actual, then linear to 99%. Sold-out tiers show SOLD OUT."
         >
           <Info className="h-3 w-3" />
           Suggested comms %
@@ -67,6 +67,9 @@ export function TicketTiersSection({
               {sortedTiers.map((tier) => {
                 const price = tier.price == null ? null : Number(tier.price);
                 const actualPct = tierPct(tier);
+                const soldOut = isTierSoldOut(tier);
+                const suggested =
+                  actualPct == null ? null : suggestedPct(actualPct, { isSoldOut: soldOut });
                 return (
                   <tr key={tier.id} className="border-t border-border">
                     <td className="px-3 py-2 font-medium text-foreground">
@@ -82,10 +85,8 @@ export function TicketTiersSection({
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
                       {actualPct == null ? "—" : `${Math.round(actualPct)}%`}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {actualPct == null
-                        ? "—"
-                        : `${Math.round(suggestedPct(actualPct))}% sold`}
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      <SuggestedValue value={suggested} suffix=" sold" />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-foreground">
                       {price == null || !Number.isFinite(price)
@@ -107,6 +108,38 @@ function tierPct(tier: EventTicketTierRow): number | null {
   return tier.quantity_available && tier.quantity_available > 0
     ? (tier.quantity_sold / tier.quantity_available) * 100
     : null;
+}
+
+function isTierSoldOut(tier: EventTicketTierRow): boolean {
+  return (
+    tier.quantity_available != null &&
+    tier.quantity_available > 0 &&
+    tier.quantity_sold >= tier.quantity_available
+  );
+}
+
+function SuggestedValue({
+  value,
+  suffix = "",
+}: {
+  value: SuggestedPct | null;
+  suffix?: string;
+}) {
+  if (value == null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (value === "SOLD OUT") {
+    return (
+      <span className="font-semibold uppercase tracking-wide text-destructive">
+        SOLD OUT
+      </span>
+    );
+  }
+  return (
+    <span className="text-muted-foreground">
+      {Math.round(value)}%{suffix}
+    </span>
+  );
 }
 
 function compareTierRows(a: EventTicketTierRow, b: EventTicketTierRow): number {

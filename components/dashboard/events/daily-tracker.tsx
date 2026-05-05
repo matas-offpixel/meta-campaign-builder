@@ -208,6 +208,7 @@ interface Props {
    *  controlled orchestrator. Default false. Controlled value wins
    *  when both are set. */
   isEditable?: boolean;
+  visibleRowLimit?: number;
 }
 
 interface DisplayRow {
@@ -254,6 +255,7 @@ export function DailyTracker({
   hasEventbriteLink,
   controlled,
   isEditable: isEditableProp,
+  visibleRowLimit,
 }: Props) {
   const isControlled = controlled !== undefined;
 
@@ -604,6 +606,10 @@ export function DailyTracker({
     cadence === "weekly"
       ? `Last ${WEEKLY_WINDOW_LABEL_WEEKS} weeks`
       : "Last 60 days";
+  const visibleDisplay =
+    visibleRowLimit != null && visibleRowLimit > 0
+      ? display.slice(0, visibleRowLimit)
+      : display;
 
   // ── Empty / loading states ─────────────────────────────────────────
 
@@ -741,7 +747,7 @@ export function DailyTracker({
                 </td>
               </tr>
             ) : (
-              display.map((row) => (
+              visibleDisplay.map((row) => (
                 <RowEl
                   key={row.key}
                   row={row}
