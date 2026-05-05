@@ -1,7 +1,7 @@
 import { Info } from "lucide-react";
 
 import type { EventTicketTierRow } from "@/lib/db/ticketing";
-import { suggestedPct } from "@/lib/ticketing/suggested-pct";
+import { suggestedPct } from "@/lib/dashboard/suggested-pct";
 
 interface Props {
   tiers: EventTicketTierRow[];
@@ -25,6 +25,8 @@ export function TicketTiersSection({
   emptyMessage = "No ticket tier breakdown has been synced yet.",
   compact = false,
 }: Props) {
+  const sortedTiers = [...tiers].sort(compareTierRows);
+
   return (
     <section className={compact ? "space-y-2" : "space-y-3"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -39,7 +41,7 @@ export function TicketTiersSection({
         </h2>
         <span
           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-          title="Suggested figure for marketing comms — never below 60%, never above 99%"
+          title="Marketing comms figure. Floor 60%, +20% padding through to 95% suggested at 75% actual, then linear to 99%. Never below 60%, never above 99%."
         >
           <Info className="h-3 w-3" />
           Suggested comms %
@@ -62,11 +64,9 @@ export function TicketTiersSection({
               </tr>
             </thead>
             <tbody>
-              {tiers.map((tier) => {
+              {sortedTiers.map((tier) => {
                 const price = tier.price == null ? null : Number(tier.price);
-                const actualPct = tier.quantity_available
-                  ? (tier.quantity_sold / tier.quantity_available) * 100
-                  : null;
+                const actualPct = tierPct(tier);
                 return (
                   <tr key={tier.id} className="border-t border-border">
                     <td className="px-3 py-2 font-medium text-foreground">
@@ -101,4 +101,26 @@ export function TicketTiersSection({
       )}
     </section>
   );
+}
+
+function tierPct(tier: EventTicketTierRow): number | null {
+  return tier.quantity_available && tier.quantity_available > 0
+    ? (tier.quantity_sold / tier.quantity_available) * 100
+    : null;
+}
+
+function compareTierRows(a: EventTicketTierRow, b: EventTicketTierRow): number {
+  const aPct = tierPct(a);
+  const bPct = tierPct(b);
+  const aBucket = tierSortBucket(aPct);
+  const bBucket = tierSortBucket(bPct);
+  if (aBucket !== bBucket) return aBucket - bBucket;
+  if (aPct != null && bPct != null && aPct !== bPct) return bPct - aPct;
+  return a.tier_name.localeCompare(b.tier_name);
+}
+
+function tierSortBucket(pct: number | null): number {
+  if (pct != null && pct >= 100) return 0;
+  if (pct != null && pct > 0) return 1;
+  return 2;
 }

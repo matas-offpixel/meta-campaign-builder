@@ -31,6 +31,7 @@ import {
 } from "./last-updated-indicator";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueDailyReportBlock } from "./venue-daily-report-block";
+import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueLiveReportInsights } from "./venue-live-report-insights";
 
 /**
@@ -87,6 +88,7 @@ export function VenueFullReport({
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
+  londonOnsaleSpend,
   isInternal = false,
   canEdit = false,
   datePreset = "maximum",
@@ -132,6 +134,7 @@ export function VenueFullReport({
         additionalSpend={additionalSpend}
         linkedDrafts={linkedDrafts}
         weeklyTicketSnapshots={weeklyTicketSnapshots}
+        londonOnsaleSpend={londonOnsaleSpend}
         refreshNonce={refreshNonce}
         onRefresh={handleRefresh}
         onTimeframeChange={handleTimeframeChange}
@@ -171,6 +174,7 @@ function VenueLiveReportTabs({
   additionalSpend,
   linkedDrafts,
   weeklyTicketSnapshots,
+  londonOnsaleSpend,
   refreshNonce,
   onRefresh,
   onTimeframeChange,
@@ -185,6 +189,7 @@ function VenueLiveReportTabs({
   additionalSpend: AdditionalSpendRow[];
   linkedDrafts: EventLinkedDraft[];
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  londonOnsaleSpend: number | null;
   refreshNonce: number;
   onRefresh: () => Promise<void>;
   onTimeframeChange: (
@@ -394,6 +399,11 @@ function VenueLiveReportTabs({
           </div>
         </div>
       </section>
+      <VenueEventBreakdown
+        events={events}
+        dailyRollups={dailyRollups}
+        londonOnsaleSpend={londonOnsaleSpend}
+      />
       <VenueLiveReportInsights
         clientId={clientId}
         eventCode={eventCode}
