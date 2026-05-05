@@ -39,6 +39,7 @@ import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 import { VenueActiveCreatives } from "./venue-active-creatives";
+import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueSyncButton } from "./venue-sync-button";
 import { VenueTicketsClickEdit } from "./venue-tickets-click-edit";
 import {
@@ -933,6 +934,7 @@ export function ClientPortalVenueTable({
                 token={token}
                 clientId={clientId}
                 group={group}
+                londonOnsaleSpend={londonOnsaleSpend}
                 spend={venueSpend(
                   group,
                   londonOnsaleSpend,
@@ -1164,6 +1166,7 @@ interface VenueSectionProps {
    *  "View full venue report" CTA href. */
   clientId: string;
   group: VenueGroup;
+  londonOnsaleSpend: number | null;
   /**
    * Spend model for this venue. Computed once by the parent via
    * `venueSpend()` so the model selection lives in one place and the
@@ -1414,6 +1417,7 @@ function VenueSection({
   token,
   clientId,
   group,
+  londonOnsaleSpend,
   spend,
   wow,
   dailyRollups,
@@ -1766,7 +1770,15 @@ function VenueSection({
           />
         </div>
       )}
-      {!isExpanded ? null : (
+      {isExpanded && isInternal ? (
+        <div id={bodyId} className="border-b border-border px-4 py-4">
+          <VenueEventBreakdown
+            events={group.events}
+            dailyRollups={dailyRollups}
+            londonOnsaleSpend={londonOnsaleSpend}
+          />
+        </div>
+      ) : !isExpanded ? null : (
       <div id={bodyId} className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse text-sm">
           <thead>

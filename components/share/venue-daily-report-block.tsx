@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   EventSummaryHeader,
@@ -75,6 +75,23 @@ export function VenueDailyReportBlock({
   datePreset = "maximum",
   customRange,
 }: Props) {
+  const storageKey = `venue_tracker_expanded_${eventCode}`;
+  const [trackerExpanded, setTrackerExpanded] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setTrackerPreference = (expanded: boolean) => {
+    setTrackerExpanded(expanded);
+    try {
+      localStorage.setItem(storageKey, expanded ? "1" : "0");
+    } catch {
+      // Ignore storage failures; the in-memory state still updates.
+    }
+  };
   const {
     event,
     timeline,
@@ -201,12 +218,26 @@ export function VenueDailyReportBlock({
 
       <EventTrendChart timeline={windowedChartTimeline} title="Daily trend" />
 
-      <DailyTracker
-        eventId={`venue:${eventCode}`}
-        hasMetaScope={hasMetaScope}
-        hasEventbriteLink={hasEventbriteLink}
-        controlled={controlled}
-      />
+      <div className="space-y-2">
+        <DailyTracker
+          eventId={`venue:${eventCode}`}
+          hasMetaScope={hasMetaScope}
+          hasEventbriteLink={hasEventbriteLink}
+          controlled={controlled}
+          visibleRowLimit={trackerExpanded ? undefined : 7}
+        />
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setTrackerPreference(!trackerExpanded)}
+            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+          >
+            {trackerExpanded
+              ? "Hide full tracker ▲"
+              : "Show full tracker (60 days) ▼"}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

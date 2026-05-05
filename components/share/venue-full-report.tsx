@@ -123,6 +123,17 @@ export function VenueFullReport({
 
   return (
     <div className="space-y-6">
+      <VenueDailyReportBlock
+        eventCode={eventCode}
+        events={initialEvents}
+        dailyEntries={dailyEntries}
+        dailyRollups={dailyRollups}
+        additionalSpend={additionalSpend}
+        weeklyTicketSnapshots={weeklyTicketSnapshots}
+        mode={mode}
+        datePreset={datePreset}
+        customRange={customRange}
+      />
       <VenueLiveReportTabs
         clientId={clientId}
         eventCode={eventCode}
@@ -148,17 +159,6 @@ export function VenueFullReport({
           onAfterMutate={() => router.refresh()}
         />
       </div>
-      <VenueDailyReportBlock
-        eventCode={eventCode}
-        events={initialEvents}
-        dailyEntries={dailyEntries}
-        dailyRollups={dailyRollups}
-        additionalSpend={additionalSpend}
-        weeklyTicketSnapshots={weeklyTicketSnapshots}
-        mode={mode}
-        datePreset={datePreset}
-        customRange={customRange}
-      />
     </div>
   );
 }
