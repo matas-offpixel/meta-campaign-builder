@@ -5,8 +5,17 @@ import { ExternalLink, ImageIcon, X } from "lucide-react";
 
 import type {
   ConceptThumb,
+  CreativePatternPhase,
   TileRow,
 } from "@/lib/reporting/creative-patterns-cross-event";
+import {
+  barColorClass,
+  funnelMiniStatDefs,
+  quartileBadge,
+  quartileStripeClass,
+  type CreativePatternFunnel,
+  type PatternFormatters,
+} from "@/lib/dashboard/creative-patterns-funnel-view";
 
 const GBP = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -20,28 +29,91 @@ const GBP2 = new Intl.NumberFormat("en-GB", {
 });
 const NUM = new Intl.NumberFormat("en-GB");
 
-export function PatternSummaryTile({ row }: { row: TileRow }) {
+const FMT: PatternFormatters = {
+  money0: GBP,
+  money2: GBP2,
+  num: NUM,
+};
+
+export function PatternSummaryTile({
+  row,
+  phase,
+  funnel,
+  spotlight,
+  primaryQuartile,
+  metricPerf,
+}: {
+  row: TileRow;
+  phase: CreativePatternPhase;
+  funnel: CreativePatternFunnel;
+  spotlight?: "gold" | "silver" | "bronze";
+  primaryQuartile: 1 | 2 | 3 | 4;
+  metricPerf: Record<string, { ratio: number; quartile: 1 | 2 | 3 | 4 }>;
+}) {
   const [openCreative, setOpenCreative] = useState<ConceptThumb | null>(null);
+  const defs = funnelMiniStatDefs(funnel, phase);
+  const stripe = quartileStripeClass(primaryQuartile);
+  const badge = quartileBadge(primaryQuartile);
+  const spotlightRing =
+    spotlight === "gold"
+      ? "ring-2 ring-amber-400 shadow-md shadow-amber-400/20"
+      : spotlight === "silver"
+        ? "ring-2 ring-slate-300 shadow-md"
+        : spotlight === "bronze"
+          ? "ring-2 ring-amber-800/70 shadow-md"
+          : "";
 
   return (
-    <article className="rounded-lg border border-border bg-card p-4 shadow-sm">
-      <CreativePreviewStrip row={row} onOpen={setOpenCreative} />
+    <article
+      className={`rounded-lg border-y border-r border-border bg-card p-4 shadow-sm ${stripe} border-l-4 ${spotlightRing} ${spotlight ? "lg:p-5" : ""}`}
+    >
+      <CreativePreviewStrip
+        row={row}
+        onOpen={setOpenCreative}
+        tall={Boolean(spotlight)}
+      />
 
       <div className="mt-4 flex items-start justify-between gap-3">
-        <div>
-          <h4 className="font-heading text-lg tracking-wide">{row.value_label}</h4>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="font-heading text-lg tracking-wide">{row.value_label}</h4>
+            {spotlight === "gold" ? (
+              <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                Top performer
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {NUM.format(row.event_count)} events · {NUM.format(row.ad_count)} ads
           </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            <span className="mr-1">{badge.emoji}</span>
+            {badge.label}
+          </p>
         </div>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+        <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
           {row.value_key}
         </span>
       </div>
+
       <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-        <MiniKpi label="Spend" value={formatMoney(row.total_spend)} />
-        <MiniKpi label="CPA" value={row.cpa == null ? "—" : GBP2.format(row.cpa)} />
-        <MiniKpi label="CTR" value={row.ctr == null ? "—" : `${row.ctr.toFixed(2)}%`} />
+        {defs.map((def) => {
+          const raw = def.pick(row, phase);
+          const perf = metricPerf[def.key] ?? { ratio: 0, quartile: 4 as const };
+          const display =
+            raw == null || !Number.isFinite(raw)
+              ? "—"
+              : def.format(raw, phase, FMT);
+          return (
+            <MiniStatWithBar
+              key={def.key}
+              label={def.label}
+              value={display}
+              ratio={perf.ratio}
+              quartile={perf.quartile}
+            />
+          );
+        })}
       </div>
 
       {openCreative ? (
@@ -54,18 +126,53 @@ export function PatternSummaryTile({ row }: { row: TileRow }) {
   );
 }
 
+function MiniStatWithBar({
+  label,
+  value,
+  ratio,
+  quartile,
+}: {
+  label: string;
+  value: string;
+  ratio: number;
+  quartile: 1 | 2 | 3 | 4;
+}) {
+  const widthPct = Math.round(Math.min(100, Math.max(0, ratio * 100)));
+  const barColor = barColorClass(quartile);
+
+  return (
+    <div className="rounded-md bg-muted/60 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 font-medium tabular-nums">{value}</p>
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full transition-[width] ${barColor}`}
+          style={{ width: `${widthPct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function CreativePreviewStrip({
   row,
   onOpen,
+  tall,
 }: {
   row: TileRow;
   onOpen: (creative: ConceptThumb) => void;
+  tall: boolean;
 }) {
   const previews = row.top_creatives.filter((creative) => creative.thumbnail_url);
+  const heightClass = tall ? "h-32" : "h-24";
 
   if (previews.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-border bg-muted/50 text-xs font-medium text-muted-foreground">
+      <div
+        className={`flex ${heightClass} items-center justify-center rounded-md border border-dashed border-border bg-muted/50 text-xs font-medium text-muted-foreground`}
+      >
         <ImageIcon className="mr-2 h-4 w-4" />
         No preview available
       </div>
@@ -73,7 +180,7 @@ function CreativePreviewStrip({
   }
 
   return (
-    <div className="grid h-24 grid-cols-3 gap-2">
+    <div className={`grid ${heightClass} grid-cols-3 gap-2`}>
       {previews.map((creative) => (
         <button
           key={`${creative.event_id}:${creative.ad_id}:${creative.creative_name}`}

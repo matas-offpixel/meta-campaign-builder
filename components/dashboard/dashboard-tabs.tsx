@@ -20,6 +20,8 @@ import {
   visibleClientRegions,
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
+import type { CreativePatternFunnel } from "@/lib/dashboard/creative-patterns-funnel-view";
+import type { CreativePatternPhase } from "@/lib/reporting/creative-patterns-cross-event";
 
 type DashboardTab = "events" | "insights" | "pacing";
 
@@ -39,6 +41,8 @@ interface Props {
   isShared: boolean;
   activeTab?: string;
   activeRegion?: string;
+  patternsPhase?: CreativePatternPhase;
+  patternsFunnel?: CreativePatternFunnel;
 }
 
 export function DashboardTabs({
@@ -57,6 +61,8 @@ export function DashboardTabs({
   isShared,
   activeTab,
   activeRegion,
+  patternsPhase,
+  patternsFunnel,
 }: Props) {
   const grouped = groupEventsByClientRegion(events);
   const visibleRegions = visibleClientRegions(grouped);
@@ -70,6 +76,8 @@ export function DashboardTabs({
     showCreativeInsights,
     showFunnelPacing,
   });
+  const phase = patternsPhase ?? "ticket_sale";
+  const funnel = patternsFunnel ?? "bottom";
   const scopedEvents = selectedRegion ? grouped.get(selectedRegion) ?? [] : events;
   const scopeLabel = selectedRegion
     ? CLIENT_REGION_LABELS[selectedRegion]
@@ -78,7 +86,15 @@ export function DashboardTabs({
     {
       id: "events",
       label: "Events",
-      href: dashboardHref({ clientId, token, isShared, region: selectedRegion, tab: "events" }),
+      href: dashboardHref({
+        clientId,
+        token,
+        isShared,
+        region: selectedRegion,
+        tab: "events",
+        phase,
+        funnel,
+      }),
     },
     ...(showCreativeInsights
       ? [
@@ -91,6 +107,8 @@ export function DashboardTabs({
               isShared,
               region: selectedRegion,
               tab: "insights",
+              phase,
+              funnel,
             }),
           },
         ]
@@ -106,6 +124,8 @@ export function DashboardTabs({
               isShared,
               region: selectedRegion,
               tab: "pacing",
+              phase,
+              funnel,
             }),
           },
         ]
@@ -132,6 +152,8 @@ export function DashboardTabs({
                     isShared,
                     region,
                     tab: selectedTab,
+                    phase,
+                    funnel,
                   })}
                   className={`relative -mb-px inline-flex items-center gap-2 px-4 py-2.5 text-sm transition-colors ${
                     isActive
@@ -175,6 +197,13 @@ export function DashboardTabs({
               clientId={clientId}
               scopeLabel={scopeLabel}
               regionFilter={{ type: "country", value: selectedRegion }}
+              phase={phase}
+              funnel={funnel}
+              dashboardInsights={{
+                region: selectedRegion,
+                token,
+                isShared,
+              }}
               isShared={isShared}
             />
           ) : (
@@ -245,9 +274,13 @@ function dashboardHref(args: {
   isShared: boolean;
   region: ClientRegionKey | null;
   tab: DashboardTab;
+  phase: CreativePatternPhase;
+  funnel: CreativePatternFunnel;
 }): string {
   const sp = new URLSearchParams({ tab: args.tab });
   if (args.region) sp.set("region", args.region);
+  sp.set("phase", args.phase);
+  sp.set("funnel", args.funnel);
   return args.isShared
     ? `/share/client/${encodeURIComponent(args.token)}?${sp.toString()}`
     : `/clients/${args.clientId}/dashboard?${sp.toString()}`;

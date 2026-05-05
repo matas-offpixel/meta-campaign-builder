@@ -17,6 +17,10 @@ import {
   type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
+import {
+  parseCreativePatternPhase,
+  parseCreativePatternFunnel,
+} from "@/lib/dashboard/creative-patterns-funnel-view";
 
 /**
  * /clients/[id]/venues/[event_code]
@@ -67,6 +71,8 @@ export default async function ClientVenueReportPage({
   ]);
   const datePreset = parseDatePreset(sp.tf);
   const activeTab = parseVenueSubTab(pickQueryParam(sp.tab));
+  const patternsPhase = parseCreativePatternPhase(pickQueryParam(sp.phase));
+  const patternsFunnel = parseCreativePatternFunnel(pickQueryParam(sp.funnel));
   const customRange = parseCustomRange(
     datePreset,
     pickQueryParam(sp.from),
@@ -161,17 +167,26 @@ export default async function ClientVenueReportPage({
           {
             id: "performance",
             label: "Performance",
-            href: venueHref(id, eventCode, "performance"),
+            href: venueHref(id, eventCode, "performance", {
+              phase: patternsPhase,
+              funnel: patternsFunnel,
+            }),
           },
           {
             id: "insights",
             label: "Creative Insights",
-            href: venueHref(id, eventCode, "insights"),
+            href: venueHref(id, eventCode, "insights", {
+              phase: patternsPhase,
+              funnel: patternsFunnel,
+            }),
           },
           {
             id: "pacing",
             label: "Funnel Pacing",
-            href: venueHref(id, eventCode, "pacing"),
+            href: venueHref(id, eventCode, "pacing", {
+              phase: patternsPhase,
+              funnel: patternsFunnel,
+            }),
           },
         ]}
       />
@@ -196,6 +211,9 @@ export default async function ClientVenueReportPage({
           clientId={id}
           scopeLabel={venueTitle}
           regionFilter={{ type: "venue_code", value: eventCode }}
+          phase={patternsPhase}
+          funnel={patternsFunnel}
+          venueEventCode={eventCode}
         />
       ) : (
         <FunnelPacingSection
@@ -212,8 +230,15 @@ function parseVenueSubTab(value: string | null): VenueSubTab {
   return "performance";
 }
 
-function venueHref(clientId: string, eventCode: string, tab: VenueSubTab): string {
+function venueHref(
+  clientId: string,
+  eventCode: string,
+  tab: VenueSubTab,
+  patterns?: { phase: string; funnel: string },
+): string {
   const sp = new URLSearchParams({ tab });
+  sp.set("phase", patterns?.phase ?? "ticket_sale");
+  sp.set("funnel", patterns?.funnel ?? "bottom");
   return `/clients/${clientId}/venues/${encodeURIComponent(eventCode)}?${sp.toString()}`;
 }
 
