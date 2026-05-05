@@ -27,6 +27,7 @@ export interface InternalEventForMatching {
   venue_name: string | null;
   venue_city: string | null;
   capacity?: number | null;
+  preferred_provider?: string | null;
 }
 
 export interface ExternalEventForMatching {
@@ -417,6 +418,7 @@ export function scoreCandidatesForEvent(
     const opponentScore = hasOpponentScore
       ? tokenJaccard(internalOpponent, externalOpponent, new Set())
       : 0;
+    if (internalOpponent && opponentScore < 0.5) continue;
     const confidence = hasOpponentScore
       ? venueScore * WEIGHTS_WITH_OPPONENT.venue +
         opponentScore * WEIGHTS_WITH_OPPONENT.opponent +
