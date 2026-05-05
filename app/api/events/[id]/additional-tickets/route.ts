@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
-  insertAdditionalTicketEntry,
   listAdditionalTicketsForEvent,
+  upsertAdditionalTicketEntryByNaturalKey,
   type AdditionalTicketScope,
   type AdditionalTicketSource,
 } from "@/lib/db/additional-tickets";
@@ -123,15 +123,21 @@ export async function POST(
   }
 
   try {
-    const row = await insertAdditionalTicketEntry(supabase, {
+    const result = await upsertAdditionalTicketEntryByNaturalKey(supabase, {
       userId: user.id,
       eventId,
       ...parsed.value,
     });
-    return NextResponse.json({ ok: true, entry: row });
+    return NextResponse.json({
+      ok: true,
+      entry: result.entry,
+      action: result.action,
+      previousTicketsCount: result.previousTicketsCount,
+      previousRevenueAmount: result.previousRevenueAmount,
+    });
   } catch (err) {
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Insert failed" },
+      { ok: false, error: err instanceof Error ? err.message : "Save failed" },
       { status: 500 },
     );
   }

@@ -39,6 +39,7 @@ type Entry = {
   source: Source | null;
   label: string;
   notes: string | null;
+  updated_at: string | null;
 };
 
 export type AdditionalTicketEntriesEventOption = {
@@ -111,6 +112,7 @@ export function AdditionalTicketEntriesCard({
   const [source, setSource] = useState<Source>("partner_allocation");
   const [label, setLabel] = useState("");
   const [notes, setNotes] = useState("");
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     tickets?: string;
     revenue?: string;
@@ -255,6 +257,7 @@ export function AdditionalTicketEntriesCard({
     const previousEntries = entries;
     setSaving(true);
     setError(null);
+    setSaveNotice(null);
     const optimisticId = editingId ?? `optimistic-${Date.now()}`;
     const optimisticEntry: Entry = {
       id: optimisticId,
@@ -267,6 +270,7 @@ export function AdditionalTicketEntriesCard({
       source: parsed.payload.source,
       label: parsed.payload.label,
       notes: parsed.payload.notes,
+      updated_at: new Date().toISOString(),
     };
     setEntries((current) =>
       editingId
@@ -282,10 +286,23 @@ export function AdditionalTicketEntriesCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed.payload),
       });
-      const json = await safeJson<{ ok?: boolean; error?: string }>(res);
+      const json = await safeJson<{
+        ok?: boolean;
+        error?: string;
+        action?: "inserted" | "updated";
+        previousTicketsCount?: number | null;
+      }>(res);
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Save failed.");
       await load();
       onAfterMutate?.();
+      setSaveNotice(
+        buildSaveNotice({
+          action: json.action,
+          label: parsed.payload.label,
+          previousTicketsCount: json.previousTicketsCount ?? null,
+          ticketsCount: parsed.payload.tickets_count,
+        }),
+      );
       reset();
     } catch (err) {
       setEntries(previousEntries);
@@ -355,6 +372,11 @@ export function AdditionalTicketEntriesCard({
         and tier totals at read time.
       </p>
       {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
+      {saveNotice ? (
+        <p className="mb-2 text-xs text-emerald-600" role="status" aria-live="polite">
+          {saveNotice}
+        </p>
+      ) : null}
       {loading ? (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -391,6 +413,9 @@ export function AdditionalTicketEntriesCard({
                           <span className="mt-0.5 block text-[10px] text-muted-foreground">
                             {entry.date ?? "No date"}
                             {entry.notes ? ` - ${entry.notes}` : ""}
+                          </span>
+                          <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                            Last updated {formatUpdatedAt(entry.updated_at)}
                           </span>
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
@@ -568,6 +593,10 @@ export function AdditionalTicketEntriesCard({
                 }}
                 error={fieldErrors.label}
               />
+              <span className="text-[10px] text-muted-foreground">
+                Use the same label across submissions to update a running total.
+                Use a different label to add a new source.
+              </span>
             </label>
             <label className="space-y-1 md:col-span-2">
               <span className="text-xs text-muted-foreground">Notes</span>
@@ -590,4 +619,33 @@ export function AdditionalTicketEntriesCard({
 
 function sourceLabel(source: Source | null): string {
   return SOURCES.find((item) => item.value === source)?.label ?? "Other";
+}
+
+function buildSaveNotice({
+  action,
+  label,
+  previousTicketsCount,
+  ticketsCount,
+}: {
+  action?: "inserted" | "updated";
+  label: string;
+  previousTicketsCount: number | null;
+  ticketsCount: number;
+}): string {
+  if (action === "updated" && previousTicketsCount !== null) {
+    const delta = ticketsCount - previousTicketsCount;
+    const sign = delta > 0 ? "+" : "";
+    return `Updated ${label} from ${NUM.format(previousTicketsCount)} to ${NUM.format(ticketsCount)} (${sign}${NUM.format(delta)}).`;
+  }
+  return `Saved - running total for ${label}: ${NUM.format(ticketsCount)} tickets.`;
+}
+
+function formatUpdatedAt(iso: string | null): string {
+  if (!iso) return "unknown";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
