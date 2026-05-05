@@ -187,17 +187,42 @@ async function loadLatestFourthefansSnapshots(
   | { ok: true; rows: SnapshotRow[] }
   | { ok: false; error: string }
 > {
-  let query = admin
+  const { data: connections, error: connectionsError } = await admin
+    .from("client_ticketing_connections")
+    .select("id")
+    .eq("user_id", args.userId)
+    .eq("provider", "fourthefans")
+    .eq("status", "active");
+  if (connectionsError) return { ok: false, error: connectionsError.message };
+
+  const connectionIds = ((connections ?? []) as { id: string }[]).map(
+    (connection) => connection.id,
+  );
+  if (connectionIds.length === 0) return { ok: true, rows: [] };
+
+  let linkQuery = admin
+    .from("event_ticketing_links")
+    .select("event_id")
+    .in("connection_id", connectionIds);
+  if (args.eventId) {
+    linkQuery = linkQuery.eq("event_id", args.eventId);
+  }
+  const { data: links, error: linksError } = await linkQuery;
+  if (linksError) return { ok: false, error: linksError.message };
+
+  const eventIds = Array.from(
+    new Set(((links ?? []) as { event_id: string }[]).map((link) => link.event_id)),
+  );
+  if (eventIds.length === 0) return { ok: true, rows: [] };
+
+  const query = admin
     .from("ticket_sales_snapshots")
     .select("event_id, user_id, snapshot_at, raw_payload")
     .eq("user_id", args.userId)
-    .eq("source", "fourthefans")
+    .in("event_id", eventIds)
     .not("raw_payload", "is", null)
     .order("event_id", { ascending: true })
     .order("snapshot_at", { ascending: false });
-  if (args.eventId) {
-    query = query.eq("event_id", args.eventId);
-  }
 
   const { data, error } = await query;
   if (error) return { ok: false, error: error.message };
