@@ -28,6 +28,7 @@ describe("POST /api/audiences payload expansion", () => {
       subtype: "website_pixel",
       pixelEvent: "InitiateCheckout",
       urlContains: undefined,
+      pixelName: undefined,
     });
   });
 

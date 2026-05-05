@@ -449,6 +449,8 @@ export interface AudienceSettings {
    * Each group produces one ad set per configured percentage tier.
    */
   selectedPagesLookalikeGroups: SelectedPagesLookalikeGroup[];
+  /** Ready Off/Pixel-created Meta custom audiences selected for this campaign. */
+  offpixelCustomAudienceIds?: string[];
 }
 
 // ─── Creative types ───
@@ -1276,7 +1278,7 @@ export function getVisibleSteps(mode: WizardMode | undefined): WizardStep[] {
   return [0, 1, 2, 3, 4, 5, 6, 7];
 }
 
-export type AudienceTab = "pages" | "custom" | "saved" | "interests";
+export type AudienceTab = "pages" | "custom" | "offpixel_custom" | "saved" | "interests";
 
 // ─── Campaign templates ───
 

@@ -106,10 +106,16 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "Intelligence",
     items: [
       {
-        href: "/intelligence/audiences",
-        label: "Audiences",
+        href: "/audience-builder",
+        label: "Audience Builder",
         icon: Sparkles,
-        match: (p) => p.startsWith("/intelligence/audiences"),
+        match: (p) => p === "/audience-builder" || p.startsWith("/audiences/"),
+      },
+      {
+        href: "/audiences",
+        label: "Audience Seeds",
+        icon: Sparkles,
+        match: (p) => p === "/audiences",
       },
       {
         href: "/intelligence/creatives",

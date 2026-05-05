@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { parseAudienceUpdateBody } from "@/lib/audiences/api";
-import {
-  archiveAudience,
-  updateAudience,
-} from "@/lib/db/meta-custom-audiences";
+import { updateAudience } from "@/lib/db/meta-custom-audiences";
+import { archiveMetaCustomAudience } from "@/lib/meta/audience-write";
 import { createClient } from "@/lib/supabase/server";
 
 export async function PATCH(
@@ -68,7 +66,10 @@ export async function DELETE(
   }
 
   try {
-    const ok = await archiveAudience(id);
+    const ok = await archiveMetaCustomAudience(id, {
+      userId: user.id,
+      supabase,
+    });
     if (!ok) {
       return NextResponse.json(
         { ok: false, error: "Audience not found" },

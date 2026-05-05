@@ -76,6 +76,9 @@ export default async function NewAudiencePage({ params, searchParams }: Props) {
             events={events}
             initialEventId={sp.event_id}
             initialPresetBundle={initialPresetBundle}
+            writesEnabled={
+              process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true"
+            }
           />
         </div>
       </main>

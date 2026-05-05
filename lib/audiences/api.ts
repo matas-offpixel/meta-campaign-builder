@@ -36,6 +36,12 @@ export interface AudienceCreateBody {
   sourceMeta?: Partial<AudienceSourceMeta> & Record<string, unknown>;
   name?: string;
   presetBundle?: AudiencePresetBundle;
+  audiences?: Array<
+    Omit<AudienceCreateBody, "audiences" | "presetBundle" | "createOnMeta"> & {
+      enabled?: boolean;
+    }
+  >;
+  createOnMeta?: boolean;
 }
 
 interface ClientContext {
@@ -66,12 +72,29 @@ export async function buildAudienceDraftInputs(
 
   if (!client) throw new Error("Client not found");
   if (!client.meta_ad_account_id) {
-    throw new Error("Client is missing a Meta ad account ID");
+    throw new Error(
+      "This client has no Meta ad account linked. Connect Meta in client settings first.",
+    );
   }
   const metaAdAccountId = client.meta_ad_account_id;
   if (body.eventId && !event) throw new Error("Event not found");
   if (event && event.client_id !== client.id) {
     throw new Error("Event does not belong to this client");
+  }
+
+  if (body.audiences?.length) {
+    const rows = await Promise.all(
+      body.audiences
+        .filter((audience) => audience.enabled !== false)
+        .map((audience) =>
+          buildAudienceDraftInputs(supabase, userId, {
+            ...audience,
+            clientId: client.id,
+            eventId: audience.eventId ?? body.eventId ?? null,
+          }),
+        ),
+    );
+    return rows.flat();
   }
 
   if (body.presetBundle) {
@@ -253,6 +276,10 @@ function mergeSourceMeta(
     return {
       subtype,
       threshold: normalizeVideoThreshold(merged.threshold),
+      campaignId:
+        typeof merged.campaignId === "string" ? merged.campaignId : undefined,
+      campaignName:
+        typeof merged.campaignName === "string" ? merged.campaignName : undefined,
       videoIds: rawVideoIds.map(String).map((id) => id.trim()).filter(Boolean),
     };
   }
@@ -265,11 +292,14 @@ function mergeSourceMeta(
           : "PageView",
       urlContains:
         typeof merged.urlContains === "string" ? merged.urlContains : undefined,
+      pixelName:
+        typeof merged.pixelName === "string" ? merged.pixelName : undefined,
     };
   }
   return {
     subtype,
     pageSlug: typeof merged.pageSlug === "string" ? merged.pageSlug : undefined,
+    pageName: typeof merged.pageName === "string" ? merged.pageName : undefined,
   };
 }
 
