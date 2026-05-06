@@ -45,6 +45,20 @@ function parseFlaggedFeatures(raw: unknown): FlaggedFeatureMap {
   return out;
 }
 
+/** Latest scan wins per ad_id (scanner appends rows; unresolved history collapses here). */
+function dedupeLatestRowPerAd<
+  T extends { ad_id: string; scanned_at: string; severity_score: number },
+>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.ad_id)) continue;
+    seen.add(row.ad_id);
+    out.push(row);
+  }
+  return out;
+}
+
 export async function fetchEnhancementFlagsForClient(
   admin: SupabaseClient,
   params: {
@@ -84,22 +98,43 @@ export async function fetchEnhancementFlagsForClient(
     query = query.in("event_id", [...eventIds]);
   }
 
-  const { data: rows, error } = await query
-    .order("severity_score", { ascending: false })
-    .order("scanned_at", { ascending: false });
+  const { data: rows, error } = await query.order("scanned_at", {
+    ascending: false,
+  });
   if (error) throw new Error(error.message);
 
-  const allRows = rows ?? [];
+  type RawRow = {
+    id: string;
+    ad_id: string;
+    ad_name: string | null;
+    creative_id: string;
+    flagged_features: unknown;
+    severity_score: number;
+    scanned_at: string;
+    event_id: string | null;
+    campaign_id: string | null;
+    ad_account_id: string;
+    events: { name: string } | null | { name: string }[];
+  };
+
+  const rawRows = (rows ?? []) as unknown as RawRow[];
+  const deduped = dedupeLatestRowPerAd(rawRows);
+
+  deduped.sort((a, b) => {
+    if (b.severity_score !== a.severity_score) {
+      return b.severity_score - a.severity_score;
+    }
+    return (
+      new Date(b.scanned_at).getTime() - new Date(a.scanned_at).getTime()
+    );
+  });
+
   let total_severity = 0;
   let standard_enhancements_count = 0;
 
-  for (const row of allRows) {
-    const ev = row as unknown as {
-      severity_score: number;
-      flagged_features: unknown;
-    };
-    total_severity += ev.severity_score;
-    const flagged_features = parseFlaggedFeatures(ev.flagged_features);
+  for (const row of deduped) {
+    total_severity += row.severity_score;
+    const flagged_features = parseFlaggedFeatures(row.flagged_features);
     if (
       flagged_features.standard_enhancements === "OPT_IN" ||
       flagged_features.standard_enhancements === "DEFAULT_OPT_IN"
@@ -109,20 +144,7 @@ export async function fetchEnhancementFlagsForClient(
   }
 
   const open_flags: EnhancementFlagsApiPayload["open_flags"] = [];
-  for (const row of allRows.slice(0, limit)) {
-    const ev = row as unknown as {
-      id: string;
-      ad_id: string;
-      ad_name: string | null;
-      creative_id: string;
-      flagged_features: unknown;
-      severity_score: number;
-      scanned_at: string;
-      event_id: string | null;
-      campaign_id: string | null;
-      ad_account_id: string;
-      events: { name: string } | null | { name: string }[];
-    };
+  for (const ev of deduped.slice(0, limit)) {
     const flagged_features = parseFlaggedFeatures(ev.flagged_features);
     const eventRel = ev.events;
     const event_name = Array.isArray(eventRel)
@@ -146,7 +168,7 @@ export async function fetchEnhancementFlagsForClient(
 
   return {
     open_flags,
-    total_open: allRows.length,
+    total_open: deduped.length,
     total_severity,
     standard_enhancements_count,
     last_scan_at: lastScanRow?.scanned_at ?? null,

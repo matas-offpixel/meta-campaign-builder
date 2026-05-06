@@ -176,6 +176,7 @@ async function handleScan(req: NextRequest) {
         accountPath,
         token: metaToken,
       });
+      const scannedAdIds = new Set(ads.map((a) => a.id));
       clients_scanned += 1;
       total_active_ads += ads.length;
 
@@ -238,12 +239,46 @@ async function handleScan(req: NextRequest) {
               resolved_at: new Date().toISOString(),
               resolved_by_user_id: null,
             })
+            .eq("client_id", client.id)
             .eq("ad_id", ad.id)
             .is("resolved_at", null);
 
           if (updErr) {
             throw new Error(updErr.message);
           }
+        }
+      }
+
+      const { data: openAdRows, error: openAdErr } = await admin
+        .from("creative_enhancement_flags")
+        .select("ad_id")
+        .eq("client_id", client.id)
+        .is("resolved_at", null);
+
+      if (openAdErr) {
+        throw new Error(openAdErr.message);
+      }
+
+      const staleAdIds = [
+        ...new Set((openAdRows ?? []).map((r) => r.ad_id as string)),
+      ].filter((id) => !scannedAdIds.has(id));
+
+      const resolvedNow = new Date().toISOString();
+      const chunkSize = 200;
+      for (let i = 0; i < staleAdIds.length; i += chunkSize) {
+        const chunk = staleAdIds.slice(i, i + chunkSize);
+        const { error: staleErr } = await admin
+          .from("creative_enhancement_flags")
+          .update({
+            resolved_at: resolvedNow,
+            resolved_by_user_id: null,
+          })
+          .eq("client_id", client.id)
+          .in("ad_id", chunk)
+          .is("resolved_at", null);
+
+        if (staleErr) {
+          throw new Error(staleErr.message);
         }
       }
 
