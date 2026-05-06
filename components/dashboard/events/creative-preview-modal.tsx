@@ -11,6 +11,8 @@ import { fmtCurrency } from "@/lib/dashboard/format";
 import { resolveActiveCreativeModalImage } from "@/lib/reporting/active-creatives-thumbnail";
 import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
+import type { MetaThumbnailProxyAuth } from "@/lib/dashboard/meta-thumbnail-proxy-url";
+import { resolveProxiedRepresentativeThumbnail } from "@/lib/dashboard/meta-thumbnail-proxy-url";
 
 /**
  * components/dashboard/events/creative-preview-modal.tsx
@@ -38,6 +40,7 @@ interface Props {
   /** Ad account id used to scope the Ads Manager deep-link. */
   adAccountId: string | null;
   onClose: () => void;
+  thumbnailAuth?: MetaThumbnailProxyAuth | null;
 }
 
 const FB_PLUGIN_BASE = "https://www.facebook.com/plugins/post.php";
@@ -112,6 +115,7 @@ export default function CreativePreviewModal({
   group,
   adAccountId,
   onClose,
+  thumbnailAuth = null,
 }: Props) {
   // Escape-to-close + body scroll lock. Mirrors `components/ui/
   // dialog.tsx` so this hand-rolled overlay behaves identically to
@@ -133,7 +137,10 @@ export default function CreativePreviewModal({
   }, [onClose]);
 
   const preview = group.representative_preview;
-  const fallbackImage = group.representative_thumbnail || null;
+  const fallbackImage = resolveProxiedRepresentativeThumbnail(
+    group,
+    thumbnailAuth,
+  );
   const cta = ctaLabel(preview.call_to_action_type);
   const link = preview.link_url;
   // Title comes from the group's display_name (which already

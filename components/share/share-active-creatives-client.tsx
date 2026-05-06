@@ -10,6 +10,8 @@ import { fmtCurrency } from "@/lib/dashboard/format";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import ShareCreativePreviewModal from "@/components/share/share-creative-preview-modal";
 import { HealthBadge } from "@/components/share/health-badge";
+import type { MetaThumbnailProxyAuth } from "@/lib/dashboard/meta-thumbnail-proxy-url";
+import { resolveProxiedRepresentativeThumbnail } from "@/lib/dashboard/meta-thumbnail-proxy-url";
 
 /**
  * components/share/share-active-creatives-client.tsx
@@ -31,11 +33,14 @@ import { HealthBadge } from "@/components/share/health-badge";
 interface Props {
   groups: ConceptGroupRow[];
   kind?: "event" | "brand_campaign";
+  /** When set, concept cards use `/api/meta/thumbnail-proxy` instead of stale Meta CDN URLs. */
+  thumbnailAuth?: MetaThumbnailProxyAuth | null;
 }
 
 export default function ShareActiveCreativesClient({
   groups,
   kind = "event",
+  thumbnailAuth = null,
 }: Props) {
   const [openGroup, setOpenGroup] = useState<ConceptGroupRow | null>(null);
   const isBrandCampaign = kind === "brand_campaign";
@@ -48,6 +53,7 @@ export default function ShareActiveCreativesClient({
             key={g.group_key}
             row={g}
             isBrandCampaign={isBrandCampaign}
+            thumbnailAuth={thumbnailAuth}
             onClick={() => setOpenGroup(g)}
           />
         ))}
@@ -56,6 +62,7 @@ export default function ShareActiveCreativesClient({
       {openGroup && (
         <ShareCreativePreviewModal
           group={openGroup}
+          thumbnailAuth={thumbnailAuth}
           onClose={() => setOpenGroup(null)}
         />
       )}
@@ -66,12 +73,16 @@ export default function ShareActiveCreativesClient({
 function ShareCreativeCard({
   row,
   isBrandCampaign,
+  thumbnailAuth = null,
   onClick,
 }: {
   row: ConceptGroupRow;
   isBrandCampaign: boolean;
+  thumbnailAuth?: MetaThumbnailProxyAuth | null;
   onClick: () => void;
 }) {
+  const thumbUrl = resolveProxiedRepresentativeThumbnail(row, thumbnailAuth);
+
   return (
     <button
       type="button"
@@ -80,10 +91,7 @@ function ShareCreativeCard({
       className="group flex h-full flex-col gap-3 rounded-md border border-border bg-card p-4 text-left transition hover:border-border-strong hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <div className="flex items-start gap-3">
-        <Thumbnail
-          url={row.representative_thumbnail}
-          alt={row.display_name}
-        />
+        <Thumbnail url={thumbUrl} alt={row.display_name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <div className="line-clamp-1 text-sm font-medium text-foreground">

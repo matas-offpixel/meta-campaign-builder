@@ -6,6 +6,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import ShareActiveCreativesClient from "@/components/share/share-active-creatives-client";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
+import type { MetaThumbnailProxyAuth } from "@/lib/dashboard/meta-thumbnail-proxy-url";
 
 /**
  * components/share/venue-active-creatives.tsx
@@ -321,10 +322,35 @@ export function VenueActiveCreatives({
       {state.status === "ready" && (
         <ShareActiveCreativesClient
           groups={fullReport || showAll ? state.groups : state.groups.slice(0, TOP_N)}
+          thumbnailAuth={thumbnailProxyAuth({
+            isInternal,
+            clientId,
+            token,
+            eventCode,
+          })}
         />
       )}
     </section>
   );
+}
+
+function thumbnailProxyAuth(input: {
+  isInternal?: boolean;
+  clientId?: string;
+  token: string;
+  eventCode: string;
+}): MetaThumbnailProxyAuth | null {
+  if (input.isInternal && input.clientId) {
+    return { kind: "session", clientId: input.clientId };
+  }
+  if (!input.isInternal && input.token) {
+    return {
+      kind: "share",
+      shareToken: input.token,
+      eventCode: input.eventCode,
+    };
+  }
+  return null;
 }
 
 function Caveat({

@@ -32,6 +32,8 @@ import { ReportUnavailable } from "./report-unavailable";
 
 interface Props {
   eventId: string;
+  /** Client UUID — enables `/api/meta/thumbnail-proxy` for active creative thumbs. */
+  clientId?: string;
   event: EventReportViewEvent;
   /** Controlled timeframe — mirrors Performance summary + Meta insights window. */
   datePreset: DatePreset;
@@ -86,6 +88,7 @@ function buildInsightsUrl(
  */
 export function InternalEventReport({
   eventId,
+  clientId,
   event,
   datePreset,
   customRange,
@@ -421,6 +424,7 @@ export function InternalEventReport({
         <InternalActiveCreativesSection
           ref={creativesRef}
           eventId={eventId}
+          clientId={clientId}
           datePreset={datePreset}
           customRange={customRange}
         />

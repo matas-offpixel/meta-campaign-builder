@@ -58,6 +58,8 @@ import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 interface Props {
   eventId: string;
+  /** Enables stable Meta thumbnails via `/api/meta/thumbnail-proxy`. */
+  clientId?: string;
   datePreset: DatePreset;
   customRange?: CustomDateRange;
 }
@@ -111,7 +113,7 @@ export const InternalActiveCreativesSection = forwardRef<
   InternalActiveCreativesHandle,
   Props
 >(function InternalActiveCreativesSection(
-  { eventId, datePreset, customRange },
+  { eventId, clientId, datePreset, customRange },
   ref,
 ) {
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -363,7 +365,12 @@ export const InternalActiveCreativesSection = forwardRef<
         </div>
       </div>
 
-      <ShareActiveCreativesClient groups={state.groups} />
+      <ShareActiveCreativesClient
+        groups={state.groups}
+        thumbnailAuth={
+          clientId ? { kind: "session", clientId } : null
+        }
+      />
 
       <p className="text-xs text-muted-foreground">
         Spend, registrations and reach are summed across the underlying ads in

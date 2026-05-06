@@ -21,6 +21,7 @@ import {
   type ConceptGroupRow,
   type ConceptInputPreview,
 } from "@/lib/reporting/group-creatives";
+import { buildMetaThumbnailProxyUrl } from "@/lib/dashboard/meta-thumbnail-proxy-url";
 import CreativePreviewModal from "@/components/dashboard/events/creative-preview-modal";
 import { ShareCreativeTagBreakdowns } from "@/components/share/share-creative-tag-breakdowns";
 import type {
@@ -285,9 +286,11 @@ function rowToSyntheticGroup(row: CreativeRow): ConceptGroupRow {
 
 interface Props {
   eventId: string;
+  /** Enables `/api/meta/thumbnail-proxy` for creative card thumbnails. */
+  clientId?: string;
 }
 
-export function EventActiveCreativesPanel({ eventId }: Props) {
+export function EventActiveCreativesPanel({ eventId, clientId }: Props) {
   const [data, setData] = useState<SuccessResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -506,6 +509,7 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
           data={data}
           sorted={visibleRows}
           eventId={eventId}
+          clientId={clientId}
           groupByConcept={groupByConcept}
           onOpen={(row) => {
             setOpenGroup(
@@ -528,6 +532,9 @@ export function EventActiveCreativesPanel({ eventId }: Props) {
         <CreativePreviewModal
           group={openGroup}
           adAccountId={data?.ad_account_id ?? null}
+          thumbnailAuth={
+            clientId ? { kind: "session", clientId } : null
+          }
           onClose={() => setOpenGroup(null)}
         />
       )}
@@ -539,12 +546,14 @@ function EmptyOrGrid({
   data,
   sorted,
   eventId,
+  clientId,
   groupByConcept,
   onOpen,
 }: {
   data: SuccessResponse;
   sorted: Array<CreativeRow | ConceptGroupRow>;
   eventId: string;
+  clientId?: string;
   groupByConcept: boolean;
   onOpen: (row: CreativeRow | ConceptGroupRow) => void;
 }) {
@@ -598,7 +607,7 @@ function EmptyOrGrid({
       {sorted.map((row) => (
         <CreativeCard
           key={isConceptRow(row) ? `g:${row.group_key}` : `c:${row.creative_id}`}
-          row={toCardModel(row, groupByConcept)}
+          row={toCardModel(row, groupByConcept, clientId)}
           onClick={() => onOpen(row)}
         />
       ))}
@@ -635,10 +644,15 @@ interface CardModel {
 function toCardModel(
   row: CreativeRow | ConceptGroupRow,
   groupByConcept: boolean,
+  clientId?: string,
 ): CardModel {
+  const auth = clientId ? { kind: "session" as const, clientId } : null;
   if (isConceptRow(row)) {
+    const proxied =
+      auth &&
+      buildMetaThumbnailProxyUrl(row.representative_thumbnail_ad_id, auth);
     return {
-      thumbnail: row.representative_thumbnail,
+      thumbnail: proxied ?? row.representative_thumbnail,
       altText: row.display_name,
       headline: row.display_name,
       body: row.representative_body_preview,
@@ -664,8 +678,14 @@ function toCardModel(
     `c:${row.creative_id}`,
     0,
   );
+  const proxied =
+    auth &&
+    buildMetaThumbnailProxyUrl(
+      row.thumbnail_ad_id ?? row.representative_ad_id,
+      auth,
+    );
   return {
-    thumbnail: row.thumbnail_url,
+    thumbnail: proxied ?? row.thumbnail_url,
     altText: display,
     headline: display,
     body: row.body,
