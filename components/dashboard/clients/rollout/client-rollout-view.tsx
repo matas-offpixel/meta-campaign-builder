@@ -33,6 +33,7 @@ import {
   serializeExpandedHash,
   type RolloutGroupAggregate,
 } from "@/lib/dashboard/rollout-grouping";
+import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
 import type {
   ReadinessStatus,
   ReadinessTicketingMode,
@@ -41,7 +42,7 @@ import type {
 /**
  * Rollout audit view — a table of every event for a client with:
  *   - group rows when 2+ events share the rollout grouping key (series
- *     venue rows share event_code + venue_name; see rollout-grouping)
+ *     rows share `event_code`; see rollout-grouping)
  *     rendering aggregate capacity / ticketing / share-link counts and the
  *     worst readiness status across children.
  *   - expandable sub-rows (persisted in `#expanded=CODE1,CODE2` URL hash).
@@ -946,7 +947,7 @@ function renderGroupRow({
         </div>
         <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
           {[
-            group.venueName,
+            getSeriesDisplayLabel(group.eventCode) ?? group.venueName,
             formatDate(group.eventDate),
             `${group.children.length} matches`,
           ]
