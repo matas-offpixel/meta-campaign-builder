@@ -60,6 +60,7 @@ function rollup(
     ad_spend_specific: allocation?.ad_spend_specific ?? null,
     ad_spend_generic_share: allocation?.ad_spend_generic_share ?? null,
     ad_spend_presale: allocation?.ad_spend_presale ?? null,
+    google_ads_spend: null,
   };
 }
 

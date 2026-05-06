@@ -185,6 +185,8 @@ export interface DailyRollupRow {
   ad_spend: number | null;
   /** Raw per-event per-day TikTok spend. */
   tiktok_spend: number | null;
+  /** Raw per-event per-day Google Ads spend. */
+  google_ads_spend: number | null;
   /** Per-event allocated spend (specific + generic share).
    *  NULL when allocation hasn't run yet. */
   ad_spend_allocated: number | null;
@@ -1145,7 +1147,7 @@ async function fetchAllDailyRollups(
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, tiktok_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, source_meta_at, source_eventbrite_at, updated_at, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, tiktok_spend, google_ads_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, source_meta_at, source_eventbrite_at, updated_at, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
@@ -1169,6 +1171,7 @@ async function fetchAllDailyRollups(
         tickets_sold: (r.tickets_sold as number | null) ?? null,
         ad_spend: (r.ad_spend as number | null) ?? null,
         tiktok_spend: (r.tiktok_spend as number | null) ?? null,
+        google_ads_spend: (r.google_ads_spend as number | null) ?? null,
         ad_spend_allocated: (r.ad_spend_allocated as number | null) ?? null,
         revenue: (r.revenue as number | null) ?? null,
         link_clicks: (r.link_clicks as number | null) ?? null,

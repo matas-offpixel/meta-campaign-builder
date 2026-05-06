@@ -421,6 +421,12 @@ export interface DailyMetaMetricsRow {
   day: string;
   /** Spend in account currency for that calendar day. 0 when no Meta row. */
   spend: number;
+  /**
+   * Subset of `spend` from campaigns whose name is classified as presale
+   * (rolls into `event_daily_rollups.ad_spend_presale` separately from
+   * allocated on-sale spend).
+   */
+  presaleSpend: number;
   /** Inline link-clicks (the funnel-aligned click metric, not `clicks`). */
   linkClicks: number;
   /**

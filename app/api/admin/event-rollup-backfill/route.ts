@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { runGoogleAdsRollupLeg } from "@/lib/dashboard/google-ads-rollup-leg";
+import { FOURTHEFANS_CLIENT_ID } from "@/lib/dashboard/rollup-meta-reconcile-log";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
+import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import { runTikTokRollupLeg } from "@/lib/dashboard/tiktok-rollup-leg";
 import {
   upsertGoogleAdsRollups,
@@ -20,7 +22,7 @@ import { fetchTikTokDailyRollupInsights } from "@/lib/tiktok/rollup-insights";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 type Platform = "meta" | "google_ads" | "tiktok";
 
@@ -38,7 +40,132 @@ interface LegResult {
 
 const ALL_PLATFORMS: Platform[] = ["meta", "google_ads", "tiktok"];
 
+function isCronAuthorized(req: NextRequest): boolean {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) return false;
+  const header = req.headers.get("authorization") ?? "";
+  if (header.toLowerCase().startsWith("bearer ")) {
+    return header.slice(7).trim() === expected.trim();
+  }
+  return header.trim() === expected.trim();
+}
+
+async function fourthefansForceBackfill(): Promise<NextResponse> {
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Service-role client unavailable",
+      },
+      { status: 500 },
+    );
+  }
+
+  const { data: rawEvents, error: listErr } = await admin
+    .from("events")
+    .select(
+      "id, user_id, client_id, event_code, event_timezone, event_date, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+    )
+    .eq("client_id", FOURTHEFANS_CLIENT_ID)
+    .not("event_code", "is", null);
+
+  if (listErr) {
+    return NextResponse.json(
+      { ok: false, error: listErr.message },
+      { status: 500 },
+    );
+  }
+
+  type EvRow = {
+    id: string;
+    user_id: string;
+    client_id: string | null;
+    event_code: string | null;
+    event_timezone: string | null;
+    event_date: string | null;
+    tiktok_account_id: string | null;
+    google_ads_account_id: string | null;
+    client: {
+      meta_ad_account_id: string | null;
+      tiktok_account_id: string | null;
+      google_ads_account_id: string | null;
+    } | null;
+  };
+
+  const events = (rawEvents ?? []) as unknown as EvRow[];
+  const results: Array<{
+    event_id: string;
+    ok: boolean;
+    rows_upserted?: number;
+    error?: string;
+  }> = [];
+
+  for (const event of events) {
+    const clientRel = event.client;
+    const client = Array.isArray(clientRel) ? clientRel[0] : clientRel;
+    const clientTikTokAccountId = client?.tiktok_account_id ?? null;
+    const clientGoogleAdsAccountId = client?.google_ads_account_id ?? null;
+    try {
+      const run = await runRollupSyncForEvent({
+        supabase: admin,
+        eventId: event.id,
+        userId: event.user_id,
+        eventCode: event.event_code,
+        eventTimezone: event.event_timezone,
+        adAccountId: client?.meta_ad_account_id ?? null,
+        clientId: event.client_id,
+        eventDate: event.event_date,
+        eventTikTokAccountId: event.tiktok_account_id,
+        clientTikTokAccountId,
+        eventGoogleAdsAccountId: event.google_ads_account_id,
+        clientGoogleAdsAccountId,
+        rollupWindowDays: 90,
+      });
+      results.push({
+        event_id: event.id,
+        ok: run.summary.synced,
+        rows_upserted: run.summary.rowsUpserted,
+      });
+    } catch (err) {
+      results.push({
+        event_id: event.id,
+        ok: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+
+  const ok = results.every((r) => r.ok);
+  return NextResponse.json(
+    {
+      ok,
+      mode: "fourthefans_force_backfill",
+      rollup_window_days: 90,
+      events_processed: results.length,
+      results,
+    },
+    { status: ok ? 200 : 207 },
+  );
+}
+
 export async function POST(req: NextRequest) {
+  const force = req.nextUrl.searchParams.get("force") === "true";
+  if (force) {
+    if (!isCronAuthorized(req)) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+    return fourthefansForceBackfill();
+  }
+
   let body: RequestBody;
   try {
     body = (await req.json()) as RequestBody;
@@ -133,7 +260,7 @@ export async function POST(req: NextRequest) {
 
   const until = new Date();
   const since = new Date(until);
-  since.setDate(since.getDate() - 59);
+  since.setDate(since.getDate() - 89);
   const window = { since: ymd(since), until: ymd(until) };
   const eventCode = (event.event_code as string | null) ?? null;
   const results: Partial<Record<Platform, LegResult>> = {};
@@ -288,6 +415,7 @@ function zeroPadMetaRows(
     byDate.set(row.day, {
       date: row.day,
       ad_spend: row.spend,
+      ad_spend_presale: row.presaleSpend ?? 0,
       link_clicks: row.linkClicks,
       meta_regs: row.metaRegs,
       meta_impressions: row.impressions,
@@ -303,6 +431,7 @@ function zeroPadMetaRows(
       byDate.set(date, {
         date,
         ad_spend: 0,
+        ad_spend_presale: 0,
         link_clicks: 0,
         meta_regs: 0,
         meta_impressions: 0,

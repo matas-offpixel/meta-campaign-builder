@@ -126,6 +126,11 @@ export interface RollupSyncInput {
   tiktokDeps?: Partial<TikTokRollupDeps>;
   /** Test hooks only — production callers use the real Google Ads helpers. */
   googleAdsDeps?: Partial<GoogleAdsRollupDeps>;
+  /**
+   * Rolling window length in calendar days including today.
+   * Default 60 (cron + dashboard “Sync now”).
+   */
+  rollupWindowDays?: number;
 }
 
 export interface SyncLegResult {
@@ -351,15 +356,18 @@ export async function runRollupSyncForEvent(
     tiktokRateLimitRetryDelayMs,
     tiktokDeps,
     googleAdsDeps,
+    rollupWindowDays,
   } = input;
 
-  // Window: last 60 days (inclusive of today) in account local time.
+  const windowDays = rollupWindowDays ?? 60;
+
+  // Rolling window inclusive of `until` (default 60 days).
   // We don't need timezone-perfect bounds — Meta returns rows by
   // ad-account local day, and any drift around midnight is washed out
   // by the next sync cycle.
   const until = new Date();
   const since = new Date(until);
-  since.setDate(since.getDate() - 59);
+  since.setDate(since.getDate() - (windowDays - 1));
   const sinceStr = ymd(since);
   const untilStr = ymd(until);
 
@@ -507,6 +515,7 @@ export async function runRollupSyncForEvent(
           string,
           {
             ad_spend: number;
+            ad_spend_presale: number;
             link_clicks: number;
             meta_regs: number;
             meta_impressions: number;
@@ -520,6 +529,7 @@ export async function runRollupSyncForEvent(
         for (const d of metaFetch.days) {
           metaByDate.set(d.day, {
             ad_spend: d.spend,
+            ad_spend_presale: d.presaleSpend ?? 0,
             link_clicks: d.linkClicks,
             meta_regs: d.metaRegs,
             meta_impressions: d.impressions,
@@ -534,6 +544,7 @@ export async function runRollupSyncForEvent(
         diagnostics.metaTodayInWindow = hasToday;
         if (!hasToday) {
           let snapshotSpend = 0;
+          let snapshotPresaleSpend = 0;
           let snapshotClicks = 0;
           let snapshotRegs = 0;
           let snapshotImpressions = 0;
@@ -552,6 +563,7 @@ export async function runRollupSyncForEvent(
             });
             if (snap.ok && snap.days.length > 0) {
               snapshotSpend = snap.days[0]?.spend ?? 0;
+              snapshotPresaleSpend = snap.days[0]?.presaleSpend ?? 0;
               snapshotClicks = snap.days[0]?.linkClicks ?? 0;
               snapshotRegs = snap.days[0]?.metaRegs ?? 0;
               snapshotImpressions = snap.days[0]?.impressions ?? 0;
@@ -585,6 +597,7 @@ export async function runRollupSyncForEvent(
           }
           metaByDate.set(todayStr, {
             ad_spend: snapshotSpend,
+            ad_spend_presale: snapshotPresaleSpend,
             link_clicks: snapshotClicks,
             meta_regs: snapshotRegs,
             meta_impressions: snapshotImpressions,
@@ -602,6 +615,7 @@ export async function runRollupSyncForEvent(
           if (!metaByDate.has(d)) {
             metaByDate.set(d, {
               ad_spend: 0,
+              ad_spend_presale: 0,
               link_clicks: 0,
               meta_regs: 0,
               meta_impressions: 0,
@@ -620,6 +634,7 @@ export async function runRollupSyncForEvent(
           .map(([date, v]) => ({
             date,
             ad_spend: v.ad_spend,
+            ad_spend_presale: v.ad_spend_presale,
             link_clicks: v.link_clicks,
             meta_regs: v.meta_regs,
             meta_impressions: v.meta_impressions,
