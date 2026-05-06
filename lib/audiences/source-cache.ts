@@ -9,6 +9,24 @@ interface CacheEntry<T> {
 
 const cache = new Map<string, CacheEntry<unknown>>();
 
+/**
+ * Returns whether a successful loader result should be stored in the audience
+ * source cache. Errors are never cached (loaders throw). Empty arrays and empty
+ * video payloads are not cached so transient failures are not replayed for 30m.
+ */
+export function audienceSourcePayloadIsCacheable(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    if ("videos" in o && Array.isArray(o.videos)) {
+      return o.videos.length > 0;
+    }
+    return Object.keys(o).length > 0;
+  }
+  return true;
+}
+
 export async function getCachedAudienceSource<T>(
   keyParts: readonly string[],
   load: () => Promise<T>,
@@ -19,7 +37,9 @@ export async function getCachedAudienceSource<T>(
   if (hit && hit.expiresAt > now) return hit.value as T;
 
   const value = await load();
-  cache.set(key, { value, expiresAt: now + TTL_MS });
+  if (audienceSourcePayloadIsCacheable(value)) {
+    cache.set(key, { value, expiresAt: now + TTL_MS });
+  }
   return value;
 }
 
