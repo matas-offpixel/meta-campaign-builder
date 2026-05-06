@@ -235,6 +235,8 @@ export async function upsertRollupManualEntry(
 export interface MetaUpsertRow {
   date: string;
   ad_spend: number;
+  /** Presale-phase Meta spend (migration 048); allocator may overwrite. */
+  ad_spend_presale: number;
   link_clicks: number;
   meta_regs: number;
   meta_impressions?: number;
@@ -256,6 +258,7 @@ export async function upsertMetaRollups(
     event_id: args.eventId,
     date: r.date,
     ad_spend: r.ad_spend,
+    ad_spend_presale: r.ad_spend_presale,
     link_clicks: r.link_clicks,
     meta_regs: r.meta_regs,
     meta_impressions: r.meta_impressions ?? null,

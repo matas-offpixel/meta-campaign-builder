@@ -6,7 +6,15 @@ import {
   normaliseMetaCampaignStatus,
 } from "@/lib/insights/campaign-status";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
-import { isPresaleCampaignName } from "@/lib/insights/meta-campaign-phase";
+import {
+  isPresaleCampaignName,
+  isSubFixtureCampaignName,
+  partitionMetaSpendForCampaign,
+} from "@/lib/insights/meta-campaign-phase";
+import {
+  campaignMatchesBracketedEventCode,
+  metaCampaignFilterPrefix,
+} from "@/lib/insights/meta-event-code-match";
 import { ISO_COUNTRY_CODES } from "@/lib/share/country-codes";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
@@ -1832,8 +1840,9 @@ export async function fetchEventSpendByDay(
   if (!validation.ok) return validation;
 
   const account = ensureActPrefix(adAccountId);
+  const filterPrefix = metaCampaignFilterPrefix(eventCode);
   const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: `[${eventCode}]` },
+    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
   ]);
   const timeRange = JSON.stringify({ since, until });
 
@@ -1846,7 +1855,7 @@ export async function fetchEventSpendByDay(
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
-        fields: "spend,date_start",
+        fields: "spend,date_start,campaign_name",
         level: "campaign",
         time_increment: "1",
         time_range: timeRange,
@@ -1857,12 +1866,18 @@ export async function fetchEventSpendByDay(
       if (after) params.after = after;
 
       const res = await graphGetWithToken<
-        GraphPaged<{ spend?: string; date_start?: string }>
+        GraphPaged<{
+          spend?: string;
+          date_start?: string;
+          campaign_name?: string;
+        }>
       >(`/${account}/insights`, params, token);
 
       for (const row of res.data ?? []) {
         const day = row.date_start;
         if (!day) continue;
+        const name = row.campaign_name ?? "";
+        if (!campaignMatchesBracketedEventCode(name, eventCode)) continue;
         const spend = parseNum(row.spend);
         totals.set(day, (totals.get(day) ?? 0) + spend);
       }
@@ -1941,9 +1956,9 @@ export async function fetchEventDailyMetaMetrics(
   if (!validation.ok) return validation;
 
   const account = ensureActPrefix(adAccountId);
-  const codeBracketed = `[${eventCode}]`;
+  const filterPrefix = metaCampaignFilterPrefix(eventCode);
   const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: codeBracketed },
+    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
   ]);
   const timeRange = JSON.stringify({ since, until });
 
@@ -1952,6 +1967,7 @@ export async function fetchEventDailyMetaMetrics(
     // (campaign, day) at level=campaign + time_increment=1; we sum
     // by day so the caller gets a single number per calendar date.
     const totalsSpend = new Map<string, number>();
+    const totalsPresaleSpend = new Map<string, number>();
     const totalsClicks = new Map<string, number>();
     const totalsRegs = new Map<string, number>();
     const totalsImpressions = new Map<string, number>();
@@ -1965,6 +1981,7 @@ export async function fetchEventDailyMetaMetrics(
     // (rollup-sync prints these so we can confirm at a glance the
     // sync saw the same campaigns the live block sees).
     const matchedCampaigns = new Set<string>();
+    const filteredOutCampaignNames = new Set<string>();
 
     const regActionTypes = [
       "complete_registration",
@@ -2008,11 +2025,19 @@ export async function fetchEventDailyMetaMetrics(
         // `leeds26-facup-v2` doesn't. Plain `includes` does the
         // case-sensitive substring check we want.
         const name = row.campaign_name ?? "";
-        if (!name.includes(codeBracketed)) continue;
+        if (!campaignMatchesBracketedEventCode(name, eventCode)) {
+          filteredOutCampaignNames.add(name);
+          continue;
+        }
         matchedCampaigns.add(name);
-        totalsSpend.set(
+        const { regular, presale } = partitionMetaSpendForCampaign(
+          name,
+          parseNum(row.spend),
+        );
+        totalsSpend.set(day, (totalsSpend.get(day) ?? 0) + regular);
+        totalsPresaleSpend.set(
           day,
-          (totalsSpend.get(day) ?? 0) + parseNum(row.spend),
+          (totalsPresaleSpend.get(day) ?? 0) + presale,
         );
         totalsClicks.set(
           day,
@@ -2054,6 +2079,7 @@ export async function fetchEventDailyMetaMetrics(
 
     const allDays = new Set<string>([
       ...totalsSpend.keys(),
+      ...totalsPresaleSpend.keys(),
       ...totalsClicks.keys(),
       ...totalsRegs.keys(),
       ...totalsImpressions.keys(),
@@ -2068,6 +2094,7 @@ export async function fetchEventDailyMetaMetrics(
       .map((day) => ({
         day,
         spend: totalsSpend.get(day) ?? 0,
+        presaleSpend: totalsPresaleSpend.get(day) ?? 0,
         linkClicks: totalsClicks.get(day) ?? 0,
         metaRegs: totalsRegs.get(day) ?? 0,
         impressions: totalsImpressions.get(day) ?? 0,
@@ -2078,10 +2105,20 @@ export async function fetchEventDailyMetaMetrics(
         engagements: totalsEngagements.get(day) ?? 0,
       }));
 
+    const filteredSorted = [...filteredOutCampaignNames].sort();
+    if (filteredSorted.length > 0) {
+      console.warn(
+        `[insights/meta] fetchEventDailyMetaMetrics bracket_filtered=${filteredSorted.length} sample=${JSON.stringify(filteredSorted.slice(0, 12))}`,
+      );
+    }
+
     return {
       ok: true,
       days,
       campaignNames: [...matchedCampaigns].sort(),
+      ...(filteredSorted.length > 0
+        ? { filteredOutCampaignNames: filteredSorted }
+        : {}),
     };
   } catch (err) {
     return handleMetaError(err);
@@ -2147,13 +2184,14 @@ export async function fetchEventTodayMetaSnapshot(
   }
 
   const account = ensureActPrefix(adAccountId);
-  const codeBracketed = `[${eventCode}]`;
+  const filterPrefix = metaCampaignFilterPrefix(eventCode);
   const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: codeBracketed },
+    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
   ]);
 
   try {
     let totalSpend = 0;
+    let totalPresaleSpend = 0;
     let totalClicks = 0;
     let totalRegs = 0;
     let totalImpressions = 0;
@@ -2196,9 +2234,14 @@ export async function fetchEventTodayMetaSnapshot(
 
       for (const row of res.data ?? []) {
         const name = row.campaign_name ?? "";
-        if (!name.includes(codeBracketed)) continue;
+        if (!campaignMatchesBracketedEventCode(name, eventCode)) continue;
         matchedCampaigns.add(name);
-        totalSpend += parseNum(row.spend);
+        const { regular, presale } = partitionMetaSpendForCampaign(
+          name,
+          parseNum(row.spend),
+        );
+        totalSpend += regular;
+        totalPresaleSpend += presale;
         totalClicks += parseNum(row.inline_link_clicks);
         totalRegs += sumActions(row.actions, regActionTypes);
         totalImpressions += parseNum(row.impressions);
@@ -2223,6 +2266,7 @@ export async function fetchEventTodayMetaSnapshot(
         {
           day: todayDate,
           spend: totalSpend,
+          presaleSpend: totalPresaleSpend,
           linkClicks: totalClicks,
           metaRegs: totalRegs,
           impressions: totalImpressions,
@@ -2409,10 +2453,25 @@ export async function fetchVenueDailyAdMetrics(
   const validation = resolveCustomRange("custom", { since, until });
   if (!validation.ok) return validation;
 
+  try {
+    return await fetchVenueDailyAdMetricsForBracket(args, {
+      filterPrefix: metaCampaignFilterPrefix(eventCode),
+      matchCode: eventCode,
+    });
+  } catch (err) {
+    return handleMetaError(err);
+  }
+}
+
+async function fetchVenueDailyAdMetricsForBracket(
+  args: FetchVenueDailyAdMetricsArgs,
+  bracket: { filterPrefix: string; matchCode: string },
+): Promise<VenueDailyAdMetricsResult> {
+  const { adAccountId, token, since, until } = args;
+
   const account = ensureActPrefix(adAccountId);
-  const codeBracketed = `[${eventCode}]`;
   const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: codeBracketed },
+    { field: "campaign.name", operator: "CONTAIN", value: bracket.filterPrefix },
   ]);
   const timeRange = JSON.stringify({ since, until });
 
@@ -2462,7 +2521,9 @@ export async function fetchVenueDailyAdMetrics(
         // Case-sensitive bracket post-filter, same as the campaign-
         // level daily helper. Meta's CONTAIN is case-insensitive at
         // the API layer.
-        if (!campaignName.includes(codeBracketed)) continue;
+        if (!campaignMatchesBracketedEventCode(campaignName, bracket.matchCode)) {
+          continue;
+        }
         const adId = row.ad_id ?? "";
         const adName = row.ad_name ?? "";
         if (!adId || !adName) continue;
@@ -2486,9 +2547,11 @@ export async function fetchVenueDailyAdMetrics(
           adName,
           campaignId,
           campaignName,
-          campaignPhase: isPresaleCampaignName(campaignName)
-            ? "presale"
-            : "onsale",
+          campaignPhase: isSubFixtureCampaignName(campaignName)
+            ? "onsale"
+            : isPresaleCampaignName(campaignName)
+              ? "presale"
+              : "onsale",
           spend,
           linkClicks,
         });
@@ -2529,7 +2592,9 @@ export async function fetchVenueDailyAdMetrics(
         const day = row.date_start;
         if (!day) continue;
         const campaignName = row.campaign_name ?? "";
-        if (!campaignName.includes(codeBracketed)) continue;
+        if (!campaignMatchesBracketedEventCode(campaignName, bracket.matchCode)) {
+          continue;
+        }
         const campaignId = row.campaign_id ?? "";
         const campaignSpend = parseNum(row.spend);
         const campaignClicks = parseNum(row.inline_link_clicks);

@@ -13,7 +13,7 @@
  * per-venue-group totals. Both flow through identical arithmetic
  * fed by the same underlying row arrays; any divergence is a bug.
  */
-import { paidSpendOf } from "../dashboard/paid-spend.ts";
+import { metaPaidSpendOf, paidSpendOf } from "../dashboard/paid-spend.ts";
 import type { DailyRollupRow } from "./client-portal-server";
 
 /** Minimal event shape the aggregators need — a subset of PortalEvent. */
@@ -328,6 +328,14 @@ function eventCodeCountsByEventId(
   return countsByEventId;
 }
 
+function rollupTikTokGooglePaid(row: DailyRollupRow): number {
+  const n = (v: unknown) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
+  return n(row.tiktok_spend) + n(row.google_ads_spend);
+}
+
 function clientWidePaidSpendOf(
   row: DailyRollupRow,
   isMultiEventCode: boolean,
@@ -336,15 +344,11 @@ function clientWidePaidSpendOf(
     return paidSpendOf(row);
   }
 
-  return paidSpendOf({
-    // Multi-event venues write the full raw Meta total on each sibling
-    // event row. The allocator columns are the per-event source of truth.
-    ad_spend:
-      row.ad_spend_allocated != null || row.ad_spend_presale != null
-        ? (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0)
-        : null,
-    tiktok_spend: row.tiktok_spend,
-  });
+  if (row.ad_spend_allocated != null || row.ad_spend_presale != null) {
+    return metaPaidSpendOf(row) + rollupTikTokGooglePaid(row);
+  }
+
+  return rollupTikTokGooglePaid(row);
 }
 
 export interface VenueGroupTotals {

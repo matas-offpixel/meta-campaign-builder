@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
+import { warnMetaReconcileDriftForTopRollupEvents } from "@/lib/dashboard/rollup-meta-reconcile-log";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 
 /**
@@ -274,6 +275,16 @@ export async function GET(req: NextRequest) {
   console.log(
     `[cron rollup-sync-events] done events=${results.length} all_ok=${allOk} total_rows=${totalRowsUpserted}`,
   );
+
+  try {
+    await warnMetaReconcileDriftForTopRollupEvents(supabase);
+  } catch (err) {
+    console.warn(
+      `[cron rollup-sync-events] meta reconcile log skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }
