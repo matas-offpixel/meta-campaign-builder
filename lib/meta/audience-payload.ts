@@ -8,6 +8,28 @@ import type {
   MetaCustomAudience,
 } from "../types/audience.ts";
 
+/** Leaf equality operator for Meta rule JSON (rejecting `eq` — Marketing API subcode 1870053). */
+const META_RULE_OP_EQ = "=";
+
+// ─── Page / IG engagement & followers — event `value` strings ─────────────────
+// Reverse-engineered from manual audience 2026-05-06 (Ads Manager → Audiences → rule preview).
+
+/** FB Page · People who engaged with your Page */
+const META_PAGE_ENGAGEMENT_FB_EVENT = "user-engaged";
+
+/** IG professional account · People who engaged with your professional account */
+const META_PAGE_ENGAGEMENT_IG_EVENT = "user-engaged";
+
+/** FB Page · People who like your Page */
+const META_PAGE_FOLLOWERS_FB_EVENT = "page_like";
+
+/** IG · People who follow this profile (same rule shape as FB followers in Ads Manager export) */
+const META_PAGE_FOLLOWERS_IG_EVENT = "page_like";
+
+function metaLeafEq(field: string, value: string): Record<string, string> {
+  return { field, operator: META_RULE_OP_EQ, value };
+}
+
 export function buildMetaCustomAudiencePayload(
   audience: MetaCustomAudience,
 ): Record<string, string> {
@@ -36,18 +58,19 @@ export function buildMetaCustomAudiencePayload(
       Array.isArray(pageMeta.pageIds) && pageMeta.pageIds.length > 0
         ? pageMeta.pageIds
         : audience.sourceId.split(",").map((s) => s.trim()).filter(Boolean);
+    const eventValue = (() => {
+      if (isFollowers) {
+        return isIg ? META_PAGE_FOLLOWERS_IG_EVENT : META_PAGE_FOLLOWERS_FB_EVENT;
+      }
+      return isIg ? META_PAGE_ENGAGEMENT_IG_EVENT : META_PAGE_ENGAGEMENT_FB_EVENT;
+    })();
+
     const rules = pageIds.map((pageId) => ({
       event_sources: [{ type: isIg ? "ig_business" : "page", id: pageId }],
       retention_seconds: retentionSeconds,
       filter: {
         operator: "and",
-        filters: [
-          {
-            field: "event",
-            operator: "eq",
-            value: isFollowers ? "page_liked" : "page_engaged",
-          },
-        ],
+        filters: [metaLeafEq("event", eventValue)],
       },
     }));
     return {
@@ -68,7 +91,7 @@ export function buildMetaCustomAudiencePayload(
     }
     return {
       ...base,
-      subtype: "VIDEO_VIEWERS_VIEWED",
+      subtype: "VIDEO",
       rule: JSON.stringify({
         inclusions: {
           operator: "or",
@@ -82,11 +105,7 @@ export function buildMetaCustomAudiencePayload(
               filter: {
                 operator: "and",
                 filters: [
-                  {
-                    field: "event",
-                    operator: "eq",
-                    value: videoViewEvent(sourceMeta.threshold),
-                  },
+                  metaLeafEq("event", videoViewEvent(sourceMeta.threshold)),
                 ],
               },
             },
@@ -101,20 +120,17 @@ export function buildMetaCustomAudiencePayload(
       throw new Error("Website pixel audience requires website source_meta");
     }
     const filters: Array<Record<string, unknown>> = [
-      {
-        field: "event",
-        operator: "eq",
-        value: sourceMeta.pixelEvent || "PageView",
-      },
+      metaLeafEq("event", sourceMeta.pixelEvent || "PageView"),
     ];
     const urlParts = normalizeWebsitePixelUrlContains(
       sourceMeta.urlContains,
     ).map(stripHttpSchemeFromPixelUrlFragment);
     if (urlParts.length === 1) {
+      const [singleUrl] = urlParts;
       filters.push({
         field: "url",
         operator: "i_contains",
-        value: urlParts[0],
+        value: singleUrl,
       });
     } else if (urlParts.length > 1) {
       filters.push({

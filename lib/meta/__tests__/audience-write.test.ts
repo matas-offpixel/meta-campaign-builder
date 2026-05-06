@@ -20,8 +20,26 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "page_1");
     assert.equal(rule.inclusions.rules[0].retention_seconds, "31536000");
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "page_engaged");
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.field, "event");
+    assert.equal(ev.operator, "=");
+    assert.equal(ev.value, "user-engaged");
+  });
+
+  it("builds IG page engagement at 365d", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "page_engagement_ig",
+        retentionDays: 365,
+        sourceId: "igbiz_1",
+        sourceMeta: { subtype: "page_engagement_ig", pageName: "4thefansevents" },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.operator, "=");
+    assert.equal(ev.value, "user-engaged");
   });
 
   it("builds FB page engagement with multiple page IDs (OR rules)", () => {
@@ -57,8 +75,26 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "ig_1");
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "page_liked");
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.field, "event");
+    assert.equal(ev.operator, "=");
+    assert.equal(ev.value, "page_like");
+  });
+
+  it("builds FB page followers at 365d", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "page_followers_fb",
+        retentionDays: 365,
+        sourceId: "page_9",
+        sourceMeta: { subtype: "page_followers_fb", pageName: "4theFans" },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    assert.equal(rule.inclusions.rules[0].event_sources[0].type, "page");
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.operator, "=");
+    assert.equal(ev.value, "page_like");
   });
 
   it("builds video views at 95% with three video IDs", () => {
@@ -77,18 +113,17 @@ describe("buildMetaCustomAudiencePayload", () => {
       }),
     );
     const rule = JSON.parse(payload.rule) as RuleShape;
-    assert.equal(payload.subtype, "VIDEO_VIEWERS_VIEWED");
-    assert.notEqual(payload.subtype, "VIDEO");
+    assert.equal(payload.subtype, "VIDEO");
+    assert.notEqual(payload.subtype, "VIDEO_VIEWERS_VIEWED");
     assert.deepEqual(
       rule.inclusions.rules[0].event_sources.map((source) => source.id),
       ["v1", "v2", "v3"],
     );
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
-    assert.equal(
-      rule.inclusions.rules[0].filter.filters[0].value,
-      "video_watched_95_percent",
-    );
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.field, "event");
+    assert.equal(ev.operator, "=");
+    assert.equal(ev.value, "video_watched_95_percent");
   });
 
   it("builds website pixel ViewContent with URL contains", () => {
@@ -108,10 +143,35 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(payload.subtype, "WEBSITE");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "pixel");
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "ViewContent");
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.field, "event");
+    assert.equal(ev.operator, "=");
+    assert.equal(ev.value, "ViewContent");
     assert.equal(rule.inclusions.rules[0].filter.filters[1].field, "url");
     assert.equal(rule.inclusions.rules[0].filter.filters[1].value, "/arsenal");
+  });
+
+  it("website_pixel single URL strips https:// from filter value (domain only)", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "website_pixel",
+        retentionDays: 60,
+        sourceId: "pixel_1",
+        sourceMeta: {
+          subtype: "website_pixel",
+          pixelEvent: "PageView",
+          urlContains: ["https://wearefootballfestival.co.uk"],
+        },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    const filters = rule.inclusions.rules[0].filter.filters;
+    assert.equal(filters.length, 2);
+    assert.deepEqual(filters[1], {
+      field: "url",
+      operator: "i_contains",
+      value: "wearefootballfestival.co.uk",
+    });
   });
 
   it("builds website pixel with three URL fragments as OR i_contains", () => {
@@ -131,6 +191,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     const filters = rule.inclusions.rules[0].filter.filters;
     assert.equal(filters[0].field, "event");
+    assert.equal((filters[0] as EventLeaf).operator, "=");
     assert.equal(filters[0].value, "ViewContent");
     const urlGroup = filters[1] as UrlOrGroup;
     assert.equal(urlGroup.operator, "or");
@@ -183,10 +244,14 @@ describe("buildMetaCustomAudiencePayload", () => {
     const rule = JSON.parse(payload.rule) as RuleShape;
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     assert.equal(rule.inclusions.rules[0].filter.filters.length, 1);
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
-    assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "PageView");
+    const only = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(only.field, "event");
+    assert.equal(only.operator, "=");
+    assert.equal(only.value, "PageView");
   });
 });
+
+type EventLeaf = { field: string; operator: string; value: string };
 
 type UrlOrGroup = {
   operator: "or";
