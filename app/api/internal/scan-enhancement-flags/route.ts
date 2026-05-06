@@ -5,7 +5,11 @@
  * degrees_of_freedom_spec.creative_features_spec against agency policy,
  * persists violation rows and auto-resolves cleared ads.
  *
- * Auth: Authorization: Bearer CRON_SECRET (same pattern as other crons).
+ * Auth (dual path, mirrors `/api/admin/meta-enhancement-probe`):
+ *   1. `Authorization: Bearer <CRON_SECRET>` — Vercel Cron (GET) and scripted runs.
+ *   2. Else: signed-in Supabase session (browser GET/POST) — same full scan; session is
+ *      only the gate (service-role DB + env Meta token unchanged).
+ *   Unauthenticated requests → 401.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -16,7 +20,7 @@ import {
   evaluateCreativeFeatures,
   type FlaggedFeatureMap,
 } from "@/lib/meta/enhancement-policy";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
@@ -87,7 +91,14 @@ async function fetchAllActiveAdsForAccount(params: {
 
 async function handleScan(req: NextRequest) {
   if (!isCronAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userClient = await createClient();
+    const {
+      data: { user },
+    } = await userClient.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.info("[scan-enhancement-flags] session-auth manual trigger");
   }
 
   const token = process.env.META_ACCESS_TOKEN;
