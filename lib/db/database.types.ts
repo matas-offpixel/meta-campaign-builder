@@ -444,6 +444,78 @@ export type Database = {
         }
         Relationships: []
       }
+      benchmark_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          alert_type: string
+          benchmark_value: number | null
+          client_id: string
+          deviation_pct: number | null
+          entity_id: string
+          entity_name: string | null
+          entity_type: string
+          event_id: string | null
+          id: string
+          metric: string | null
+          metric_value: number | null
+          severity: string
+          status: string
+          surfaced_at: string
+          user_id: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          alert_type: string
+          benchmark_value?: number | null
+          client_id: string
+          deviation_pct?: number | null
+          entity_id: string
+          entity_name?: string | null
+          entity_type: string
+          event_id?: string | null
+          id?: string
+          metric?: string | null
+          metric_value?: number | null
+          severity: string
+          status?: string
+          surfaced_at?: string
+          user_id: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          alert_type?: string
+          benchmark_value?: number | null
+          client_id?: string
+          deviation_pct?: number | null
+          entity_id?: string
+          entity_name?: string | null
+          entity_type?: string
+          event_id?: string | null
+          id?: string
+          metric?: string | null
+          metric_value?: number | null
+          severity?: string
+          status?: string
+          surfaced_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "benchmark_alerts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "benchmark_alerts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_drafts: {
         Row: {
           ad_account_id: string | null
