@@ -31,6 +31,7 @@ import {
 } from "@/lib/dashboard/suggested-pct";
 import {
   eventTierSalesRollup,
+  resolveDisplayTicketRevenue,
   tierSalesRollup,
 } from "@/lib/dashboard/tier-channel-rollups";
 import {
@@ -57,6 +58,7 @@ interface EventMetrics {
   suggestedPct: SuggestedPct | null;
   commsPhrase: CommsPhrase;
   isSoldOut: boolean;
+  ticketRevenue: number | null;
   spend: number | null;
   cpt: number | null;
   pacingTicketsPerDay: number | null;
@@ -157,12 +159,13 @@ export function VenueEventBreakdown({
 
       <div className="overflow-hidden rounded-md border border-border bg-card">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] border-collapse text-sm">
+          <table className="w-full min-w-[940px] border-collapse text-sm">
             <thead>
               <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
                 <th className="px-3 py-2.5">Event</th>
                 <th className="px-3 py-2.5">Last Updated</th>
                 <th className="px-3 py-2.5 text-right">Tickets</th>
+                <th className="px-3 py-2.5 text-right">Ticket Revenue</th>
                 <th className="px-3 py-2.5 text-right">% Sold</th>
                 <th
                   className="hidden px-3 py-2.5 text-right sm:table-cell"
@@ -258,6 +261,9 @@ function VenueEventBreakdownRows({
           {metrics.capacity == null ? "—" : formatNumber(metrics.capacity)}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+          {metrics.ticketRevenue == null ? "—" : formatGBP(metrics.ticketRevenue)}
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
           {formatPct(metrics.soldPct, 1)}
         </td>
         <td className="hidden px-3 py-2.5 text-right tabular-nums text-muted-foreground sm:table-cell">
@@ -280,7 +286,7 @@ function VenueEventBreakdownRows({
       </tr>
       {expanded ? (
         <tr className="border-t border-border bg-muted/30">
-          <td colSpan={9} className="px-6 py-4">
+          <td colSpan={10} className="px-6 py-4">
             <div className="space-y-3">
               <TicketTiersSection
                 tiers={event.ticket_tiers}
@@ -345,6 +351,14 @@ function computeEventMetrics(
       ? Math.round(remaining / Math.max(1, daysUntil))
       : null;
 
+  const ticketRevenue =
+    event.ticket_tiers.length > 0
+      ? resolveDisplayTicketRevenue({
+          ticket_tiers: event.ticket_tiers,
+          latest_snapshot_revenue: event.latest_snapshot?.revenue ?? null,
+        })
+      : event.latest_snapshot?.revenue ?? null;
+
   return {
     tickets,
     capacity,
@@ -355,6 +369,7 @@ function computeEventMetrics(
       tierTotals.allTiersOnSaleSoon ? "on_sale_soon" : isSoldOut ? "sold_out" : "on_sale",
     ),
     isSoldOut,
+    ticketRevenue,
     spend: totalSpend,
     cpt,
     pacingTicketsPerDay,
