@@ -63,6 +63,9 @@ export function isPublicPath(
   pathname: string,
   searchParams?: URLSearchParams,
 ): boolean {
+  // `/api/admin/meta-enhancement-probe` validates CRON_SECRET or session in
+  // the route — bearer-only curls must reach the handler (see probe doc).
+  if (pathname === "/api/admin/meta-enhancement-probe") return true;
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
