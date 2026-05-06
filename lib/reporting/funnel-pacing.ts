@@ -1,19 +1,31 @@
 import "server-only";
 
+import type { DatePreset } from "@/lib/insights/types";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
   bucketEventToClientRegion,
   parseClientRegionKey,
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
+import {
+  selectLatestSnapshotsByEvent,
+  type PatternSnapshotRow,
+} from "@/lib/reporting/creative-patterns-snapshots";
 import type { CreativePatternRegionFilter } from "@/lib/reporting/creative-patterns-cross-event";
 import {
   FALLBACK_FUNNEL_TARGETS,
+  FUNNEL_LPV_CLICKS_FALLBACK_RATIO,
   deriveFunnelTargetsFromSoldOutEvents,
   rollupSpend,
   type DerivedFunnelTargets,
   type FunnelRollupInput,
 } from "@/lib/reporting/funnel-pacing-derive";
+import {
+  sumLandingPageViewsFromSharePayload,
+  type SnapshotPayloadForLpv,
+} from "@/lib/reporting/funnel-pacing-payload";
+
+export { sumLandingPageViewsFromSharePayload } from "@/lib/reporting/funnel-pacing-payload";
 
 type ScopeType = "client_region" | "venue_code" | "event_id";
 type TargetSource = "manual" | "derived" | "fallback";
@@ -99,18 +111,33 @@ export async function buildClientFunnelPacing(
   const events = applyRegionFilter(await fetchEvents(supabase, clientId), opts.regionFilter);
   const scope = scopeFromFilter(opts.regionFilter);
   const target = await loadOrCreateTarget(supabase, clientId, scope, events);
-  const since = new Date(Date.now() - (opts.sinceDays ?? 90) * 24 * 60 * 60 * 1000);
+  const sinceDays = opts.sinceDays ?? 90;
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
   const eventIds = events.map((event) => event.id);
   const rollups = await fetchRollups(supabase, eventIds, since.toISOString().slice(0, 10));
   const liveEventIds = new Set(
     events
       .filter((event) =>
-        ["upcoming", "announced", "on_sale", "live"].includes(event.status ?? ""),
+        ["upcoming", "on_sale", "live"].includes(event.status ?? ""),
       )
       .map((event) => event.id),
   );
   const currentRollups = rollups.filter((row) => liveEventIds.has(row.event_id));
-  const current = aggregateRollups(currentRollups);
+  const baseCurrent = aggregateRollups(currentRollups);
+  const lpvByEvent = await resolveLpvByEventIds(
+    [...liveEventIds],
+    currentRollups,
+    sinceDays,
+  );
+  let lpvTotal = 0;
+  for (const id of liveEventIds) {
+    lpvTotal += lpvByEvent.get(id) ?? 0;
+  }
+  const current = { ...baseCurrent, lpv: lpvTotal };
+
+  const scale = Math.max(1, liveEventIds.size);
+  const scaledTarget = scaleFunnelTargetVolumes(target, scale);
+
   const sourceEventName =
     target.derived_from_event_id == null
       ? null
@@ -121,7 +148,7 @@ export async function buildClientFunnelPacing(
     target,
     sourceEventName,
     updatedAt: target.updated_at ?? target.created_at ?? null,
-    stages: buildStages(target, current),
+    stages: buildStages(scaledTarget, current),
   };
 }
 
@@ -229,7 +256,16 @@ async function deriveAndUpsertTarget(
     soldOutEvents.map((event) => event.id),
     daysAgoYmd(180),
   );
-  const derived = deriveFunnelTargetsFromSoldOutEvents(soldOutEvents, rollups);
+  const lpvByEvent = await resolveLpvByEventIds(
+    soldOutEvents.map((e) => e.id),
+    rollups,
+    180,
+  );
+  const derived = deriveFunnelTargetsFromSoldOutEvents(
+    soldOutEvents,
+    rollups,
+    lpvByEvent,
+  );
   if (!derived && !allowFallback) {
     throw new Error("No sold-out events available for derived funnel pacing target");
   }
@@ -333,11 +369,90 @@ function aggregateRollups(rows: RollupRow[]) {
       spend: sum.spend + rollupSpend(row),
       reach: sum.reach + (row.meta_reach ?? 0),
       clicks: sum.clicks + (row.link_clicks ?? 0),
-      lpv: sum.lpv + (row.link_clicks ?? 0),
       purchases: sum.purchases + (row.tickets_sold ?? 0),
     }),
-    { spend: 0, reach: 0, clicks: 0, lpv: 0, purchases: 0 },
+    { spend: 0, reach: 0, clicks: 0, purchases: 0 },
   );
+}
+
+function scaleFunnelTargetVolumes(row: FunnelTargetRow, scale: number): FunnelTargetRow {
+  return {
+    ...row,
+    tofu_target_reach: scaleVolume(row.tofu_target_reach, scale),
+    mofu_target_clicks: scaleVolume(row.mofu_target_clicks, scale),
+    bofu_target_lpv: scaleVolume(row.bofu_target_lpv, scale),
+    bofu_target_purchases: scaleVolume(row.bofu_target_purchases, scale),
+  };
+}
+
+function scaleVolume(value: number | null | undefined, scale: number): number | null {
+  if (value == null) return null;
+  return Math.round(value * scale);
+}
+
+/** Matches creative snapshot warming: `last_30d` only when the rollup window is 30 days. */
+function funnelSnapshotPresetForWindow(sinceDays: number): DatePreset {
+  return sinceDays === 30 ? "last_30d" : "maximum";
+}
+
+async function resolveLpvByEventIds(
+  eventIds: string[],
+  rollups: RollupRow[],
+  sinceDays: number,
+): Promise<Map<string, number>> {
+  const preset = funnelSnapshotPresetForWindow(sinceDays);
+  const snapshotSums = await fetchSnapshotLpvSumByEvent(eventIds, preset);
+  const idSet = new Set(eventIds);
+  const clicksByEvent = new Map<string, number>();
+  for (const row of rollups) {
+    if (!idSet.has(row.event_id)) continue;
+    clicksByEvent.set(
+      row.event_id,
+      (clicksByEvent.get(row.event_id) ?? 0) + (row.link_clicks ?? 0),
+    );
+  }
+  const out = new Map<string, number>();
+  for (const id of eventIds) {
+    if (snapshotSums.has(id)) {
+      out.set(id, snapshotSums.get(id)!);
+    } else {
+      const clicks = clicksByEvent.get(id) ?? 0;
+      out.set(id, Math.round(clicks * FUNNEL_LPV_CLICKS_FALLBACK_RATIO));
+    }
+  }
+  return out;
+}
+
+type ActiveCreativesSnapRow = PatternSnapshotRow & {
+  payload: SnapshotPayloadForLpv;
+};
+
+async function fetchSnapshotLpvSumByEvent(
+  eventIds: string[],
+  preset: DatePreset,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (eventIds.length === 0) return result;
+
+  const sr = createServiceRoleClient();
+  const chunkSize = 120;
+  for (let i = 0; i < eventIds.length; i += chunkSize) {
+    const chunk = eventIds.slice(i, i + chunkSize);
+    const { data, error } = await sr
+      .from("active_creatives_snapshots")
+      .select("event_id,payload,fetched_at,build_version")
+      .in("event_id", chunk)
+      .eq("date_preset", preset)
+      .order("fetched_at", { ascending: false })
+      .limit(8000);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as ActiveCreativesSnapRow[];
+    const latest = selectLatestSnapshotsByEvent(rows);
+    for (const row of latest) {
+      result.set(row.event_id, sumLandingPageViewsFromSharePayload(row.payload));
+    }
+  }
+  return result;
 }
 
 function soldOutBenchmarkEvents(events: EventRow[]): EventRow[] {
