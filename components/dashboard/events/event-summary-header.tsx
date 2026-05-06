@@ -45,6 +45,13 @@ interface Props {
   timeframe: PerformanceSummaryTimeframe;
   /** All additional_spend_entries rows for this event (client-fetched or SSR). */
   additionalSpendEntries: ReadonlyArray<{ date: string; amount: number }>;
+  /**
+   * Multi-event venues: cumulative tier-channel sold / revenue replaces
+   * timeline-derived totals for the lifetime Performance summary row so it
+   * matches the expanded dashboard table.
+   */
+  tierLifetimeTickets?: number | null;
+  tierLifetimeRevenue?: number | null;
 }
 
 const GBP = new Intl.NumberFormat("en-GB", {
@@ -174,11 +181,23 @@ export function EventSummaryHeader({
   timeline,
   timeframe,
   additionalSpendEntries,
+  tierLifetimeTickets,
+  tierLifetimeRevenue,
 }: Props) {
   const m = useMemo(
     () =>
-      computeMetrics(event, timeline, timeframe, additionalSpendEntries),
-    [event, timeline, timeframe, additionalSpendEntries],
+      computeMetrics(event, timeline, timeframe, additionalSpendEntries, {
+        tierLifetimeTickets,
+        tierLifetimeRevenue,
+      }),
+    [
+      event,
+      timeline,
+      timeframe,
+      additionalSpendEntries,
+      tierLifetimeTickets,
+      tierLifetimeRevenue,
+    ],
   );
 
   return (
@@ -376,6 +395,10 @@ function computeMetrics(
   timeline: TimelineRow[],
   timeframe: PerformanceSummaryTimeframe,
   additionalSpendEntries: ReadonlyArray<{ date: string; amount: number }>,
+  tierOverrides?: {
+    tierLifetimeTickets?: number | null;
+    tierLifetimeRevenue?: number | null;
+  },
 ): Metrics {
   const window = windowDaySet(timeframe.datePreset, timeframe.customRange);
   const isBrandCampaign = event.kind === "brand_campaign";
@@ -405,6 +428,23 @@ function computeMetrics(
       revenueAll += Number(r.revenue);
       hasRevenue = true;
     }
+  }
+
+  const lifetimeWindow = window === null;
+  if (
+    lifetimeWindow &&
+    tierOverrides?.tierLifetimeTickets != null &&
+    Number.isFinite(tierOverrides.tierLifetimeTickets)
+  ) {
+    ticketsAll = tierOverrides.tierLifetimeTickets;
+  }
+  if (
+    lifetimeWindow &&
+    tierOverrides?.tierLifetimeRevenue != null &&
+    Number.isFinite(tierOverrides.tierLifetimeRevenue)
+  ) {
+    revenueAll = tierOverrides.tierLifetimeRevenue;
+    hasRevenue = true;
   }
 
   const adBudget = event.budget_marketing;

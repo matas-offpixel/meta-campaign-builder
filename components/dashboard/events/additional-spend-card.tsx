@@ -10,6 +10,7 @@ import {
   parseMoneyAmountInput,
   parseSpendDateToIso,
 } from "@/lib/additional-spend-parse";
+import { dedupeAdjacentApiPathSegment } from "@/lib/dedupe-adjacent-api-path-segment";
 
 type AdditionalSpendCategory =
   | "PR"
@@ -149,16 +150,19 @@ export function AdditionalSpendCard({
   }>({});
 
   const spendListUrl = (() => {
+    let raw: string;
     if (mode === "share" && shareToken) {
       if (scope.kind === "venue") {
-        return `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`;
+        raw = `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`;
+      } else {
+        raw = `/api/events/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`;
       }
-      return `/api/events/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`;
+    } else if (scope.kind === "venue") {
+      raw = `/api/clients/${encodeURIComponent(scope.clientId)}/venues/${encodeURIComponent(scope.venueEventCode)}/additional-spend`;
+    } else {
+      raw = `/api/events/${encodeURIComponent(scope.eventId)}/additional-spend`;
     }
-    if (scope.kind === "venue") {
-      return `/api/clients/${encodeURIComponent(scope.clientId)}/venues/${encodeURIComponent(scope.venueEventCode)}/additional-spend`;
-    }
-    return `/api/events/${encodeURIComponent(scope.eventId)}/additional-spend`;
+    return dedupeAdjacentApiPathSegment(raw, "additional-spend");
   })();
 
   const normalizeEntries = (raw: unknown[]): Entry[] =>
@@ -311,17 +315,23 @@ export function AdditionalSpendCard({
 
     setSaving(true);
     try {
-      const res = await fetch(`${spendListUrl}/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date: dateResult.isoDate,
-          amount: amountResult.value,
-          category: draftCategory,
-          label: draftLabel,
-          notes: draftNotes || null,
-        }),
-      });
+      const res = await fetch(
+        dedupeAdjacentApiPathSegment(
+          `${spendListUrl}/${encodeURIComponent(id)}`,
+          "additional-spend",
+        ),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date: dateResult.isoDate,
+            amount: amountResult.value,
+            category: draftCategory,
+            label: draftLabel,
+            notes: draftNotes || null,
+          }),
+        },
+      );
       const json = await safeJson<{
         ok?: boolean;
         error?: string;
@@ -346,9 +356,13 @@ export function AdditionalSpendCard({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${spendListUrl}/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        dedupeAdjacentApiPathSegment(
+          `${spendListUrl}/${encodeURIComponent(id)}`,
+          "additional-spend",
+        ),
+        { method: "DELETE" },
+      );
       const json = await safeJson<{ ok?: boolean; error?: string }>(res);
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? "Delete failed.");
