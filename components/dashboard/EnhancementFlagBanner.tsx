@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 
 import {
   Dialog,
@@ -24,15 +24,31 @@ interface Props {
   eventIds?: readonly string[] | null;
 }
 
+type ScanState = "idle" | "scanning" | "done" | "error";
+
 function adsManagerEditUrl(adAccountId: string, adId: string): string {
   const act = withoutActPrefix(adAccountId);
   const qs = new URLSearchParams({ act, selected_ad_ids: adId });
   return `https://www.facebook.com/adsmanager/manage/ads/edit?${qs.toString()}`;
 }
 
+function formatRelativeTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  return `${Math.floor(diffH / 24)}d ago`;
+}
+
 export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
   const [data, setData] = useState<EnhancementFlagsApiPayload | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [scanState, setScanState] = useState<ScanState>("idle");
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -59,16 +75,75 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
     });
   }, [load]);
 
+  const handleRescan = useCallback(async () => {
+    if (scanState === "scanning") return;
+    setScanState("scanning");
+
+    let secondsLeft = 60;
+    setScanMsg(`Scanning… ~${secondsLeft}s remaining`);
+    countdownRef.current = setInterval(() => {
+      secondsLeft -= 5;
+      if (secondsLeft > 0) {
+        setScanMsg(`Scanning… ~${secondsLeft}s remaining`);
+      }
+    }, 5_000);
+
+    try {
+      const res = await fetch(
+        `/api/internal/scan-enhancement-flags?clientId=${encodeURIComponent(clientId)}`,
+        { method: "POST", credentials: "include" },
+      );
+
+      clearInterval(countdownRef.current!);
+      countdownRef.current = null;
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        const errMsg = typeof body.error === "string" ? body.error : res.statusText;
+        const isRateLimit =
+          errMsg.toLowerCase().includes("rate limit") ||
+          errMsg.includes("80004");
+        setScanState("error");
+        setScanMsg(
+          isRateLimit
+            ? "Meta is rate-limiting this account. Retry in ~30 min."
+            : `Scan failed: ${errMsg}`,
+        );
+        return;
+      }
+
+      const json = (await res.json()) as { total_flagged_ads?: number };
+      const flagged = json.total_flagged_ads ?? 0;
+      setScanState("done");
+      setScanMsg(`Scan complete. ${flagged} ad${flagged !== 1 ? "s" : ""} flagged.`);
+      await load();
+    } catch (err) {
+      clearInterval(countdownRef.current ?? undefined);
+      countdownRef.current = null;
+      setScanState("error");
+      setScanMsg(err instanceof Error ? err.message : "Scan failed");
+    }
+  }, [clientId, load, scanState]);
+
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
+
   if (!data || data.total_open === 0) {
     return null;
   }
 
-  const { total_open, standard_enhancements_count } = data;
+  const { total_open, standard_enhancements_count, last_scan_at } = data;
 
   const summary =
     standard_enhancements_count > 0
       ? `${total_open} ads have unauthorized Meta enhancements (incl. ${standard_enhancements_count} with the standard-enhancements bundle).`
       : `${total_open} ads have unauthorized Meta enhancements.`;
+
+  const lastScanLabel = formatRelativeTime(last_scan_at);
+  const scanning = scanState === "scanning";
 
   const sortedFlags = [...data.open_flags].sort(
     (a, b) =>
@@ -93,6 +168,37 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
             >
               Review →
             </button>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <button
+              type="button"
+              disabled={scanning}
+              onClick={() => void handleRescan()}
+              className="inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-900 transition-opacity hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-200"
+            >
+              {scanning ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              {scanning ? "Scanning…" : "Re-scan now"}
+            </button>
+            {lastScanLabel && !scanMsg ? (
+              <span className="text-[10px] text-amber-700/70 dark:text-amber-300/60">
+                Last scan: {lastScanLabel}
+              </span>
+            ) : null}
+            {scanMsg ? (
+              <span
+                className={`text-[10px] ${
+                  scanState === "error"
+                    ? "text-red-700 dark:text-red-400"
+                    : "text-amber-700/70 dark:text-amber-300/60"
+                }`}
+              >
+                {scanMsg}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -171,7 +277,7 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
 
           <DialogFooter>
             <p className="w-full text-center text-xs text-muted-foreground">
-              One-click fix shipping in next release.
+              One-click acknowledge shipping in next release.
             </p>
           </DialogFooter>
         </DialogContent>
