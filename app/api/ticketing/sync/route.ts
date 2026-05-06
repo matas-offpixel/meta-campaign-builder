@@ -144,6 +144,7 @@ export async function POST(req: NextRequest) {
       const fetched = await provider.getEventSales(
         connection,
         link.external_event_id,
+        { apiBase: link.external_api_base ?? null },
       );
       await insertSnapshot(supabase, {
         userId: user.id,

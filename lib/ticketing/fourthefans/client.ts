@@ -40,9 +40,22 @@ interface FourthefansFetchOptions {
   query?: Record<string, string | number | string[] | undefined>;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Per-call API base URL override. When provided, this takes precedence over
+   * the `FOURTHEFANS_API_BASE` env var and `DEFAULT_API_BASE`. Use when a
+   * single bearer token serves multiple WordPress/WooCommerce booking sites
+   * (e.g. `wearefootballfestival.book.tickets` alongside the default
+   * `4thefans.book.tickets`). Sourced from
+   * `event_ticketing_links.external_api_base` (migration 083).
+   */
+  apiBase?: string | null;
 }
 
-function getBaseUrl(): string {
+function getBaseUrl(apiBaseOverride?: string | null): string {
+  if (apiBaseOverride && apiBaseOverride.trim()) {
+    const raw = apiBaseOverride.trim();
+    return raw.endsWith("/") ? raw : `${raw}/`;
+  }
   const envBase = process.env.FOURTHEFANS_API_BASE;
   const raw = envBase && envBase.trim() ? envBase.trim() : DEFAULT_API_BASE;
   return raw.endsWith("/") ? raw : `${raw}/`;
@@ -51,9 +64,10 @@ function getBaseUrl(): string {
 function buildUrl(
   endpoint: string,
   query?: FourthefansFetchOptions["query"],
+  apiBase?: string | null,
 ): string {
   const trimmed = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
-  const url = new URL(`${getBaseUrl()}${trimmed}`);
+  const url = new URL(`${getBaseUrl(apiBase)}${trimmed}`);
   if (!query) return url.toString();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null) continue;
@@ -80,7 +94,7 @@ export async function fourthefansGet<T = unknown>(
   endpoint: string,
   options: FourthefansFetchOptions = {},
 ): Promise<T> {
-  const url = buildUrl(endpoint, options.query);
+  const url = buildUrl(endpoint, options.query, options.apiBase);
   let lastError: FourthefansApiError | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {

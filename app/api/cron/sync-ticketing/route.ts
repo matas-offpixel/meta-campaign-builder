@@ -239,6 +239,7 @@ export async function GET(req: NextRequest) {
             provider.getEventSales(
               connectionForProvider,
               link.external_event_id,
+              { apiBase: link.external_api_base ?? null },
             ),
             new Promise((_, reject) =>
               setTimeout(

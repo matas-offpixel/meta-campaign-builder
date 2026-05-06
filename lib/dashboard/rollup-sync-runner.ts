@@ -857,6 +857,7 @@ export async function runRollupSyncForEvent(
               eventId,
               connection,
               externalEventId: link.external_event_id,
+              externalApiBase: link.external_api_base ?? null,
               todayStr,
             });
             rows = contrib.rows;
@@ -1158,6 +1159,8 @@ async function fetchFourthefansRollupSnapshotContribution(args: {
   eventId: string;
   connection: TicketingConnection;
   externalEventId: string;
+  /** Per-link API base override (migration 083). Null = use provider default. */
+  externalApiBase?: string | null;
   todayStr: string;
 }): Promise<{
   rows: Array<{ date: string; ticketsSold: number; revenue: number }>;
@@ -1176,6 +1179,7 @@ async function fetchFourthefansRollupSnapshotContribution(args: {
   const fetched = await provider.getEventSales(
     args.connection,
     args.externalEventId,
+    { apiBase: args.externalApiBase ?? null },
   );
   const ticketsSold = currentSnapshotDailyDelta({
     currentTotal: fetched.ticketsSold,
