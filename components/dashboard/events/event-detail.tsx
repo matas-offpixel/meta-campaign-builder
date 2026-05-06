@@ -821,6 +821,7 @@ export function EventDetail({
                                 meta_spend_cached: number | null;
                               }
                             ).meta_spend_cached ?? null,
+                          kind: event.kind ?? null,
                         }}
                         datePreset={reportDatePreset}
                         customRange={reportCustomRange}

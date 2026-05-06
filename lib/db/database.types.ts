@@ -836,6 +836,72 @@ export type Database = {
           },
         ]
       }
+      creative_enhancement_flags: {
+        Row: {
+          ad_account_id: string
+          ad_id: string
+          ad_name: string | null
+          campaign_id: string | null
+          client_id: string
+          creative_id: string
+          event_id: string | null
+          flagged_features: Json
+          id: string
+          raw_features_spec: Json
+          resolved_at: string | null
+          resolved_by_user_id: string | null
+          scanned_at: string
+          severity_score: number
+        }
+        Insert: {
+          ad_account_id: string
+          ad_id: string
+          ad_name?: string | null
+          campaign_id?: string | null
+          client_id: string
+          creative_id: string
+          event_id?: string | null
+          flagged_features: Json
+          id?: string
+          raw_features_spec: Json
+          resolved_at?: string | null
+          resolved_by_user_id?: string | null
+          scanned_at?: string
+          severity_score: number
+        }
+        Update: {
+          ad_account_id?: string
+          ad_id?: string
+          ad_name?: string | null
+          campaign_id?: string | null
+          client_id?: string
+          creative_id?: string
+          event_id?: string | null
+          flagged_features?: Json
+          id?: string
+          raw_features_spec?: Json
+          resolved_at?: string | null
+          resolved_by_user_id?: string | null
+          scanned_at?: string
+          severity_score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_enhancement_flags_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_enhancement_flags_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_insight_snapshots: {
         Row: {
           ad_account_id: string

@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { ClientPortal } from "@/components/share/client-portal";
 import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
@@ -134,6 +135,11 @@ export function DashboardTabs({
 
   const content = (
     <>
+      {!isShared ? (
+        <div className="mx-auto max-w-7xl px-6 pt-4">
+          <EnhancementFlagBanner clientId={clientId} />
+        </div>
+      ) : null}
       <div className="mx-auto max-w-7xl space-y-4 px-6 pt-4">
         {visibleRegions.length > 1 && selectedRegion ? (
           <nav
