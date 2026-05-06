@@ -1,16 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Select } from "@/components/ui/select";
+import { formatCampaignSpendGbp } from "@/lib/audiences/format-campaign-spend";
+import { filterPagesByQuery } from "@/lib/audiences/filter-pages-by-query";
+import { mergeVideoSourcesDeduped } from "@/lib/audiences/merge-video-sources";
+import {
+  fetchAudienceCampaignVideos,
+  fetchAudienceSourceList,
+} from "@/lib/audiences/source-picker-fetch";
 import type { AudienceSubtype } from "@/lib/types/audience";
 
 export interface SourceSelection {
   sourceId?: string;
   sourceName?: string;
   pageSlug?: string;
+  /** Multi-select FB pages (stored as comma sourceId + pageIds in meta). */
+  pageIds?: string[];
+  pageSummaries?: Array<{ id: string; name: string; slug?: string }>;
   campaignId?: string;
+  campaignIds?: string[];
   campaignName?: string;
+  campaignSummaries?: Array<{ id: string; name: string }>;
   videoIds?: string[];
   threshold?: 25 | 50 | 75 | 95 | 100;
   pixelId?: string;
@@ -53,93 +72,273 @@ interface VideoSource {
   length?: number;
 }
 
+interface VideoFetchState {
+  videos: VideoSource[];
+  loading: boolean;
+  error: string | null;
+  rateLimited: boolean;
+}
+
+function CampaignVideoFetcher({
+  clientId,
+  campaignIds,
+  onVideoRateLimitedChange,
+  children,
+}: {
+  clientId: string;
+  campaignIds: string[];
+  onVideoRateLimitedChange?: (rateLimited: boolean) => void;
+  children: (vf: VideoFetchState) => ReactNode;
+}) {
+  const [vf, setVf] = useState<VideoFetchState>({
+    videos: [],
+    loading: true,
+    error: null,
+    rateLimited: false,
+  });
+
+  const campaignIdsKey = campaignIds.join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAll() {
+      setVf({
+        videos: [],
+        loading: true,
+        error: null,
+        rateLimited: false,
+      });
+      const results = await Promise.all(
+        campaignIds.map((cid) =>
+          fetchAudienceCampaignVideos(
+            `/api/audiences/sources/campaign-videos?clientId=${clientId}&campaignId=${cid}`,
+          ),
+        ),
+      );
+      if (cancelled) return;
+      for (const r of results) {
+        if (!r.ok) {
+          setVf({
+            videos: [],
+            loading: false,
+            error: r.error,
+            rateLimited: r.rateLimited,
+          });
+          return;
+        }
+      }
+      const buckets = results.map((r) => {
+        if (!r.ok) return [];
+        return r.data.videos;
+      });
+      setVf({
+        videos: mergeVideoSourcesDeduped(buckets),
+        loading: false,
+        error: null,
+        rateLimited: false,
+      });
+    }
+    void loadAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, campaignIdsKey, campaignIds]);
+
+  useEffect(() => {
+    onVideoRateLimitedChange?.(vf.rateLimited);
+  }, [vf.rateLimited, onVideoRateLimitedChange]);
+
+  return <>{children(vf)}</>;
+}
+
 export function SourcePicker({
   clientId,
   subtype,
   value,
   onChange,
+  sourcePickerInstanceId,
+  onRateLimitChange,
 }: {
   clientId: string;
   subtype: AudienceSubtype;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  sourcePickerInstanceId?: string;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
+  const instanceId = sourcePickerInstanceId ?? `${clientId}:${subtype}`;
+
   if (subtype === "video_views") {
     return (
-      <VideoSourcePicker clientId={clientId} value={value} onChange={onChange} />
+      <VideoSourcePicker
+        clientId={clientId}
+        instanceId={instanceId}
+        value={value}
+        onChange={onChange}
+        onRateLimitChange={onRateLimitChange}
+      />
     );
   }
   if (subtype === "website_pixel") {
     return (
-      <PixelSourcePicker clientId={clientId} value={value} onChange={onChange} />
+      <PixelSourcePicker
+        clientId={clientId}
+        instanceId={instanceId}
+        value={value}
+        onChange={onChange}
+        onRateLimitChange={onRateLimitChange}
+      />
     );
   }
   if (subtype.endsWith("_ig")) {
-    return <IgSourcePicker clientId={clientId} value={value} onChange={onChange} />;
+    return (
+      <IgSourcePicker
+        clientId={clientId}
+        instanceId={instanceId}
+        value={value}
+        onChange={onChange}
+        onRateLimitChange={onRateLimitChange}
+      />
+    );
   }
-  return <PageSourcePicker clientId={clientId} value={value} onChange={onChange} />;
+  return (
+    <PageSourcePicker
+      clientId={clientId}
+      instanceId={instanceId}
+      value={value}
+      onChange={onChange}
+      onRateLimitChange={onRateLimitChange}
+    />
+  );
 }
 
 function PageSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: pages, loading, error } = useSource<PageSource[]>(
+  const { data: pages, loading, error, rateLimited } = useSource<PageSource[]>(
     `/api/audiences/sources/pages?clientId=${clientId}`,
     "pages",
+    instanceId,
+    onRateLimitChange,
   );
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(
+    () => filterPagesByQuery(pages ?? [], query),
+    [pages, query],
+  );
+
+  const selectedIds = useMemo(() => {
+    if (value.pageIds?.length) return new Set(value.pageIds);
+    if (value.sourceId) return new Set([value.sourceId]);
+    return new Set<string>();
+  }, [value.pageIds, value.sourceId]);
+
+  function togglePage(page: PageSource) {
+    const next = new Set(selectedIds);
+    if (next.has(page.id)) next.delete(page.id);
+    else next.add(page.id);
+    const ids = Array.from(next);
+    const summaries = ids
+      .map((id) => {
+        const p = (pages ?? []).find((x) => x.id === id);
+        return p
+          ? { id: p.id, name: p.name, slug: p.slug }
+          : { id, name: id };
+      });
+    const primary = summaries[0];
+    onChange({
+      ...value,
+      pageIds: ids,
+      pageSummaries: summaries,
+      sourceId: primary?.id,
+      sourceName: primary?.name,
+      pageSlug: primary?.slug,
+    });
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">Facebook Page</p>
-      <div className="grid gap-2 md:grid-cols-2">
-        {(pages ?? []).map((page) => (
-          <button
-            key={page.id}
-            type="button"
-            onClick={() =>
-              onChange({
-                ...value,
-                sourceId: page.id,
-                sourceName: page.name,
-                pageSlug: page.slug,
-              })
-            }
-            className={`rounded-md border p-3 text-left text-sm ${
-              value.sourceId === page.id
-                ? "border-primary bg-primary/10"
-                : "border-border bg-background"
-            }`}
-          >
-            <SourceAvatar src={page.thumbnailUrl} label={page.name} />
-            <p className="mt-2 font-medium">{page.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {page.slug ? `/${page.slug}` : page.id}
-            </p>
-          </button>
-        ))}
+      <label className="flex flex-col gap-1.5 text-sm font-medium">
+        Search pages
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter by name or slug…"
+          className="h-9 rounded-md border border-border-strong bg-background px-3 text-sm font-normal text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        {selectedIds.size} page{selectedIds.size === 1 ? "" : "s"} selected
+      </p>
+      <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-border p-2">
+        {filtered.map((page) => {
+          const checked = selectedIds.has(page.id);
+          return (
+            <label
+              key={page.id}
+              className={`flex cursor-pointer items-start gap-3 rounded-md border p-2 text-sm ${
+                checked ? "border-primary bg-primary/10" : "border-border bg-background"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => togglePage(page)}
+                className="mt-1"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <SourceAvatar src={page.thumbnailUrl} label={page.name} />
+                  <span className="font-medium">{page.name}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {page.slug ? `/${page.slug}` : page.id}
+                </p>
+              </div>
+            </label>
+          );
+        })}
       </div>
-      <SourceState loading={loading} error={error} empty={!loading && pages?.length === 0} />
+      <SourceState
+        loading={loading}
+        error={error}
+        rateLimited={rateLimited}
+        empty={!loading && filtered.length === 0}
+      />
     </div>
   );
 }
 
 function IgSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: pages, loading, error } = useSource<PageSource[]>(
+  const { data: pages, loading, error, rateLimited } = useSource<PageSource[]>(
     `/api/audiences/sources/pages?clientId=${clientId}`,
     "pages",
+    instanceId,
+    onRateLimitChange,
   );
   const accounts = useMemo(() => {
     const seen = new Map<string, NonNullable<PageSource["instagramBusinessAccount"]> & { pageName: string }>();
@@ -150,82 +349,112 @@ function IgSourcePicker({
     return Array.from(seen.values());
   }, [pages]);
 
+  const comboboxOptions: ComboboxOption[] = useMemo(
+    () =>
+      accounts.map((account) => ({
+        value: account.id,
+        label: account.username
+          ? `@${account.username}`
+          : account.name ?? account.id,
+        sublabel: `${account.pageName}${account.name && account.name !== account.username ? ` · ${account.name}` : ""}`,
+      })),
+    [accounts],
+  );
+
   return (
     <div className="space-y-2">
-      <Select
-        id="ig-source"
+      <Combobox
         label="Instagram account"
         value={value.sourceId ?? ""}
-        onChange={(event) => {
-          const account = accounts.find((ig) => ig.id === event.target.value);
+        onChange={(nextId) => {
+          const account = accounts.find((ig) => ig.id === nextId);
           onChange({
             ...value,
             sourceId: account?.id ?? "",
             sourceName: account?.username ?? account?.name ?? account?.id,
           });
         }}
-        placeholder="Choose IG account"
-        options={accounts.map((account) => ({
-          value: account.id,
-          label: `${account.username ? `@${account.username}` : account.name ?? account.id} · ${account.pageName}`,
-        }))}
+        placeholder="Search by handle or page…"
+        options={comboboxOptions}
+        loading={loading}
+        emptyText="No Instagram accounts match"
       />
-      <SourceState loading={loading} error={error} empty={!loading && accounts.length === 0} />
+      <SourceState
+        loading={loading}
+        error={error}
+        rateLimited={rateLimited}
+        empty={!loading && accounts.length === 0}
+      />
     </div>
   );
 }
 
 function VideoSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: campaigns, loading, error } = useSource<CampaignSource[]>(
-    `/api/audiences/sources/campaigns?clientId=${clientId}&limit=50`,
-    "campaigns",
-  );
-  const [videos, setVideos] = useState<VideoSource[]>([]);
-  const [videoLoading, setVideoLoading] = useState(false);
-  const [videoError, setVideoError] = useState<string | null>(null);
-
+  const onRateLimitChangeRef = useRef(onRateLimitChange);
   useEffect(() => {
-    if (!value.campaignId) return;
-    let cancelled = false;
-    async function loadVideos() {
-      setVideoLoading(true);
-      setVideoError(null);
-      try {
-        const res = await fetch(
-          `/api/audiences/sources/campaign-videos?clientId=${clientId}&campaignId=${value.campaignId}`,
-        );
-        const json = (await res.json()) as
-          | { ok: true; campaignName: string; videos: VideoSource[] }
-          | { error: string };
-        if (!res.ok || !("ok" in json)) {
-          throw new Error("error" in json ? json.error : "Failed to load videos");
-        }
-        if (!cancelled) {
-          setVideos(json.videos);
-          onChange({ ...value, campaignName: json.campaignName });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setVideoError(err instanceof Error ? err.message : "Failed to load videos");
-        }
-      } finally {
-        if (!cancelled) setVideoLoading(false);
-      }
-    }
-    void loadVideos();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, value.campaignId]);
+    onRateLimitChangeRef.current = onRateLimitChange;
+  }, [onRateLimitChange]);
+
+  const { data: campaigns, loading, error, rateLimited: campaignsRateLimited } =
+    useSource<CampaignSource[]>(
+      `/api/audiences/sources/campaigns?clientId=${clientId}&limit=50`,
+      "campaigns",
+      instanceId,
+      undefined,
+    );
+
+  const [videoRl, setVideoRl] = useState(false);
+  const [campaignQuery, setCampaignQuery] = useState("");
+
+  const selectedCampaignIds = useMemo(() => {
+    if (value.campaignIds?.length) return value.campaignIds;
+    if (value.campaignId) return [value.campaignId];
+    return [];
+  }, [value.campaignIds, value.campaignId]);
+
+  const campaignKey = selectedCampaignIds.slice().sort().join(",");
+
+  const filteredCampaigns = useMemo(() => {
+    const list = campaigns ?? [];
+    const q = campaignQuery.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q),
+    );
+  }, [campaigns, campaignQuery]);
+
+  function toggleCampaign(id: string) {
+    const next = new Set(selectedCampaignIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    const ids = Array.from(next);
+    const summaries = ids.map((cid) => {
+      const c = (campaigns ?? []).find((x) => x.id === cid);
+      return { id: cid, name: c?.name ?? cid };
+    });
+    onChange({
+      ...value,
+      campaignIds: ids,
+      campaignId: ids[0],
+      campaignSummaries: summaries,
+      campaignName: summaries[0]?.name,
+      videoIds: [],
+    });
+  }
 
   function toggleVideo(videoId: string) {
     const current = new Set(value.videoIds ?? []);
@@ -234,27 +463,55 @@ function VideoSourcePicker({
     onChange({ ...value, videoIds: Array.from(current) });
   }
 
+  useEffect(() => {
+    const merged =
+      campaignsRateLimited || (campaignKey ? videoRl : false);
+    onRateLimitChangeRef.current?.(instanceId, merged);
+    return () => {
+      onRateLimitChangeRef.current?.(instanceId, false);
+    };
+  }, [campaignsRateLimited, videoRl, campaignKey, instanceId]);
+
   return (
     <div className="space-y-3">
-      <Select
-        id="campaign-source"
-        label="Source campaign"
-        value={value.campaignId ?? ""}
-        onChange={(event) => {
-          const campaign = (campaigns ?? []).find((c) => c.id === event.target.value);
-          onChange({
-            ...value,
-            campaignId: campaign?.id ?? "",
-            campaignName: campaign?.name,
-            videoIds: [],
-          });
-        }}
-        placeholder="Choose campaign"
-        options={(campaigns ?? []).map((campaign) => ({
-          value: campaign.id,
-          label: `${campaign.name} · spend ${campaign.spend.toFixed(2)}`,
-        }))}
-      />
+      <label className="flex flex-col gap-1.5 text-sm font-medium">
+        Search campaigns
+        <input
+          type="search"
+          value={campaignQuery}
+          onChange={(e) => setCampaignQuery(e.target.value)}
+          placeholder="Filter by name or id…"
+          className="h-9 rounded-md border border-border-strong bg-background px-3 text-sm font-normal text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Select one or more campaigns (sorted by lifetime spend). Spend shown in GBP.
+      </p>
+      <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+        {filteredCampaigns.map((campaign) => {
+          const checked = selectedCampaignIds.includes(campaign.id);
+          return (
+            <label
+              key={campaign.id}
+              className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                checked ? "bg-primary/10" : ""
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggleCampaign(campaign.id)}
+              />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {campaign.name}
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatCampaignSpendGbp(campaign.spend)}
+              </span>
+            </label>
+          );
+        })}
+      </div>
       <Select
         id="video-threshold"
         label="View threshold"
@@ -270,55 +527,88 @@ function VideoSourcePicker({
           label: `${threshold}%`,
         }))}
       />
-      <div className="grid gap-2 md:grid-cols-3">
-        {videos.map((video) => (
-          <button
-            key={video.id}
-            type="button"
-            onClick={() => toggleVideo(video.id)}
-            className={`rounded-md border p-2 text-left text-xs ${
-              value.videoIds?.includes(video.id)
-                ? "border-primary bg-primary/10"
-                : "border-border bg-background"
-            }`}
-          >
-            {video.thumbnailUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={video.thumbnailUrl}
-                alt=""
-                className="aspect-video w-full rounded object-cover"
+      {campaignKey ? (
+        <CampaignVideoFetcher
+          key={campaignKey}
+          clientId={clientId}
+          campaignIds={selectedCampaignIds}
+          onVideoRateLimitedChange={setVideoRl}
+        >
+          {(vf) => (
+            <>
+              <div className="grid gap-2 md:grid-cols-3">
+                {vf.videos.map((video) => (
+                  <button
+                    key={video.id}
+                    type="button"
+                    onClick={() => toggleVideo(video.id)}
+                    className={`rounded-md border p-2 text-left text-xs ${
+                      value.videoIds?.includes(video.id)
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-background"
+                    }`}
+                  >
+                    {video.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={video.thumbnailUrl}
+                        alt=""
+                        className="aspect-video w-full rounded object-cover"
+                      />
+                    ) : (
+                      <div className="aspect-video rounded bg-muted" />
+                    )}
+                    <p className="mt-1 line-clamp-2 font-medium">
+                      {video.title || video.id}
+                    </p>
+                  </button>
+                ))}
+              </div>
+              <SourceState
+                loading={loading || vf.loading}
+                error={error ?? vf.error}
+                rateLimited={campaignsRateLimited || vf.rateLimited}
+                empty={
+                  !loading &&
+                  !vf.loading &&
+                  selectedCampaignIds.length > 0 &&
+                  vf.videos.length === 0 &&
+                  !(error ?? vf.error)
+                }
               />
-            ) : (
-              <div className="aspect-video rounded bg-muted" />
-            )}
-            <p className="mt-1 line-clamp-2 font-medium">
-              {video.title || video.id}
-            </p>
-          </button>
-        ))}
-      </div>
-      <SourceState
-        loading={loading || videoLoading}
-        error={error ?? videoError}
-        empty={!loading && !videoLoading && Boolean(value.campaignId) && videos.length === 0}
-      />
+            </>
+          )}
+        </CampaignVideoFetcher>
+      ) : (
+        <SourceState
+          loading={loading}
+          error={error}
+          rateLimited={campaignsRateLimited}
+          empty={false}
+        />
+      )}
     </div>
   );
 }
 
 function PixelSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: pixels, loading, error } = useSource<PixelSource[]>(
+  const { data: pixels, loading, error, rateLimited } = useSource<PixelSource[]>(
     `/api/audiences/sources/pixels?clientId=${clientId}`,
     "pixels",
+    instanceId,
+    onRateLimitChange,
   );
   const [customEvent, setCustomEvent] = useState("");
   const eventValue = value.pixelEvent ?? "PageView";
@@ -394,39 +684,59 @@ function PixelSourcePicker({
           onChange={(urlContains) => onChange({ ...value, urlContains })}
         />
       )}
-      <SourceState loading={loading} error={error} empty={!loading && pixels?.length === 0} />
+      <SourceState
+        loading={loading}
+        error={error}
+        rateLimited={rateLimited}
+        empty={!loading && pixels?.length === 0}
+      />
     </div>
   );
 }
 
-function useSource<T>(url: string, key: string) {
+function useSource<T>(
+  url: string,
+  key: string,
+  instanceId: string,
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void,
+) {
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimited, setRateLimited] = useState(false);
+  const onRateLimitChangeRef = useRef(onRateLimitChange);
+  useEffect(() => {
+    onRateLimitChangeRef.current = onRateLimitChange;
+  }, [onRateLimitChange]);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- fetch lifecycle when URL changes */
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(url);
-        const json = (await res.json()) as Record<string, unknown>;
-        if (!res.ok) throw new Error(String(json.error ?? "Failed to load source"));
-        if (!cancelled) setData(json[key] as T);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load source");
-      } finally {
-        if (!cancelled) setLoading(false);
+    setLoading(true);
+    setError(null);
+    setRateLimited(false);
+
+    void fetchAudienceSourceList<T>(url, key).then((result) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error);
+        setRateLimited(result.rateLimited);
+        onRateLimitChangeRef.current?.(instanceId, result.rateLimited);
+        return;
       }
-    }
-    void load();
+      setData(result.data);
+      onRateLimitChangeRef.current?.(instanceId, false);
+    });
+
     return () => {
       cancelled = true;
+      onRateLimitChangeRef.current?.(instanceId, false);
     };
-  }, [key, url]);
+  }, [url, key, instanceId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  return { data, loading, error };
+  return { data, loading, error, rateLimited };
 }
 
 function SourceAvatar({ src, label }: { src?: string; label: string }) {
@@ -444,15 +754,33 @@ function SourceAvatar({ src, label }: { src?: string; label: string }) {
 function SourceState({
   loading,
   error,
+  rateLimited,
   empty,
 }: {
   loading: boolean;
   error: string | null;
+  rateLimited?: boolean;
   empty: boolean;
 }) {
-  if (loading) return <p className="text-xs text-muted-foreground">Loading sources...</p>;
-  if (error) return <p className="text-xs text-destructive">{error}</p>;
-  if (empty) return <p className="text-xs text-muted-foreground">No sources found.</p>;
+  if (loading) {
+    return <p className="text-xs text-muted-foreground">Loading sources...</p>;
+  }
+  if (error) {
+    return (
+      <p
+        className={`text-xs ${
+          rateLimited
+            ? "text-amber-800 dark:text-amber-200"
+            : "text-destructive"
+        }`}
+      >
+        {error}
+      </p>
+    );
+  }
+  if (empty) {
+    return <p className="text-xs text-muted-foreground">No sources found.</p>;
+  }
   return null;
 }
 

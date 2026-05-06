@@ -358,11 +358,29 @@ function sourceDescription(audience: MetaCustomAudience): string {
   const meta = audience.sourceMeta as Record<string, unknown>;
   if (audience.audienceSubtype.startsWith("page_")) {
     const source = audience.audienceSubtype.endsWith("_ig") ? "IG" : "FB Page";
+    const pageIds = meta.pageIds as string[] | undefined;
+    if (Array.isArray(pageIds) && pageIds.length > 1) {
+      const first = String(meta.pageName ?? meta.pageSlug ?? pageIds[0]);
+      const rest = pageIds.length - 1;
+      return `${source}: ${first} + ${rest} other${rest === 1 ? "" : "s"}`;
+    }
     return `${source}: ${String(meta.pageName ?? meta.pageSlug ?? audience.sourceId)}`;
   }
   if (audience.audienceSubtype === "video_views") {
     const videos = Array.isArray(meta.videoIds) ? meta.videoIds.length : 0;
-    return `Campaign: ${String(meta.campaignName ?? "Selected campaign")} (${videos} videos)`;
+    const summaries = meta.campaignSummaries as
+      | Array<{ id: string; name: string }>
+      | undefined;
+    if (Array.isArray(summaries) && summaries.length > 0) {
+      const firstName = summaries[0]!.name;
+      const others = summaries.length - 1;
+      const middle =
+        others > 0
+          ? `${firstName} + ${others} other${others === 1 ? "" : "s"}`
+          : firstName;
+      return `Campaigns: ${middle} (${videos} videos)`;
+    }
+    return `Campaigns: ${String(meta.campaignName ?? "Selected campaign")} (${videos} videos)`;
   }
   if (audience.audienceSubtype === "website_pixel") {
     return `Pixel: ${String(meta.pixelName ?? audience.sourceId)} (${String(meta.pixelEvent ?? "PageView")})`;

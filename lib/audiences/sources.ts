@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { extractVideoIdsFromCreative } from "./extract-video-ids-from-creative.ts";
 import { withActPrefix, withoutActPrefix } from "../meta/ad-account-id.ts";
 import {
   fetchBusinessIdForAccount,
@@ -83,17 +84,7 @@ interface RawPixel {
 
 interface RawAd {
   id: string;
-  creative?: {
-    id?: string;
-    name?: string;
-    video_id?: string;
-    object_story_spec?: {
-      video_data?: { video_id?: string };
-    };
-    asset_feed_spec?: {
-      videos?: Array<{ video_id?: string }>;
-    };
-  };
+  creative?: Record<string, unknown>;
 }
 
 interface RawVideo {
@@ -221,9 +212,6 @@ export async function fetchAudienceCampaigns(
   token: string,
   limit: number,
 ): Promise<AudienceCampaignSource[]> {
-  const since = Math.floor(
-    Date.now() / 1000 - 365 * 24 * 60 * 60,
-  );
   const res = await graphGetWithToken<GraphPagedResponse<
     RawMetaCampaign & {
       insights?: { data?: Array<{ spend?: string }> };
@@ -231,10 +219,8 @@ export async function fetchAudienceCampaigns(
   >>(
     `/${withActPrefix(adAccountId)}/campaigns`,
     {
-      fields: "id,name,effective_status,created_time,insights.date_preset(last_year){spend}",
-      filtering: JSON.stringify([
-        { field: "created_time", operator: "GREATER_THAN", value: since },
-      ]),
+      fields:
+        "id,name,effective_status,created_time,insights.date_preset(lifetime){spend}",
       limit: String(Math.min(Math.max(limit, 1), 50)),
     },
     token,
@@ -269,7 +255,7 @@ export async function fetchAudienceCampaignVideos(
     `/${campaignId}/ads`,
     {
       fields:
-        "id,creative{id,name,video_id,object_story_spec{video_data},asset_feed_spec}",
+        "id,creative{id,name,video_id,object_story_spec{video_data},asset_feed_spec,platform_customizations}",
       limit: "500",
     },
     token,
@@ -277,14 +263,8 @@ export async function fetchAudienceCampaignVideos(
 
   const videoIds = new Set<string>();
   for (const ad of ads.data ?? []) {
-    const creative = ad.creative;
-    const direct =
-      creative?.video_id ??
-      creative?.object_story_spec?.video_data?.video_id ??
-      null;
-    if (direct) videoIds.add(direct);
-    for (const video of creative?.asset_feed_spec?.videos ?? []) {
-      if (video.video_id) videoIds.add(video.video_id);
+    for (const id of extractVideoIdsFromCreative(ad.creative)) {
+      videoIds.add(id);
     }
   }
 

@@ -27,30 +27,32 @@ export function buildMetaCustomAudiencePayload(
     const isFollowers =
       audience.audienceSubtype === "page_followers_fb" ||
       audience.audienceSubtype === "page_followers_ig";
+    const pageMeta = sourceMeta as { pageIds?: string[] };
+    const pageIds =
+      Array.isArray(pageMeta.pageIds) && pageMeta.pageIds.length > 0
+        ? pageMeta.pageIds
+        : audience.sourceId.split(",").map((s) => s.trim()).filter(Boolean);
+    const rules = pageIds.map((pageId) => ({
+      event_sources: [{ type: isIg ? "ig_business" : "page", id: pageId }],
+      retention_seconds: retentionSeconds,
+      filter: {
+        operator: "and",
+        filters: [
+          {
+            field: "event",
+            operator: "eq",
+            value: isFollowers ? "page_liked" : "page_engaged",
+          },
+        ],
+      },
+    }));
     return {
       ...base,
       subtype: "ENGAGEMENT",
       rule: JSON.stringify({
         inclusions: {
           operator: "or",
-          rules: [
-            {
-              event_sources: [
-                { type: isIg ? "ig_business" : "page", id: audience.sourceId },
-              ],
-              retention_seconds: retentionSeconds,
-              filter: {
-                operator: "and",
-                filters: [
-                  {
-                    field: "event",
-                    operator: "eq",
-                    value: isFollowers ? "page_liked" : "page_engaged",
-                  },
-                ],
-              },
-            },
-          ],
+          rules,
         },
       }),
     };

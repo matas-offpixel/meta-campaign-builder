@@ -273,13 +273,23 @@ function mergeSourceMeta(
       Array.isArray(merged.videoIds) && merged.videoIds.length > 0
         ? merged.videoIds
         : sourceId.split(",");
+    const campaignIds =
+      Array.isArray(merged.campaignIds) && merged.campaignIds.length > 0
+        ? merged.campaignIds.map(String).map((id) => id.trim()).filter(Boolean)
+        : typeof merged.campaignId === "string" && merged.campaignId.trim()
+          ? [merged.campaignId.trim()]
+          : [];
+    const campaignSummaries = Array.isArray(merged.campaignSummaries)
+      ? (merged.campaignSummaries as Array<{ id: string; name: string }>)
+      : undefined;
     return {
       subtype,
       threshold: normalizeVideoThreshold(merged.threshold),
-      campaignId:
-        typeof merged.campaignId === "string" ? merged.campaignId : undefined,
+      campaignId: campaignIds[0],
+      campaignIds: campaignIds.length ? campaignIds : undefined,
       campaignName:
         typeof merged.campaignName === "string" ? merged.campaignName : undefined,
+      campaignSummaries,
       videoIds: rawVideoIds.map(String).map((id) => id.trim()).filter(Boolean),
     };
   }
@@ -296,10 +306,18 @@ function mergeSourceMeta(
         typeof merged.pixelName === "string" ? merged.pixelName : undefined,
     };
   }
+  const pageIdsSplit = sourceId.split(",").map((s) => s.trim()).filter(Boolean);
+  const pageIdsMerged = merged.pageIds;
+  const pageIds =
+    Array.isArray(pageIdsMerged) && pageIdsMerged.length > 0
+      ? pageIdsMerged.map(String).map((s) => s.trim()).filter(Boolean)
+      : pageIdsSplit;
+
   return {
     subtype,
     pageSlug: typeof merged.pageSlug === "string" ? merged.pageSlug : undefined,
     pageName: typeof merged.pageName === "string" ? merged.pageName : undefined,
+    pageIds: pageIds.length > 0 ? pageIds : undefined,
   };
 }
 
