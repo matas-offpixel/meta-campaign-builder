@@ -47,6 +47,9 @@ export interface AudienceCampaignSource {
   effectiveStatus?: string;
   createdTime?: string;
   spend: number;
+  /** Impressions over the last 12 months; populated when spend is 0 so the UI can show
+   *  activity signal for archived / brand campaigns that ran historically. */
+  impressions?: number;
 }
 
 export interface AudienceVideoSource {
@@ -215,26 +218,30 @@ export async function fetchAudienceCampaigns(
   // Campaign-level insights: `lifetime` is not a valid date_preset in field expansion; `last_year` matches the 12-month spend label in the UI.
   const res = await graphGetWithToken<GraphPagedResponse<
     RawMetaCampaign & {
-      insights?: { data?: Array<{ spend?: string }> };
+      insights?: { data?: Array<{ spend?: string; impressions?: string }> };
     }
   >>(
     `/${withActPrefix(adAccountId)}/campaigns`,
     {
       fields:
-        "id,name,effective_status,created_time,insights.date_preset(last_year){spend}",
-      limit: String(Math.min(Math.max(limit, 1), 50)),
+        "id,name,effective_status,created_time,insights.date_preset(last_year){spend,impressions}",
+      limit: String(Math.min(Math.max(limit, 1), 200)),
     },
     token,
   );
   return (res.data ?? [])
-    .map((campaign) => ({
-      id: campaign.id,
-      name: campaign.name,
-      effectiveStatus: campaign.effective_status,
-      createdTime: campaign.created_time,
-      spend: Number(campaign.insights?.data?.[0]?.spend ?? 0) || 0,
-    }))
-    .sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name));
+    .map((campaign) => {
+      const insightRow = campaign.insights?.data?.[0];
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        effectiveStatus: campaign.effective_status,
+        createdTime: campaign.created_time,
+        spend: Number(insightRow?.spend ?? 0) || 0,
+        impressions: Number(insightRow?.impressions ?? 0) || 0,
+      };
+    })
+    .sort((a, b) => b.spend - a.spend || (b.impressions ?? 0) - (a.impressions ?? 0) || a.name.localeCompare(b.name));
 }
 
 export async function fetchAudienceCampaignVideos(
