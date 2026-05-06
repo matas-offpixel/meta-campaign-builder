@@ -3,7 +3,9 @@ import "server-only";
 import type { DatePreset } from "@/lib/insights/types";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
-  bucketEventToClientRegion,
+  assignEventToDashboardTab,
+  categorizeEvent,
+  isGeographicRegionKey,
   parseClientRegionKey,
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
@@ -168,7 +170,7 @@ export async function refreshDerivedFunnelPacingTargets(): Promise<{
     const events = await fetchEvents(supabase, client.id);
     const grouped = new Map<ClientRegionKey, EventRow[]>();
     for (const event of events) {
-      const region = bucketEventToClientRegion(event);
+      const region = assignEventToDashboardTab(event);
       const list = grouped.get(region) ?? [];
       list.push(event);
       grouped.set(region, list);
@@ -250,7 +252,12 @@ async function deriveAndUpsertTarget(
   const userId = events[0]?.user_id;
   if (!userId) throw new Error("No events available for funnel pacing scope");
 
-  const soldOutEvents = soldOutBenchmarkEvents(events);
+  const soldOutEvents = await resolveFunnelBenchmarkEvents(
+    supabase,
+    clientId,
+    scope,
+    events,
+  );
   const rollups = await fetchRollups(
     supabase,
     soldOutEvents.map((event) => event.id),
@@ -342,6 +349,42 @@ async function fetchRollups(
   return (data ?? []) as RollupRow[];
 }
 
+async function resolveFunnelBenchmarkEvents(
+  supabase: FunnelSupabaseClient,
+  clientId: string,
+  scope: { type: ScopeType; value: string },
+  scopedEvents: EventRow[],
+): Promise<EventRow[]> {
+  if (scope.type !== "client_region") {
+    return soldOutBenchmarkEvents(scopedEvents);
+  }
+
+  const region = parseClientRegionKey(scope.value);
+  if (!region) {
+    return soldOutBenchmarkEvents(scopedEvents);
+  }
+
+  if (region === "club_football") {
+    const sold = soldOutBenchmarkEvents(scopedEvents);
+    const leeds = sold.find(
+      (e) => (e.event_code ?? "").toUpperCase() === "LEEDS26-FACUP",
+    );
+    return leeds ? [leeds] : sold;
+  }
+
+  if (region === "op_own") {
+    return soldOutBenchmarkEvents(scopedEvents);
+  }
+
+  if (isGeographicRegionKey(region)) {
+    const all = await fetchEvents(supabase, clientId);
+    const wcOnly = all.filter((e) => categorizeEvent(e) === "wc26");
+    return soldOutBenchmarkEvents(wcOnly);
+  }
+
+  return soldOutBenchmarkEvents(scopedEvents);
+}
+
 function applyRegionFilter(
   events: EventRow[],
   filter: CreativePatternRegionFilter | undefined,
@@ -352,7 +395,7 @@ function applyRegionFilter(
   }
   const region = parseClientRegionKey(filter.value);
   if (!region) return events;
-  return events.filter((event) => bucketEventToClientRegion(event) === region);
+  return events.filter((event) => assignEventToDashboardTab(event) === region);
 }
 
 function scopeFromFilter(
