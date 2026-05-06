@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Select } from "@/components/ui/select";
+import {
+  fetchAudienceCampaignVideos,
+  fetchAudienceSourceList,
+} from "@/lib/audiences/source-picker-fetch";
 import type { AudienceSubtype } from "@/lib/types/audience";
 
 export interface SourceSelection {
@@ -58,40 +62,82 @@ export function SourcePicker({
   subtype,
   value,
   onChange,
+  sourcePickerInstanceId,
+  onRateLimitChange,
 }: {
   clientId: string;
   subtype: AudienceSubtype;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  /** Distinct per mounted picker (e.g. bundle row id); defaults to clientId:subtype. */
+  sourcePickerInstanceId?: string;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
+  const instanceId =
+    sourcePickerInstanceId ?? `${clientId}:${subtype}`;
+
   if (subtype === "video_views") {
     return (
-      <VideoSourcePicker clientId={clientId} value={value} onChange={onChange} />
+      <VideoSourcePicker
+        clientId={clientId}
+        instanceId={instanceId}
+        value={value}
+        onChange={onChange}
+        onRateLimitChange={onRateLimitChange}
+      />
     );
   }
   if (subtype === "website_pixel") {
     return (
-      <PixelSourcePicker clientId={clientId} value={value} onChange={onChange} />
+      <PixelSourcePicker
+        clientId={clientId}
+        instanceId={instanceId}
+        value={value}
+        onChange={onChange}
+        onRateLimitChange={onRateLimitChange}
+      />
     );
   }
   if (subtype.endsWith("_ig")) {
-    return <IgSourcePicker clientId={clientId} value={value} onChange={onChange} />;
+    return (
+      <IgSourcePicker
+        clientId={clientId}
+        instanceId={instanceId}
+        value={value}
+        onChange={onChange}
+        onRateLimitChange={onRateLimitChange}
+      />
+    );
   }
-  return <PageSourcePicker clientId={clientId} value={value} onChange={onChange} />;
+  return (
+    <PageSourcePicker
+      clientId={clientId}
+      instanceId={instanceId}
+      value={value}
+      onChange={onChange}
+      onRateLimitChange={onRateLimitChange}
+    />
+  );
 }
 
 function PageSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: pages, loading, error } = useSource<PageSource[]>(
+  const { data: pages, loading, error, rateLimited } = useSource<PageSource[]>(
     `/api/audiences/sources/pages?clientId=${clientId}`,
     "pages",
+    instanceId,
+    onRateLimitChange,
   );
   return (
     <div className="space-y-2">
@@ -123,23 +169,34 @@ function PageSourcePicker({
           </button>
         ))}
       </div>
-      <SourceState loading={loading} error={error} empty={!loading && pages?.length === 0} />
+      <SourceState
+        loading={loading}
+        error={error}
+        rateLimited={rateLimited}
+        empty={!loading && pages?.length === 0}
+      />
     </div>
   );
 }
 
 function IgSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: pages, loading, error } = useSource<PageSource[]>(
+  const { data: pages, loading, error, rateLimited } = useSource<PageSource[]>(
     `/api/audiences/sources/pages?clientId=${clientId}`,
     "pages",
+    instanceId,
+    onRateLimitChange,
   );
   const accounts = useMemo(() => {
     const seen = new Map<string, NonNullable<PageSource["instagramBusinessAccount"]> & { pageName: string }>();
@@ -170,62 +227,46 @@ function IgSourcePicker({
           label: `${account.username ? `@${account.username}` : account.name ?? account.id} · ${account.pageName}`,
         }))}
       />
-      <SourceState loading={loading} error={error} empty={!loading && accounts.length === 0} />
+      <SourceState
+        loading={loading}
+        error={error}
+        rateLimited={rateLimited}
+        empty={!loading && accounts.length === 0}
+      />
     </div>
   );
 }
 
 function VideoSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: campaigns, loading, error } = useSource<CampaignSource[]>(
-    `/api/audiences/sources/campaigns?clientId=${clientId}&limit=50`,
-    "campaigns",
-  );
+  const onRateLimitChangeRef = useRef(onRateLimitChange);
+
+  useEffect(() => {
+    onRateLimitChangeRef.current = onRateLimitChange;
+  }, [onRateLimitChange]);
+
+  const { data: campaigns, loading, error, rateLimited: campaignsRateLimited } =
+    useSource<CampaignSource[]>(
+      `/api/audiences/sources/campaigns?clientId=${clientId}&limit=50`,
+      "campaigns",
+      instanceId,
+      undefined,
+    );
   const [videos, setVideos] = useState<VideoSource[]>([]);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!value.campaignId) return;
-    let cancelled = false;
-    async function loadVideos() {
-      setVideoLoading(true);
-      setVideoError(null);
-      try {
-        const res = await fetch(
-          `/api/audiences/sources/campaign-videos?clientId=${clientId}&campaignId=${value.campaignId}`,
-        );
-        const json = (await res.json()) as
-          | { ok: true; campaignName: string; videos: VideoSource[] }
-          | { error: string };
-        if (!res.ok || !("ok" in json)) {
-          throw new Error("error" in json ? json.error : "Failed to load videos");
-        }
-        if (!cancelled) {
-          setVideos(json.videos);
-          onChange({ ...value, campaignName: json.campaignName });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setVideoError(err instanceof Error ? err.message : "Failed to load videos");
-        }
-      } finally {
-        if (!cancelled) setVideoLoading(false);
-      }
-    }
-    void loadVideos();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, value.campaignId]);
+  const [videoRateLimited, setVideoRateLimited] = useState(false);
 
   function toggleVideo(videoId: string) {
     const current = new Set(value.videoIds ?? []);
@@ -233,6 +274,49 @@ function VideoSourcePicker({
     else current.add(videoId);
     onChange({ ...value, videoIds: Array.from(current) });
   }
+
+  useEffect(() => {
+    if (!value.campaignId) {
+      setVideos([]);
+      setVideoError(null);
+      setVideoRateLimited(false);
+      return;
+    }
+    let cancelled = false;
+    async function loadVideos() {
+      setVideoLoading(true);
+      setVideoError(null);
+      setVideoRateLimited(false);
+      const url = `/api/audiences/sources/campaign-videos?clientId=${clientId}&campaignId=${value.campaignId}`;
+      const result = await fetchAudienceCampaignVideos(url);
+      if (cancelled) return;
+      setVideoLoading(false);
+      if (!result.ok) {
+        setVideoError(result.error);
+        setVideoRateLimited(result.rateLimited);
+        return;
+      }
+      setVideos(result.data.videos);
+      setVideoRateLimited(false);
+      onChange({ ...value, campaignName: result.data.campaignName });
+    }
+    void loadVideos();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, value.campaignId, instanceId]);
+
+  useEffect(() => {
+    const merged = campaignsRateLimited || videoRateLimited;
+    onRateLimitChangeRef.current?.(instanceId, merged);
+    return () => {
+      onRateLimitChangeRef.current?.(instanceId, false);
+    };
+  }, [campaignsRateLimited, videoRateLimited, instanceId]);
+
+  const mergedRateLimited = campaignsRateLimited || videoRateLimited;
+  const mergedError = error ?? videoError;
 
   return (
     <div className="space-y-3">
@@ -300,8 +384,15 @@ function VideoSourcePicker({
       </div>
       <SourceState
         loading={loading || videoLoading}
-        error={error ?? videoError}
-        empty={!loading && !videoLoading && Boolean(value.campaignId) && videos.length === 0}
+        error={mergedError}
+        rateLimited={mergedRateLimited}
+        empty={
+          !loading &&
+          !videoLoading &&
+          Boolean(value.campaignId) &&
+          videos.length === 0 &&
+          !mergedError
+        }
       />
     </div>
   );
@@ -309,16 +400,22 @@ function VideoSourcePicker({
 
 function PixelSourcePicker({
   clientId,
+  instanceId,
   value,
   onChange,
+  onRateLimitChange,
 }: {
   clientId: string;
+  instanceId: string;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
 }) {
-  const { data: pixels, loading, error } = useSource<PixelSource[]>(
+  const { data: pixels, loading, error, rateLimited } = useSource<PixelSource[]>(
     `/api/audiences/sources/pixels?clientId=${clientId}`,
     "pixels",
+    instanceId,
+    onRateLimitChange,
   );
   const [customEvent, setCustomEvent] = useState("");
   const eventValue = value.pixelEvent ?? "PageView";
@@ -394,39 +491,60 @@ function PixelSourcePicker({
           onChange={(urlContains) => onChange({ ...value, urlContains })}
         />
       )}
-      <SourceState loading={loading} error={error} empty={!loading && pixels?.length === 0} />
+      <SourceState
+        loading={loading}
+        error={error}
+        rateLimited={rateLimited}
+        empty={!loading && pixels?.length === 0}
+      />
     </div>
   );
 }
 
-function useSource<T>(url: string, key: string) {
+function useSource<T>(
+  url: string,
+  key: string,
+  instanceId: string,
+  onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void,
+) {
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimited, setRateLimited] = useState(false);
+  const onRateLimitChangeRef = useRef(onRateLimitChange);
 
   useEffect(() => {
+    onRateLimitChangeRef.current = onRateLimitChange;
+  }, [onRateLimitChange]);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- fetch lifecycle resets when `url` changes */
+  useEffect(() => {
     let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(url);
-        const json = (await res.json()) as Record<string, unknown>;
-        if (!res.ok) throw new Error(String(json.error ?? "Failed to load source"));
-        if (!cancelled) setData(json[key] as T);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load source");
-      } finally {
-        if (!cancelled) setLoading(false);
+    setLoading(true);
+    setError(null);
+    setRateLimited(false);
+
+    void fetchAudienceSourceList<T>(url, key).then((result) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error);
+        setRateLimited(result.rateLimited);
+        onRateLimitChangeRef.current?.(instanceId, result.rateLimited);
+        return;
       }
-    }
-    void load();
+      setData(result.data);
+      onRateLimitChangeRef.current?.(instanceId, false);
+    });
+
     return () => {
       cancelled = true;
+      onRateLimitChangeRef.current?.(instanceId, false);
     };
-  }, [key, url]);
+  }, [url, key, instanceId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  return { data, loading, error };
+  return { data, loading, error, rateLimited };
 }
 
 function SourceAvatar({ src, label }: { src?: string; label: string }) {
@@ -444,15 +562,33 @@ function SourceAvatar({ src, label }: { src?: string; label: string }) {
 function SourceState({
   loading,
   error,
+  rateLimited,
   empty,
 }: {
   loading: boolean;
   error: string | null;
+  rateLimited?: boolean;
   empty: boolean;
 }) {
-  if (loading) return <p className="text-xs text-muted-foreground">Loading sources...</p>;
-  if (error) return <p className="text-xs text-destructive">{error}</p>;
-  if (empty) return <p className="text-xs text-muted-foreground">No sources found.</p>;
+  if (loading) {
+    return <p className="text-xs text-muted-foreground">Loading sources...</p>;
+  }
+  if (error) {
+    return (
+      <p
+        className={`text-xs ${
+          rateLimited
+            ? "text-amber-800 dark:text-amber-200"
+            : "text-destructive"
+        }`}
+      >
+        {error}
+      </p>
+    );
+  }
+  if (empty) {
+    return <p className="text-xs text-muted-foreground">No sources found.</p>;
+  }
   return null;
 }
 
