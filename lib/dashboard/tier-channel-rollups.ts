@@ -123,6 +123,15 @@ export function channelRevenueSumForTier(tier: EventTicketTierRow): number {
   return sum;
 }
 
+/** Sum `tier_channel_sales.tickets_sold` pivoted into channel_breakdowns for one tier. */
+export function channelSoldSumForTier(tier: EventTicketTierRow): number {
+  let sum = 0;
+  for (const row of tier.channel_breakdowns ?? []) {
+    sum += Number(row.tickets_sold ?? 0);
+  }
+  return sum;
+}
+
 /** Sum explicit `tier_channel_sales.revenue_amount` pivoted into channel_breakdowns. */
 export function sumTierChannelRevenueAmounts(tiers: EventTicketTierRow[]): number {
   let sum = 0;
@@ -132,38 +141,38 @@ export function sumTierChannelRevenueAmounts(tiers: EventTicketTierRow[]): numbe
   return sum;
 }
 
-/**
- * Σ `(api_quantity_sold ?? quantity_sold) × price` per tier — matches the tier
- * row without additive manual-channel sold from tierSalesRollup (used as the
- * (b) fallback when comparing to tier_channel_sales revenue).
- */
+/** Σ `tier.quantity_sold × price` — naive face value when no channel slice applies. */
 export function legacyFaceValueTierRevenue(tiers: EventTicketTierRow[]): number {
   let sum = 0;
   for (const tier of tiers) {
-    sum += perTierBaseQuantityFaceValue(tier);
+    const price = tier.price != null ? Number(tier.price) : NaN;
+    if (!Number.isFinite(price)) continue;
+    sum += tier.quantity_sold * price;
   }
   return sum;
 }
 
-function perTierBaseQuantityFaceValue(tier: EventTicketTierRow): number {
-  const price = tier.price != null ? Number(tier.price) : NaN;
-  const qty = tier.api_quantity_sold ?? tier.quantity_sold;
-  if (!Number.isFinite(price) || !Number.isFinite(qty)) return 0;
-  return qty * price;
-}
-
 /**
- * Per-tier ticket revenue: MAX(channel revenue sum, tier-row quantity × price).
- * Covers manual-only channels (e.g. CP rows in tier_channel_sales) and
- * API-heavy tiers where most sales live on event_ticket_tiers but only a
- * subset of channels were written to tier_channel_sales (Brighton Croatia).
+ * Hybrid revenue for one tier: summed channel revenue from tier_channel_sales,
+ * plus face value for (`tier.quantity_sold` − channel sold) so API-only
+ * tickets (e.g. 4TF on Brighton) still count when only CP rows exist in DB.
  */
 export function perTierDisplayTicketRevenue(tier: EventTicketTierRow): number {
-  return Math.max(channelRevenueSumForTier(tier), perTierBaseQuantityFaceValue(tier));
+  const revenueViaChannels = channelRevenueSumForTier(tier);
+  const soldViaChannels = channelSoldSumForTier(tier);
+  const tierQty = Number(tier.quantity_sold);
+  const qtyBase = Number.isFinite(tierQty) ? tierQty : 0;
+  const remainingSold = Math.max(0, qtyBase - soldViaChannels);
+  const price = tier.price != null ? Number(tier.price) : NaN;
+  const fallbackFace =
+    Number.isFinite(price) && Number.isFinite(remainingSold)
+      ? remainingSold * price
+      : 0;
+  return revenueViaChannels + fallbackFace;
 }
 
 /**
- * Ticket revenue for dashboards: Σ per-tier MAX(channel revenue, qty×price),
+ * Ticket revenue for dashboards: Σ per-tier hybrid revenue,
  * then snapshot fallback when tiers yield zero but weekly snapshot has revenue.
  */
 export function resolveDisplayTicketRevenue(input: {

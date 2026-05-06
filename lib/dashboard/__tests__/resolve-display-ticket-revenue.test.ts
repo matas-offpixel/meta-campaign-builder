@@ -8,7 +8,7 @@ import {
   resolveDisplayTicketRevenue,
 } from "../tier-channel-rollups.ts";
 
-test("Brighton-style tier: MAX(channel-only CP revenue, quantity_sold × price)", () => {
+test("Brighton Croatia-style: CP channel slice + remainder × price", () => {
   const tier = {
     id: "t1",
     event_id: "e1",
@@ -31,16 +31,17 @@ test("Brighton-style tier: MAX(channel-only CP revenue, quantity_sold × price)"
     ],
   } satisfies EventTicketTierRow;
 
-  assert.equal(perTierDisplayTicketRevenue(tier), 671 * 6);
+  const expected = 564 + (671 - 70) * 6;
+  assert.equal(perTierDisplayTicketRevenue(tier), expected);
 
   const total = resolveDisplayTicketRevenue({
     ticket_tiers: [tier],
     latest_snapshot_revenue: null,
   });
-  assert.equal(total, 671 * 6);
+  assert.equal(total, expected);
 });
 
-test("when channel revenue exceeds face value, MAX picks channel sum", () => {
+test("when channel rows cover all tier quantity_sold, only channel revenue counts", () => {
   const tier = {
     id: "t2",
     event_id: "e1",
@@ -63,7 +64,25 @@ test("when channel revenue exceeds face value, MAX picks channel sum", () => {
     ],
   } satisfies EventTicketTierRow;
 
-  assert.equal(resolveDisplayTicketRevenue({ ticket_tiers: [tier], latest_snapshot_revenue: 0 }), 471.5);
+  assert.equal(
+    resolveDisplayTicketRevenue({ ticket_tiers: [tier], latest_snapshot_revenue: 0 }),
+    471.5,
+  );
+});
+
+test("no channel rows: full tier.quantity_sold × price", () => {
+  const tier = {
+    id: "t3",
+    event_id: "e1",
+    tier_name: "GA",
+    price: 10,
+    quantity_sold: 5,
+    quantity_available: 100,
+    snapshot_at: "2026-01-01",
+    channel_breakdowns: [],
+  } satisfies EventTicketTierRow;
+
+  assert.equal(perTierDisplayTicketRevenue(tier), 50);
 });
 
 test("empty tiers falls back to positive snapshot revenue", () => {
