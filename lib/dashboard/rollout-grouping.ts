@@ -84,27 +84,6 @@ const STATUS_RANK: Record<ReadinessStatus, number> = {
 };
 
 /**
- * Operator-facing titles for branded multi-fixture series (parent rows).
- * Keys are `event_code` values that group as `series:${event_code}`.
- */
-export const SERIES_DISPLAY_LABELS: Record<string, string> = {
-  "4TF-TITLERUNIN-LONDON": "Arsenal Title Run In",
-};
-
-/**
- * Title for a collapsed venue-series card / rollout group subtitle:
- * friendly series name when configured, otherwise venue name or code.
- */
-export function getSeriesDisplayLabel(
-  eventCode: string,
-  venueName: string | null,
-): string {
-  const mapped = SERIES_DISPLAY_LABELS[eventCode];
-  if (mapped !== undefined) return mapped;
-  return venueName ?? eventCode;
-}
-
-/**
  * Precompute stable grouping keys for every row. Used by rollout UI,
  * client-wide venue counts, and the share portal venue table so they
  * stay aligned.

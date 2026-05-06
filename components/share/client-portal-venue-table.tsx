@@ -26,11 +26,11 @@ import {
 } from "./client-refresh-daily-budgets-button";
 import {
   buildRolloutGroupKeyByEventId,
-  getSeriesDisplayLabel,
   parseExpandedHash,
   serializeExpandedHash,
   type GroupableRow,
 } from "@/lib/dashboard/rollout-grouping";
+import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
 import {
   paidLinkClicksOf,
   paidSpendOf,
@@ -468,8 +468,7 @@ function portalEventToGroupable(ev: PortalEvent): GroupableRow {
 
 /**
  * Group events using the same keys as `lib/dashboard/rollout-grouping`
- * (series rows when event_code repeats at one venue; split when venues
- * differ under the same code).
+ * (`series:${event_code}` when ≥2 rows share a code).
  *
  * Preserves input order: the SSR loader already sorts by event_date,
  * so rendering stays predictable across refreshes without an extra
@@ -515,10 +514,10 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
         // recognises in the URL hash — beats a UUID every time.
         expandKey: ev.event_code as string,
         eventCode: ev.event_code,
-        displayName: getSeriesDisplayLabel(
-          ev.event_code as string,
-          ev.venue_name ?? null,
-        ),
+        displayName:
+          getSeriesDisplayLabel(ev.event_code) ??
+          ev.venue_name ??
+          (ev.event_code as string),
         city: ev.venue_city,
         budget: ev.budget_marketing,
         campaignSpend: ev.meta_spend_cached,
@@ -542,7 +541,12 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
       // the same `[event_code]` bracket join as grouped ones. Falls
       // through as null when the event legitimately has no code.
       eventCode: ev.event_code,
-      displayName: ev.name,
+      displayName:
+        getSeriesDisplayLabel(ev.event_code) ??
+        ev.name ??
+        ev.venue_name ??
+        ev.event_code ??
+        "—",
       city: ev.venue_city,
       budget: ev.budget_marketing,
       campaignSpend: ev.meta_spend_cached,

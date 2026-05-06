@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 
 import {
   buildRolloutGroups,
-  getSeriesDisplayLabel,
   parseExpandedHash,
   serializeExpandedHash,
   type GroupableRow,
@@ -227,26 +226,6 @@ describe("buildRolloutGroups", () => {
     ]);
     assert.equal(nodes.length, 2);
     assert.ok(nodes.every((n) => n.kind === "single"));
-  });
-});
-
-describe("getSeriesDisplayLabel", () => {
-  it("returns mapped series title when configured", () => {
-    assert.equal(
-      getSeriesDisplayLabel("4TF-TITLERUNIN-LONDON", "The Garden Vauxhall"),
-      "Arsenal Title Run In",
-    );
-  });
-
-  it("falls back to venue name when no mapping", () => {
-    assert.equal(
-      getSeriesDisplayLabel("WC26-MANCHESTER", "Depot Mayfield"),
-      "Depot Mayfield",
-    );
-  });
-
-  it("falls back to event code when venue is null", () => {
-    assert.equal(getSeriesDisplayLabel("OTHER-CODE", null), "OTHER-CODE");
   });
 });
 
