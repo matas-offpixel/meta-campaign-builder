@@ -126,6 +126,7 @@ function event({
     history: [],
     ticketing_status: {
       linked_count: 0,
+      external_event_ids: [],
       provider: null,
       active_source: null,
       latest_ticket_snapshot_at: null,

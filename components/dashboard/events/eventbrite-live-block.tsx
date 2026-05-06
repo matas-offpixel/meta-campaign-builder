@@ -51,40 +51,63 @@ interface Props {
   clientId: string | null;
   /** Capacity from the internal `events` row — fallback when Eventbrite has none. */
   fallbackCapacity: number | null;
-  initialLink: EventTicketingLink | null;
+  initialLinks: EventTicketingLink[];
   initialConnection: SafeTicketingConnection | null;
   initialLatestSnapshot: TicketSalesSnapshot | null;
+  aggregatedTicketsSold: number | null;
+  aggregatedCapacity: number | null;
+  aggregatedGrossRevenueCents: number | null;
+  aggregatedCurrency: string | null;
 }
 
 interface FetchedSummary {
+  links: EventTicketingLink[];
   link: EventTicketingLink | null;
   connection: SafeTicketingConnection | null;
   latestSnapshot: TicketSalesSnapshot | null;
+  aggregatedTicketsSold: number | null;
+  aggregatedCapacity: number | null;
+  aggregatedGrossRevenueCents: number | null;
+  aggregatedCurrency: string | null;
 }
 
 export function EventbriteLiveBlock({
   eventId,
   clientId,
   fallbackCapacity,
-  initialLink,
+  initialLinks,
   initialConnection,
   initialLatestSnapshot,
+  aggregatedTicketsSold,
+  aggregatedCapacity,
+  aggregatedGrossRevenueCents,
+  aggregatedCurrency,
 }: Props) {
-  const [link, setLink] = useState(initialLink);
+  const [links, setLinks] = useState(initialLinks);
   const [connection, setConnection] = useState(initialConnection);
   const [latest, setLatest] = useState(initialLatestSnapshot);
+  const [aggSold, setAggSold] = useState(aggregatedTicketsSold);
+  const [aggCap, setAggCap] = useState(aggregatedCapacity);
+  const [aggRev, setAggRev] = useState(aggregatedGrossRevenueCents);
+  const [aggCur, setAggCur] = useState(aggregatedCurrency);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoTried, setAutoTried] = useState(false);
 
   // Re-hydrate from incoming server props if the parent re-renders
   // (e.g. after the link panel POSTs and triggers `router.refresh()`).
-  useEffect(() => setLink(initialLink), [initialLink]);
+  useEffect(() => setLinks(initialLinks), [initialLinks]);
   useEffect(() => setConnection(initialConnection), [initialConnection]);
   useEffect(
     () => setLatest(initialLatestSnapshot),
     [initialLatestSnapshot],
   );
+  useEffect(() => setAggSold(aggregatedTicketsSold), [aggregatedTicketsSold]);
+  useEffect(() => setAggCap(aggregatedCapacity), [aggregatedCapacity]);
+  useEffect(() => setAggRev(aggregatedGrossRevenueCents), [
+    aggregatedGrossRevenueCents,
+  ]);
+  useEffect(() => setAggCur(aggregatedCurrency), [aggregatedCurrency]);
 
   async function refreshSummary() {
     const res = await fetch(
@@ -99,9 +122,13 @@ export function EventbriteLiveBlock({
     if (!res.ok || !json.ok || !json.summary) {
       throw new Error(json.error ?? "Failed to refresh ticketing stats.");
     }
-    setLink(json.summary.link);
+    setLinks(json.summary.links ?? []);
     setConnection(json.summary.connection);
     setLatest(json.summary.latestSnapshot);
+    setAggSold(json.summary.aggregatedTicketsSold ?? null);
+    setAggCap(json.summary.aggregatedCapacity ?? null);
+    setAggRev(json.summary.aggregatedGrossRevenueCents ?? null);
+    setAggCur(json.summary.aggregatedCurrency ?? null);
   }
 
   async function syncNow() {
@@ -139,7 +166,7 @@ export function EventbriteLiveBlock({
   // re-render — the user can still click Refresh manually.
   useEffect(() => {
     if (autoTried) return;
-    if (!link || !connection) return;
+    if (links.length === 0 || !connection) return;
     const lastSynced = connection.last_synced_at
       ? new Date(connection.last_synced_at).getTime()
       : 0;
@@ -148,7 +175,7 @@ export function EventbriteLiveBlock({
     setAutoTried(true);
     void syncNow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [link?.id, connection?.id, autoTried]);
+  }, [links, connection?.id, autoTried]);
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -184,6 +211,8 @@ export function EventbriteLiveBlock({
     );
   }
 
+  const link = links[0] ?? null;
+
   // State 2: connection but not yet linked to a specific ticketing event
   if (!link) {
     return (
@@ -202,13 +231,13 @@ export function EventbriteLiveBlock({
     );
   }
 
-  // State 3: linked. Compute live numbers.
-  const sold = latest?.tickets_sold ?? 0;
-  const capacity = latest?.tickets_available ?? fallbackCapacity ?? null;
+  // State 3: linked. Compute live numbers (multi-link → aggregated row fields).
+  const sold = aggSold ?? latest?.tickets_sold ?? 0;
+  const capacity = aggCap ?? fallbackCapacity ?? null;
   const sellThrough =
     capacity != null && capacity > 0 ? (sold / capacity) * 100 : null;
-  const grossCents = latest?.gross_revenue_cents ?? null;
-  const currency = latest?.currency ?? "GBP";
+  const grossCents = aggRev ?? latest?.gross_revenue_cents ?? null;
+  const currency = aggCur ?? latest?.currency ?? "GBP";
   const lastSyncedLabel = connection.last_synced_at
     ? formatRelative(connection.last_synced_at)
     : "never";
@@ -223,17 +252,42 @@ export function EventbriteLiveBlock({
               {providerLabel(connection.provider)} — live
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {link.external_event_url ? (
+              <span className="font-medium text-foreground">
+                {links.length > 1
+                  ? `${links.length} linked listings`
+                  : "Linked event"}
+              </span>
+              {links.length > 1 ? (
+                <span className="mt-1 block text-muted-foreground">
+                  {links.map((l) => (
+                    <span key={l.id} className="mr-2 inline-block">
+                      {l.external_event_url ? (
+                        <a
+                          href={l.external_event_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline-offset-2 hover:underline"
+                        >
+                          {l.external_event_id}
+                        </a>
+                      ) : (
+                        <>{l.external_event_id}</>
+                      )}
+                    </span>
+                  ))}
+                </span>
+              ) : link.external_event_url ? (
                 <a
                   href={link.external_event_url}
                   target="_blank"
                   rel="noreferrer"
                   className="underline-offset-2 hover:underline"
                 >
-                  Linked event ({link.external_event_id})
+                  {" "}
+                  ({link.external_event_id})
                 </a>
               ) : (
-                <>Linked event ({link.external_event_id})</>
+                <> ({link.external_event_id})</>
               )}
               {" · "}
               last synced {lastSyncedLabel}

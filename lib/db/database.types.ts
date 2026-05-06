@@ -2163,6 +2163,7 @@ export type Database = {
           created_at: string
           currency: string | null
           event_id: string
+          external_event_id: string | null
           gross_revenue_cents: number | null
           id: string
           raw_payload: Json | null
@@ -2177,6 +2178,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           event_id: string
+          external_event_id?: string | null
           gross_revenue_cents?: number | null
           id?: string
           raw_payload?: Json | null
@@ -2191,6 +2193,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           event_id?: string
+          external_event_id?: string | null
           gross_revenue_cents?: number | null
           id?: string
           raw_payload?: Json | null

@@ -435,9 +435,17 @@ export function EventDetail({
                     eventId={event.id}
                     clientId={event.client_id}
                     fallbackCapacity={event.capacity}
-                    initialLink={ticketingSummary.link}
+                    initialLinks={ticketingSummary.links}
                     initialConnection={ticketingSummary.connection}
                     initialLatestSnapshot={ticketingSummary.latestSnapshot}
+                    aggregatedTicketsSold={
+                      ticketingSummary.aggregatedTicketsSold
+                    }
+                    aggregatedCapacity={ticketingSummary.aggregatedCapacity}
+                    aggregatedGrossRevenueCents={
+                      ticketingSummary.aggregatedGrossRevenueCents
+                    }
+                    aggregatedCurrency={ticketingSummary.aggregatedCurrency}
                   />
                   <EventbriteLinkPanel
                     eventId={event.id}
@@ -445,7 +453,7 @@ export function EventDetail({
                     availableConnections={
                       ticketingSummary.availableConnections
                     }
-                    existingLink={ticketingSummary.link}
+                    existingLinks={ticketingSummary.links}
                   />
                 </div>
               )}
@@ -459,7 +467,7 @@ export function EventDetail({
                 flips to read-only; this gate just hides the whole
                 section when ticketing is API-driven.
               */}
-              {!isBrand && !ticketingSummary.link && (
+              {!isBrand && ticketingSummary.links.length === 0 && (
                 <div className="space-y-2">
                   <TicketsSoldPanel
                     eventId={event.id}
@@ -714,7 +722,7 @@ export function EventDetail({
                     event.event_code &&
                       event.client?.meta_ad_account_id,
                   )}
-                  hasEventbriteLink={Boolean(ticketingSummary.link)}
+                  hasEventbriteLink={ticketingSummary.links.length > 0}
                   // Internal dashboard render — operators own this
                   // event, so the per-row edit pencil + manual-entry
                   // dialog is enabled. Public share renders never

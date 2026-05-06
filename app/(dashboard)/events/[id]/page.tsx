@@ -140,9 +140,14 @@ export default async function EventDetailPage({ params, searchParams }: Props) {
           err,
         );
         return {
+          links: [],
           link: null,
           connection: null,
           latestSnapshot: null,
+          aggregatedTicketsSold: null,
+          aggregatedCapacity: null,
+          aggregatedGrossRevenueCents: null,
+          aggregatedCurrency: null,
           availableConnections: [],
         };
       },

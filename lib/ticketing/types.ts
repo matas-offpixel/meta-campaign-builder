@@ -53,6 +53,12 @@ export interface EventTicketingLink {
   connection_id: string;
   external_event_id: string;
   external_event_url: string | null;
+  /**
+   * Per-link API base URL override (migration 083). When non-null, the sync
+   * uses this base instead of the provider's default. Enables a single 4TheFans
+   * bearer token to serve multiple WordPress booking sites.
+   */
+  external_api_base?: string | null;
   manual_lock?: boolean;
   created_at: string;
   updated_at: string;
@@ -67,6 +73,8 @@ export interface TicketSalesSnapshot {
   user_id: string;
   event_id: string;
   connection_id: string;
+  /** When set, ties the snapshot to one external listing (multi-link events). */
+  external_event_id?: string | null;
   snapshot_at: string;
   tickets_sold: number;
   tickets_available: number | null;
@@ -151,9 +159,17 @@ export interface TicketingProvider {
     credentials: Record<string, unknown>,
   ): Promise<ValidateCredentialsResult>;
   listEvents(connection: TicketingConnection): Promise<ExternalEventSummary[]>;
+  /**
+   * Fetch current ticket sales for a single external event.
+   *
+   * @param options.apiBase - Per-link API base URL override (migration 083).
+   *   When provided, the provider uses this base instead of its default.
+   *   Only meaningful for 4TheFans (multi-site); all other providers ignore it.
+   */
   getEventSales(
     connection: TicketingConnection,
     externalEventId: string,
+    options?: { apiBase?: string | null },
   ): Promise<FetchedTicketSales>;
 }
 

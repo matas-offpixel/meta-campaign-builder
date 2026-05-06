@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getConnectionById,
+  refreshAggregatedTicketsSoldFromSnapshots,
   upsertEventLink,
 } from "@/lib/db/ticketing";
 
@@ -17,9 +18,9 @@ import {
  *     externalEventUrl?: string,
  *   }
  *
- * Upserts the pivot row. The unique (event_id, connection_id) index
- * makes this idempotent — re-linking the same event/connection pair
- * just refreshes the external_event_id / url.
+ * Upserts the pivot row. The unique (event_id, connection_id,
+ * external_event_id) constraint makes each listing distinct; posting the
+ * same triple refreshes url / manual_lock.
  */
 
 interface PostBody {
@@ -227,8 +228,18 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  const link = await getOwnedLink(supabase, linkId, user.id);
-  if (!link) {
+  const { data: row, error: readErr } = await supabase
+    .from("event_ticketing_links")
+    .select("id, user_id, event_id")
+    .eq("id", linkId)
+    .maybeSingle();
+  if (readErr) {
+    return NextResponse.json(
+      { ok: false, error: readErr.message },
+      { status: 500 },
+    );
+  }
+  if (!row || row.user_id !== user.id) {
     return NextResponse.json(
       { ok: false, error: "Link not found" },
       { status: 404 },
@@ -245,5 +256,9 @@ export async function DELETE(req: NextRequest) {
       { status: 500 },
     );
   }
+  await refreshAggregatedTicketsSoldFromSnapshots(supabase, {
+    eventId: row.event_id as string,
+    userId: user.id,
+  });
   return NextResponse.json({ ok: true });
 }

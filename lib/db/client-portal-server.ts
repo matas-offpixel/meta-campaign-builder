@@ -98,6 +98,8 @@ export interface PortalEvent {
 
 export interface PortalTicketingStatus {
   linked_count: number;
+  /** Distinct external listing ids (presale + gen sale, etc.). */
+  external_event_ids: string[];
   provider: TicketSnapshotSource | null;
   active_source: TicketSnapshotSource | null;
   latest_ticket_snapshot_at: string | null;
@@ -1012,6 +1014,7 @@ function sourcePriority(source: string): number {
 function emptyTicketingStatus(): PortalTicketingStatus {
   return {
     linked_count: 0,
+    external_event_ids: [],
     provider: null,
     active_source: null,
     latest_ticket_snapshot_at: null,
@@ -1029,7 +1032,7 @@ async function fetchTicketingStatusByEvent(
 
   const { data: links, error: linksError } = await admin
     .from("event_ticketing_links")
-    .select("event_id, connection_id")
+    .select("event_id, connection_id, external_event_id")
     .in("event_id", eventIds);
   if (linksError || !links || links.length === 0) {
     if (linksError) {
@@ -1075,11 +1078,22 @@ async function fetchTicketingStatusByEvent(
   }
 
   for (const link of links) {
-    const row = link as { event_id: string; connection_id: string | null };
+    const row = link as {
+      event_id: string;
+      connection_id: string | null;
+      external_event_id: string | null;
+    };
     const existing = out.get(row.event_id) ?? emptyTicketingStatus();
     const source =
       row.connection_id != null ? sourceByConnection.get(row.connection_id) : null;
     existing.linked_count += 1;
+    if (
+      typeof row.external_event_id === "string" &&
+      row.external_event_id.length > 0 &&
+      !existing.external_event_ids.includes(row.external_event_id)
+    ) {
+      existing.external_event_ids.push(row.external_event_id);
+    }
     if (source && !existing.provider) {
       existing.provider = source;
       existing.active_source = source;

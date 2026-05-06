@@ -31,10 +31,8 @@ import type { SafeTicketingConnection } from "@/lib/db/event-ticketing-summary";
  *   Save    POST /api/ticketing/links → calls router.refresh() so the
  *           live block above re-paints with the new link prefetched.
  *
- * If the event is already linked the panel renders a compact summary
- * with a "Change" button that re-enables the dropdown. Unlinking is
- * out of scope for v1 — the operator can re-bind to a different
- * external event but never to "no event".
+ * When linked, the panel lists every external listing (presale + gen sale,
+ * etc.) and supports adding another listing via the same POST endpoint.
  */
 
 interface Props {
@@ -42,17 +40,19 @@ interface Props {
   clientId: string;
   /** Pre-redacted (credentials: null) per the server boundary. */
   availableConnections: SafeTicketingConnection[];
-  /** Existing link, when one exists. */
-  existingLink: EventTicketingLink | null;
+  /** Existing links (multiple external listings allowed). */
+  existingLinks: EventTicketingLink[];
 }
 
 export function EventbriteLinkPanel({
   eventId,
   clientId,
   availableConnections,
-  existingLink,
+  existingLinks,
 }: Props) {
   const router = useRouter();
+
+  const primaryLink = existingLinks[0] ?? null;
 
   // Limit the dropdown to live API providers. Manual connections don't
   // expose provider-side events to pick.
@@ -60,15 +60,15 @@ export function EventbriteLinkPanel({
     (c) => c.provider === "eventbrite" || c.provider === "fourthefans",
   );
 
-  const [editing, setEditing] = useState(!existingLink);
+  const [editing, setEditing] = useState(existingLinks.length === 0);
   const [connectionId, setConnectionId] = useState<string>(
-    existingLink?.connection_id ?? liveConnections[0]?.id ?? "",
+    primaryLink?.connection_id ?? liveConnections[0]?.id ?? "",
   );
   const [externalEventId, setExternalEventId] = useState<string>(
-    existingLink?.external_event_id ?? "",
+    primaryLink?.external_event_id ?? "",
   );
   const [externalEventUrl, setExternalEventUrl] = useState<string | null>(
-    existingLink?.external_event_url ?? null,
+    primaryLink?.external_event_url ?? null,
   );
   const [externalEvents, setExternalEvents] = useState<
     ExternalEventSummary[] | null
@@ -168,31 +168,58 @@ export function EventbriteLinkPanel({
     return null;
   }
 
-  if (!editing && existingLink) {
-    const linked = externalEvents?.find(
-      (e) => e.externalEventId === existingLink.external_event_id,
-    );
+  if (!editing && existingLinks.length > 0) {
     return (
       <section className="rounded-md border border-border bg-card p-4">
         <header className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <LinkIcon className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
             <div className="min-w-0">
-              <h3 className="text-sm font-medium">Ticketing link</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Bound to{" "}
-                <span className="font-medium text-foreground">
-                  {linked?.name ?? existingLink.external_event_id}
-                </span>
-              </p>
+              <h3 className="text-sm font-medium">Ticketing links</h3>
+              <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                {existingLinks.map((el) => {
+                  const linked = externalEvents?.find(
+                    (e) => e.externalEventId === el.external_event_id,
+                  );
+                  return (
+                    <li key={el.id}>
+                      <span className="font-medium text-foreground">
+                        {linked?.name ?? el.external_event_id}
+                      </span>
+                      {el.external_event_url ? (
+                        <>
+                          {" · "}
+                          <a
+                            href={el.external_event_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline-offset-2 hover:underline"
+                          >
+                            Open
+                          </a>
+                        </>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           </div>
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              setEditing(true);
+              if (existingLinks.length > 0) {
+                setExternalEventId("");
+                setExternalEventUrl(null);
+                setConnectionId(
+                  primaryLink?.connection_id ?? liveConnections[0]?.id ?? "",
+                );
+              }
+            }}
           >
-            Change
+            Add / change
           </Button>
         </header>
       </section>
@@ -205,7 +232,9 @@ export function EventbriteLinkPanel({
         <LinkIcon className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
         <div className="min-w-0">
           <h3 className="text-sm font-medium">
-            {existingLink ? "Re-link ticketing event" : "Link ticketing event"}
+            {existingLinks.length > 0
+              ? "Add ticketing listing"
+              : "Link ticketing event"}
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Pick the ticketing event that matches this dashboard event.
@@ -276,9 +305,9 @@ export function EventbriteLinkPanel({
           {submitting ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : null}
-          {existingLink ? "Save link" : "Link event"}
+          {existingLinks.length > 0 ? "Save listing" : "Link event"}
         </Button>
-        {existingLink ? (
+        {existingLinks.length > 0 ? (
           <Button
             size="sm"
             variant="ghost"
