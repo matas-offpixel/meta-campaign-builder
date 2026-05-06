@@ -652,6 +652,12 @@ function VideoSourcePicker({
                 value={value}
                 onChange={onChange}
               />
+              {!vf.loading && vf.videos.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {vf.videos.length} video{vf.videos.length === 1 ? "" : "s"} from {selectedCampaignIds.length} campaign{selectedCampaignIds.length === 1 ? "" : "s"} ·{" "}
+                  {(value.videoIds?.length ?? 0)} selected
+                </p>
+              )}
               <div className="grid gap-2 md:grid-cols-3">
                 {vf.videos.map((video) => (
                   <button
