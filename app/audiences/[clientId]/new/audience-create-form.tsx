@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -78,10 +78,31 @@ export function AudienceCreateForm({
   );
   const [saving, setSaving] = useState<"draft" | "write" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pickerRateLimits, setPickerRateLimits] = useState<
+    Record<string, boolean>
+  >({});
+
+  const handlePickerRateLimit = useCallback(
+    (instanceId: string, limited: boolean) => {
+      setPickerRateLimits((prev) => {
+        const next = { ...prev };
+        if (limited) next[instanceId] = true;
+        else delete next[instanceId];
+        return next;
+      });
+    },
+    [],
+  );
+
+  const metaSourceRateLimited = Object.values(pickerRateLimits).some(Boolean);
 
   useEffect(() => {
     window.localStorage.setItem("lastAudienceClientId", client.id);
   }, [client.id]);
+
+  useEffect(() => {
+    setPickerRateLimits({});
+  }, [mode]);
 
   useEffect(() => {
     if (mode === "bundle") {
@@ -260,6 +281,7 @@ export function AudienceCreateForm({
               name={name}
               setName={setName}
               suggestedName={suggestedName}
+              onPickerRateLimit={handlePickerRateLimit}
             />
           ) : (
             <BundleAudienceEditor
@@ -267,6 +289,7 @@ export function AudienceCreateForm({
               events={events}
               rows={bundleRows}
               setRows={setBundleRows}
+              onPickerRateLimit={handlePickerRateLimit}
             />
           )}
         </section>
@@ -292,7 +315,9 @@ export function AudienceCreateForm({
           <Button
             type="button"
             onClick={() => void submit("write")}
-            disabled={saving !== null || metaBlocked}
+            disabled={
+              saving !== null || metaBlocked || metaSourceRateLimited
+            }
           >
             {saving === "write" ? "Creating..." : "Save + create on Meta"}
           </Button>
@@ -317,6 +342,7 @@ function SingleAudienceEditor({
   name,
   setName,
   suggestedName,
+  onPickerRateLimit,
 }: {
   clientId: string;
   events: EventOption[];
@@ -332,6 +358,7 @@ function SingleAudienceEditor({
   name: string;
   setName: (value: string) => void;
   suggestedName: string;
+  onPickerRateLimit: (instanceId: string, rateLimited: boolean) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -340,6 +367,8 @@ function SingleAudienceEditor({
         subtype={audienceSubtype}
         value={source}
         onChange={setSource}
+        sourcePickerInstanceId="single"
+        onRateLimitChange={onPickerRateLimit}
       />
       <div className="grid gap-3 md:grid-cols-2">
         <TextField
@@ -374,11 +403,13 @@ function BundleAudienceEditor({
   events,
   rows,
   setRows,
+  onPickerRateLimit,
 }: {
   clientId: string;
   events: EventOption[];
   rows: AudienceDraftRow[];
   setRows: (rows: AudienceDraftRow[]) => void;
+  onPickerRateLimit: (instanceId: string, rateLimited: boolean) => void;
 }) {
   function updateRow(localId: string, patch: Partial<AudienceDraftRow>) {
     setRows(rows.map((row) => (row.localId === localId ? { ...row, ...patch } : row)));
@@ -427,6 +458,8 @@ function BundleAudienceEditor({
               subtype={row.audienceSubtype}
               value={row.source}
               onChange={(source) => updateRow(row.localId, { source })}
+              sourcePickerInstanceId={row.localId}
+              onRateLimitChange={onPickerRateLimit}
             />
             <div className="grid gap-3 md:grid-cols-2">
               <TextField

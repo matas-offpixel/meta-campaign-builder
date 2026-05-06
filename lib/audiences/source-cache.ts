@@ -1,4 +1,7 @@
-const TTL_MS = 5 * 60 * 1000;
+/** Read-heavy audience source lists — pickers tolerate staleness; longer TTL reduces Graph fan-out. */
+export const AUDIENCE_SOURCE_CACHE_TTL_MS = 30 * 60 * 1000;
+
+const TTL_MS = AUDIENCE_SOURCE_CACHE_TTL_MS;
 
 interface CacheEntry<T> {
   expiresAt: number;

@@ -14,6 +14,7 @@ import {
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { listAudiencesForClient } from "@/lib/db/meta-custom-audiences";
 import { createClient } from "@/lib/supabase/server";
+import { AudienceSourcePrefetch } from "@/components/audiences/audience-source-prefetch";
 import { AudienceListActions } from "./audience-list-actions";
 import type {
   AudienceStatus,
@@ -76,6 +77,7 @@ export default async function AudiencesPage({ params, searchParams }: Props) {
 
   return (
     <>
+      <AudienceSourcePrefetch clientId={clientId} />
       <PageHeader
         title={`${client.name} audiences`}
         description={`Meta custom audiences bound to ${client.meta_ad_account_id ?? "no ad account"}.`}
