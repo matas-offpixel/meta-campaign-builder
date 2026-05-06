@@ -259,6 +259,58 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.venueGroups, 2);
   });
 
+  it("coalesces multi-fixture rows that share event_code and venue_name", () => {
+    const t = aggregateClientWideTotals(
+      [
+        ev({
+          id: "a",
+          event_code: "SERIES",
+          event_date: "2026-04-19",
+          venue_name: "The Garden",
+        }),
+        ev({
+          id: "b",
+          event_code: "SERIES",
+          event_date: "2026-05-17",
+          venue_name: "The Garden",
+        }),
+        ev({
+          id: "c",
+          event_code: "SERIES",
+          event_date: "2026-05-24",
+          venue_name: "The Garden",
+        }),
+        ev({ id: "d", event_code: "OTHER", event_date: "2026-07-10" }),
+      ],
+      [],
+      [],
+    );
+    assert.equal(t.events, 4);
+    assert.equal(t.venueGroups, 2);
+  });
+
+  it("counts separate venue groups when the same event_code spans different venues", () => {
+    const t = aggregateClientWideTotals(
+      [
+        ev({
+          id: "a",
+          event_code: "X",
+          event_date: "2026-06-27",
+          venue_name: "North",
+        }),
+        ev({
+          id: "b",
+          event_code: "X",
+          event_date: "2026-06-27",
+          venue_name: "South",
+        }),
+      ],
+      [],
+      [],
+    );
+    assert.equal(t.venueGroups, 2);
+  });
+
   it("returns null ROAS when ad spend is zero", () => {
     const events = [
       ev({

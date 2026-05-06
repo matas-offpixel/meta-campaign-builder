@@ -13,6 +13,10 @@
  * per-venue-group totals. Both flow through identical arithmetic
  * fed by the same underlying row arrays; any divergence is a bug.
  */
+import {
+  buildRolloutGroupKeyByEventId,
+  type GroupableRow,
+} from "../dashboard/rollout-grouping.ts";
 import { resolveDisplayTicketRevenue } from "../dashboard/tier-channel-rollups.ts";
 import { metaPaidSpendOf, paidSpendOf } from "../dashboard/paid-spend.ts";
 import type { DailyRollupRow } from "./client-portal-server";
@@ -30,6 +34,11 @@ export interface AggregatableEvent {
    */
   name?: string | null;
   event_code: string | null;
+  /**
+   * When present, participates in venue-series grouping with
+   * `event_code` (see `lib/dashboard/rollout-grouping.ts`).
+   */
+  venue_name?: string | null;
   event_date: string | null;
   capacity: number | null;
   prereg_spend: number | null;
@@ -154,7 +163,7 @@ export function aggregateAllocationByEvent(
 }
 
 export interface ClientWideTotals {
-  /** Distinct venue groups after (event_code, event_date) grouping. */
+  /** Distinct venue groups after rollout-grouping rules (series / tuple). */
   venueGroups: number;
   /** Number of individual events (children across groups). */
   events: number;
@@ -261,6 +270,19 @@ export function aggregateClientWideTotals(
   let revenue = 0;
   let hasRevenue = false;
   const groupKeys = new Set<string>();
+  const groupingRows: GroupableRow[] = events.map((ev) => ({
+    eventId: ev.id,
+    eventCode: ev.event_code,
+    eventDate: ev.event_date,
+    venueName: ev.venue_name ?? null,
+    capacity: null,
+    ticketingMode: "none",
+    status: "ready",
+    missing: [],
+    warnings: [],
+    hasShare: false,
+  }));
+  const groupKeyByEventId = buildRolloutGroupKeyByEventId(groupingRows);
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
     ticketsSold +=
@@ -274,8 +296,9 @@ export function aggregateClientWideTotals(
       hasRevenue = true;
       revenue += r;
     }
-    const gk = groupKey(ev);
-    groupKeys.add(gk);
+    groupKeys.add(
+      groupKeyByEventId.get(ev.id) ?? `__solo__::${ev.id}`,
+    );
   }
 
   const totalSpend = adSpend + additional + prereg;
@@ -307,20 +330,6 @@ export function aggregateClientWideTotals(
     cpt,
     sellThroughPct,
   };
-}
-
-/**
- * Grouping key used to count venue groups in the topline. Mirrors
- * `lib/dashboard/rollout-grouping.ts`'s `groupKey` so the counts the
- * topline shows ("N venues") match the card count rendered below.
- */
-function groupKey(ev: {
-  id: string;
-  event_code: string | null;
-  event_date: string | null;
-}): string {
-  if (!ev.event_code) return `__solo__::${ev.id}`;
-  return `${ev.event_code}::${ev.event_date ?? ""}`;
 }
 
 function eventCodeCountsByEventId(
@@ -540,9 +549,8 @@ export function aggregateVenueCampaignPerformance(
 
 /**
  * Per-venue-group aggregation. Expects `events` to be the children
- * of one group (shared event_code + event_date), already filtered by
- * the caller. Pure — filters rollup / additional-spend arrays by the
- * group's event ids.
+ * of one logical venue group (already filtered by the caller). Pure —
+ * filters rollup / additional-spend arrays by the group's event ids.
  *
  * `todayIso` lets the caller inject a clock for the recency bonus in
  * `activityScore` so the function stays deterministic under test.
