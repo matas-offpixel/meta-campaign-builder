@@ -18,6 +18,7 @@ import {
   parseMoneyAmountInput,
   parseSpendDateToIso,
 } from "@/lib/additional-spend-parse";
+import { dedupeAdjacentApiPathSegment } from "@/lib/dedupe-adjacent-api-path-segment";
 
 type Source =
   | "partner_allocation"
@@ -64,6 +65,10 @@ const GBP = new Intl.NumberFormat("en-GB", {
   currency: "GBP",
   maximumFractionDigits: 0,
 });
+
+function ticketEntriesUrl(path: string): string {
+  return dedupeAdjacentApiPathSegment(path, "additional-ticket-entries");
+}
 
 async function safeJson<T = unknown>(res: Response): Promise<T> {
   const text = await res.text();
@@ -138,9 +143,11 @@ export function AdditionalTicketEntriesCard({
     const loaded = await Promise.all(
       eventOptions.map(async (event) => {
         const res = await fetch(
-          shareToken
-            ? `/api/share/venue/${encodeURIComponent(shareToken)}/additional-ticket-entries?event_id=${encodeURIComponent(event.id)}`
-            : `/api/events/${encodeURIComponent(event.id)}/additional-ticket-entries`,
+          ticketEntriesUrl(
+            shareToken
+              ? `/api/share/venue/${encodeURIComponent(shareToken)}/additional-ticket-entries?event_id=${encodeURIComponent(event.id)}`
+              : `/api/events/${encodeURIComponent(event.id)}/additional-ticket-entries`,
+          ),
           { cache: "no-store" },
         );
         const json = await safeJson<{
@@ -282,13 +289,15 @@ export function AdditionalTicketEntriesCard({
         : [optimisticEntry, ...current],
     );
     try {
-      const url = shareToken
-        ? `/api/share/venue/${encodeURIComponent(shareToken)}/additional-ticket-entries${
-            editingId ? `/${encodeURIComponent(editingId)}` : ""
-          }`
-        : `/api/events/${encodeURIComponent(parsed.eventId)}/additional-ticket-entries${
-            editingId ? `/${encodeURIComponent(editingId)}` : ""
-          }`;
+      const url = ticketEntriesUrl(
+        shareToken
+          ? `/api/share/venue/${encodeURIComponent(shareToken)}/additional-ticket-entries${
+              editingId ? `/${encodeURIComponent(editingId)}` : ""
+            }`
+          : `/api/events/${encodeURIComponent(parsed.eventId)}/additional-ticket-entries${
+              editingId ? `/${encodeURIComponent(editingId)}` : ""
+            }`,
+      );
       const res = await fetch(url, {
         method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -331,9 +340,11 @@ export function AdditionalTicketEntriesCard({
     setError(null);
     try {
       const res = await fetch(
-        shareToken
-          ? `/api/share/venue/${encodeURIComponent(shareToken)}/additional-ticket-entries/${encodeURIComponent(entry.id)}?event_id=${encodeURIComponent(entry.event_id)}`
-          : `/api/events/${encodeURIComponent(entry.event_id)}/additional-ticket-entries/${encodeURIComponent(entry.id)}`,
+        ticketEntriesUrl(
+          shareToken
+            ? `/api/share/venue/${encodeURIComponent(shareToken)}/additional-ticket-entries/${encodeURIComponent(entry.id)}?event_id=${encodeURIComponent(entry.event_id)}`
+            : `/api/events/${encodeURIComponent(entry.event_id)}/additional-ticket-entries/${encodeURIComponent(entry.id)}`,
+        ),
         { method: "DELETE" },
       );
       const json = await safeJson<{ ok?: boolean; error?: string }>(res);

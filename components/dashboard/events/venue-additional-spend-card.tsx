@@ -18,8 +18,13 @@ import {
   parseMoneyAmountInput,
   parseSpendDateToIso,
 } from "@/lib/additional-spend-parse";
+import { dedupeAdjacentApiPathSegment } from "@/lib/dedupe-adjacent-api-path-segment";
 
 type Category = "PR" | "INFLUENCER" | "PRINT" | "RADIO" | "OTHER";
+
+function spendCollectionUrl(path: string): string {
+  return dedupeAdjacentApiPathSegment(path, "additional-spend");
+}
 
 type Entry = {
   id: string;
@@ -72,6 +77,12 @@ export function VenueAdditionalSpendCard({
   readOnly = false,
 }: {
   events: VenueAdditionalSpendEventOption[];
+  /**
+   * Cookie-auth venue scope: raw `events.event_code` for the group (e.g.
+   * `WC26-MANCHESTER`). This component builds
+   * `/api/clients/.../venues/{eventCode}/additional-spend` — do not pass a
+   * value or base URL that already ends with `/additional-spend`.
+   */
   venueScope?: { clientId: string; eventCode: string };
   /**
    * When set, the card switches every read/write to the venue
@@ -120,7 +131,9 @@ export function VenueAdditionalSpendCard({
     // per-event + venue load.
     if (shareToken) {
       const res = await fetch(
-        `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`,
+        spendCollectionUrl(
+          `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`,
+        ),
         { cache: "no-store" },
       );
       const json = await safeJson<{
@@ -143,7 +156,9 @@ export function VenueAdditionalSpendCard({
     const loaded = await Promise.all(
       events.map(async (event) => {
         const res = await fetch(
-          `/api/events/${encodeURIComponent(event.id)}/additional-spend`,
+          spendCollectionUrl(
+            `/api/events/${encodeURIComponent(event.id)}/additional-spend`,
+          ),
           { cache: "no-store" },
         );
         const json = await safeJson<{
@@ -166,7 +181,9 @@ export function VenueAdditionalSpendCard({
         ? []
         : await (async () => {
             const res = await fetch(
-              `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend`,
+              spendCollectionUrl(
+                `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend`,
+              ),
               { cache: "no-store" },
             );
             const json = await safeJson<{
@@ -295,14 +312,20 @@ export function VenueAdditionalSpendCard({
       //      route so the same row stays venue-scope.
       //   3) otherwise → per-event cookie-auth route.
       const url = shareToken
-        ? `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend${
-            editingId ? `/${encodeURIComponent(editingId)}` : ""
-          }`
-        : existing?.origin === "venue" && venueScope
-          ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(editingId!)}`
-          : `/api/events/${encodeURIComponent(parsed.eventId)}/additional-spend${
+        ? spendCollectionUrl(
+            `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend${
               editingId ? `/${encodeURIComponent(editingId)}` : ""
-            }`;
+            }`,
+          )
+        : existing?.origin === "venue" && venueScope
+          ? spendCollectionUrl(
+              `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(editingId!)}`,
+            )
+          : spendCollectionUrl(
+              `/api/events/${encodeURIComponent(parsed.eventId)}/additional-spend${
+                editingId ? `/${encodeURIComponent(editingId)}` : ""
+              }`,
+            );
       const res = await fetch(url, {
         method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -329,11 +352,13 @@ export function VenueAdditionalSpendCard({
     setError(null);
     try {
       const res = await fetch(
-        shareToken
-          ? `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend/${encodeURIComponent(entry.id)}`
-          : entry.origin === "venue" && venueScope
-            ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(entry.id)}`
-            : `/api/events/${encodeURIComponent(entry.event_id)}/additional-spend/${encodeURIComponent(entry.id)}`,
+        spendCollectionUrl(
+          shareToken
+            ? `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend/${encodeURIComponent(entry.id)}`
+            : entry.origin === "venue" && venueScope
+              ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(entry.id)}`
+              : `/api/events/${encodeURIComponent(entry.event_id)}/additional-spend/${encodeURIComponent(entry.id)}`,
+        ),
         { method: "DELETE" },
       );
       const json = await safeJson<{ ok?: boolean; error?: string }>(res);
