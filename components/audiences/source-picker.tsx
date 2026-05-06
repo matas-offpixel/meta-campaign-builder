@@ -548,9 +548,55 @@ function VideoSourcePicker({
           className="h-9 rounded-md border border-border-strong bg-background px-3 text-sm font-normal text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </label>
-      <p className="text-xs text-muted-foreground">
-        Select one or more campaigns (sorted by last 12 months spend). Spend shown in GBP.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {filteredCampaigns.length} matching · {selectedCampaignIds.length} selected
+        </p>
+        <div className="flex gap-1.5">
+          {filteredCampaigns.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              onClick={() => {
+                const allVisibleIds = filteredCampaigns.map((c) => c.id);
+                const combined = Array.from(new Set([...selectedCampaignIds, ...allVisibleIds]));
+                const summaries = combined.map((cid) => {
+                  const c = (campaigns ?? []).find((x) => x.id === cid);
+                  return { id: cid, name: c?.name ?? cid };
+                });
+                onChange({
+                  ...value,
+                  campaignIds: combined,
+                  campaignId: combined[0],
+                  campaignSummaries: summaries,
+                  campaignName: summaries[0]?.name,
+                  videoIds: [],
+                });
+              }}
+            >
+              Select all {filteredCampaigns.length} matching
+            </button>
+          )}
+          {selectedCampaignIds.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:underline"
+              onClick={() =>
+                onChange({
+                  ...value,
+                  campaignIds: [],
+                  campaignId: undefined,
+                  campaignSummaries: [],
+                  campaignName: undefined,
+                  videoIds: [],
+                })
+              }
+            >
+              Clear {selectedCampaignIds.length} selected
+            </button>
+          )}
+        </div>
+      </div>
       <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
         {filteredCampaigns.map((campaign) => {
           const checked = selectedCampaignIds.includes(campaign.id);
