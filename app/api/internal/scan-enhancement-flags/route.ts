@@ -22,6 +22,7 @@ import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import {
   evaluateCreativeFeatures,
+  isTrackedOnlyFlagSet,
   type FlaggedFeatureMap,
 } from "@/lib/meta/enhancement-policy";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -215,6 +216,7 @@ async function handleScan(req: NextRequest) {
               severity_score: evaluation.severityScore,
               raw_features_spec,
               scanned_at: scanStartedAt,
+              tracked_only: isTrackedOnlyFlagSet(flagged_features),
             });
 
           if (insErr) {

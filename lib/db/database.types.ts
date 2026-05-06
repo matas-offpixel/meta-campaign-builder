@@ -852,6 +852,7 @@ export type Database = {
           resolved_by_user_id: string | null
           scanned_at: string
           severity_score: number
+          tracked_only: boolean
         }
         Insert: {
           ad_account_id: string
@@ -868,6 +869,7 @@ export type Database = {
           resolved_by_user_id?: string | null
           scanned_at?: string
           severity_score: number
+          tracked_only?: boolean
         }
         Update: {
           ad_account_id?: string
@@ -884,6 +886,7 @@ export type Database = {
           resolved_by_user_id?: string | null
           scanned_at?: string
           severity_score?: number
+          tracked_only?: boolean
         }
         Relationships: [
           {

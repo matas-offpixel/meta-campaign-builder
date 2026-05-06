@@ -9,8 +9,6 @@ export const POLICY_BLOCKED_FEATURES = [
   "standard_enhancements", // weight 3 — bundle, cascades
   "text_optimizations", // weight 3 — rewrites client's ad copy
   "product_extensions",
-  "inline_comment",
-  "image_brightness_and_contrast",
   "contextual_multi_ads", // multi-advertiser ads (creative-level)
   "video_auto_crop",
   "video_filtering",
@@ -48,7 +46,21 @@ export const POLICY_BLOCKED_FEATURES = [
   "hide_price",
 ] as const;
 
+/** Still scanned and stored, but excluded from severity, banner counts, and pills. */
+export const POLICY_TRACKED_FEATURES = ["inline_comment"] as const;
+
 export type PolicyBlockedFeature = (typeof POLICY_BLOCKED_FEATURES)[number];
+
+export type PolicyTier = "BLOCKED" | "TRACKED";
+
+const BLOCKED_SET = new Set<string>(POLICY_BLOCKED_FEATURES);
+const TRACKED_SET = new Set<string>(POLICY_TRACKED_FEATURES);
+
+export function getPolicyTier(featureKey: string): PolicyTier | null {
+  if (BLOCKED_SET.has(featureKey)) return "BLOCKED";
+  if (TRACKED_SET.has(featureKey)) return "TRACKED";
+  return null;
+}
 
 const HEAVY_WEIGHT_FEATURES = new Set<PolicyBlockedFeature>([
   "standard_enhancements",
@@ -65,6 +77,13 @@ export interface FeatureEvaluation {
   severityScore: number;
 }
 
+/** True when every flagged key is TRACKED tier (no BLOCKED violations). */
+export function isTrackedOnlyFlagSet(flagged: FlaggedFeatureMap): boolean {
+  const keys = Object.keys(flagged);
+  if (keys.length === 0) return false;
+  return keys.every((k) => getPolicyTier(k) === "TRACKED");
+}
+
 export function evaluateCreativeFeatures(
   spec: Record<string, { enroll_status?: string }> | null | undefined,
 ): FeatureEvaluation {
@@ -73,12 +92,28 @@ export function evaluateCreativeFeatures(
   if (!spec || typeof spec !== "object") {
     return { flagged, severityScore };
   }
-  for (const key of POLICY_BLOCKED_FEATURES) {
+
+  const considerBlocked = (key: PolicyBlockedFeature) => {
     const status = spec[key]?.enroll_status;
     if (status === "OPT_IN" || status === "DEFAULT_OPT_IN") {
       flagged[key] = status as "OPT_IN" | "DEFAULT_OPT_IN";
       severityScore += HEAVY_WEIGHT_FEATURES.has(key) ? 3 : 1;
     }
+  };
+
+  const considerTracked = (key: (typeof POLICY_TRACKED_FEATURES)[number]) => {
+    const status = spec[key]?.enroll_status;
+    if (status === "OPT_IN" || status === "DEFAULT_OPT_IN") {
+      flagged[key] = status as "OPT_IN" | "DEFAULT_OPT_IN";
+    }
+  };
+
+  for (const key of POLICY_BLOCKED_FEATURES) {
+    considerBlocked(key);
   }
+  for (const key of POLICY_TRACKED_FEATURES) {
+    considerTracked(key);
+  }
+
   return { flagged, severityScore };
 }

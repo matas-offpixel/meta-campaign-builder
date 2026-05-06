@@ -25,6 +25,13 @@ function parseEventIds(req: NextRequest): string[] | undefined {
   return undefined;
 }
 
+function parseIncludeTracked(req: NextRequest): boolean {
+  const v = req.nextUrl.searchParams.get("includeTracked");
+  if (!v) return false;
+  const n = v.trim().toLowerCase();
+  return n === "1" || n === "true" || n === "yes";
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ clientId: string }> },
@@ -70,11 +77,13 @@ export async function GET(
   }
 
   const eventIds = parseEventIds(req);
+  const includeTracked = parseIncludeTracked(req);
 
   try {
     const payload = await fetchEnhancementFlagsForClient(admin, {
       clientId,
       eventIds,
+      includeTracked,
     });
     return NextResponse.json(payload);
   } catch (err) {
