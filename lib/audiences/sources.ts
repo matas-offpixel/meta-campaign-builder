@@ -212,6 +212,7 @@ export async function fetchAudienceCampaigns(
   token: string,
   limit: number,
 ): Promise<AudienceCampaignSource[]> {
+  // Campaign-level insights: `lifetime` is not a valid date_preset in field expansion; `last_year` matches the 12-month spend label in the UI.
   const res = await graphGetWithToken<GraphPagedResponse<
     RawMetaCampaign & {
       insights?: { data?: Array<{ spend?: string }> };
@@ -220,7 +221,7 @@ export async function fetchAudienceCampaigns(
     `/${withActPrefix(adAccountId)}/campaigns`,
     {
       fields:
-        "id,name,effective_status,created_time,insights.date_preset(lifetime){spend}",
+        "id,name,effective_status,created_time,insights.date_preset(last_year){spend}",
       limit: String(Math.min(Math.max(limit, 1), 50)),
     },
     token,

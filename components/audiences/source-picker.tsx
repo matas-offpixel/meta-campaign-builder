@@ -485,7 +485,7 @@ function VideoSourcePicker({
         />
       </label>
       <p className="text-xs text-muted-foreground">
-        Select one or more campaigns (sorted by lifetime spend). Spend shown in GBP.
+        Select one or more campaigns (sorted by last 12 months spend). Spend shown in GBP.
       </p>
       <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
         {filteredCampaigns.map((campaign) => {
