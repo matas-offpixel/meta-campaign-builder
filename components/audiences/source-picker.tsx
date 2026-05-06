@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { formatCampaignSpendGbp } from "@/lib/audiences/format-campaign-spend";
 import { filterPagesByQuery } from "@/lib/audiences/filter-pages-by-query";
 import { mergeVideoSourcesDeduped } from "@/lib/audiences/merge-video-sources";
+import { videoPickerAutoSelectSignature } from "@/lib/audiences/video-picker-auto-select";
 import {
   fetchAudienceCampaignVideos,
   fetchAudienceSourceList,
@@ -79,6 +80,57 @@ interface VideoFetchState {
   rateLimited: boolean;
 }
 
+function videoTilePrimaryLabel(video: VideoSource): string {
+  const title = video.title?.trim();
+  if (title && title !== video.id && !/^\d+$/.test(title)) {
+    return title;
+  }
+  if (title && /\.(mp4|mov|webm|m4v)$/i.test(title)) {
+    return title;
+  }
+  return "Video";
+}
+
+function VideoAutoSelectOnFetch({
+  campaignKey,
+  vf,
+  value,
+  onChange,
+}: {
+  campaignKey: string;
+  vf: VideoFetchState;
+  value: SourceSelection;
+  onChange: (next: SourceSelection) => void;
+}) {
+  const latest = useRef(value);
+  useEffect(() => {
+    latest.current = value;
+  }, [value]);
+  const appliedSig = useRef("");
+
+  useEffect(() => {
+    appliedSig.current = "";
+  }, [campaignKey]);
+
+  useEffect(() => {
+    if (!campaignKey || vf.loading || vf.error || vf.videos.length === 0) {
+      return;
+    }
+    const sig = videoPickerAutoSelectSignature(
+      campaignKey,
+      vf.videos.map((v) => v.id),
+    );
+    if (appliedSig.current === sig) return;
+    appliedSig.current = sig;
+    onChange({
+      ...latest.current,
+      videoIds: vf.videos.map((v) => v.id),
+    });
+  }, [campaignKey, vf.loading, vf.error, vf.videos, onChange]);
+
+  return null;
+}
+
 function CampaignVideoFetcher({
   clientId,
   campaignIds,
@@ -131,8 +183,19 @@ function CampaignVideoFetcher({
         if (!r.ok) return [];
         return r.data.videos;
       });
+      const merged = mergeVideoSourcesDeduped(buckets);
+      const missingThumbs = merged.filter((v) => !v.thumbnailUrl).length;
+      if (
+        merged.length > 0 &&
+        missingThumbs >= 5 &&
+        missingThumbs >= merged.length / 2
+      ) {
+        console.warn(
+          `[Audience video picker] ${missingThumbs}/${merged.length} videos missing Graph \`picture\` — check permissions, video age, or archived ads.`,
+        );
+      }
       setVf({
-        videos: mergeVideoSourcesDeduped(buckets),
+        videos: merged,
         loading: false,
         error: null,
         rateLimited: false,
@@ -536,6 +599,12 @@ function VideoSourcePicker({
         >
           {(vf) => (
             <>
+              <VideoAutoSelectOnFetch
+                campaignKey={campaignKey}
+                vf={vf}
+                value={value}
+                onChange={onChange}
+              />
               <div className="grid gap-2 md:grid-cols-3">
                 {vf.videos.map((video) => (
                   <button
@@ -556,10 +625,17 @@ function VideoSourcePicker({
                         className="aspect-video w-full rounded object-cover"
                       />
                     ) : (
-                      <div className="aspect-video rounded bg-muted" />
+                      <div className="flex aspect-video flex-col items-center justify-center rounded bg-muted px-1 text-center">
+                        <span className="text-[10px] font-medium text-muted-foreground">
+                          No thumbnail
+                        </span>
+                      </div>
                     )}
                     <p className="mt-1 line-clamp-2 font-medium">
-                      {video.title || video.id}
+                      {videoTilePrimaryLabel(video)}
+                    </p>
+                    <p className="truncate text-[10px] text-muted-foreground">
+                      ID: {video.id}
                     </p>
                   </button>
                 ))}
@@ -694,15 +770,15 @@ function PixelSourcePicker({
             onChange={(event) => {
               const lines = event.target.value
                 .split("\n")
-                .map((s) => s.trim())
-                .filter(Boolean);
+                .map((s) => s.trim());
+              const hasAnyContent = lines.some((s) => s.length > 0);
               onChange({
                 ...value,
-                urlContains: lines.length ? lines : undefined,
+                urlContains: hasAnyContent ? lines : undefined,
               });
             }}
             placeholder="One path fragment per line"
-            className="min-h-[88px] rounded-md border border-border-strong bg-background px-3 py-2 text-sm font-normal text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+            className="min-h-[88px] resize-y whitespace-pre-wrap rounded-md border border-border-strong bg-background px-3 py-2 text-sm font-normal text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </label>
       )}

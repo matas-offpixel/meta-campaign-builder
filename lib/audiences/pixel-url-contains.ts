@@ -11,6 +11,11 @@ export function coerceLegacyWebsitePixelUrlStringToArray(
   }
 }
 
+/** Strip scheme for Meta `i_contains` URL filters (full URLs in Events Manager omit https://). */
+export function stripHttpSchemeFromPixelUrlFragment(fragment: string): string {
+  return fragment.replace(/^https?:\/\//i, "").trim();
+}
+
 /** Normalize pixel URL fragments from API / DB (string, string[], newline-separated). */
 export function normalizeWebsitePixelUrlContains(raw: unknown): string[] {
   if (raw === undefined || raw === null) return [];

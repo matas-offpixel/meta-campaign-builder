@@ -19,6 +19,8 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "page");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "page_1");
     assert.equal(rule.inclusions.rules[0].retention_seconds, "31536000");
+    assert.equal(rule.inclusions.rules[0].filter.operator, "and");
+    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
     assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "page_engaged");
   });
 
@@ -54,6 +56,8 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(payload.subtype, "ENGAGEMENT");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "ig_1");
+    assert.equal(rule.inclusions.rules[0].filter.operator, "and");
+    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
     assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "page_liked");
   });
 
@@ -74,10 +78,13 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
     const rule = JSON.parse(payload.rule) as RuleShape;
     assert.equal(payload.subtype, "VIDEO_VIEWERS_VIEWED");
+    assert.notEqual(payload.subtype, "VIDEO");
     assert.deepEqual(
       rule.inclusions.rules[0].event_sources.map((source) => source.id),
       ["v1", "v2", "v3"],
     );
+    assert.equal(rule.inclusions.rules[0].filter.operator, "and");
+    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
     assert.equal(
       rule.inclusions.rules[0].filter.filters[0].value,
       "video_watched_95_percent",
@@ -100,6 +107,8 @@ describe("buildMetaCustomAudiencePayload", () => {
     const rule = JSON.parse(payload.rule) as RuleShape;
     assert.equal(payload.subtype, "WEBSITE");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "pixel");
+    assert.equal(rule.inclusions.rules[0].filter.operator, "and");
+    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
     assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "ViewContent");
     assert.equal(rule.inclusions.rules[0].filter.filters[1].field, "url");
     assert.equal(rule.inclusions.rules[0].filter.filters[1].value, "/arsenal");
@@ -119,6 +128,7 @@ describe("buildMetaCustomAudiencePayload", () => {
       }),
     );
     const rule = JSON.parse(payload.rule) as RuleShape;
+    assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     const filters = rule.inclusions.rules[0].filter.filters;
     assert.equal(filters[0].field, "event");
     assert.equal(filters[0].value, "ViewContent");
@@ -128,6 +138,33 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.deepEqual(
       urlGroup.filters.map((f) => f.value),
       ["/arsenal-cl-final", "/arsenal-cl-presale", "/extra"],
+    );
+    assert.ok(
+      urlGroup.filters.every((f) => f.field === "url" && !("eventName" in f)),
+    );
+  });
+
+  it("strips http(s):// from website pixel URL fragments for Meta i_contains values", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "website_pixel",
+        retentionDays: 60,
+        sourceId: "pixel_1",
+        sourceMeta: {
+          subtype: "website_pixel",
+          pixelEvent: "ViewContent",
+          urlContains: [
+            "https://wearefootballfestival.co.uk/final",
+            "http://example.org/presale",
+          ],
+        },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    const urlGroup = rule.inclusions.rules[0].filter.filters[1] as UrlOrGroup;
+    assert.deepEqual(
+      urlGroup.filters.map((f) => f.value),
+      ["wearefootballfestival.co.uk/final", "example.org/presale"],
     );
   });
 
@@ -144,6 +181,7 @@ describe("buildMetaCustomAudiencePayload", () => {
       }),
     );
     const rule = JSON.parse(payload.rule) as RuleShape;
+    assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     assert.equal(rule.inclusions.rules[0].filter.filters.length, 1);
     assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
     assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "PageView");

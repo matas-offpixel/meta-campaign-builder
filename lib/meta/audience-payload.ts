@@ -1,5 +1,8 @@
 import { AUDIENCE_SUBTYPE_LABELS } from "../audiences/metadata.ts";
-import { normalizeWebsitePixelUrlContains } from "../audiences/pixel-url-contains.ts";
+import {
+  normalizeWebsitePixelUrlContains,
+  stripHttpSchemeFromPixelUrlFragment,
+} from "../audiences/pixel-url-contains.ts";
 import type {
   AudienceSourceMeta,
   MetaCustomAudience,
@@ -104,7 +107,9 @@ export function buildMetaCustomAudiencePayload(
         value: sourceMeta.pixelEvent || "PageView",
       },
     ];
-    const urlParts = normalizeWebsitePixelUrlContains(sourceMeta.urlContains);
+    const urlParts = normalizeWebsitePixelUrlContains(
+      sourceMeta.urlContains,
+    ).map(stripHttpSchemeFromPixelUrlFragment);
     if (urlParts.length === 1) {
       filters.push({
         field: "url",
