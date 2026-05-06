@@ -52,6 +52,8 @@ export async function fetchEnhancementFlagsForClient(
     /** When set, only flags tied to these events (excludes null event_id). */
     eventIds?: readonly string[] | null;
     limit?: number;
+    /** When true, include tracked-only rows (e.g. inline_comment–only) in results and totals. */
+    includeTracked?: boolean;
   },
 ): Promise<EnhancementFlagsApiPayload> {
   const limit = Math.min(Math.max(1, params.limit ?? 200), 200);
@@ -74,21 +76,40 @@ export async function fetchEnhancementFlagsForClient(
     .eq("client_id", params.clientId)
     .is("resolved_at", null);
 
+  if (!params.includeTracked) {
+    query = query.eq("tracked_only", false);
+  }
+
   if (eventIds.length > 0) {
     query = query.in("event_id", [...eventIds]);
   }
 
   const { data: rows, error } = await query
     .order("severity_score", { ascending: false })
-    .order("scanned_at", { ascending: false })
-    .limit(limit);
+    .order("scanned_at", { ascending: false });
   if (error) throw new Error(error.message);
 
-  const open_flags: EnhancementFlagsApiPayload["open_flags"] = [];
+  const allRows = rows ?? [];
   let total_severity = 0;
   let standard_enhancements_count = 0;
 
-  for (const row of rows ?? []) {
+  for (const row of allRows) {
+    const ev = row as unknown as {
+      severity_score: number;
+      flagged_features: unknown;
+    };
+    total_severity += ev.severity_score;
+    const flagged_features = parseFlaggedFeatures(ev.flagged_features);
+    if (
+      flagged_features.standard_enhancements === "OPT_IN" ||
+      flagged_features.standard_enhancements === "DEFAULT_OPT_IN"
+    ) {
+      standard_enhancements_count += 1;
+    }
+  }
+
+  const open_flags: EnhancementFlagsApiPayload["open_flags"] = [];
+  for (const row of allRows.slice(0, limit)) {
     const ev = row as unknown as {
       id: string;
       ad_id: string;
@@ -121,18 +142,11 @@ export async function fetchEnhancementFlagsForClient(
       campaign_id: ev.campaign_id,
       ad_account_id: ev.ad_account_id,
     });
-    total_severity += ev.severity_score;
-    if (
-      flagged_features.standard_enhancements === "OPT_IN" ||
-      flagged_features.standard_enhancements === "DEFAULT_OPT_IN"
-    ) {
-      standard_enhancements_count += 1;
-    }
   }
 
   return {
     open_flags,
-    total_open: open_flags.length,
+    total_open: allRows.length,
     total_severity,
     standard_enhancements_count,
     last_scan_at: lastScanRow?.scanned_at ?? null,

@@ -12,7 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { EnhancementFlagsApiPayload } from "@/lib/db/creative-enhancement-flags";
-import { HEAVY_WEIGHT_FEATURE_KEYS } from "@/lib/meta/enhancement-policy";
+import {
+  getPolicyTier,
+  HEAVY_WEIGHT_FEATURE_KEYS,
+} from "@/lib/meta/enhancement-policy";
 import { withoutActPrefix } from "@/lib/meta/ad-account-id";
 
 interface Props {
@@ -105,57 +108,65 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-            {sortedFlags.map((row) => (
-              <div
-                key={row.id}
-                className="rounded-md border border-border bg-card p-3 text-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">
-                      {row.ad_name?.trim() || `Ad ${row.ad_id}`}
-                    </p>
-                    {row.event_name ? (
-                      <p className="text-xs text-muted-foreground">{row.event_name}</p>
-                    ) : null}
-                    <p className="font-mono text-[10px] text-muted-foreground">
-                      Creative {row.creative_id}
-                    </p>
+            {sortedFlags.map((row) => {
+              const blockedFeatureKeys = Object.keys(row.flagged_features).filter(
+                (k) => getPolicyTier(k) === "BLOCKED",
+              );
+              if (blockedFeatureKeys.length === 0) {
+                return null;
+              }
+              return (
+                <div
+                  key={row.id}
+                  className="rounded-md border border-border bg-card p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">
+                        {row.ad_name?.trim() || `Ad ${row.ad_id}`}
+                      </p>
+                      {row.event_name ? (
+                        <p className="text-xs text-muted-foreground">{row.event_name}</p>
+                      ) : null}
+                      <p className="font-mono text-[10px] text-muted-foreground">
+                        Creative {row.creative_id}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      severity {row.severity_score}
+                    </span>
                   </div>
-                  <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    severity {row.severity_score}
-                  </span>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {blockedFeatureKeys.map((key) => {
+                      const heavy = HEAVY_WEIGHT_FEATURE_KEYS.has(key);
+                      return (
+                        <span
+                          key={key}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            heavy
+                              ? "border-amber-500/50 bg-amber-500/15 text-amber-900 dark:text-amber-200"
+                              : "border-border bg-muted/40 text-muted-foreground"
+                          }`}
+                        >
+                          {key}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2">
+                    <a
+                      href={adsManagerEditUrl(row.ad_account_id, row.ad_id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                    >
+                      Open in Ads Manager
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {Object.keys(row.flagged_features).map((key) => {
-                    const heavy = HEAVY_WEIGHT_FEATURE_KEYS.has(key);
-                    return (
-                      <span
-                        key={key}
-                        className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                          heavy
-                            ? "border-amber-500/50 bg-amber-500/15 text-amber-900 dark:text-amber-200"
-                            : "border-border bg-muted/40 text-muted-foreground"
-                        }`}
-                      >
-                        {key}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className="mt-2">
-                  <a
-                    href={adsManagerEditUrl(row.ad_account_id, row.ad_id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                  >
-                    Open in Ads Manager
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <DialogFooter>
