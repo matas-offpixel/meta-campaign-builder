@@ -50,10 +50,29 @@ const PUBLIC_PREFIXES: readonly string[] = [
   "/api/cron/",
 ];
 
-export function isPublicPath(pathname: string): boolean {
+/**
+ * Meta thumbnail proxy with `share_token` must bypass cookie middleware so
+ * `<img src>` on public share pages can load (same pattern as `/api/share/*`).
+ */
+function isThumbnailProxyShareRequest(searchParams: URLSearchParams): boolean {
+  const t = searchParams.get("share_token");
+  return typeof t === "string" && t.length >= 12 && t.length <= 128;
+}
+
+export function isPublicPath(
+  pathname: string,
+  searchParams?: URLSearchParams,
+): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
+  if (
+    pathname === "/api/meta/thumbnail-proxy" &&
+    searchParams &&
+    isThumbnailProxyShareRequest(searchParams)
+  ) {
+    return true;
+  }
   for (const prefix of PUBLIC_PREFIXES) {
     if (pathname.startsWith(prefix)) return true;
   }

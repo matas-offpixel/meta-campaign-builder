@@ -769,6 +769,7 @@ export function EventDetail({
                       </div>
                       <InternalEventReport
                         eventId={event.id}
+                        clientId={event.client_id}
                         additionalSpendSlot={
                           <div className="space-y-4">
                             <section className="rounded-md border border-border bg-card p-4">
@@ -883,7 +884,10 @@ export function EventDetail({
               sets / campaigns. Concurrency-capped fetch on the
               server side; sort + refresh on the client. */}
           <TabPanel active={activeTab === "active-creatives"}>
-            <EventActiveCreativesPanel eventId={event.id} />
+            <EventActiveCreativesPanel
+              eventId={event.id}
+              clientId={event.client_id}
+            />
           </TabPanel>
 
           <TabPanel active={activeTab === "activity"}>

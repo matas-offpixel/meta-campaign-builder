@@ -603,6 +603,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
             promise={deferredCreatives}
             kind={event.kind}
             tagAssignments={tagAssignments}
+            shareToken={token}
           />
         </Suspense>
       </>
@@ -622,6 +623,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           result={creativesResult}
           kind={event.kind}
           tagAssignments={tagAssignments}
+          shareToken={token}
         />
       </>
     );
@@ -1083,10 +1085,12 @@ async function DeferredCreativesSlot({
   promise,
   kind,
   tagAssignments,
+  shareToken,
 }: {
   promise: Promise<ShareActiveCreativesResult>;
   kind?: string | null;
   tagAssignments: Awaited<ReturnType<typeof listCreativeTagAssignments>>;
+  shareToken: string;
 }) {
   const result = await promise;
   if (
@@ -1100,6 +1104,7 @@ async function DeferredCreativesSlot({
       result={result}
       kind={kind}
       tagAssignments={tagAssignments}
+      shareToken={shareToken}
     />
   );
 }

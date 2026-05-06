@@ -23,12 +23,15 @@ interface Props {
   result: ShareActiveCreativesResult;
   kind?: string | null;
   tagAssignments?: CreativeTagAssignmentWithTag[];
+  /** Public share report token — enables stable thumbnail proxy URLs on cards. */
+  shareToken?: string;
 }
 
 export function ShareActiveCreativesSection({
   result,
   kind,
   tagAssignments = [],
+  shareToken,
 }: Props) {
   if (result.kind === "skip") {
     // No section at all — the event simply isn't running anything.
@@ -73,6 +76,11 @@ export function ShareActiveCreativesSection({
       <ShareActiveCreativesClient
         groups={groups}
         kind={isBrandCampaign ? "brand_campaign" : "event"}
+        thumbnailAuth={
+          shareToken
+            ? { kind: "share", shareToken }
+            : null
+        }
       />
 
       <ShareCreativeTagBreakdowns

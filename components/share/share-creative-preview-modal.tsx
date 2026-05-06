@@ -14,6 +14,8 @@ import {
 } from "@/lib/reporting/group-creatives";
 import { resolveActiveCreativeModalImage } from "@/lib/reporting/active-creatives-thumbnail";
 import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
+import type { MetaThumbnailProxyAuth } from "@/lib/dashboard/meta-thumbnail-proxy-url";
+import { resolveProxiedRepresentativeThumbnail } from "@/lib/dashboard/meta-thumbnail-proxy-url";
 
 /**
  * components/share/share-creative-preview-modal.tsx
@@ -37,6 +39,7 @@ import { upscaleMetaCdnUrl } from "@/lib/reporting/meta-cdn-url";
 interface Props {
   group: ConceptGroupRow;
   onClose: () => void;
+  thumbnailAuth?: MetaThumbnailProxyAuth | null;
 }
 
 const FB_PLUGIN_BASE = "https://www.facebook.com/plugins/post.php";
@@ -89,7 +92,11 @@ function ctaLabel(type: string | null | undefined): string | null {
   }
 }
 
-export default function ShareCreativePreviewModal({ group, onClose }: Props) {
+export default function ShareCreativePreviewModal({
+  group,
+  onClose,
+  thumbnailAuth = null,
+}: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -107,7 +114,10 @@ export default function ShareCreativePreviewModal({ group, onClose }: Props) {
   }, [onClose]);
 
   const preview = group.representative_preview;
-  const fallbackImage = group.representative_thumbnail || null;
+  const fallbackImage = resolveProxiedRepresentativeThumbnail(
+    group,
+    thumbnailAuth,
+  );
   const cta = ctaLabel(preview.call_to_action_type);
   const link = preview.link_url;
   // Title is the group's display_name (already prefers ad.name over
