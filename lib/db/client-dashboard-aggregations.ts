@@ -34,10 +34,7 @@ export interface AggregatableEvent {
    */
   name?: string | null;
   event_code: string | null;
-  /**
-   * When present, participates in venue-series grouping with
-   * `event_code` (see `lib/dashboard/rollout-grouping.ts`).
-   */
+  /** Loaded for UI labels; grouping keys use `event_code` counts only. */
   venue_name?: string | null;
   event_date: string | null;
   capacity: number | null;
