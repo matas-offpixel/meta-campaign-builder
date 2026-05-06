@@ -740,6 +740,7 @@ export type Database = {
           google_drive_folder_url: string | null
           id: string
           instagram_handle: string | null
+          last_probed_at: string | null
           meta_ad_account_id: string | null
           meta_business_id: string | null
           meta_pixel_id: string | null
@@ -771,6 +772,7 @@ export type Database = {
           google_drive_folder_url?: string | null
           id?: string
           instagram_handle?: string | null
+          last_probed_at?: string | null
           meta_ad_account_id?: string | null
           meta_business_id?: string | null
           meta_pixel_id?: string | null
@@ -802,6 +804,7 @@ export type Database = {
           google_drive_folder_url?: string | null
           id?: string
           instagram_handle?: string | null
+          last_probed_at?: string | null
           meta_ad_account_id?: string | null
           meta_business_id?: string | null
           meta_pixel_id?: string | null
