@@ -38,7 +38,10 @@ import {
   type CommsPhrase,
 } from "@/lib/dashboard/comms-phrase";
 import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
-import { eventTierSalesRollup } from "@/lib/dashboard/tier-channel-rollups";
+import {
+  eventTierSalesRollup,
+  resolveDisplayTicketRevenue,
+} from "@/lib/dashboard/tier-channel-rollups";
 import {
   venueSpend,
   type GroupSpend,
@@ -624,7 +627,13 @@ function computeEventMetrics(
       : null;
   const cptChange =
     cpt !== null && cptPrevious !== null ? cpt - cptPrevious : null;
-  const revenue = ev.latest_snapshot?.revenue ?? null;
+  const revenue =
+    ev.ticket_tiers.length > 0
+      ? resolveDisplayTicketRevenue({
+          ticket_tiers: ev.ticket_tiers,
+          latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+        })
+      : ev.latest_snapshot?.revenue ?? null;
   const roas =
     revenue !== null && perEventTotal !== null && perEventTotal > 0
       ? revenue / perEventTotal
@@ -678,7 +687,13 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
     const sold = eventTierSalesRollup(ev.ticket_tiers).sold;
     tickets += sold;
     prevTickets += ev.tickets_sold_previous ?? 0;
-    const r = ev.latest_snapshot?.revenue;
+    const r =
+      ev.ticket_tiers.length > 0
+        ? resolveDisplayTicketRevenue({
+            ticket_tiers: ev.ticket_tiers,
+            latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+          })
+        : ev.latest_snapshot?.revenue ?? null;
     if (r !== null && r !== undefined) {
       hasRevenue = true;
       revenue += r;

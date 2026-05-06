@@ -114,6 +114,51 @@ export function eventTierSalesRollup(tiers: EventTicketTierRow[]): TierSalesRoll
   };
 }
 
+/** Sum explicit `tier_channel_sales.revenue_amount` pivoted into channel_breakdowns. */
+export function sumTierChannelRevenueAmounts(tiers: EventTicketTierRow[]): number {
+  let sum = 0;
+  for (const tier of tiers) {
+    for (const row of tier.channel_breakdowns ?? []) {
+      sum += Number(row.revenue_amount ?? 0);
+    }
+  }
+  return sum;
+}
+
+/** Legacy face-value estimate: Σ (tier sold × tier price). */
+export function legacyFaceValueTierRevenue(tiers: EventTicketTierRow[]): number {
+  let sum = 0;
+  for (const tier of tiers) {
+    const rollup = tierSalesRollup(tier);
+    const price = tier.price != null ? Number(tier.price) : NaN;
+    if (Number.isFinite(price)) sum += rollup.sold * price;
+  }
+  return sum;
+}
+
+/**
+ * Ticket revenue for dashboards: prefer summed `tier_channel_sales.revenue_amount`
+ * whenever multi-channel rows exist; then weekly snapshot revenue; then face-value.
+ */
+export function resolveDisplayTicketRevenue(input: {
+  ticket_tiers: EventTicketTierRow[];
+  latest_snapshot_revenue: number | null | undefined;
+}): number | null {
+  const { ticket_tiers, latest_snapshot_revenue } = input;
+  const hasBreakdown = ticket_tiers.some(
+    (t) => (t.channel_breakdowns?.length ?? 0) > 0,
+  );
+  if (hasBreakdown) {
+    return sumTierChannelRevenueAmounts(ticket_tiers);
+  }
+  if (latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
+    return latest_snapshot_revenue;
+  }
+  const face = legacyFaceValueTierRevenue(ticket_tiers);
+  if (face > 0) return face;
+  return latest_snapshot_revenue ?? null;
+}
+
 export function tierPctFromRollup(rollup: Pick<TierSalesRollup, "sold" | "allocation">): number | null {
   return rollup.allocation != null && rollup.allocation > 0
     ? (rollup.sold / rollup.allocation) * 100
@@ -121,7 +166,11 @@ export function tierPctFromRollup(rollup: Pick<TierSalesRollup, "sold" | "alloca
 }
 
 function isActiveChannelRow(row: TierChannelBreakdown): boolean {
-  return row.allocation_count != null || row.tickets_sold > 0;
+  return (
+    row.allocation_count != null ||
+    row.tickets_sold > 0 ||
+    (row.revenue_amount != null && Number(row.revenue_amount) !== 0)
+  );
 }
 
 function compareChannels(

@@ -13,8 +13,10 @@
  * per-venue-group totals. Both flow through identical arithmetic
  * fed by the same underlying row arrays; any divergence is a bug.
  */
+import { resolveDisplayTicketRevenue } from "../dashboard/tier-channel-rollups.ts";
 import { metaPaidSpendOf, paidSpendOf } from "../dashboard/paid-spend.ts";
 import type { DailyRollupRow } from "./client-portal-server";
+import type { EventTicketTierRow } from "./ticketing.ts";
 
 /** Minimal event shape the aggregators need — a subset of PortalEvent. */
 export interface AggregatableEvent {
@@ -44,6 +46,18 @@ export interface AggregatableEvent {
     tickets_sold: number | null;
     revenue: number | null;
   } | null;
+  /** When present (portal loaders), revenue prefers tier_channel_sales sums. */
+  ticket_tiers?: EventTicketTierRow[];
+}
+
+function ticketRevenueForAggregatableEvent(ev: AggregatableEvent): number | null {
+  if (ev.ticket_tiers && ev.ticket_tiers.length > 0) {
+    return resolveDisplayTicketRevenue({
+      ticket_tiers: ev.ticket_tiers,
+      latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+    });
+  }
+  return ev.latest_snapshot?.revenue ?? null;
 }
 
 /** One `additional_spend_entries` row; only `event_id` + `amount` used. */
@@ -255,7 +269,7 @@ export function aggregateClientWideTotals(
       capacity += ev.capacity;
       capacityAnyNonNull = true;
     }
-    const r = ev.latest_snapshot?.revenue;
+    const r = ticketRevenueForAggregatableEvent(ev);
     if (r != null) {
       hasRevenue = true;
       revenue += r;
@@ -566,7 +580,7 @@ export function aggregateVenueGroupTotals(
       capacity += ev.capacity;
       capacityAnyNonNull = true;
     }
-    const r = ev.latest_snapshot?.revenue;
+    const r = ticketRevenueForAggregatableEvent(ev);
     if (r != null) {
       hasRevenue = true;
       revenue += r;

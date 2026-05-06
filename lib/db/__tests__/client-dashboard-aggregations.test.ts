@@ -105,6 +105,42 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.sellThroughPct, null);
   });
 
+  it("sums tier-channel sales revenue when channel_breakdowns are present", () => {
+    const tier = {
+      id: "t1",
+      event_id: "a",
+      tier_name: "GA",
+      price: 50,
+      quantity_sold: 2,
+      quantity_available: 100,
+      snapshot_at: "2026-01-01",
+      channel_breakdowns: [
+        {
+          channel_id: "v",
+          channel_name: "Venue",
+          display_label: "Venue",
+          is_automatic: false,
+          allocation_count: 50,
+          tickets_sold: 2,
+          revenue_amount: 471.5,
+          revenue_overridden: false,
+        },
+      ],
+    };
+    const events = [
+      ev({
+        id: "a",
+        capacity: 100,
+        ticket_tiers: [tier],
+        latest_snapshot: { tickets_sold: 2, revenue: 0 },
+      }),
+    ];
+    const rollups: DailyRollupRow[] = [rollup("a", 400)];
+    const t = aggregateClientWideTotals(events, rollups, []);
+    assert.equal(t.ticketRevenue, 471.5);
+    assert.equal(t.roas, 471.5 / 400);
+  });
+
   it("sums ad_spend, additional_spend, prereg_spend, and tickets across events", () => {
     const events = [
       ev({

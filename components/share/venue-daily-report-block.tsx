@@ -23,6 +23,10 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import {
+  eventTierSalesRollup,
+  resolveDisplayTicketRevenue,
+} from "@/lib/dashboard/tier-channel-rollups";
 
 interface Props {
   eventCode: string;
@@ -110,6 +114,34 @@ export function VenueDailyReportBlock({
       ),
     [events, dailyEntries, dailyRollups, additionalSpend, weeklyTicketSnapshots],
   );
+
+  const tierLifetimeTickets = useMemo(() => {
+    let sum = 0;
+    let any = false;
+    for (const ev of events) {
+      if (ev.ticket_tiers.length === 0) continue;
+      sum += eventTierSalesRollup(ev.ticket_tiers).sold;
+      any = true;
+    }
+    return any ? sum : null;
+  }, [events]);
+
+  const tierLifetimeRevenue = useMemo(() => {
+    let sum = 0;
+    let any = false;
+    for (const ev of events) {
+      if (ev.ticket_tiers.length === 0) continue;
+      const r = resolveDisplayTicketRevenue({
+        ticket_tiers: ev.ticket_tiers,
+        latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+      });
+      if (r != null) {
+        sum += r;
+        any = true;
+      }
+    }
+    return any ? sum : null;
+  }, [events]);
   const chartTimeline = useMemo(
     () =>
       trimTimelineForTrackerDisplay(timeline, {
@@ -214,6 +246,8 @@ export function VenueDailyReportBlock({
         timeline={timeline}
         timeframe={DEFAULT_PERF_SUMMARY}
         additionalSpendEntries={additionalSpendRows}
+        tierLifetimeTickets={tierLifetimeTickets}
+        tierLifetimeRevenue={tierLifetimeRevenue}
       />
 
       <EventTrendChart timeline={windowedChartTimeline} title="Daily trend" />

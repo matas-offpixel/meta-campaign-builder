@@ -13,6 +13,7 @@ import {
 } from "@/components/share/client-refresh-daily-budgets-button";
 import { fmtCurrencyCompact, fmtDate } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
+import { eventTierSalesRollup } from "@/lib/dashboard/tier-channel-rollups";
 import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import type {
   AdditionalSpendRow,
@@ -842,6 +843,11 @@ function latestVenueEventTickets(events: PortalEvent[]): number | null {
   let total = 0;
   let any = false;
   for (const event of events) {
+    if (event.ticket_tiers.length > 0) {
+      total += eventTierSalesRollup(event.ticket_tiers).sold;
+      any = true;
+      continue;
+    }
     const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold;
     if (tickets == null) continue;
     total += tickets;
