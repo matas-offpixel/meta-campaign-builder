@@ -10,9 +10,9 @@ describe("audience Meta source helpers use act_ ad account paths", () => {
     assert.match(sources, /withoutActPrefix\(adAccountId\)/);
   });
 
-  it("fetchAudienceCampaigns uses last_year insights preset for spend (valid Graph preset)", () => {
+  it("fetchAudienceCampaigns uses last_year insights preset for spend+impressions (valid Graph preset)", () => {
     const sources = readFileSync("lib/audiences/sources.ts", "utf8");
-    assert.match(sources, /insights\.date_preset\(last_year\)\{spend\}/);
+    assert.match(sources, /insights\.date_preset\(last_year\)\{spend,impressions\}/);
     assert.doesNotMatch(sources, /insights\.date_preset\(lifetime\)/);
     assert.doesNotMatch(sources, /insights\.date_preset\(maximum\)/);
     assert.doesNotMatch(

@@ -20,10 +20,10 @@ export async function GET(req: NextRequest) {
   if (!user) return Response.json({ error: "Unauthorised" }, { status: 401 });
 
   const clientId = req.nextUrl.searchParams.get("clientId")?.trim();
-  const rawLimit = Number(req.nextUrl.searchParams.get("limit") ?? 50);
+  const rawLimit = Number(req.nextUrl.searchParams.get("limit") ?? 200);
   const limit = Number.isFinite(rawLimit)
-    ? Math.min(Math.max(Math.trunc(rawLimit), 1), 50)
-    : 50;
+    ? Math.min(Math.max(Math.trunc(rawLimit), 1), 200)
+    : 200;
   if (!clientId) {
     return Response.json({ error: "clientId is required" }, { status: 400 });
   }

@@ -10,7 +10,7 @@ import {
 
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Select } from "@/components/ui/select";
-import { formatCampaignSpendGbp } from "@/lib/audiences/format-campaign-spend";
+import { formatCampaignStat } from "@/lib/audiences/format-campaign-spend";
 import { filterPagesByQuery } from "@/lib/audiences/filter-pages-by-query";
 import { mergeVideoSourcesDeduped } from "@/lib/audiences/merge-video-sources";
 import { videoPickerAutoSelectSignature } from "@/lib/audiences/video-picker-auto-select";
@@ -64,6 +64,7 @@ interface CampaignSource {
   name: string;
   effectiveStatus?: string;
   spend: number;
+  impressions?: number;
 }
 
 interface VideoSource {
@@ -472,7 +473,7 @@ function VideoSourcePicker({
 
   const { data: campaigns, loading, error, rateLimited: campaignsRateLimited } =
     useSource<CampaignSource[]>(
-      `/api/audiences/sources/campaigns?clientId=${clientId}&limit=50`,
+      `/api/audiences/sources/campaigns?clientId=${clientId}&limit=200`,
       "campaigns",
       instanceId,
       undefined,
@@ -569,7 +570,7 @@ function VideoSourcePicker({
                 {campaign.name}
               </span>
               <span className="shrink-0 text-xs text-muted-foreground">
-                {formatCampaignSpendGbp(campaign.spend)}
+                {formatCampaignStat(campaign.spend, campaign.impressions)}
               </span>
             </label>
           );
