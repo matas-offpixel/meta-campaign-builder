@@ -515,6 +515,8 @@ function VenueLiveReportTabs({
         additionalSpend={additionalSpend}
         channelEditApiBase={shareToken ? `/api/share/venue/${shareToken}` : undefined}
         canEditChannels={!isInternal && canEdit && !!shareToken}
+        isInternalDashboard={isInternal}
+        clientId={clientId}
         onAfterChannelMutate={onRefresh}
       />
       <VenueLiveReportInsights

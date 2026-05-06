@@ -29,6 +29,7 @@ import {
   tierSaleStatus,
   type SuggestedPct,
 } from "@/lib/dashboard/suggested-pct";
+import { computePortalEventSpendRowMetrics } from "@/lib/dashboard/portal-event-spend-row";
 import {
   eventTierSalesRollup,
   resolveDisplayTicketRevenue,
@@ -48,6 +49,13 @@ interface Props {
   additionalSpend?: AdditionalSpendRow[];
   channelEditApiBase?: string;
   canEditChannels?: boolean;
+  /**
+   * Internal `/clients/.../venues/...` report: tier-channel PATCH uses
+   * `/api/events/[eventId]` per row; expanded spend grid matches share portal.
+   */
+  isInternalDashboard?: boolean;
+  /** Pass through for `EventTicketingStatusBadge` on internal surfaces. */
+  clientId?: string;
   onAfterChannelMutate?: () => void;
 }
 
@@ -86,6 +94,8 @@ export function VenueEventBreakdown({
   additionalSpend = [],
   channelEditApiBase,
   canEditChannels = false,
+  isInternalDashboard = false,
+  clientId,
   onAfterChannelMutate,
 }: Props) {
   const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(
@@ -191,9 +201,12 @@ export function VenueEventBreakdown({
                     event={event}
                     metrics={metrics}
                     expanded={expanded}
+                    spend={spend}
                     onToggle={() => toggleEvent(event.id)}
                     channelEditApiBase={channelEditApiBase}
                     canEditChannels={canEditChannels}
+                    isInternalDashboard={isInternalDashboard}
+                    clientId={clientId}
                     onAfterChannelMutate={onAfterChannelMutate}
                   />
                 );
@@ -210,19 +223,31 @@ function VenueEventBreakdownRows({
   event,
   metrics,
   expanded,
+  spend,
   onToggle,
   channelEditApiBase,
   canEditChannels,
+  isInternalDashboard = false,
+  clientId,
   onAfterChannelMutate,
 }: {
   event: PortalEvent;
   metrics: EventMetrics;
   expanded: boolean;
+  spend: GroupSpend;
   onToggle: () => void;
   channelEditApiBase?: string;
   canEditChannels: boolean;
+  isInternalDashboard?: boolean;
+  clientId?: string;
   onAfterChannelMutate?: () => void;
 }) {
+  const tierChannelApiBase = isInternalDashboard
+    ? `/api/events/${event.id}`
+    : channelEditApiBase;
+  const tierChannelsEditable = isInternalDashboard ? true : canEditChannels;
+  const ticketingBadgeClientId = isInternalDashboard ? clientId : undefined;
+
   return (
     <>
       <tr className="border-t border-border bg-card hover:bg-muted/50">
@@ -253,7 +278,10 @@ function VenueEventBreakdownRows({
           </button>
         </td>
         <td className="px-3 py-2.5 align-top">
-          <EventTicketingStatusBadge event={event} />
+          <EventTicketingStatusBadge
+            event={event}
+            clientId={ticketingBadgeClientId}
+          />
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
           {formatNumber(metrics.tickets)}
@@ -288,14 +316,19 @@ function VenueEventBreakdownRows({
         <tr className="border-t border-border bg-muted/30">
           <td colSpan={10} className="px-6 py-4">
             <div className="space-y-3">
+              <VenueEventSpendDetailRow
+                event={event}
+                spend={spend}
+                clientId={ticketingBadgeClientId}
+              />
               <TicketTiersSection
                 tiers={event.ticket_tiers}
                 title={`${event.name} ticket tiers`}
                 emptyMessage="Tier breakdown will appear after next sync."
                 compact
                 eventId={event.id}
-                channelEditApiBase={channelEditApiBase}
-                canEditChannels={canEditChannels}
+                channelEditApiBase={tierChannelApiBase}
+                canEditChannels={tierChannelsEditable}
                 onAfterChannelMutate={onAfterChannelMutate}
               />
               <RecommendedActionPanel action={buildMarketingAction(event, metrics)} />
@@ -305,6 +338,141 @@ function VenueEventBreakdownRows({
       ) : null}
     </>
   );
+}
+
+/** Mirrors `EventRow` in `client-portal-venue-table.tsx` — read-only cells. */
+function VenueEventSpendDetailRow({
+  event,
+  spend,
+  clientId,
+}: {
+  event: PortalEvent;
+  spend: GroupSpend;
+  clientId?: string;
+}) {
+  const m = computePortalEventSpendRowMetrics(event, spend);
+  const allocationRow =
+    spend.kind === "allocated" ? spend.byEventId.get(event.id) ?? null : null;
+  const adSpendTitle = allocationRow
+    ? `Includes ${formatGBP(allocationRow.specific)} specific to this game + ${formatGBP(allocationRow.genericShare)} share of venue-generic spend${
+        allocationRow.presale > 0
+          ? ` + ${formatGBP(allocationRow.presale)} presale paid media`
+          : ""
+      }`
+    : undefined;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[900px] border-collapse text-sm">
+        <thead>
+          <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
+            <th className="px-3 py-2.5">Event</th>
+            <th className="px-3 py-2.5">Last updated</th>
+            <th className="px-3 py-2.5 text-right">Pre-reg</th>
+            <th className="px-3 py-2.5 text-right">Ad Spend</th>
+            <th className="px-3 py-2.5 text-right">Total Spend</th>
+            <th className="px-3 py-2.5 text-right">Tickets Sold</th>
+            <th className="px-3 py-2.5 text-right">Tickets Prev</th>
+            <th className="px-3 py-2.5 text-right">Tickets Change</th>
+            <th className="px-3 py-2.5 text-right">CPT</th>
+            <th className="px-3 py-2.5 text-right">CPT Prev</th>
+            <th className="px-3 py-2.5 text-right">CPT Change</th>
+            <th className="px-3 py-2.5 text-right">Ticket Revenue</th>
+            <th className="px-3 py-2.5 text-right">ROAS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-t border-border bg-background hover:bg-muted/50">
+            <td className="px-3 py-2.5 align-top">
+              <span className="block font-medium text-foreground">{event.name}</span>
+              {event.event_code ? (
+                <span className="block text-[11px] text-muted-foreground">
+                  {event.event_code}
+                </span>
+              ) : null}
+            </td>
+            <td className="px-3 py-2.5 align-top">
+              <EventTicketingStatusBadge event={event} clientId={clientId} />
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+              {formatGBP(m.prereg)}
+            </td>
+            <td
+              className="px-3 py-2.5 text-right tabular-nums text-foreground"
+              title={adSpendTitle}
+            >
+              {formatGBP(m.perEventAd)}
+              {allocationRow ? (
+                <span className="sr-only"> {adSpendTitle}</span>
+              ) : null}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums font-medium text-foreground">
+              {formatGBP(m.perEventTotal)}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+              {formatNumber(m.tickets)}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+              {event.tickets_sold_previous === null
+                ? "—"
+                : formatNumber(m.prevTickets)}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+              {event.tickets_sold_previous === null ? "—" : formatChange(m.change)}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+              {formatGBP(m.cpt, 2)}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+              {formatGBP(m.cptPrevious, 2)}
+            </td>
+            <td
+              className={`px-3 py-2.5 text-right tabular-nums ${cptChangeClass(m.cptChange)}`}
+            >
+              {formatCptChange(m.cptChange)}
+            </td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
+              {m.revenue == null ? "—" : formatGBP(m.revenue)}
+            </td>
+            <td className={`px-3 py-2.5 text-right tabular-nums ${roasClass(m.roas)}`}>
+              {formatRoas(m.roas)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatChange(n: number): string {
+  if (n === 0) return "0";
+  return `${n > 0 ? "+" : ""}${NUM.format(n)}`;
+}
+
+function formatRoas(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(2)}×`;
+}
+
+function roasClass(n: number | null): string {
+  if (n == null) return "text-muted-foreground";
+  if (n >= 3) return "text-emerald-600 font-semibold";
+  if (n < 1) return "text-red-600 font-semibold";
+  return "text-foreground";
+}
+
+function formatCptChange(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n === 0) return GBP2.format(0);
+  const abs = GBP2.format(Math.abs(n));
+  return n > 0 ? `+${abs}` : `−${abs}`;
+}
+
+function cptChangeClass(n: number | null): string {
+  if (n == null) return "text-muted-foreground";
+  if (n < 0) return "text-emerald-600 font-semibold";
+  if (n > 0) return "text-amber-600 font-semibold";
+  return "text-foreground";
 }
 
 function computeEventMetrics(

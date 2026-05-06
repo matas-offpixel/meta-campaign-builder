@@ -46,6 +46,7 @@ import {
   venueSpend,
   type GroupSpend,
 } from "@/lib/dashboard/venue-spend-model";
+import { computePortalEventSpendRowMetrics } from "@/lib/dashboard/portal-event-spend-row";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/additional-ticket-entries-card";
 import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
@@ -548,111 +549,6 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
   return out;
 }
 
-interface EventMetrics {
-  prereg: number | null;
-  perEventTotal: number | null;
-  perEventAd: number | null;
-  tickets: number;
-  prevTickets: number;
-  change: number;
-  cpt: number | null;
-  /** perEventTotal / prevTickets — null when prevTickets is 0 or spend is null. */
-  cptPrevious: number | null;
-  /** cpt − cptPrevious — null when either side is null. */
-  cptChange: number | null;
-  revenue: number | null;
-  roas: number | null;
-}
-
-function computeEventMetrics(
-  ev: PortalEvent,
-  spend: GroupSpend,
-): EventMetrics {
-  // Allocator-written `ad_spend_presale` is paid media from Meta. In
-  // allocated venues it belongs in the Ad Spend column so the expanded
-  // row totals reconcile to the Paid Media card. Legacy
-  // `events.prereg_spend` remains the fallback Pre-reg source only
-  // before the allocator's presale pass has touched the row.
-  const allocPresale =
-    spend.kind === "allocated"
-      ? spend.byEventId.get(ev.id)
-      : undefined;
-  const prereg =
-    allocPresale && allocPresale.daysCoveredPresale > 0
-      ? 0
-      : ev.prereg_spend;
-
-  // Resolve perEventAd / perEventTotal pair from the spend model.
-  // Across all three models the triangle stays consistent — total =
-  // prereg + ad. Models differ only in WHICH of (ad, total) is the
-  // independent input the venue carries:
-  //   - allocated: per-event `ad` is sourced from the allocator's
-  //     daily sums (PR D2 columns). Total = prereg + allocated.
-  //   - split:    total is the campaign-total divided evenly;
-  //     ad = total − prereg.
-  //   - add:      ad is the sum of two independent campaigns
-  //     (London shared + venue-local); total = prereg + ad.
-  let perEventAd: number | null;
-  let perEventTotal: number | null;
-  if (spend.kind === "allocated") {
-    const alloc = spend.byEventId.get(ev.id);
-    perEventAd = alloc?.paidMedia ?? null;
-    perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
-  } else if (spend.kind === "split") {
-    perEventTotal = spend.perEventTotal;
-    perEventAd =
-      perEventTotal !== null ? perEventTotal - (prereg ?? 0) : null;
-  } else if (spend.kind === "add") {
-    perEventAd = spend.perEventAd;
-    perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
-  } else {
-    perEventAd = spend.byEventId.get(ev.id) ?? null;
-    perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
-  }
-
-  const tickets = eventTierSalesRollup(ev.ticket_tiers).sold;
-  const prev = ev.tickets_sold_previous ?? 0;
-  const cpt =
-    perEventTotal !== null && perEventTotal > 0 && tickets > 0
-      ? perEventTotal / tickets
-      : null;
-  // Prev-week CPT uses the *same* per-event spend as the current row —
-  // the campaign-level cache doesn't carry a historical snapshot, so
-  // this is "what last week's tickets would cost at today's spend".
-  // Same trade-off the Excel sheet had; it's the only honest option
-  // until we start snapshotting meta_spend_cached too.
-  const cptPrevious =
-    perEventTotal !== null && perEventTotal > 0 && prev > 0
-      ? perEventTotal / prev
-      : null;
-  const cptChange =
-    cpt !== null && cptPrevious !== null ? cpt - cptPrevious : null;
-  const revenue =
-    ev.ticket_tiers.length > 0
-      ? resolveDisplayTicketRevenue({
-          ticket_tiers: ev.ticket_tiers,
-          latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
-        })
-      : ev.latest_snapshot?.revenue ?? null;
-  const roas =
-    revenue !== null && perEventTotal !== null && perEventTotal > 0
-      ? revenue / perEventTotal
-      : null;
-  return {
-    prereg,
-    perEventTotal,
-    perEventAd,
-    tickets,
-    prevTickets: prev,
-    change: tickets - prev,
-    cpt,
-    cptPrevious,
-    cptChange,
-    revenue,
-    roas,
-  };
-}
-
 interface VenueTotals {
   prereg: number;
   ad: number | null;
@@ -674,7 +570,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   let revenue = 0;
   let hasRevenue = false;
   for (const ev of group.events) {
-    // Match `computeEventMetrics`: allocator presale is paid-media
+    // Match `computePortalEventSpendRowMetrics`: allocator presale is paid-media
     // Ad Spend, not a separate Pre-reg value, once the allocator has
     // covered this event.
     const allocPresale =
@@ -1513,7 +1409,7 @@ function VenueSection({
       expandedTotalAdSpend: totals.ad,
       events: group.events.map((event) => {
         const rows = dailyRollups.filter((row) => row.event_id === event.id);
-        const metrics = computeEventMetrics(event, spend);
+        const metrics = computePortalEventSpendRowMetrics(event, spend);
         return {
           eventId: event.id,
           eventName: event.name,
@@ -1854,6 +1750,13 @@ function VenueSection({
             dailyRollups={dailyRollups}
             londonOnsaleSpend={londonOnsaleSpend}
             additionalSpend={additionalSpend}
+            channelEditApiBase={
+              !isInternal && token ? `/api/share/venue/${encodeURIComponent(token)}` : undefined
+            }
+            canEditChannels={!isInternal && !!token}
+            isInternalDashboard={isInternal}
+            clientId={clientId}
+            onAfterChannelMutate={() => router.refresh()}
           />
         </div>
       ) : null}
@@ -2401,7 +2304,7 @@ function EventRow({
   spend,
   onSnapshotSaved,
 }: EventRowProps) {
-  const m = computeEventMetrics(event, spend);
+  const m = computePortalEventSpendRowMetrics(event, spend);
   const rowBg = striped ? "bg-muted" : "bg-card";
 
   // PR D2 breakdown for the Ad Spend tooltip. Only non-null when
