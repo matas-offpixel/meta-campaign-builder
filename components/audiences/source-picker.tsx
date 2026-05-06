@@ -83,13 +83,10 @@ interface VideoFetchState {
 
 function videoTilePrimaryLabel(video: VideoSource): string {
   const title = video.title?.trim();
-  if (title && title !== video.id && !/^\d+$/.test(title)) {
-    return title;
-  }
-  if (title && /\.(mp4|mov|webm|m4v)$/i.test(title)) {
-    return title;
-  }
-  return "Video";
+  // Prefer a meaningful filename (e.g. "0402(3).mp4") over a bare numeric ID.
+  if (title && /\.(mp4|mov|webm|m4v)$/i.test(title)) return title;
+  if (title && title !== video.id && !/^\d+$/.test(title)) return title;
+  return "Untitled video";
 }
 
 function VideoAutoSelectOnFetch({
@@ -674,21 +671,24 @@ function VideoSourcePicker({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={video.thumbnailUrl}
-                        alt=""
+                        alt={videoTilePrimaryLabel(video)}
                         className="aspect-video w-full rounded object-cover"
                       />
                     ) : (
-                      <div className="flex aspect-video flex-col items-center justify-center rounded bg-muted px-1 text-center">
-                        <span className="text-[10px] font-medium text-muted-foreground">
+                      <div className="flex aspect-video flex-col items-center justify-center gap-0.5 rounded bg-muted px-1 text-center">
+                        <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60">
                           No thumbnail
+                        </span>
+                        <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-foreground/70">
+                          {videoTilePrimaryLabel(video)}
                         </span>
                       </div>
                     )}
-                    <p className="mt-1 line-clamp-2 font-medium">
+                    <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-tight">
                       {videoTilePrimaryLabel(video)}
                     </p>
-                    <p className="truncate text-[10px] text-muted-foreground">
-                      ID: {video.id}
+                    <p className="truncate font-mono text-[9px] text-muted-foreground/70">
+                      {video.id}
                     </p>
                   </button>
                 ))}

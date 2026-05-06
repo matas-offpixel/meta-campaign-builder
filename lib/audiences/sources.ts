@@ -97,6 +97,10 @@ interface RawVideo {
   length?: number;
 }
 
+interface RawThumbnail {
+  uri?: string;
+}
+
 export async function resolveAudienceSourceContext(
   supabase: TypedSupabaseClient,
   userId: string,
@@ -283,10 +287,25 @@ export async function fetchAudienceCampaignVideos(
         { fields: "id,picture,title,length" },
         token,
       ).catch(() => ({ id: videoId } as RawVideo));
+
+      let thumbnailUrl: string | undefined = video.picture ?? undefined;
+
+      // Fallback: try /{id}/thumbnails when picture is absent (common for
+      // archived / age-out videos where Meta strips the stored asset).
+      if (!thumbnailUrl) {
+        thumbnailUrl = await graphGetWithToken<{ data?: RawThumbnail[] }>(
+          `/${videoId}/thumbnails`,
+          { limit: "1" },
+          token,
+        )
+          .then((r) => r.data?.[0]?.uri ?? undefined)
+          .catch(() => undefined);
+      }
+
       return {
         id: video.id,
         title: video.title,
-        thumbnailUrl: video.picture,
+        thumbnailUrl,
         length: video.length,
       };
     }),
