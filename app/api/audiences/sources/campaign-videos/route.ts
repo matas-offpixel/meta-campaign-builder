@@ -1,5 +1,9 @@
 import { type NextRequest } from "next/server";
 
+import {
+  audienceSourceRateLimitBody,
+  isMetaAdAccountRateLimitError,
+} from "@/lib/audiences/meta-rate-limit";
 import { getCachedAudienceSource } from "@/lib/audiences/source-cache";
 import {
   fetchAudienceCampaignVideos,
@@ -39,6 +43,9 @@ export async function GET(req: NextRequest) {
     );
     return Response.json({ ok: true, ...result, tokenSource: source });
   } catch (err) {
+    if (isMetaAdAccountRateLimitError(err)) {
+      return Response.json(audienceSourceRateLimitBody(), { status: 429 });
+    }
     const message = err instanceof Error ? err.message : "Failed to load videos";
     return Response.json({ error: message }, { status: 502 });
   }

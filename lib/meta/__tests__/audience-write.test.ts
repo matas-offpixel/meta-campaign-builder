@@ -22,6 +22,25 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "page_engaged");
   });
 
+  it("builds FB page engagement with multiple page IDs (OR rules)", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "page_engagement_fb",
+        retentionDays: 365,
+        sourceId: "p1,p2",
+        sourceMeta: {
+          subtype: "page_engagement_fb",
+          pageIds: ["p1", "p2"],
+          pageName: "Primary",
+        },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    assert.equal(rule.inclusions.rules.length, 2);
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, "p1");
+    assert.equal(rule.inclusions.rules[1].event_sources[0].id, "p2");
+  });
+
   it("builds IG followers at 365d", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({

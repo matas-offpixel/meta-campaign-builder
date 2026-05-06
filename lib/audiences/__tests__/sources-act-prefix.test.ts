@@ -10,15 +10,12 @@ describe("audience Meta source helpers use act_ ad account paths", () => {
     assert.match(sources, /withoutActPrefix\(adAccountId\)/);
   });
 
-  it("fetchAudienceCampaigns uses created_time in Graph filtering for /campaigns (not time_created)", () => {
+  it("fetchAudienceCampaigns uses lifetime insights for spend (no date filter)", () => {
     const sources = readFileSync("lib/audiences/sources.ts", "utf8");
-    assert.match(
-      sources,
-      /fetchAudienceCampaigns[\s\S]*?filtering:\s*JSON\.stringify\(\[\s*\{\s*field:\s*"created_time",\s*operator:\s*"GREATER_THAN"/,
-    );
+    assert.match(sources, /insights\.date_preset\(lifetime\)\{spend\}/);
     assert.doesNotMatch(
       sources,
-      /fetchAudienceCampaigns[\s\S]*?field:\s*"time_created"/,
+      /fetchAudienceCampaigns[\s\S]*?filtering:\s*JSON\.stringify/,
     );
   });
 

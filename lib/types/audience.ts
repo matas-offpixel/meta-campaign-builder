@@ -24,7 +24,9 @@ export type AudienceSourceMeta =
       subtype: "video_views";
       threshold: 25 | 50 | 75 | 95 | 100;
       campaignId?: string;
+      campaignIds?: string[];
       campaignName?: string;
+      campaignSummaries?: Array<{ id: string; name: string }>;
       videoIds: string[];
     }
   | {
@@ -43,11 +45,13 @@ export type AudienceSourceMeta =
       subtype: "page_engagement_fb" | "page_engagement_ig";
       pageSlug?: string;
       pageName?: string;
+      pageIds?: string[];
     }
   | {
       subtype: "page_followers_fb" | "page_followers_ig";
       pageSlug?: string;
       pageName?: string;
+      pageIds?: string[];
     };
 
 export interface MetaCustomAudience {

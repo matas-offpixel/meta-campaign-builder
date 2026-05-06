@@ -12,8 +12,8 @@ describe("campaign-videos source endpoint", () => {
     assert.match(route, /fetchAudienceCampaignVideos/);
     assert.match(route, /clientId.*campaignId/s);
     assert.match(sources, /new Set<string>\(\)/);
-    assert.match(sources, /creative\?\.video_id/);
-    assert.match(sources, /asset_feed_spec\?\.videos/);
+    assert.match(sources, /extractVideoIdsFromCreative/);
+    assert.match(sources, /extract-video-ids-from-creative/);
     assert.match(sources, /fields: "id,picture,title,length"/);
   });
 });
