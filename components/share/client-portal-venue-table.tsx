@@ -26,6 +26,7 @@ import {
 } from "./client-refresh-daily-budgets-button";
 import {
   buildRolloutGroupKeyByEventId,
+  getSeriesDisplayLabel,
   parseExpandedHash,
   serializeExpandedHash,
   type GroupableRow,
@@ -514,7 +515,10 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
         // recognises in the URL hash — beats a UUID every time.
         expandKey: ev.event_code as string,
         eventCode: ev.event_code,
-        displayName: ev.venue_name ?? (ev.event_code as string),
+        displayName: getSeriesDisplayLabel(
+          ev.event_code as string,
+          ev.venue_name ?? null,
+        ),
         city: ev.venue_city,
         budget: ev.budget_marketing,
         campaignSpend: ev.meta_spend_cached,

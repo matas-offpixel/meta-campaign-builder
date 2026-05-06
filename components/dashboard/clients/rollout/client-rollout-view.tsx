@@ -29,6 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import {
   buildRolloutGroups,
+  getSeriesDisplayLabel,
   parseExpandedHash,
   serializeExpandedHash,
   type RolloutGroupAggregate,
@@ -946,7 +947,7 @@ function renderGroupRow({
         </div>
         <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
           {[
-            group.venueName,
+            getSeriesDisplayLabel(group.eventCode, group.venueName),
             formatDate(group.eventDate),
             `${group.children.length} matches`,
           ]
