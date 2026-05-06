@@ -22,6 +22,11 @@ import {
   isReduceDataError,
   MetaApiError,
 } from "@/lib/meta/client";
+import {
+  isWc26GlasgowUmbrellaOnlyCampaignName,
+  isWc26GlasgowVenueSiblingEventCode,
+  wc26GlasgowUmbrellaSpendBelongsToVenueEvent,
+} from "@/lib/dashboard/wc26-glasgow-umbrella";
 
 // Re-export the pure date helper from the canonical insights module
 // so callers/tests that already import from this file keep working.
@@ -2077,6 +2082,107 @@ export async function fetchEventDailyMetaMetrics(
       if (!res.paging?.next || !after) break;
     }
 
+    if (isWc26GlasgowVenueSiblingEventCode(eventCode)) {
+      const umbrellaFiltering = JSON.stringify([
+        {
+          field: "campaign.name",
+          operator: "CONTAIN",
+          value: metaCampaignFilterPrefix("WC26-GLASGOW"),
+        },
+      ]);
+      after = undefined;
+      for (let page = 0; page < 20; page += 1) {
+        const params: Record<string, string> = {
+          fields:
+            "spend,impressions,reach,inline_link_clicks,date_start,campaign_name,actions,action_values",
+          level: "campaign",
+          time_increment: "1",
+          time_range: timeRange,
+          filtering: umbrellaFiltering,
+          action_attribution_windows: ATTRIBUTION_WINDOWS,
+          limit: "500",
+        };
+        if (after) params.after = after;
+
+        const res = await graphGetWithToken<
+          GraphPaged<{
+            spend?: string;
+            impressions?: string;
+            reach?: string;
+            inline_link_clicks?: string;
+            date_start?: string;
+            campaign_name?: string;
+            actions?: ActionRow[];
+          }>
+        >(`/${account}/insights`, params, token);
+
+        for (const row of res.data ?? []) {
+          const day = row.date_start;
+          if (!day) continue;
+          const name = row.campaign_name ?? "";
+          if (!campaignMatchesBracketedEventCode(name, "WC26-GLASGOW")) {
+            filteredOutCampaignNames.add(name);
+            continue;
+          }
+          if (!isWc26GlasgowUmbrellaOnlyCampaignName(name)) continue;
+          if (
+            !wc26GlasgowUmbrellaSpendBelongsToVenueEvent(eventCode, day)
+          ) {
+            continue;
+          }
+          matchedCampaigns.add(name);
+          const { regular, presale } = partitionMetaSpendForCampaign(
+            name,
+            parseNum(row.spend),
+          );
+          totalsSpend.set(day, (totalsSpend.get(day) ?? 0) + regular);
+          totalsPresaleSpend.set(
+            day,
+            (totalsPresaleSpend.get(day) ?? 0) + presale,
+          );
+          totalsClicks.set(
+            day,
+            (totalsClicks.get(day) ?? 0) + parseNum(row.inline_link_clicks),
+          );
+          totalsImpressions.set(
+            day,
+            (totalsImpressions.get(day) ?? 0) + parseNum(row.impressions),
+          );
+          totalsReach.set(
+            day,
+            (totalsReach.get(day) ?? 0) + parseNum(row.reach),
+          );
+          const regs = sumActions(row.actions, regActionTypes);
+          if (regs > 0) {
+            totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
+          }
+          totalsVideo3s.set(
+            day,
+            (totalsVideo3s.get(day) ?? 0) +
+              sumActions(row.actions, ["video_view"]),
+          );
+          totalsVideo15s.set(
+            day,
+            (totalsVideo15s.get(day) ?? 0) +
+              sumActions(row.actions, ["video_15_sec_watched_actions"]),
+          );
+          totalsVideoP100.set(
+            day,
+            (totalsVideoP100.get(day) ?? 0) +
+              sumActions(row.actions, ["video_p100_watched_actions"]),
+          );
+          totalsEngagements.set(
+            day,
+            (totalsEngagements.get(day) ?? 0) +
+              sumActions(row.actions, ["post_engagement"]),
+          );
+        }
+
+        after = res.paging?.cursors?.after;
+        if (!res.paging?.next || !after) break;
+      }
+    }
+
     const allDays = new Set<string>([
       ...totalsSpend.keys(),
       ...totalsPresaleSpend.keys(),
@@ -2260,6 +2366,73 @@ export async function fetchEventTodayMetaSnapshot(
       if (!res.paging?.next || !after) break;
     }
 
+    if (isWc26GlasgowVenueSiblingEventCode(eventCode)) {
+      const umbrellaFiltering = JSON.stringify([
+        {
+          field: "campaign.name",
+          operator: "CONTAIN",
+          value: metaCampaignFilterPrefix("WC26-GLASGOW"),
+        },
+      ]);
+      after = undefined;
+      for (let page = 0; page < 20; page += 1) {
+        const params: Record<string, string> = {
+          fields:
+            "spend,impressions,reach,inline_link_clicks,campaign_name,actions,action_values",
+          level: "campaign",
+          date_preset: "today",
+          filtering: umbrellaFiltering,
+          action_attribution_windows: ATTRIBUTION_WINDOWS,
+          limit: "500",
+        };
+        if (after) params.after = after;
+
+        const res = await graphGetWithToken<
+          GraphPaged<{
+            spend?: string;
+            impressions?: string;
+            reach?: string;
+            inline_link_clicks?: string;
+            campaign_name?: string;
+            actions?: ActionRow[];
+          }>
+        >(`/${account}/insights`, params, token);
+
+        for (const row of res.data ?? []) {
+          const name = row.campaign_name ?? "";
+          if (!campaignMatchesBracketedEventCode(name, "WC26-GLASGOW")) continue;
+          if (!isWc26GlasgowUmbrellaOnlyCampaignName(name)) continue;
+          if (
+            !wc26GlasgowUmbrellaSpendBelongsToVenueEvent(eventCode, todayDate)
+          ) {
+            continue;
+          }
+          matchedCampaigns.add(name);
+          const { regular, presale } = partitionMetaSpendForCampaign(
+            name,
+            parseNum(row.spend),
+          );
+          totalSpend += regular;
+          totalPresaleSpend += presale;
+          totalClicks += parseNum(row.inline_link_clicks);
+          totalRegs += sumActions(row.actions, regActionTypes);
+          totalImpressions += parseNum(row.impressions);
+          totalReach += parseNum(row.reach);
+          totalVideo3s += sumActions(row.actions, ["video_view"]);
+          totalVideo15s += sumActions(row.actions, [
+            "video_15_sec_watched_actions",
+          ]);
+          totalVideoP100 += sumActions(row.actions, [
+            "video_p100_watched_actions",
+          ]);
+          totalEngagements += sumActions(row.actions, ["post_engagement"]);
+        }
+
+        after = res.paging?.cursors?.after;
+        if (!res.paging?.next || !after) break;
+      }
+    }
+
     return {
       ok: true,
       days: [
@@ -2439,7 +2612,7 @@ export type VenueDailyAdMetricsResult =
 export async function fetchVenueDailyAdMetrics(
   args: FetchVenueDailyAdMetricsArgs,
 ): Promise<VenueDailyAdMetricsResult> {
-  const { eventCode, adAccountId, token, since, until } = args;
+  const { eventCode, adAccountId } = args;
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Venue has no event_code set.");
   }
@@ -2450,14 +2623,54 @@ export async function fetchVenueDailyAdMetrics(
     );
   }
 
-  const validation = resolveCustomRange("custom", { since, until });
+  const validation = resolveCustomRange("custom", {
+    since: args.since,
+    until: args.until,
+  });
   if (!validation.ok) return validation;
 
   try {
-    return await fetchVenueDailyAdMetricsForBracket(args, {
+    const primary = await fetchVenueDailyAdMetricsForBracket(args, {
       filterPrefix: metaCampaignFilterPrefix(eventCode),
       matchCode: eventCode,
     });
+    if (!primary.ok) return primary;
+    if (!isWc26GlasgowVenueSiblingEventCode(eventCode)) {
+      return primary;
+    }
+
+    const umbrella = await fetchVenueDailyAdMetricsForBracket(args, {
+      filterPrefix: metaCampaignFilterPrefix("WC26-GLASGOW"),
+      matchCode: "WC26-GLASGOW",
+    });
+    if (!umbrella.ok) return umbrella;
+
+    const uRows = umbrella.rows.filter(
+      (r) =>
+        isWc26GlasgowUmbrellaOnlyCampaignName(r.campaignName) &&
+        wc26GlasgowUmbrellaSpendBelongsToVenueEvent(eventCode, r.day),
+    );
+    const uDiag = umbrella.campaignDiagnostics.filter((d) =>
+      isWc26GlasgowUmbrellaOnlyCampaignName(d.campaignName),
+    );
+
+    const adNameSet = new Set(primary.adNames);
+    for (const r of uRows) adNameSet.add(r.adName);
+    const campaignNameSet = new Set(primary.campaignNames);
+    for (const r of uRows) campaignNameSet.add(r.campaignName);
+
+    return {
+      ok: true,
+      rows: [...primary.rows, ...uRows],
+      adNames: [...adNameSet].sort(),
+      campaignNames: [...campaignNameSet].sort(),
+      campaignDiagnostics: [...primary.campaignDiagnostics, ...uDiag].sort(
+        (a, b) =>
+          a.campaignId === b.campaignId
+            ? a.campaignName.localeCompare(b.campaignName)
+            : a.campaignId.localeCompare(b.campaignId),
+      ),
+    };
   } catch (err) {
     return handleMetaError(err);
   }
