@@ -43,7 +43,13 @@ export default async function ClientPortalPage({ params, searchParams }: Props) 
   const result = await loadClientPortalData(token, { bumpView: true });
 
   if (!result.ok) {
-    return <ClientPortalUnavailable />;
+    return (
+      <ClientPortalUnavailable
+        variant={
+          result.reason === "share_disabled" ? "share_disabled" : "default"
+        }
+      />
+    );
   }
 
   return (

@@ -332,7 +332,12 @@ export type ClientPortalData =
     }
   | {
       ok: false;
-      reason: "not_found" | "missing_client_id" | "client_load_failed" | "events_load_failed";
+      reason:
+        | "not_found"
+        | "share_disabled"
+        | "missing_client_id"
+        | "client_load_failed"
+        | "events_load_failed";
     };
 
 /**
@@ -353,7 +358,13 @@ export async function loadClientPortalData(
   const admin = createServiceRoleClient();
 
   const resolved = await resolveShareByToken(token, admin);
-  if (!resolved.ok || resolved.share.scope !== "client") {
+  if (!resolved.ok) {
+    if (resolved.reason === "disabled") {
+      return { ok: false, reason: "share_disabled" };
+    }
+    return { ok: false, reason: "not_found" };
+  }
+  if (resolved.share.scope !== "client") {
     return { ok: false, reason: "not_found" };
   }
   // The discriminated union now narrows `client_id` to `string` once the

@@ -4,9 +4,11 @@ import { ArrowLeft, LinkIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientRefreshDailyBudgetsButton } from "@/components/share/client-refresh-daily-budgets-button";
+import { ClientShareButton } from "@/components/share/client-share-button";
 import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
+import { getClientScopeShare } from "@/lib/db/report-shares";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import {
   parseCreativePatternPhase,
@@ -56,7 +58,10 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
     .maybeSingle();
   if (!scope.data) notFound();
 
-  const result = await loadClientPortalByClientId(id);
+  const [result, scopeShare] = await Promise.all([
+    loadClientPortalByClientId(id),
+    getClientScopeShare(id),
+  ]);
   if (!result.ok) notFound();
 
   const allEventIds = result.events.map((e) => e.id);
@@ -74,10 +79,19 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
         title={`${result.client.name} · Client dashboard`}
         description="Cross-event performance rollup for every venue under this client."
         actions={
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <ClientShareButton
+              clientId={id}
+              initialShare={
+                scopeShare
+                  ? { token: scopeShare.token, enabled: scopeShare.enabled }
+                  : null
+              }
+            />
             <ClientSyncAllButton eventIds={allEventIds} />
             <ClientRefreshDailyBudgetsButton
               clientId={id}
+              eventIds={allEventIds}
               eventCodes={venueEventCodes}
             />
             <Link

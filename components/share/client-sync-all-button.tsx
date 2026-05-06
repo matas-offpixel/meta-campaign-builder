@@ -252,13 +252,13 @@ function SyncAllResult({
       return (
         <span className="text-[11px] text-amber-600">
           Synced {status.ticketsSynced} of {status.total} events ·{" "}
-          {status.ticketsSkipped} not linked
+          {status.ticketsSkipped} not linked · Meta spend + ticketing
         </span>
       );
     }
     return (
       <span className="text-[11px] text-emerald-600">
-        Synced {status.ticketsSynced} events successfully
+        Synced {status.ticketsSynced} events · Meta spend + ticketing
       </span>
     );
   }

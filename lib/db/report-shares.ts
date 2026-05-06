@@ -130,6 +130,30 @@ export async function getShareForClient(
 }
 
 /**
+ * Client-scoped share row for this client, regardless of `enabled`.
+ * Used by the dashboard header so operators see disabled tokens and
+ * can re-enable without minting a duplicate.
+ */
+export async function getClientScopeShare(
+  clientId: string,
+): Promise<ReportShareRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("report_shares")
+    .select("*")
+    .eq("scope", "client")
+    .eq("client_id", clientId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[report-shares getClientScopeShare] error:", error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+/**
  * Fetch the venue-scoped share row for a (client_id, event_code) pair
  * owned by the current user. Returns null when no share exists yet —
  * the "Share venue" CTA on the internal venue report mints one on

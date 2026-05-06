@@ -27,9 +27,10 @@ export async function GET(
   const result = await loadClientPortalData(token, { bumpView: false });
 
   if (!result.ok) {
-    const status = result.reason === "not_found" ? 404 : 500;
-    const error =
-      result.reason === "not_found" ? "Not found" : "Failed to load portal";
+    const notFoundish =
+      result.reason === "not_found" || result.reason === "share_disabled";
+    const status = notFoundish ? 404 : 500;
+    const error = notFoundish ? "Not found" : "Failed to load portal";
     return NextResponse.json({ ok: false, error }, { status });
   }
 

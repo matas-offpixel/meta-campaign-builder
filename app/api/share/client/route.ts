@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import {
-  getShareForClient,
+  getClientScopeShare,
   mintClientShare,
   setShareEnabled,
 } from "@/lib/db/report-shares";
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const existing = await getShareForClient(clientId);
+  const existing = await getClientScopeShare(clientId);
   if (existing) {
     if (!existing.enabled) {
       await setShareEnabled(existing.token, true);
