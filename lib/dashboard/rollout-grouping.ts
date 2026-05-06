@@ -6,16 +6,11 @@
  * DOM test runner.
  *
  * Rules (PR #114 + venue-series follow-up):
- *   - When **two or more** rows share the same `event_code` and the
- *     same `venue_name` (null counts as its own bucket), they share one
- *     **series** key (`series:${event_code}`) even if `event_date`
- *     differs — so multi-fixture venues collapse like WC26 while keeping
- *     real per-fixture dates on each row.
- *   - When `event_code` repeats but **venue_name** differs across rows,
- *     fall back to per-row keys
- *     `${event_code}::${event_date}::${venue}` so mixed-venue codes
- *     stay split.
- *   - Otherwise (singleton code bucket), key is
+ *   - When **two or more** rows share the same `event_code`, they share one
+ *     **series** key (`series:${event_code}`) — the budget unit — regardless
+ *     of `venue_name` or `event_date`. Clients isolate cities/venues with
+ *     distinct codes rather than splitting rows here.
+ *   - Singleton code bucket (exactly one row with that code): key is
  *     `${event_code}::${event_date}` as before.
  *   - Rows without `event_code` are solo (`__solo__::${eventId}`).
  *   - Only form a group when 2+ rows share the same computed key.
@@ -88,11 +83,6 @@ const STATUS_RANK: Record<ReadinessStatus, number> = {
   blocked: 2,
 };
 
-/** Normalise venue for grouping — null and "" are one bucket. */
-export function normalizeVenueNameForGrouping(name: string | null): string {
-  return name ?? "";
-}
-
 /**
  * Precompute stable grouping keys for every row. Used by rollout UI,
  * client-wide venue counts, and the share portal venue table so they
@@ -116,19 +106,10 @@ export function buildRolloutGroupKeyByEventId<TRow extends GroupableRow>(
       continue;
     }
     const bucket = byCode.get(r.eventCode) ?? [];
-    let key: string;
-    if (bucket.length >= 2) {
-      const venues = new Set(
-        bucket.map((x) => normalizeVenueNameForGrouping(x.venueName)),
-      );
-      if (venues.size === 1) {
-        key = `series:${r.eventCode}`;
-      } else {
-        key = `${r.eventCode}::${r.eventDate ?? ""}::${normalizeVenueNameForGrouping(r.venueName)}`;
-      }
-    } else {
-      key = `${r.eventCode}::${r.eventDate ?? ""}`;
-    }
+    const key =
+      bucket.length >= 2
+        ? `series:${r.eventCode}`
+        : `${r.eventCode}::${r.eventDate ?? ""}`;
     out.set(r.eventId, key);
   }
   return out;

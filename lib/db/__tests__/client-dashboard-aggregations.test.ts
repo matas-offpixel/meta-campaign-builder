@@ -259,7 +259,7 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.venueGroups, 2);
   });
 
-  it("coalesces multi-fixture rows that share event_code and venue_name", () => {
+  it("coalesces multi-fixture rows that share event_code", () => {
     const t = aggregateClientWideTotals(
       [
         ev({
@@ -289,7 +289,7 @@ describe("aggregateClientWideTotals", () => {
     assert.equal(t.venueGroups, 2);
   });
 
-  it("counts separate venue groups when the same event_code spans different venues", () => {
+  it("coalesces the same event_code across different venues into one venue group", () => {
     const t = aggregateClientWideTotals(
       [
         ev({
@@ -308,7 +308,7 @@ describe("aggregateClientWideTotals", () => {
       [],
       [],
     );
-    assert.equal(t.venueGroups, 2);
+    assert.equal(t.venueGroups, 1);
   });
 
   it("returns null ROAS when ad spend is zero", () => {
