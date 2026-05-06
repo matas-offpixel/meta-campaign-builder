@@ -3,8 +3,11 @@
  *
  * Read-only probe: samples ACTIVE ads on a client's Meta ad account and
  * aggregates `degrees_of_freedom_spec.creative_features_spec` keys +
- * `enroll_status` values, plus ad-level `multi_advertiser_ads_options`
- * shapes. Transient ops tooling — remove once enhancement-detector ships.
+ * `enroll_status` values (including creative-level contextual multi-advertiser
+ * opt-in via e.g. `contextual_multi_ads.enroll_status` — surfaced on the
+ * creative DOF spec returned inline on `/ads`). Separately fingerprints ad-level
+ * `contextual_multi_ads` / `multi_advertiser_ads` from per-ad GETs (serial).
+ * Transient ops tooling — remove once enhancement-detector ships.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -52,6 +55,10 @@ export interface EnhancementProbeResponse {
     { count: number; enroll_statuses: string[] }
   >;
   ad_level_multi_advertiser_observed: Record<string, number>;
+  errors_per_phase: {
+    ads_list: number;
+    ad_level_fetch: number;
+  };
   sample_raw: Array<{
     ad_id: string;
     ad_name: string | null;
@@ -117,13 +124,29 @@ function accumulateCreativeFeatures(
   }
 }
 
-function fingerprintMultiAdvertiser(value: unknown): string {
-  if (value === undefined) return "__absent__";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "__unserializable__";
-  }
+function shortErrorFingerprint(err: unknown): string {
+  let msg: string;
+  if (err instanceof MetaApiError) msg = err.message;
+  else if (err instanceof Error) msg = err.message;
+  else msg = String(err);
+  const collapsed = msg.replace(/\s+/g, " ").trim().slice(0, 120);
+  return `__error:${collapsed.length > 0 ? collapsed : "unknown"}__`;
+}
+
+interface AdLevelMultiFields {
+  contextual_multi_ads?: unknown;
+  multi_advertiser_ads?: boolean;
+}
+
+function fingerprintAdLevelMultiAdvertiser(one: AdLevelMultiFields): string {
+  const ctx = one.contextual_multi_ads;
+  const ma = one.multi_advertiser_ads;
+  const hasAny = ctx !== undefined || ma !== undefined;
+  if (!hasAny) return "__absent__";
+  return JSON.stringify({
+    contextual_multi_ads: ctx ?? null,
+    multi_advertiser_ads: ma ?? null,
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -239,16 +262,30 @@ export async function GET(req: NextRequest) {
       token,
     );
   } catch (err) {
+    const errors_per_phase = { ads_list: 1, ad_level_fetch: 0 };
     if (err instanceof MetaApiError) {
-      return NextResponse.json(err.toJSON(), { status: 502 });
+      return NextResponse.json(
+        {
+          ...err.toJSON(),
+          errors_per_phase,
+        },
+        { status: 502 },
+      );
     }
-    throw err;
+    return NextResponse.json(
+      {
+        error: String(err),
+        errors_per_phase,
+      },
+      { status: 502 },
+    );
   }
 
   const ads = adsPage.data ?? [];
   const featureMap = new Map<string, FeatureAgg>();
   const multiAdvertiserCounts: Record<string, number> = {};
   const sample_raw: EnhancementProbeResponse["sample_raw"] = [];
+  let ad_level_fetch_errors = 0;
 
   for (const ad of ads) {
     const dof = ad.creative?.degrees_of_freedom_spec;
@@ -261,23 +298,17 @@ export async function GET(req: NextRequest) {
       degrees_of_freedom_spec: dof ?? null,
     });
 
-    let multiRaw: unknown;
     try {
-      const one = await graphGetWithToken<{ multi_advertiser_ads_options?: unknown }>(
-        `/${ad.id}`,
-        { fields: "multi_advertiser_ads_options" },
-        token,
-      );
-      multiRaw = one.multi_advertiser_ads_options;
+      const one = await graphGetWithToken<AdLevelMultiFields>(`/${ad.id}`, {
+        fields: "contextual_multi_ads,multi_advertiser_ads",
+      }, token);
+      const fp = fingerprintAdLevelMultiAdvertiser(one);
+      multiAdvertiserCounts[fp] = (multiAdvertiserCounts[fp] ?? 0) + 1;
     } catch (err) {
-      if (err instanceof MetaApiError) {
-        return NextResponse.json(err.toJSON(), { status: 502 });
-      }
-      throw err;
+      ad_level_fetch_errors += 1;
+      const fp = shortErrorFingerprint(err);
+      multiAdvertiserCounts[fp] = (multiAdvertiserCounts[fp] ?? 0) + 1;
     }
-
-    const fp = fingerprintMultiAdvertiser(multiRaw);
-    multiAdvertiserCounts[fp] = (multiAdvertiserCounts[fp] ?? 0) + 1;
   }
 
   const distinct_features: EnhancementProbeResponse["distinct_features"] = {};
@@ -288,18 +319,25 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  const errors_per_phase = {
+    ads_list: 0,
+    ad_level_fetch: ad_level_fetch_errors,
+  };
+
   const payload: EnhancementProbeResponse = {
     sampled_ads: ads.length,
     ad_account_id: withActPrefix(metaAdAccountId),
     graph_api_version: GRAPH_API_VERSION,
     distinct_features,
     ad_level_multi_advertiser_observed: multiAdvertiserCounts,
+    errors_per_phase,
     sample_raw,
   };
 
   console.log("[meta-enhancement-probe] done", {
     sampled_ads: payload.sampled_ads,
     distinct_feature_names: Object.keys(distinct_features).sort(),
+    errors_per_phase: payload.errors_per_phase,
   });
 
   return NextResponse.json(payload);
