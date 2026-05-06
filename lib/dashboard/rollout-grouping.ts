@@ -5,12 +5,21 @@
  * Extracted from the view so it can be unit-tested without a React /
  * DOM test runner.
  *
- * Rules (from PR #114 follow-up brief):
- *   - Group rows that share **the same `event_code` AND `event_date`**
- *     (case-sensitive). Event codes are operator-controlled uppercase
- *     tokens so case-sensitive is the right default.
- *   - Only form a group when 2+ rows share the key. Singletons render
- *     as flat rows.
+ * Rules (PR #114 + venue-series follow-up):
+ *   - When **two or more** rows share the same `event_code` and the
+ *     same `venue_name` (null counts as its own bucket), they share one
+ *     **series** key (`series:${event_code}`) even if `event_date`
+ *     differs — so multi-fixture venues collapse like WC26 while keeping
+ *     real per-fixture dates on each row.
+ *   - When `event_code` repeats but **venue_name** differs across rows,
+ *     fall back to per-row keys
+ *     `${event_code}::${event_date}::${venue}` so mixed-venue codes
+ *     stay split.
+ *   - Otherwise (singleton code bucket), key is
+ *     `${event_code}::${event_date}` as before.
+ *   - Rows without `event_code` are solo (`__solo__::${eventId}`).
+ *   - Only form a group when 2+ rows share the same computed key.
+ *     Singletons render as flat rows.
  *   - Parent row aggregates:
  *       • capacity = sum of children (null when every child is null)
  *       • ticketing = "Label (N)" when every child has the same mode,
@@ -79,18 +88,71 @@ const STATUS_RANK: Record<ReadinessStatus, number> = {
   blocked: 2,
 };
 
-function groupKey(r: GroupableRow): string | null {
-  if (!r.eventCode) return null;
-  return `${r.eventCode}::${r.eventDate ?? ""}`;
+/** Normalise venue for grouping — null and "" are one bucket. */
+export function normalizeVenueNameForGrouping(name: string | null): string {
+  return name ?? "";
+}
+
+/**
+ * Precompute stable grouping keys for every row. Used by rollout UI,
+ * client-wide venue counts, and the share portal venue table so they
+ * stay aligned.
+ */
+export function buildRolloutGroupKeyByEventId<TRow extends GroupableRow>(
+  rows: TRow[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  const byCode = new Map<string, TRow[]>();
+  for (const r of rows) {
+    if (!r.eventCode) continue;
+    const list = byCode.get(r.eventCode) ?? [];
+    list.push(r);
+    byCode.set(r.eventCode, list);
+  }
+
+  for (const r of rows) {
+    if (!r.eventCode) {
+      out.set(r.eventId, `__solo__::${r.eventId}`);
+      continue;
+    }
+    const bucket = byCode.get(r.eventCode) ?? [];
+    let key: string;
+    if (bucket.length >= 2) {
+      const venues = new Set(
+        bucket.map((x) => normalizeVenueNameForGrouping(x.venueName)),
+      );
+      if (venues.size === 1) {
+        key = `series:${r.eventCode}`;
+      } else {
+        key = `${r.eventCode}::${r.eventDate ?? ""}::${normalizeVenueNameForGrouping(r.venueName)}`;
+      }
+    } else {
+      key = `${r.eventCode}::${r.eventDate ?? ""}`;
+    }
+    out.set(r.eventId, key);
+  }
+  return out;
+}
+
+function aggregateParentEventDate(children: GroupableRow[]): string | null {
+  const defined = children
+    .map((c) => c.eventDate)
+    .filter((d): d is string => d != null && d !== "");
+  if (defined.length === 0) return null;
+  const unique = new Set(defined);
+  if (unique.size === 1) return [...unique][0]!;
+  return null;
 }
 
 export function buildRolloutGroups<TRow extends GroupableRow>(
   rows: TRow[],
 ): RolloutNode<TRow>[] {
+  const keyById = buildRolloutGroupKeyByEventId(rows);
+
   const counts = new Map<string, number>();
   for (const r of rows) {
-    const k = groupKey(r);
-    if (!k) continue;
+    const k = keyById.get(r.eventId);
+    if (!k || k.startsWith("__solo__")) continue;
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
 
@@ -98,7 +160,7 @@ export function buildRolloutGroups<TRow extends GroupableRow>(
   const out: RolloutNode<TRow>[] = [];
 
   for (const r of rows) {
-    const k = groupKey(r);
+    const k = keyById.get(r.eventId);
     if (!k || (counts.get(k) ?? 0) < 2) {
       out.push({ kind: "single", row: r });
       continue;
@@ -106,7 +168,7 @@ export function buildRolloutGroups<TRow extends GroupableRow>(
     if (seen.has(k)) continue;
     seen.add(k);
 
-    const children = rows.filter((c) => groupKey(c) === k);
+    const children = rows.filter((c) => keyById.get(c.eventId) === k);
     let capacity = 0;
     let capacityAllNull = true;
     for (const c of children) {
@@ -134,7 +196,7 @@ export function buildRolloutGroups<TRow extends GroupableRow>(
       group: {
         key: k,
         eventCode: r.eventCode as string,
-        eventDate: r.eventDate ?? null,
+        eventDate: aggregateParentEventDate(children),
         venueName: children[0]?.venueName ?? null,
         children,
         capacity,

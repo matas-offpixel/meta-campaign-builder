@@ -25,8 +25,10 @@ import {
   type DailyBudgetUpdateDetail,
 } from "./client-refresh-daily-budgets-button";
 import {
+  buildRolloutGroupKeyByEventId,
   parseExpandedHash,
   serializeExpandedHash,
+  type GroupableRow,
 } from "@/lib/dashboard/rollout-grouping";
 import {
   paidLinkClicksOf,
@@ -425,10 +427,8 @@ function cptChangeClass(n: number | null): string {
 interface VenueGroup {
   key: string;
   /**
-   * Stable identifier suitable for the URL hash. Events sharing an
-   * event_code + event_date collapse to their event_code; solo
-   * events (no event_code or only one row for the key) fall back to
-   * the event id so every group has a deterministic anchor.
+   * Stable identifier suitable for the URL hash. Grouped venue rows
+   * collapse to `event_code`; solo events fall back to the event id.
    */
   expandKey: string;
   /**
@@ -450,12 +450,25 @@ interface VenueGroup {
   events: PortalEvent[];
 }
 
+function portalEventToGroupable(ev: PortalEvent): GroupableRow {
+  return {
+    eventId: ev.id,
+    eventCode: ev.event_code,
+    eventDate: ev.event_date,
+    venueName: ev.venue_name,
+    capacity: ev.capacity,
+    ticketingMode: "none",
+    status: "ready",
+    missing: [],
+    warnings: [],
+    hasShare: false,
+  };
+}
+
 /**
- * Group events by shared `(event_code, event_date)` — the same
- * grouping rule PR #115's rollout audit uses. Events without a
- * shared code (or with `event_code = null`) each become their own
- * standalone group so the user's "render as today" expectation
- * holds for single-event venues.
+ * Group events using the same keys as `lib/dashboard/rollout-grouping`
+ * (series rows when event_code repeats at one venue; split when venues
+ * differ under the same code).
  *
  * Preserves input order: the SSR loader already sorts by event_date,
  * so rendering stays predictable across refreshes without an extra
@@ -463,11 +476,14 @@ interface VenueGroup {
  * and masked the "most recent match" signal operators care about).
  */
 function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
+  const groupable = events.map(portalEventToGroupable);
+  const keyByEventId = buildRolloutGroupKeyByEventId(groupable);
+
   const counts = new Map<string, number>();
   for (const ev of events) {
-    if (!ev.event_code) continue;
-    const key = `${ev.event_code}::${ev.event_date ?? ""}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const k = keyByEventId.get(ev.id);
+    if (!k || k.startsWith("__solo__")) continue;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
   }
 
   const groupsByKey = new Map<string, VenueGroup>();
@@ -475,13 +491,12 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
   const sortedGroups = new Set<VenueGroup>();
 
   for (const ev of events) {
-    const codedKey = ev.event_code
-      ? `${ev.event_code}::${ev.event_date ?? ""}`
-      : null;
-    const shouldGroup = codedKey !== null && (counts.get(codedKey) ?? 0) >= 2;
+    const rollKey = keyByEventId.get(ev.id) ?? `__solo__::${ev.id}`;
+    const shouldGroup =
+      !rollKey.startsWith("__solo__") && (counts.get(rollKey) ?? 0) >= 2;
 
     if (shouldGroup) {
-      const existing = groupsByKey.get(codedKey!);
+      const existing = groupsByKey.get(rollKey);
       if (existing) {
         existing.events.push(ev);
         existing.eventCount += 1;
@@ -494,7 +509,7 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
         continue;
       }
       const group: VenueGroup = {
-        key: codedKey!,
+        key: rollKey,
         // event_code is a stable, user-visible handle the operator
         // recognises in the URL hash — beats a UUID every time.
         expandKey: ev.event_code as string,
@@ -506,7 +521,7 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
         eventCount: 1,
         events: [ev],
       };
-      groupsByKey.set(codedKey!, group);
+      groupsByKey.set(rollKey, group);
       out.push(group);
       continue;
     }

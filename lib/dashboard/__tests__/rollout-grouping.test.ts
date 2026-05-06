@@ -24,7 +24,7 @@ function row(overrides: Partial<GroupableRow> & { eventId: string }): GroupableR
 }
 
 describe("buildRolloutGroups", () => {
-  it("returns singletons when no two rows share an (event_code, event_date) key", () => {
+  it("returns singletons when no two rows share a grouping key", () => {
     const nodes = buildRolloutGroups([
       row({ eventId: "a", eventCode: "A26", eventDate: "2026-01-01" }),
       row({ eventId: "b", eventCode: "B26", eventDate: "2026-01-01" }),
@@ -34,10 +34,42 @@ describe("buildRolloutGroups", () => {
     assert.ok(nodes.every((n) => n.kind === "single"));
   });
 
-  it("does not group when same code but different dates", () => {
+  it("groups same code with different dates when venue_name matches (series)", () => {
     const nodes = buildRolloutGroups([
-      row({ eventId: "a", eventCode: "CODE", eventDate: "2026-01-01" }),
-      row({ eventId: "b", eventCode: "CODE", eventDate: "2026-02-02" }),
+      row({
+        eventId: "a",
+        eventCode: "CODE",
+        eventDate: "2026-01-01",
+        venueName: "Depot",
+      }),
+      row({
+        eventId: "b",
+        eventCode: "CODE",
+        eventDate: "2026-02-02",
+        venueName: "Depot",
+      }),
+    ]);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, "group");
+    if (nodes[0].kind !== "group") throw new Error();
+    assert.equal(nodes[0].group.children.length, 2);
+    assert.equal(nodes[0].group.eventDate, null);
+  });
+
+  it("does not merge same code and date when venue_name differs", () => {
+    const nodes = buildRolloutGroups([
+      row({
+        eventId: "a",
+        eventCode: "CODE",
+        eventDate: "2026-06-27",
+        venueName: "North",
+      }),
+      row({
+        eventId: "b",
+        eventCode: "CODE",
+        eventDate: "2026-06-27",
+        venueName: "South",
+      }),
     ]);
     assert.equal(nodes.length, 2);
     assert.ok(nodes.every((n) => n.kind === "single"));

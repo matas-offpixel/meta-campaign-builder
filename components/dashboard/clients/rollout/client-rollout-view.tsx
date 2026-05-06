@@ -40,7 +40,8 @@ import type {
 
 /**
  * Rollout audit view — a table of every event for a client with:
- *   - group rows (when 2+ events share the same event_code AND event_date)
+ *   - group rows when 2+ events share the rollout grouping key (series
+ *     venue rows share event_code + venue_name; see rollout-grouping)
  *     rendering aggregate capacity / ticketing / share-link counts and the
  *     worst readiness status across children.
  *   - expandable sub-rows (persisted in `#expanded=CODE1,CODE2` URL hash).
