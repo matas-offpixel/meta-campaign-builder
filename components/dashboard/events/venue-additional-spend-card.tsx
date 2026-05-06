@@ -59,6 +59,15 @@ const GBP = new Intl.NumberFormat("en-GB", {
 async function safeJson<T = unknown>(res: Response): Promise<T> {
   const text = await res.text();
   if (!text.trim()) throw new Error(`HTTP ${res.status}: empty response body`);
+  const trimmed = text.trim();
+  if (
+    trimmed.startsWith("<!") ||
+    trimmed.toLowerCase().startsWith("<html")
+  ) {
+    throw new Error(
+      `Additional spend API returned HTML (HTTP ${res.status}) — usually a login page after session expiry or a bad URL. Refresh and sign in again.`,
+    );
+  }
   try {
     return JSON.parse(text) as T;
   } catch {
@@ -67,6 +76,9 @@ async function safeJson<T = unknown>(res: Response): Promise<T> {
     );
   }
 }
+
+/** Cookie-auth dashboard routes must send session cookies (same as rollup-sync). */
+const SESSION_FETCH: RequestInit = { cache: "no-store", credentials: "include" };
 
 export function VenueAdditionalSpendCard({
   events,
@@ -134,7 +146,7 @@ export function VenueAdditionalSpendCard({
         spendCollectionUrl(
           `/api/venues/by-share-token/${encodeURIComponent(shareToken)}/additional-spend`,
         ),
-        { cache: "no-store" },
+        SESSION_FETCH,
       );
       const json = await safeJson<{
         ok?: boolean;
@@ -159,7 +171,7 @@ export function VenueAdditionalSpendCard({
           spendCollectionUrl(
             `/api/events/${encodeURIComponent(event.id)}/additional-spend`,
           ),
-          { cache: "no-store" },
+          SESSION_FETCH,
         );
         const json = await safeJson<{
           ok?: boolean;
@@ -184,7 +196,7 @@ export function VenueAdditionalSpendCard({
               spendCollectionUrl(
                 `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend`,
               ),
-              { cache: "no-store" },
+              SESSION_FETCH,
             );
             const json = await safeJson<{
               ok?: boolean;
@@ -327,6 +339,7 @@ export function VenueAdditionalSpendCard({
               }`,
             );
       const res = await fetch(url, {
+        ...SESSION_FETCH,
         method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed.payload),
@@ -359,7 +372,7 @@ export function VenueAdditionalSpendCard({
               ? `/api/clients/${encodeURIComponent(venueScope.clientId)}/venues/${encodeURIComponent(venueScope.eventCode)}/additional-spend/${encodeURIComponent(entry.id)}`
               : `/api/events/${encodeURIComponent(entry.event_id)}/additional-spend/${encodeURIComponent(entry.id)}`,
         ),
-        { method: "DELETE" },
+        { ...SESSION_FETCH, method: "DELETE" },
       );
       const json = await safeJson<{ ok?: boolean; error?: string }>(res);
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Delete failed.");
