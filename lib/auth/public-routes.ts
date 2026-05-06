@@ -66,6 +66,8 @@ export function isPublicPath(
   // `/api/admin/meta-enhancement-probe` validates CRON_SECRET or session in
   // the route — bearer-only curls must reach the handler (see probe doc).
   if (pathname === "/api/admin/meta-enhancement-probe") return true;
+  // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
+  if (pathname === "/api/internal/scan-enhancement-flags") return true;
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;

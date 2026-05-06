@@ -18,6 +18,10 @@
       "schedule": "30 6,10,14,18,22 * * *"
     },
     {
+      "path": "/api/internal/scan-enhancement-flags",
+      "schedule": "45 */6 * * *"
+    },
+    {
       "path": "/api/cron/tiktok-active-creatives",
       "schedule": "30 6,10,14,18,22 * * *"
     },

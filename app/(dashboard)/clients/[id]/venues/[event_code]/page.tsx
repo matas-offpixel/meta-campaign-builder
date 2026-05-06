@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
@@ -160,6 +161,10 @@ export default async function ClientVenueReportPage({
             initialEnabled={existingShare?.enabled ?? null}
           />
         }
+      />
+      <EnhancementFlagBanner
+        clientId={id}
+        eventIds={venueEvents.map((e) => e.id)}
       />
       <SubTabBar
         activeTab={activeTab}

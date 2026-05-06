@@ -29,6 +29,7 @@ import {
   type InternalActiveCreativesHandle,
 } from "./internal-active-creatives-section";
 import { ReportUnavailable } from "./report-unavailable";
+import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 
 interface Props {
   eventId: string;
@@ -213,7 +214,9 @@ export function InternalEventReport({
   }, [eventId]);
 
   useEffect(() => {
-    void loadAdditionalSpendEntries();
+    queueMicrotask(() => {
+      void loadAdditionalSpendEntries();
+    });
   }, [loadAdditionalSpendEntries]);
 
   useEffect(() => {
@@ -226,7 +229,9 @@ export function InternalEventReport({
   }, [eventId, loadAdditionalSpendEntries]);
 
   useEffect(() => {
-    void loadRollupTimeline();
+    queueMicrotask(() => {
+      void loadRollupTimeline();
+    });
   }, [loadRollupTimeline]);
 
   const sellOutPacing = useMemo(
@@ -363,28 +368,34 @@ export function InternalEventReport({
       throw new Error(failures.join(" · "));
     }
     void loadRollupTimeline();
-  }, [
-    eventId,
-    datePreset,
-    customRange,
-    onInsightsPayload,
-    loadRollupTimeline,
-  ]);
+  }, [eventId, datePreset, customRange, loadRollupTimeline]);
+
+  const flagBanner =
+    clientId ? (
+      <div className="mb-4">
+        <EnhancementFlagBanner clientId={clientId} eventIds={[eventId]} />
+      </div>
+    ) : null;
 
   if (state.kind === "loading") {
     return (
-      <section className="rounded-md border border-border bg-card p-8">
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading report…
-        </div>
-      </section>
+      <>
+        {flagBanner}
+        <section className="rounded-md border border-border bg-card p-8">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading report…
+          </div>
+        </section>
+      </>
     );
   }
 
   if (state.kind === "unavailable") {
     return (
-      <ReportUnavailable
+      <>
+        {flagBanner}
+        <ReportUnavailable
         eventName={event.name}
         venueName={event.venueName}
         venueCity={event.venueCity}
@@ -404,11 +415,14 @@ export function InternalEventReport({
             | "invalid_custom_range"
         }
       />
+      </>
     );
   }
 
   return (
-    <EventReportView
+    <>
+      {flagBanner}
+      <EventReportView
       event={event}
       meta={state.data}
       datePreset={datePreset}
@@ -434,5 +448,6 @@ export function InternalEventReport({
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={additionalSpendSlot}
     />
+    </>
   );
 }
