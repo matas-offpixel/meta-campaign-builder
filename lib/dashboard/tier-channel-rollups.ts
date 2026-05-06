@@ -114,48 +114,86 @@ export function eventTierSalesRollup(tiers: EventTicketTierRow[]): TierSalesRoll
   };
 }
 
-/** Sum explicit `tier_channel_sales.revenue_amount` pivoted into channel_breakdowns. */
-export function sumTierChannelRevenueAmounts(tiers: EventTicketTierRow[]): number {
+/** Sum `tier_channel_sales.revenue_amount` for one tier's channel rows. */
+export function channelRevenueSumForTier(tier: EventTicketTierRow): number {
   let sum = 0;
-  for (const tier of tiers) {
-    for (const row of tier.channel_breakdowns ?? []) {
-      sum += Number(row.revenue_amount ?? 0);
-    }
+  for (const row of tier.channel_breakdowns ?? []) {
+    sum += Number(row.revenue_amount ?? 0);
   }
   return sum;
 }
 
-/** Legacy face-value estimate: Σ (tier sold × tier price). */
+/** Sum `tier_channel_sales.tickets_sold` pivoted into channel_breakdowns for one tier. */
+export function channelSoldSumForTier(tier: EventTicketTierRow): number {
+  let sum = 0;
+  for (const row of tier.channel_breakdowns ?? []) {
+    sum += Number(row.tickets_sold ?? 0);
+  }
+  return sum;
+}
+
+/** Sum explicit `tier_channel_sales.revenue_amount` pivoted into channel_breakdowns. */
+export function sumTierChannelRevenueAmounts(tiers: EventTicketTierRow[]): number {
+  let sum = 0;
+  for (const tier of tiers) {
+    sum += channelRevenueSumForTier(tier);
+  }
+  return sum;
+}
+
+/** Σ `tier.quantity_sold × price` — naive face value when no channel slice applies. */
 export function legacyFaceValueTierRevenue(tiers: EventTicketTierRow[]): number {
   let sum = 0;
   for (const tier of tiers) {
-    const rollup = tierSalesRollup(tier);
     const price = tier.price != null ? Number(tier.price) : NaN;
-    if (Number.isFinite(price)) sum += rollup.sold * price;
+    if (!Number.isFinite(price)) continue;
+    sum += tier.quantity_sold * price;
   }
   return sum;
 }
 
 /**
- * Ticket revenue for dashboards: prefer summed `tier_channel_sales.revenue_amount`
- * whenever multi-channel rows exist; then weekly snapshot revenue; then face-value.
+ * Hybrid revenue for one tier: summed channel revenue from tier_channel_sales,
+ * plus face value for (`tier.quantity_sold` − channel sold) so API-only
+ * tickets (e.g. 4TF on Brighton) still count when only CP rows exist in DB.
+ */
+export function perTierDisplayTicketRevenue(tier: EventTicketTierRow): number {
+  const revenueViaChannels = channelRevenueSumForTier(tier);
+  const soldViaChannels = channelSoldSumForTier(tier);
+  const tierQty = Number(tier.quantity_sold);
+  const qtyBase = Number.isFinite(tierQty) ? tierQty : 0;
+  const remainingSold = Math.max(0, qtyBase - soldViaChannels);
+  const price = tier.price != null ? Number(tier.price) : NaN;
+  const fallbackFace =
+    Number.isFinite(price) && Number.isFinite(remainingSold)
+      ? remainingSold * price
+      : 0;
+  return revenueViaChannels + fallbackFace;
+}
+
+/**
+ * Ticket revenue for dashboards: Σ per-tier hybrid revenue,
+ * then snapshot fallback when tiers yield zero but weekly snapshot has revenue.
  */
 export function resolveDisplayTicketRevenue(input: {
   ticket_tiers: EventTicketTierRow[];
   latest_snapshot_revenue: number | null | undefined;
 }): number | null {
   const { ticket_tiers, latest_snapshot_revenue } = input;
-  const hasBreakdown = ticket_tiers.some(
-    (t) => (t.channel_breakdowns?.length ?? 0) > 0,
-  );
-  if (hasBreakdown) {
-    return sumTierChannelRevenueAmounts(ticket_tiers);
+  if (ticket_tiers.length === 0) {
+    if (latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
+      return latest_snapshot_revenue;
+    }
+    return latest_snapshot_revenue ?? null;
   }
+  let total = 0;
+  for (const tier of ticket_tiers) {
+    total += perTierDisplayTicketRevenue(tier);
+  }
+  if (total > 0) return total;
   if (latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
     return latest_snapshot_revenue;
   }
-  const face = legacyFaceValueTierRevenue(ticket_tiers);
-  if (face > 0) return face;
   return latest_snapshot_revenue ?? null;
 }
 
