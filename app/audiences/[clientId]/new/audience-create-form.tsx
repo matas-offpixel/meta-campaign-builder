@@ -592,14 +592,28 @@ function sourceFromPreset(meta: { subtype: AudienceSubtype } & Record<string, un
     return { threshold: meta.threshold as SourceSelection["threshold"] };
   }
   if (meta.subtype === "website_pixel") {
+    const urls = presetPixelUrlLines(meta.urlContains);
     return {
       pixelEvent: String(meta.pixelEvent ?? "PageView"),
-      urlContains: typeof meta.urlContains === "string" ? meta.urlContains : "",
+      ...(urls.length ? { urlContains: urls } : {}),
       useUrlFilter:
-        meta.pixelEvent === "ViewContent" && typeof meta.urlContains === "string",
+        meta.pixelEvent === "ViewContent" && urls.length > 0,
     };
   }
   return {};
+}
+
+function presetPixelUrlLines(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map(String).map((s) => s.trim()).filter(Boolean);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 function buildName({
@@ -639,12 +653,13 @@ function sourcePayload(subtype: AudienceSubtype, source: SourceSelection) {
     };
   }
   if (subtype === "website_pixel") {
+    const urlFragments = pixelUrlFragmentsForPayload(source);
     return {
       sourceId: source.pixelId ?? "",
       sourceMeta: {
         subtype,
         pixelEvent: source.pixelEvent || "PageView",
-        urlContains: source.useUrlFilter ? source.urlContains : undefined,
+        ...(urlFragments?.length ? { urlContains: urlFragments } : {}),
         pixelName: source.pixelName,
       },
     };
@@ -670,4 +685,15 @@ function sourcePayload(subtype: AudienceSubtype, source: SourceSelection) {
 function clampRetention(value: number) {
   if (!Number.isFinite(value)) return 1;
   return Math.min(Math.max(Math.trunc(value), 1), 365);
+}
+
+function pixelUrlFragmentsForPayload(
+  source: SourceSelection,
+): string[] | undefined {
+  if (!source.useUrlFilter) return undefined;
+  const raw = source.urlContains;
+  if (raw === undefined || raw === null) return undefined;
+  const lines = Array.isArray(raw) ? raw : String(raw).split("\n");
+  const parts = lines.map((s) => s.trim()).filter(Boolean);
+  return parts.length ? parts : undefined;
 }

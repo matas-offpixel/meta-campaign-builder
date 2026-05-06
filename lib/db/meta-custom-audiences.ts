@@ -1,5 +1,6 @@
 import "server-only";
 
+import { migrateAudienceSourceMetaRead } from "@/lib/audiences/source-meta-read";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AudienceSourceMeta,
@@ -192,7 +193,7 @@ function rowToAudience(row: MetaCustomAudienceRow): MetaCustomAudience {
     audienceSubtype: row.audience_subtype,
     retentionDays: row.retention_days,
     sourceId: row.source_id,
-    sourceMeta: row.source_meta,
+    sourceMeta: migrateAudienceSourceMetaRead(row.source_meta),
     metaAudienceId: row.meta_audience_id,
     metaAdAccountId: row.meta_ad_account_id,
     status: row.status,

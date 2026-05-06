@@ -1,4 +1,5 @@
 import { AUDIENCE_SUBTYPE_LABELS } from "../audiences/metadata.ts";
+import { normalizeWebsitePixelUrlContains } from "../audiences/pixel-url-contains.ts";
 import type {
   AudienceSourceMeta,
   MetaCustomAudience,
@@ -103,11 +104,21 @@ export function buildMetaCustomAudiencePayload(
         value: sourceMeta.pixelEvent || "PageView",
       },
     ];
-    if (sourceMeta.urlContains) {
+    const urlParts = normalizeWebsitePixelUrlContains(sourceMeta.urlContains);
+    if (urlParts.length === 1) {
       filters.push({
         field: "url",
         operator: "i_contains",
-        value: sourceMeta.urlContains,
+        value: urlParts[0],
+      });
+    } else if (urlParts.length > 1) {
+      filters.push({
+        operator: "or",
+        filters: urlParts.map((value) => ({
+          field: "url",
+          operator: "i_contains",
+          value,
+        })),
       });
     }
     return {

@@ -7,6 +7,11 @@ import {
   isAudienceSubtype,
   isFunnelStage,
 } from "./metadata.ts";
+import {
+  coerceLegacyWebsitePixelUrlStringToArray,
+  normalizeWebsitePixelUrlContains,
+} from "./pixel-url-contains.ts";
+import { migrateAudienceSourceMetaRead } from "./source-meta-read.ts";
 import type { Database } from "../db/database.types.ts";
 import type {
   AudienceSourceMeta,
@@ -16,6 +21,7 @@ import type {
   MetaCustomAudienceInsert,
   MetaCustomAudienceUpdate,
 } from "../types/audience.ts";
+import { resolveVideoViewsSourceId } from "./video-views-source.ts";
 
 type TypedSupabaseClient = SupabaseClient<Database>;
 
@@ -178,7 +184,9 @@ export function parseAudienceUpdateBody(
   }
   if (typeof body.sourceId === "string") patch.sourceId = body.sourceId.trim();
   if (body.sourceMeta && typeof body.sourceMeta === "object") {
-    patch.sourceMeta = body.sourceMeta as AudienceSourceMeta;
+    patch.sourceMeta = migrateAudienceSourceMetaRead({
+      ...(body.sourceMeta as Record<string, unknown>),
+    }) as AudienceSourceMeta;
   }
   if (isAudienceStatus(body.status)) patch.status = body.status as AudienceStatus;
   if (typeof body.statusError === "string" || body.statusError === null) {
@@ -242,6 +250,25 @@ function resolveSourceId(
   body: AudienceCreateBody,
   subtype: AudienceSubtype,
 ): string {
+  if (subtype === "video_views") {
+    const meta = (body.sourceMeta ?? {}) as Record<string, unknown>;
+    const videoIds = Array.isArray(meta.videoIds)
+      ? meta.videoIds.map(String).map((s) => s.trim()).filter(Boolean)
+      : [];
+    const campaignIds = Array.isArray(meta.campaignIds)
+      ? meta.campaignIds.map(String).map((s) => s.trim()).filter(Boolean)
+      : [];
+    const sourceIdsMap = body.sourceIds as
+      | Partial<Record<AudienceSubtype, string>>
+      | undefined;
+    return resolveVideoViewsSourceId({
+      flatSourceId: body.sourceId,
+      sourceIdsVideo: sourceIdsMap?.video_views,
+      videoIds,
+      campaignIds,
+    });
+  }
+
   const sourceId = body.sourceIds?.[subtype] ?? body.sourceId ?? "";
   if (!sourceId.trim()) {
     throw new Error(`${AUDIENCE_SUBTYPE_LABELS[subtype]} source ID is required`);
@@ -294,14 +321,15 @@ function mergeSourceMeta(
     };
   }
   if (subtype === "website_pixel") {
+    coerceLegacyWebsitePixelUrlStringToArray(merged);
+    const urlFragments = normalizeWebsitePixelUrlContains(merged.urlContains);
     return {
       subtype,
       pixelEvent:
         typeof merged.pixelEvent === "string" && merged.pixelEvent
           ? merged.pixelEvent
           : "PageView",
-      urlContains:
-        typeof merged.urlContains === "string" ? merged.urlContains : undefined,
+      ...(urlFragments.length ? { urlContains: urlFragments } : {}),
       pixelName:
         typeof merged.pixelName === "string" ? merged.pixelName : undefined,
     };

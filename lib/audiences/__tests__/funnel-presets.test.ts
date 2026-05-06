@@ -44,11 +44,7 @@ describe("FUNNEL_STAGE_PRESETS", () => {
         [
           "website_pixel",
           60,
-          {
-            subtype: "website_pixel",
-            pixelEvent: "ViewContent",
-            urlContains: "",
-          },
+          { subtype: "website_pixel", pixelEvent: "ViewContent" },
         ],
       ],
     );

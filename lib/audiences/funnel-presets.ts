@@ -25,19 +25,12 @@ export const FUNNEL_STAGE_PRESETS = {
     pagePreset("mid-fb-page-engagement-60", "FB page engagement, 60d", "page_engagement_fb", 60),
     pagePreset("mid-ig-page-engagement-60", "IG page engagement, 60d", "page_engagement_ig", 60),
     videoPreset("mid-video-views-75-60", "Video views 75%, 60d", 75, 60),
-    {
-      ...pixelPreset(
-        "mid-pixel-view-content-60",
-        "Website pixel ViewContent, 60d",
-        "ViewContent",
-        60,
-      ),
-      defaultSourceMeta: {
-        subtype: "website_pixel",
-        pixelEvent: "ViewContent",
-        urlContains: "",
-      },
-    },
+    pixelPreset(
+      "mid-pixel-view-content-60",
+      "Website pixel ViewContent, 60d",
+      "ViewContent",
+      60,
+    ),
   ],
   bottom_funnel: [
     pagePreset("bottom-fb-page-engagement-30", "FB page engagement, 30d", "page_engagement_fb", 30),

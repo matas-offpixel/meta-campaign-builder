@@ -104,14 +104,69 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].filter.filters[1].field, "url");
     assert.equal(rule.inclusions.rules[0].filter.filters[1].value, "/arsenal");
   });
+
+  it("builds website pixel with three URL fragments as OR i_contains", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "website_pixel",
+        retentionDays: 60,
+        sourceId: "pixel_1",
+        sourceMeta: {
+          subtype: "website_pixel",
+          pixelEvent: "ViewContent",
+          urlContains: ["/arsenal-cl-final", "/arsenal-cl-presale", "/extra"],
+        },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    const filters = rule.inclusions.rules[0].filter.filters;
+    assert.equal(filters[0].field, "event");
+    assert.equal(filters[0].value, "ViewContent");
+    const urlGroup = filters[1] as UrlOrGroup;
+    assert.equal(urlGroup.operator, "or");
+    assert.equal(urlGroup.filters.length, 3);
+    assert.deepEqual(
+      urlGroup.filters.map((f) => f.value),
+      ["/arsenal-cl-final", "/arsenal-cl-presale", "/extra"],
+    );
+  });
+
+  it("builds website pixel with no URL filters when urlContains is absent", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "website_pixel",
+        retentionDays: 60,
+        sourceId: "pixel_1",
+        sourceMeta: {
+          subtype: "website_pixel",
+          pixelEvent: "PageView",
+        },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as RuleShape;
+    assert.equal(rule.inclusions.rules[0].filter.filters.length, 1);
+    assert.equal(rule.inclusions.rules[0].filter.filters[0].field, "event");
+    assert.equal(rule.inclusions.rules[0].filter.filters[0].value, "PageView");
+  });
 });
+
+type UrlOrGroup = {
+  operator: "or";
+  filters: Array<{ field: string; operator: string; value: string }>;
+};
 
 interface RuleShape {
   inclusions: {
     rules: Array<{
       event_sources: Array<{ type: string; id: string }>;
       retention_seconds: string;
-      filter: { filters: Array<{ field: string; value: string }> };
+      filter: {
+        operator: string;
+        filters: Array<
+          | { field: string; operator?: string; value: string }
+          | UrlOrGroup
+        >;
+      };
     }>;
   };
 }

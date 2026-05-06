@@ -27,7 +27,6 @@ describe("POST /api/audiences payload expansion", () => {
     assert.deepEqual(inputs[0].sourceMeta, {
       subtype: "website_pixel",
       pixelEvent: "InitiateCheckout",
-      urlContains: undefined,
       pixelName: undefined,
     });
   });
@@ -50,6 +49,90 @@ describe("POST /api/audiences payload expansion", () => {
         ["video_views", 365],
         ["website_pixel", 180],
       ],
+    );
+  });
+
+  it("rejects video_views when campaigns are chosen but no videos selected", async () => {
+    await assert.rejects(
+      async () =>
+        buildAudienceDraftInputs(makeSupabase(), USER_ID, {
+          clientId: CLIENT_ID,
+          eventId: EVENT_ID,
+          funnelStage: "bottom_funnel",
+          audienceSubtype: "video_views",
+          retentionDays: 30,
+          sourceId: "",
+          sourceMeta: {
+            subtype: "video_views",
+            threshold: 95,
+            campaignIds: ["camp_1"],
+            videoIds: [],
+          },
+        }),
+      /No video creatives selected/,
+    );
+  });
+
+  it("accepts video_views when videoIds are set even if flat sourceId is empty", async () => {
+    const inputs = await buildAudienceDraftInputs(makeSupabase(), USER_ID, {
+      clientId: CLIENT_ID,
+      eventId: EVENT_ID,
+      funnelStage: "bottom_funnel",
+      audienceSubtype: "video_views",
+      retentionDays: 30,
+      sourceId: "",
+      sourceMeta: {
+        subtype: "video_views",
+        threshold: 95,
+        campaignIds: ["camp_1"],
+        videoIds: ["vid_1"],
+      },
+    });
+    assert.equal(inputs[0].sourceId, "vid_1");
+    assert.deepEqual((inputs[0].sourceMeta as { videoIds: string[] }).videoIds, [
+      "vid_1",
+    ]);
+  });
+
+  it("persists website_pixel urlContains as string array", async () => {
+    const inputs = await buildAudienceDraftInputs(makeSupabase(), USER_ID, {
+      clientId: CLIENT_ID,
+      eventId: EVENT_ID,
+      funnelStage: "bottom_funnel",
+      audienceSubtype: "website_pixel",
+      retentionDays: 30,
+      sourceId: "pixel_1",
+      sourceMeta: {
+        subtype: "website_pixel",
+        pixelEvent: "ViewContent",
+        urlContains: ["/arsenal-cl-final", "/arsenal-cl-presale"],
+      },
+    });
+    assert.deepEqual(inputs[0].sourceMeta, {
+      subtype: "website_pixel",
+      pixelEvent: "ViewContent",
+      urlContains: ["/arsenal-cl-final", "/arsenal-cl-presale"],
+      pixelName: undefined,
+    });
+  });
+
+  it("coerces legacy string urlContains to array in merged sourceMeta", async () => {
+    const inputs = await buildAudienceDraftInputs(makeSupabase(), USER_ID, {
+      clientId: CLIENT_ID,
+      eventId: EVENT_ID,
+      funnelStage: "bottom_funnel",
+      audienceSubtype: "website_pixel",
+      retentionDays: 30,
+      sourceId: "pixel_1",
+      sourceMeta: {
+        subtype: "website_pixel",
+        pixelEvent: "ViewContent",
+        urlContains: "/legacy-path",
+      },
+    });
+    assert.deepEqual(
+      (inputs[0].sourceMeta as { urlContains: string[] }).urlContains,
+      ["/legacy-path"],
     );
   });
 
