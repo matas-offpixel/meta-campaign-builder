@@ -38,7 +38,8 @@ export type AudienceSourceMeta =
         | "Purchase"
         | "AddToCart"
         | string;
-      urlContains?: string;
+      /** URL fragments (combined with OR on Meta). Legacy single string is coerced on DB read. */
+      urlContains?: string | string[];
       pixelName?: string;
     }
   | {

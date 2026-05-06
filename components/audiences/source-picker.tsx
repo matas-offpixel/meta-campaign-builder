@@ -36,7 +36,7 @@ export interface SourceSelection {
   pixelName?: string;
   pixelEvent?: string;
   useUrlFilter?: boolean;
-  urlContains?: string;
+  urlContains?: string | string[];
 }
 
 interface PageSource {
@@ -591,6 +591,11 @@ function VideoSourcePicker({
   );
 }
 
+function pixelUrlTextareaValue(raw: string | string[] | undefined): string {
+  if (raw == null) return "";
+  return Array.isArray(raw) ? raw.join("\n") : raw;
+}
+
 function PixelSourcePicker({
   clientId,
   instanceId,
@@ -677,12 +682,29 @@ function PixelSourcePicker({
         Site-specific filter
       </label>
       {value.useUrlFilter && (
-        <TextInput
-          id="url-contains"
-          label="URL contains"
-          value={value.urlContains ?? ""}
-          onChange={(urlContains) => onChange({ ...value, urlContains })}
-        />
+        <label
+          htmlFor="url-contains"
+          className="flex flex-col gap-1.5 text-sm font-medium"
+        >
+          URL contains (one per line, OR on Meta)
+          <textarea
+            id="url-contains"
+            rows={4}
+            value={pixelUrlTextareaValue(value.urlContains)}
+            onChange={(event) => {
+              const lines = event.target.value
+                .split("\n")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              onChange({
+                ...value,
+                urlContains: lines.length ? lines : undefined,
+              });
+            }}
+            placeholder="One path fragment per line"
+            className="min-h-[88px] rounded-md border border-border-strong bg-background px-3 py-2 text-sm font-normal text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </label>
       )}
       <SourceState
         loading={loading}
