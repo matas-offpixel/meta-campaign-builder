@@ -35,7 +35,7 @@ describe("buildRolloutGroups", () => {
     assert.ok(nodes.every((n) => n.kind === "single"));
   });
 
-  it("groups same code with different dates when venue_name matches (series)", () => {
+  it("groups ≥2 rows with same event_code into series (different dates)", () => {
     const nodes = buildRolloutGroups([
       row({
         eventId: "a",
@@ -57,23 +57,60 @@ describe("buildRolloutGroups", () => {
     assert.equal(nodes[0].group.eventDate, null);
   });
 
-  it("does not merge same code and date when venue_name differs", () => {
+  it("groups same event_code with different venues into one series", () => {
     const nodes = buildRolloutGroups([
       row({
         eventId: "a",
-        eventCode: "CODE",
+        eventCode: "4TF26-ARSENAL-CL-FL",
         eventDate: "2026-06-27",
-        venueName: "North",
+        venueName: "Outernet",
       }),
       row({
         eventId: "b",
-        eventCode: "CODE",
+        eventCode: "4TF26-ARSENAL-CL-FL",
         eventDate: "2026-06-27",
-        venueName: "South",
+        venueName: "Village Underground",
+      }),
+    ]);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, "group");
+    if (nodes[0].kind !== "group") throw new Error();
+    assert.equal(nodes[0].group.children.length, 2);
+    assert.equal(nodes[0].group.key, "series:4TF26-ARSENAL-CL-FL");
+  });
+
+  it("does not merge rows that only share dates — different event_codes stay separate", () => {
+    const nodes = buildRolloutGroups([
+      row({
+        eventId: "dublin",
+        eventCode: "4TF26-ARSENAL-CL-DUBLIN",
+        eventDate: "2026-07-01",
+        venueName: "Button Factory",
+      }),
+      row({
+        eventId: "london-a",
+        eventCode: "4TF26-ARSENAL-CL-FL",
+        eventDate: "2026-07-01",
+        venueName: "Outernet",
+      }),
+      row({
+        eventId: "london-b",
+        eventCode: "4TF26-ARSENAL-CL-FL",
+        eventDate: "2026-07-01",
+        venueName: "Village Underground",
       }),
     ]);
     assert.equal(nodes.length, 2);
-    assert.ok(nodes.every((n) => n.kind === "single"));
+    const groupNode = nodes.find((n) => n.kind === "group");
+    const soloNode = nodes.find((n) => n.kind === "single");
+    assert.ok(groupNode?.kind === "group");
+    assert.ok(soloNode?.kind === "single");
+    if (groupNode?.kind !== "group" || soloNode?.kind !== "single") {
+      throw new Error("expected one group and one single");
+    }
+    assert.equal(groupNode.group.children.length, 2);
+    assert.equal(soloNode.row.eventId, "dublin");
+    assert.equal(groupNode.group.eventCode, "4TF26-ARSENAL-CL-FL");
   });
 
   it("groups 2+ rows that share event_code AND event_date", () => {
