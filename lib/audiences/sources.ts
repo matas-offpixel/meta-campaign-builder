@@ -233,7 +233,7 @@ export async function fetchAudienceCampaigns(
     {
       fields: "id,name,effective_status,created_time,insights.date_preset(last_year){spend}",
       filtering: JSON.stringify([
-        { field: "time_created", operator: "GREATER_THAN", value: since },
+        { field: "created_time", operator: "GREATER_THAN", value: since },
       ]),
       limit: String(Math.min(Math.max(limit, 1), 50)),
     },
