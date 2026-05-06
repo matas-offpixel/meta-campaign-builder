@@ -300,6 +300,13 @@ export interface UpsertLinkInput {
   connectionId: string;
   externalEventId: string;
   externalEventUrl?: string | null;
+  /**
+   * Per-link 4TheFans API base URL override (migration 083). When set, the
+   * sync uses this base URL instead of the provider default so a single
+   * bearer token can serve multiple WordPress booking sites. NULL = use
+   * provider default.
+   */
+  externalApiBase?: string | null;
   manualLock?: boolean;
 }
 
@@ -320,10 +327,11 @@ export async function upsertEventLink(
         connection_id: input.connectionId,
         external_event_id: input.externalEventId,
         external_event_url: input.externalEventUrl ?? null,
+        external_api_base: input.externalApiBase ?? null,
         manual_lock: input.manualLock ?? false,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "event_id,connection_id" },
+      { onConflict: "event_id,connection_id,external_event_id" },
     )
     .select("*")
     .maybeSingle();
@@ -394,6 +402,8 @@ export interface InsertSnapshotInput {
   userId: string;
   eventId: string;
   connectionId: string;
+  /** Scoped to one external listing when the event has multiple links. */
+  externalEventId?: string | null;
   ticketsSold: number;
   ticketsAvailable: number | null;
   grossRevenueCents: number | null;
@@ -418,6 +428,7 @@ export async function insertSnapshot(
       user_id: input.userId,
       event_id: input.eventId,
       connection_id: input.connectionId,
+      external_event_id: input.externalEventId ?? null,
       tickets_sold: input.ticketsSold,
       tickets_available: input.ticketsAvailable,
       gross_revenue_cents: input.grossRevenueCents,
@@ -433,13 +444,190 @@ export async function insertSnapshot(
   }
   const snapshot = (data as unknown as TicketSalesSnapshot) ?? null;
   if (snapshot) {
-    await mirrorEventTicketsSold(supabase, {
+    await refreshAggregatedTicketsSoldFromSnapshots(supabase, {
       eventId: input.eventId,
       userId: input.userId,
-      ticketsSold: input.ticketsSold,
     });
   }
   return snapshot;
+}
+
+/**
+ * Sets `events.tickets_sold` to the sum of the latest snapshot lifetime total
+ * per ticketing link (each external listing has its own snapshot stream).
+ */
+export async function refreshAggregatedTicketsSoldFromSnapshots(
+  supabase: AnySupabaseClient,
+  args: { eventId: string; userId: string },
+): Promise<void> {
+  const links = await listLinksForEvent(supabase, args.eventId);
+  let total = 0;
+  for (const link of links) {
+    const snap = await getLatestSnapshotForListing(supabase, {
+      eventId: args.eventId,
+      connectionId: link.connection_id,
+      externalEventId: link.external_event_id,
+    });
+    if (snap) {
+      total += Math.max(0, Math.round(snap.tickets_sold));
+    }
+  }
+  const sb = asAnyTable(supabase);
+  const { error } = await sb
+    .from("events")
+    .update({ tickets_sold: total })
+    .eq("id", args.eventId)
+    .eq("user_id", args.userId);
+  if (error) {
+    console.warn(
+      "[ticketing refreshAggregatedTicketsSoldFromSnapshots]",
+      error.message,
+    );
+  }
+}
+
+export async function getLatestSnapshotForListing(
+  supabase: AnySupabaseClient,
+  args: {
+    eventId: string;
+    connectionId: string;
+    externalEventId: string;
+  },
+): Promise<TicketSalesSnapshot | null> {
+  const sb = asAnyTable(supabase);
+  const { data: explicit, error: e1 } = await sb
+    .from("ticket_sales_snapshots")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .eq("connection_id", args.connectionId)
+    .eq("external_event_id", args.externalEventId)
+    .order("snapshot_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (e1) {
+    console.warn("[ticketing getLatestSnapshotForListing explicit]", e1.message);
+  }
+  if (explicit) {
+    return explicit as unknown as TicketSalesSnapshot;
+  }
+
+  const { count, error: cErr } = await sb
+    .from("event_ticketing_links")
+    .select("*", { count: "exact", head: true })
+    .eq("event_id", args.eventId)
+    .eq("connection_id", args.connectionId);
+  if (cErr) {
+    console.warn("[ticketing getLatestSnapshotForListing count]", cErr.message);
+  }
+  if ((count ?? 0) > 1) {
+    return null;
+  }
+
+  const { data: legacy, error: e2 } = await sb
+    .from("ticket_sales_snapshots")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .eq("connection_id", args.connectionId)
+    .is("external_event_id", null)
+    .order("snapshot_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (e2) {
+    console.warn("[ticketing getLatestSnapshotForListing legacy]", e2.message);
+  }
+  return (legacy as unknown as TicketSalesSnapshot) ?? null;
+}
+
+export async function getLatestSnapshotForLinkBeforeDate(
+  supabase: AnySupabaseClient,
+  args: {
+    eventId: string;
+    connectionId: string;
+    externalEventId: string;
+    beforeDate: string;
+  },
+): Promise<TicketSalesSnapshot | null> {
+  const beforeIso = `${args.beforeDate}T00:00:00.000Z`;
+  const sb = asAnyTable(supabase);
+  const { data: explicit, error: e1 } = await sb
+    .from("ticket_sales_snapshots")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .eq("connection_id", args.connectionId)
+    .eq("external_event_id", args.externalEventId)
+    .lt("snapshot_at", beforeIso)
+    .order("snapshot_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (e1) {
+    console.warn(
+      "[ticketing getLatestSnapshotForLinkBeforeDate explicit]",
+      e1.message,
+    );
+  }
+  if (explicit) {
+    return explicit as unknown as TicketSalesSnapshot;
+  }
+
+  const { count, error: cErr } = await sb
+    .from("event_ticketing_links")
+    .select("*", { count: "exact", head: true })
+    .eq("event_id", args.eventId)
+    .eq("connection_id", args.connectionId);
+  if (cErr) {
+    console.warn(
+      "[ticketing getLatestSnapshotForLinkBeforeDate count]",
+      cErr.message,
+    );
+  }
+  if ((count ?? 0) > 1) {
+    return null;
+  }
+
+  const { data: legacy, error: e2 } = await sb
+    .from("ticket_sales_snapshots")
+    .select("*")
+    .eq("event_id", args.eventId)
+    .eq("connection_id", args.connectionId)
+    .is("external_event_id", null)
+    .lt("snapshot_at", beforeIso)
+    .order("snapshot_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (e2) {
+    console.warn(
+      "[ticketing getLatestSnapshotForLinkBeforeDate legacy]",
+      e2.message,
+    );
+  }
+  return (legacy as unknown as TicketSalesSnapshot) ?? null;
+}
+
+/** Sum of latest gross revenue per linked external event (for dashboard header). */
+export async function sumLatestSnapshotRevenueForEvent(
+  supabase: AnySupabaseClient,
+  eventId: string,
+  links: EventTicketingLink[],
+): Promise<{ totalCents: number; currency: string | null }> {
+  let totalCents = 0;
+  let currency: string | null = null;
+  for (const link of links) {
+    const snap = await getLatestSnapshotForListing(supabase, {
+      eventId,
+      connectionId: link.connection_id,
+      externalEventId: link.external_event_id,
+    });
+    if (
+      snap?.gross_revenue_cents != null &&
+      Number.isFinite(Number(snap.gross_revenue_cents))
+    ) {
+      totalCents += Number(snap.gross_revenue_cents);
+    }
+    if (!currency && snap?.currency) {
+      currency = snap.currency;
+    }
+  }
+  return { totalCents, currency };
 }
 
 export async function listRecentSnapshotsForEvent(

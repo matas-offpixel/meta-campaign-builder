@@ -9,7 +9,7 @@ import {
 } from "@/lib/insights/meta";
 import {
   getEarliestSnapshotForEventSource,
-  getLatestSnapshotForEventBeforeDate,
+  getLatestSnapshotForLinkBeforeDate,
   getConnectionWithDecryptedCredentials,
   insertSnapshot,
   listLinksForEvent,
@@ -27,7 +27,10 @@ import {
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { getProvider } from "@/lib/ticketing/registry";
-import type { TicketingConnection } from "@/lib/ticketing/types";
+import type {
+  TicketTierBreakdown,
+  TicketingConnection,
+} from "@/lib/ticketing/types";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
 import { currentSnapshotDailyDelta } from "@/lib/ticketing/current-snapshot-delta";
 import {
@@ -762,7 +765,7 @@ export async function runRollupSyncForEvent(
   const tiktokResult = await tiktokPromise;
   const googleAdsResult = await googleAdsPromise;
 
-  // ── Eventbrite leg ────────────────────────────────────────────────
+  // ── Eventbrite / ticketing rollups ────────────────────────────────
   const eventbriteResult: SyncLegResult = { ok: false };
   try {
     const links = await listLinksForEvent(supabase, eventId);
@@ -781,6 +784,33 @@ export async function runRollupSyncForEvent(
       );
       let totalRows = 0;
       let firstError: string | null = null;
+      const mergedEbByDate = new Map<
+        string,
+        { tickets_sold: number; revenue: number }
+      >();
+      const fourthefansTierBatches: TicketTierBreakdown[][] = [];
+      let capacityTierSource: TicketingConnection["provider"] | null = null;
+      let snapshotSourceForPaddingClear:
+        | "fourthefans"
+        | "foursomething"
+        | null = null;
+      let hasNonEventbriteOrdersProvider = false;
+
+      function mergeDailyTicketsRow(
+        date: string,
+        ticketsSold: number,
+        revenue: number,
+      ) {
+        const cur = mergedEbByDate.get(date) ?? {
+          tickets_sold: 0,
+          revenue: 0,
+        };
+        mergedEbByDate.set(date, {
+          tickets_sold: cur.tickets_sold + ticketsSold,
+          revenue: cur.revenue + revenue,
+        });
+      }
+
       for (const link of links) {
         try {
           const connection = await getConnectionWithDecryptedCredentials(
@@ -799,87 +829,54 @@ export async function runRollupSyncForEvent(
               `[fourthefans-sync] event_id=${eventId} external_id=${link.external_event_id} connection_id=${connection.id}`,
             );
           }
-          const { rows } =
-            connection.provider === "eventbrite"
-              ? await fetchDailyOrdersForEvent({
-                  connection,
-                  externalEventId: link.external_event_id,
-                  eventTimezone,
-                })
-              : await fetchCurrentTicketingSnapshotRows({
-                  supabase,
-                  userId,
-                  eventId,
-                  connection,
-                  externalEventId: link.external_event_id,
-                  todayStr,
-                });
+          const isEbOrders = connection.provider === "eventbrite";
+          if (!isEbOrders) {
+            hasNonEventbriteOrdersProvider = true;
+          }
+          const src = snapshotSourceForProvider(connection.provider);
+          if (src) {
+            snapshotSourceForPaddingClear = src;
+          }
+
+          let rows: Array<{
+            date: string;
+            ticketsSold: number;
+            revenue: number;
+          }>;
+          if (isEbOrders) {
+            const fetched = await fetchDailyOrdersForEvent({
+              connection,
+              externalEventId: link.external_event_id,
+              eventTimezone,
+            });
+            rows = fetched.rows;
+          } else {
+            const contrib = await fetchFourthefansRollupSnapshotContribution({
+              supabase,
+              userId,
+              eventId,
+              connection,
+              externalEventId: link.external_event_id,
+              todayStr,
+            });
+            rows = contrib.rows;
+            if (contrib.ticketTiers?.length) {
+              fourthefansTierBatches.push(contrib.ticketTiers);
+              capacityTierSource = connection.provider;
+            }
+          }
+
           console.log(
             `[rollup-sync] eventbrite link=${link.external_event_id} provider=${connection.provider} fetched_rows=${rows.length}`,
           );
 
-          // ── Full-window zero-pad (Eventbrite) ───────────────────
-          //
-          // The orders helper emits one row per calendar date that had
-          // ≥1 paid order. Dates with zero sales are omitted, which
-          // used to make the Daily Tracker show "—" (unknown) instead
-          // of 0 (sync ran, no orders). After a successful sync, every
-          // date from windowSince..windowUntil gets explicit
-          // tickets_sold=0 / revenue=0 with source_eventbrite_at set.
-          //
-          // Dates use the same YYYY-MM-DD axis as the Meta leg's
-          // rolling window (see eachInclusiveYmd). Order bucketing
-          // inside fetchDailyOrdersForEvent remains event-timezone
-          // aware; the padding range matches the sync window endpoints.
-          const isCurrentSnapshotProvider = connection.provider !== "eventbrite";
-          const ebByDate = new Map<string, { tickets_sold: number; revenue: number }>();
           for (const r of rows) {
-            ebByDate.set(r.date, {
-              tickets_sold: r.ticketsSold,
-              revenue: r.revenue,
-            });
+            mergeDailyTicketsRow(r.date, r.ticketsSold, r.revenue);
           }
-          const hadOrdersToday = ebByDate.has(todayStr);
-          diagnostics.eventbriteTodayInWindow = diagnostics.eventbriteTodayInWindow || hadOrdersToday;
-          if (!hadOrdersToday && !isCurrentSnapshotProvider) {
-            diagnostics.eventbriteTodayPadded = true;
-            console.warn(
-              `[rollup-sync] eventbrite today has no paid orders; will zero-pad in window link=${link.external_event_id}`,
-            );
-          }
-          const ebBeforePad = ebByDate.size;
-          let ebPadded = 0;
-          if (!isCurrentSnapshotProvider) {
-            for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
-              if (!ebByDate.has(d)) {
-                ebByDate.set(d, { tickets_sold: 0, revenue: 0 });
-                ebPadded++;
-              }
-            }
-          }
-          if (totalRows === 0) {
-            diagnostics.eventbriteWindowDaysPadded = ebPadded;
-          }
-          const ebUpsertRows = Array.from(ebByDate.entries())
-            .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([date, v]) => ({
-              date,
-              tickets_sold: v.tickets_sold,
-              revenue: v.revenue,
-            }));
-          diagnostics.eventbriteRowsAttempted += ebUpsertRows.length;
-          console.log(
-            `[rollup-sync] eventbrite window zero-pad added=${ebPadded} dates (with orders before pad=${ebBeforePad}) link=${link.external_event_id} provider=${connection.provider}`,
-          );
-          await upsertEventbriteRollups(supabase, {
-            userId,
-            eventId,
-            rows: ebUpsertRows,
-          });
+
           await recordConnectionSync(supabase, connection.id, { ok: true });
-          totalRows += ebUpsertRows.length;
           console.log(
-            `[rollup-sync] eventbrite link=${link.external_event_id} upsert ok rows_written=${ebUpsertRows.length} today_in_window=${hadOrdersToday} today_padded=${!hadOrdersToday}`,
+            `[rollup-sync] eventbrite link=${link.external_event_id} merged into rollup map provider=${connection.provider}`,
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : "Unknown error";
@@ -897,6 +894,102 @@ export async function runRollupSyncForEvent(
           }
         }
       }
+
+      if (fourthefansTierBatches.length > 0) {
+        const mergedTiers = fourthefansTierBatches.flat();
+        const tierSnapshotAt = new Date().toISOString();
+        await replaceEventTicketTiers(supabase, {
+          eventId,
+          tiers: mergedTiers,
+          snapshotAt: tierSnapshotAt,
+        });
+        console.info(
+          `[rollup-sync] merged ticket tiers event_id=${eventId} tiers=${mergedTiers.length}`,
+        );
+        const capacityResult = await updateEventCapacityFromTicketTiers(
+          supabase,
+          {
+            eventId,
+            userId,
+            tiers: mergedTiers,
+            source: capacityTierSource ?? "fourthefans",
+          },
+        );
+        console.info(
+          `[rollup-sync] merged capacity event_id=${eventId} computed_capacity=${capacityResult.computedCapacity} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
+        );
+      }
+
+      if (snapshotSourceForPaddingClear) {
+        const firstSourceSnapshot = await getEarliestSnapshotForEventSource(
+          supabase,
+          {
+            eventId,
+            source: snapshotSourceForPaddingClear,
+          },
+        );
+        const firstSourceDate = firstSourceSnapshot?.snapshot_at?.slice(0, 10);
+        if (firstSourceDate) {
+          try {
+            await clearHistoricalCurrentSnapshotTicketPadding(supabase, {
+              eventId,
+              beforeDate: firstSourceDate,
+            });
+          } catch (err) {
+            console.warn(
+              `[rollup-sync] current snapshot padding cleanup skipped event_id=${eventId} before_date=${firstSourceDate}: ${
+                err instanceof Error ? err.message : "Unknown error"
+              }`,
+            );
+          }
+        }
+      }
+
+      const hadOrdersToday = mergedEbByDate.has(todayStr);
+      diagnostics.eventbriteTodayInWindow = hadOrdersToday;
+      if (!hadOrdersToday && !hasNonEventbriteOrdersProvider) {
+        diagnostics.eventbriteTodayPadded = true;
+        console.warn(
+          `[rollup-sync] eventbrite today has no paid orders; will zero-pad in window`,
+        );
+      }
+
+      const ebBeforePad = mergedEbByDate.size;
+      let ebPadded = 0;
+      if (!hasNonEventbriteOrdersProvider) {
+        for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
+          if (!mergedEbByDate.has(d)) {
+            mergedEbByDate.set(d, { tickets_sold: 0, revenue: 0 });
+            ebPadded++;
+          }
+        }
+      }
+      diagnostics.eventbriteWindowDaysPadded = ebPadded;
+
+      const ebUpsertRows = Array.from(mergedEbByDate.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, v]) => ({
+          date,
+          tickets_sold: v.tickets_sold,
+          revenue: v.revenue,
+        }));
+      diagnostics.eventbriteRowsAttempted = ebUpsertRows.length;
+      console.log(
+        `[rollup-sync] eventbrite merged window zero-pad added=${ebPadded} dates (with orders before pad=${ebBeforePad})`,
+      );
+
+      if (ebUpsertRows.length > 0) {
+        await upsertEventbriteRollups(supabase, {
+          userId,
+          eventId,
+          rows: ebUpsertRows,
+        });
+        totalRows = ebUpsertRows.length;
+        console.log(
+          `[rollup-sync] eventbrite merged upsert ok rows_written=${ebUpsertRows.length} today_in_window=${hadOrdersToday}`,
+        );
+      }
+
       if (firstError && totalRows === 0) {
         eventbriteResult.error = firstError;
       } else {
@@ -1053,7 +1146,13 @@ export async function runRollupSyncForEvent(
   };
 }
 
-async function fetchCurrentTicketingSnapshotRows(args: {
+/**
+ * Fetches one external listing (4theFans / foursomething API snapshot path),
+ * writes `ticket_sales_snapshots` scoped by `external_event_id`, and returns
+ * today's daily delta row + tier breakdown for merging across multi-link
+ * events. Tier/capacity writes are deferred to the rollup caller.
+ */
+async function fetchFourthefansRollupSnapshotContribution(args: {
   supabase: SupabaseClient;
   userId: string;
   eventId: string;
@@ -1062,11 +1161,17 @@ async function fetchCurrentTicketingSnapshotRows(args: {
   todayStr: string;
 }): Promise<{
   rows: Array<{ date: string; ticketsSold: number; revenue: number }>;
+  ticketTiers: TicketTierBreakdown[] | undefined;
 }> {
   const provider = getProvider(args.connection.provider);
-  const previousSnapshot = await getLatestSnapshotForEventBeforeDate(
+  const previousSnapshot = await getLatestSnapshotForLinkBeforeDate(
     args.supabase,
-    { eventId: args.eventId, beforeDate: args.todayStr },
+    {
+      eventId: args.eventId,
+      connectionId: args.connection.id,
+      externalEventId: args.externalEventId,
+      beforeDate: args.todayStr,
+    },
   );
   const fetched = await provider.getEventSales(
     args.connection,
@@ -1091,6 +1196,7 @@ async function fetchCurrentTicketingSnapshotRows(args: {
       userId: args.userId,
       eventId: args.eventId,
       connectionId: args.connection.id,
+      externalEventId: args.externalEventId,
       ticketsSold: fetched.ticketsSold,
       ticketsAvailable: fetched.ticketsAvailable,
       grossRevenueCents: fetched.grossRevenueCents,
@@ -1107,50 +1213,6 @@ async function fetchCurrentTicketingSnapshotRows(args: {
         fetched.ticketsSold
       }`,
     );
-    if (fetched.ticketTiers) {
-      const tiersWritten = await replaceEventTicketTiers(args.supabase, {
-        eventId: args.eventId,
-        tiers: fetched.ticketTiers ?? [],
-        snapshotAt: snapshot?.snapshot_at,
-      });
-      console.info(
-        `[${args.connection.provider}-sync] ticket tiers event_id=${args.eventId} external_event_id=${args.externalEventId} tiers_written=${tiersWritten}`,
-      );
-      const capacityResult = await updateEventCapacityFromTicketTiers(
-        args.supabase,
-        {
-          eventId: args.eventId,
-          userId: args.userId,
-          tiers: fetched.ticketTiers ?? [],
-          source: args.connection.provider,
-        },
-      );
-      console.info(
-        `[${args.connection.provider}-sync] capacity event_id=${args.eventId} external_event_id=${args.externalEventId} computed_capacity=${capacityResult.computedCapacity} current_capacity=${capacityResult.currentCapacity ?? "<null>"} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
-      );
-    }
-    const firstSourceSnapshot = await getEarliestSnapshotForEventSource(
-      args.supabase,
-      {
-        eventId: args.eventId,
-        source,
-      },
-    );
-    const firstSourceDate = firstSourceSnapshot?.snapshot_at?.slice(0, 10);
-    if (firstSourceDate) {
-      try {
-        await clearHistoricalCurrentSnapshotTicketPadding(args.supabase, {
-          eventId: args.eventId,
-          beforeDate: firstSourceDate,
-        });
-      } catch (err) {
-        console.warn(
-          `[rollup-sync] current snapshot padding cleanup skipped event_id=${args.eventId} before_date=${firstSourceDate}: ${
-            err instanceof Error ? err.message : "Unknown error"
-          }`,
-        );
-      }
-    }
   }
   return {
     rows: [
@@ -1163,6 +1225,7 @@ async function fetchCurrentTicketingSnapshotRows(args: {
             : Number((fetched.grossRevenueCents / 100).toFixed(2)),
       },
     ],
+    ticketTiers: fetched.ticketTiers,
   };
 }
 

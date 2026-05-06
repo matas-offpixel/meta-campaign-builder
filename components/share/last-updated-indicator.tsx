@@ -93,6 +93,12 @@ export function oldestFreshness(events: PortalEvent[]): string | null {
     .sort()[0] ?? null;
 }
 
+function ticketingTitleSuffix(event: PortalEvent): string {
+  const ids = event.ticketing_status.external_event_ids ?? [];
+  if (ids.length === 0) return "";
+  return ` External listings: ${ids.join(", ")}.`;
+}
+
 function eventTicketingStatus(event: PortalEvent): DerivedTicketingStatus {
   if (event.ticketing_status.linked_count === 0) {
     if (isPreSaleEvent(event)) {
@@ -114,7 +120,7 @@ function eventTicketingStatus(event: PortalEvent): DerivedTicketingStatus {
   }
   return freshnessStatus(
     event.freshness_at ?? null,
-    "Ticketing data freshness for this event.",
+    `Ticketing data freshness for this event.${ticketingTitleSuffix(event)}`,
   );
 }
 

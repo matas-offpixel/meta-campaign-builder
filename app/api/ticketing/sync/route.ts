@@ -11,7 +11,10 @@ import {
   updateEventCapacityFromTicketTiers,
 } from "@/lib/db/ticketing";
 import { getProvider } from "@/lib/ticketing/registry";
-import { TicketingProviderDisabledError } from "@/lib/ticketing/types";
+import {
+  TicketingProviderDisabledError,
+  type TicketTierBreakdown,
+} from "@/lib/ticketing/types";
 
 /**
  * POST /api/ticketing/sync?eventId=X
@@ -90,6 +93,9 @@ export async function POST(req: NextRequest) {
   }
 
   const results: LinkSyncResult[] = [];
+  const tierBatches: TicketTierBreakdown[][] = [];
+  let capacitySource: string | undefined;
+
   for (const link of links) {
     // Decrypt credentials on demand — the row in `event_ticketing_links`
     // only carries the connection id, so we re-resolve here. Provider
@@ -139,10 +145,11 @@ export async function POST(req: NextRequest) {
         connection,
         link.external_event_id,
       );
-      const snapshot = await insertSnapshot(supabase, {
+      await insertSnapshot(supabase, {
         userId: user.id,
         eventId,
         connectionId: connection.id,
+        externalEventId: link.external_event_id,
         ticketsSold: fetched.ticketsSold,
         ticketsAvailable: fetched.ticketsAvailable,
         grossRevenueCents: fetched.grossRevenueCents,
@@ -151,18 +158,9 @@ export async function POST(req: NextRequest) {
           connection.provider === "fourthefans" ? "fourthefans" : "eventbrite",
         rawPayload: fetched.rawPayload,
       });
-      if (fetched.ticketTiers) {
-        await replaceEventTicketTiers(supabase, {
-          eventId,
-          tiers: fetched.ticketTiers ?? [],
-          snapshotAt: snapshot?.snapshot_at,
-        });
-        await updateEventCapacityFromTicketTiers(supabase, {
-          eventId,
-          userId: user.id,
-          tiers: fetched.ticketTiers ?? [],
-          source: connection.provider,
-        });
+      if (fetched.ticketTiers?.length) {
+        tierBatches.push(fetched.ticketTiers);
+        capacitySource = connection.provider;
       }
       await recordConnectionSync(supabase, connection.id, { ok: true });
       results.push({
@@ -188,6 +186,21 @@ export async function POST(req: NextRequest) {
         disabled: isDisabled,
       });
     }
+  }
+
+  if (tierBatches.length > 0) {
+    const mergedTiers = tierBatches.flat();
+    await replaceEventTicketTiers(supabase, {
+      eventId,
+      tiers: mergedTiers,
+      snapshotAt: new Date().toISOString(),
+    });
+    await updateEventCapacityFromTicketTiers(supabase, {
+      eventId,
+      userId: user.id,
+      tiers: mergedTiers,
+      source: capacitySource ?? "fourthefans",
+    });
   }
 
   const allOk = results.every((r) => r.ok);

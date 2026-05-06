@@ -5,6 +5,7 @@ import {
   getLatestSnapshotForEvent,
   listConnectionsForUser,
   listLinksForEvent,
+  sumLatestSnapshotRevenueForEvent,
 } from "@/lib/db/ticketing";
 import type {
   EventTicketingLink,
@@ -22,31 +23,24 @@ import type {
  *
  * Returns four things in one round-trip:
  *
- *   - `link`                 — the existing event_ticketing_links row
- *                              for this event (or null when not yet
- *                              linked). v1 only ever surfaces the
- *                              first link; multi-provider events are
- *                              not modelled in this UI yet.
+ *   - `links`                — every `event_ticketing_links` row for this
+ *                              event (multiple external listings allowed).
+ *
+ *   - `link`                 — backwards-compat alias for `links[0]`.
  *
  *   - `connection`           — the connection backing `link`, with
  *                              credentials wiped (the browser never
  *                              sees the token blob).
  *
  *   - `latestSnapshot`       — the most-recent ticket_sales_snapshots
- *                              row for the event. Drives the live
- *                              capacity / sold / revenue / sell-through
- *                              numbers.
+ *                              row for the event (any listing).
+ *
+ *   - `aggregatedTicketsSold` / `aggregatedCapacity` — from `events`.
+ *
+ *   - `aggregatedGrossRevenueCents` — sum of latest snapshot revenue per
+ *      linked external event.
  *
  *   - `availableConnections` — every connection on the event's client.
- *                              Drives the dropdown when the event is
- *                              not yet linked. Empty array when the
- *                              client hasn't connected Eventbrite yet,
- *                              which the panel renders as the "set up
- *                              ticketing first" empty state.
- *
- * All five lookups are wrapped in a single Promise.all + a defensive
- * fallback so a missing migration / RLS hiccup degrades to "no data"
- * rather than 500-ing the whole event page.
  */
 
 export type SafeTicketingConnection = Omit<TicketingConnection, "credentials"> & {
@@ -54,9 +48,14 @@ export type SafeTicketingConnection = Omit<TicketingConnection, "credentials"> &
 };
 
 export interface EventTicketingSummary {
+  links: EventTicketingLink[];
   link: EventTicketingLink | null;
   connection: SafeTicketingConnection | null;
   latestSnapshot: TicketSalesSnapshot | null;
+  aggregatedTicketsSold: number | null;
+  aggregatedCapacity: number | null;
+  aggregatedGrossRevenueCents: number | null;
+  aggregatedCurrency: string | null;
   availableConnections: SafeTicketingConnection[];
 }
 
@@ -70,10 +69,12 @@ export async function getEventTicketingSummary(
 ): Promise<EventTicketingSummary> {
   const supabase = await createClient();
 
-  // Pull links + every connection for the client in parallel; the
-  // dropdown needs the full list even when a link already exists so
-  // the user can re-bind to a different connection if needed.
-  const [links, connectionsForClient, latest] = await Promise.all([
+  const [eventRes, links, connectionsForClient, latest] = await Promise.all([
+    supabase
+      .from("events")
+      .select("tickets_sold, capacity")
+      .eq("id", eventId)
+      .maybeSingle(),
     listLinksForEvent(supabase, eventId).catch(() => []),
     clientId
       ? listConnectionsForUser(supabase, { clientId }).catch(() => [])
@@ -81,15 +82,39 @@ export async function getEventTicketingSummary(
     getLatestSnapshotForEvent(supabase, eventId).catch(() => null),
   ]);
 
-  const link = links[0] ?? null;
-  const connection = link
-    ? (connectionsForClient.find((c) => c.id === link.connection_id) ?? null)
+  const linkList = links;
+  const primaryLink = linkList[0] ?? null;
+  const connection = primaryLink
+    ? (connectionsForClient.find((c) => c.id === primaryLink.connection_id) ??
+      null)
     : null;
 
+  const revenue = await sumLatestSnapshotRevenueForEvent(
+    supabase,
+    eventId,
+    linkList,
+  ).catch(() => ({ totalCents: 0, currency: null as string | null }));
+
+  const er = eventRes.data as
+    | { tickets_sold: number | null; capacity: number | null }
+    | null;
+
   return {
-    link,
+    links: linkList,
+    link: primaryLink,
     connection: connection ? redact(connection) : null,
     latestSnapshot: latest,
+    aggregatedTicketsSold:
+      typeof er?.tickets_sold === "number" && Number.isFinite(er.tickets_sold)
+        ? er.tickets_sold
+        : null,
+    aggregatedCapacity:
+      typeof er?.capacity === "number" && Number.isFinite(er.capacity)
+        ? er.capacity
+        : null,
+    aggregatedGrossRevenueCents:
+      revenue.totalCents > 0 ? revenue.totalCents : null,
+    aggregatedCurrency: revenue.currency,
     availableConnections: connectionsForClient.map(redact),
   };
 }

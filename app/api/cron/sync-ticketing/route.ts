@@ -13,6 +13,7 @@ import {
   TicketingProviderDisabledError,
   type EventTicketingLink,
   type TicketingConnection,
+  type TicketTierBreakdown,
 } from "@/lib/ticketing/types";
 
 /**
@@ -221,66 +222,90 @@ export async function GET(req: NextRequest) {
     const errors: { linkId: string; message: string }[] = [];
     let snapshotsWritten = 0;
     let lastError: string | null = null;
+
+    const linksByEventId = new Map<string, EventTicketingLink[]>();
     for (const link of links) {
-      try {
-        const fetched = await Promise.race([
-          provider.getEventSales(
-            connectionForProvider,
-            link.external_event_id,
-          ),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("getEventSales timed out")),
-              CRON_TIMEOUT_MS,
+      const arr = linksByEventId.get(link.event_id) ?? [];
+      arr.push(link);
+      linksByEventId.set(link.event_id, arr);
+    }
+
+    for (const [, eventLinks] of linksByEventId) {
+      const tierBatches: TicketTierBreakdown[][] = [];
+      let snapshotAtForTiers: string | undefined;
+      for (const link of eventLinks) {
+        try {
+          const fetched = await Promise.race([
+            provider.getEventSales(
+              connectionForProvider,
+              link.external_event_id,
             ),
-          ),
-        ]);
-        const sales = fetched as Awaited<
-          ReturnType<typeof provider.getEventSales>
-        >;
-        const snapshot = await insertSnapshot(supabase, {
-          userId: connection.user_id,
-          eventId: link.event_id,
-          connectionId: connection.id,
-          ticketsSold: sales.ticketsSold,
-          ticketsAvailable: sales.ticketsAvailable,
-          grossRevenueCents: sales.grossRevenueCents,
-          currency: sales.currency,
-          source:
-            connection.provider === "fourthefans" ? "fourthefans" : "eventbrite",
-          rawPayload: sales.rawPayload,
-        });
-        if (snapshot) {
-          snapshotsWritten += 1;
-          totalSnapshotsWritten += 1;
-        } else {
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("getEventSales timed out")),
+                CRON_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+          const sales = fetched as Awaited<
+            ReturnType<typeof provider.getEventSales>
+          >;
+          const snapshot = await insertSnapshot(supabase, {
+            userId: connection.user_id,
+            eventId: link.event_id,
+            connectionId: connection.id,
+            externalEventId: link.external_event_id,
+            ticketsSold: sales.ticketsSold,
+            ticketsAvailable: sales.ticketsAvailable,
+            grossRevenueCents: sales.grossRevenueCents,
+            currency: sales.currency,
+            source:
+              connection.provider === "fourthefans"
+                ? "fourthefans"
+                : "eventbrite",
+            rawPayload: sales.rawPayload,
+          });
+          if (snapshot) {
+            snapshotsWritten += 1;
+            totalSnapshotsWritten += 1;
+            snapshotAtForTiers = snapshot.snapshot_at;
+          } else {
+            errors.push({
+              linkId: link.id,
+              message: "Snapshot insert returned no row",
+            });
+            lastError = "Snapshot insert returned no row";
+          }
+          if (sales.ticketTiers?.length) {
+            tierBatches.push(sales.ticketTiers);
+          }
+        } catch (err) {
+          const isDisabled = err instanceof TicketingProviderDisabledError;
+          const message = err instanceof Error ? err.message : "Unknown error";
           errors.push({
             linkId: link.id,
-            message: "Snapshot insert returned no row",
+            message: isDisabled ? `Provider disabled: ${message}` : message,
           });
-          lastError = "Snapshot insert returned no row";
+          lastError = message;
         }
-        if (sales.ticketTiers) {
+      }
+
+      if (tierBatches.length > 0) {
+        const eventId = eventLinks[0]?.event_id;
+        if (eventId) {
+          const mergedTiers = tierBatches.flat();
           await replaceEventTicketTiers(supabase, {
-            eventId: link.event_id,
-            tiers: sales.ticketTiers ?? [],
-            snapshotAt: snapshot?.snapshot_at,
+            eventId,
+            tiers: mergedTiers,
+            snapshotAt: snapshotAtForTiers ?? new Date().toISOString(),
           });
           await updateEventCapacityFromTicketTiers(supabase, {
-            eventId: link.event_id,
+            eventId,
             userId: connection.user_id,
-            tiers: sales.ticketTiers ?? [],
+            tiers: mergedTiers,
             source: connection.provider,
           });
         }
-      } catch (err) {
-        const isDisabled = err instanceof TicketingProviderDisabledError;
-        const message = err instanceof Error ? err.message : "Unknown error";
-        errors.push({
-          linkId: link.id,
-          message: isDisabled ? `Provider disabled: ${message}` : message,
-        });
-        lastError = message;
       }
     }
 
