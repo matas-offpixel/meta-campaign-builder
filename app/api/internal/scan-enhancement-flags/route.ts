@@ -8,14 +8,18 @@
  * Auth (dual path, mirrors `/api/admin/meta-enhancement-probe`):
  *   1. `Authorization: Bearer <CRON_SECRET>` — Vercel Cron (GET) and scripted runs.
  *   2. Else: signed-in Supabase session (browser GET/POST) — same full scan; session is
- *      only the gate (service-role DB + env Meta token unchanged).
+ *      only the gate (service-role DB + per-client Meta token resolution unchanged).
  *   Unauthenticated requests → 401.
+ *
+ * Meta token: for each client, `resolveServerMetaToken(admin, client.user_id)` —
+ * DB OAuth row first, then `META_ACCESS_TOKEN` env fallback (same as other server routes).
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 
 import { graphGetWithToken } from "@/lib/meta/client";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
+import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import {
   evaluateCreativeFeatures,
   type FlaggedFeatureMap,
@@ -101,14 +105,6 @@ async function handleScan(req: NextRequest) {
     console.info("[scan-enhancement-flags] session-auth manual trigger");
   }
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) {
-    return NextResponse.json(
-      { error: "META_ACCESS_TOKEN is not configured" },
-      { status: 500 },
-    );
-  }
-
   let admin: ReturnType<typeof createServiceRoleClient>;
   try {
     admin = createServiceRoleClient();
@@ -126,7 +122,7 @@ async function handleScan(req: NextRequest) {
 
   const { data: clients, error: clientsErr } = await admin
     .from("clients")
-    .select("id, name, meta_ad_account_id")
+    .select("id, name, meta_ad_account_id, user_id")
     .not("meta_ad_account_id", "is", null);
 
   if (clientsErr) {
@@ -144,6 +140,20 @@ async function handleScan(req: NextRequest) {
     if (!metaAdAccountId?.trim()) continue;
 
     const clientLabel = client.name ?? client.id;
+    if (typeof client.user_id !== "string" || client.user_id.length === 0) {
+      errors_per_client[clientLabel] = "no_meta_token";
+      continue;
+    }
+    const ownerUserId = client.user_id;
+
+    let metaToken: string;
+    try {
+      const resolved = await resolveServerMetaToken(admin, ownerUserId);
+      metaToken = resolved.token;
+    } catch {
+      errors_per_client[clientLabel] = "no_meta_token";
+      continue;
+    }
 
     try {
       const { data: eventRows } = await admin
@@ -161,7 +171,10 @@ async function handleScan(req: NextRequest) {
       }
 
       const accountPath = withActPrefix(metaAdAccountId);
-      const ads = await fetchAllActiveAdsForAccount({ accountPath, token });
+      const ads = await fetchAllActiveAdsForAccount({
+        accountPath,
+        token: metaToken,
+      });
       clients_scanned += 1;
       total_active_ads += ads.length;
 
