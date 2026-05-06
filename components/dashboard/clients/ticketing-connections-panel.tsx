@@ -41,6 +41,16 @@ interface Props {
     linkedEvents: number;
     unlinkedEvents: number;
   };
+  /**
+   * Event links that use a non-default 4TheFans API base URL (migration 083).
+   * Shown as an annotation so the operator can confirm which events hit a
+   * non-default WordPress booking site.
+   */
+  customApiBaseLinks?: Array<{
+    eventName: string;
+    externalEventId: string;
+    apiBase: string;
+  }>;
 }
 
 const PROVIDERS: Array<{ value: TicketingProviderName; label: string }> = [
@@ -59,6 +69,7 @@ export function TicketingConnectionsPanel({
   clientId,
   initial,
   linkDiscoveryStats,
+  customApiBaseLinks,
 }: Props) {
   const [connections, setConnections] = useState<ConnectionRow[]>(initial);
   const [provider, setProvider] = useState<TicketingProviderName>("eventbrite");
@@ -315,6 +326,31 @@ export function TicketingConnectionsPanel({
             </ul>
           )}
         </div>
+
+        {/* Custom API base overrides — only shown when ≥1 link has a non-default base */}
+        {customApiBaseLinks && customApiBaseLinks.length > 0 ? (
+          <div>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Custom API endpoints
+            </h4>
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {customApiBaseLinks.map((link) => (
+                <li
+                  key={`${link.externalEventId}-${link.apiBase}`}
+                  className="px-3 py-2 text-sm"
+                >
+                  <p className="font-medium text-foreground">{link.eventName}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    External ID: {link.externalEventId}
+                  </p>
+                  <p className="truncate text-xs text-amber-700">
+                    API base: {link.apiBase}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {/* Add new connection */}
         <form className="space-y-3" onSubmit={handleSubmit}>

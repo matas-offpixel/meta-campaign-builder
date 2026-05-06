@@ -117,6 +117,16 @@ interface Props {
   ticketingConnections: SafeTicketingConnection[];
   ticketingLinkDiscoveryStats: TicketingLinkDiscoveryStats;
   /**
+   * Subset of event_ticketing_links that have a non-null external_api_base
+   * (migration 083). Surfaced in the Ticketing tab so the operator can see
+   * which events are hitting a non-default 4TheFans booking site.
+   */
+  ticketingCustomApiBaseLinks?: Array<{
+    eventName: string;
+    externalEventId: string;
+    apiBase: string;
+  }>;
+  /**
    * Pre-fetched D2C connections for this client (credentials
    * redacted). Drives the D2C tab and Mailchimp/Klaviyo/Bird/Firetext
    * slots of the integrations pill.
@@ -184,6 +194,7 @@ export function ClientDetail({
   latestSnapshots,
   ticketingConnections,
   ticketingLinkDiscoveryStats,
+  ticketingCustomApiBaseLinks,
   d2cConnections,
   d2cTemplates,
   creativeTemplates,
@@ -621,6 +632,7 @@ export function ClientDetail({
               clientId={client.id}
               initial={ticketingConnections}
               linkDiscoveryStats={ticketingLinkDiscoveryStats}
+              customApiBaseLinks={ticketingCustomApiBaseLinks}
             />
           </TabPanel>
 

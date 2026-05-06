@@ -78,8 +78,13 @@ export class FourthefansProvider implements TicketingProvider {
   async getEventSales(
     connection: TicketingConnection,
     externalEventId: string,
+    options?: { apiBase?: string | null },
   ): Promise<FetchedTicketSales> {
-    return this.fetchEventByExternalId(externalEventId, connection.credentials);
+    return this.fetchEventByExternalId(
+      externalEventId,
+      connection.credentials,
+      options?.apiBase,
+    );
   }
 
   async listAllEvents(
@@ -111,12 +116,16 @@ export class FourthefansProvider implements TicketingProvider {
   async fetchEventByExternalId(
     externalId: string,
     credentials: Record<string, unknown>,
+    apiBase?: string | null,
   ): Promise<FetchedTicketSales> {
     const token = extractCredentialsToken(credentials);
-    console.info(`[fourthefans-sync] API request external_event_id=${externalId}`);
+    console.info(
+      `[fourthefans-sync] API request external_event_id=${externalId}${apiBase ? ` api_base=${apiBase}` : ""}`,
+    );
     const payload = await fourthefansGet<unknown>(
       token,
       `/events/${encodeURIComponent(externalId)}`,
+      { apiBase },
     );
     const bodyLength = safeJsonLength(payload);
     console.info(

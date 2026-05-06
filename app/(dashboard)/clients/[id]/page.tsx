@@ -120,11 +120,17 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     credentials: null as null,
   }));
   const eventIds = events.map((event) => event.id);
+  const eventNameById = new Map(events.map((e) => [e.id, e.name]));
   const linkedEventIds = new Set<string>();
+  const customApiBaseLinks: Array<{
+    eventName: string;
+    externalEventId: string;
+    apiBase: string;
+  }> = [];
   if (eventIds.length > 0) {
     const { data: links, error: linksError } = await supabase
       .from("event_ticketing_links")
-      .select("event_id")
+      .select("event_id, external_event_id, external_api_base")
       .in("event_id", eventIds);
     if (linksError) {
       console.warn(
@@ -133,7 +139,19 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       );
     } else {
       for (const link of links ?? []) {
-        linkedEventIds.add((link as { event_id: string }).event_id);
+        const l = link as {
+          event_id: string;
+          external_event_id: string;
+          external_api_base: string | null;
+        };
+        linkedEventIds.add(l.event_id);
+        if (l.external_api_base) {
+          customApiBaseLinks.push({
+            eventName: eventNameById.get(l.event_id) ?? l.event_id,
+            externalEventId: l.external_event_id,
+            apiBase: l.external_api_base,
+          });
+        }
       }
     }
   }
@@ -194,6 +212,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       latestSnapshots={latestSnapshots}
       ticketingConnections={safeTicketing}
       ticketingLinkDiscoveryStats={ticketingLinkDiscoveryStats}
+      ticketingCustomApiBaseLinks={customApiBaseLinks}
       d2cConnections={safeD2C}
       d2cTemplates={d2cTemplates}
       creativeTemplates={creativeTemplates}
