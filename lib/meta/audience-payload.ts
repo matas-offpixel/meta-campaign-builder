@@ -80,38 +80,12 @@ export function buildMetaCustomAudiencePayload(
     })();
 
     // ──────────────────────────────────────────────────────────────────
-    // Page / IG engagement audiences use a FLAT POST format, NOT a nested
-    // {inclusions: {...}} rule JSON. Meta's GET endpoint returns the rich
-    // rule structure for display, but POST requires:
-    //   subtype=ENGAGEMENT
-    //   event_source_id=<page_id>
-    //   event_source_type=page (or ig_business)
-    //   event=<page_engaged | page_liked | ig_business_profile_all | ...>
-    //
-    // The {inclusions: {rules: [...]}} JSON shape is reserved for COMPLEX
-    // audiences (websites, exclusions, multi-source). For single-page or
-    // single-IG-account engagement, the flat format is required.
-    //
-    // (Discovered 2026-05-07 after multiple iterations against #2654/1713151
-    //  errors; the rule JSON we constructed was identical to Meta's
-    //  reference audiences but Meta's POST endpoint rejects it as invalid.)
-    //
-    // For multi-page, we still need the rule JSON shape — fall back to
-    // that path only when pageIds.length > 1.
-    if (pageIds.length === 1) {
-      const [pageId] = pageIds;
-      return {
-        ...base,
-        subtype: "ENGAGEMENT",
-        event_source_id: pageId,
-        event_source_type: isIg ? "ig_business" : "page",
-        event: eventValue,
-      };
-    }
-
-    // Multi-page fallback — uses rule JSON because flat format only allows
-    // one event_source_id. Will likely also need a Meta API quirk pattern
-    // we haven't decoded yet for multi-page; verify before using.
+    // Engagement audiences require BOTH `subtype: "ENGAGEMENT"` AND a
+    // rule JSON. The structure verified 2026-05-07 via Graph API Explorer
+    // POST with name="OffPixel_Manual_Test_FB" (created audience id
+    // 6984573649865 in 4thefans ad account). Same payload with name
+    // containing spaces failed with #2654 — sanitizeAudienceName below
+    // is the gate.
     const rules = pageIds.map((pageId) => ({
       event_sources: [{ type: isIg ? "ig_business" : "page", id: numericId(pageId) }],
       retention_seconds: retentionSeconds,
@@ -233,8 +207,34 @@ function numericId(id: string): number | string {
   return n;
 }
 
-function sanitizeAudienceName(raw: string): string {
-  return raw.replace(/[^a-zA-Z0-9_ \-[\]]/g, "").slice(0, 50).trim();
+/**
+ * Meta's POST /customaudiences endpoint enforces strict name validation:
+ * "less than 50 characters long, and it can contain only alphanumeric
+ * characters and underscores."
+ *
+ * Despite Meta's UI accepting names with spaces, brackets, hyphens, and slashes
+ * (visible in audience list views), POST requests with these characters fail
+ * with #2654 "Invalid event name for custom audience" — the error message
+ * misleadingly says "event name" but the actual validation target is the
+ * audience name parameter.
+ *
+ * Verified 2026-05-07 via Graph API Explorer: same payload with name
+ * "OffPixel_Manual_Test_FB" succeeds; with "OffPixel Manual Test FB" fails.
+ *
+ * This function:
+ *   - Replaces spaces, hyphens, brackets, slashes, periods with underscores
+ *   - Strips any remaining non-alphanumeric, non-underscore characters
+ *   - Collapses consecutive underscores to one
+ *   - Trims leading/trailing underscores
+ *   - Truncates to 50 chars (Meta's hard limit)
+ */
+export function sanitizeAudienceName(raw: string): string {
+  return raw
+    .replace(/[\s\-/[\].]+/g, "_") // spaces, hyphens, brackets, slashes, dots → underscore
+    .replace(/[^a-zA-Z0-9_]/g, "") // strip anything still non-alphanumeric/underscore
+    .replace(/_+/g, "_") // collapse multiple underscores
+    .replace(/^_+|_+$/g, "") // trim leading/trailing underscores
+    .slice(0, 50);
 }
 
 // Verified 2026-05-07 across multiple 4thefans historical audiences
