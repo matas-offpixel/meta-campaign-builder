@@ -180,7 +180,9 @@ export function buildMetaCustomAudiencePayload(
     }
     return {
       ...base,
-      subtype: "WEBSITE",
+      // No `subtype: "WEBSITE"` — same lesson as engagement audiences (PR #340).
+      // Meta's POST endpoint deprecated the subtype field; including it triggers
+      // #2654 subcode 1870053. rule + prefill is sufficient.
       rule: JSON.stringify({
         inclusions: {
           operator: "or",

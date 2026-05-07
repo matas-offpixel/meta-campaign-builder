@@ -14,6 +14,17 @@ describe("campaign-videos source endpoint", () => {
     assert.match(sources, /new Set<string>\(\)/);
     assert.match(sources, /extractVideoIdsFromCreative/);
     assert.match(sources, /extract-video-ids-from-creative/);
-    assert.match(sources, /fields: "id,picture,title,length"/);
+    // 'from' is now included to detect orphan videos (no Page association).
+    assert.match(sources, /fields: "id,picture,title,length,from"/);
+  });
+
+  it("sources.ts filters orphan videos with no from.id and returns skippedCount", () => {
+    const sources = readFileSync("lib/audiences/sources.ts", "utf8");
+    // Filters out videos without from.id
+    assert.match(sources, /from\?\.id/);
+    // Returns skippedCount
+    assert.match(sources, /skippedCount/);
+    // Logs a warning for dropped videos
+    assert.match(sources, /Dropped.*video.*no Page association/);
   });
 });

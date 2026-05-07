@@ -83,6 +83,8 @@ interface VideoFetchState {
   rateLimited: boolean;
   /** Most-common FB page ID found across fetched campaign ads. Used as contextId in Meta rule. */
   contextPageId?: string;
+  /** Total videos dropped because they have no FB Page association across all fetched campaigns. */
+  skippedCount: number;
 }
 
 function videoTilePrimaryLabel(video: VideoSource): string {
@@ -150,6 +152,7 @@ function CampaignVideoFetcher({
     loading: true,
     error: null,
     rateLimited: false,
+    skippedCount: 0,
   });
 
   const campaignIdsKey = campaignIds.join(",");
@@ -162,6 +165,7 @@ function CampaignVideoFetcher({
         loading: true,
         error: null,
         rateLimited: false,
+        skippedCount: 0,
       });
       const results = await Promise.all(
         campaignIds.map((cid) =>
@@ -178,6 +182,7 @@ function CampaignVideoFetcher({
             loading: false,
             error: r.error,
             rateLimited: r.rateLimited,
+            skippedCount: 0,
           });
           return;
         }
@@ -199,10 +204,14 @@ function CampaignVideoFetcher({
       }
       // Resolve contextPageId: pick the most-common page_id across all campaigns.
       const pageIdCounts = new Map<string, number>();
+      let totalSkipped = 0;
       for (const r of results) {
         if (r.ok && r.data.contextPageId) {
           const id = r.data.contextPageId;
           pageIdCounts.set(id, (pageIdCounts.get(id) ?? 0) + 1);
+        }
+        if (r.ok) {
+          totalSkipped += r.data.skippedCount ?? 0;
         }
       }
       const contextPageId = [...pageIdCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
@@ -212,6 +221,7 @@ function CampaignVideoFetcher({
         error: null,
         rateLimited: false,
         contextPageId,
+        skippedCount: totalSkipped,
       });
     }
     void loadAll();
@@ -668,6 +678,11 @@ function VideoSourcePicker({
                 <p className="text-xs text-muted-foreground">
                   {vf.videos.length} video{vf.videos.length === 1 ? "" : "s"} from {selectedCampaignIds.length} campaign{selectedCampaignIds.length === 1 ? "" : "s"} ·{" "}
                   {(value.videoIds?.length ?? 0)} selected
+                </p>
+              )}
+              {!vf.loading && vf.skippedCount > 0 && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {vf.skippedCount} video{vf.skippedCount === 1 ? "" : "s"} skipped (uploaded directly, not posted from a Page — Meta requires Page association for video audiences)
                 </p>
               )}
               <div className="grid gap-2 md:grid-cols-3">

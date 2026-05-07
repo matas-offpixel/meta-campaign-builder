@@ -283,8 +283,10 @@ describe("buildMetaCustomAudiencePayload", () => {
   //   - Without the trailing empty filter Meta rejects with #2654 subcode 1870053
   //   - URL scheme (https://) is preserved — Meta stores it as-is
   //   - No URL → event-only leaf, length 1 (no trailing empty)
+  //   - No `subtype` field — same lesson as engagement (PR #340); Meta deprecated
+  //     it and including "WEBSITE" triggers #2654 subcode 1870053
 
-  it("website pixel with URL: numeric sourceId, OR-group + trailing empty filter, scheme preserved", () => {
+  it("website pixel with URL: NO subtype; numeric sourceId, OR-group + trailing empty filter, scheme preserved", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "website_pixel",
@@ -298,7 +300,7 @@ describe("buildMetaCustomAudiencePayload", () => {
       }),
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
-    assert.equal(payload.subtype, "WEBSITE");
+    assert.ok(!("subtype" in payload), "pixel payload must not include subtype");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "pixel");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, 6983230099865);
     assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
