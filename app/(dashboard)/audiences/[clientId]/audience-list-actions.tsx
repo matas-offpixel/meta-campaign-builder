@@ -49,6 +49,12 @@ export function AudienceListActions({
         BUILD FUNNEL STACK
       </Button>
       <Link
+        href={`/audiences/${clientId}/bulk`}
+        className="inline-flex h-9 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium hover:bg-card"
+      >
+        Bulk video stack
+      </Link>
+      <Link
         href={`/audiences/${clientId}/new`}
         className="inline-flex h-9 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium hover:bg-card"
       >
