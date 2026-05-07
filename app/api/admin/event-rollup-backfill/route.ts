@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { runGoogleAdsRollupLeg } from "@/lib/dashboard/google-ads-rollup-leg";
 import { FOURTHEFANS_CLIENT_ID } from "@/lib/dashboard/rollup-meta-reconcile-log";
+import { runWc26LondonSplit } from "@/lib/dashboard/wc26-london-split";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import { runTikTokRollupLeg } from "@/lib/dashboard/tiktok-rollup-leg";
@@ -141,7 +142,23 @@ async function fourthefansForceBackfill(): Promise<NextResponse> {
     }
   }
 
-  const ok = results.every((r) => r.ok);
+  // WC26 London 3-way split: redistribute [WC26-LONDON-PRESALE] +
+  // [WC26-LONDON-ONSALE] spend equally across Tottenham / Shoreditch /
+  // Kentish (3 venues × 4 fixtures). Runs after the regular rollup sync so
+  // source ad_spend rows exist before we split them.
+  let londonSplitResult;
+  try {
+    londonSplitResult = await runWc26LondonSplit(admin);
+    console.info("[backfill] wc26-london-split", londonSplitResult);
+  } catch (err) {
+    console.error(
+      "[backfill] wc26-london-split threw",
+      err instanceof Error ? err.message : err,
+    );
+    londonSplitResult = { ok: false, error: err instanceof Error ? err.message : "unknown" };
+  }
+
+  const ok = results.every((r) => r.ok) && (londonSplitResult?.ok ?? true);
   return NextResponse.json(
     {
       ok,
@@ -149,6 +166,7 @@ async function fourthefansForceBackfill(): Promise<NextResponse> {
       rollup_window_days: 90,
       events_processed: results.length,
       results,
+      wc26_london_split: londonSplitResult,
     },
     { status: ok ? 200 : 207 },
   );
