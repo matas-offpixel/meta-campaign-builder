@@ -143,6 +143,11 @@ export function buildMetaCustomAudiencePayload(
     }));
     return {
       ...base,
+      // Video views uses a bare-array rule with no per-entry retention — Meta
+      // defaults to 730 days if top-level `retention_days` is omitted.
+      // Engagement encodes retention in rule.retention_seconds; website pixel
+      // encodes rule.retention_seconds too — only video_views needs this field.
+      retention_days: String(audience.retentionDays),
       subtype: "ENGAGEMENT",
       rule: JSON.stringify(ruleArray),
     };

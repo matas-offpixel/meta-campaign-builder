@@ -16,7 +16,8 @@ import type { MetaCustomAudience } from "../../types/audience.ts";
  *
  * Structural notes:
  *   - Engagement: NO `subtype`, NO `retention_days` top-level; event_sources.id is a STRING
- *   - Video / pixel: `subtype` still required (ENGAGEMENT / WEBSITE respectively)
+ *   - Video views: top-level `retention_days` required (bare-array rule has no retention)
+ *   - Pixel: NO top-level `retention_days` — retention is rule.retention_seconds
  *   - Pixel URL rules: VISITORS_BY_URL OR-group + trailing empty url filter
  */
 describe("sanitizeAudienceName", () => {
@@ -188,6 +189,7 @@ describe("buildMetaCustomAudiencePayload", () => {
       }),
     );
     const ruleArray = JSON.parse(payload.rule) as VideoRuleEntry[];
+    assert.equal(payload.retention_days, "30");
     assert.equal(payload.subtype, "ENGAGEMENT");
     assert.notEqual(payload.subtype, "VIDEO");
     assert.notEqual(payload.subtype, "VIDEO_VIEWERS_VIEWED");
@@ -200,6 +202,23 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(ruleArray[1].object_id, "v2");
     assert.equal(ruleArray[2].object_id, "v3");
     assert.equal(ruleArray[2].event_name, "video_completed");
+  });
+
+  it("video views: retention_days matches audience.retentionDays (string)", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "video_views",
+        retentionDays: 90,
+        sourceId: "v1",
+        sourceMeta: {
+          subtype: "video_views",
+          threshold: 25,
+          videoIds: ["v1"],
+          contextId: "page_ctx_1",
+        },
+      }),
+    );
+    assert.equal(payload.retention_days, "90");
   });
 
   it("video views 50%: event_name=video_view_50_percent (not video_watched_50_percent)", () => {
@@ -301,6 +320,10 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.ok(!("subtype" in payload), "pixel payload must not include subtype");
+    assert.ok(
+      !("retention_days" in payload),
+      "pixel omits top-level retention_days (uses rule.retention_seconds)",
+    );
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "pixel");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, 6983230099865);
     assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
