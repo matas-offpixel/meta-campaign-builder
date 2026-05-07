@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { SourcePicker, type SourceSelection } from "@/components/audiences/source-picker";
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
+import { buildAudienceName } from "@/lib/audiences/naming";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
   AUDIENCE_SUBTYPE_LABELS,
@@ -111,15 +112,45 @@ export function AudienceCreateForm({
   }, [client, events, funnelStage, initialEventId, mode]);
 
   const selectedEvent = events.find((event) => event.id === eventId) ?? null;
+
+  const campaignNamesForVideoNaming = useMemo(() => {
+    if (audienceSubtype !== "video_views") return [];
+    const summaries = singleSource.campaignSummaries;
+    if (summaries?.length) return summaries.map((c) => c.name);
+    if (singleSource.campaignName) return [singleSource.campaignName];
+    return [];
+  }, [
+    audienceSubtype,
+    singleSource.campaignName,
+    singleSource.campaignSummaries,
+  ]);
+
   const suggestedName = useMemo(
     () =>
-      buildName({
-        client,
-        event: scope === "event" ? selectedEvent : null,
+      buildAudienceName({
+        scope,
+        client: { slug: client.slug, name: client.name },
+        event:
+          scope === "event" && selectedEvent
+            ? {
+                eventCode: selectedEvent.eventCode,
+                name: selectedEvent.name,
+              }
+            : null,
         subtype: audienceSubtype,
         retentionDays: singleRetention,
+        threshold: singleSource.threshold ?? 50,
+        campaignNames: campaignNamesForVideoNaming,
       }),
-    [audienceSubtype, client, scope, selectedEvent, singleRetention],
+    [
+      audienceSubtype,
+      campaignNamesForVideoNaming,
+      client,
+      scope,
+      selectedEvent,
+      singleRetention,
+      singleSource.threshold,
+    ],
   );
 
   const metaBlocked = !client.metaAdAccountId;
@@ -151,7 +182,9 @@ export function AudienceCreateForm({
                   funnelStage: row.funnelStage,
                   audienceSubtype: row.audienceSubtype,
                   retentionDays: clampRetention(row.retentionDays),
-                  name: row.name,
+                  name:
+                    row.name.trim() ||
+                    bundleRowSuggestedName(row, client, events),
                   ...sourcePayload(row.audienceSubtype, row.source),
                 })),
               createOnMeta,
@@ -285,7 +318,7 @@ export function AudienceCreateForm({
             />
           ) : (
             <BundleAudienceEditor
-              clientId={client.id}
+              client={client}
               events={events}
               rows={bundleRows}
               setRows={setBundleRows}
@@ -399,13 +432,13 @@ function SingleAudienceEditor({
 }
 
 function BundleAudienceEditor({
-  clientId,
+  client,
   events,
   rows,
   setRows,
   onPickerRateLimit,
 }: {
-  clientId: string;
+  client: ClientOption;
   events: EventOption[];
   rows: AudienceDraftRow[];
   setRows: (rows: AudienceDraftRow[]) => void;
@@ -451,10 +484,11 @@ function BundleAudienceEditor({
               id={`${row.localId}-name`}
               label="Name"
               value={row.name}
+              placeholder={bundleRowSuggestedName(row, client, events)}
               onChange={(name) => updateRow(row.localId, { name })}
             />
             <SourcePicker
-              clientId={clientId}
+              clientId={client.id}
               subtype={row.audienceSubtype}
               value={row.source}
               onChange={(source) => updateRow(row.localId, { source })}
@@ -562,6 +596,37 @@ function TextField({
   );
 }
 
+function bundleRowSuggestedName(
+  row: AudienceDraftRow,
+  client: ClientOption,
+  events: EventOption[],
+): string {
+  const selected =
+    row.scope === "event"
+      ? events.find((e) => e.id === row.eventId) ?? null
+      : null;
+  const campaignNames =
+    row.audienceSubtype === "video_views"
+      ? row.source.campaignSummaries?.length
+        ? row.source.campaignSummaries.map((c) => c.name)
+        : row.source.campaignName
+          ? [row.source.campaignName]
+          : []
+      : [];
+  return buildAudienceName({
+    scope: row.scope,
+    client: { slug: client.slug, name: client.name },
+    event:
+      row.scope === "event" && selected
+        ? { eventCode: selected.eventCode, name: selected.name }
+        : null,
+    subtype: row.audienceSubtype,
+    retentionDays: row.retentionDays,
+    threshold: row.source.threshold ?? 50,
+    campaignNames,
+  });
+}
+
 function buildBundleRows(
   stage: FunnelStage,
   client: ClientOption,
@@ -572,11 +637,19 @@ function buildBundleRows(
   return FUNNEL_STAGE_PRESETS[stage].map((preset) => ({
     localId: preset.id,
     enabled: true,
-    name: buildName({
-      client,
-      event,
+    name: buildAudienceName({
+      scope: initialEventId ? "event" : "client",
+      client: { slug: client.slug, name: client.name },
+      event: event
+        ? { eventCode: event.eventCode, name: event.name }
+        : null,
       subtype: preset.audienceSubtype,
       retentionDays: preset.retentionDays,
+      threshold:
+        preset.audienceSubtype === "video_views"
+          ? (preset.defaultSourceMeta as { threshold: number }).threshold
+          : undefined,
+      campaignNames: [],
     }),
     funnelStage: stage,
     audienceSubtype: preset.audienceSubtype,
@@ -614,21 +687,6 @@ function presetPixelUrlLines(raw: unknown): string[] {
       .filter(Boolean);
   }
   return [];
-}
-
-function buildName({
-  client,
-  event,
-  subtype,
-  retentionDays,
-}: {
-  client: ClientOption;
-  event: EventOption | null;
-  subtype: AudienceSubtype;
-  retentionDays: number;
-}) {
-  const prefix = event ? event.eventCode || event.name : client.slug || client.name;
-  return `[${prefix}] ${AUDIENCE_SUBTYPE_LABELS[subtype]} ${retentionDays}d`;
 }
 
 function sourcePayload(subtype: AudienceSubtype, source: SourceSelection) {

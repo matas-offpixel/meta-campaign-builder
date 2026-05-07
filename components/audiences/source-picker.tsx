@@ -503,6 +503,7 @@ function VideoSourcePicker({
 
   const [videoRl, setVideoRl] = useState(false);
   const [campaignQuery, setCampaignQuery] = useState("");
+  const campaignSearchInputRef = useRef<HTMLInputElement>(null);
 
   const selectedCampaignIds = useMemo(() => {
     if (value.campaignIds?.length) return value.campaignIds;
@@ -563,6 +564,7 @@ function VideoSourcePicker({
       <label className="flex flex-col gap-1.5 text-sm font-medium">
         Search campaigns
         <input
+          ref={campaignSearchInputRef}
           type="search"
           value={campaignQuery}
           onChange={(e) => setCampaignQuery(e.target.value)}
@@ -666,77 +668,99 @@ function VideoSourcePicker({
           campaignIds={selectedCampaignIds}
           onVideoRateLimitedChange={setVideoRl}
         >
-          {(vf) => (
-            <>
-              <VideoAutoSelectOnFetch
-                campaignKey={campaignKey}
-                vf={vf}
-                value={value}
-                onChange={onChange}
-              />
-              {!vf.loading && vf.videos.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {vf.videos.length} video{vf.videos.length === 1 ? "" : "s"} from {selectedCampaignIds.length} campaign{selectedCampaignIds.length === 1 ? "" : "s"} ·{" "}
-                  {(value.videoIds?.length ?? 0)} selected
-                </p>
-              )}
-              {!vf.loading && vf.skippedCount > 0 && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  {vf.skippedCount} video{vf.skippedCount === 1 ? "" : "s"} skipped (uploaded directly, not posted from a Page — Meta requires Page association for video audiences)
-                </p>
-              )}
-              <div className="grid gap-2 md:grid-cols-3">
-                {vf.videos.map((video) => (
-                  <button
-                    key={video.id}
-                    type="button"
-                    onClick={() => toggleVideo(video.id)}
-                    className={`rounded-md border p-2 text-left text-xs ${
-                      value.videoIds?.includes(video.id)
-                        ? "border-primary bg-primary/10"
-                        : "border-border bg-background"
-                    }`}
-                  >
-                    {video.thumbnailUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={video.thumbnailUrl}
-                        alt={videoTilePrimaryLabel(video)}
-                        className="aspect-video w-full rounded object-cover"
-                      />
-                    ) : (
-                      <div className="flex aspect-video flex-col items-center justify-center gap-0.5 rounded bg-muted px-1 text-center">
-                        <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60">
-                          No thumbnail
-                        </span>
-                        <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-foreground/70">
-                          {videoTilePrimaryLabel(video)}
-                        </span>
-                      </div>
-                    )}
-                    <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-tight">
-                      {videoTilePrimaryLabel(video)}
+          {(vf) => {
+            const videoListEmpty =
+              !loading &&
+              !vf.loading &&
+              selectedCampaignIds.length > 0 &&
+              vf.videos.length === 0 &&
+              !(error ?? vf.error);
+            const orphanOnlyEmpty =
+              videoListEmpty && vf.skippedCount > 0;
+
+            return (
+              <>
+                <VideoAutoSelectOnFetch
+                  campaignKey={campaignKey}
+                  vf={vf}
+                  value={value}
+                  onChange={onChange}
+                />
+                {!vf.loading && vf.videos.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {vf.videos.length} video{vf.videos.length === 1 ? "" : "s"} from {selectedCampaignIds.length} campaign{selectedCampaignIds.length === 1 ? "" : "s"} ·{" "}
+                    {(value.videoIds?.length ?? 0)} selected
+                  </p>
+                )}
+                {!vf.loading && vf.skippedCount > 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    {vf.skippedCount} video{vf.skippedCount === 1 ? "" : "s"} skipped (uploaded directly, not posted from a Page — Meta requires Page association for video audiences)
+                  </p>
+                )}
+                <div className="grid gap-2 md:grid-cols-3">
+                  {vf.videos.map((video) => (
+                    <button
+                      key={video.id}
+                      type="button"
+                      onClick={() => toggleVideo(video.id)}
+                      className={`rounded-md border p-2 text-left text-xs ${
+                        value.videoIds?.includes(video.id)
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-background"
+                      }`}
+                    >
+                      {video.thumbnailUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={video.thumbnailUrl}
+                          alt={videoTilePrimaryLabel(video)}
+                          className="aspect-video w-full rounded object-cover"
+                        />
+                      ) : (
+                        <div className="flex aspect-video flex-col items-center justify-center gap-0.5 rounded bg-muted px-1 text-center">
+                          <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60">
+                            No thumbnail
+                          </span>
+                          <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-foreground/70">
+                            {videoTilePrimaryLabel(video)}
+                          </span>
+                        </div>
+                      )}
+                      <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-tight">
+                        {videoTilePrimaryLabel(video)}
+                      </p>
+                      <p className="truncate font-mono text-[9px] text-muted-foreground/70">
+                        {video.id}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                {orphanOnlyEmpty ? (
+                  <div className="space-y-2 text-xs text-muted-foreground">
+                    <p>
+                      All videos in selected campaigns are uploaded directly to the ad account
+                      without Page links. To use them in video views audiences, post videos through
+                      your FB Page first, OR pick different campaigns.
                     </p>
-                    <p className="truncate font-mono text-[9px] text-muted-foreground/70">
-                      {video.id}
-                    </p>
-                  </button>
-                ))}
-              </div>
-              <SourceState
-                loading={loading || vf.loading}
-                error={error ?? vf.error}
-                rateLimited={campaignsRateLimited || vf.rateLimited}
-                empty={
-                  !loading &&
-                  !vf.loading &&
-                  selectedCampaignIds.length > 0 &&
-                  vf.videos.length === 0 &&
-                  !(error ?? vf.error)
-                }
-              />
-            </>
-          )}
+                    <button
+                      type="button"
+                      className="text-primary underline-offset-4 hover:underline"
+                      onClick={() => campaignSearchInputRef.current?.focus()}
+                    >
+                      Pick different campaigns
+                    </button>
+                  </div>
+                ) : (
+                  <SourceState
+                    loading={loading || vf.loading}
+                    error={error ?? vf.error}
+                    rateLimited={campaignsRateLimited || vf.rateLimited}
+                    empty={videoListEmpty}
+                  />
+                )}
+              </>
+            );
+          }}
         </CampaignVideoFetcher>
       ) : (
         <SourceState
