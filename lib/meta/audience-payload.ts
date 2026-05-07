@@ -49,9 +49,12 @@ export function buildMetaCustomAudiencePayload(
   // event_sources.id is also numeric in Meta's actual rules (verified 2026-05-07).
   const retentionSeconds = audience.retentionDays * 86_400;
   const sourceMeta = audience.sourceMeta as AudienceSourceMeta;
+  // Working campaign-creator path (lib/meta/client.ts createEngagementAudience)
+  // sends ONLY {name, rule, prefill}. No `subtype`, no `retention_days` —
+  // retention is encoded inside rule.retention_seconds. Including extra
+  // top-level fields triggers Meta's misleading #2654 errors.
   const base = {
     name: sanitizeAudienceName(audience.name),
-    retention_days: String(audience.retentionDays),
     prefill: "1",
   };
 
@@ -80,14 +83,18 @@ export function buildMetaCustomAudiencePayload(
     })();
 
     // ──────────────────────────────────────────────────────────────────
-    // Engagement audiences require BOTH `subtype: "ENGAGEMENT"` AND a
-    // rule JSON. The structure verified 2026-05-07 via Graph API Explorer
-    // POST with name="OffPixel_Manual_Test_FB" (created audience id
-    // 6984573649865 in 4thefans ad account). Same payload with name
-    // containing spaces failed with #2654 — sanitizeAudienceName below
-    // is the gate.
+    // CRITICAL: do NOT send `subtype` for engagement audiences. The field
+    // is deprecated since Sep 2018 and including it triggers Meta's
+    // misleading #2654 "Invalid event name" error.
+    //
+    // Verified by working code in lib/meta/client.ts createEngagementAudience()
+    // (used by the campaign creator tool to successfully create FB/IG
+    // engagement audiences for Off/Pixel client ad accounts). That helper
+    // sends ONLY {name, rule, prefill} — no subtype, no extra fields.
+    //
+    // Also: event_sources.id is sent as a STRING (not number-coerced).
     const rules = pageIds.map((pageId) => ({
-      event_sources: [{ type: isIg ? "ig_business" : "page", id: numericId(pageId) }],
+      event_sources: [{ type: isIg ? "ig_business" : "page", id: pageId }],
       retention_seconds: retentionSeconds,
       filter: {
         operator: "and",
@@ -96,7 +103,7 @@ export function buildMetaCustomAudiencePayload(
     }));
     return {
       ...base,
-      subtype: "ENGAGEMENT",
+      // No `subtype` field — Meta deprecated it Sep 2018 for engagement audiences.
       rule: JSON.stringify({
         inclusions: {
           operator: "or",
