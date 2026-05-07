@@ -69,6 +69,8 @@ export interface CampaignVideosPayload {
     thumbnailUrl?: string;
     length?: number;
   }>;
+  /** FB page ID that owns the videos (resolved from ad creative page_id). */
+  contextPageId?: string;
 }
 
 export async function fetchAudienceCampaignVideos(
@@ -111,6 +113,7 @@ export async function fetchAudienceCampaignVideos(
         data: {
           campaignName: String(json.campaignName ?? ""),
           videos: (json.videos ?? []) as CampaignVideosPayload["videos"],
+          contextPageId: typeof json.contextPageId === "string" ? json.contextPageId : undefined,
         },
       };
     } catch (err) {

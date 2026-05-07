@@ -38,6 +38,8 @@ export interface SourceSelection {
   pixelEvent?: string;
   useUrlFilter?: boolean;
   urlContains?: string | string[];
+  /** FB page ID that owns the videos — required for Meta video audience rule. */
+  contextId?: string;
 }
 
 interface PageSource {
@@ -79,6 +81,8 @@ interface VideoFetchState {
   loading: boolean;
   error: string | null;
   rateLimited: boolean;
+  /** Most-common FB page ID found across fetched campaign ads. Used as contextId in Meta rule. */
+  contextPageId?: string;
 }
 
 function videoTilePrimaryLabel(video: VideoSource): string {
@@ -123,8 +127,9 @@ function VideoAutoSelectOnFetch({
     onChange({
       ...latest.current,
       videoIds: vf.videos.map((v) => v.id),
+      ...(vf.contextPageId ? { contextId: vf.contextPageId } : {}),
     });
-  }, [campaignKey, vf.loading, vf.error, vf.videos, onChange]);
+  }, [campaignKey, vf.loading, vf.error, vf.videos, vf.contextPageId, onChange]);
 
   return null;
 }
@@ -192,11 +197,21 @@ function CampaignVideoFetcher({
           `[Audience video picker] ${missingThumbs}/${merged.length} videos missing Graph \`picture\` — check permissions, video age, or archived ads.`,
         );
       }
+      // Resolve contextPageId: pick the most-common page_id across all campaigns.
+      const pageIdCounts = new Map<string, number>();
+      for (const r of results) {
+        if (r.ok && r.data.contextPageId) {
+          const id = r.data.contextPageId;
+          pageIdCounts.set(id, (pageIdCounts.get(id) ?? 0) + 1);
+        }
+      }
+      const contextPageId = [...pageIdCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
       setVf({
         videos: merged,
         loading: false,
         error: null,
         rateLimited: false,
+        contextPageId,
       });
     }
     void loadAll();

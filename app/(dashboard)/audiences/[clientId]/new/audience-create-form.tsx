@@ -649,6 +649,7 @@ function sourcePayload(subtype: AudienceSubtype, source: SourceSelection) {
         campaignName: source.campaignName,
         campaignSummaries: source.campaignSummaries,
         videoIds: source.videoIds ?? [],
+        contextId: source.contextId,
       },
     };
   }
