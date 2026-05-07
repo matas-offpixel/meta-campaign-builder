@@ -1,10 +1,10 @@
-# Session log (pending PR)
+# Session log
 
 ## PR
 
-- **Number:** pending
-- **URL:** (after `gh pr create`)
-- **Branch:** `thread/club-football-allocator-fix`
+- **Number:** 334
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/334
+- **Branch:** `thread/club-football-allocator-fix` (merged)
 
 ## Summary
 
