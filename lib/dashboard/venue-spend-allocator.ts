@@ -568,21 +568,32 @@ export async function allocateVenueSpendForCode(
     });
   }
 
-  // Sibling lookup — every event at this venue. `event_date` is
-  // included in the key when present so a venue that happens to reuse
-  // the same event_code across two tour dates (rare, but possible)
-  // stays split across two allocation passes. Some imported 4tF venue
-  // groups have null event_date; those still form a valid venue group
-  // and should allocate together under (client_id, event_code, null).
+  // Sibling lookup — every fixture sharing this event_code.
+  //
+  // WC26 venues keep `event_date` in the key because the opponent-matching
+  // allocator is scoped to one venue's match-day set (all null-date for
+  // imported 4tF WC26 groups) and a future re-use of the same WC26 code
+  // across separate tour dates would need isolated passes.
+  //
+  // Non-WC26 codes (Club Football series like 4TF-TITLERUNIN-LONDON,
+  // LEEDS26-FACUP, 4TF26-ARSENAL-CL-FL, etc.) group ALL fixtures together
+  // regardless of event_date. Their campaigns are tagged with the shared
+  // event_code and raw spend is the full campaign total on every sibling row
+  // — the equal-split path divides it correctly across all fixtures.
+  // Scoping by event_date here would cause each fixture to be treated as a
+  // singleton, tripling the allocated spend instead of dividing it.
   const client = supabase as unknown as SupabaseClient;
   const siblingQuery = client
     .from("events")
     .select("id, name")
     .eq("client_id", clientId)
     .eq("event_code", eventCode);
-  const { data: siblings, error: siblingsErr } = eventDate
-    ? await siblingQuery.eq("event_date", eventDate)
-    : await siblingQuery.is("event_date", null);
+  const { data: siblings, error: siblingsErr } =
+    isWc26OpponentAllocatorEventCode(eventCode)
+      ? eventDate
+        ? await siblingQuery.eq("event_date", eventDate)
+        : await siblingQuery.is("event_date", null)
+      : await siblingQuery; // non-WC26: all fixtures regardless of event_date
   if (siblingsErr) {
     console.info(
       `[venue-spend-allocator] early-return reason=upsert_failed stage=sibling_lookup event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${siblingsErr.message}`,
