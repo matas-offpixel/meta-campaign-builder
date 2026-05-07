@@ -6,6 +6,7 @@ import { FOURTHEFANS_CLIENT_ID } from "@/lib/dashboard/rollup-meta-reconcile-log
 import { runWc26LondonSplit } from "@/lib/dashboard/wc26-london-split";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import { allocateVenueSpendForCode } from "@/lib/dashboard/venue-spend-allocator";
 import { runTikTokRollupLeg } from "@/lib/dashboard/tiktok-rollup-leg";
 import {
   upsertGoogleAdsRollups,
@@ -282,6 +283,7 @@ export async function POST(req: NextRequest) {
   const window = { since: ymd(since), until: ymd(until) };
   const eventCode = (event.event_code as string | null) ?? null;
   const results: Partial<Record<Platform, LegResult>> = {};
+  let allocatorResult: LegResult | null = null;
 
   if (platforms.value.includes("meta")) {
     results.meta = await runMetaBackfill(admin, {
@@ -291,6 +293,53 @@ export async function POST(req: NextRequest) {
       adAccountId: client?.meta_ad_account_id ?? null,
       ...window,
     });
+
+    // Venue-spend allocator: writes ad_spend_allocated for this event's
+    // event_code group. The per-event backfill previously skipped this leg
+    // entirely — only runRollupSyncForEvent (live cron + force backfill)
+    // called it. Adding it here mirrors the live-sync path so per-event
+    // backfills also populate ad_spend_allocated.
+    //
+    // Allocator failure is soft: meta.ok stays true and ad_spend remains
+    // valid; the reporting layer already handles NULL allocated gracefully.
+    const allocAdAccount = client?.meta_ad_account_id ?? null;
+    const allocClientId = (event.client_id as string | null) ?? null;
+    if (results.meta.ok && eventCode && allocAdAccount && allocClientId) {
+      try {
+        const { token } = await resolveServerMetaToken(admin, event.user_id);
+        const alloc = await allocateVenueSpendForCode({
+          supabase: admin,
+          userId: event.user_id,
+          clientId: allocClientId,
+          eventCode,
+          eventDate: (event.event_date as string | null) ?? null,
+          adAccountId: allocAdAccount,
+          token,
+          since: window.since,
+          until: window.until,
+        });
+        allocatorResult = {
+          ok: alloc.ok,
+          rows_written: alloc.rowsWritten,
+          ...(alloc.reason ? { reason: alloc.reason } : {}),
+          ...(alloc.error ? { error: alloc.error } : {}),
+        };
+        console.info(
+          `[backfill] allocator event_code=${eventCode} reason=${alloc.reason ?? "ran"} rows=${alloc.rowsWritten} ok=${alloc.ok}`,
+        );
+      } catch (err) {
+        console.warn(
+          "[backfill] allocator threw",
+          err instanceof Error ? err.message : err,
+        );
+        allocatorResult = {
+          ok: false,
+          rows_written: 0,
+          reason: "allocator_threw",
+          error: err instanceof Error ? err.message : "Unknown error",
+        };
+      }
+    }
   }
 
   if (platforms.value.includes("google_ads")) {
@@ -335,9 +384,11 @@ export async function POST(req: NextRequest) {
     results.tiktok = normalizeLegResult(result);
   }
 
-  const ok = Object.values(results).every(isOkOrExpectedSkip);
+  const ok =
+    Object.values(results).every(isOkOrExpectedSkip) &&
+    (allocatorResult == null || isAllocatorSoftSkip(allocatorResult));
   return NextResponse.json(
-    { ok, event_id: event.id, results, window },
+    { ok, event_id: event.id, results, allocator: allocatorResult, window },
     { status: ok ? 200 : 207 },
   );
 }
@@ -485,6 +536,16 @@ function isOkOrExpectedSkip(result: LegResult): boolean {
     result.reason === "no_ad_account" ||
     result.reason === "no_google_ads_account" ||
     result.reason === "no_tiktok_account"
+  );
+}
+
+/** Allocator ok=true paths and graceful skips are not failures. */
+function isAllocatorSoftSkip(result: LegResult): boolean {
+  return (
+    result.ok ||
+    result.reason === "solo_pass_through" ||
+    result.reason === "equal_split_non_wc26" ||
+    result.reason === "no_siblings"
   );
 }
 
