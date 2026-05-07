@@ -128,6 +128,45 @@ describe("trend chart aggregation", () => {
     assert.equal(daily[0]?.tickets, 517);
   });
 
+  it("trims leading zero-value days (backfill rows), keeps real spend days", () => {
+    // Canonical case: Dublin event backfilled ~80 days of {spend:0, revenue:0,
+    // tickets:0, linkClicks:0} numeric zeros starting 7 Feb. First real spend
+    // day is 2 May. Chart must start on 2 May, not 7 Feb.
+    const leadingZeros: TrendChartPoint[] = Array.from(
+      { length: 80 },
+      (_, i): TrendChartPoint => {
+        const d = new Date("2026-02-07T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + i);
+        return {
+          date: d.toISOString().slice(0, 10),
+          spend: 0,
+          tickets: 0,
+          revenue: 0,
+          linkClicks: 0,
+        };
+      },
+    );
+    const realDays: TrendChartPoint[] = [
+      { date: "2026-05-02", spend: 45.5, tickets: 3, revenue: 150, linkClicks: 210 },
+      { date: "2026-05-03", spend: 31.2, tickets: 2, revenue: 80, linkClicks: 140 },
+      { date: "2026-05-04", spend: 0, tickets: 0, revenue: 0, linkClicks: 0 },
+      { date: "2026-05-05", spend: 28.7, tickets: 1, revenue: 40, linkClicks: 95 },
+      { date: "2026-05-06", spend: 0, tickets: 0, revenue: 0, linkClicks: 0 },
+    ];
+    const points = [...leadingZeros, ...realDays];
+
+    const daily = aggregateTrendChartPoints(points, "daily");
+
+    // Must start at first real spend day, not at the first backfill row
+    assert.equal(daily[0]?.date, "2026-05-02");
+    // Trailing zero (2026-05-06) is also trimmed; middle zero (2026-05-04)
+    // between real-spend days is kept → 4 rows: 02, 03, 04, 05
+    assert.equal(daily.length, 4);
+    assert.equal(daily.at(-1)?.date, "2026-05-05");
+    // Sanity: first day has the right spend
+    assert.equal(daily[0]?.spend, 45.5);
+  });
+
   it("returns no days when only cumulative ticket snapshots exist", () => {
     const points: TrendChartPoint[] = [
       {
