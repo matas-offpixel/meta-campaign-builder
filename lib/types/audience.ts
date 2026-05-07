@@ -28,6 +28,13 @@ export type AudienceSourceMeta =
       campaignName?: string;
       campaignSummaries?: Array<{ id: string; name: string }>;
       videoIds: string[];
+      /**
+       * FB page ID that owns the videos. Required for Meta's video custom audience
+       * rule shape (each rule entry needs object_id + context_id, where
+       * context_id = the publishing page's ID, NOT the ad account ID).
+       * Verified 2026-05-07 from audience id 6984471975065.
+       */
+      contextId?: string;
     }
   | {
       subtype: "website_pixel";

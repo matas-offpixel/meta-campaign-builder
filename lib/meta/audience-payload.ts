@@ -1,30 +1,42 @@
 import { AUDIENCE_SUBTYPE_LABELS } from "../audiences/metadata.ts";
-import {
-  normalizeWebsitePixelUrlContains,
-  stripHttpSchemeFromPixelUrlFragment,
-} from "../audiences/pixel-url-contains.ts";
+import { normalizeWebsitePixelUrlContains } from "../audiences/pixel-url-contains.ts";
 import type {
   AudienceSourceMeta,
   MetaCustomAudience,
 } from "../types/audience.ts";
 
-/** Leaf equality operator for Meta rule JSON (rejecting `eq` — Marketing API subcode 1870053). */
-const META_RULE_OP_EQ = "=";
+/**
+ * Leaf equality operator for Meta rule JSON.
+ *
+ * Meta's actual audiences use `"eq"` (verified 2026-05-07 via Graph API
+ * Explorer reading rule of 4thefans audience id 6984467206665). Earlier
+ * iterations used `"="` based on a misreading; Meta accepts both for
+ * filter rules but the manually-created reference audience uses `"eq"`.
+ */
+const META_RULE_OP_EQ = "eq";
 
 // ─── Page / IG engagement & followers — event `value` strings ─────────────────
-// Reverse-engineered from manual audience 2026-05-06 (Ads Manager → Audiences → rule preview).
+// All reverse-engineered from manual audiences in 4thefans ad account
+// act_10151014958791885 via Graph API Explorer on 2026-05-07.
+// Reference audiences:
+//   FB engagement: id 6984467206665 ("Off/Pixel TEST FB engagement")
+//   FB followers : id 6984477877465 ("Off/Pixel TEST FB followers")
+//   IG engagement: id 6984477463665 ("Off/Pixel TEST IG engagement")
+//   IG followers : id 6984477683065 ("Off/Pixel TEST IG followers")
 
-/** FB Page · People who engaged with your Page */
-const META_PAGE_ENGAGEMENT_FB_EVENT = "user-engaged";
+/** FB Page · People who engaged with your Page (verified 2026-05-07) */
+const META_PAGE_ENGAGEMENT_FB_EVENT = "page_engaged";
 
-/** IG professional account · People who engaged with your professional account */
-const META_PAGE_ENGAGEMENT_IG_EVENT = "user-engaged";
+/** IG professional account · People who engaged with your professional account
+ *  (verified 2026-05-07: subtype IG_BUSINESS, event_sources type ig_business). */
+const META_PAGE_ENGAGEMENT_IG_EVENT = "ig_business_profile_all";
 
-/** FB Page · People who like your Page */
-const META_PAGE_FOLLOWERS_FB_EVENT = "page_like";
+/** FB Page · People who like your Page (verified 2026-05-07) */
+const META_PAGE_FOLLOWERS_FB_EVENT = "page_liked";
 
-/** IG · People who follow this profile (same rule shape as FB followers in Ads Manager export) */
-const META_PAGE_FOLLOWERS_IG_EVENT = "page_like";
+/** IG · People who follow this profile (verified 2026-05-07: SHOUTING_CASE).
+ *  Note: this is the only event constant in our set that uses uppercase. */
+const META_PAGE_FOLLOWERS_IG_EVENT = "INSTAGRAM_PROFILE_FOLLOW";
 
 function metaLeafEq(field: string, value: string): Record<string, string> {
   return { field, operator: META_RULE_OP_EQ, value };
@@ -75,7 +87,10 @@ export function buildMetaCustomAudiencePayload(
     }));
     return {
       ...base,
-      subtype: "ENGAGEMENT",
+      // Verified 2026-05-07: FB audiences use subtype="ENGAGEMENT", IG audiences
+      // use subtype="IG_BUSINESS" (separate enum at Meta's data_source.sub_type
+      // level: ENGAGEMENT_EVENTS vs IG_BUSINESS_EVENTS).
+      subtype: isIg ? "IG_BUSINESS" : "ENGAGEMENT",
       rule: JSON.stringify({
         inclusions: {
           operator: "or",
@@ -89,29 +104,34 @@ export function buildMetaCustomAudiencePayload(
     if (sourceMeta.subtype !== "video_views" || sourceMeta.videoIds.length === 0) {
       throw new Error("Video views audience requires source_meta.videoIds");
     }
+    // Verified 2026-05-07 from 4thefans audience id 6984471975065
+    // ("Off/Pixel TEST 95% VV Manchester") and historical audiences:
+    //   - Rule is a BARE JSON ARRAY, not an {inclusions: {...}} object
+    //   - Each video gets one entry with event_name + object_id + context_id
+    //   - context_id = the FB page ID where the video was published (NOT the ad account)
+    //   - subtype enum is still "ENGAGEMENT" (despite VIDEO being a valid Meta enum,
+    //     Meta's UI-created video audiences register as ENGAGEMENT subtype with
+    //     data_source.sub_type=ENGAGEMENT_EVENTS)
+    //
+    // Threshold → event_name mapping (verified across multiple historical audiences):
+    //   25/50/75% → video_view_<n>_percent
+    //   95/100%   → video_completed (Meta does NOT use "video_view_95_percent")
+    const sm = sourceMeta as typeof sourceMeta & { contextId?: string };
+    if (!sm.contextId) {
+      throw new Error(
+        "Video views audience requires source_meta.contextId (the FB page ID that owns the videos)",
+      );
+    }
+    const eventName = videoViewEvent(sourceMeta.threshold);
+    const ruleArray = sourceMeta.videoIds.map((videoId) => ({
+      event_name: eventName,
+      object_id: videoId,
+      context_id: sm.contextId,
+    }));
     return {
       ...base,
-      subtype: "VIDEO",
-      rule: JSON.stringify({
-        inclusions: {
-          operator: "or",
-          rules: [
-            {
-              event_sources: sourceMeta.videoIds.map((id) => ({
-                type: "video",
-                id,
-              })),
-              retention_seconds: retentionSeconds,
-              filter: {
-                operator: "and",
-                filters: [
-                  metaLeafEq("event", videoViewEvent(sourceMeta.threshold)),
-                ],
-              },
-            },
-          ],
-        },
-      }),
+      subtype: "ENGAGEMENT",
+      rule: JSON.stringify(ruleArray),
     };
   }
 
@@ -119,20 +139,14 @@ export function buildMetaCustomAudiencePayload(
     if (sourceMeta.subtype !== "website_pixel") {
       throw new Error("Website pixel audience requires website source_meta");
     }
-    const filters: Array<Record<string, unknown>> = [
-      metaLeafEq("event", sourceMeta.pixelEvent || "PageView"),
-    ];
-    const urlParts = normalizeWebsitePixelUrlContains(
-      sourceMeta.urlContains,
-    ).map(stripHttpSchemeFromPixelUrlFragment);
-    if (urlParts.length === 1) {
-      const [singleUrl] = urlParts;
-      filters.push({
-        field: "url",
-        operator: "i_contains",
-        value: singleUrl,
-      });
-    } else if (urlParts.length > 1) {
+    // Verified 2026-05-07 from 4thefans audience id 6983238099865 ("Arsenal CL Final Pixel"):
+    //   - URLs INCLUDE the https:// scheme (do NOT strip)
+    //   - Filter structure uses VISITORS_BY_URL template at OR-group level
+    //   - No top-level `event` filter required for URL-based pixel audiences
+    //   - Single URL or multi-URL both wrap in OR group with template field
+    const urlParts = normalizeWebsitePixelUrlContains(sourceMeta.urlContains);
+    const filters: Array<Record<string, unknown>> = [];
+    if (urlParts.length > 0) {
       filters.push({
         operator: "or",
         filters: urlParts.map((value) => ({
@@ -140,7 +154,11 @@ export function buildMetaCustomAudiencePayload(
           operator: "i_contains",
           value,
         })),
+        template: "VISITORS_BY_URL",
       });
+    } else {
+      // No URL filter → fall back to event-only audience (e.g. all PageView visitors)
+      filters.push(metaLeafEq("event", sourceMeta.pixelEvent || "PageView"));
     }
     return {
       ...base,
@@ -169,12 +187,17 @@ function sanitizeAudienceName(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_ \-[\]]/g, "").slice(0, 50).trim();
 }
 
+// Verified 2026-05-07 across multiple 4thefans historical audiences
+// ("Off/Pixel TEST 95% VV Manchester" id 6984471975065 used video_completed,
+//  "Brighton 75% VV" id 6977434598665 used video_view_75_percent,
+//  "WC26-LEEDS 50% VV" id 6980235735865 used video_view_50_percent).
+// Meta's actual event constants — NOT the docs' "video_watched_*" names.
 function videoViewEvent(threshold: 25 | 50 | 75 | 95 | 100): string {
   return {
-    25: "video_watched_25_percent",
-    50: "video_watched_50_percent",
-    75: "video_watched_75_percent",
-    95: "video_watched_95_percent",
-    100: "video_watched_100_percent",
+    25: "video_view_25_percent",
+    50: "video_view_50_percent",
+    75: "video_view_75_percent",
+    95: "video_completed",
+    100: "video_completed",
   }[threshold];
 }

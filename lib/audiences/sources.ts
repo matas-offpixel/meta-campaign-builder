@@ -252,7 +252,7 @@ export async function fetchAudienceCampaignVideos(
   adAccountId: string,
   campaignId: string,
   token: string,
-): Promise<{ campaignName: string; videos: AudienceVideoSource[] }> {
+): Promise<{ campaignName: string; videos: AudienceVideoSource[]; contextPageId?: string }> {
   const campaign = await graphGetWithToken<{
     id: string;
     name?: string;
@@ -267,18 +267,28 @@ export async function fetchAudienceCampaignVideos(
     `/${campaignId}/ads`,
     {
       fields:
-        "id,creative{id,name,video_id,object_story_spec{video_data},asset_feed_spec,platform_customizations}",
+        "id,creative{id,name,video_id,object_story_spec{video_data,page_id},asset_feed_spec,platform_customizations}",
       limit: "500",
     },
     token,
   );
 
+  // Collect page_id from each ad's creative object_story_spec.
+  // The most-common page_id becomes the contextPageId for video audience creation.
+  const pageCounts = new Map<string, number>();
   const videoIds = new Set<string>();
   for (const ad of ads.data ?? []) {
     for (const id of extractVideoIdsFromCreative(ad.creative)) {
       videoIds.add(id);
     }
+    const creative = ad.creative as Record<string, unknown> | undefined;
+    const spec = creative?.object_story_spec as Record<string, unknown> | undefined;
+    const pageId = spec?.page_id;
+    if (typeof pageId === "string" && pageId) {
+      pageCounts.set(pageId, (pageCounts.get(pageId) ?? 0) + 1);
+    }
   }
+  const contextPageId = [...pageCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
   const videos = await Promise.all(
     Array.from(videoIds).map(async (videoId) => {
@@ -314,6 +324,7 @@ export async function fetchAudienceCampaignVideos(
   return {
     campaignName: campaign.name ?? campaignId,
     videos: videos.sort((a, b) => a.id.localeCompare(b.id)),
+    contextPageId,
   };
 }
 
