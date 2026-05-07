@@ -13,7 +13,8 @@
  * publish their app registration flow.
  */
 
-const DEFAULT_API_BASE = "https://4thefans.book.tickets/wp-json/agency/v1";
+export const DEFAULT_API_BASE =
+  "https://4thefans.book.tickets/wp-json/agency/v1";
 const DEFAULT_TIMEOUT_MS = 8000;
 const MAX_RETRIES = 3;
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 60_000;
