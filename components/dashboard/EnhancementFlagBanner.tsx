@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCheck,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 
 import {
   Dialog,
@@ -49,6 +55,9 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
   const [scanState, setScanState] = useState<ScanState>("idle");
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [acknowledging, setAcknowledging] = useState<Set<string>>(new Set());
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
+  const lastAckRef = useRef<number>(0);
 
   const load = useCallback(async () => {
     try {
@@ -130,6 +139,33 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
   }, []);
+
+  const handleAcknowledge = useCallback(
+    async (flagId: string) => {
+      const now = Date.now();
+      if (now - lastAckRef.current < 5_000) return;
+      if (acknowledging.has(flagId) || acknowledged.has(flagId)) return;
+      lastAckRef.current = now;
+
+      setAcknowledging((prev) => new Set([...prev, flagId]));
+      try {
+        const res = await fetch(
+          `/api/clients/${encodeURIComponent(clientId)}/enhancement-flags/${encodeURIComponent(flagId)}`,
+          { method: "PATCH", credentials: "include" },
+        );
+        if (res.ok) {
+          setAcknowledged((prev) => new Set([...prev, flagId]));
+        }
+      } finally {
+        setAcknowledging((prev) => {
+          const next = new Set(prev);
+          next.delete(flagId);
+          return next;
+        });
+      }
+    },
+    [clientId, acknowledging, acknowledged],
+  );
 
   if (!data || data.total_open === 0) {
     return null;
@@ -215,12 +251,14 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             {sortedFlags.map((row) => {
+              if (acknowledged.has(row.id)) return null;
               const blockedFeatureKeys = Object.keys(row.flagged_features).filter(
                 (k) => getPolicyTier(k) === "BLOCKED",
               );
               if (blockedFeatureKeys.length === 0) {
                 return null;
               }
+              const isAcking = acknowledging.has(row.id);
               return (
                 <div
                   key={row.id}
@@ -238,9 +276,25 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
                         Creative {row.creative_id}
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      severity {row.severity_score}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        severity {row.severity_score}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isAcking}
+                        onClick={() => void handleAcknowledge(row.id)}
+                        title="Acknowledge — removes from list; scanner re-flags if enhancement stays active"
+                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-green-500/40 hover:bg-green-500/10 hover:text-green-700 disabled:opacity-50 dark:hover:text-green-400"
+                      >
+                        {isAcking ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <CheckCheck className="h-3 w-3" />
+                        )}
+                        Acknowledge
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {blockedFeatureKeys.map((key) => {
@@ -277,7 +331,7 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
 
           <DialogFooter>
             <p className="w-full text-center text-xs text-muted-foreground">
-              One-click acknowledge shipping in next release.
+              Acknowledging removes the row — scanner re-flags if the enhancement stays active.
             </p>
           </DialogFooter>
         </DialogContent>
