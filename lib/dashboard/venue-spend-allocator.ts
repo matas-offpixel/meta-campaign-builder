@@ -11,6 +11,10 @@ import {
   type AllocatorAd,
   type AllocatorEvent,
 } from "@/lib/dashboard/venue-spend-allocation";
+import {
+  equalSplitMonetaryAmounts,
+  isWc26OpponentAllocatorEventCode,
+} from "@/lib/dashboard/venue-equal-split.ts";
 
 /**
  * lib/dashboard/venue-spend-allocator.ts
@@ -115,7 +119,8 @@ export interface VenueAllocatorResult {
     | "no_event_date"
     | "no_ad_account"
     | "no_siblings"
-    | "solo_event_skipped"
+    | "solo_pass_through"
+    | "equal_split_non_wc26"
     | "meta_fetch_failed"
     | "upsert_failed";
   /** Human-safe error text for the route handler to pass through. */
@@ -180,6 +185,338 @@ const EMPTY_RESULT = (
   classificationErrors: [],
   ...partial,
 });
+
+function round2(n: number): number {
+  // Two decimal places — matches numeric(12, 2) on the column.
+  return Math.round(n * 100) / 100;
+}
+
+function sanitiseSpend(spend: number | null | undefined): number {
+  if (spend == null || !Number.isFinite(spend) || spend < 0) return 0;
+  return spend;
+}
+
+async function soloPassThroughAllocatedSpend(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  eventCode: string;
+  clientId: string;
+  eventDate: string | null;
+  since: string;
+  until: string;
+  eventId: string;
+}): Promise<VenueAllocatorResult> {
+  const {
+    supabase,
+    userId,
+    eventCode,
+    clientId,
+    eventDate,
+    since,
+    until,
+    eventId,
+  } = args;
+  const client = supabase as unknown as SupabaseClient;
+  const { data: rollupRows, error } = await client
+    .from("event_daily_rollups")
+    .select("date, ad_spend, ad_spend_presale, link_clicks")
+    .eq("event_id", eventId)
+    .gte("date", since)
+    .lte("date", until)
+    .order("date", { ascending: true });
+
+  if (error) {
+    console.info(
+      `[venue-spend-allocator] solo_pass_through rollup query failed event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${error.message}`,
+    );
+    return EMPTY_RESULT({
+      reason: "upsert_failed",
+      error: error.message,
+      venueEventIds: [eventId],
+      windowSince: since,
+      windowUntil: until,
+      ok: false,
+    });
+  }
+
+  const rows = (rollupRows ?? [])
+    .filter((r) => {
+      const raw = sanitiseSpend(Number(r.ad_spend));
+      const presale = sanitiseSpend(Number(r.ad_spend_presale));
+      return raw > 0 || presale > 0;
+    })
+    .map((r) => {
+      const raw = sanitiseSpend(Number(r.ad_spend));
+      const presale = sanitiseSpend(Number(r.ad_spend_presale));
+      const clicks = Math.round(sanitiseSpend(Number(r.link_clicks)));
+      return {
+        date: String(r.date),
+        ad_spend_allocated: round2(raw),
+        ad_spend_specific: round2(raw),
+        ad_spend_generic_share: 0,
+        ad_spend_presale: round2(presale),
+        link_clicks: clicks,
+      };
+    });
+
+  if (rows.length === 0) {
+    console.info(
+      `[venue-spend-allocator] solo_pass_through no rows with spend event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} window=${since}..${until}`,
+    );
+    return EMPTY_RESULT({
+      ok: true,
+      reason: "solo_pass_through",
+      venueEventIds: [eventId],
+      adNames: [],
+      rowsWritten: 0,
+      perEventLifetime: [
+        {
+          eventId,
+          specific: 0,
+          genericShare: 0,
+          allocated: 0,
+          presale: 0,
+        },
+      ],
+      windowSince: since,
+      windowUntil: until,
+      classificationErrors: [],
+    });
+  }
+
+  try {
+    await upsertAllocatedSpendRollups(supabase, {
+      userId,
+      eventId,
+      rows,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return EMPTY_RESULT({
+      reason: "upsert_failed",
+      error: message,
+      venueEventIds: [eventId],
+      rowsWritten: 0,
+      windowSince: since,
+      windowUntil: until,
+      ok: false,
+    });
+  }
+
+  const lifetimeAllocated = rows.reduce((s, r) => s + r.ad_spend_allocated, 0);
+  const lifetimePresale = rows.reduce((s, r) => s + r.ad_spend_presale, 0);
+
+  console.info(
+    `[venue-spend-allocator] solo_pass_through ok event_code=${eventCode} rows=${rows.length} allocated=${round2(lifetimeAllocated).toFixed(2)} presale=${round2(lifetimePresale).toFixed(2)}`,
+  );
+
+  return {
+    ok: true,
+    reason: "solo_pass_through",
+    venueEventIds: [eventId],
+    adNames: [],
+    rowsWritten: rows.length,
+    perEventLifetime: [
+      {
+        eventId,
+        specific: round2(lifetimeAllocated),
+        genericShare: 0,
+        allocated: round2(lifetimeAllocated),
+        presale: round2(lifetimePresale),
+      },
+    ],
+    windowSince: since,
+    windowUntil: until,
+    classificationErrors: [],
+  };
+}
+
+async function equalSplitNonWc26AllocatedSpend(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  eventCode: string;
+  clientId: string;
+  eventDate: string | null;
+  since: string;
+  until: string;
+  allocatorEvents: AllocatorEvent[];
+}): Promise<VenueAllocatorResult> {
+  const {
+    supabase,
+    userId,
+    eventCode,
+    clientId,
+    eventDate,
+    since,
+    until,
+    allocatorEvents,
+  } = args;
+  const n = allocatorEvents.length;
+  const primaryId = allocatorEvents[0].id;
+  const client = supabase as unknown as SupabaseClient;
+
+  const { data: rollupRows, error } = await client
+    .from("event_daily_rollups")
+    .select("date, ad_spend, ad_spend_presale, link_clicks")
+    .eq("event_id", primaryId)
+    .gte("date", since)
+    .lte("date", until)
+    .order("date", { ascending: true });
+
+  if (error) {
+    console.info(
+      `[venue-spend-allocator] equal_split_non_wc26 rollup query failed event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${error.message}`,
+    );
+    return EMPTY_RESULT({
+      reason: "upsert_failed",
+      error: error.message,
+      venueEventIds: allocatorEvents.map((e) => e.id),
+      windowSince: since,
+      windowUntil: until,
+      ok: false,
+    });
+  }
+
+  const daysWithSpend = (rollupRows ?? []).filter((r) => {
+    const raw = sanitiseSpend(Number(r.ad_spend));
+    const presale = sanitiseSpend(Number(r.ad_spend_presale));
+    return raw > 0 || presale > 0;
+  });
+
+  if (daysWithSpend.length === 0) {
+    console.info(
+      `[venue-spend-allocator] equal_split_non_wc26 no rows with spend event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} window=${since}..${until}`,
+    );
+    return EMPTY_RESULT({
+      ok: true,
+      reason: "equal_split_non_wc26",
+      venueEventIds: allocatorEvents.map((e) => e.id),
+      adNames: [],
+      rowsWritten: 0,
+      perEventLifetime: allocatorEvents.map((e) => ({
+        eventId: e.id,
+        specific: 0,
+        genericShare: 0,
+        allocated: 0,
+        presale: 0,
+      })),
+      windowSince: since,
+      windowUntil: until,
+      classificationErrors: [],
+    });
+  }
+
+  type Row = {
+    date: string;
+    ad_spend_allocated: number;
+    ad_spend_specific: number;
+    ad_spend_generic_share: number;
+    ad_spend_presale: number;
+    link_clicks: number;
+  };
+  const payloads = new Map<string, Row[]>();
+  for (const e of allocatorEvents) {
+    payloads.set(e.id, []);
+  }
+
+  const lifetimeAllocated = new Map<string, number>();
+  const lifetimePresale = new Map<string, number>();
+  for (const e of allocatorEvents) {
+    lifetimeAllocated.set(e.id, 0);
+    lifetimePresale.set(e.id, 0);
+  }
+
+  for (const r of daysWithSpend) {
+    const day = String(r.date);
+    const venueRegular = sanitiseSpend(Number(r.ad_spend));
+    const venuePresale = sanitiseSpend(Number(r.ad_spend_presale));
+    const venueClicks = sanitiseSpend(Number(r.link_clicks));
+
+    const allocatedShares = equalSplitMonetaryAmounts(venueRegular, n);
+    const presaleShares = equalSplitMonetaryAmounts(venuePresale, n);
+
+    const clickAllocations = integerAllocationsByEvent(
+      allocatorEvents,
+      allocatorEvents.map((e) => ({
+        eventId: e.id,
+        value: venueClicks / n,
+      })),
+      Math.round(venueClicks),
+    );
+
+    for (let i = 0; i < n; i++) {
+      const e = allocatorEvents[i];
+      const alloc = allocatedShares[i] ?? 0;
+      const pres = presaleShares[i] ?? 0;
+      const evId = e.id;
+      lifetimeAllocated.set(
+        evId,
+        round2((lifetimeAllocated.get(evId) ?? 0) + alloc),
+      );
+      lifetimePresale.set(
+        evId,
+        round2((lifetimePresale.get(evId) ?? 0) + pres),
+      );
+      const list = payloads.get(evId) ?? [];
+      list.push({
+        date: day,
+        ad_spend_allocated: round2(alloc),
+        ad_spend_specific: 0,
+        ad_spend_generic_share: round2(alloc),
+        ad_spend_presale: round2(pres),
+        link_clicks: clickAllocations.get(evId) ?? 0,
+      });
+      payloads.set(evId, list);
+    }
+  }
+
+  let rowsWritten = 0;
+  for (const e of allocatorEvents) {
+    const rows = payloads.get(e.id) ?? [];
+    if (rows.length === 0) continue;
+    try {
+      await upsertAllocatedSpendRollups(supabase, {
+        userId,
+        eventId: e.id,
+        rows,
+      });
+      rowsWritten += rows.length;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return EMPTY_RESULT({
+        reason: "upsert_failed",
+        error: message,
+        venueEventIds: allocatorEvents.map((ev) => ev.id),
+        rowsWritten,
+        windowSince: since,
+        windowUntil: until,
+        ok: false,
+      });
+    }
+  }
+
+  console.info(
+    `[venue-spend-allocator] equal_split_non_wc26 ok event_code=${eventCode} siblings=${n} rows_written=${rowsWritten}`,
+  );
+
+  return {
+    ok: true,
+    reason: "equal_split_non_wc26",
+    venueEventIds: allocatorEvents.map((e) => e.id),
+    adNames: [],
+    rowsWritten,
+    perEventLifetime: allocatorEvents.map((e) => ({
+      eventId: e.id,
+      specific: 0,
+      genericShare: round2(lifetimeAllocated.get(e.id) ?? 0),
+      allocated: round2(lifetimeAllocated.get(e.id) ?? 0),
+      presale: round2(lifetimePresale.get(e.id) ?? 0),
+    })),
+    windowSince: since,
+    windowUntil: until,
+    classificationErrors: [],
+  };
+}
 
 /**
  * Allocate venue spend for one event_code + event_date pair.
@@ -269,29 +606,44 @@ export async function allocateVenueSpendForCode(
       windowUntil: until,
     });
   }
-  // Solo-event venues are a no-op for allocation: all ad spend is
-  // effectively generic and the single event receives 100% of it,
-  // which is exactly what the existing `ad_spend` column already
-  // says. Skip the extra Meta fetch + upsert and keep the rollup
-  // reader on the fallback path.
-  if (siblingRows.length === 1) {
-    console.info(
-      `[venue-spend-allocator] early-return reason=solo_event_skipped event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} sibling=${siblingRows[0].id}`,
-    );
-    return EMPTY_RESULT({
-      ok: true,
-      reason: "solo_event_skipped",
-      venueEventIds: [siblingRows[0].id],
-      windowSince: since,
-      windowUntil: until,
-    });
-  }
-
-  // Stable order used by the allocator for tie-breaks.
+  // Stable order — used by WC26 opponent allocator *and* non-WC26 equal split.
   const allocatorEvents: AllocatorEvent[] = siblingRows
     .slice()
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((r) => ({ id: r.id, name: r.name ?? null }));
+
+  // Singleton: copy Meta `ad_spend` into allocation columns so the dashboard
+  // `metaPaidSpendOf()` path (PR #171) shows headline SPEND — previously we
+  // skipped allocation and left NULL allocated despite raw spend captured.
+  if (allocatorEvents.length === 1) {
+    return soloPassThroughAllocatedSpend({
+      supabase,
+      userId,
+      clientId,
+      eventCode,
+      eventDate,
+      since,
+      until,
+      eventId: allocatorEvents[0].id,
+    });
+  }
+
+  // Club Football & non-WC26 multi-fixture: equal split across siblings using
+  // rollup `ad_spend` / `ad_spend_presale` from the Meta leg (event_code is the
+  // budget unit per PR #302). WC26 keeps opponent + umbrella special cases below.
+  if (!isWc26OpponentAllocatorEventCode(eventCode)) {
+    return equalSplitNonWc26AllocatedSpend({
+      supabase,
+      userId,
+      clientId,
+      eventCode,
+      eventDate,
+      since,
+      until,
+      allocatorEvents,
+    });
+  }
+
   const eventCount = allocatorEvents.length;
 
   // Fix #2 diagnostic: surface the opponent extraction decisions up
@@ -710,18 +1062,6 @@ async function resolveAllocatorSince(
     return row.date < requestedSince ? row.date : requestedSince;
   }
   return requestedSince;
-}
-
-function round2(n: number): number {
-  // Two decimal places — matches numeric(12, 2) on the column.
-  // Also keeps the diagnostic logs readable (without this, a
-  // generic share of £561.60 shows up as 561.5999999999).
-  return Math.round(n * 100) / 100;
-}
-
-function sanitiseSpend(spend: number | null | undefined): number {
-  if (spend == null || !Number.isFinite(spend) || spend < 0) return 0;
-  return spend;
 }
 
 function sumMap(values: Map<string, number>): number {
