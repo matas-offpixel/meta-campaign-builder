@@ -71,6 +71,8 @@ export interface CampaignVideosPayload {
   }>;
   /** FB page ID that owns the videos (resolved from ad creative page_id). */
   contextPageId?: string;
+  /** Number of videos dropped because they have no FB Page association. */
+  skippedCount?: number;
 }
 
 export async function fetchAudienceCampaignVideos(
@@ -114,6 +116,7 @@ export async function fetchAudienceCampaignVideos(
           campaignName: String(json.campaignName ?? ""),
           videos: (json.videos ?? []) as CampaignVideosPayload["videos"],
           contextPageId: typeof json.contextPageId === "string" ? json.contextPageId : undefined,
+          skippedCount: typeof json.skippedCount === "number" ? json.skippedCount : 0,
         },
       };
     } catch (err) {

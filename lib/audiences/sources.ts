@@ -95,6 +95,8 @@ interface RawVideo {
   title?: string;
   picture?: string;
   length?: number;
+  /** Present when the video was published from a FB Page (not uploaded directly to the ad account). */
+  from?: { id?: string; name?: string };
 }
 
 interface RawThumbnail {
@@ -252,7 +254,7 @@ export async function fetchAudienceCampaignVideos(
   adAccountId: string,
   campaignId: string,
   token: string,
-): Promise<{ campaignName: string; videos: AudienceVideoSource[]; contextPageId?: string }> {
+): Promise<{ campaignName: string; videos: AudienceVideoSource[]; contextPageId?: string; skippedCount: number }> {
   const campaign = await graphGetWithToken<{
     id: string;
     name?: string;
@@ -294,9 +296,17 @@ export async function fetchAudienceCampaignVideos(
     Array.from(videoIds).map(async (videoId) => {
       const video = await graphGetWithToken<RawVideo>(
         `/${videoId}`,
-        { fields: "id,picture,title,length" },
+        { fields: "id,picture,title,length,from" },
         token,
       ).catch(() => ({ id: videoId } as RawVideo));
+
+      // Meta requires every video in a video-views audience to be published from
+      // a FB Page (not uploaded directly to the ad account). Videos with no
+      // `from.id` trigger #2654 subcode 1713216 "No Page or New Page Experience
+      // Association". Return null so we can filter them out below.
+      if (!video.from?.id) {
+        return null;
+      }
 
       let thumbnailUrl: string | undefined = video.picture ?? undefined;
 
@@ -321,10 +331,23 @@ export async function fetchAudienceCampaignVideos(
     }),
   );
 
+  const validVideos = videos.filter(
+    (v): v is NonNullable<typeof v> => v !== null,
+  );
+  const skippedCount = videos.length - validVideos.length;
+
+  if (skippedCount > 0) {
+    console.warn(
+      `[fetchAudienceCampaignVideos] Dropped ${skippedCount} video(s) with no Page association` +
+        ` (campaign ${campaignId}). Meta requires videos to be published from a FB Page.`,
+    );
+  }
+
   return {
     campaignName: campaign.name ?? campaignId,
-    videos: videos.sort((a, b) => a.id.localeCompare(b.id)),
+    videos: validVideos.sort((a, b) => a.id.localeCompare(b.id)),
     contextPageId,
+    skippedCount,
   };
 }
 
