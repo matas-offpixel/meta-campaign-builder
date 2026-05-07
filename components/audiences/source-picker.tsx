@@ -112,8 +112,19 @@ function VideoAutoSelectOnFetch({
   }, [value]);
   const appliedSig = useRef("");
 
+  // When campaign selection changes, immediately clear stale videoIds and
+  // contextId from the previous campaign set. Without this, switching from
+  // (say) Brighton campaigns to Margate campaigns leaves Brighton videoIds
+  // in the form state until the new fetch resolves — and if the new fetch
+  // returns no videos, the stale Brighton list silently persists.
   useEffect(() => {
     appliedSig.current = "";
+    onChange({
+      ...latest.current,
+      videoIds: [],
+      contextId: undefined,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignKey]);
 
   useEffect(() => {
