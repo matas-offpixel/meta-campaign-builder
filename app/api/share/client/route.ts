@@ -5,11 +5,13 @@ import {
   getShareForClient,
   mintClientShare,
   setShareEnabled,
+  setShareCanEdit,
 } from "@/lib/db/report-shares";
 
 interface PatchBody {
   token?: unknown;
   enabled?: unknown;
+  can_edit?: unknown;
 }
 
 function isToken(v: unknown): v is string {
@@ -100,6 +102,9 @@ export async function POST(req: NextRequest) {
       ok: true,
       token: existing.token,
       url: buildShareUrl(req, existing.token),
+      can_edit: existing.can_edit,
+      view_count: existing.view_count ?? 0,
+      enabled: true,
     });
   }
 
@@ -110,6 +115,9 @@ export async function POST(req: NextRequest) {
         ok: true,
         token: share.token,
         url: buildShareUrl(req, share.token),
+        can_edit: share.can_edit,
+        view_count: share.view_count ?? 0,
+        enabled: true,
       },
       { status: 201 },
     );
@@ -156,9 +164,11 @@ export async function PATCH(req: NextRequest) {
       { status: 400 },
     );
   }
-  if (typeof body.enabled !== "boolean") {
+  const hasEnabled = typeof body.enabled === "boolean";
+  const hasCanEdit = typeof body.can_edit === "boolean";
+  if (!hasEnabled && !hasCanEdit) {
     return NextResponse.json(
-      { ok: false, error: "enabled must be boolean" },
+      { ok: false, error: "enabled or can_edit (boolean) required" },
       { status: 400 },
     );
   }
@@ -177,8 +187,17 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    await setShareEnabled(body.token, body.enabled);
-    return NextResponse.json({ ok: true, enabled: body.enabled });
+    if (hasEnabled) {
+      await setShareEnabled(body.token as string, body.enabled as boolean);
+    }
+    if (hasCanEdit) {
+      await setShareCanEdit(body.token as string, body.can_edit as boolean);
+    }
+    return NextResponse.json({
+      ok: true,
+      ...(hasEnabled ? { enabled: body.enabled } : {}),
+      ...(hasCanEdit ? { can_edit: body.can_edit } : {}),
+    });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to update share";

@@ -5,7 +5,9 @@ import { ArrowLeft, LinkIcon } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientRefreshDailyBudgetsButton } from "@/components/share/client-refresh-daily-budgets-button";
 import { ClientSyncAllButton } from "@/components/share/client-sync-all-button";
+import { ShareDashboardButton } from "@/components/dashboard/clients/share-dashboard-button";
 import { createClient } from "@/lib/supabase/server";
+import { getShareForClient } from "@/lib/db/report-shares";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { DashboardTabs } from "@/components/dashboard/dashboard-tabs";
 import {
@@ -56,7 +58,10 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
     .maybeSingle();
   if (!scope.data) notFound();
 
-  const result = await loadClientPortalByClientId(id);
+  const [result, existingShare] = await Promise.all([
+    loadClientPortalByClientId(id),
+    getShareForClient(id),
+  ]);
   if (!result.ok) notFound();
 
   const allEventIds = result.events.map((e) => e.id);
@@ -79,6 +84,20 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
             <ClientRefreshDailyBudgetsButton
               clientId={id}
               eventCodes={venueEventCodes}
+            />
+            <ShareDashboardButton
+              clientId={id}
+              initialShare={
+                existingShare
+                  ? {
+                      token: existingShare.token,
+                      url: `https://app.offpixel.co.uk/share/client/${existingShare.token}`,
+                      enabled: existingShare.enabled,
+                      can_edit: existingShare.can_edit,
+                      view_count: existingShare.view_count ?? 0,
+                    }
+                  : null
+              }
             />
             <Link
               href={`/clients/${id}/ticketing-link-discovery`}
