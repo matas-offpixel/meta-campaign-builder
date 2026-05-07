@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 347
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/347
 - **Branch:** `feat/fourthefans-history-backfill`
 
 ## Summary
