@@ -187,6 +187,18 @@ async function postMetaAudienceForm(
 ): Promise<{ id: string }> {
   const url = new URL(`${BASE}${path}`);
   url.searchParams.set("access_token", token);
+
+  // DIAGNOSTIC: log the exact form payload being sent to Meta (without token).
+  // Remove this logging once audience writes are stable across all subtypes.
+  console.log(
+    `[audience-write] POST ${path}\n` +
+      `  name: ${body.name}\n` +
+      `  subtype: ${body.subtype}\n` +
+      `  retention_days: ${body.retention_days}\n` +
+      `  prefill: ${body.prefill}\n` +
+      `  rule (raw JSON string): ${body.rule}`,
+  );
+
   const response = await fetch(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -196,6 +208,11 @@ async function postMetaAudienceForm(
   const json = (await response.json()) as Record<string, unknown>;
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
+    // DIAGNOSTIC: log full error response from Meta for debugging.
+    console.error(
+      `[audience-write] Meta rejected payload for ${path}:\n`,
+      JSON.stringify(e, null, 2),
+    );
     throw new MetaApiError(
       (e.message as string) ?? `HTTP ${response.status}`,
       e.code as number | undefined,
