@@ -192,11 +192,8 @@ async function postMetaAudienceForm(
   // Remove this logging once audience writes are stable across all subtypes.
   console.log(
     `[audience-write] POST ${path}\n` +
-      `  name: ${body.name}\n` +
-      `  subtype: ${body.subtype}\n` +
-      `  retention_days: ${body.retention_days}\n` +
-      `  prefill: ${body.prefill}\n` +
-      `  rule (raw JSON string): ${body.rule}`,
+      `  full body: ${JSON.stringify(body, null, 2)}\n` +
+      `  url-encoded body: ${new URLSearchParams(body).toString()}`,
   );
 
   const response = await fetch(url.toString(), {

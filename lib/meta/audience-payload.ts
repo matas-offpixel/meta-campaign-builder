@@ -79,6 +79,39 @@ export function buildMetaCustomAudiencePayload(
       return isIg ? META_PAGE_ENGAGEMENT_IG_EVENT : META_PAGE_ENGAGEMENT_FB_EVENT;
     })();
 
+    // ──────────────────────────────────────────────────────────────────
+    // Page / IG engagement audiences use a FLAT POST format, NOT a nested
+    // {inclusions: {...}} rule JSON. Meta's GET endpoint returns the rich
+    // rule structure for display, but POST requires:
+    //   subtype=ENGAGEMENT
+    //   event_source_id=<page_id>
+    //   event_source_type=page (or ig_business)
+    //   event=<page_engaged | page_liked | ig_business_profile_all | ...>
+    //
+    // The {inclusions: {rules: [...]}} JSON shape is reserved for COMPLEX
+    // audiences (websites, exclusions, multi-source). For single-page or
+    // single-IG-account engagement, the flat format is required.
+    //
+    // (Discovered 2026-05-07 after multiple iterations against #2654/1713151
+    //  errors; the rule JSON we constructed was identical to Meta's
+    //  reference audiences but Meta's POST endpoint rejects it as invalid.)
+    //
+    // For multi-page, we still need the rule JSON shape — fall back to
+    // that path only when pageIds.length > 1.
+    if (pageIds.length === 1) {
+      const [pageId] = pageIds;
+      return {
+        ...base,
+        subtype: "ENGAGEMENT",
+        event_source_id: pageId,
+        event_source_type: isIg ? "ig_business" : "page",
+        event: eventValue,
+      };
+    }
+
+    // Multi-page fallback — uses rule JSON because flat format only allows
+    // one event_source_id. Will likely also need a Meta API quirk pattern
+    // we haven't decoded yet for multi-page; verify before using.
     const rules = pageIds.map((pageId) => ({
       event_sources: [{ type: isIg ? "ig_business" : "page", id: numericId(pageId) }],
       retention_seconds: retentionSeconds,
@@ -89,11 +122,6 @@ export function buildMetaCustomAudiencePayload(
     }));
     return {
       ...base,
-      // POST subtype is "ENGAGEMENT" for both FB and IG audiences (verified by
-      // Meta's #100 error rejecting "IG_BUSINESS" as an invalid input value).
-      // The IG_BUSINESS classification is internal — Meta derives it from the
-      // event_sources.type field at write time and surfaces it on GET responses
-      // even though it's not a valid POST value.
       subtype: "ENGAGEMENT",
       rule: JSON.stringify({
         inclusions: {
