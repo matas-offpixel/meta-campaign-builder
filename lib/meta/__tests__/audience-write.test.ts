@@ -5,32 +5,42 @@ import { buildMetaCustomAudiencePayload } from "../audience-payload.ts";
 import type { MetaCustomAudience } from "../../types/audience.ts";
 
 /**
- * All assertions below are locked to VERIFIED values read from Graph API
- * Explorer on 2026-05-07 against reference audiences in act_10151014958791885:
+ * All assertions locked to VERIFIED shapes read from Graph API Explorer
+ * on 2026-05-07 against reference audiences in act_10151014958791885:
  *   6984467206665  "Off/Pixel TEST FB engagement"
  *   6984477877465  "Off/Pixel TEST FB followers"
  *   6984477463665  "Off/Pixel TEST IG engagement"
  *   6984477683065  "Off/Pixel TEST IG followers"
  *   6984471975065  "Off/Pixel TEST 95% VV Manchester"
- *   6983238099865  "Arsenal CL Final Pixel"
+ *   6983230099865  "Arsenal CL Final Pixel"
+ *
+ * Structural corrections (PR after #328):
+ *   - retention_seconds and event_sources.id are JSON numbers, not strings
+ *   - POST subtype="ENGAGEMENT" for ALL page/IG subtypes (Meta's #100 error
+ *     confirms IG_BUSINESS is not a valid POST value)
+ *   - Pixel URL rules carry a trailing {field:url,operator:i_contains,value:""}
+ *     after the VISITORS_BY_URL OR-group (required by Meta, verified from
+ *     working audience 6983230099865)
  */
 describe("buildMetaCustomAudiencePayload", () => {
   // ─── FB page engagement ─────────────────────────────────────────────────────
 
-  it("FB page engagement: subtype=ENGAGEMENT, operator=eq, event=page_engaged", () => {
+  it("FB engagement: subtype=ENGAGEMENT, numeric id+retention, operator=eq, event=page_engaged", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "page_engagement_fb",
         retentionDays: 365,
-        sourceId: "page_1",
+        sourceId: "202868440480679",
         sourceMeta: { subtype: "page_engagement_fb", pageName: "4theFans" },
       }),
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.equal(payload.subtype, "ENGAGEMENT");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "page");
-    assert.equal(rule.inclusions.rules[0].event_sources[0].id, "page_1");
-    assert.equal(rule.inclusions.rules[0].retention_seconds, "31536000");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, 202868440480679);
+    assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
+    assert.equal(rule.inclusions.rules[0].retention_seconds, 31536000);
+    assert.equal(typeof rule.inclusions.rules[0].retention_seconds, "number");
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.field, "event");
@@ -38,40 +48,45 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(ev.value, "page_engaged");
   });
 
-  it("FB page engagement with multiple page IDs produces OR rules", () => {
+  it("FB engagement with multiple page IDs produces OR rules", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "page_engagement_fb",
         retentionDays: 365,
-        sourceId: "p1,p2",
+        sourceId: "100000001,100000002",
         sourceMeta: {
           subtype: "page_engagement_fb",
-          pageIds: ["p1", "p2"],
+          pageIds: ["100000001", "100000002"],
           pageName: "Primary",
         },
       }),
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.equal(rule.inclusions.rules.length, 2);
-    assert.equal(rule.inclusions.rules[0].event_sources[0].id, "p1");
-    assert.equal(rule.inclusions.rules[1].event_sources[0].id, "p2");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, 100000001);
+    assert.equal(rule.inclusions.rules[1].event_sources[0].id, 100000002);
   });
 
   // ─── IG page engagement ─────────────────────────────────────────────────────
 
-  it("IG page engagement: subtype=IG_BUSINESS, event=ig_business_profile_all (verified 2026-05-07)", () => {
+  it("IG engagement: POST subtype=ENGAGEMENT (not IG_BUSINESS), ig_business source, event=ig_business_profile_all", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "page_engagement_ig",
         retentionDays: 365,
-        sourceId: "igbiz_1",
+        sourceId: "100000003",
         sourceMeta: { subtype: "page_engagement_ig", pageName: "4thefansevents" },
       }),
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
-    assert.equal(payload.subtype, "IG_BUSINESS");
-    assert.notEqual(payload.subtype, "ENGAGEMENT");
+    // POST value must be ENGAGEMENT — IG_BUSINESS is Meta's internal
+    // classification on GET, not a valid POST subtype (#100 error confirmed).
+    assert.equal(payload.subtype, "ENGAGEMENT");
+    assert.notEqual(payload.subtype, "IG_BUSINESS");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, 100000003);
+    assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
+    assert.equal(typeof rule.inclusions.rules[0].retention_seconds, "number");
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.operator, "eq");
     assert.equal(ev.value, "ig_business_profile_all");
@@ -79,18 +94,20 @@ describe("buildMetaCustomAudiencePayload", () => {
 
   // ─── FB page followers ──────────────────────────────────────────────────────
 
-  it("FB page followers: subtype=ENGAGEMENT, event=page_liked (verified 2026-05-07)", () => {
+  it("FB followers: subtype=ENGAGEMENT, event=page_liked, numeric id", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "page_followers_fb",
         retentionDays: 365,
-        sourceId: "page_9",
+        sourceId: "202868440480679",
         sourceMeta: { subtype: "page_followers_fb", pageName: "4theFans" },
       }),
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.equal(payload.subtype, "ENGAGEMENT");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "page");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, 202868440480679);
+    assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.operator, "eq");
     assert.equal(ev.value, "page_liked");
@@ -98,27 +115,28 @@ describe("buildMetaCustomAudiencePayload", () => {
 
   // ─── IG followers ───────────────────────────────────────────────────────────
 
-  it("IG followers: subtype=IG_BUSINESS, event=INSTAGRAM_PROFILE_FOLLOW (SHOUTING_CASE, verified 2026-05-07)", () => {
+  it("IG followers: POST subtype=ENGAGEMENT, event=INSTAGRAM_PROFILE_FOLLOW (SHOUTING_CASE)", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "page_followers_ig",
         retentionDays: 365,
-        sourceId: "ig_1",
+        sourceId: "100000004",
         sourceMeta: { subtype: "page_followers_ig", pageName: "4theFans" },
       }),
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
-    assert.equal(payload.subtype, "IG_BUSINESS");
-    assert.notEqual(payload.subtype, "ENGAGEMENT");
+    assert.equal(payload.subtype, "ENGAGEMENT");
+    assert.notEqual(payload.subtype, "IG_BUSINESS");
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
-    assert.equal(rule.inclusions.rules[0].event_sources[0].id, "ig_1");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, 100000004);
+    assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.operator, "eq");
     assert.equal(ev.value, "INSTAGRAM_PROFILE_FOLLOW");
   });
 
   // ─── Video views ─────────────────────────────────────────────────────────────
-  // Rule is a BARE JSON ARRAY (not an {inclusions:{...}} object).
+  // Rule is a BARE JSON ARRAY (not {inclusions:{...}}).
   // Verified 2026-05-07 from audience 6984471975065.
 
   it("video views 95%: bare array, subtype=ENGAGEMENT, event_name=video_completed", () => {
@@ -227,18 +245,19 @@ describe("buildMetaCustomAudiencePayload", () => {
   });
 
   // ─── Website pixel ──────────────────────────────────────────────────────────
-  // Verified 2026-05-07 from audience 6983238099865 ("Arsenal CL Final Pixel").
-  //   - URL scheme (https://) is PRESERVED in filter values (Meta stores it as-is)
-  //   - URL filter uses VISITORS_BY_URL template on the OR group
-  //   - No event leaf when URLs are present
-  //   - Event-only filter used only when no URL filter is set
+  // Verified 2026-05-07 from audience 6983230099865 ("Arsenal CL Final Pixel"):
+  //   - event_sources.id is a JSON number
+  //   - URL filter: VISITORS_BY_URL OR-group + TRAILING {field:url,i_contains,""} 
+  //   - Without the trailing empty filter Meta rejects with #2654 subcode 1870053
+  //   - URL scheme (https://) is preserved — Meta stores it as-is
+  //   - No URL → event-only leaf, length 1 (no trailing empty)
 
-  it("website pixel with URL: VISITORS_BY_URL OR-group, scheme preserved", () => {
+  it("website pixel with URL: numeric sourceId, OR-group + trailing empty filter, scheme preserved", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "website_pixel",
         retentionDays: 60,
-        sourceId: "pixel_1",
+        sourceId: "6983230099865",
         sourceMeta: {
           subtype: "website_pixel",
           pixelEvent: "PageView",
@@ -248,23 +267,31 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.equal(payload.subtype, "WEBSITE");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].type, "pixel");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, 6983230099865);
+    assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "number");
+    assert.equal(typeof rule.inclusions.rules[0].retention_seconds, "number");
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     const filters = rule.inclusions.rules[0].filter.filters;
-    assert.equal(filters.length, 1, "no event leaf when URL filter present");
+    assert.equal(filters.length, 2, "OR-group + trailing empty filter");
     const urlGroup = filters[0] as UrlOrGroupWithTemplate;
     assert.equal(urlGroup.operator, "or");
     assert.equal(urlGroup.template, "VISITORS_BY_URL");
     assert.equal(urlGroup.filters.length, 1);
     assert.equal(urlGroup.filters[0].value, "https://wearefootballfestival.co.uk");
     assert.equal(urlGroup.filters[0].field, "url");
+    const trailing = filters[1] as EventLeaf;
+    assert.equal(trailing.field, "url");
+    assert.equal(trailing.operator, "i_contains");
+    assert.equal(trailing.value, "");
   });
 
-  it("website pixel multi-URL: OR group with VISITORS_BY_URL template, values unchanged", () => {
+  it("website pixel multi-URL: OR group + trailing empty, values unchanged", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "website_pixel",
         retentionDays: 60,
-        sourceId: "pixel_1",
+        sourceId: "6983230099865",
         sourceMeta: {
           subtype: "website_pixel",
           pixelEvent: "ViewContent",
@@ -274,7 +301,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     const filters = rule.inclusions.rules[0].filter.filters;
-    assert.equal(filters.length, 1);
+    assert.equal(filters.length, 2);
     const urlGroup = filters[0] as UrlOrGroupWithTemplate;
     assert.equal(urlGroup.operator, "or");
     assert.equal(urlGroup.template, "VISITORS_BY_URL");
@@ -283,14 +310,17 @@ describe("buildMetaCustomAudiencePayload", () => {
       urlGroup.filters.map((f) => f.value),
       ["/arsenal-cl-final", "/arsenal-cl-presale", "/extra"],
     );
+    const trailing = filters[1] as EventLeaf;
+    assert.equal(trailing.field, "url");
+    assert.equal(trailing.value, "");
   });
 
-  it("website pixel https:// is NOT stripped from URL values (verified: Meta stores scheme)", () => {
+  it("website pixel https:// is NOT stripped from URL values (Meta stores scheme)", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "website_pixel",
         retentionDays: 60,
-        sourceId: "pixel_1",
+        sourceId: "6983230099865",
         sourceMeta: {
           subtype: "website_pixel",
           pixelEvent: "PageView",
@@ -309,12 +339,12 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
   });
 
-  it("website pixel with no URL: single event-only leaf, operator=eq", () => {
+  it("website pixel with no URL: single event-only leaf, no trailing empty, operator=eq", () => {
     const payload = buildMetaCustomAudiencePayload(
       audience({
         audienceSubtype: "website_pixel",
         retentionDays: 60,
-        sourceId: "pixel_1",
+        sourceId: "6983230099865",
         sourceMeta: {
           subtype: "website_pixel",
           pixelEvent: "PageView",
@@ -323,7 +353,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     const filters = rule.inclusions.rules[0].filter.filters;
-    assert.equal(filters.length, 1);
+    assert.equal(filters.length, 1, "no trailing empty when no URL filter");
     const only = filters[0] as EventLeaf;
     assert.equal(only.field, "event");
     assert.equal(only.operator, "eq");
@@ -350,8 +380,8 @@ type VideoRuleEntry = {
 interface EngagementRuleShape {
   inclusions: {
     rules: Array<{
-      event_sources: Array<{ type: string; id: string }>;
-      retention_seconds: string;
+      event_sources: Array<{ type: string; id: number | string }>;
+      retention_seconds: number;
       filter: {
         operator: string;
         filters: Array<

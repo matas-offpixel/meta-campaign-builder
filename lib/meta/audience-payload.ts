@@ -45,7 +45,9 @@ function metaLeafEq(field: string, value: string): Record<string, string> {
 export function buildMetaCustomAudiencePayload(
   audience: MetaCustomAudience,
 ): Record<string, string> {
-  const retentionSeconds = String(audience.retentionDays * 86_400);
+  // Meta's rule JSON expects retention_seconds as a NUMBER, not a string.
+  // event_sources.id is also numeric in Meta's actual rules (verified 2026-05-07).
+  const retentionSeconds = audience.retentionDays * 86_400;
   const sourceMeta = audience.sourceMeta as AudienceSourceMeta;
   const base = {
     name: sanitizeAudienceName(audience.name),
@@ -78,7 +80,7 @@ export function buildMetaCustomAudiencePayload(
     })();
 
     const rules = pageIds.map((pageId) => ({
-      event_sources: [{ type: isIg ? "ig_business" : "page", id: pageId }],
+      event_sources: [{ type: isIg ? "ig_business" : "page", id: numericId(pageId) }],
       retention_seconds: retentionSeconds,
       filter: {
         operator: "and",
@@ -87,10 +89,12 @@ export function buildMetaCustomAudiencePayload(
     }));
     return {
       ...base,
-      // Verified 2026-05-07: FB audiences use subtype="ENGAGEMENT", IG audiences
-      // use subtype="IG_BUSINESS" (separate enum at Meta's data_source.sub_type
-      // level: ENGAGEMENT_EVENTS vs IG_BUSINESS_EVENTS).
-      subtype: isIg ? "IG_BUSINESS" : "ENGAGEMENT",
+      // POST subtype is "ENGAGEMENT" for both FB and IG audiences (verified by
+      // Meta's #100 error rejecting "IG_BUSINESS" as an invalid input value).
+      // The IG_BUSINESS classification is internal — Meta derives it from the
+      // event_sources.type field at write time and surfaces it on GET responses
+      // even though it's not a valid POST value.
+      subtype: "ENGAGEMENT",
       rule: JSON.stringify({
         inclusions: {
           operator: "or",
@@ -139,11 +143,15 @@ export function buildMetaCustomAudiencePayload(
     if (sourceMeta.subtype !== "website_pixel") {
       throw new Error("Website pixel audience requires website source_meta");
     }
-    // Verified 2026-05-07 from 4thefans audience id 6983238099865 ("Arsenal CL Final Pixel"):
+    // Verified 2026-05-07 from 4thefans audience id 6983230099865 ("Arsenal CL Final Pixel"):
     //   - URLs INCLUDE the https:// scheme (do NOT strip)
-    //   - Filter structure uses VISITORS_BY_URL template at OR-group level
-    //   - No top-level `event` filter required for URL-based pixel audiences
-    //   - Single URL or multi-URL both wrap in OR group with template field
+    //   - Inner filter group uses operator: "or" with template: "VISITORS_BY_URL"
+    //   - Outer filter is "and" with TWO entries: the URL OR-group AND a trailing
+    //     empty url filter `{field:"url",operator:"i_contains",value:""}` — this
+    //     trailing empty filter is structural (Meta seems to require it) and not
+    //     intuitive from any docs.
+    //   - event_sources.id is NUMERIC (no quotes in JSON)
+    //   - retention_seconds is NUMERIC (no quotes in JSON)
     const urlParts = normalizeWebsitePixelUrlContains(sourceMeta.urlContains);
     const filters: Array<Record<string, unknown>> = [];
     if (urlParts.length > 0) {
@@ -156,8 +164,9 @@ export function buildMetaCustomAudiencePayload(
         })),
         template: "VISITORS_BY_URL",
       });
+      // Trailing empty url filter — verified structural requirement.
+      filters.push({ field: "url", operator: "i_contains", value: "" });
     } else {
-      // No URL filter → fall back to event-only audience (e.g. all PageView visitors)
       filters.push(metaLeafEq("event", sourceMeta.pixelEvent || "PageView"));
     }
     return {
@@ -168,7 +177,7 @@ export function buildMetaCustomAudiencePayload(
           operator: "or",
           rules: [
             {
-              event_sources: [{ type: "pixel", id: audience.sourceId }],
+              event_sources: [{ type: "pixel", id: numericId(audience.sourceId) }],
               retention_seconds: retentionSeconds,
               filter: { operator: "and", filters },
             },
@@ -181,6 +190,19 @@ export function buildMetaCustomAudiencePayload(
   throw new Error(
     `${AUDIENCE_SUBTYPE_LABELS[audience.audienceSubtype]} is not supported`,
   );
+}
+
+/**
+ * Coerce a numeric-string ID to a JSON number when it's safe (under
+ * Number.MAX_SAFE_INTEGER). Meta's actual rule JSON serialises Page IDs,
+ * pixel IDs, and IG account IDs as bare numerics, NOT strings. Verified
+ * 2026-05-07 by reading rule fields on real audiences in act_10151014958791885.
+ */
+function numericId(id: string): number | string {
+  const n = Number(id);
+  if (!Number.isFinite(n)) return id;
+  if (Math.abs(n) >= Number.MAX_SAFE_INTEGER) return id;
+  return n;
 }
 
 function sanitizeAudienceName(raw: string): string {
