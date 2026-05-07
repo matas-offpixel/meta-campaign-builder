@@ -420,6 +420,12 @@ async function listLinkedCampaignIds(
   eventCode: string,
   token: string,
 ): Promise<RawCampaignRow[]> {
+  // ARCHIVED is intentionally included alongside ACTIVE/PAUSED/CAMPAIGN_PAUSED.
+  // Active-creatives reporting is retrospective — if a campaign was paused or
+  // archived mid-flight (e.g. after an on-sale window closed), its ad creative
+  // history is still valid and should appear in the snapshot. Excluding ARCHIVED
+  // is the root cause of events like WC26-BRISTOL/EDINBURGH/LEEDS producing zero
+  // snapshots when their pre-launch campaigns were archived and recreated.
   const params: Record<string, string> = {
     fields: "id,name,effective_status",
     limit: String(PER_EVENT_CAMPAIGN_CAP),
@@ -427,6 +433,7 @@ async function listLinkedCampaignIds(
       "ACTIVE",
       "PAUSED",
       "CAMPAIGN_PAUSED",
+      "ARCHIVED",
     ]),
     filtering: JSON.stringify([
       { field: "name", operator: "CONTAIN", value: eventCode },
