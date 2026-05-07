@@ -79,11 +79,16 @@ function hasRangeAnchorMetric(
   day: TrendChartDay,
   hasCumulativeTickets: boolean,
 ): boolean {
+  // Zero is treated as "no signal" — backfill rows for newly-onboarded events
+  // carry numeric 0 for all metrics (not null), which would push the X-axis
+  // back to the first backfilled date (~80 days ago). Only positive values
+  // anchor the trim range. The cumulative-tickets path is excluded because
+  // zero is meaningful there (a snapshot row with tickets=0 is still a signal).
   return (
-    day.spend !== null ||
-    day.revenue !== null ||
-    day.linkClicks !== null ||
-    (!hasCumulativeTickets && day.tickets !== null)
+    (day.spend !== null && day.spend > 0) ||
+    (day.revenue !== null && day.revenue > 0) ||
+    (day.linkClicks !== null && day.linkClicks > 0) ||
+    (!hasCumulativeTickets && day.tickets !== null && day.tickets > 0)
   );
 }
 
