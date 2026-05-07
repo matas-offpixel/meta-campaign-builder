@@ -275,8 +275,12 @@ export async function fetchAudienceCampaignVideos(
     token,
   );
 
-  // Collect page_id from each ad's creative object_story_spec.
-  // The most-common page_id becomes the contextPageId for video audience creation.
+  // Collect page_id from each ad's creative.
+  // Meta exposes the publishing page in multiple creative shapes:
+  //   - Standard ads: creative.object_story_spec.page_id
+  //   - Advantage+ / dynamic ads: creative.platform_customizations.{facebook,instagram}.page_id
+  //   - Asset feed creatives: creative.asset_feed_spec.page_ids[0]
+  // We collect from all shapes so contextPageId resolves for any campaign type.
   const pageCounts = new Map<string, number>();
   const videoIds = new Set<string>();
   for (const ad of ads.data ?? []) {
@@ -284,13 +288,48 @@ export async function fetchAudienceCampaignVideos(
       videoIds.add(id);
     }
     const creative = ad.creative as Record<string, unknown> | undefined;
-    const spec = creative?.object_story_spec as Record<string, unknown> | undefined;
-    const pageId = spec?.page_id;
-    if (typeof pageId === "string" && pageId) {
-      pageCounts.set(pageId, (pageCounts.get(pageId) ?? 0) + 1);
+    if (!creative) continue;
+
+    // Standard creative shape
+    const spec = creative.object_story_spec as Record<string, unknown> | undefined;
+    const standardPageId = spec?.page_id;
+    if (typeof standardPageId === "string" && standardPageId) {
+      pageCounts.set(standardPageId, (pageCounts.get(standardPageId) ?? 0) + 1);
+    }
+
+    // Advantage+ / dynamic creatives
+    const platforms = creative.platform_customizations as
+      | Record<string, { page_id?: unknown }>
+      | undefined;
+    for (const platform of ["facebook", "instagram"] as const) {
+      const platformPageId = platforms?.[platform]?.page_id;
+      if (typeof platformPageId === "string" && platformPageId) {
+        pageCounts.set(platformPageId, (pageCounts.get(platformPageId) ?? 0) + 1);
+      }
+    }
+
+    // Asset feed creatives (multi-creative ads)
+    const assetFeed = creative.asset_feed_spec as
+      | { page_ids?: unknown }
+      | undefined;
+    if (Array.isArray(assetFeed?.page_ids)) {
+      for (const id of assetFeed.page_ids) {
+        if (typeof id === "string" && id) {
+          pageCounts.set(id, (pageCounts.get(id) ?? 0) + 1);
+        }
+      }
     }
   }
-  const contextPageId = [...pageCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  // Fallback: if no page_id surfaced from any creative shape, use the first
+  // resolvable video's `from.id` (we already query that field below). For now,
+  // this is set after the video walk completes — handled in the return shape.
+  let contextPageId = [...pageCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  // Collect video page IDs from the video walk too — used as a fallback for
+  // contextPageId when creative-level extraction returns nothing (e.g. Asset
+  // feed creatives with no top-level page_ids).
+  const videoFromPageCounts = new Map<string, number>();
 
   const videos = await Promise.all(
     Array.from(videoIds).map(async (videoId) => {
@@ -307,6 +346,13 @@ export async function fetchAudienceCampaignVideos(
       if (!video.from?.id) {
         return null;
       }
+
+      // Track which page each surviving video was published from — used as
+      // contextPageId fallback below.
+      videoFromPageCounts.set(
+        video.from.id,
+        (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
+      );
 
       let thumbnailUrl: string | undefined = video.picture ?? undefined;
 
@@ -335,6 +381,15 @@ export async function fetchAudienceCampaignVideos(
     (v): v is NonNullable<typeof v> => v !== null,
   );
   const skippedCount = videos.length - validVideos.length;
+
+  // Fallback: if creative-level extraction yielded no contextPageId (common
+  // for asset_feed_spec creatives in Bristol/regional WC26 campaigns), use
+  // the most-common `from.id` across the surviving videos themselves.
+  if (!contextPageId && videoFromPageCounts.size > 0) {
+    contextPageId = [...videoFromPageCounts.entries()].sort(
+      (a, b) => b[1] - a[1],
+    )[0]?.[0];
+  }
 
   if (skippedCount > 0) {
     console.warn(
