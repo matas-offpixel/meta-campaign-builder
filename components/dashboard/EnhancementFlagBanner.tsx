@@ -32,10 +32,16 @@ interface Props {
 
 type ScanState = "idle" | "scanning" | "done" | "error";
 
-function adsManagerEditUrl(adAccountId: string, adId: string): string {
+/**
+ * Links directly to the creative editor where the Advantage+ enhancement
+ * toggles (standard_enhancements, text_optimizations, etc.) are visible.
+ * Uses business.facebook.com + selected_creative_ids so the correct panel
+ * opens on click, not just the generic Ads Manager dashboard.
+ */
+function adsManagerCreativeUrl(adAccountId: string, creativeId: string): string {
   const act = withoutActPrefix(adAccountId);
-  const qs = new URLSearchParams({ act, selected_ad_ids: adId });
-  return `https://www.facebook.com/adsmanager/manage/ads/edit?${qs.toString()}`;
+  const qs = new URLSearchParams({ act, selected_creative_ids: creativeId });
+  return `https://business.facebook.com/adsmanager/manage/creative?${qs.toString()}`;
 }
 
 function formatRelativeTime(iso: string | null): string | null {
@@ -315,7 +321,7 @@ export function EnhancementFlagBanner({ clientId, eventIds }: Props) {
                   </div>
                   <div className="mt-2">
                     <a
-                      href={adsManagerEditUrl(row.ad_account_id, row.ad_id)}
+                      href={adsManagerCreativeUrl(row.ad_account_id, row.creative_id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
