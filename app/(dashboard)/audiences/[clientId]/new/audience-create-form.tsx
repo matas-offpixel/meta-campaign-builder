@@ -74,6 +74,8 @@ export function AudienceCreateForm({
   );
   const [eventId, setEventId] = useState(initialEventId ?? "");
   const [name, setName] = useState("");
+  /** True only when the user has explicitly typed in the name field. */
+  const [userEditedName, setUserEditedName] = useState(false);
   const [bundleRows, setBundleRows] = useState<AudienceDraftRow[]>(() =>
     buildBundleRows(funnelStage, client, events, initialEventId),
   );
@@ -153,6 +155,25 @@ export function AudienceCreateForm({
     ],
   );
 
+  // When params change (subtype, retention, threshold, campaigns, scope…),
+  // recompute suggestedName. If the user hasn't explicitly typed their own
+  // name, keep the field value in sync with the suggestion automatically.
+  useEffect(() => {
+    if (!userEditedName) {
+      setName(suggestedName);
+    }
+  }, [suggestedName, userEditedName]);
+
+  function handleNameChange(value: string) {
+    setUserEditedName(true);
+    setName(value);
+  }
+
+  function handleResetName() {
+    setUserEditedName(false);
+    setName(suggestedName);
+  }
+
   const metaBlocked = !client.metaAdAccountId;
 
   async function submit(kind: "draft" | "write") {
@@ -168,7 +189,7 @@ export function AudienceCreateForm({
               funnelStage,
               audienceSubtype,
               retentionDays: clampRetention(singleRetention),
-              name: name || suggestedName,
+              name: name.trim() || suggestedName,
               ...sourcePayload(audienceSubtype, singleSource),
               createOnMeta,
             }
@@ -312,8 +333,10 @@ export function AudienceCreateForm({
               eventId={eventId}
               setEventId={setEventId}
               name={name}
-              setName={setName}
+              setName={handleNameChange}
               suggestedName={suggestedName}
+              userEditedName={userEditedName}
+              onResetName={handleResetName}
               onPickerRateLimit={handlePickerRateLimit}
             />
           ) : (
@@ -375,6 +398,8 @@ function SingleAudienceEditor({
   name,
   setName,
   suggestedName,
+  userEditedName,
+  onResetName,
   onPickerRateLimit,
 }: {
   clientId: string;
@@ -391,6 +416,8 @@ function SingleAudienceEditor({
   name: string;
   setName: (value: string) => void;
   suggestedName: string;
+  userEditedName: boolean;
+  onResetName: () => void;
   onPickerRateLimit: (instanceId: string, rateLimited: boolean) => void;
 }) {
   return (
@@ -419,14 +446,31 @@ function SingleAudienceEditor({
           setEventId={setEventId}
         />
       </div>
-      <TextField
-        id="audience-name"
-        label="Name"
-        value={name}
-        placeholder={suggestedName}
-        onChange={setName}
-      />
-      <p className="text-xs text-muted-foreground">Suggested: {suggestedName}</p>
+      <div className="space-y-1">
+        <TextField
+          id="audience-name"
+          label="Name"
+          value={name}
+          placeholder={suggestedName}
+          onChange={setName}
+        />
+        {userEditedName ? (
+          <p className="text-xs text-muted-foreground">
+            Custom name.{" "}
+            <button
+              type="button"
+              className="text-primary underline-offset-2 hover:underline"
+              onClick={onResetName}
+            >
+              Reset to suggested name
+            </button>
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Auto-suggested — changes with subtype, threshold, and retention.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
