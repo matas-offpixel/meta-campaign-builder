@@ -8,12 +8,16 @@ export type MetaThumbnailProxyAuth =
   | { kind: "share"; shareToken: string; eventCode?: string };
 
 /**
- * Builds a same-origin thumbnail URL that re-fetches fresh bytes from Meta
- * (cached 24h server-side). Returns null when proxying is impossible.
+ * Builds a same-origin thumbnail URL through `/api/proxy/creative-thumbnail`
+ * (Supabase Storage cache + Meta fallback). Returns null when proxying is impossible.
+ *
+ * `fallbackLabel` is passed as `fallback_label` so the proxy can render a
+ * branded SVG when Graph/CDN returns nothing — avoids broken `<img>` flashes.
  */
 export function buildMetaThumbnailProxyUrl(
   adId: string | null | undefined,
   auth: MetaThumbnailProxyAuth | null | undefined,
+  fallbackLabel?: string | null,
 ): string | null {
   if (!adId || !auth) return null;
   const qs = new URLSearchParams({ ad_id: adId });
@@ -25,7 +29,10 @@ export function buildMetaThumbnailProxyUrl(
       qs.set("event_code", auth.eventCode);
     }
   }
-  return `/api/meta/thumbnail-proxy?${qs.toString()}`;
+  if (fallbackLabel?.trim()) {
+    qs.set("fallback_label", fallbackLabel.trim().slice(0, 120));
+  }
+  return `/api/proxy/creative-thumbnail?${qs.toString()}`;
 }
 
 /** Prefer proxy URL for card/modal display when we have an ad id + auth. */
@@ -36,6 +43,7 @@ export function resolveProxiedRepresentativeThumbnail(
   const proxy = buildMetaThumbnailProxyUrl(
     group.representative_thumbnail_ad_id,
     auth,
+    group.display_name ?? null,
   );
   return proxy ?? group.representative_thumbnail ?? null;
 }

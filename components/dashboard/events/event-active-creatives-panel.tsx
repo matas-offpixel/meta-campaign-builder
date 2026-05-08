@@ -650,7 +650,11 @@ function toCardModel(
   if (isConceptRow(row)) {
     const proxied =
       auth &&
-      buildMetaThumbnailProxyUrl(row.representative_thumbnail_ad_id, auth);
+      buildMetaThumbnailProxyUrl(
+        row.representative_thumbnail_ad_id,
+        auth,
+        row.display_name ?? null,
+      );
     return {
       thumbnail: proxied ?? row.representative_thumbnail,
       altText: row.display_name,
@@ -683,6 +687,7 @@ function toCardModel(
     buildMetaThumbnailProxyUrl(
       row.thumbnail_ad_id ?? row.representative_ad_id,
       auth,
+      display,
     );
   return {
     thumbnail: proxied ?? row.thumbnail_url,

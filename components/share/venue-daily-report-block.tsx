@@ -343,6 +343,7 @@ export function VenueDailyTrackerSection({
       otherSpendByDate: windowedOtherSpendByDate,
       otherSpendBreakdownByDate: windowedOtherSpendBreakdownByDate,
       suppressSyntheticToday: windowDaySet !== null,
+      reportEmbed: true,
     }),
     [
       windowedTimeline,

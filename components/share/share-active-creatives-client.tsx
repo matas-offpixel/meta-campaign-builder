@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { Layers } from "lucide-react";
 
-import { NoPreviewThumbnailCard } from "@/components/report/no-preview-placeholder";
-
 import { Badge } from "@/components/ui/badge";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
@@ -91,7 +89,7 @@ function ShareCreativeCard({
       className="group flex h-full flex-col gap-3 rounded-md border border-border bg-card p-4 text-left transition hover:border-border-strong hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <div className="flex items-start gap-3">
-        <Thumbnail url={thumbUrl} alt={row.display_name} />
+        <Thumbnail key={thumbUrl ?? ""} url={thumbUrl} alt={row.display_name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <div className="line-clamp-1 text-sm font-medium text-foreground">
@@ -248,22 +246,55 @@ function FunnelRow({
 }
 
 function Thumbnail({ url, alt }: { url: string | null; alt: string }) {
-  if (!url) {
-    return <NoPreviewThumbnailCard />;
+  const [loaded, setLoaded] = useState(false);
+  const [broken, setBroken] = useState(false);
+
+  if (!url || broken) {
+    return <MetaCreativePlaceholder label={alt} />;
   }
   return (
-    // Plain <img> for the same reason as the internal panel: Meta
-    // CDN URLs are signed + short-lived and don't fit next/image's
-    // remotePatterns model without per-edge maintenance.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt={alt}
-      width={64}
-      height={64}
-      className="h-16 w-16 flex-none rounded border border-border object-cover"
-      loading="lazy"
-    />
+    <span className="relative inline-block h-16 w-16 shrink-0">
+      {!loaded ? (
+        <span
+          className="absolute inset-0 z-0 animate-pulse rounded border border-border bg-muted"
+          aria-hidden
+        />
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={alt}
+        width={64}
+        height={64}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        onError={() => setBroken(true)}
+        className={`relative z-10 h-16 w-16 rounded border border-border object-cover transition-opacity ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </span>
+  );
+}
+
+/** Fallback tile when there is no URL or the proxy/CDN fails — Meta blue, not a generic document icon. */
+function MetaCreativePlaceholder({ label }: { label: string }) {
+  const initials =
+    label
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 3) || "Ad";
+  return (
+    <div
+      className="flex h-16 w-16 shrink-0 items-center justify-center rounded border border-border bg-[#1877F2] px-1 text-center text-[10px] font-semibold uppercase leading-tight text-white"
+      aria-hidden
+    >
+      <span className="line-clamp-3">{initials}</span>
+    </div>
   );
 }
 

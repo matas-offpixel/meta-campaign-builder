@@ -203,6 +203,12 @@ interface Props {
      * the selected window (e.g. Yesterday).
      */
     suppressSyntheticToday?: boolean;
+    /**
+     * Venue full-report embed: daily rows only; timeframe is driven by the
+     * sticky header URL. Hides the cadence toggle + per-table Sync button
+     * (global Sync now lives in the header).
+     */
+    reportEmbed?: boolean;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -258,6 +264,7 @@ export function DailyTracker({
   visibleRowLimit,
 }: Props) {
   const isControlled = controlled !== undefined;
+  const reportEmbed = isControlled && !!controlled?.reportEmbed;
 
   // Internal state — only ever populated in uncontrolled mode. In
   // controlled mode we read straight from `controlled.*` and skip
@@ -304,6 +311,7 @@ export function DailyTracker({
   // hopping between events doesn't carry the wrong setting.
   const [cadence, setCadence] = useState<TrackerCadence>(defaultCadence);
   useEffect(() => {
+    if (reportEmbed) return;
     if (typeof window === "undefined") return;
     try {
       const stored = window.sessionStorage.getItem(
@@ -314,7 +322,7 @@ export function DailyTracker({
       // sessionStorage can throw in privacy modes — silently fall back
       // to the SSR default; the toggle still works for the live session.
     }
-  }, [eventId]);
+  }, [eventId, reportEmbed]);
   const onCadenceChange = useCallback(
     (next: TrackerCadence) => {
       setCadence(next);
@@ -327,6 +335,8 @@ export function DailyTracker({
     },
     [eventId],
   );
+
+  const effectiveCadence: TrackerCadence = reportEmbed ? "daily" : cadence;
 
   const refresh = useCallback(async () => {
     const res = await fetch(
@@ -524,7 +534,7 @@ export function DailyTracker({
 
   const display = useMemo(
     () =>
-      cadence === "weekly"
+      effectiveCadence === "weekly"
         ? buildWeeklyDisplayRows({
             timeline: trackerDisplayTimeline,
             presale,
@@ -545,7 +555,7 @@ export function DailyTracker({
     [
       trackerDisplayTimeline,
       presale,
-      cadence,
+      effectiveCadence,
       otherSpendMap,
       otherBreakdownMap,
       suppressSyntheticToday,
@@ -600,10 +610,12 @@ export function DailyTracker({
   // today / current week W/C) rather than a hard slice, so the
   // subtitle reads as guidance rather than a claim about row count.
   const WEEKLY_WINDOW_LABEL_WEEKS = Math.ceil(60 / 7); // = 9
-  const dateColLabel = cadence === "weekly" ? "Week (W/C)" : "Date";
+  const dateColLabel =
+    effectiveCadence === "weekly" ? "Week (W/C)" : "Date";
   const colSpan = isEditable ? (isBrandCampaign ? 9 : 18) : isBrandCampaign ? 8 : 17;
-  const windowLabel =
-    cadence === "weekly"
+  const windowLabel = reportEmbed
+    ? "Header timeframe"
+    : effectiveCadence === "weekly"
       ? `Last ${WEEKLY_WINDOW_LABEL_WEEKS} weeks`
       : "Last 60 days";
   const visibleDisplay =
@@ -647,7 +659,7 @@ export function DailyTracker({
                 : "Meta spend & clicks aggregated by"}{" "}
               <code className="text-foreground/80">[event_code]</code>
               {!isBrandCampaign && hasEventbriteLink
-                ? cadence === "weekly"
+                ? effectiveCadence === "weekly"
                   ? " · Eventbrite tickets & revenue per ISO week"
                   : " · Eventbrite tickets & revenue per day"
                 : ""}
@@ -656,8 +668,10 @@ export function DailyTracker({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <CadenceToggle value={cadence} onChange={onCadenceChange} />
-          {!readOnly && (
+          {!reportEmbed ? (
+            <CadenceToggle value={cadence} onChange={onCadenceChange} />
+          ) : null}
+          {!readOnly && !reportEmbed ? (
             <Button
               size="sm"
               variant="outline"
@@ -671,7 +685,7 @@ export function DailyTracker({
               )}
               Sync now
             </Button>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -752,7 +766,7 @@ export function DailyTracker({
                   key={row.key}
                   row={row}
                   eventId={eventId}
-                  cadence={cadence}
+                  cadence={effectiveCadence}
                   // In weekly mode the row spans seven days, so the
                   // legacy NotesCell PATCH endpoint
                   // (`?date=YYYY-MM-DD`) has no single target and a
@@ -760,7 +774,7 @@ export function DailyTracker({
                   // to read-only for the whole table. The new
                   // editor dialog handles weekly correctly by
                   // writing to the W/C Monday explicitly.
-                  readOnly={readOnly || cadence === "weekly"}
+                  readOnly={readOnly || effectiveCadence === "weekly"}
                   // Edit-pencil column: present iff `isEditable`.
                   // Suppressed on the presale rolled-up bucket — its
                   // value is the sum of many dates and there's no
@@ -789,7 +803,7 @@ export function DailyTracker({
         <RowEditDialog
           eventId={eventId}
           row={editTarget}
-          cadence={cadence}
+          cadence={effectiveCadence}
           onClose={() => setEditTarget(null)}
           onSaved={(date, patch) => onRowSaved(date, patch)}
         />

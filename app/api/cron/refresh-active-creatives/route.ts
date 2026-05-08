@@ -13,6 +13,7 @@ import {
   listCreativeTags,
   type MotionCreativeTagRow,
 } from "@/lib/db/creative-tags";
+import { warmCreativeThumbnailsForGroups } from "@/lib/meta/creative-thumbnail-warm";
 import {
   refreshActiveCreativesForEvent,
   type RefreshResult,
@@ -265,19 +266,25 @@ export async function GET(req: NextRequest) {
         eventCode: event.event_code,
         adAccountId,
         eventDate,
-        onSnapshotWritten:
-          autoTagEnabled && anthropic
-            ? async ({ payload }) => {
-                await runAutoTagForSnapshot({
-                  supabase,
-                  userId: event.user_id,
-                  eventId: event.id,
-                  payload,
-                  anthropic,
-                  summary: aiAutoTag,
-                });
-              }
-            : undefined,
+        onSnapshotWritten: async ({ payload }) => {
+          await warmCreativeThumbnailsForGroups({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            supabase: supabase as any,
+            userId: event.user_id,
+            adAccountId,
+            groups: payload.groups,
+          });
+          if (autoTagEnabled && anthropic) {
+            await runAutoTagForSnapshot({
+              supabase,
+              userId: event.user_id,
+              eventId: event.id,
+              payload,
+              anthropic,
+              summary: aiAutoTag,
+            });
+          }
+        },
       });
 
       const presetsWritten = result.presetResults.filter(

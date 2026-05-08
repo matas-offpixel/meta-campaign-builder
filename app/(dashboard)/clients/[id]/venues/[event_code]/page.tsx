@@ -175,6 +175,7 @@ export default async function ClientVenueReportPage({
         customRange={customRange}
         platform={platform}
         syncEventIds={venueEvents.map((e) => e.id)}
+        shareClientId={id}
       />
       <div className="flex flex-wrap items-center justify-end gap-2">
         <VenueShareControls
