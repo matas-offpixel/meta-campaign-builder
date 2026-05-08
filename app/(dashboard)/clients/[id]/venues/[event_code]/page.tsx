@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
@@ -10,6 +11,8 @@ import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueShareControls } from "@/components/dashboard/clients/venue-share-controls";
 import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
+import { InsightsPanelSkeleton } from "@/components/dashboard/skeletons/insights-panel-skeleton";
+import { PacingSectionSkeleton } from "@/components/dashboard/skeletons/pacing-section-skeleton";
 import {
   DATE_PRESETS,
   type CustomDateRange,
@@ -203,19 +206,30 @@ export default async function ClientVenueReportPage({
           isInternal
         />
       ) : activeTab === "insights" ? (
-        <CreativePatternsPanel
-          clientId={id}
-          scopeLabel={venueTitle}
-          regionFilter={{ type: "venue_code", value: eventCode }}
-          phase={patternsPhase}
-          funnel={patternsFunnel}
-          venueEventCode={eventCode}
-        />
+        // CreativePatternsPanel is an async server component that
+        // fetches its own pattern aggregates. Suspense streams the
+        // sticky header + tabs first, then swaps the panel in once
+        // the pattern data resolves.
+        <Suspense fallback={<InsightsPanelSkeleton />}>
+          <CreativePatternsPanel
+            clientId={id}
+            scopeLabel={venueTitle}
+            regionFilter={{ type: "venue_code", value: eventCode }}
+            phase={patternsPhase}
+            funnel={patternsFunnel}
+            venueEventCode={eventCode}
+          />
+        </Suspense>
       ) : (
-        <FunnelPacingSection
-          clientId={id}
-          regionFilter={{ type: "venue_code", value: eventCode }}
-        />
+        // FunnelPacingSection is an async server component that
+        // fetches per-creative pacing data. Same streaming win as
+        // the Insights branch.
+        <Suspense fallback={<PacingSectionSkeleton />}>
+          <FunnelPacingSection
+            clientId={id}
+            regionFilter={{ type: "venue_code", value: eventCode }}
+          />
+        </Suspense>
       )}
     </div>
   );
