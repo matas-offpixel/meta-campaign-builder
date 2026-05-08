@@ -526,6 +526,10 @@ export async function loadVenuePortalByToken(
 async function loadPortalForClientId(
   clientId: string,
 ): Promise<ClientPortalData> {
+  const devTiming = process.env.NODE_ENV !== "production";
+  const overallLabel = `[client-portal] loadPortalForClientId(${clientId})`;
+  if (devTiming) console.time(overallLabel);
+
   const admin = createServiceRoleClient();
 
   const { data: client, error: clientErr } = await admin
@@ -534,6 +538,7 @@ async function loadPortalForClientId(
     .eq("id", clientId)
     .maybeSingle();
   if (clientErr || !client) {
+    if (devTiming) console.timeEnd(overallLabel);
     return { ok: false, reason: "client_load_failed" };
   }
 
@@ -546,6 +551,7 @@ async function loadPortalForClientId(
     .order("event_date", { ascending: true, nullsFirst: false });
 
   if (eventsErr) {
+    if (devTiming) console.timeEnd(overallLabel);
     return { ok: false, reason: "events_load_failed" };
   }
 
@@ -579,93 +585,132 @@ async function loadPortalForClientId(
   const latestTicketSnapshotAtByEvent = new Map<string, string>();
   const latestTicketSnapshotSourceByEvent = new Map<string, TicketSnapshotSource>();
 
-  if (eventIds.length > 0) {
-    const { data: snapshots } = await admin
-      .from("client_report_weekly_snapshots")
-      .select("event_id, tickets_sold, revenue, captured_at, week_start")
-      .in("event_id", eventIds)
-      .order("captured_at", { ascending: false });
+  // PR perf/client-portal-loader-parallelise — every fetch below
+  // depends only on `clientId` or `eventIds`. They were previously
+  // 10 sequential awaits (1.5–3.5s of cumulative round-trip latency
+  // on 4theFans-scale clients). Running them concurrently bottlenecks
+  // on the slowest single PostgREST round-trip instead of the sum.
+  // KEEP the post-Promise.all synthesis logic below intact — the
+  // mutation order (apply additional tickets before tier-channel
+  // breakdowns; weekly-snapshot collapse last) is load-bearing.
+  const parallelLabel = `[client-portal] loadPortalForClientId(${clientId}) parallel-fetches`;
+  if (devTiming) console.time(parallelLabel);
+  const [
+    snapshotsRaw,
+    dailyEntries,
+    dailyRollups,
+    ticketingStatusByEvent,
+    ticketTiers,
+    additionalTickets,
+    tierChannels,
+    tierChannelAllocations,
+    tierChannelSales,
+    ticketSnapshotRows,
+    additionalSpendRows,
+  ] = await Promise.all([
+    eventIds.length > 0
+      ? admin
+          .from("client_report_weekly_snapshots")
+          .select("event_id, tickets_sold, revenue, captured_at, week_start")
+          .in("event_id", eventIds)
+          .order("captured_at", { ascending: false })
+      : Promise.resolve({
+          data: [] as Array<{
+            event_id: string;
+            tickets_sold: number | null;
+            revenue: number | null;
+            captured_at: string;
+            week_start: string;
+          }>,
+        }),
+    fetchAllDailyEntries(admin, clientId),
+    eventIds.length > 0
+      ? fetchAllDailyRollups(admin, eventIds)
+      : Promise.resolve([] as DailyRollupRow[]),
+    eventIds.length > 0
+      ? fetchTicketingStatusByEvent(admin, eventIds)
+      : Promise.resolve(new Map<string, PortalTicketingStatus>()),
+    listEventTicketTiersForEvents(admin, eventIds),
+    eventIds.length > 0
+      ? fetchAllAdditionalTickets(admin, eventIds)
+      : Promise.resolve([] as AdditionalTicketEntry[]),
+    listChannelsForClient(admin, clientId),
+    eventIds.length > 0
+      ? listAllocationsForEvents(admin, eventIds)
+      : Promise.resolve(
+          [] as import("./tier-channels").TierChannelAllocationRow[],
+        ),
+    eventIds.length > 0
+      ? listSalesForEvents(admin, eventIds)
+      : Promise.resolve([] as import("./tier-channels").TierChannelSaleRow[]),
+    eventIds.length > 0
+      ? fetchAllTicketSalesSnapshots(admin, eventIds)
+      : Promise.resolve(
+          null as Array<{
+            event_id: string;
+            snapshot_at: string;
+            tickets_sold: number;
+            source: string;
+          }> | null,
+        ),
+    eventIds.length > 0
+      ? fetchAllAdditionalSpend(admin, eventIds)
+      : Promise.resolve(
+          null as Array<{
+            event_id: string;
+            date: string;
+            amount: number | string | null;
+            category?: string | null;
+            scope?: string | null;
+            venue_event_code?: string | null;
+          }> | null,
+        ),
+  ]);
+  if (devTiming) console.timeEnd(parallelLabel);
 
-    for (const row of snapshots ?? []) {
-      const eventId = row.event_id as string;
-      const snap: PortalSnapshot = {
-        tickets_sold: row.tickets_sold,
-        revenue: row.revenue,
-        captured_at: row.captured_at,
-        week_start: row.week_start,
-      };
-      if (!snapshotsByEvent.has(eventId)) {
-        snapshotsByEvent.set(eventId, snap);
-      }
-      const list = historyByEvent.get(eventId) ?? [];
-      if (list.length < 5) {
-        list.push(snap);
-        historyByEvent.set(eventId, list);
-      }
+  for (const row of snapshotsRaw.data ?? []) {
+    const eventId = row.event_id as string;
+    const snap: PortalSnapshot = {
+      tickets_sold: row.tickets_sold,
+      revenue: row.revenue,
+      captured_at: row.captured_at,
+      week_start: row.week_start,
+    };
+    if (!snapshotsByEvent.has(eventId)) {
+      snapshotsByEvent.set(eventId, snap);
+    }
+    const list = historyByEvent.get(eventId) ?? [];
+    if (list.length < 5) {
+      list.push(snap);
+      historyByEvent.set(eventId, list);
     }
   }
 
-  // Daily tracker rows for every event under this client. Filtered by
-  // client_id (not event_ids) so the query is one round-trip per page.
-  // Page explicitly because this legacy table grows as events × days
-  // and can otherwise hit PostgREST's 1,000-row cap.
-  const dailyEntries = await fetchAllDailyEntries(admin, clientId);
-
-  // Event daily rollups (`event_daily_rollups`) — the source of truth
-  // for paid-media spend across events. Filtered by event_ids rather
-  // than client_id because the rollup table doesn't carry client_id;
-  // the events already are scoped to the token's client so this is
-  // safe and also RLS-safe under service-role.
-  //
-  // Important: PostgREST caps unpaginated selects at 1,000 rows. Larger
-  // client dashboards exceed that quickly, which can silently truncate
-  // later venue allocations. Page explicitly so lifetime venue totals
-  // include every rollup row.
-  let dailyRollups: DailyRollupRow[] = [];
-  if (eventIds.length > 0) {
-    dailyRollups = await fetchAllDailyRollups(admin, eventIds);
-  }
   const latestMetaSyncByEvent = latestMetaSyncByEventId(dailyRollups);
-  const ticketingStatusByEvent =
-    eventIds.length > 0
-      ? await fetchTicketingStatusByEvent(admin, eventIds)
-      : new Map<string, PortalTicketingStatus>();
-  const ticketTiers = await listEventTicketTiersForEvents(admin, eventIds);
   const ticketTiersByEvent = groupTicketTiersByEvent(ticketTiers);
-  const additionalTickets =
-    eventIds.length > 0 ? await fetchAllAdditionalTickets(admin, eventIds) : [];
   const additionalTicketTotals = additionalTicketTotalsByEvent(additionalTickets);
   const additionalTicketRevenueTotals =
     additionalTicketRevenueTotalsByEvent(additionalTickets);
   applyTierAdditionalTickets(ticketTiersByEvent, additionalTickets);
 
-  // Multi-channel allocations + sales (migrations 076–077). Loaded in
-  // parallel with the existing ticket-tier reads so we don't pay an
-  // extra round-trip latency. `tierChannels` is per-client; the
-  // allocations + sales are per-event under the client.
-  const tierChannels = await listChannelsForClient(admin, clientId);
-  const tierChannelAllocations =
-    eventIds.length > 0 ? await listAllocationsForEvents(admin, eventIds) : [];
-  const tierChannelSales =
-    eventIds.length > 0 ? await listSalesForEvents(admin, eventIds) : [];
+  // Multi-channel allocations + sales (migrations 076–077) — the
+  // breakdown post-processing happens after the additional-ticket
+  // mutation above so the per-tier API/additional split it depends on
+  // is already resolved.
   applyTierChannelBreakdowns(ticketTiersByEvent, {
     channels: tierChannels,
     allocations: tierChannelAllocations,
     sales: tierChannelSales,
   });
 
-  // Weekly ticket snapshots (`ticket_sales_snapshots`). Pulled across
-  // every event in one shot so the venue-expansion chart doesn't
-  // fan out a per-event fetch on open. The query already selects
-  // only the fields the chart uses — keeping the payload trim.
-  //
-  // Collapse rules (manual > xlsx_import > eventbrite for same
-  // week) live in `collapseWeekly`; we run that post-select to
-  // keep the DB query simple rather than doing it in SQL.
+  // Weekly ticket snapshots (`ticket_sales_snapshots`) — collapse +
+  // dominant-source resolution preserved exactly as pre-parallelise.
+  // See the original docblock on `collapseWeeklyNormalizedPerEvent`
+  // for why we stay strictly per-event when normalising.
   const weeklyTicketSnapshots: WeeklyTicketSnapshotRow[] = [];
-  if (eventIds.length > 0) {
-    const rows = await fetchAllTicketSalesSnapshots(admin, eventIds);
-    if (rows) {
+  if (ticketSnapshotRows) {
+    const rows = ticketSnapshotRows;
+    {
       const byEvent = new Map<
         string,
         Array<{ snapshot_at: string; tickets_sold: number; source: string }>
@@ -765,38 +810,36 @@ async function loadPortalForClientId(
   //     count because they FK to exactly one event_id inside the
   //     group, same as event-scope rows).
   let additionalSpend: AdditionalSpendRow[] = [];
-  if (eventIds.length > 0) {
-    const rows = await fetchAllAdditionalSpend(admin, eventIds);
-    if (rows) {
-      additionalSpend = rows
-        .map((r) => {
-          const row = r as unknown as {
-            event_id: string;
-            date: string;
-            amount: number | string | null;
-            category?: string | null;
-            scope?: string | null;
-            venue_event_code?: string | null;
-          };
-          const rawScope = row.scope ?? "event";
-          const scope = rawScope === "venue" ? "venue" : "event";
-          return {
-            event_id: row.event_id,
-            date: row.date,
-            amount:
-              typeof row.amount === "number"
-                ? row.amount
-                : Number(row.amount ?? 0),
-            category: row.category ?? "OTHER",
-            scope,
-            venue_event_code:
-              scope === "venue" ? (row.venue_event_code ?? null) : null,
-          } as AdditionalSpendRow;
-        })
-        .filter((r) => Number.isFinite(r.amount));
-    }
+  if (additionalSpendRows) {
+    additionalSpend = additionalSpendRows
+      .map((r) => {
+        const row = r as unknown as {
+          event_id: string;
+          date: string;
+          amount: number | string | null;
+          category?: string | null;
+          scope?: string | null;
+          venue_event_code?: string | null;
+        };
+        const rawScope = row.scope ?? "event";
+        const scope = rawScope === "venue" ? "venue" : "event";
+        return {
+          event_id: row.event_id,
+          date: row.date,
+          amount:
+            typeof row.amount === "number"
+              ? row.amount
+              : Number(row.amount ?? 0),
+          category: row.category ?? "OTHER",
+          scope,
+          venue_event_code:
+            scope === "venue" ? (row.venue_event_code ?? null) : null,
+        } as AdditionalSpendRow;
+      })
+      .filter((r) => Number.isFinite(r.amount));
   }
 
+  if (devTiming) console.timeEnd(overallLabel);
   return {
     ok: true,
     client: {
