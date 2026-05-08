@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     return Response.json({ ok: true, campaigns, tokenSource: source });
   } catch (err) {
     if (isMetaAdAccountRateLimitError(err)) {
-      return Response.json(audienceSourceRateLimitBody(), { status: 429 });
+      return Response.json(audienceSourceRateLimitBody(err), { status: 429 });
     }
     const message = err instanceof Error ? err.message : "Failed to load campaigns";
     return Response.json({ error: message }, { status: 502 });
