@@ -82,6 +82,12 @@ interface CronResponse {
   ok: boolean;
   startedAt: string;
   finishedAt: string;
+  /**
+   * "base" → 3×/day cadence (mig PR-E `vercel.json`).
+   * "burst" → emitted by `/api/cron/show-week-burst` for events
+   *   with `event_date` in the next 7 days.
+   */
+  cadence_tier: "base" | "burst";
   eventsConsidered: number;
   eventsProcessed: number;
   totalRowsUpserted: number;
@@ -142,13 +148,14 @@ export async function GET(req: NextRequest) {
       ok: true,
       startedAt,
       finishedAt,
+      cadence_tier: "base",
       eventsConsidered: 0,
       eventsProcessed: 0,
       totalRowsUpserted: 0,
       results: [],
     };
     console.log(
-      `[cron rollup-sync-events] no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+      `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
     );
     return NextResponse.json(empty);
   }
@@ -266,6 +273,7 @@ export async function GET(req: NextRequest) {
     ok: allOk,
     startedAt,
     finishedAt,
+    cadence_tier: "base",
     eventsConsidered: events.length,
     eventsProcessed: results.length,
     totalRowsUpserted,
@@ -273,7 +281,7 @@ export async function GET(req: NextRequest) {
   };
 
   console.log(
-    `[cron rollup-sync-events] done events=${results.length} all_ok=${allOk} total_rows=${totalRowsUpserted}`,
+    `[cron rollup-sync-events] cadence=base done events=${results.length} all_ok=${allOk} total_rows=${totalRowsUpserted}`,
   );
 
   try {

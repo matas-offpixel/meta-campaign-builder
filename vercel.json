@@ -7,15 +7,19 @@
     },
     {
       "path": "/api/cron/refresh-creative-insights",
-      "schedule": "10 6,10,14,18,22 * * *"
+      "schedule": "10 6,12,18 * * *"
     },
     {
       "path": "/api/cron/rollup-sync-events",
-      "schedule": "15 6,10,14,18,22 * * *"
+      "schedule": "15 6,12,18 * * *"
     },
     {
       "path": "/api/cron/refresh-active-creatives",
-      "schedule": "30 6,10,14,18,22 * * *"
+      "schedule": "30 6,12,18 * * *"
+    },
+    {
+      "path": "/api/cron/show-week-burst",
+      "schedule": "20 8,14,20 * * *"
     },
     {
       "path": "/api/internal/scan-enhancement-flags",
