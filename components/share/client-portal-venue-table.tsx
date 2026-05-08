@@ -679,6 +679,12 @@ function displayVenueSpend(
   if (spend.kind === "rollup") {
     return spend.venuePaidMedia;
   }
+  // Allocator-derived spend is always preferred over the stale meta_spend_cached
+  // column (group.campaignSpend). Use venuePaidMedia = specific + generic + presale
+  // which is exactly what the trend pill and event breakdown rows read.
+  if (spend.kind === "allocated") {
+    return spend.venuePaidMedia;
+  }
   if (spend.kind !== "add" && group.campaignSpend !== null) {
     return group.campaignSpend;
   }
