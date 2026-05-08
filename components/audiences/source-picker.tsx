@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Select } from "@/components/ui/select";
 import { formatCampaignStat } from "@/lib/audiences/format-campaign-spend";
 import { filterPagesByQuery } from "@/lib/audiences/filter-pages-by-query";
@@ -443,39 +442,102 @@ function IgSourcePicker({
       const ig = page.instagramBusinessAccount;
       if (ig?.id && !seen.has(ig.id)) seen.set(ig.id, { ...ig, pageName: page.name });
     }
-    return Array.from(seen.values());
+    return Array.from(seen.values()).sort((a, b) => {
+      const aLabel = a.username ?? a.name ?? a.id;
+      const bLabel = b.username ?? b.name ?? b.id;
+      return aLabel.localeCompare(bLabel);
+    });
   }, [pages]);
 
-  const comboboxOptions: ComboboxOption[] = useMemo(
-    () =>
-      accounts.map((account) => ({
-        value: account.id,
-        label: account.username
-          ? `@${account.username}`
-          : account.name ?? account.id,
-        sublabel: `${account.pageName}${account.name && account.name !== account.username ? ` · ${account.name}` : ""}`,
-      })),
-    [accounts],
-  );
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return accounts;
+    return accounts.filter(
+      (acc) =>
+        (acc.username ?? "").toLowerCase().includes(q) ||
+        (acc.name ?? "").toLowerCase().includes(q) ||
+        acc.pageName.toLowerCase().includes(q) ||
+        acc.id.includes(q),
+    );
+  }, [accounts, query]);
+
+  const selectedIds = useMemo(() => {
+    if (value.pageIds?.length) return new Set(value.pageIds);
+    if (value.sourceId) return new Set([value.sourceId]);
+    return new Set<string>();
+  }, [value.pageIds, value.sourceId]);
+
+  function toggleAccount(account: typeof accounts[number]) {
+    const next = new Set(selectedIds);
+    if (next.has(account.id)) next.delete(account.id);
+    else next.add(account.id);
+    const ids = Array.from(next);
+    const summaries = ids.map((id) => {
+      const acc = accounts.find((a) => a.id === id);
+      return {
+        id,
+        name: acc?.username ?? acc?.name ?? id,
+        slug: acc?.username,
+      };
+    });
+    const primary = summaries[0];
+    onChange({
+      ...value,
+      pageIds: ids,
+      pageSummaries: summaries,
+      sourceId: primary?.id,
+      sourceName: primary?.name,
+    });
+  }
 
   return (
     <div className="space-y-2">
-      <Combobox
-        label="Instagram account"
-        value={value.sourceId ?? ""}
-        onChange={(nextId) => {
-          const account = accounts.find((ig) => ig.id === nextId);
-          onChange({
-            ...value,
-            sourceId: account?.id ?? "",
-            sourceName: account?.username ?? account?.name ?? account?.id,
-          });
-        }}
-        placeholder="Search by handle or page…"
-        options={comboboxOptions}
-        loading={loading}
-        emptyText="No Instagram accounts match"
-      />
+      <p className="text-sm font-medium">Instagram account</p>
+      <label className="flex flex-col gap-1.5 text-sm font-medium">
+        Search accounts
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter by handle or page name…"
+          className="h-9 rounded-md border border-border-strong bg-background px-3 text-sm font-normal text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        {selectedIds.size} IG account{selectedIds.size === 1 ? "" : "s"} selected
+      </p>
+      <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-border p-2">
+        {filtered.map((account) => {
+          const checked = selectedIds.has(account.id);
+          const handle = account.username ? `@${account.username}` : account.name ?? account.id;
+          const sublabel = account.pageName !== account.name ? account.pageName : undefined;
+          return (
+            <label
+              key={account.id}
+              className={`flex cursor-pointer items-start gap-3 rounded-md border p-2 text-sm ${
+                checked ? "border-primary bg-primary/10" : "border-border bg-background"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggleAccount(account)}
+                className="mt-1"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <SourceAvatar src={account.thumbnailUrl ?? undefined} label={handle} />
+                  <span className="font-medium">{handle}</span>
+                </div>
+                {sublabel && (
+                  <p className="text-xs text-muted-foreground">{sublabel}</p>
+                )}
+              </div>
+            </label>
+          );
+        })}
+      </div>
       <SourceState
         loading={loading}
         error={error}
