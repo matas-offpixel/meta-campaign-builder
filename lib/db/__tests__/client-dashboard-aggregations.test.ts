@@ -13,6 +13,7 @@ import {
   type AggregatableEvent,
 } from "../client-dashboard-aggregations.ts";
 import type { DailyRollupRow } from "../client-portal-server.ts";
+import { venueSpend } from "../../dashboard/venue-spend-model.ts";
 
 function ev(
   overrides: Partial<AggregatableEvent> & { id: string },
@@ -1265,5 +1266,123 @@ describe("aggregateVenueWoW", () => {
     assert.equal(result.roas.current, null);
     assert.equal(result.roas.previous, null);
     assert.equal(result.roas.delta, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// displayVenueSpend "allocated" branch — regression for Aston Villa bug
+//
+// Reproduces the scenario where a single-event venue has all spend in the
+// allocator columns (ad_spend_allocated = ad_spend, generic = presale = 0).
+// venueSpend() must return kind:"allocated" and the paidMediaSpentOverride
+// path of aggregateVenueCampaignPerformance must surface £648.29 as paidSpent.
+// ---------------------------------------------------------------------------
+
+describe("venueSpend — allocated branch (Villa regression)", () => {
+  const VILLA_ID = "64d8f22a-a320-488a-9aa3-b32a7bb2bf1f";
+
+  function allocatedRollup(
+    event_id: string,
+    amount: number,
+    date: string,
+  ): DailyRollupRow {
+    return rollup(event_id, amount, {
+      ad_spend_allocated: amount,
+      ad_spend_specific: amount,
+      ad_spend_generic_share: 0,
+      ad_spend_presale: null,
+      date,
+    });
+  }
+
+  const VILLA_ROLLUPS: DailyRollupRow[] = [
+    allocatedRollup(VILLA_ID, 56.1, "2026-04-01"),
+    allocatedRollup(VILLA_ID, 89.3, "2026-04-02"),
+    allocatedRollup(VILLA_ID, 72.4, "2026-04-03"),
+    allocatedRollup(VILLA_ID, 98.2, "2026-04-04"),
+    allocatedRollup(VILLA_ID, 81.5, "2026-04-05"),
+    allocatedRollup(VILLA_ID, 66.0, "2026-04-06"),
+    allocatedRollup(VILLA_ID, 112.7, "2026-04-07"),
+    allocatedRollup(VILLA_ID, 72.09, "2026-04-08"),
+  ];
+  const EXPECTED_TOTAL = VILLA_ROLLUPS.reduce(
+    (s, r) => s + (r.ad_spend ?? 0),
+    0,
+  );
+
+  it("aggregateAllocationByEvent produces specific=total, generic=presale=0", () => {
+    const alloc = aggregateAllocationByEvent(VILLA_ROLLUPS);
+    assert.ok(alloc.has(VILLA_ID), "event must appear in allocation map");
+    const entry = alloc.get(VILLA_ID)!;
+    assert.ok(
+      Math.abs(entry.specific - EXPECTED_TOTAL) < 1e-6,
+      `specific should equal ${EXPECTED_TOTAL}, got ${entry.specific}`,
+    );
+    assert.equal(entry.genericShare, 0);
+    assert.equal(entry.presale, 0);
+    assert.ok(
+      Math.abs(entry.paidMedia - EXPECTED_TOTAL) < 1e-6,
+      `paidMedia should equal ${EXPECTED_TOTAL}, got ${entry.paidMedia}`,
+    );
+  });
+
+  it("venueSpend returns kind:allocated with venuePaidMedia equal to sum", () => {
+    const alloc = aggregateAllocationByEvent(VILLA_ROLLUPS);
+    const group = {
+      city: "Birmingham",
+      campaignSpend: null as number | null,
+      eventCount: 1,
+      events: [{ id: VILLA_ID }],
+    };
+    const paidByEvent = new Map<string, number>();
+    const spend = venueSpend(group, null, alloc, paidByEvent);
+
+    assert.equal(spend.kind, "allocated");
+    if (spend.kind !== "allocated") throw new Error("unreachable");
+    assert.ok(
+      Math.abs(spend.venuePaidMedia - EXPECTED_TOTAL) < 1e-6,
+      `venuePaidMedia should equal ${EXPECTED_TOTAL}, got ${spend.venuePaidMedia}`,
+    );
+  });
+
+  it("aggregateVenueCampaignPerformance uses paidMediaSpentOverride for paidSpent", () => {
+    const alloc = aggregateAllocationByEvent(VILLA_ROLLUPS);
+    const group = {
+      city: "Birmingham",
+      campaignSpend: null as number | null,
+      eventCount: 1,
+      events: [{ id: VILLA_ID }],
+    };
+    const spend = venueSpend(group, null, alloc, new Map());
+    // Simulate what displayVenueSpend now returns for kind:"allocated"
+    const spentOverride =
+      spend.kind === "allocated" ? spend.venuePaidMedia : null;
+
+    const villaEvent = ev({
+      id: VILLA_ID,
+      event_code: "VILLA-2026",
+      budget_marketing: 12500,
+    } as Parameters<typeof ev>[0]);
+
+    const perf = aggregateVenueCampaignPerformance(
+      [villaEvent],
+      [],
+      VILLA_ROLLUPS,
+      "2026-04-09",
+      spentOverride,
+    );
+
+    assert.ok(
+      Math.abs(perf.paidMediaSpent - EXPECTED_TOTAL) < 1e-6,
+      `paidMediaSpent should equal ${EXPECTED_TOTAL}, got ${perf.paidMediaSpent}`,
+    );
+    assert.ok(
+      perf.paidMediaBudget !== null,
+      "paidMediaBudget should be non-null (12500)",
+    );
+    assert.ok(
+      Math.abs(perf.paidMediaUsedPct! - (EXPECTED_TOTAL / 12500) * 100) < 1e-4,
+      "paidMediaUsedPct should reflect actual spend / 12500",
+    );
   });
 });
