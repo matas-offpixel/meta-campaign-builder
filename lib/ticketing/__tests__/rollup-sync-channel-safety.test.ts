@@ -10,8 +10,9 @@
  * `npm test` in a plain Node.js environment.
  *
  * If any assertion fails, check lib/ticketing/CONTRACT.md for the list of
- * approved functions and do NOT add `upsertTierChannelSale` /
- * `deleteTierChannelSale` to any sync path.
+ * approved functions. Sync may upsert provider-owned automatic channel sales
+ * through `upsertProviderTierChannelSales`, but must not call the operator UI
+ * helpers (`upsertTierChannelSale` / `deleteTierChannelSale`) directly.
  */
 
 import { describe, it } from "node:test";
@@ -47,6 +48,19 @@ describe("rollup-sync channel-ownership invariant", () => {
     assert.ok(
       !src.includes("deleteTierChannelSale"),
       "rollup-sync-runner.ts must not call deleteTierChannelSale",
+    );
+  });
+
+  it("rollup-sync-runner.ts writes provider channel sales only through the ticketing helper", () => {
+    const src = readSrc("lib/dashboard/rollup-sync-runner.ts");
+    assert.ok(
+      src.includes("upsertProviderTierChannelSales"),
+      "rollup-sync-runner.ts should route provider automatic channel writes through upsertProviderTierChannelSales",
+    );
+    assert.ok(
+      !src.includes(".from(\"tier_channel_sales\")") &&
+        !src.includes(".from('tier_channel_sales')"),
+      "rollup-sync-runner.ts must not write tier_channel_sales directly",
     );
   });
 
@@ -100,6 +114,63 @@ describe("rollup-sync channel-ownership invariant", () => {
     );
   });
 
+  it("upsertProviderTierChannelSales only targets the 4TF automatic channel", () => {
+    const src = readSrc("lib/db/ticketing.ts");
+    const fnStart = src.indexOf(
+      "export async function upsertProviderTierChannelSales(",
+    );
+    const nextExport = src.indexOf("\nexport ", fnStart + 1);
+    const fnBody = src.slice(fnStart, nextExport > fnStart ? nextExport : undefined);
+
+    assert.ok(fnStart >= 0, "upsertProviderTierChannelSales must exist");
+    assert.ok(
+      fnBody.includes('args.provider !== "fourthefans"'),
+      "provider channel writer must be scoped to fourthefans for now",
+    );
+    assert.ok(
+      fnBody.includes('.eq("channel_name", "4TF")'),
+      "fourthefans provider writes must resolve the 4TF channel by name",
+    );
+    assert.ok(
+      fnBody.includes('.eq("is_automatic", true)'),
+      "fourthefans provider writes must target the automatic 4TF channel",
+    );
+    assert.ok(
+      fnBody.includes('"tier_channel_sales"'),
+      "provider channel writer must upsert tier_channel_sales",
+    );
+    assert.ok(
+      !fnBody.includes(".delete()"),
+      "provider channel writer must never delete/null-refill tier_channel_sales",
+    );
+    assert.ok(
+      fnBody.includes('onConflict: "event_id,tier_name,channel_id"'),
+      "provider channel writer must be idempotent on the natural key",
+    );
+  });
+
+  it("migration 088 is insert-only and dedupes by event tier and 4TF channel", () => {
+    const src = readSrc("supabase/migrations/088_cl_final_tier_channel_backfill.sql");
+    assert.ok(
+      src.includes("insert into public.tier_channel_sales"),
+      "migration must insert missing tier_channel_sales rows",
+    );
+    assert.ok(
+      src.includes("where not exists"),
+      "migration must preserve existing rows via NOT EXISTS",
+    );
+    assert.ok(
+      src.includes("existing.event_id = r.event_id") &&
+        src.includes("existing.tier_name = r.tier_name") &&
+        src.includes("existing.channel_id = r.channel_id"),
+      "migration dedupe key must be event_id + tier_name + channel_id",
+    );
+    assert.ok(
+      !src.includes("delete from") && !src.includes("truncate"),
+      "migration must never null/refill tier_channel_sales",
+    );
+  });
+
   it("updateEventCapacityFromTicketTiers in lib/db/ticketing.ts only writes to events table", () => {
     const src = readSrc("lib/db/ticketing.ts");
     const fnStart = src.indexOf(
@@ -130,8 +201,8 @@ describe("rollup-sync channel-ownership invariant", () => {
       "CONTRACT.md must document the tier_channel_sales constraint",
     );
     assert.ok(
-      contract.includes("upsertTierChannelSale"),
-      "CONTRACT.md must list upsertTierChannelSale as forbidden in sync paths",
+      contract.includes("upsertProviderTierChannelSales"),
+      "CONTRACT.md must list upsertProviderTierChannelSales as the sync helper",
     );
   });
 });

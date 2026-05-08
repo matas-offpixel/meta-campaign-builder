@@ -15,6 +15,7 @@ import {
   listLinksForEvent,
   recordConnectionSync,
   replaceEventTicketTiers,
+  upsertProviderTierChannelSales,
   updateEventCapacityFromTicketTiers,
 } from "@/lib/db/ticketing";
 import {
@@ -910,8 +911,17 @@ export async function runRollupSyncForEvent(
             tiers: mergedTiers,
             snapshotAt: tierSnapshotAt,
           });
+          const providerChannelRows = clientId
+            ? await upsertProviderTierChannelSales(supabase, {
+                eventId,
+                clientId,
+                provider: capacityTierSource ?? "fourthefans",
+                tiers: mergedTiers,
+                snapshotAt: tierSnapshotAt,
+              })
+            : 0;
           console.info(
-            `[rollup-sync] merged ticket tiers event_id=${eventId} tiers=${mergedTiers.length}`,
+            `[rollup-sync] merged ticket tiers event_id=${eventId} tiers=${mergedTiers.length} provider_channel_rows=${providerChannelRows}`,
           );
           const capacityResult = await updateEventCapacityFromTicketTiers(
             supabase,

@@ -837,6 +837,95 @@ export async function replaceEventTicketTiers(
   return rows.length;
 }
 
+export async function upsertProviderTierChannelSales(
+  supabase: AnySupabaseClient,
+  args: {
+    eventId: string;
+    clientId: string;
+    provider: TicketingProviderName;
+    tiers: TicketTierBreakdown[];
+    snapshotAt?: string;
+  },
+): Promise<number> {
+  if (args.provider !== "fourthefans") return 0;
+
+  const writeClient = createServiceRoleClient();
+  const sb = asAnyTable(writeClient);
+  const { data: channel, error: channelError } = await sb
+    .from("tier_channels")
+    .select("id")
+    .eq("client_id", args.clientId)
+    .eq("channel_name", "4TF")
+    .eq("is_automatic", true)
+    .maybeSingle();
+
+  if (channelError) {
+    throw new Error(
+      `[ticketing upsertProviderTierChannelSales channel] ${channelError.message}`,
+    );
+  }
+  if (!channel?.id) {
+    throw new Error(
+      "[ticketing upsertProviderTierChannelSales channel] 4TF automatic channel is not configured",
+    );
+  }
+
+  const snapshotAt = args.snapshotAt ?? new Date().toISOString();
+  const rowsByName = new Map<
+    string,
+    {
+      event_id: string;
+      tier_name: string;
+      channel_id: string;
+      tickets_sold: number;
+      revenue_amount: number;
+      revenue_overridden: boolean;
+      notes: string | null;
+      snapshot_at: string;
+      updated_at: string;
+    }
+  >();
+
+  for (const tier of args.tiers) {
+    const tierName = tier.tierName.trim();
+    if (!tierName) continue;
+    const quantitySold = Math.max(0, Math.trunc(tier.quantitySold));
+    const price = tier.price == null ? null : Number(tier.price);
+    const revenue =
+      price != null && Number.isFinite(price) ? price * quantitySold : 0;
+    const existing = rowsByName.get(tierName);
+    if (existing) {
+      existing.tickets_sold += quantitySold;
+      existing.revenue_amount += revenue;
+      continue;
+    }
+    rowsByName.set(tierName, {
+      event_id: args.eventId,
+      tier_name: tierName,
+      channel_id: channel.id as string,
+      tickets_sold: quantitySold,
+      revenue_amount: revenue,
+      revenue_overridden: false,
+      notes: "Automatic fourthefans sync",
+      snapshot_at: snapshotAt,
+      updated_at: snapshotAt,
+    });
+  }
+
+  const rows = Array.from(rowsByName.values());
+  if (rows.length === 0) return 0;
+
+  const { error } = await sb
+    .from("tier_channel_sales")
+    .upsert(rows, { onConflict: "event_id,tier_name,channel_id" });
+  if (error) {
+    throw new Error(
+      `[ticketing upsertProviderTierChannelSales upsert] ${error.message}`,
+    );
+  }
+  return rows.length;
+}
+
 export async function updateEventCapacityFromTicketTiers(
   supabase: AnySupabaseClient,
   args: {

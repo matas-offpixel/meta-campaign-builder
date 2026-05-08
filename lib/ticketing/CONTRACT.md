@@ -1,22 +1,21 @@
 # Ticketing sync channel-ownership contract
 
-## Invariant: sync owns exactly one channel per provider connection
+## Invariant: sync owns only the provider automatic channel
 
 Each ticketing provider connection is mapped to a single **source channel**
 (e.g. `4TF` for `fourthefans`, `Eventbrite` for `eventbrite`).
 
 The rollup-sync pipeline (`lib/dashboard/rollup-sync-runner.ts`) MUST:
 
-1. **Only write `event_ticket_tiers.quantity_sold`** for the tiers returned
-   by the connection's provider API. The sync treats `quantity_sold` as the
-   "provider channel slice" — the hybrid resolver in
-   `lib/dashboard/ticket-revenue-resolver.ts` adds operator-entered
-   `tier_channel_sales` rows at read time.
+1. **Write `event_ticket_tiers.quantity_sold`** for the tiers returned
+   by the connection's provider API. This keeps the full tier snapshot
+   available for capacity and reporting.
 
-2. **Never touch `tier_channel_sales`** — this table is operator-managed.
-   Rows may exist for any channel (Venue, CP, SeeTickets, DS, etc.) and are
-   entered manually via the dashboard UI or bulk imports. Sync code MUST NOT
-   insert, update, or delete rows in `tier_channel_sales`.
+2. **Only upsert the provider-owned automatic channel in
+   `tier_channel_sales`**. For `fourthefans`, that means the client's
+   automatic `4TF` channel. Sync code MUST NOT delete rows, null/refill an
+   event, or touch operator-owned channels (Venue, CP, SeeTickets, DS, Other).
+   Existing manual/import rows for the same event must be preserved.
 
 3. **Never touch `additional_ticket_entries`** — these rows capture ad-hoc
    sales (e.g. door sales, offline blocks) and are entered by operators.
@@ -27,10 +26,11 @@ The rollup-sync pipeline (`lib/dashboard/rollup-sync-runner.ts`) MUST:
 | Function | File | May be called from sync | Notes |
 |----------|------|------------------------|-------|
 | `replaceEventTicketTiers` | `lib/db/ticketing.ts` | ✅ Yes | Writes `event_ticket_tiers` only |
+| `upsertProviderTierChannelSales` | `lib/db/ticketing.ts` | ✅ Yes | Upserts provider automatic channel only (`4TF` for `fourthefans`) |
 | `updateEventCapacityFromTicketTiers` | `lib/db/ticketing.ts` | ✅ Yes | Writes `events.capacity` only |
 | `insertSnapshot` | `lib/db/ticketing.ts` | ✅ Yes | Writes `ticket_sales_snapshots` only |
 | `upsertEventbriteRollups` etc. | `lib/db/event-daily-rollups.ts` | ✅ Yes | Writes `event_daily_rollups` only |
-| `upsertTierChannelSale` | `lib/db/tier-channels.ts` | ❌ Never | Operator-owned table |
+| `upsertTierChannelSale` | `lib/db/tier-channels.ts` | ❌ Never in sync | Operator/admin UI helper |
 | `deleteTierChannelSale` | `lib/db/tier-channels.ts` | ❌ Never | Operator-owned table |
 
 ## Validation
@@ -46,7 +46,7 @@ ON CONFLICT DO NOTHING;
 
 -- Run sync: POST /api/ticketing/rollup-sync?eventId=ba05a442-bc21-432f-bec9-0f5ae5f02c84
 
--- Assert Venue row unchanged
+-- Assert Venue row unchanged and 4TF row upserted only for provider tiers
 SELECT tickets_sold FROM tier_channel_sales tcs
 JOIN tier_channels tc ON tc.id = tcs.channel_id
 WHERE tcs.event_id = 'ba05a442-bc21-432f-bec9-0f5ae5f02c84'
@@ -59,5 +59,7 @@ WHERE tcs.event_id = 'ba05a442-bc21-432f-bec9-0f5ae5f02c84'
 `lib/ticketing/__tests__/rollup-sync-channel-safety.test.ts` covers:
 
 - `replaceEventTicketTiers` never accesses `tier_channel_sales`
-- A concurrent Venue+CP+4TF scenario where only `event_ticket_tiers` rows
-  change after a simulated sync write
+- `rollup-sync-runner.ts` writes provider channel sales only through
+  `upsertProviderTierChannelSales`
+- A concurrent Venue+CP+4TF scenario where only `event_ticket_tiers` and the
+  provider-owned `4TF` channel rows change after a simulated sync write
