@@ -42,7 +42,7 @@ import {
 } from "@/lib/dashboard/comms-phrase";
 import { suggestedPct, type SuggestedPct } from "@/lib/dashboard/suggested-pct";
 import {
-  eventTierSalesRollup,
+  resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
 } from "@/lib/dashboard/tier-channel-rollups";
 import {
@@ -604,7 +604,11 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
         ? 0
         : ev.prereg_spend ?? 0;
     prereg += rowPrereg;
-    const sold = eventTierSalesRollup(ev.ticket_tiers).sold;
+    const sold = resolveDisplayTicketCount({
+      ticket_tiers: ev.ticket_tiers,
+      latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+      fallback_tickets: ev.tickets_sold ?? null,
+    });
     tickets += sold;
     prevTickets += ev.tickets_sold_previous ?? 0;
     const r =
@@ -973,7 +977,11 @@ function computeOverallLondon(
     }
     for (const ev of group.events) {
       prereg += ev.prereg_spend ?? 0;
-      tickets += eventTierSalesRollup(ev.ticket_tiers).sold;
+      tickets += resolveDisplayTicketCount({
+        ticket_tiers: ev.ticket_tiers,
+        latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+        fallback_tickets: ev.tickets_sold ?? null,
+      });
       prevTickets += ev.tickets_sold_previous ?? 0;
       const r = ev.latest_snapshot?.revenue;
       if (r !== null && r !== undefined) {

@@ -18,6 +18,7 @@ import {
   visibleClientRegions,
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
+import { resolveDisplayTicketCount } from "@/lib/dashboard/tier-channel-rollups";
 import { ClientRefreshDailyBudgetsButton } from "./client-refresh-daily-budgets-button";
 import { ClientPortalVenueTable } from "./client-portal-venue-table";
 import { ClientWideTopline } from "./client-wide-topline";
@@ -153,15 +154,21 @@ export function ClientPortal({
     [grouped, tabKey],
   );
 
-  // Summary bar rolls up the resolved tickets_sold (snapshot first,
-  // then events.tickets_sold legacy column, then 0) vs total capacity.
+  // Summary bar rolls up the resolved display tickets: snapshot vs
+  // tier-channel union, whichever is higher.
   const summary = useMemo(() => {
     let sold = 0;
     let cap = 0;
     let venues = 0;
     for (const ev of tabEvents) {
       const resolvedSold =
-        ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+        ev.ticket_tiers.length > 0
+          ? resolveDisplayTicketCount({
+              ticket_tiers: ev.ticket_tiers,
+              latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+              fallback_tickets: ev.tickets_sold ?? null,
+            })
+          : ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
       sold += resolvedSold;
       cap += ev.capacity ?? 0;
       venues += 1;

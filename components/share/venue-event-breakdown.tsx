@@ -32,6 +32,7 @@ import {
 import { computePortalEventSpendRowMetrics } from "@/lib/dashboard/portal-event-spend-row";
 import {
   eventTierSalesRollup,
+  resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
   tierSalesRollup,
 } from "@/lib/dashboard/tier-channel-rollups";
@@ -658,7 +659,11 @@ function tierAllocationTotals(event: PortalEvent): {
   }
   const rollup = eventTierSalesRollup(event.ticket_tiers);
   return {
-    sold: rollup.sold,
+    sold: resolveDisplayTicketCount({
+      ticket_tiers: event.ticket_tiers,
+      latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
+      fallback_tickets: event.tickets_sold ?? null,
+    }),
     allocation: rollup.allocation,
     allTiersOnSaleSoon: onSaleCount === 0,
   };

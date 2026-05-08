@@ -21,7 +21,7 @@ import type {
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import {
-  eventTierSalesRollup,
+  resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
 } from "@/lib/dashboard/tier-channel-rollups";
 
@@ -178,7 +178,11 @@ export function useVenueReportModel(
     let any = false;
     for (const ev of events) {
       if (ev.ticket_tiers.length === 0) continue;
-      sum += eventTierSalesRollup(ev.ticket_tiers).sold;
+      sum += resolveDisplayTicketCount({
+        ticket_tiers: ev.ticket_tiers,
+        latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+        fallback_tickets: ev.tickets_sold ?? null,
+      });
       any = true;
     }
     return any ? sum : null;

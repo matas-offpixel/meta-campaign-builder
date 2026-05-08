@@ -114,6 +114,20 @@ export function eventTierSalesRollup(tiers: EventTicketTierRow[]): TierSalesRoll
   };
 }
 
+export function resolveDisplayTicketCount(input: {
+  ticket_tiers: EventTicketTierRow[];
+  latest_snapshot_tickets: number | null | undefined;
+  fallback_tickets?: number | null | undefined;
+}): number {
+  const tierTickets =
+    input.ticket_tiers.length > 0
+      ? eventTierSalesRollup(input.ticket_tiers).sold
+      : 0;
+  const snapshotTickets = input.latest_snapshot_tickets ?? 0;
+  const fallbackTickets = input.fallback_tickets ?? 0;
+  return Math.max(snapshotTickets, tierTickets, fallbackTickets, 0);
+}
+
 /** Sum `tier_channel_sales.revenue_amount` for one tier's channel rows. */
 export function channelRevenueSumForTier(tier: EventTicketTierRow): number {
   let sum = 0;
@@ -189,6 +203,9 @@ export function resolveDisplayTicketRevenue(input: {
   let total = 0;
   for (const tier of ticket_tiers) {
     total += perTierDisplayTicketRevenue(tier);
+  }
+  if (total > 0 && latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
+    return Math.max(total, latest_snapshot_revenue);
   }
   if (total > 0) return total;
   if (latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
