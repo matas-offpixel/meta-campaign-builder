@@ -27,6 +27,14 @@ export function audienceSourcePayloadIsCacheable(value: unknown): boolean {
   return true;
 }
 
+/**
+ * @deprecated Use `getCachedAudienceSourceDb` from
+ * `./source-cache-db.ts` instead. The Map-backed cache here dies on
+ * every Vercel cold start; the DB-backed version (mig 087) survives
+ * across instances and across users targeting the same client. Kept
+ * here as a working implementation only because existing tests
+ * import it directly. Production routes have been flipped over.
+ */
 export async function getCachedAudienceSource<T>(
   keyParts: readonly string[],
   load: () => Promise<T>,

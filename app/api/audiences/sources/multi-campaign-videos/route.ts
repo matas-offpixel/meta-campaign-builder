@@ -4,7 +4,7 @@ import {
   audienceSourceRateLimitBody,
   isMetaAdAccountRateLimitError,
 } from "@/lib/audiences/meta-rate-limit";
-import { getCachedAudienceSource } from "@/lib/audiences/source-cache";
+import { getCachedAudienceSourceDb } from "@/lib/audiences/source-cache-db";
 import {
   fetchAudienceMultiCampaignVideos,
   resolveAudienceSourceContext,
@@ -12,7 +12,13 @@ import {
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 
+// Same rationale as ./campaign-videos/route.ts: bumped from the 10s
+// default to 60s now that the DB cache (mig 087) means cold-start
+// callers can pay the full Meta fetch without timing out.
+export const maxDuration = 60;
+
 const MAX_CAMPAIGN_IDS = 20;
+const TTL_MS = 30 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -59,15 +65,19 @@ export async function GET(req: NextRequest) {
 
     // Cache key includes all campaign IDs sorted so order doesn't matter.
     const sortedIds = [...campaignIds].sort();
-    const result = await getCachedAudienceSource(
-      [user.id, clientId, "multi-campaign-videos", sortedIds.join(",")],
-      () =>
+    const result = await getCachedAudienceSourceDb({
+      userId: user.id,
+      clientId,
+      sourceKind: "multi-campaign-videos",
+      cacheKey: sortedIds.join(","),
+      ttlMs: TTL_MS,
+      load: () =>
         fetchAudienceMultiCampaignVideos(
           context.metaAdAccountId,
           campaignIds,
           token,
         ),
-    );
+    });
 
     return Response.json({ ok: true, ...result, tokenSource: source });
   } catch (err) {

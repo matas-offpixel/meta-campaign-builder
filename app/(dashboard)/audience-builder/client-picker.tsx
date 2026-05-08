@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 
@@ -16,6 +16,28 @@ export interface AudienceBuilderClientCard {
   };
 }
 
+/**
+ * Best-effort prewarm of the audience-source DB cache (mig 087) for
+ * the most recently used client. Fires on mount; never blocks the
+ * picker render. By the time the user navigates to
+ * `/audiences/[clientId]/new` and picks a Video Views preset on a
+ * recent campaign, the cache has been populated by the prewarm
+ * route's Promise.allSettled fan-out.
+ */
+function prewarmAudienceSources(clientId: string) {
+  if (typeof window === "undefined") return;
+  void fetch("/api/audiences/sources/prewarm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId }),
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => {
+    // Prewarm is opportunistic; swallow network failures so the
+    // picker UI never surfaces them.
+  });
+}
+
 export function AudienceBuilderClientPicker({
   clients,
 }: {
@@ -28,6 +50,10 @@ export function AudienceBuilderClientPicker({
   );
 
   const lastClient = clients.find((client) => client.id === lastClientId) ?? null;
+
+  useEffect(() => {
+    if (lastClient) prewarmAudienceSources(lastClient.id);
+  }, [lastClient]);
 
   return (
     <div className="space-y-5">
@@ -53,9 +79,10 @@ export function AudienceBuilderClientPicker({
           <Link
             key={client.id}
             href={`/audiences/${client.id}`}
-            onClick={() =>
-              window.localStorage.setItem("lastAudienceClientId", client.id)
-            }
+            onClick={() => {
+              window.localStorage.setItem("lastAudienceClientId", client.id);
+              prewarmAudienceSources(client.id);
+            }}
             className="rounded-md border border-border bg-card p-4 transition-colors hover:border-primary/50 hover:bg-muted/30"
           >
             <div className="flex items-start justify-between gap-3">
