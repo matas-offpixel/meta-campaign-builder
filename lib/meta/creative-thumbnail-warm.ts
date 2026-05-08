@@ -18,15 +18,15 @@ export async function warmCreativeThumbnailsForGroups(args: {
   userId: string;
   adAccountId: string | null;
   groups: ConceptGroupRow[];
-}): Promise<void> {
-  if (!args.adAccountId) return;
+}): Promise<number> {
+  if (!args.adAccountId) return 0;
   const admin = args.supabase;
   const fbToken = await getOwnerFacebookToken(args.userId, admin);
   if (!fbToken) {
     console.warn(
       "[warm-creative-thumbnails] no Facebook token; skipping warm",
     );
-    return;
+    return 0;
   }
 
   const ids = new Set<string>();
@@ -38,7 +38,7 @@ export async function warmCreativeThumbnailsForGroups(args: {
     if (ad && /^[0-9]+$/.test(ad) && ad.length <= 64) ids.add(ad);
     if (ids.size >= MAX_WARM) break;
   }
-  if (ids.size === 0) return;
+  if (ids.size === 0) return 0;
 
   let allowed = 0;
   for (const adId of ids) {
@@ -67,4 +67,5 @@ export async function warmCreativeThumbnailsForGroups(args: {
       `[warm-creative-thumbnails] cached ${allowed}/${ids.size} thumbnails`,
     );
   }
+  return allowed;
 }

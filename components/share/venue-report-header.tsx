@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+
+import { shouldShowVenueClientShare } from "@/lib/dashboard/venue-client-share";
+import { VENUE_REPORT_SYNC_COMPLETE_EVENT } from "@/lib/dashboard/venue-report-sync-events";
 import {
   useCallback,
   useEffect,
@@ -98,11 +101,14 @@ interface Props {
    */
   syncEventIds: string[];
   /**
-   * When set and the route is internal (`/clients/*`), shows "Share" next to
-   * Sync — POST `/api/share/client` mints `/share/client/[token]`. Hidden on
-   * `/share/*` routes so viewers never see a duplicate share affordance.
+   * Client UUID for POST `/api/share/client`. Unused unless `showClientShareButton`.
    */
   shareClientId?: string | null;
+  /**
+   * Set true only from `/clients/.../venues/...` pages. Do not rely on
+   * `usePathname()` — production routing/basePath can differ from dev.
+   */
+  showClientShareButton?: boolean;
 }
 
 export function VenueReportHeader({
@@ -118,6 +124,7 @@ export function VenueReportHeader({
   platform,
   syncEventIds,
   shareClientId,
+  showClientShareButton = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -133,8 +140,10 @@ export function VenueReportHeader({
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPerformance = activeTab === "performance";
 
-  const showClientShare =
-    Boolean(shareClientId) && pathname.startsWith("/clients/");
+  const showClientShare = shouldShowVenueClientShare(
+    shareClientId,
+    showClientShareButton,
+  );
 
   const setSearchParam = (key: string, value: string | null) => {
     // Preserve any other query params on the URL (Insights / Pacing
@@ -278,6 +287,9 @@ export function VenueReportHeader({
         }
       }
       router.refresh();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(VENUE_REPORT_SYNC_COMPLETE_EVENT));
+      }
     } catch (err) {
       setSyncError(
         err instanceof Error ? err.message : "Sync failed — try again.",
