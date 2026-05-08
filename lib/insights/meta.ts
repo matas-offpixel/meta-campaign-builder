@@ -689,16 +689,25 @@ export async function fetchVenueDailyBudget(args: {
       diagnostics,
     };
   } catch (err) {
+    const metaCode =
+      err instanceof MetaApiError && err.code != null ? err.code : null;
+    const rawMsg =
+      err instanceof MetaApiError
+        ? err.userMsg ?? err.message
+        : err instanceof Error
+          ? err.message
+          : "Meta daily budget fetch failed";
+    const reasonLabel = metaCode
+      ? `Meta #${metaCode}: ${rawMsg}`
+      : rawMsg;
     console.warn(
-      "[venue-daily-budget] fetch failed",
-      eventCode,
-      err instanceof Error ? err.message : err,
+      `[venue-daily-budget] fetch failed event_code=${eventCode} meta_code=${metaCode ?? "n/a"} msg=${rawMsg}`,
     );
     return {
       dailyBudget: null,
       label: "daily",
       reason: "fetch_error",
-      reasonLabel: "Meta daily budget fetch failed",
+      reasonLabel,
     };
   }
 }
