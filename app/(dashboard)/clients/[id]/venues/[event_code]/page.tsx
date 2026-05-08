@@ -1,16 +1,13 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
-import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
+import { VenueReportHeader, type VenueSubTab } from "@/components/share/venue-report-header";
 import { getShareForVenue } from "@/lib/db/report-shares";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueShareControls } from "@/components/dashboard/clients/venue-share-controls";
-import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
 import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import {
@@ -22,35 +19,42 @@ import {
   parseCreativePatternPhase,
   parseCreativePatternFunnel,
 } from "@/lib/dashboard/creative-patterns-funnel-view";
+import {
+  parsePlatformParam,
+  type PlatformId,
+} from "@/lib/dashboard/platform-colors";
+import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
 
 /**
  * /clients/[id]/venues/[event_code]
  *
- * Internal venue full-report page. Replaces the placeholder that
- * shipped alongside PR #117 with a full-width render of every section
- * the venue card exposes on the dashboard — performance summary,
- * shared daily/weekly trend chart, active creatives —
- * scoped to a single `event_code` under this client.
+ * Internal venue full-report page. Restructure (PR feat/venue-report-
+ * layout-restructure) replaced the page-level `PageHeader` + `SubTabBar`
+ * with the sticky `<VenueReportHeader>` so the title, Live indicator,
+ * Sync now button, sub-tabs, and the global Timeframe + Platform
+ * selectors stay visible as the operator scrolls deep into the
+ * Performance tab.
+ *
+ * Render parity (internal vs share):
+ *   The share route at `/share/venue/[token]` renders the same header
+ *   + tab structure with `syncEventIds={[]}` (the public sync route
+ *   isn't venue-scoped) and a null `settingsHref` (the share viewer
+ *   can't reach Settings for the connect-CTA cards on Stats Grid).
+ *   Aside from those two affordances the layout is identical.
  *
  * Data flow:
- *   - `loadClientPortalByClientId` fetches the whole client payload
- *     (same shape the external `/share/client/[token]` route uses).
- *     The venue page filters down to `event_code` at render time; a
- *     dedicated loader wasn't worth the duplication since the full
- *     payload is already ≤a few hundred rows for the 4theFans
- *     roster.
- *   - `VenueFullReport` takes the same props the client portal
- *     accepts and renders the filtered venue with `forceExpandAll`
- *     on, so there's no collapsed affordance (the venue IS the page).
- *   - `VenueShareControls` lives in the header actions slot; it
- *     hits `POST /api/share/venue` on first click to mint a
- *     scope='venue' token (migration 052) and then surfaces the
- *     copyable URL.
+ *   - `loadClientPortalByClientId` fetches the whole client payload.
+ *   - The page filters to `event_code` at render time; per-venue
+ *     loaders weren't worth the duplication for the 4theFans roster.
+ *   - Performance tab ⇒ `<VenueFullReport>` (windowed + platform-
+ *     filtered children inside).
+ *   - Insights tab ⇒ `<CreativePatternsPanel>` scoped to the venue.
+ *   - Pacing tab ⇒ `<FunnelPacingSection>` scoped to the venue.
  *
- * 404 semantics: we 404 when the event_code either doesn't exist
- * under the client or is owned by a different user. Matches the
- * placeholder's ownership guard so probing `/venues/<random>`
- * stays indistinguishable from a revoked share.
+ * 404 semantics: 404 when the event_code doesn't exist under the
+ * client OR is owned by a different user. Matches the placeholder's
+ * ownership guard so probing `/venues/<random>` stays
+ * indistinguishable from a revoked share.
  */
 interface Props {
   params: Promise<{ id: string; event_code: string }>;
@@ -59,8 +63,6 @@ interface Props {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type VenueSubTab = "performance" | "insights" | "pacing";
 
 export default async function ClientVenueReportPage({
   params,
@@ -72,6 +74,7 @@ export default async function ClientVenueReportPage({
   ]);
   const datePreset = parseDatePreset(sp.tf);
   const activeTab = parseVenueSubTab(pickQueryParam(sp.tab));
+  const platform = parsePlatformParam(pickQueryParam(sp.platform));
   const patternsPhase = parseCreativePatternPhase(pickQueryParam(sp.phase));
   const patternsFunnel = parseCreativePatternFunnel(pickQueryParam(sp.funnel));
   const customRange = parseCustomRange(
@@ -138,62 +141,53 @@ export default async function ClientVenueReportPage({
     ...eventIdSet,
   ]);
 
-  const venueTitle = venueEvents[0]?.venue_name ?? eventCode;
+  // Title: prefer the curated series label (e.g. "Arsenal Champions
+  // League Final – London") over the raw venue_name fallback so the
+  // sticky header reads like the marketing copy rather than the
+  // logistics venue. Falls back to venue_name → event_code.
+  const venueTitle =
+    getSeriesDisplayLabel(eventCode) ??
+    venueEvents[0]?.venue_name ??
+    eventCode;
+  const lastSyncedAt = computeLastSyncedAt(venueDailyRollups);
+  const displayEventDate = displayVenueEventDate(venueEvents);
+  const daysUntil = computeDaysUntil(displayEventDate);
+
+  const subTabs = buildSubTabs(id, eventCode, {
+    phase: patternsPhase,
+    funnel: patternsFunnel,
+    platform,
+    datePreset,
+    customRange,
+  });
 
   return (
     <div className="space-y-6 p-6">
-      <Link
-        href={`/clients/${id}/dashboard`}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to {client.name} dashboard
-      </Link>
-      <PageHeader
-        title={`${venueTitle} · Full venue report`}
-        description={`${venueEvents.length} event${venueEvents.length === 1 ? "" : "s"} under event code ${eventCode}.`}
-        actions={
-          <VenueShareControls
-            clientId={id}
-            eventCode={eventCode}
-            initialShareToken={existingShare?.token ?? null}
-            initialCanEdit={existingShare?.can_edit ?? null}
-            initialEnabled={existingShare?.enabled ?? null}
-          />
-        }
+      <VenueReportHeader
+        title={venueTitle}
+        subtitle={eventCode}
+        subTabs={subTabs}
+        activeTab={activeTab}
+        daysUntil={daysUntil}
+        displayEventDate={displayEventDate}
+        lastSyncedAt={lastSyncedAt}
+        datePreset={datePreset}
+        customRange={customRange}
+        platform={platform}
+        syncEventIds={venueEvents.map((e) => e.id)}
       />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <VenueShareControls
+          clientId={id}
+          eventCode={eventCode}
+          initialShareToken={existingShare?.token ?? null}
+          initialCanEdit={existingShare?.can_edit ?? null}
+          initialEnabled={existingShare?.enabled ?? null}
+        />
+      </div>
       <EnhancementFlagBanner
         clientId={id}
         eventIds={venueEvents.map((e) => e.id)}
-      />
-      <SubTabBar
-        activeTab={activeTab}
-        tabs={[
-          {
-            id: "performance",
-            label: "Performance",
-            href: venueHref(id, eventCode, "performance", {
-              phase: patternsPhase,
-              funnel: patternsFunnel,
-            }),
-          },
-          {
-            id: "insights",
-            label: "Creative Insights",
-            href: venueHref(id, eventCode, "insights", {
-              phase: patternsPhase,
-              funnel: patternsFunnel,
-            }),
-          },
-          {
-            id: "pacing",
-            label: "Funnel Pacing",
-            href: venueHref(id, eventCode, "pacing", {
-              phase: patternsPhase,
-              funnel: patternsFunnel,
-            }),
-          },
-        ]}
       />
       {activeTab === "performance" ? (
         <VenueFullReport
@@ -209,6 +203,8 @@ export default async function ClientVenueReportPage({
           datePreset={datePreset}
           customRange={customRange}
           linkedDrafts={linkedDrafts}
+          platform={platform}
+          settingsHref={`/clients/${id}/settings`}
           isInternal
         />
       ) : activeTab === "insights" ? (
@@ -235,16 +231,38 @@ function parseVenueSubTab(value: string | null): VenueSubTab {
   return "performance";
 }
 
-function venueHref(
+function buildSubTabs(
   clientId: string,
   eventCode: string,
-  tab: VenueSubTab,
-  patterns?: { phase: string; funnel: string },
-): string {
-  const sp = new URLSearchParams({ tab });
-  sp.set("phase", patterns?.phase ?? "ticket_sale");
-  sp.set("funnel", patterns?.funnel ?? "bottom");
-  return `/clients/${clientId}/venues/${encodeURIComponent(eventCode)}?${sp.toString()}`;
+  ctx: {
+    phase: string;
+    funnel: string;
+    platform: PlatformId;
+    datePreset: DatePreset;
+    customRange?: CustomDateRange;
+  },
+): { id: VenueSubTab; label: string; href: string }[] {
+  const baseParams: Record<string, string> = {
+    phase: ctx.phase,
+    funnel: ctx.funnel,
+  };
+  if (ctx.platform !== "all") baseParams.platform = ctx.platform;
+  if (ctx.datePreset !== "maximum") baseParams.tf = ctx.datePreset;
+  if (ctx.datePreset === "custom" && ctx.customRange) {
+    baseParams.from = ctx.customRange.since;
+    baseParams.to = ctx.customRange.until;
+  }
+  const baseHref = `/clients/${clientId}/venues/${encodeURIComponent(eventCode)}`;
+  return (
+    [
+      { id: "performance" as VenueSubTab, label: "Performance" },
+      { id: "insights" as VenueSubTab, label: "Creative Insights" },
+      { id: "pacing" as VenueSubTab, label: "Funnel Pacing" },
+    ].map((tab) => {
+      const sp = new URLSearchParams({ ...baseParams, tab: tab.id });
+      return { ...tab, href: `${baseHref}?${sp.toString()}` };
+    })
+  );
 }
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
@@ -271,4 +289,56 @@ function parseCustomRange(
   if (preset !== "custom") return undefined;
   if (!from || !to) return undefined;
   return { since: from, until: to };
+}
+
+function displayVenueEventDate(
+  events: { event_date: string | null }[],
+): string | null {
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = events
+    .map((event) => event.event_date)
+    .filter((date): date is string => !!date && date >= today)
+    .sort();
+  if (upcoming.length > 0) return upcoming[0];
+  return (
+    events
+      .map((event) => event.event_date)
+      .filter((date): date is string => !!date)
+      .sort()
+      .at(-1) ?? null
+  );
+}
+
+function computeDaysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const target = Date.parse(`${iso}T00:00:00`);
+  if (!Number.isFinite(target)) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((target - now.getTime()) / 86_400_000);
+}
+
+function computeLastSyncedAt(
+  rollups: Array<{
+    source_meta_at?: string | null;
+    source_eventbrite_at?: string | null;
+    source_tiktok_at?: string | null;
+    source_google_ads_at?: string | null;
+    updated_at?: string;
+  }>,
+): string | null {
+  let latest: string | null = null;
+  for (const row of rollups) {
+    for (const ts of [
+      row.source_meta_at,
+      row.source_eventbrite_at,
+      row.source_tiktok_at,
+      row.source_google_ads_at,
+      row.updated_at,
+    ]) {
+      if (!ts) continue;
+      if (!latest || ts > latest) latest = ts;
+    }
+  }
+  return latest;
 }

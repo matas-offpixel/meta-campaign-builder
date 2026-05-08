@@ -200,8 +200,33 @@ export interface DailyRollupRow {
   meta_regs: number | null;
   /** TikTok clicks for this event/day. */
   tiktok_clicks: number | null;
+  /**
+   * Meta awareness columns (migration 066). Optional on the slim
+   * portal payload — absent for older rollup rows that pre-date the
+   * sync extending awareness writes AND on legacy test fixtures
+   * built before this PR extended the SELECT. The venue stats grid
+   * sums these directly to render the topline campaign stats grid
+   * (Spend / Impressions / Reach / Clicks / CTR / CPM / Video Plays /
+   * Engagements). NULL means the column hasn't been written for
+   * this row yet, not "zero" — the grid surfaces "—" rather than 0.
+   */
+  meta_impressions?: number | null;
+  meta_reach?: number | null;
+  meta_video_plays_3s?: number | null;
+  meta_video_plays_15s?: number | null;
+  meta_video_plays_p100?: number | null;
+  meta_engagements?: number | null;
+  /** TikTok per-platform metrics (rollup-sync, when account linked). */
+  tiktok_impressions?: number | null;
+  tiktok_video_views?: number | null;
+  /** Google Ads per-platform metrics (rollup-sync, when account linked). */
+  google_ads_impressions?: number | null;
+  google_ads_clicks?: number | null;
+  google_ads_video_views?: number | null;
   source_meta_at?: string | null;
   source_eventbrite_at?: string | null;
+  source_tiktok_at?: string | null;
+  source_google_ads_at?: string | null;
   updated_at?: string;
   /** Opponent-matched portion of the allocation. NULL when
    *  allocation hasn't run. */
@@ -1161,7 +1186,7 @@ async function fetchAllDailyRollups(
     const { data, error } = await admin
       .from("event_daily_rollups")
       .select(
-        "event_id, date, tickets_sold, ad_spend, tiktok_spend, google_ads_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, source_meta_at, source_eventbrite_at, updated_at, ad_spend_specific, ad_spend_generic_share, ad_spend_presale",
+        "event_id, date, tickets_sold, ad_spend, tiktok_spend, google_ads_spend, ad_spend_allocated, revenue, link_clicks, meta_regs, tiktok_clicks, source_meta_at, source_eventbrite_at, source_tiktok_at, source_google_ads_at, updated_at, ad_spend_specific, ad_spend_generic_share, ad_spend_presale, meta_impressions, meta_reach, meta_video_plays_3s, meta_video_plays_15s, meta_video_plays_p100, meta_engagements, tiktok_impressions, tiktok_video_views, google_ads_impressions, google_ads_clicks, google_ads_video_views",
       )
       .in("event_id", eventIds)
       .order("event_id", { ascending: true })
@@ -1191,8 +1216,25 @@ async function fetchAllDailyRollups(
         link_clicks: (r.link_clicks as number | null) ?? null,
         meta_regs: (r.meta_regs as number | null) ?? null,
         tiktok_clicks: (r.tiktok_clicks as number | null) ?? null,
+        meta_impressions: (r.meta_impressions as number | null) ?? null,
+        meta_reach: (r.meta_reach as number | null) ?? null,
+        meta_video_plays_3s: (r.meta_video_plays_3s as number | null) ?? null,
+        meta_video_plays_15s: (r.meta_video_plays_15s as number | null) ?? null,
+        meta_video_plays_p100:
+          (r.meta_video_plays_p100 as number | null) ?? null,
+        meta_engagements: (r.meta_engagements as number | null) ?? null,
+        tiktok_impressions: (r.tiktok_impressions as number | null) ?? null,
+        tiktok_video_views: (r.tiktok_video_views as number | null) ?? null,
+        google_ads_impressions:
+          (r.google_ads_impressions as number | null) ?? null,
+        google_ads_clicks: (r.google_ads_clicks as number | null) ?? null,
+        google_ads_video_views:
+          (r.google_ads_video_views as number | null) ?? null,
         source_meta_at: (r.source_meta_at as string | null) ?? null,
         source_eventbrite_at: (r.source_eventbrite_at as string | null) ?? null,
+        source_tiktok_at: (r.source_tiktok_at as string | null) ?? null,
+        source_google_ads_at:
+          (r.source_google_ads_at as string | null) ?? null,
         updated_at: r.updated_at as string,
         ad_spend_specific: (r.ad_spend_specific as number | null) ?? null,
         ad_spend_generic_share:

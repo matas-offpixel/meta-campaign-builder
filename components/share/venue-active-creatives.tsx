@@ -7,6 +7,11 @@ import ShareActiveCreativesClient from "@/components/share/share-active-creative
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { MetaThumbnailProxyAuth } from "@/lib/dashboard/meta-thumbnail-proxy-url";
+import {
+  PLATFORM_COLORS,
+  PLATFORM_LABELS,
+  type PlatformId,
+} from "@/lib/dashboard/platform-colors";
 
 /**
  * components/share/venue-active-creatives.tsx
@@ -78,6 +83,16 @@ interface Props {
   customRange?: CustomDateRange;
   refreshNonce?: number;
   fullReport?: boolean;
+  /**
+   * Global platform filter from the sticky header. When `"all"` or
+   * `"meta"`, the section renders the existing Meta concept groups
+   * (the only platform with active-creatives wired up today). For
+   * `"tiktok"` and `"google_ads"`, the section shows an inline
+   * "Not yet wired" empty card so the operator gets explicit
+   * feedback rather than seeing the Meta cards under a misleading
+   * platform tab.
+   */
+  platform?: PlatformId;
 }
 
 type ApiResponse =
@@ -149,11 +164,17 @@ export function VenueActiveCreatives({
   customRange,
   refreshNonce = 0,
   fullReport = false,
+  platform = "all",
 }: Props) {
   const [state, setState] = useState<State>({ status: "idle" });
   const [showAll, setShowAll] = useState(false);
   const [manualRefreshNonce, setManualRefreshNonce] = useState(0);
   const effectiveRefreshNonce = refreshNonce + manualRefreshNonce;
+  // Single-platform tabs that don't have wired-up creatives data
+  // short-circuit to a "Not yet wired" empty state below; the Meta
+  // fetch only runs on All / Meta to avoid burning rate budget for
+  // a section the operator can't see.
+  const skipMetaFetch = platform !== "all" && platform !== "meta";
 
   useEffect(() => {
     // Inline AbortController handles React strict-mode's double-
@@ -165,6 +186,10 @@ export function VenueActiveCreatives({
     let cancelled = false;
 
     async function run() {
+      if (skipMetaFetch) {
+        if (!cancelled) setState({ status: "idle" });
+        return;
+      }
       setState({ status: "loading" });
       // Route selection — internal dashboard uses session auth, the
       // external share portal uses the token. Bail early with a
@@ -276,6 +301,7 @@ export function VenueActiveCreatives({
     customRange?.until,
     customRange,
     effectiveRefreshNonce,
+    skipMetaFetch,
   ]);
 
   return (
@@ -283,35 +309,55 @@ export function VenueActiveCreatives({
       className={
         fullReport ? "space-y-3" : "border-t border-border bg-card px-4 py-4"
       }
+      data-testid="venue-active-creatives"
+      data-platform={platform}
     >
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         {fullReport ? (
           <h2 className="font-heading text-base tracking-wide text-foreground">
             Active creatives
+            {platform !== "all" ? (
+              <span
+                className="ml-2 inline-flex items-center gap-1.5 align-middle text-xs font-normal text-muted-foreground"
+                title={`Filtered to ${PLATFORM_LABELS[platform]}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: PLATFORM_COLORS[platform] }}
+                />
+                {PLATFORM_LABELS[platform]}
+              </span>
+            ) : null}
           </h2>
         ) : (
           <h3 className="font-heading text-sm tracking-wide text-foreground">
             Top creatives · {venueLabel}
           </h3>
         )}
-        <Caveat
-          state={state}
-          showAll={showAll}
-          onToggle={() => setShowAll((v) => !v)}
-          onRefresh={() => setManualRefreshNonce((value) => value + 1)}
-          fullReport={fullReport}
-        />
+        {!skipMetaFetch ? (
+          <Caveat
+            state={state}
+            showAll={showAll}
+            onToggle={() => setShowAll((v) => !v)}
+            onRefresh={() => setManualRefreshNonce((value) => value + 1)}
+            fullReport={fullReport}
+          />
+        ) : null}
       </header>
 
-      {state.status === "loading" && <LoadingGrid />}
-      {state.status === "empty" && (
+      {skipMetaFetch ? (
+        <PlatformNotWiredCard platform={platform} />
+      ) : null}
+      {!skipMetaFetch && state.status === "loading" && <LoadingGrid />}
+      {!skipMetaFetch && state.status === "empty" && (
         <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-4 text-xs text-muted-foreground">
           No active creatives for this venue yet — the campaign may be
           paused, or the creative concepts haven&rsquo;t started
           delivering.
         </p>
       )}
-      {state.status === "error" && (
+      {!skipMetaFetch && state.status === "error" && (
         <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-4 text-xs text-muted-foreground">
           Creative breakdown unavailable
           <span className="ml-2 text-muted-foreground/60">
@@ -319,7 +365,7 @@ export function VenueActiveCreatives({
           </span>
         </p>
       )}
-      {state.status === "ready" && (
+      {!skipMetaFetch && state.status === "ready" && (
         <ShareActiveCreativesClient
           groups={fullReport || showAll ? state.groups : state.groups.slice(0, TOP_N)}
           thumbnailAuth={thumbnailProxyAuth({
@@ -416,6 +462,37 @@ function Caveat({
         Refresh Creatives
       </button>
     </span>
+  );
+}
+
+function PlatformNotWiredCard({
+  platform,
+}: {
+  platform: PlatformId;
+}) {
+  const label = PLATFORM_LABELS[platform];
+  const colour = PLATFORM_COLORS[platform];
+  return (
+    <div
+      className="rounded-md border border-dashed border-border bg-muted/40 px-4 py-5 text-xs text-muted-foreground"
+      data-testid={`venue-active-creatives-not-wired-${platform}`}
+    >
+      <p className="flex items-center gap-2 text-foreground">
+        <span
+          aria-hidden="true"
+          className="h-2 w-2 rounded-full"
+          style={{ backgroundColor: colour }}
+        />
+        <span className="text-sm font-medium">
+          {label} creatives — not yet wired up
+        </span>
+      </p>
+      <p className="mt-1.5">
+        Active creative breakdown is currently Meta-only. {label} creative
+        rollups will surface here once the {label} active-creatives
+        snapshot is wired into this section.
+      </p>
+    </div>
   );
 }
 

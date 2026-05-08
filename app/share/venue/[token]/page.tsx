@@ -3,35 +3,53 @@ import type { Metadata } from "next";
 import { loadVenuePortalByToken } from "@/lib/db/client-portal-server";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueFullReport } from "@/components/share/venue-full-report";
+import { VenueReportHeader, type VenueSubTab } from "@/components/share/venue-report-header";
 import { ClientPortalUnavailable } from "@/components/share/client-portal-unavailable";
+import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
+import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
 import {
   DATE_PRESETS,
   type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  parsePlatformParam,
+  type PlatformId,
+} from "@/lib/dashboard/platform-colors";
+import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
+import {
+  parseCreativePatternPhase,
+  parseCreativePatternFunnel,
+} from "@/lib/dashboard/creative-patterns-funnel-view";
 
 /**
  * app/share/venue/[token]/page.tsx
  *
- * Public venue full-report page. Mirrors `/share/client/[token]` but
- * scopes to a single (client_id, event_code) pair — one venue group —
- * rather than the whole client roll-up.
+ * Public venue full-report page. Mirrors the internal
+ * `/clients/[id]/venues/[event_code]` route layout exactly — same
+ * sticky header, same sub-tab bar (Performance / Creative Insights /
+ * Funnel Pacing), same Performance content. Only differences:
+ *   - Sync Now is no-op + router.refresh() (the public sync route is
+ *     event-scoped, not venue-fan-out friendly).
+ *   - Settings link on the Stats Grid empty-state cards renders
+ *     disabled with a tooltip (share viewers can't reach Settings).
+ *   - Insights + Pacing tabs render with `isShared=true` so the
+ *     server-component data layer uses the service-role client and
+ *     bypasses RLS for the read.
  *
  * Token contract (migration 052):
  *   - scope='venue', client_id NOT NULL, event_code NOT NULL
  *   - can_edit gates additional-spend CRUD on the public surface
- *     (consumed by PR 4's venue-level additional spend card).
  *
  * Failure modes (collapsed to the neutral unavailable page):
  *   - Unknown / disabled / expired / malformed token.
  *   - Token resolves to a non-venue scope (event/client).
  *   - Token resolves but no events match the pinned event_code
- *     (rename / delete after mint). Rare but guarded.
+ *     (rename / delete after mint).
  *
  * `dynamic = 'force-dynamic'` because the payload must reflect the
  * latest snapshot the client just saved — caching would visibly lag
- * the "Last updated" line.
+ * the "last synced" indicator.
  */
 
 interface Props {
@@ -52,6 +70,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function VenueSharePage({ params, searchParams }: Props) {
   const [{ token }, sp] = await Promise.all([params, searchParams]);
   const datePreset = parseDatePreset(sp.tf);
+  const activeTab = parseVenueSubTab(pickQueryParam(sp.tab));
+  const platform = parsePlatformParam(pickQueryParam(sp.platform));
+  const patternsPhase = parseCreativePatternPhase(pickQueryParam(sp.phase));
+  const patternsFunnel = parseCreativePatternFunnel(pickQueryParam(sp.funnel));
   const customRange = parseCustomRange(
     datePreset,
     pickQueryParam(sp.from),
@@ -62,16 +84,35 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
   if (!result.ok) {
     return <ClientPortalUnavailable />;
   }
-  const admin = createServiceRoleClient();
   const linkedDrafts = await listDraftsForEventIds(
-    admin,
+    // The venue-portal loader returns the resolved client + admin
+    // scope already; reuse the events list to query linked drafts via
+    // the same admin client wrapper we'd use elsewhere.
+    // `loadVenuePortalByToken` doesn't expose the admin client, so we
+    // create one here — cheap and stateless.
+    (await import("@/lib/supabase/server")).createServiceRoleClient(),
     result.events.map((event) => event.id),
   );
+
+  const venueTitle =
+    getSeriesDisplayLabel(result.event_code) ??
+    result.events[0]?.venue_name ??
+    result.event_code;
+  const lastSyncedAt = computeLastSyncedAt(result.dailyRollups);
+  const displayEventDate = displayVenueEventDate(result.events);
+  const daysUntil = computeDaysUntil(displayEventDate);
+  const subTabs = buildShareSubTabs(token, {
+    phase: patternsPhase,
+    funnel: patternsFunnel,
+    platform,
+    datePreset,
+    customRange,
+  });
 
   return (
     <main className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3">
           <p className="font-heading text-base tracking-[0.2em] text-foreground">
             OFF / PIXEL
           </p>
@@ -81,39 +122,60 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
-        <section className="space-y-2">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            Venue Report
-          </p>
-          <h1 className="font-heading text-2xl tracking-wide text-foreground">
-            {result.events[0]?.venue_name ?? result.event_code}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {result.events.length} event
-            {result.events.length === 1 ? "" : "s"} under event code{" "}
-            <span className="font-mono text-xs text-foreground">
-              {result.event_code}
-            </span>
-            .
-          </p>
-        </section>
-        <VenueFullReport
-          token={token}
-          clientId={result.client_id}
-          eventCode={result.event_code}
-          events={result.events}
-          dailyEntries={result.dailyEntries}
-          dailyRollups={result.dailyRollups}
-          additionalSpend={result.additionalSpend}
-          weeklyTicketSnapshots={result.weeklyTicketSnapshots}
-          londonOnsaleSpend={result.londonOnsaleSpend}
-          londonPresaleSpend={result.londonPresaleSpend}
-          canEdit={result.can_edit}
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <VenueReportHeader
+          title={venueTitle}
+          subtitle={result.event_code}
+          subTabs={subTabs}
+          activeTab={activeTab}
+          daysUntil={daysUntil}
+          displayEventDate={displayEventDate}
+          lastSyncedAt={lastSyncedAt}
           datePreset={datePreset}
           customRange={customRange}
-          linkedDrafts={linkedDrafts}
+          platform={platform}
+          // Public sync route is event-scoped (per-token, single
+          // event). Venue fan-out requires session auth that the
+          // share viewer doesn't have. Sync Now collapses to a
+          // `router.refresh()` for them.
+          syncEventIds={[]}
         />
+        {activeTab === "performance" ? (
+          <VenueFullReport
+            token={token}
+            clientId={result.client_id}
+            eventCode={result.event_code}
+            events={result.events}
+            dailyEntries={result.dailyEntries}
+            dailyRollups={result.dailyRollups}
+            additionalSpend={result.additionalSpend}
+            weeklyTicketSnapshots={result.weeklyTicketSnapshots}
+            londonOnsaleSpend={result.londonOnsaleSpend}
+            londonPresaleSpend={result.londonPresaleSpend}
+            canEdit={result.can_edit}
+            datePreset={datePreset}
+            customRange={customRange}
+            platform={platform}
+            settingsHref={null}
+            linkedDrafts={linkedDrafts}
+          />
+        ) : activeTab === "insights" ? (
+          <CreativePatternsPanel
+            clientId={result.client_id}
+            scopeLabel={venueTitle}
+            regionFilter={{ type: "venue_code", value: result.event_code }}
+            phase={patternsPhase}
+            funnel={patternsFunnel}
+            venueEventCode={result.event_code}
+            isShared
+          />
+        ) : (
+          <FunnelPacingSection
+            clientId={result.client_id}
+            regionFilter={{ type: "venue_code", value: result.event_code }}
+            isShared
+          />
+        )}
       </div>
     </main>
   );
@@ -126,6 +188,11 @@ function parseDatePreset(value: string | string[] | undefined): DatePreset {
     return raw as DatePreset;
   }
   return "maximum";
+}
+
+function parseVenueSubTab(value: string | null): VenueSubTab {
+  if (value === "insights" || value === "pacing") return value;
+  return "performance";
 }
 
 function pickQueryParam(
@@ -143,4 +210,89 @@ function parseCustomRange(
   if (preset !== "custom") return undefined;
   if (!from || !to) return undefined;
   return { since: from, until: to };
+}
+
+function buildShareSubTabs(
+  token: string,
+  ctx: {
+    phase: string;
+    funnel: string;
+    platform: PlatformId;
+    datePreset: DatePreset;
+    customRange?: CustomDateRange;
+  },
+): { id: VenueSubTab; label: string; href: string }[] {
+  const baseParams: Record<string, string> = {
+    phase: ctx.phase,
+    funnel: ctx.funnel,
+  };
+  if (ctx.platform !== "all") baseParams.platform = ctx.platform;
+  if (ctx.datePreset !== "maximum") baseParams.tf = ctx.datePreset;
+  if (ctx.datePreset === "custom" && ctx.customRange) {
+    baseParams.from = ctx.customRange.since;
+    baseParams.to = ctx.customRange.until;
+  }
+  const baseHref = `/share/venue/${encodeURIComponent(token)}`;
+  return (
+    [
+      { id: "performance" as VenueSubTab, label: "Performance" },
+      { id: "insights" as VenueSubTab, label: "Creative Insights" },
+      { id: "pacing" as VenueSubTab, label: "Funnel Pacing" },
+    ].map((tab) => {
+      const sp = new URLSearchParams({ ...baseParams, tab: tab.id });
+      return { ...tab, href: `${baseHref}?${sp.toString()}` };
+    })
+  );
+}
+
+function displayVenueEventDate(
+  events: { event_date: string | null }[],
+): string | null {
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = events
+    .map((event) => event.event_date)
+    .filter((date): date is string => !!date && date >= today)
+    .sort();
+  if (upcoming.length > 0) return upcoming[0];
+  return (
+    events
+      .map((event) => event.event_date)
+      .filter((date): date is string => !!date)
+      .sort()
+      .at(-1) ?? null
+  );
+}
+
+function computeDaysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const target = Date.parse(`${iso}T00:00:00`);
+  if (!Number.isFinite(target)) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((target - now.getTime()) / 86_400_000);
+}
+
+function computeLastSyncedAt(
+  rollups: Array<{
+    source_meta_at?: string | null;
+    source_eventbrite_at?: string | null;
+    source_tiktok_at?: string | null;
+    source_google_ads_at?: string | null;
+    updated_at?: string;
+  }>,
+): string | null {
+  let latest: string | null = null;
+  for (const row of rollups) {
+    for (const ts of [
+      row.source_meta_at,
+      row.source_eventbrite_at,
+      row.source_tiktok_at,
+      row.source_google_ads_at,
+      row.updated_at,
+    ]) {
+      if (!ts) continue;
+      if (!latest || ts > latest) latest = ts;
+    }
+  }
+  return latest;
 }

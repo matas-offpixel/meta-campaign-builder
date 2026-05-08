@@ -2,10 +2,6 @@
 
 import { useMemo, useState } from "react";
 
-import {
-  EventSummaryHeader,
-  type PerformanceSummaryTimeframe,
-} from "@/components/dashboard/events/event-summary-header";
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import {
@@ -16,6 +12,7 @@ import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
+import type { PlatformId } from "@/lib/dashboard/platform-colors";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -28,27 +25,22 @@ import {
   resolveDisplayTicketRevenue,
 } from "@/lib/dashboard/tier-channel-rollups";
 
-interface Props {
-  eventCode: string;
-  events: PortalEvent[];
-  dailyEntries: DailyEntry[];
-  dailyRollups: DailyRollupRow[];
-  additionalSpend: AdditionalSpendRow[];
-  weeklyTicketSnapshots?: WeeklyTicketSnapshotRow[];
-  mode: "dashboard" | "share";
-  datePreset?: DatePreset;
-  customRange?: CustomDateRange;
-}
-
-interface VenueEventLike {
-  budget_marketing: number | null;
-  meta_spend_cached: number | null;
-  prereg_spend: number | null;
-  general_sale_at: string | null;
-  capacity: number | null;
-  event_date: string | null;
-  report_cadence: "daily" | "weekly";
-}
+/**
+ * components/share/venue-daily-report-block.tsx
+ *
+ * The venue report's "live data" subcomponents — the multi-metric
+ * trend chart and the editable daily tracker. Both share the same
+ * `useVenueReportModel` hook so the timeline is built once per render
+ * and split between the two sections by the parent.
+ *
+ * History: pre-restructure this file rendered a single
+ * `VenueDailyReportBlock` that bundled the (now-removed) Performance
+ * Summary header, trend chart, and tracker into one section. The
+ * Performance Summary moved into the parent's three-card row (always
+ * lifetime), and the trend + tracker became standalone exports so the
+ * new layout can interleave them with the topline stats grid + event
+ * breakdown.
+ */
 
 interface VenuePresaleBucket {
   cutoffDate: string;
@@ -62,48 +54,114 @@ interface VenuePresaleBucket {
   earliestDate: string | null;
 }
 
-const DEFAULT_PERF_SUMMARY: PerformanceSummaryTimeframe = {
-  datePreset: "maximum",
-  metaSpend: null,
-  ticketsInWindow: null,
-};
+interface VenueEventLike {
+  budget_marketing: number | null;
+  meta_spend_cached: number | null;
+  prereg_spend: number | null;
+  general_sale_at: string | null;
+  capacity: number | null;
+  event_date: string | null;
+  report_cadence: "daily" | "weekly";
+}
 
-export function VenueDailyReportBlock({
-  eventCode,
-  events,
-  dailyEntries,
-  dailyRollups,
-  additionalSpend,
-  weeklyTicketSnapshots = [],
-  mode,
-  datePreset = "maximum",
-  customRange,
-}: Props) {
-  const storageKey = `venue_tracker_expanded_${eventCode}`;
-  const [trackerExpanded, setTrackerExpanded] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return localStorage.getItem(storageKey) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const setTrackerPreference = (expanded: boolean) => {
-    setTrackerExpanded(expanded);
-    try {
-      localStorage.setItem(storageKey, expanded ? "1" : "0");
-    } catch {
-      // Ignore storage failures; the in-memory state still updates.
-    }
-  };
-  const {
-    event,
+export interface VenueReportModel {
+  event: VenueEventLike;
+  timeline: TimelineRow[];
+  presale: VenuePresaleBucket | null;
+  additionalSpendRows: Array<{ date: string; amount: number; category: string }>;
+  otherSpendByDate: ReadonlyMap<string, number>;
+  otherSpendBreakdownByDate: ReadonlyMap<
+    string,
+    Array<{ category: string; amount: number }>
+  >;
+}
+
+/**
+ * Build the venue report model from the slim portal payload. Memoised
+ * by the caller (the hook below) — pure function so it can also be
+ * called directly from tests.
+ */
+export function buildVenueReportModel(
+  events: PortalEvent[],
+  dailyEntries: DailyEntry[],
+  dailyRollups: DailyRollupRow[],
+  additionalSpend: AdditionalSpendRow[],
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+): VenueReportModel {
+  const eventIds = new Set(events.map((event) => event.id));
+  const isMultiEventVenue = eventIds.size > 1;
+  const additionalSpendRows = additionalSpend
+    .filter((row) =>
+      row.scope === "venue"
+        ? row.venue_event_code === events[0]?.event_code
+        : eventIds.has(row.event_id),
+    )
+    .map((row) => ({
+      date: row.date,
+      amount: row.amount,
+      category: row.category,
+    }));
+  const otherSpendByDate = additionalSpendTotalsByDate(additionalSpendRows);
+  const otherSpendBreakdownByDate =
+    additionalSpendBreakdownLinesByDate(additionalSpendRows);
+
+  const timeline = mergeVenueTimeline(
+    dailyRollups,
+    dailyEntries,
+    isMultiEventVenue,
+    weeklyTicketSnapshots,
+    events,
+  );
+  const generalSaleAt = earliestIso(
+    events.map((event) => event.general_sale_at).filter(isString),
+  );
+  const presale = buildVenuePresaleBucket(timeline, generalSaleAt);
+  return {
+    event: {
+      budget_marketing: maxNullable(events.map((event) => event.budget_marketing)),
+      // Raw cached campaign spend is duplicated across multi-event
+      // venues. Leave null so downstream uses the allocator-aware
+      // merged timeline instead.
+      meta_spend_cached: isMultiEventVenue
+        ? null
+        : sumNullable(events.map((event) => event.meta_spend_cached)),
+      prereg_spend: sumNullable(events.map((event) => event.prereg_spend)),
+      general_sale_at: generalSaleAt,
+      capacity: sumNullable(events.map((event) => event.capacity)),
+      event_date: earliestUpcomingOrKnownEventDate(events),
+      report_cadence: events.some((event) => event.report_cadence === "weekly")
+        ? "weekly"
+        : "daily",
+    },
     timeline,
     presale,
     additionalSpendRows,
     otherSpendByDate,
     otherSpendBreakdownByDate,
-  } = useMemo(
+  };
+}
+
+/**
+ * Memoising hook — call once per parent render and pass the resolved
+ * model to both `<VenueTrendChartSection>` and
+ * `<VenueDailyTrackerSection>`. Saves the merge + presale bucket
+ * computation from running twice.
+ *
+ * Tier-derived ticket totals are also exposed here so the parent's
+ * Performance Summary cards can use the same source of truth as the
+ * tracker.
+ */
+export function useVenueReportModel(
+  events: PortalEvent[],
+  dailyEntries: DailyEntry[],
+  dailyRollups: DailyRollupRow[],
+  additionalSpend: AdditionalSpendRow[],
+  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+): VenueReportModel & {
+  tierLifetimeTickets: number | null;
+  tierLifetimeRevenue: number | null;
+} {
+  const model = useMemo(
     () =>
       buildVenueReportModel(
         events,
@@ -142,6 +200,29 @@ export function VenueDailyReportBlock({
     }
     return any ? sum : null;
   }, [events]);
+
+  return { ...model, tierLifetimeTickets, tierLifetimeRevenue };
+}
+
+/**
+ * Stand-alone trend chart section. Filters the model timeline to the
+ * given date window and (optionally) to a single platform, then hands
+ * off to the existing multi-metric chart.
+ */
+export function VenueTrendChartSection({
+  model,
+  datePreset,
+  customRange,
+  platform,
+  title = "Daily trend",
+}: {
+  model: VenueReportModel;
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+  platform: PlatformId;
+  title?: string;
+}) {
+  const { timeline, otherSpendByDate } = model;
   const chartTimeline = useMemo(
     () =>
       trimTimelineForTrackerDisplay(timeline, {
@@ -160,19 +241,79 @@ export function VenueDailyReportBlock({
     () => (windowDays === null ? null : new Set(windowDays)),
     [windowDays],
   );
-  const windowedTimeline = useMemo(
-    () =>
-      windowDaySet === null
-        ? timeline
-        : timeline.filter((row) => windowDaySet.has(row.date)),
-    [timeline, windowDaySet],
-  );
   const windowedChartTimeline = useMemo(
     () =>
       windowDaySet === null
         ? chartTimeline
         : chartTimeline.filter((row) => windowDaySet.has(row.date)),
     [chartTimeline, windowDaySet],
+  );
+  const platformTimeline = useMemo(
+    () => projectTimelineToPlatform(windowedChartTimeline, platform),
+    [windowedChartTimeline, platform],
+  );
+
+  return <EventTrendChart timeline={platformTimeline} title={title} />;
+}
+
+/**
+ * Stand-alone daily-tracker section. Defaults to the last 14 days
+ * collapsed; the "Show full tracker (60 days)" button expands. The
+ * preference persists per `event_code` in localStorage so navigating
+ * between venues remembers each card's state independently.
+ */
+export function VenueDailyTrackerSection({
+  eventCode,
+  model,
+  mode,
+  datePreset,
+  customRange,
+}: {
+  eventCode: string;
+  model: VenueReportModel;
+  mode: "dashboard" | "share";
+  datePreset: DatePreset;
+  customRange?: CustomDateRange;
+}) {
+  const storageKey = `venue_tracker_expanded_${eventCode}`;
+  const [trackerExpanded, setTrackerExpanded] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setTrackerPreference = (expanded: boolean) => {
+    setTrackerExpanded(expanded);
+    try {
+      localStorage.setItem(storageKey, expanded ? "1" : "0");
+    } catch {
+      // Ignore storage failures; the in-memory state still updates.
+    }
+  };
+
+  const {
+    event,
+    timeline,
+    presale,
+    otherSpendByDate,
+    otherSpendBreakdownByDate,
+  } = model;
+  const windowDays = useMemo(
+    () => resolvePresetToDays(datePreset, customRange),
+    [datePreset, customRange],
+  );
+  const windowDaySet = useMemo(
+    () => (windowDays === null ? null : new Set(windowDays)),
+    [windowDays],
+  );
+  const windowedTimeline = useMemo(
+    () =>
+      windowDaySet === null
+        ? timeline
+        : timeline.filter((row) => windowDaySet.has(row.date)),
+    [timeline, windowDaySet],
   );
   const windowedOtherSpendByDate = useMemo(
     () =>
@@ -214,66 +355,94 @@ export function VenueDailyReportBlock({
     ],
   );
 
-  const hasMetaScope = dailyRollups.some(
-    (row) =>
-      row.ad_spend != null ||
-      row.ad_spend_allocated != null ||
-      row.ad_spend_presale != null ||
-      row.tiktok_spend != null,
+  const hasMetaScope = timeline.some(
+    (row) => row.ad_spend != null || row.tiktok_spend != null,
   );
-  const hasEventbriteLink =
-    dailyRollups.some((row) => row.tickets_sold != null || row.revenue != null) ||
-    weeklyTicketSnapshots.length > 0 ||
-    events.some((event) => event.history.length > 0);
+  const hasEventbriteLink = timeline.some(
+    (row) => row.tickets_sold != null || row.revenue != null,
+  );
 
-  if (!hasMetaScope && !hasEventbriteLink && additionalSpendRows.length === 0) {
-    return null;
-  }
+  // 14-day collapsed window per spec — gives the operator at-a-glance
+  // visibility on the recent fortnight without scrolling the full
+  // 60-day table. The toggle copy still mentions 60 days because
+  // that's the rollup retention period; passing `undefined` lets the
+  // tracker render whatever rows it has up to that limit.
+  const COLLAPSED_ROWS = 14;
 
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="font-heading text-lg tracking-wide">Event reporting</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Aggregated across {events.length} event
-          {events.length === 1 ? "" : "s"} under{" "}
-          <span className="font-mono text-foreground">{eventCode}</span>.
-        </p>
-      </div>
-
-      <EventSummaryHeader
-        event={event}
-        timeline={timeline}
-        timeframe={DEFAULT_PERF_SUMMARY}
-        additionalSpendEntries={additionalSpendRows}
-        tierLifetimeTickets={tierLifetimeTickets}
-        tierLifetimeRevenue={tierLifetimeRevenue}
+    <section className="space-y-2">
+      <DailyTracker
+        eventId={`venue:${eventCode}`}
+        hasMetaScope={hasMetaScope}
+        hasEventbriteLink={hasEventbriteLink}
+        controlled={controlled}
+        visibleRowLimit={trackerExpanded ? undefined : COLLAPSED_ROWS}
       />
-
-      <EventTrendChart timeline={windowedChartTimeline} title="Daily trend" />
-
-      <div className="space-y-2">
-        <DailyTracker
-          eventId={`venue:${eventCode}`}
-          hasMetaScope={hasMetaScope}
-          hasEventbriteLink={hasEventbriteLink}
-          controlled={controlled}
-          visibleRowLimit={trackerExpanded ? undefined : 7}
-        />
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setTrackerPreference(!trackerExpanded)}
-            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-          >
-            {trackerExpanded
-              ? "Hide full tracker ▲"
-              : "Show full tracker (60 days) ▼"}
-          </button>
-        </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setTrackerPreference(!trackerExpanded)}
+          className="rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+        >
+          {trackerExpanded
+            ? "Hide full tracker ▲"
+            : "Show full tracker (60 days) ▼"}
+        </button>
       </div>
     </section>
   );
+}
+
+/**
+ * Project the timeline rows to the single-platform view used by the
+ * trend chart. The chart's existing `paidSpendOf` helper sums Meta +
+ * TikTok spend; for a specific-platform view we want only that
+ * platform's columns to participate, with the others zeroed.
+ *
+ * "All" passes through unchanged (chart sums Meta + TikTok via
+ * `paidSpendOf`).
+ */
+function projectTimelineToPlatform(
+  rows: TimelineRow[],
+  platform: PlatformId,
+): TimelineRow[] {
+  if (platform === "all") return rows;
+  return rows.map((row) => {
+    if (platform === "meta") {
+      return {
+        ...row,
+        tiktok_spend: null,
+        tiktok_clicks: null,
+        tiktok_video_views: null,
+        tiktok_impressions: null,
+        tiktok_results: null,
+      };
+    }
+    if (platform === "tiktok") {
+      return {
+        ...row,
+        ad_spend: null,
+        link_clicks: null,
+        meta_regs: null,
+      };
+    }
+    // google_ads — no Google Ads columns participate in the
+    // legacy multi-metric chart yet (the chart reads
+    // ad_spend/tiktok_spend only). Strip both so the platform
+    // tab renders as "no data" until Google Ads is wired into
+    // the chart's spend source.
+    return {
+      ...row,
+      ad_spend: null,
+      link_clicks: null,
+      meta_regs: null,
+      tiktok_spend: null,
+      tiktok_clicks: null,
+      tiktok_video_views: null,
+      tiktok_impressions: null,
+      tiktok_results: null,
+    };
+  });
 }
 
 function filterMapByDate<T>(
@@ -285,76 +454,6 @@ function filterMapByDate<T>(
     if (allowedDays.has(date)) out.set(date, value);
   }
   return out;
-}
-
-function buildVenueReportModel(
-  events: PortalEvent[],
-  dailyEntries: DailyEntry[],
-  dailyRollups: DailyRollupRow[],
-  additionalSpend: AdditionalSpendRow[],
-  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
-): {
-  event: VenueEventLike;
-  timeline: TimelineRow[];
-  presale: VenuePresaleBucket | null;
-  additionalSpendRows: Array<{ date: string; amount: number; category: string }>;
-  otherSpendByDate: ReadonlyMap<string, number>;
-  otherSpendBreakdownByDate: ReadonlyMap<
-    string,
-    Array<{ category: string; amount: number }>
-  >;
-} {
-  const eventIds = new Set(events.map((event) => event.id));
-  const isMultiEventVenue = eventIds.size > 1;
-  const additionalSpendRows = additionalSpend
-    .filter((row) =>
-      row.scope === "venue"
-        ? row.venue_event_code === events[0]?.event_code
-        : eventIds.has(row.event_id),
-    )
-    .map((row) => ({
-      date: row.date,
-      amount: row.amount,
-      category: row.category,
-    }));
-  const otherSpendByDate = additionalSpendTotalsByDate(additionalSpendRows);
-  const otherSpendBreakdownByDate =
-    additionalSpendBreakdownLinesByDate(additionalSpendRows);
-
-  const timeline = mergeVenueTimeline(
-    dailyRollups,
-    dailyEntries,
-    isMultiEventVenue,
-    weeklyTicketSnapshots,
-    events,
-  );
-  const generalSaleAt = earliestIso(
-    events.map((event) => event.general_sale_at).filter(isString),
-  );
-  const presale = buildVenuePresaleBucket(timeline, generalSaleAt);
-  return {
-    event: {
-      budget_marketing: maxNullable(events.map((event) => event.budget_marketing)),
-      // Raw cached campaign spend is duplicated across multi-event
-      // venues. Leave null so EventSummaryHeader uses the allocator-
-      // aware merged timeline instead.
-      meta_spend_cached: isMultiEventVenue
-        ? null
-        : sumNullable(events.map((event) => event.meta_spend_cached)),
-      prereg_spend: sumNullable(events.map((event) => event.prereg_spend)),
-      general_sale_at: generalSaleAt,
-      capacity: sumNullable(events.map((event) => event.capacity)),
-      event_date: earliestUpcomingOrKnownEventDate(events),
-      report_cadence: events.some((event) => event.report_cadence === "weekly")
-        ? "weekly"
-        : "daily",
-    },
-    timeline,
-    presale,
-    additionalSpendRows,
-    otherSpendByDate,
-    otherSpendBreakdownByDate,
-  };
 }
 
 function mergeVenueTimeline(
