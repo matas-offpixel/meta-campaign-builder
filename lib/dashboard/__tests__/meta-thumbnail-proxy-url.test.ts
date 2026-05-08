@@ -13,7 +13,7 @@ describe("meta-thumbnail-proxy-url", () => {
       kind: "session",
       clientId: "cid",
     });
-    assert.ok(u?.includes("/api/meta/thumbnail-proxy?"));
+    assert.ok(u?.includes("/api/proxy/creative-thumbnail?"));
     assert.ok(u?.includes("ad_id=123"));
     assert.ok(u?.includes("client_id=cid"));
   });
@@ -37,6 +37,6 @@ describe("meta-thumbnail-proxy-url", () => {
       kind: "session",
       clientId: "c",
     });
-    assert.ok(out?.startsWith("/api/meta/thumbnail-proxy"));
+    assert.ok(out?.startsWith("/api/proxy/creative-thumbnail"));
   });
 });

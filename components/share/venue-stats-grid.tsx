@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useMemo } from "react";
+import { Info } from "lucide-react";
 
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/dashboard/format";
 import {
@@ -141,7 +143,22 @@ export function VenueStatsGrid({
       >
         <Cell label="Spend" value={fmtCurrency(cells.spend)} />
         <Cell label="Impressions" value={fmtIntOrDash(cells.impressions)} />
-        <Cell label="Reach (sum)" value={fmtIntOrDash(cells.reach)} />
+        <Cell
+          label={
+            <span className="inline-flex items-center gap-1">
+              Reach (sum)
+              <button
+                type="button"
+                className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                title="Reach (sum) is summed across campaigns — not deduplicated unique reach across the venue. A user reached by more than one campaign is counted once per campaign. Video Plays uses Meta’s default 3-second video view action (and platform-equivalents on TikTok / Google Ads)."
+                aria-label="About Reach (sum)"
+              >
+                <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+              </button>
+            </span>
+          }
+          value={fmtIntOrDash(cells.reach)}
+        />
         <Cell
           label="Clicks"
           value={fmtIntOrDash(cells.clicks)}
@@ -164,13 +181,6 @@ export function VenueStatsGrid({
           value={fmtCurrencyOrDash(cells.costPerEngagement)}
         />
       </div>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">Reach (sum)</span> is
-        summed across campaigns — not deduplicated unique reach across the
-        venue. A user reached by more than one campaign is counted once per
-        campaign. Video Plays uses Meta&rsquo;s default 3-second video view
-        action (and platform-equivalents on TikTok / Google Ads).
-      </p>
     </section>
   );
 }
@@ -180,15 +190,15 @@ function Cell({
   value,
   sub,
 }: {
-  label: string;
+  label: ReactNode;
   value: string;
   sub?: string | null;
 }) {
   return (
     <div className="rounded-md border border-border bg-card p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground [&_button]:normal-case">
         {label}
-      </p>
+      </div>
       <p className="mt-1 font-heading text-lg tracking-wide tabular-nums text-foreground">
         {value}
       </p>

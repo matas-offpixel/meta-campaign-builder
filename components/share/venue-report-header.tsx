@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { Loader2, RefreshCw, Share2 } from "lucide-react";
 
 import { CustomRangePicker, TimeframeSelector } from "@/components/report/timeframe-controls";
 import { fmtDate } from "@/lib/dashboard/format";
@@ -90,6 +97,12 @@ interface Props {
    * just `router.refresh()`s.
    */
   syncEventIds: string[];
+  /**
+   * When set and the route is internal (`/clients/*`), shows "Share" next to
+   * Sync — POST `/api/share/client` mints `/share/client/[token]`. Hidden on
+   * `/share/*` routes so viewers never see a duplicate share affordance.
+   */
+  shareClientId?: string | null;
 }
 
 export function VenueReportHeader({
@@ -104,13 +117,24 @@ export function VenueReportHeader({
   customRange,
   platform,
   syncEventIds,
+  shareClientId,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [shareLinkKind, setShareLinkKind] = useState<"editable" | "view" | null>(
+    null,
+  );
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPerformance = activeTab === "performance";
+
+  const showClientShare =
+    Boolean(shareClientId) && pathname.startsWith("/clients/");
 
   const setSearchParam = (key: string, value: string | null) => {
     // Preserve any other query params on the URL (Insights / Pacing
@@ -154,6 +178,61 @@ export function VenueReportHeader({
   const handlePlatformChange = (next: PlatformId) => {
     setSearchParam("platform", next === "all" ? null : next);
   };
+
+  const handleShareClient = useCallback(async () => {
+    if (!shareClientId) return;
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      const res = await fetch("/api/share/client", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: shareClientId }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        url?: string;
+        can_edit?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !json.ok || !json.url) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+      await navigator.clipboard.writeText(json.url);
+      setShareLinkKind(json.can_edit ? "editable" : "view");
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setShareToast(`Share link copied: ${json.url}`);
+      toastTimerRef.current = setTimeout(() => {
+        setShareToast(null);
+        toastTimerRef.current = null;
+      }, 6000);
+    } catch (err) {
+      setShareError(
+        err instanceof Error ? err.message : "Could not create share link.",
+      );
+    } finally {
+      setShareBusy(false);
+    }
+  }, [shareClientId]);
+
+  useEffect(() => {
+    if (!showClientShare) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (
+        e.metaKey &&
+        e.shiftKey &&
+        (e.key === "s" || e.key === "S") &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        void handleShareClient();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showClientShare, handleShareClient]);
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -230,7 +309,30 @@ export function VenueReportHeader({
             <LiveIndicator label={lastSyncedLabel} />
           </div>
         </div>
-        <div className="flex flex-shrink-0 items-center gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+          {showClientShare ? (
+            <button
+              type="button"
+              onClick={() => void handleShareClient()}
+              disabled={shareBusy || isPending}
+              title="Copy client portal share link (⌘⇧S)"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid="venue-report-share-client"
+            >
+              {shareBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {shareBusy
+                ? "Sharing…"
+                : shareLinkKind === "editable"
+                  ? "Share (editable)"
+                  : shareLinkKind === "view"
+                    ? "Share (view-only)"
+                    : "Share"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleSync}
@@ -253,6 +355,23 @@ export function VenueReportHeader({
           className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive"
         >
           {syncError}
+        </p>
+      ) : null}
+      {shareError ? (
+        <p
+          role="alert"
+          className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive"
+        >
+          {shareError}
+        </p>
+      ) : null}
+      {shareToast ? (
+        <p
+          role="status"
+          className="fixed bottom-4 right-4 z-50 max-w-md rounded-md border border-border bg-card px-4 py-3 text-xs text-foreground shadow-lg"
+          data-testid="venue-report-share-toast"
+        >
+          {shareToast}
         </p>
       ) : null}
 

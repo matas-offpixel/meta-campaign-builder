@@ -1,10 +1,6 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
-
 import { graphGetWithToken } from "@/lib/meta/client";
-import { getOwnerFacebookToken } from "@/lib/db/report-shares";
-import { createServiceRoleClient } from "@/lib/supabase/server";
 import { withActPrefix, withoutActPrefix } from "@/lib/meta/ad-account-id";
 
 export function normalizeMetaAdAccountId(
@@ -59,30 +55,6 @@ export async function fetchThumbnailImageBytes(
     imgRes.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
   const buffer = Buffer.from(await imgRes.arrayBuffer());
   return { buffer, contentType };
-}
-
-const fetchCachedThumbnail = unstable_cache(
-  async (adId: string, ownerUserId: string) => {
-    const admin = createServiceRoleClient();
-    const fbToken = await getOwnerFacebookToken(ownerUserId, admin);
-    if (!fbToken) {
-      throw new Error("Facebook token unavailable");
-    }
-    return fetchThumbnailImageBytes(adId, fbToken);
-  },
-  ["meta-thumbnail-proxy-v1"],
-  { revalidate: 86400 },
-);
-
-/**
- * Cached Meta ad thumbnail bytes (24h). Keyed by ad id + owning user so
- * service-role token lookup stays deterministic.
- */
-export function getCachedMetaThumbnailBytes(
-  adId: string,
-  ownerUserId: string,
-): Promise<{ buffer: Buffer; contentType: string }> {
-  return fetchCachedThumbnail(adId, ownerUserId);
 }
 
 export async function verifyAdAccountForThumbnail(
