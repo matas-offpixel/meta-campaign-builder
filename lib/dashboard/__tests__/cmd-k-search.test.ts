@@ -95,5 +95,9 @@ describe("cmd-k search", () => {
       src.includes('"Cache-Control": "private, max-age=300"'),
       "route should return a private 5-minute cache header",
     );
+    assert.ok(
+      src.includes("primary_type") && !src.includes("id, name, slug, type"),
+      "route should select the clients.primary_type column that exists in production",
+    );
   });
 });

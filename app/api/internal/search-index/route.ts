@@ -17,7 +17,7 @@ export async function GET() {
   const [clientsResult, eventsResult] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, name, slug, type")
+      .select("id, name, slug, primary_type")
       .order("name", { ascending: true }),
     supabase
       .from("events")
@@ -46,7 +46,7 @@ export async function GET() {
     id: client.id,
     name: client.name ?? "Untitled client",
     slug: client.slug ?? null,
-    type: client.type ?? null,
+    type: client.primary_type ?? null,
     href: `/clients/${client.id}/dashboard`,
   }));
 
