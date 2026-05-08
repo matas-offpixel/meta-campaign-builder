@@ -24,6 +24,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
 import type { InvoiceRow } from "@/lib/types/invoicing";
+import { CMD_K_OPEN_EVENT } from "@/components/dashboard/cmd-k-palette";
 
 type NavItem = {
   href: string;
@@ -208,6 +209,23 @@ export function DashboardNav() {
         <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
           Agency OS
         </p>
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new Event(CMD_K_OPEN_EVENT));
+          }}
+          className="mt-4 flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Open global search"
+          title="Open global search"
+        >
+          <span className="inline-flex items-center gap-2">
+            <Search className="h-3.5 w-3.5" aria-hidden="true" />
+            Search
+          </span>
+          <kbd className="rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10px]">
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       <nav className="flex-1 px-2 py-3 space-y-3">
