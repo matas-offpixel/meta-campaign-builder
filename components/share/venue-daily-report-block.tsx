@@ -465,10 +465,6 @@ function mergeVenueTimeline(
   events: PortalEvent[],
 ): TimelineRow[] {
   const byDate = new Map<string, TimelineRow>();
-  const rollupTicketTotal = rollups.reduce(
-    (sum, row) => sum + (row.tickets_sold ?? 0),
-    0,
-  );
   const rollupRevenueTotal = rollups.reduce(
     (sum, row) => sum + (row.revenue ?? 0),
     0,
@@ -504,10 +500,21 @@ function mergeVenueTimeline(
     byDate.set(row.date, current);
   }
 
-  if (rollupTicketTotal === 0) {
-    for (const [date, tickets] of venueSnapshotTicketDeltas(
-      weeklyTicketSnapshots,
-    )) {
+  // Snapshot deltas are authoritative when available (Eventbrite / FourtheFans).
+  // Previously gated on `rollupTicketTotal === 0`, so a single day of meta_regs
+  // (rollup tickets_sold) blocked all 259 Manchester snapshot rows from
+  // contributing to the timeline — producing a flat zero tickets line.
+  //
+  // Fix: always compute snapshot deltas. When they exist, clear the rollup
+  // tickets_sold values that came from meta_regs (partial on-meta counts) and
+  // replace them with snapshot-derived weekly deltas so the daily tracker and
+  // trend chart show ticketing-provider data, not Meta conversion counts.
+  const snapshotDeltas = venueSnapshotTicketDeltas(weeklyTicketSnapshots);
+  if (snapshotDeltas.size > 0) {
+    for (const current of byDate.values()) {
+      current.tickets_sold = null;
+    }
+    for (const [date, tickets] of snapshotDeltas) {
       const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
       current.tickets_sold = addNullable(current.tickets_sold, tickets);
       byDate.set(date, current);

@@ -55,6 +55,7 @@ import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/addit
 import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
+import { buildVenueTicketSnapshotPoints } from "@/lib/dashboard/venue-trend-points";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueSyncButton } from "./venue-sync-button";
@@ -1205,7 +1206,25 @@ function buildVenueTrendPoints(
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
   const isMultiEventVenue = venueEventIds.size > 1;
-  const hasRollupTickets = rows.some((row) => row.tickets_sold != null);
+
+  // Build snapshot points first — they are the authoritative cumulative source
+  // (Eventbrite / FourtheFans). When snapshots exist, rollup tickets_sold
+  // (meta_regs, a partial on-meta count) MUST be suppressed. If both were
+  // present as points, the aggregator in cumulative mode would treat
+  // today's meta_regs value (e.g. 4) as the new cumulative total, instantly
+  // dropping the chart from 699 → 4. The gate was previously inverted
+  // (!hasRollupTickets) which caused the snapshot path to be skipped entirely
+  // whenever even a single day of meta_regs landed in the rollup table.
+  const snapshotPoints = buildVenueTicketSnapshotPoints(
+    weeklyTicketSnapshots,
+    venueEventIds,
+  );
+  const hasSnapshotTickets = snapshotPoints.length > 0;
+
+  // Only use rollup tickets_sold when no snapshot history exists.
+  const hasRollupTickets =
+    !hasSnapshotTickets && rows.some((row) => row.tickets_sold != null);
+
   const byDate = new Map<string, VenueTrendDateAccumulator>();
   for (const row of rows) {
     const cur =
@@ -1249,59 +1268,28 @@ function buildVenueTrendPoints(
     }
     byDate.set(row.date, cur);
   }
+
   const points: TrendChartPoint[] = [...byDate.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, row]) => ({
       date,
       spend: row.hasAllocatedSpend ? row.allocatedSpend : row.rawSpend,
+      // Emit null for tickets when snapshots are present — the snapshotPoints
+      // below carry the authoritative cumulative values.
       tickets: hasRollupTickets ? row.tickets : null,
       revenue: row.revenue,
-      linkClicks: row.hasAllocatedSpend ? row.allocatedLinkClicks : row.rawLinkClicks,
+      linkClicks: row.hasAllocatedSpend
+        ? row.allocatedLinkClicks
+        : row.rawLinkClicks,
     }));
-  if (!hasRollupTickets) {
-    points.push(...buildVenueTicketSnapshotPoints(weeklyTicketSnapshots, venueEventIds));
-  }
-  return points;
-}
 
-function buildVenueTicketSnapshotPoints(
-  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
-  venueEventIds: Set<string>,
-): TrendChartPoint[] {
-  const byEvent = new Map<string, WeeklyTicketSnapshotRow[]>();
-  for (const row of weeklyTicketSnapshots) {
-    if (!venueEventIds.has(row.event_id)) continue;
-    const rows = byEvent.get(row.event_id) ?? [];
-    rows.push(row);
-    byEvent.set(row.event_id, rows);
-  }
-  const dates = new Set<string>();
-  for (const rows of byEvent.values()) {
-    rows.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
-    for (const row of rows) dates.add(row.snapshot_at);
-  }
-  return [...dates].sort().map((date) => {
-    let total = 0;
-    let hasTickets = false;
-    for (const rows of byEvent.values()) {
-      for (let i = rows.length - 1; i >= 0; i--) {
-        const row = rows[i]!;
-        if (row.snapshot_at <= date) {
-          total += row.tickets_sold;
-          hasTickets = true;
-          break;
-        }
-      }
-    }
-    return {
-      date,
-      spend: null,
-      tickets: hasTickets ? total : null,
-      revenue: null,
-      linkClicks: null,
-      ticketsKind: "cumulative_snapshot",
-    };
-  });
+  // Always push snapshot points. The aggregator detects cumulative_snapshot
+  // kind and activates the carry-forward path, producing a smooth growing
+  // line from the first snapshot date to today. Previously this was gated
+  // behind !hasRollupTickets, causing a flat zero line for any venue where
+  // meta_regs wrote even one day of rollup tickets_sold.
+  points.push(...snapshotPoints);
+  return points;
 }
 
 function VenueReportLink({
