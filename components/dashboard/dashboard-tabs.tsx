@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { ClientPortal } from "@/components/share/client-portal";
 import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
+import { InsightsPanelSkeleton } from "@/components/dashboard/skeletons/insights-panel-skeleton";
+import { PacingSectionSkeleton } from "@/components/dashboard/skeletons/pacing-section-skeleton";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -199,29 +202,38 @@ export function DashboardTabs({
       ) : (
         <main className="mx-auto max-w-7xl px-6 py-8">
           {selectedTab === "insights" && selectedRegion ? (
-            <CreativePatternsPanel
-              clientId={clientId}
-              scopeLabel={scopeLabel}
-              regionFilter={{ type: "country", value: selectedRegion }}
-              phase={phase}
-              funnel={funnel}
-              dashboardInsights={{
-                region: selectedRegion,
-                token,
-                isShared,
-              }}
-              isShared={isShared}
-            />
+            // CreativePatternsPanel is an async server component
+            // (cross-event pattern aggregates). Suspense streams the
+            // tab strip + region nav first, then swaps the panel in
+            // once the pattern data resolves.
+            <Suspense fallback={<InsightsPanelSkeleton />}>
+              <CreativePatternsPanel
+                clientId={clientId}
+                scopeLabel={scopeLabel}
+                regionFilter={{ type: "country", value: selectedRegion }}
+                phase={phase}
+                funnel={funnel}
+                dashboardInsights={{
+                  region: selectedRegion,
+                  token,
+                  isShared,
+                }}
+                isShared={isShared}
+              />
+            </Suspense>
           ) : (
-            <FunnelPacingSection
-              clientId={clientId}
-              regionFilter={
-                selectedRegion
-                  ? { type: "country", value: selectedRegion }
-                  : undefined
-              }
-              isShared={isShared}
-            />
+            // FunnelPacingSection is also async; same streaming win.
+            <Suspense fallback={<PacingSectionSkeleton />}>
+              <FunnelPacingSection
+                clientId={clientId}
+                regionFilter={
+                  selectedRegion
+                    ? { type: "country", value: selectedRegion }
+                    : undefined
+                }
+                isShared={isShared}
+              />
+            </Suspense>
           )}
         </main>
       )}
