@@ -131,6 +131,12 @@ interface RefreshResponse {
   ok: boolean;
   startedAt: string;
   finishedAt: string;
+  /**
+   * "base" → 3×/day cadence (mig PR-E `vercel.json`). This route
+   * has no burst counterpart; included for log-grep symmetry with
+   * the other Meta crons.
+   */
+  cadence_tier: "base";
   usersProcessed: number;
   accountsProcessed: number;
   snapshotsWritten: number;
@@ -203,6 +209,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       startedAt,
       finishedAt,
+      cadence_tier: "base",
       usersProcessed: 0,
       accountsProcessed: 0,
       snapshotsWritten: 0,
@@ -366,6 +373,7 @@ export async function GET(req: NextRequest) {
     ok: allOk,
     startedAt,
     finishedAt,
+    cadence_tier: "base",
     usersProcessed: seenUsers.size,
     accountsProcessed: results.filter(
       (r) => r.presetsRun > 0 || r.skipped == null,

@@ -96,6 +96,12 @@ interface CronResponse {
   ok: boolean;
   startedAt: string;
   finishedAt: string;
+  /**
+   * "base" → 3×/day cadence (mig PR-E `vercel.json`).
+   * "burst" → emitted by `/api/cron/show-week-burst` for events
+   *   with `event_date` in the next 7 days. Lets ops grep usage.
+   */
+  cadence_tier: "base" | "burst";
   eventsConsidered: number;
   eventsProcessed: number;
   totalPresetsRefreshed: number;
@@ -199,13 +205,14 @@ export async function GET(req: NextRequest) {
       ok: true,
       startedAt,
       finishedAt,
+      cadence_tier: "base",
       eventsConsidered: 0,
       eventsProcessed: 0,
       totalPresetsRefreshed: 0,
       results: [],
     };
     console.log(
-      `[cron refresh-active-creatives] no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+      `[cron refresh-active-creatives] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
     );
     return NextResponse.json(empty);
   }
@@ -324,6 +331,7 @@ export async function GET(req: NextRequest) {
     ok: allOk,
     startedAt,
     finishedAt,
+    cadence_tier: "base",
     eventsConsidered: events.length,
     eventsProcessed: results.length,
     totalPresetsRefreshed,
@@ -331,7 +339,7 @@ export async function GET(req: NextRequest) {
   };
 
   console.log(
-    `[cron refresh-active-creatives] done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed}`,
+    `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed}`,
   );
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
