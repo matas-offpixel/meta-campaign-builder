@@ -220,15 +220,8 @@ function readTicketTiers(
   // returns `{ tickets: [...] }` at either the outer envelope or inner event
   // level. Keep `ticket_tiers` first since that is what the documented v1
   // spec uses; the others are empirically observed fallbacks.
-  const rawTiers =
-    event.ticket_tiers ??
-    event.ticketTiers ??
-    event.tiers ??
-    event.ticket_types ??
-    event.tickets ??
-    event.booking_tickets ??
-    event.event_tickets;
-  if (!Array.isArray(rawTiers)) return [];
+  const rawTiers = collectTicketTierArrays(event);
+  if (rawTiers.length === 0) return [];
 
   const tiers: ParsedFourthefansTicketTier[] = [];
   for (const rawTier of rawTiers) {
@@ -270,6 +263,44 @@ function readTicketTiers(
     });
   }
   return tiers;
+}
+
+function collectTicketTierArrays(event: Record<string, unknown>): unknown[] {
+  const directKeys = [
+    "ticket_tiers",
+    "ticketTiers",
+    "tiers",
+    "ticket_types",
+    "tickets",
+    "booking_tickets",
+    "event_tickets",
+  ];
+  const nestedGroupKeys = [
+    "tier_groups",
+    "tierGroups",
+    "ticket_groups",
+    "ticketGroups",
+    "groups",
+    "categories",
+  ];
+
+  const out: unknown[] = [];
+  for (const key of directKeys) {
+    const value = event[key];
+    if (Array.isArray(value)) out.push(...value);
+  }
+  for (const key of nestedGroupKeys) {
+    const groups = event[key];
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      if (!isRecord(group)) continue;
+      for (const childKey of directKeys) {
+        const value = group[childKey];
+        if (Array.isArray(value)) out.push(...value);
+      }
+    }
+  }
+  return out;
 }
 
 function parseNumeric(value: unknown): number | null {
