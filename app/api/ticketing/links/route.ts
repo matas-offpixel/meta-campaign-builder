@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { backfillFourthefansHistory } from "@/lib/db/event-history-backfill";
 import {
   getConnectionById,
   refreshAggregatedTicketsSoldFromSnapshots,
@@ -138,6 +139,23 @@ export async function POST(req: NextRequest) {
       { ok: false, error: "Failed to persist the link." },
       { status: 500 },
     );
+  }
+
+  if (connection.provider === "fourthefans") {
+    void backfillFourthefansHistory(eventId, undefined, { supabase })
+      .then((r) => {
+        console.info(
+          "[ticketing/links] fourthefans ticket history backfill finished",
+          { eventId, inserted: r.inserted, skipped: r.skipped, window: r.window },
+        );
+      })
+      .catch((err) => {
+        console.warn(
+          "[ticketing/links] fourthefans ticket history backfill failed",
+          eventId,
+          err,
+        );
+      });
   }
 
   return NextResponse.json({ ok: true, link }, { status: 201 });

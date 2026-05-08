@@ -170,7 +170,8 @@ export interface RefreshResult {
  * `token` is the constant `"cron-refresh"` so log filters can
  * distinguish runner-driven traffic from real share-page traffic.
  */
-function synthesizeShareForRunner(
+/** Exported for thumbnail warming after rollup-sync (same synthetic share shape as cron). */
+export function synthesizeShareForRunner(
   eventId: string,
   userId: string,
 ): EventScopedShare {

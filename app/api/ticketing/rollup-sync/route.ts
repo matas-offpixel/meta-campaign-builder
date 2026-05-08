@@ -1,7 +1,10 @@
+import { after } from "next/server";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import { warmCreativeThumbnailsAfterRollupSync } from "@/lib/meta/creative-thumbnail-after-rollup-sync";
+import { shouldQueueThumbnailWarmAfterRollupSync } from "@/lib/meta/thumbnail-warm-after-rollup-sync";
 
 /**
  * POST /api/ticketing/rollup-sync?eventId=X
@@ -137,6 +140,36 @@ export async function POST(req: NextRequest) {
       ? "Ticketing provider synced successfully."
       : undefined;
 
+  const thumbnailWarmQueued = shouldQueueThumbnailWarmAfterRollupSync({
+    metaOk: result.summary.metaOk,
+    adAccountId,
+    eventCode,
+  });
+
+  if (thumbnailWarmQueued) {
+    const warmUserId = user.id;
+    const warmEventId = eventId;
+    const warmEventCode = eventCode;
+    const warmAdAccountId = adAccountId;
+    after(async () => {
+      try {
+        const admin = createServiceRoleClient();
+        const n = await warmCreativeThumbnailsAfterRollupSync({
+          admin,
+          eventId: warmEventId,
+          userId: warmUserId,
+          eventCode: warmEventCode,
+          adAccountId: warmAdAccountId,
+        });
+        console.info(
+          `[rollup-sync/route] deferred thumbnail warm cached=${n} event_id=${warmEventId}`,
+        );
+      } catch (err) {
+        console.warn("[rollup-sync/route] deferred thumbnail warm failed", err);
+      }
+    });
+  }
+
   return NextResponse.json(
     {
       ok: result.ok,
@@ -144,6 +177,7 @@ export async function POST(req: NextRequest) {
       eventsSkipped,
       skippedReason: ticketingSkipped ? "Not linked" : undefined,
       message,
+      thumbnailWarmQueued,
       summary: result.summary,
       meta: result.meta,
       tiktok: result.tiktok,

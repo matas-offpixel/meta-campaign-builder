@@ -31,6 +31,8 @@ export interface SyncResponseBody {
   eventsSkipped?: number;
   skippedReason?: string;
   message?: string;
+  /** Rollup-sync route only — `after()` thumbnail warm was scheduled. */
+  thumbnailWarmQueued?: boolean;
   summary?: {
     synced?: boolean;
     metaOk?: boolean;

@@ -29,6 +29,7 @@ import {
 } from "./venue-daily-report-block";
 import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueStatsGrid } from "./venue-stats-grid";
+import { VenuePaidMediaDailySpendTracker } from "./venue-paid-media-daily-tracker";
 
 /**
  * components/share/venue-full-report.tsx
@@ -176,7 +177,12 @@ export function VenueFullReport({
 
   return (
     <div className="space-y-6">
-      <PerformanceSummaryCards performance={performance} />
+      <PerformanceSummaryCards
+        performance={performance}
+        clientId={clientId}
+        eventCode={eventCode}
+        shareToken={mode === "share" ? token : undefined}
+      />
       <CollapsibleAdditionalEntries
         mode={mode}
         clientId={clientId}
@@ -233,8 +239,14 @@ export function VenueFullReport({
 
 function PerformanceSummaryCards({
   performance,
+  clientId,
+  eventCode,
+  shareToken,
 }: {
   performance: VenuePerformance;
+  clientId: string;
+  eventCode: string;
+  shareToken?: string;
 }) {
   return (
     <section
@@ -295,6 +307,14 @@ function PerformanceSummaryCards({
               <span className="text-muted-foreground">—</span>
             )}
           </p>
+          <VenuePaidMediaDailySpendTracker
+            key={`${clientId}:${eventCode}`}
+            clientId={clientId}
+            eventCode={eventCode}
+            shareToken={shareToken}
+            paidMediaBudget={performance.paidMediaBudget}
+            paidMediaSpent={performance.paidMediaSpent}
+          />
         </div>
         <div className="rounded-md border border-border bg-card p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
