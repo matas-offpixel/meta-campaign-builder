@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isMetaAdAccountRateLimitError } from "@/lib/audiences/meta-rate-limit";
+import {
+  audienceSourceRateLimitBody,
+  isMetaAdAccountRateLimitError,
+} from "@/lib/audiences/meta-rate-limit";
 import {
   isBulkFunnelStage,
   previewRowsToInserts,
@@ -140,7 +143,10 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (isMetaAdAccountRateLimitError(err)) {
       return NextResponse.json(
-        { ok: false, error: "Meta ad account is rate-limited. Try again in a few minutes." },
+        {
+          ok: false,
+          error: audienceSourceRateLimitBody(err).message,
+        },
         { status: 429 },
       );
     }
