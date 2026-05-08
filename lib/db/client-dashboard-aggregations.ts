@@ -17,7 +17,10 @@ import {
   buildRolloutGroupKeyByEventId,
   type GroupableRow,
 } from "../dashboard/rollout-grouping.ts";
-import { resolveDisplayTicketRevenue } from "../dashboard/tier-channel-rollups.ts";
+import {
+  resolveDisplayTicketCount,
+  resolveDisplayTicketRevenue,
+} from "../dashboard/tier-channel-rollups.ts";
 import { metaPaidSpendOf, paidSpendOf } from "../dashboard/paid-spend.ts";
 import type { DailyRollupRow } from "./client-portal-server";
 import type { EventTicketTierRow } from "./ticketing.ts";
@@ -64,6 +67,17 @@ function ticketRevenueForAggregatableEvent(ev: AggregatableEvent): number | null
     });
   }
   return ev.latest_snapshot?.revenue ?? null;
+}
+
+function ticketsForAggregatableEvent(ev: AggregatableEvent): number {
+  if (ev.ticket_tiers && ev.ticket_tiers.length > 0) {
+    return resolveDisplayTicketCount({
+      ticket_tiers: ev.ticket_tiers,
+      latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+      fallback_tickets: ev.tickets_sold ?? null,
+    });
+  }
+  return ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
 }
 
 /** One `additional_spend_entries` row; only `event_id` + `amount` used. */
@@ -282,8 +296,7 @@ export function aggregateClientWideTotals(
   const groupKeyByEventId = buildRolloutGroupKeyByEventId(groupingRows);
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
-    ticketsSold +=
-      ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+    ticketsSold += ticketsForAggregatableEvent(ev);
     if (ev.capacity != null) {
       capacity += ev.capacity;
       capacityAnyNonNull = true;
@@ -449,7 +462,7 @@ export function aggregateVenueCampaignPerformance(
   let hasAnyEventDate = false;
 
   for (const ev of events) {
-    tickets += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+    tickets += ticketsForAggregatableEvent(ev);
     if (ev.capacity != null) {
       capacity += ev.capacity;
       hasCapacity = true;
@@ -580,7 +593,7 @@ export function aggregateVenueGroupTotals(
   let hasRevenue = false;
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
-    ticketsSold += ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
+    ticketsSold += ticketsForAggregatableEvent(ev);
     if (ev.capacity != null) {
       capacity += ev.capacity;
       capacityAnyNonNull = true;
@@ -846,14 +859,10 @@ export function aggregateVenueWoW(
         windowEdgeMs,
         todayMs,
       ) ??
-      e.latest_snapshot?.tickets_sold ??
-      e.tickets_sold ??
-      null;
-    if (v != null) {
-      currentCumulativeTickets += v;
-      currentTicketsByEvent.set(e.id, v);
-      hasAnyCumulative = true;
-    }
+      ticketsForAggregatableEvent(e);
+    currentCumulativeTickets += v;
+    currentTicketsByEvent.set(e.id, v);
+    hasAnyCumulative = true;
   }
 
   // ── Daily rollup edges (spend/revenue cumulative + ticket fallback). ──

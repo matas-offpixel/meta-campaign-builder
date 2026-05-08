@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { fmtInt } from "@/components/report/meta-insights-sections";
 import { fmtCurrencyCompact } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
-import { eventTierSalesRollup } from "@/lib/dashboard/tier-channel-rollups";
+import { resolveDisplayTicketCount } from "@/lib/dashboard/tier-channel-rollups";
 import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import type {
   AdditionalSpendRow,
@@ -514,7 +514,11 @@ function latestVenueEventTickets(events: PortalEvent[]): number | null {
   let any = false;
   for (const event of events) {
     if (event.ticket_tiers.length > 0) {
-      total += eventTierSalesRollup(event.ticket_tiers).sold;
+      total += resolveDisplayTicketCount({
+        ticket_tiers: event.ticket_tiers,
+        latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
+        fallback_tickets: event.tickets_sold ?? null,
+      });
       any = true;
       continue;
     }

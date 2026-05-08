@@ -1,5 +1,6 @@
 import { classifyCampaignFunnelStage, type FunnelStage } from "./funnel-stage-classifier.ts";
 import type { PortalEvent } from "@/lib/db/client-portal-server";
+import { resolveDisplayTicketCount } from "./tier-channel-rollups.ts";
 import type { MetaCampaignRow } from "@/lib/insights/types";
 import type { VenueDailyAdMetricsRow } from "@/lib/insights/meta";
 
@@ -165,7 +166,14 @@ function safeRate(numerator: number, denominator: number): number | null {
 function sumTicketsSold(events: PortalEvent[]): number {
   return events.reduce(
     (total, event) =>
-      total + (event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0),
+      total +
+      (event.ticket_tiers.length > 0
+        ? resolveDisplayTicketCount({
+            ticket_tiers: event.ticket_tiers,
+            latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
+            fallback_tickets: event.tickets_sold ?? null,
+          })
+        : event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0),
     0,
   );
 }

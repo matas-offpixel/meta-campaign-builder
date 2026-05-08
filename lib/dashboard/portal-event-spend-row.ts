@@ -1,6 +1,6 @@
 import type { PortalEvent } from "@/lib/db/client-portal-server";
 import {
-  eventTierSalesRollup,
+  resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
 } from "@/lib/dashboard/tier-channel-rollups";
 import type { GroupSpend } from "@/lib/dashboard/venue-spend-model";
@@ -54,7 +54,14 @@ export function computePortalEventSpendRowMetrics(
     perEventTotal = perEventAd !== null ? (prereg ?? 0) + perEventAd : null;
   }
 
-  const tickets = eventTierSalesRollup(ev.ticket_tiers).sold;
+  const tickets =
+    ev.ticket_tiers.length > 0
+      ? resolveDisplayTicketCount({
+          ticket_tiers: ev.ticket_tiers,
+          latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+          fallback_tickets: ev.tickets_sold ?? null,
+        })
+      : ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
   const prev = ev.tickets_sold_previous ?? 0;
   const cpt =
     perEventTotal !== null && perEventTotal > 0 && tickets > 0
