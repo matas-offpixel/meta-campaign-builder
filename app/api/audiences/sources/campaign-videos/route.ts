@@ -4,13 +4,22 @@ import {
   audienceSourceRateLimitBody,
   isMetaAdAccountRateLimitError,
 } from "@/lib/audiences/meta-rate-limit";
-import { getCachedAudienceSource } from "@/lib/audiences/source-cache";
+import { getCachedAudienceSourceDb } from "@/lib/audiences/source-cache-db";
 import {
   fetchAudienceCampaignVideos,
   resolveAudienceSourceContext,
 } from "@/lib/audiences/sources";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
+
+// Vercel function timeout. Default is 10s; J2-scale campaigns
+// (~200 videos) push `fetchAudienceCampaignVideos` to 20–40s on cold
+// cache. Bumped to 60s with the DB cache (mig 087) so the second hit
+// always lands in cache and never burns a Vercel function-second
+// budget. Pro plan ceiling is 800s — 60s is comfortably under.
+export const maxDuration = 60;
+
+const TTL_MS = 30 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -32,15 +41,19 @@ export async function GET(req: NextRequest) {
     const context = await resolveAudienceSourceContext(supabase, user.id, clientId);
     if (!context) return Response.json({ error: "Forbidden" }, { status: 403 });
     const { token, source } = await resolveServerMetaToken(supabase, user.id);
-    const result = await getCachedAudienceSource(
-      [user.id, clientId, "campaign-videos", campaignId],
-      () =>
+    const result = await getCachedAudienceSourceDb({
+      userId: user.id,
+      clientId,
+      sourceKind: "campaign-videos",
+      cacheKey: campaignId,
+      ttlMs: TTL_MS,
+      load: () =>
         fetchAudienceCampaignVideos(
           context.metaAdAccountId,
           campaignId,
           token,
         ),
-    );
+    });
     return Response.json({ ok: true, ...result, tokenSource: source });
   } catch (err) {
     if (isMetaAdAccountRateLimitError(err)) {
