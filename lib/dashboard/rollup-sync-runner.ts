@@ -899,26 +899,40 @@ export async function runRollupSyncForEvent(
       if (fourthefansTierBatches.length > 0) {
         const mergedTiers = fourthefansTierBatches.flat();
         const tierSnapshotAt = new Date().toISOString();
-        await replaceEventTicketTiers(supabase, {
-          eventId,
-          tiers: mergedTiers,
-          snapshotAt: tierSnapshotAt,
-        });
-        console.info(
-          `[rollup-sync] merged ticket tiers event_id=${eventId} tiers=${mergedTiers.length}`,
-        );
-        const capacityResult = await updateEventCapacityFromTicketTiers(
-          supabase,
-          {
+        // Tier write is isolated in its own try/catch so a failure sets
+        // firstError (which the response surfaces) without aborting the daily
+        // rollup upsert that follows.  replaceEventTicketTiers now throws on
+        // any upsert rejection (RLS or otherwise) rather than silently
+        // returning 0 and letting the route claim ok:true.
+        try {
+          await replaceEventTicketTiers(supabase, {
             eventId,
-            userId,
             tiers: mergedTiers,
-            source: capacityTierSource ?? "fourthefans",
-          },
-        );
-        console.info(
-          `[rollup-sync] merged capacity event_id=${eventId} computed_capacity=${capacityResult.computedCapacity} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
-        );
+            snapshotAt: tierSnapshotAt,
+          });
+          console.info(
+            `[rollup-sync] merged ticket tiers event_id=${eventId} tiers=${mergedTiers.length}`,
+          );
+          const capacityResult = await updateEventCapacityFromTicketTiers(
+            supabase,
+            {
+              eventId,
+              userId,
+              tiers: mergedTiers,
+              source: capacityTierSource ?? "fourthefans",
+            },
+          );
+          console.info(
+            `[rollup-sync] merged capacity event_id=${eventId} computed_capacity=${capacityResult.computedCapacity} updated=${capacityResult.updated} skipped=${capacityResult.skippedReason ?? "<none>"}`,
+          );
+        } catch (tierErr) {
+          const tierMsg =
+            tierErr instanceof Error ? tierErr.message : "Unknown tier write error";
+          firstError ??= tierMsg;
+          console.error(
+            `[rollup-sync] tier upsert failed event_id=${eventId}: ${tierMsg}`,
+          );
+        }
       }
 
       if (snapshotSourceForPaddingClear) {

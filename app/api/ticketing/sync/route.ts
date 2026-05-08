@@ -189,24 +189,30 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let tierWriteError: string | null = null;
   if (tierBatches.length > 0) {
     const mergedTiers = tierBatches.flat();
-    await replaceEventTicketTiers(supabase, {
-      eventId,
-      tiers: mergedTiers,
-      snapshotAt: new Date().toISOString(),
-    });
-    await updateEventCapacityFromTicketTiers(supabase, {
-      eventId,
-      userId: user.id,
-      tiers: mergedTiers,
-      source: capacitySource ?? "fourthefans",
-    });
+    try {
+      await replaceEventTicketTiers(supabase, {
+        eventId,
+        tiers: mergedTiers,
+        snapshotAt: new Date().toISOString(),
+      });
+      await updateEventCapacityFromTicketTiers(supabase, {
+        eventId,
+        userId: user.id,
+        tiers: mergedTiers,
+        source: capacitySource ?? "fourthefans",
+      });
+    } catch (err) {
+      tierWriteError = err instanceof Error ? err.message : "Tier write failed";
+      console.error(`[ticketing/sync] tier upsert failed event_id=${eventId}: ${tierWriteError}`);
+    }
   }
 
-  const allOk = results.every((r) => r.ok);
+  const allOk = results.every((r) => r.ok) && tierWriteError === null;
   return NextResponse.json(
-    { ok: allOk, results },
+    { ok: allOk, results, tierWriteError },
     { status: allOk ? 200 : 207 },
   );
 }

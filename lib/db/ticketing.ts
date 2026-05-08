@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getTicketingTokenKey } from "@/lib/ticketing/secrets";
 import { ticketTierCapacity } from "@/lib/ticketing/tier-capacity";
 import type {
@@ -741,7 +742,21 @@ export async function replaceEventTicketTiers(
     snapshotAt?: string;
   },
 ): Promise<number> {
-  const sb = asAnyTable(supabase);
+  // event_ticket_tiers has RLS that rejects the user-scoped session client.
+  // Ownership of event_id has already been verified by the calling route
+  // (rollup-sync or /api/ticketing/sync) before reaching here, so a
+  // service-role write is safe.  Fall back to the passed-in client if the
+  // service-role key is not configured (e.g. local dev without the key) so
+  // the function stays usable in all environments.
+  let writeClient: AnySupabaseClient = supabase;
+  try {
+    writeClient = createServiceRoleClient();
+  } catch {
+    console.warn(
+      "[ticketing replaceEventTicketTiers] SUPABASE_SERVICE_ROLE_KEY not configured — falling back to session client (writes may fail RLS)",
+    );
+  }
+  const sb = asAnyTable(writeClient);
   const snapshotAt = args.snapshotAt ?? new Date().toISOString();
   const rowsByName = new Map<
     string,
@@ -799,8 +814,11 @@ export async function replaceEventTicketTiers(
     .from("event_ticket_tiers")
     .upsert(rows, { onConflict: "event_id,tier_name" });
   if (error) {
-    console.warn("[ticketing replaceEventTicketTiers upsert]", error.message);
-    return 0;
+    // Throw so callers surface this as a sync failure rather than silently
+    // writing zero tier rows while returning ok:true.
+    throw new Error(
+      `[ticketing replaceEventTicketTiers upsert] ${error.message}`,
+    );
   }
 
   const tierNames = rows.map((tier) => tier.tier_name);
