@@ -438,6 +438,218 @@ export async function fetchAudienceCampaignVideos(
   };
 }
 
+export interface AudienceMultiCampaignVideosResult {
+  videos: AudienceVideoSource[];
+  contextPageId?: string;
+  skippedCount: number;
+  /** Distinct video IDs seen across all campaigns before the orphan filter. */
+  uniqueVideoCount: number;
+  /** Number of campaigns walked. */
+  campaignCount: number;
+}
+
+/**
+ * Fetch and dedup videos across multiple campaigns in one server pass.
+ *
+ * Problem: the per-campaign endpoint walks `/campaignId/ads` + fetches
+ * per-video metadata independently for every campaign. When campaigns share
+ * videos (Meta's "include views from related ads"), the same 18 videos can
+ * be fetched up to 7 times, blowing through Vercel's function timeout on
+ * high-spend ad accounts like Junction 2 Fragrance.
+ *
+ * Fix:
+ *   1. Walk each campaign's ads sequentially (avoids hammering `/ads`
+ *      with parallel page streams on the same account).
+ *   2. Accumulate a SINGLE Set of unique video IDs across all campaigns.
+ *   3. Fetch video metadata exactly once per unique video (chunked, 5-
+ *      concurrent — same rate-safe pattern as the single-campaign path).
+ *   4. Apply the Page-association filter and resolve contextPageId from
+ *      all creative shapes exactly as the single-campaign path does.
+ */
+export async function fetchAudienceMultiCampaignVideos(
+  adAccountId: string,
+  campaignIds: string[],
+  token: string,
+): Promise<AudienceMultiCampaignVideosResult> {
+  if (campaignIds.length === 0) {
+    return {
+      videos: [],
+      contextPageId: undefined,
+      skippedCount: 0,
+      uniqueVideoCount: 0,
+      campaignCount: 0,
+    };
+  }
+
+  const expectedAccountId = withoutActPrefix(adAccountId);
+  const ADS_FIELDS =
+    "id,creative{id,name,video_id,object_story_spec{video_data,page_id},asset_feed_spec,platform_customizations}";
+  const ADS_PAGE_LIMIT = "100";
+  const MAX_AD_PAGES = 50;
+
+  const allVideoIds = new Set<string>();
+  const pageCounts = new Map<string, number>();
+
+  // Walk each campaign sequentially to avoid parallel page-stream rate pressure.
+  for (const campaignId of campaignIds) {
+    // Ownership check: validate campaign belongs to this ad account.
+    const campaign = await graphGetWithToken<{
+      id: string;
+      account_id?: string;
+    }>(`/${campaignId}`, { fields: "id,account_id" }, token).catch(
+      () => null,
+    );
+    if (
+      campaign?.account_id &&
+      campaign.account_id !== expectedAccountId
+    ) {
+      throw new Error(
+        `Campaign ${campaignId} does not belong to this client's Meta ad account`,
+      );
+    }
+
+    // Paginated ad walk — same shape as fetchAudienceCampaignVideos.
+    let adsAfter: string | undefined;
+    for (let adPage = 0; adPage < MAX_AD_PAGES; adPage++) {
+      const params: Record<string, string> = {
+        fields: ADS_FIELDS,
+        limit: ADS_PAGE_LIMIT,
+      };
+      if (adsAfter) params.after = adsAfter;
+
+      const adsPage = await graphGetWithToken<GraphPagedResponse<RawAd>>(
+        `/${campaignId}/ads`,
+        params,
+        token,
+      );
+      const chunk = adsPage.data ?? [];
+
+      for (const ad of chunk) {
+        for (const id of extractVideoIdsFromCreative(ad.creative)) {
+          allVideoIds.add(id);
+        }
+        const creative = ad.creative as Record<string, unknown> | undefined;
+        if (!creative) continue;
+
+        const spec = creative.object_story_spec as
+          | Record<string, unknown>
+          | undefined;
+        const standardPageId = spec?.page_id;
+        if (typeof standardPageId === "string" && standardPageId) {
+          pageCounts.set(
+            standardPageId,
+            (pageCounts.get(standardPageId) ?? 0) + 1,
+          );
+        }
+
+        const platforms = creative.platform_customizations as
+          | Record<string, { page_id?: unknown }>
+          | undefined;
+        for (const platform of ["facebook", "instagram"] as const) {
+          const platformPageId = platforms?.[platform]?.page_id;
+          if (typeof platformPageId === "string" && platformPageId) {
+            pageCounts.set(
+              platformPageId,
+              (pageCounts.get(platformPageId) ?? 0) + 1,
+            );
+          }
+        }
+
+        const assetFeed = creative.asset_feed_spec as
+          | { page_ids?: unknown }
+          | undefined;
+        if (Array.isArray(assetFeed?.page_ids)) {
+          for (const id of assetFeed.page_ids) {
+            if (typeof id === "string" && id) {
+              pageCounts.set(id, (pageCounts.get(id) ?? 0) + 1);
+            }
+          }
+        }
+      }
+
+      adsAfter = adsPage.paging?.cursors?.after;
+      if (!adsAfter || chunk.length === 0) break;
+    }
+  }
+
+  const uniqueVideoCount = allVideoIds.size;
+
+  // contextPageId: most-common page from creative-level extraction.
+  let contextPageId = [...pageCounts.entries()].sort(
+    (a, b) => b[1] - a[1],
+  )[0]?.[0];
+
+  const videoFromPageCounts = new Map<string, number>();
+  const VIDEO_FETCH_CONCURRENCY = 5;
+  const videoIdList = Array.from(allVideoIds);
+  const videoResults: Array<AudienceVideoSource | null> = [];
+
+  for (let i = 0; i < videoIdList.length; i += VIDEO_FETCH_CONCURRENCY) {
+    const chunk = videoIdList.slice(i, i + VIDEO_FETCH_CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunk.map(async (videoId) => {
+        const video = await graphGetWithToken<RawVideo>(
+          `/${videoId}`,
+          { fields: "id,picture,title,length,from" },
+          token,
+        ).catch(() => ({ id: videoId } as RawVideo));
+
+        if (!video.from?.id) return null;
+
+        videoFromPageCounts.set(
+          video.from.id,
+          (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
+        );
+
+        let thumbnailUrl: string | undefined = video.picture ?? undefined;
+        if (!thumbnailUrl) {
+          thumbnailUrl = await graphGetWithToken<{ data?: RawThumbnail[] }>(
+            `/${videoId}/thumbnails`,
+            { limit: "1" },
+            token,
+          )
+            .then((r) => r.data?.[0]?.uri ?? undefined)
+            .catch(() => undefined);
+        }
+
+        return {
+          id: video.id,
+          title: video.title,
+          thumbnailUrl,
+          length: video.length,
+        };
+      }),
+    );
+    videoResults.push(...chunkResults);
+  }
+
+  const validVideos = videoResults.filter(
+    (v): v is NonNullable<typeof v> => v !== null,
+  );
+  const skippedCount = videoResults.length - validVideos.length;
+
+  if (!contextPageId && videoFromPageCounts.size > 0) {
+    contextPageId = [...videoFromPageCounts.entries()].sort(
+      (a, b) => b[1] - a[1],
+    )[0]?.[0];
+  }
+
+  if (skippedCount > 0) {
+    console.warn(
+      `[fetchAudienceMultiCampaignVideos] Dropped ${skippedCount} video(s) with no Page association` +
+        ` (${campaignIds.length} campaigns). Meta requires videos to be published from a FB Page.`,
+    );
+  }
+
+  return {
+    videos: validVideos.sort((a, b) => a.id.localeCompare(b.id)),
+    contextPageId,
+    skippedCount,
+    uniqueVideoCount,
+    campaignCount: campaignIds.length,
+  };
+}
+
 function slugFromLink(link?: string): string | undefined {
   if (!link) return undefined;
   try {

@@ -92,6 +92,110 @@ export interface CampaignVideosPayload {
   skippedCount?: number;
 }
 
+export interface MultiCampaignVideosPayload {
+  videos: Array<{
+    id: string;
+    title?: string;
+    thumbnailUrl?: string;
+    length?: number;
+  }>;
+  /** FB page ID that owns the videos (resolved from ad creative page_id). */
+  contextPageId?: string;
+  /** Number of videos dropped because they have no FB Page association. */
+  skippedCount: number;
+  /** Distinct video IDs seen across all campaigns before the orphan filter. */
+  uniqueVideoCount: number;
+  /** Number of campaigns walked. */
+  campaignCount: number;
+}
+
+/**
+ * Single-request fetch for all videos across multiple campaigns.
+ * Replaces the old pattern of calling `fetchAudienceCampaignVideos` once per
+ * campaign in parallel, which would re-fetch shared videos up to N times.
+ */
+export async function fetchAudienceMultiCampaignVideos(
+  url: string,
+): Promise<AudienceSourceResult<MultiCampaignVideosPayload>> {
+  const existing = inflight.get(url) as
+    | Promise<AudienceSourceResult<MultiCampaignVideosPayload>>
+    | undefined;
+  if (existing) return existing;
+
+  const promise = (async (): Promise<
+    AudienceSourceResult<MultiCampaignVideosPayload>
+  > => {
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        const looksLikeTimeout =
+          res.status === 504 ||
+          text.toLowerCase().includes("timeout") ||
+          text.toLowerCase().includes("an error occurred");
+        return {
+          ok: false,
+          error: looksLikeTimeout
+            ? `Campaign video fetch timed out (HTTP ${res.status}). Try again — Meta may be rate-limiting this ad account.`
+            : `Server returned non-JSON response (HTTP ${res.status})`,
+          rateLimited: res.status === 429,
+        };
+      }
+      if (res.status === 429 && json.error === "rate_limited") {
+        return {
+          ok: false,
+          error:
+            typeof json.message === "string"
+              ? json.message
+              : "Meta is rate-limiting this ad account. Try again in ~30 minutes.",
+          rateLimited: true,
+          retryAfterMinutes:
+            typeof json.retryAfterMinutes === "number"
+              ? json.retryAfterMinutes
+              : 30,
+        };
+      }
+      if (!res.ok || json.ok !== true) {
+        return { ok: false, error: parseErr(json), rateLimited: false };
+      }
+      return {
+        ok: true,
+        data: {
+          videos: (json.videos ?? []) as MultiCampaignVideosPayload["videos"],
+          contextPageId:
+            typeof json.contextPageId === "string"
+              ? json.contextPageId
+              : undefined,
+          skippedCount:
+            typeof json.skippedCount === "number" ? json.skippedCount : 0,
+          uniqueVideoCount:
+            typeof json.uniqueVideoCount === "number"
+              ? json.uniqueVideoCount
+              : 0,
+          campaignCount:
+            typeof json.campaignCount === "number" ? json.campaignCount : 0,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to load videos",
+        rateLimited: false,
+      };
+    }
+  })();
+
+  inflight.set(url, promise);
+  try {
+    return await promise;
+  } finally {
+    inflight.delete(url);
+  }
+}
+
 export async function fetchAudienceCampaignVideos(
   url: string,
 ): Promise<AudienceSourceResult<CampaignVideosPayload>> {
