@@ -128,6 +128,32 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(ev.value, "ig_business_profile_all");
   });
 
+  it("multi-page IG engagement: two ig_business entries, string ids, event=ig_business_profile_all", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "page_engagement_ig",
+        retentionDays: 365,
+        sourceId: "200000001,200000002",
+        sourceMeta: {
+          subtype: "page_engagement_ig",
+          pageIds: ["200000001", "200000002"],
+          pageName: "Junction 2",
+        },
+      }),
+    );
+    assert.ok(!("subtype" in payload));
+    assert.ok(!("retention_days" in payload));
+    assert.ok(payload.rule);
+    const rule = JSON.parse(payload.rule) as EngagementRuleShape;
+    assert.equal(rule.inclusions.rules.length, 2);
+    assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
+    assert.equal(rule.inclusions.rules[0].event_sources[0].id, "200000001");
+    assert.equal(rule.inclusions.rules[1].event_sources[0].type, "ig_business");
+    assert.equal(rule.inclusions.rules[1].event_sources[0].id, "200000002");
+    const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+    assert.equal(ev.value, "ig_business_profile_all");
+  });
+
   // ─── FB page followers ──────────────────────────────────────────────────────
 
   it("single-page FB followers: NO subtype, NO retention_days; event=page_liked; string id", () => {
