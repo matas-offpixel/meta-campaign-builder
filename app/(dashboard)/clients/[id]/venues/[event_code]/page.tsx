@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { createClient } from "@/lib/supabase/server";
-import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
+import { loadVenuePortalByCode } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { VenueReportHeader, type VenueSubTab } from "@/components/share/venue-report-header";
 import { getShareForVenue } from "@/lib/db/report-shares";
@@ -110,33 +110,26 @@ export default async function ClientVenueReportPage({
     .maybeSingle();
   if (!anyEvent) notFound();
 
+  // PR perf/venue-page-narrow-loader — `loadVenuePortalByCode` filters
+  // the events SELECT down to `eventCode` (plus the synthetic London
+  // shared-campaign rows for the topline) at the SQL layer. Steps 3–13
+  // (rollups, snapshots, ticket tiers, etc.) inherit the narrow
+  // `eventIds` set so the per-event PostgREST filters return only the
+  // rows this page actually renders. Drops cold load from ~1.5–3.5s
+  // (whole-client payload filtered in memory) to ~200–400ms (1–4
+  // events × parallel fetches).
   const [portal, existingShare] = await Promise.all([
-    loadClientPortalByClientId(id),
+    loadVenuePortalByCode(id, eventCode),
     getShareForVenue(id, eventCode),
   ]);
   if (!portal.ok) notFound();
 
-  // Filter the payload to the chosen venue. `event_code` is the
-  // canonical pivot across the whole data layer — events, rollups,
-  // snapshots, additional spend all FK to event_id so a set-of-ids
-  // derived from the filtered events is the cheapest way to narrow
-  // the rest.
-  const venueEvents = portal.events.filter(
-    (e) => e.event_code === eventCode,
-  );
+  const venueEvents = portal.events;
   const eventIdSet = new Set(venueEvents.map((e) => e.id));
-  const venueDailyEntries = portal.dailyEntries.filter((r) =>
-    eventIdSet.has(r.event_id),
-  );
-  const venueDailyRollups = portal.dailyRollups.filter((r) =>
-    eventIdSet.has(r.event_id),
-  );
-  const venueAdditionalSpend = portal.additionalSpend.filter((r) =>
-    r.scope === "venue" ? r.venue_event_code === eventCode : eventIdSet.has(r.event_id),
-  );
-  const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots.filter(
-    (r) => eventIdSet.has(r.event_id),
-  );
+  const venueDailyEntries = portal.dailyEntries;
+  const venueDailyRollups = portal.dailyRollups;
+  const venueAdditionalSpend = portal.additionalSpend;
+  const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots;
   const linkedDrafts = await listDraftsForEventIds(supabase, [
     ...eventIdSet,
   ]);
