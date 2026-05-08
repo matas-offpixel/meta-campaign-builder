@@ -11,10 +11,9 @@ import {
 import { Select } from "@/components/ui/select";
 import { formatCampaignStat } from "@/lib/audiences/format-campaign-spend";
 import { filterPagesByQuery } from "@/lib/audiences/filter-pages-by-query";
-import { mergeVideoSourcesDeduped } from "@/lib/audiences/merge-video-sources";
 import { videoPickerAutoSelectSignature } from "@/lib/audiences/video-picker-auto-select";
 import {
-  fetchAudienceCampaignVideos,
+  fetchAudienceMultiCampaignVideos,
   fetchAudienceSourceList,
 } from "@/lib/audiences/source-picker-fetch";
 import type { AudienceSubtype } from "@/lib/types/audience";
@@ -177,61 +176,47 @@ function CampaignVideoFetcher({
         rateLimited: false,
         skippedCount: 0,
       });
-      const results = await Promise.all(
-        campaignIds.map((cid) =>
-          fetchAudienceCampaignVideos(
-            `/api/audiences/sources/campaign-videos?clientId=${clientId}&campaignId=${cid}`,
-          ),
-        ),
-      );
+
+      // Single multi-campaign call: dedupes shared videos server-side so each
+      // unique video ID is fetched from Meta exactly once, even when 7 campaigns
+      // all reference the same 18 videos (Junction 2 Fragrance pattern).
+      const url =
+        `/api/audiences/sources/multi-campaign-videos` +
+        `?clientId=${encodeURIComponent(clientId)}` +
+        `&campaignIds=${encodeURIComponent(campaignIds.join(","))}`;
+      const result = await fetchAudienceMultiCampaignVideos(url);
+
       if (cancelled) return;
-      for (const r of results) {
-        if (!r.ok) {
-          setVf({
-            videos: [],
-            loading: false,
-            error: r.error,
-            rateLimited: r.rateLimited,
-            skippedCount: 0,
-          });
-          return;
-        }
+      if (!result.ok) {
+        setVf({
+          videos: [],
+          loading: false,
+          error: result.error,
+          rateLimited: result.rateLimited,
+          skippedCount: 0,
+        });
+        return;
       }
-      const buckets = results.map((r) => {
-        if (!r.ok) return [];
-        return r.data.videos;
-      });
-      const merged = mergeVideoSourcesDeduped(buckets);
-      const missingThumbs = merged.filter((v) => !v.thumbnailUrl).length;
+
+      const { videos, contextPageId, skippedCount } = result.data;
+      const missingThumbs = videos.filter((v) => !v.thumbnailUrl).length;
       if (
-        merged.length > 0 &&
+        videos.length > 0 &&
         missingThumbs >= 5 &&
-        missingThumbs >= merged.length / 2
+        missingThumbs >= videos.length / 2
       ) {
         console.warn(
-          `[Audience video picker] ${missingThumbs}/${merged.length} videos missing Graph \`picture\` — check permissions, video age, or archived ads.`,
+          `[Audience video picker] ${missingThumbs}/${videos.length} videos missing Graph \`picture\` — check permissions, video age, or archived ads.`,
         );
       }
-      // Resolve contextPageId: pick the most-common page_id across all campaigns.
-      const pageIdCounts = new Map<string, number>();
-      let totalSkipped = 0;
-      for (const r of results) {
-        if (r.ok && r.data.contextPageId) {
-          const id = r.data.contextPageId;
-          pageIdCounts.set(id, (pageIdCounts.get(id) ?? 0) + 1);
-        }
-        if (r.ok) {
-          totalSkipped += r.data.skippedCount ?? 0;
-        }
-      }
-      const contextPageId = [...pageIdCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
       setVf({
-        videos: merged,
+        videos,
         loading: false,
         error: null,
         rateLimited: false,
         contextPageId,
-        skippedCount: totalSkipped,
+        skippedCount,
       });
     }
     void loadAll();

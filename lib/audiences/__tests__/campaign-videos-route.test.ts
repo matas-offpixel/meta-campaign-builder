@@ -2,6 +2,82 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+describe("multi-campaign-videos source endpoint", () => {
+  it("route exists and uses fetchAudienceMultiCampaignVideos", () => {
+    const route = readFileSync(
+      "app/api/audiences/sources/multi-campaign-videos/route.ts",
+      "utf8",
+    );
+    assert.match(route, /fetchAudienceMultiCampaignVideos/);
+    assert.match(route, /clientId.*campaignIds/s);
+    assert.match(route, /split.*",".*filter/s);
+  });
+
+  it("route validates MAX_CAMPAIGN_IDS guard", () => {
+    const route = readFileSync(
+      "app/api/audiences/sources/multi-campaign-videos/route.ts",
+      "utf8",
+    );
+    assert.match(route, /MAX_CAMPAIGN_IDS/);
+    assert.match(route, /status.*400/s);
+  });
+
+  it("route caches with sorted campaign IDs so order doesn't matter", () => {
+    const route = readFileSync(
+      "app/api/audiences/sources/multi-campaign-videos/route.ts",
+      "utf8",
+    );
+    assert.match(route, /sort\(\)/);
+    assert.match(route, /getCachedAudienceSource/);
+  });
+
+  it("sources.ts fetchAudienceMultiCampaignVideos dedupes video IDs across campaigns", () => {
+    const sources = readFileSync("lib/audiences/sources.ts", "utf8");
+    assert.match(sources, /fetchAudienceMultiCampaignVideos/);
+    // Accumulates into a single shared Set across all campaigns
+    assert.match(sources, /allVideoIds\.add/);
+    // Walks campaigns sequentially (for loop over campaignIds, not Promise.all)
+    assert.match(sources, /for.*campaignId.*of.*campaignIds/s);
+  });
+
+  it("sources.ts uses sequential ad walk to avoid parallel rate pressure", () => {
+    const sources = readFileSync("lib/audiences/sources.ts", "utf8");
+    // Sequential outer loop: for (const campaignId of campaignIds) { ... for adPage }
+    assert.match(sources, /for.*const campaignId of campaignIds/);
+    assert.match(sources, /for.*adPage.*MAX_AD_PAGES/s);
+    // Video metadata still chunked at 5-concurrent (same as single-campaign path)
+    assert.match(sources, /VIDEO_FETCH_CONCURRENCY/);
+  });
+
+  it("sources.ts returns uniqueVideoCount and campaignCount", () => {
+    const sources = readFileSync("lib/audiences/sources.ts", "utf8");
+    assert.match(sources, /uniqueVideoCount/);
+    assert.match(sources, /campaignCount/);
+    // uniqueVideoCount is the Set size before the orphan filter
+    assert.match(sources, /allVideoIds\.size/);
+  });
+
+  it("source-picker-fetch.ts exports fetchAudienceMultiCampaignVideos + MultiCampaignVideosPayload", () => {
+    const fetch = readFileSync("lib/audiences/source-picker-fetch.ts", "utf8");
+    assert.match(fetch, /fetchAudienceMultiCampaignVideos/);
+    assert.match(fetch, /MultiCampaignVideosPayload/);
+    assert.match(fetch, /uniqueVideoCount/);
+    assert.match(fetch, /campaignCount/);
+  });
+
+  it("source-picker.tsx calls multi-campaign-videos endpoint (not per-campaign)", () => {
+    const picker = readFileSync(
+      "components/audiences/source-picker.tsx",
+      "utf8",
+    );
+    // Uses the new multi-campaign endpoint
+    assert.match(picker, /multi-campaign-videos/);
+    assert.match(picker, /fetchAudienceMultiCampaignVideos/);
+    // No longer issues one call per campaign ID
+    assert.doesNotMatch(picker, /campaignIds\.map.*campaign-videos/s);
+  });
+});
+
 describe("campaign-videos source endpoint", () => {
   it("is wired to the deduping campaign video source helper", () => {
     const route = readFileSync(
