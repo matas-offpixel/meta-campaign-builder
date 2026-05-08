@@ -57,4 +57,12 @@ describe("campaign-videos source endpoint", () => {
       /asset_feed_spec.*platform_customizations|platform_customizations.*asset_feed_spec/s,
     );
   });
+
+  it("sources.ts uses small /ads page size + paging + chunked video metadata fetch", () => {
+    const sources = readFileSync("lib/audiences/sources.ts", "utf8");
+    assert.match(sources, /ADS_PAGE_LIMIT.*100|"100"|limit: ADS_PAGE_LIMIT/s);
+    assert.match(sources, /VIDEO_FETCH_CONCURRENCY/);
+    assert.match(sources, /chunk\.map\(async/);
+    assert.match(sources, /params\.after|after.*adsAfter/);
+  });
 });

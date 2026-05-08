@@ -265,15 +265,34 @@ export async function fetchAudienceCampaignVideos(
     throw new Error("Campaign does not belong to this client's Meta ad account");
   }
 
-  const ads = await graphGetWithToken<GraphPagedResponse<RawAd>>(
-    `/${campaignId}/ads`,
-    {
-      fields:
-        "id,creative{id,name,video_id,object_story_spec{video_data,page_id},asset_feed_spec,platform_customizations}",
-      limit: "500",
-    },
-    token,
-  );
+  // Page size is 100 (down from 500): high-spend campaigns like Junction 2
+  // Fragrance trip Meta's "reduce data" gate when we ask for 500 ads + nested
+  // creative + asset_feed + platform_customizations in one shot. Page through
+  // with `after` so large campaigns still collect every ad.
+  const ADS_FIELDS =
+    "id,creative{id,name,video_id,object_story_spec{video_data,page_id},asset_feed_spec,platform_customizations}";
+  const ADS_PAGE_LIMIT = "100";
+  const MAX_AD_PAGES = 50;
+
+  const adsData: RawAd[] = [];
+  let adsAfter: string | undefined;
+  for (let adPage = 0; adPage < MAX_AD_PAGES; adPage++) {
+    const params: Record<string, string> = {
+      fields: ADS_FIELDS,
+      limit: ADS_PAGE_LIMIT,
+    };
+    if (adsAfter) params.after = adsAfter;
+
+    const adsPage = await graphGetWithToken<GraphPagedResponse<RawAd>>(
+      `/${campaignId}/ads`,
+      params,
+      token,
+    );
+    const chunk = adsPage.data ?? [];
+    adsData.push(...chunk);
+    adsAfter = adsPage.paging?.cursors?.after;
+    if (!adsAfter || chunk.length === 0) break;
+  }
 
   // Collect page_id from each ad's creative.
   // Meta exposes the publishing page in multiple creative shapes:
@@ -283,7 +302,7 @@ export async function fetchAudienceCampaignVideos(
   // We collect from all shapes so contextPageId resolves for any campaign type.
   const pageCounts = new Map<string, number>();
   const videoIds = new Set<string>();
-  for (const ad of ads.data ?? []) {
+  for (const ad of adsData) {
     for (const id of extractVideoIdsFromCreative(ad.creative)) {
       videoIds.add(id);
     }
@@ -331,56 +350,69 @@ export async function fetchAudienceCampaignVideos(
   // feed creatives with no top-level page_ids).
   const videoFromPageCounts = new Map<string, number>();
 
-  const videos = await Promise.all(
-    Array.from(videoIds).map(async (videoId) => {
-      const video = await graphGetWithToken<RawVideo>(
-        `/${videoId}`,
-        { fields: "id,picture,title,length,from" },
-        token,
-      ).catch(() => ({ id: videoId } as RawVideo));
+  // CHUNKED CONCURRENCY: per-video Graph calls were hammering Meta's per-account
+  // budget (#1 "reduce data" / #80004 "too many calls") on high-spend campaigns
+  // with 100+ videos. Cap parallelism at 5 — same pattern as bulk-video runner
+  // (lib/audiences/bulk-video.ts uses 5 concurrent). For a 200-video campaign
+  // this takes ~20s instead of triggering rate limits.
+  const VIDEO_FETCH_CONCURRENCY = 5;
+  const videoIdList = Array.from(videoIds);
+  const videoResults: Array<AudienceVideoSource | null> = [];
 
-      // Meta requires every video in a video-views audience to be published from
-      // a FB Page (not uploaded directly to the ad account). Videos with no
-      // `from.id` trigger #2654 subcode 1713216 "No Page or New Page Experience
-      // Association". Return null so we can filter them out below.
-      if (!video.from?.id) {
-        return null;
-      }
-
-      // Track which page each surviving video was published from — used as
-      // contextPageId fallback below.
-      videoFromPageCounts.set(
-        video.from.id,
-        (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
-      );
-
-      let thumbnailUrl: string | undefined = video.picture ?? undefined;
-
-      // Fallback: try /{id}/thumbnails when picture is absent (common for
-      // archived / age-out videos where Meta strips the stored asset).
-      if (!thumbnailUrl) {
-        thumbnailUrl = await graphGetWithToken<{ data?: RawThumbnail[] }>(
-          `/${videoId}/thumbnails`,
-          { limit: "1" },
+  for (let i = 0; i < videoIdList.length; i += VIDEO_FETCH_CONCURRENCY) {
+    const chunk = videoIdList.slice(i, i + VIDEO_FETCH_CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunk.map(async (videoId) => {
+        const video = await graphGetWithToken<RawVideo>(
+          `/${videoId}`,
+          { fields: "id,picture,title,length,from" },
           token,
-        )
-          .then((r) => r.data?.[0]?.uri ?? undefined)
-          .catch(() => undefined);
-      }
+        ).catch(() => ({ id: videoId } as RawVideo));
 
-      return {
-        id: video.id,
-        title: video.title,
-        thumbnailUrl,
-        length: video.length,
-      };
-    }),
-  );
+        // Meta requires every video in a video-views audience to be published from
+        // a FB Page (not uploaded directly to the ad account). Videos with no
+        // `from.id` trigger #2654 subcode 1713216 "No Page or New Page Experience
+        // Association". Return null so we can filter them out below.
+        if (!video.from?.id) {
+          return null;
+        }
 
-  const validVideos = videos.filter(
+        // Track which page each surviving video was published from — used as
+        // contextPageId fallback below.
+        videoFromPageCounts.set(
+          video.from.id,
+          (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
+        );
+
+        let thumbnailUrl: string | undefined = video.picture ?? undefined;
+
+        // Fallback: try /{id}/thumbnails when picture is absent (common for
+        // archived / age-out videos where Meta strips the stored asset).
+        if (!thumbnailUrl) {
+          thumbnailUrl = await graphGetWithToken<{ data?: RawThumbnail[] }>(
+            `/${videoId}/thumbnails`,
+            { limit: "1" },
+            token,
+          )
+            .then((r) => r.data?.[0]?.uri ?? undefined)
+            .catch(() => undefined);
+        }
+
+        return {
+          id: video.id,
+          title: video.title,
+          thumbnailUrl,
+          length: video.length,
+        };
+      }),
+    );
+    videoResults.push(...chunkResults);
+  }
+
+  const validVideos = videoResults.filter(
     (v): v is NonNullable<typeof v> => v !== null,
   );
-  const skippedCount = videos.length - validVideos.length;
+  const skippedCount = videoResults.length - validVideos.length;
 
   // Fallback: if creative-level extraction yielded no contextPageId (common
   // for asset_feed_spec creatives in Bristol/regional WC26 campaigns), use
