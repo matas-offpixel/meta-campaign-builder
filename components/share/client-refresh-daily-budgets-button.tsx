@@ -33,6 +33,8 @@ type Status =
       noActiveAdsets: number;
       noBudgetOther: number;
       failed: number;
+      /** First failure reason label — shown inline so the operator can act. */
+      firstFailureReason: string | null;
     };
 
 const CONCURRENCY = 3;
@@ -193,9 +195,16 @@ export function ClientRefreshDailyBudgetsButton({
     let noActiveAdsets = 0;
     let noBudgetOther = 0;
     let failed = 0;
+    let firstFailureReason: string | null = null;
     for (const result of results) {
       if (result.status === "rejected") {
         failed += 1;
+        if (!firstFailureReason) {
+          firstFailureReason =
+            result.reason instanceof Error
+              ? result.reason.message
+              : "Unknown error";
+        }
         continue;
       }
       if (result.value.dailyBudget != null) {
@@ -204,6 +213,9 @@ export function ClientRefreshDailyBudgetsButton({
         noActiveAdsets += 1;
       } else if (result.value.reason === "fetch_error") {
         failed += 1;
+        if (!firstFailureReason) {
+          firstFailureReason = result.value.reasonLabel ?? "Fetch error";
+        }
       } else {
         noBudgetOther += 1;
       }
@@ -215,6 +227,7 @@ export function ClientRefreshDailyBudgetsButton({
       noActiveAdsets,
       noBudgetOther,
       failed,
+      firstFailureReason,
     });
   }, [clientId, shareToken, status.kind, total, venues]);
 
@@ -261,7 +274,9 @@ export function ClientRefreshDailyBudgetsButton({
           {status.noBudgetOther > 0
             ? ` · ${status.noBudgetOther} no matching budget`
             : ""}
-          {status.failed > 0 ? ` · ${status.failed} failed` : ""}
+          {status.failed > 0
+            ? ` · ${status.failed} failed${status.firstFailureReason ? ` (${status.firstFailureReason})` : ""}`
+            : ""}
         </span>
       ) : null}
     </div>

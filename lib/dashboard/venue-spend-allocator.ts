@@ -116,7 +116,6 @@ export interface VenueAllocatorResult {
    *  routing / dashboards — never human-facing. */
   reason?:
     | "no_event_code"
-    | "no_event_date"
     | "no_ad_account"
     | "no_siblings"
     | "solo_pass_through"
@@ -570,30 +569,25 @@ export async function allocateVenueSpendForCode(
 
   // Sibling lookup — every fixture sharing this event_code.
   //
-  // WC26 venues keep `event_date` in the key because the opponent-matching
-  // allocator is scoped to one venue's match-day set (all null-date for
-  // imported 4tF WC26 groups) and a future re-use of the same WC26 code
-  // across separate tour dates would need isolated passes.
+  // Both WC26 and non-WC26 codes group ALL fixtures under the same
+  // event_code regardless of event_date. The WC26 opponent allocator
+  // handles per-fixture attribution internally (campaign name matching),
+  // so it also needs all siblings in one group.
   //
-  // Non-WC26 codes (Club Football series like 4TF-TITLERUNIN-LONDON,
-  // LEEDS26-FACUP, 4TF26-ARSENAL-CL-FL, etc.) group ALL fixtures together
-  // regardless of event_date. Their campaigns are tagged with the shared
-  // event_code and raw spend is the full campaign total on every sibling row
-  // — the equal-split path divides it correctly across all fixtures.
-  // Scoping by event_date here would cause each fixture to be treated as a
-  // singleton, tripling the allocated spend instead of dividing it.
+  // History: the WC26 path previously filtered by event_date because the
+  // original 4tF WC26 import used a single null placeholder date for all
+  // siblings. PR #287/#080 restored real per-fixture dates (Croatia 17 Jun,
+  // Ghana 23 Jun, etc.), which caused each fixture to land in its own
+  // solo group → solo_pass_through wrote the full venue spend onto each
+  // row → 4× over-attribution on the dashboard. Fix: always query by
+  // event_code only so the WC26 opponent allocator receives the full
+  // sibling set and can split correctly.
   const client = supabase as unknown as SupabaseClient;
-  const siblingQuery = client
+  const { data: siblings, error: siblingsErr } = await client
     .from("events")
     .select("id, name")
     .eq("client_id", clientId)
     .eq("event_code", eventCode);
-  const { data: siblings, error: siblingsErr } =
-    isWc26OpponentAllocatorEventCode(eventCode)
-      ? eventDate
-        ? await siblingQuery.eq("event_date", eventDate)
-        : await siblingQuery.is("event_date", null)
-      : await siblingQuery; // non-WC26: all fixtures regardless of event_date
   if (siblingsErr) {
     console.info(
       `[venue-spend-allocator] early-return reason=upsert_failed stage=sibling_lookup event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${siblingsErr.message}`,
