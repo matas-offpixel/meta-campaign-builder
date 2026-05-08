@@ -1,4 +1,5 @@
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
+import { CmdKPalette } from "@/components/dashboard/cmd-k-palette";
 
 /**
  * Route-group layout for top-level dashboard pages (Today, Calendar, Clients,
@@ -14,6 +15,7 @@ export default function DashboardLayout({
     <div className="flex min-h-screen">
       <DashboardNav />
       <div className="flex-1 min-w-0 flex flex-col">{children}</div>
+      <CmdKPalette />
     </div>
   );
 }
