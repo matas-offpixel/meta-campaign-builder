@@ -25,7 +25,24 @@ export async function fetchAudienceSourceList<T>(
   const promise = (async (): Promise<AudienceSourceResult<T>> => {
     try {
       const res = await fetch(url);
-      const json = (await res.json()) as Record<string, unknown>;
+      // Defensive JSON parse — see fetchAudienceCampaignVideos for rationale.
+      const text = await res.text();
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        const looksLikeTimeout =
+          res.status === 504 ||
+          text.toLowerCase().includes("timeout") ||
+          text.toLowerCase().includes("an error occurred");
+        return {
+          ok: false,
+          error: looksLikeTimeout
+            ? `Source fetch timed out (HTTP ${res.status}). Try again — Meta may be rate-limiting this ad account.`
+            : `Server returned non-JSON response (HTTP ${res.status})`,
+          rateLimited: res.status === 429,
+        };
+      }
       if (res.status === 429 && json.error === "rate_limited") {
         return {
           ok: false,
@@ -88,7 +105,27 @@ export async function fetchAudienceCampaignVideos(
   > => {
     try {
       const res = await fetch(url);
-      const json = (await res.json()) as Record<string, unknown>;
+      // Read body as text first — Vercel/CDN can return plain-text error pages
+      // (504 timeouts, 502 bad gateways, "An error occurred...") that JSON.parse
+      // chokes on. Without this guard the user sees raw JSON parse errors.
+      const text = await res.text();
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        // Body wasn't JSON — likely a Vercel error page or upstream timeout.
+        const looksLikeTimeout =
+          res.status === 504 ||
+          text.toLowerCase().includes("timeout") ||
+          text.toLowerCase().includes("an error occurred");
+        return {
+          ok: false,
+          error: looksLikeTimeout
+            ? `Campaign video fetch timed out (HTTP ${res.status}). High-spend campaigns with 100+ ads can exceed Vercel's function timeout. Try a smaller campaign selection or wait for Meta's rate limit to recover.`
+            : `Server returned non-JSON response (HTTP ${res.status})`,
+          rateLimited: res.status === 429,
+        };
+      }
       if (res.status === 429 && json.error === "rate_limited") {
         return {
           ok: false,
