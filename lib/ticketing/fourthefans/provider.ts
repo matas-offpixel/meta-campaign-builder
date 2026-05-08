@@ -131,6 +131,17 @@ export class FourthefansProvider implements TicketingProvider {
     console.info(
       `[fourthefans-sync] API response status=ok external_event_id=${externalId} body_length=${bodyLength}`,
     );
+    // Log raw payload to surface undocumented tier-array keys so the parser
+    // can be extended against the observed shape (truncated at 5 000 chars to
+    // avoid flooding structured logs).
+    try {
+      const raw = JSON.stringify(payload);
+      console.info(
+        `[fourthefans-sync] raw_payload external_event_id=${externalId} ${raw.length > 5000 ? raw.slice(0, 5000) + "…[truncated]" : raw}`,
+      );
+    } catch {
+      // ignore serialization errors
+    }
     const sales = readFourthefansEventSales(payload);
     console.info(
       `[fourthefans-sync] parsed external_event_id=${externalId} tickets_sold=${sales.ticketsSold} tickets_available=${sales.ticketsAvailable ?? "<null>"} gross_revenue_cents=${sales.grossRevenueCents ?? "<null>"} currency=${sales.currency ?? "<null>"} ticket_tiers=${sales.ticketTiers.length}`,

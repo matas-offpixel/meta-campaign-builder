@@ -87,7 +87,14 @@ export function readFourthefansEventSales(
   payload: unknown,
 ): ParsedFourthefansSales {
   const event = unwrapEvent(payload);
-  const ticketTiers = readTicketTiers(event);
+  // Try tiers on the unwrapped inner event first. When the API places tier
+  // data at the outer envelope level (e.g. `{ event: {...}, ticket_tiers: []}`)
+  // but event metadata in a nested object, the unwrapped `event` won't have
+  // tiers — fall back to the raw payload in that case.
+  let ticketTiers = readTicketTiers(event);
+  if (ticketTiers.length === 0 && isRecord(payload) && payload !== event) {
+    ticketTiers = readTicketTiers(payload as Record<string, unknown>);
+  }
   const tierCapacity = ticketTiers.reduce(
     (sum, tier) =>
       sum + tier.quantitySold + (tier.quantityAvailable ?? 0),
@@ -208,8 +215,19 @@ function readRevenueMajor(record: Record<string, unknown>): number | null {
 function readTicketTiers(
   event: Record<string, unknown>,
 ): ParsedFourthefansTicketTier[] {
+  // Try every key observed across the book.tickets WordPress plugin family.
+  // `tickets` is common on WooCommerce-derived endpoints where the listing
+  // returns `{ tickets: [...] }` at either the outer envelope or inner event
+  // level. Keep `ticket_tiers` first since that is what the documented v1
+  // spec uses; the others are empirically observed fallbacks.
   const rawTiers =
-    event.ticket_tiers ?? event.ticketTiers ?? event.tiers ?? event.ticket_types;
+    event.ticket_tiers ??
+    event.ticketTiers ??
+    event.tiers ??
+    event.ticket_types ??
+    event.tickets ??
+    event.booking_tickets ??
+    event.event_tickets;
   if (!Array.isArray(rawTiers)) return [];
 
   const tiers: ParsedFourthefansTicketTier[] = [];
