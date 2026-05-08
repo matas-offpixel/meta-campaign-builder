@@ -1,8 +1,8 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
-- **Branch:** `feat/venue-report-share-and-thumbnail-proxy`
+- **Number:** 352
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/352
+- **Branch:** `feat/venue-report-share-and-thumbnail-proxy` (squash-merged)
 
 ## Summary
 
