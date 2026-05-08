@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 370
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/370
 - **Branch:** `feat/cmd-k-global-search`
 
 ## Summary
