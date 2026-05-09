@@ -96,13 +96,26 @@ function trimEmptyRange(
   days: TrendChartDay[],
   hasCumulativeTickets: boolean,
 ): TrendChartDay[] {
+  // Leading edge: cumulative_snapshot alone never anchors the start
+  // (synthetic/backfill snapshots from months before active campaigns
+  // would otherwise stretch the chart unnaturally).
   const first = days.findIndex((day) =>
     hasRangeAnchorMetric(day, hasCumulativeTickets),
   );
   if (first === -1) return [];
 
+  // Trailing edge: keep a day if it has positive spend/revenue/clicks
+  // OR — in cumulative mode — if it carries a fresh cumulative ticket
+  // value (day.tickets !== null pre-carry-forward means a real
+  // cumulative_snapshot point landed on this date). This preserves
+  // the "today anchor" — the tier_channel_sales sum stamped on
+  // today even when today's spend hasn't been ingested yet.
   let last = days.length - 1;
-  while (last > first && !hasRangeAnchorMetric(days[last]!, hasCumulativeTickets)) {
+  while (
+    last > first &&
+    !hasRangeAnchorMetric(days[last]!, hasCumulativeTickets) &&
+    !(hasCumulativeTickets && days[last]!.tickets !== null)
+  ) {
     last -= 1;
   }
   return days.slice(first, last + 1);
@@ -144,16 +157,38 @@ export function aggregateTrendChartPoints(
   const dailyRange = trimEmptyRange(daily, hasCumulativeTickets);
 
   if (hasCumulativeTickets) {
+    // Cumulative-mode tooltip semantics (PR fix/venue-trend-tier-channel-snapshot):
+    //
+    //   tickets  ← carry-forward of the latest cumulative snapshot (so a
+    //              day without a fresh snapshot shows the prior total
+    //              instead of "—").
+    //   spend    ← stays per-day (the chart line shows how spend
+    //              fluctuates day-to-day; lifetime spend is the
+    //              denominator for the lifetime CPT below, not the line).
+    //   cpt      ← lifetime spend through this date / cumulative tickets
+    //              through this date. The previous code divided per-day
+    //              spend by cumulative tickets, producing meaningless
+    //              "Spend £92.86, Tickets 843, CPT £0.11" tooltips on
+    //              the Manchester WC26 venue report.
+    //
+    // Ratio uses lifetime/lifetime so the tooltip CPT matches the
+    // venue-card top-line CPT pill at the right edge of the chart.
     let latestTickets: number | null = null;
+    let runningSpend = 0;
+    let hasAnySpend = false;
     for (const day of daily) {
       if (day.tickets != null) latestTickets = day.tickets;
       day.tickets = latestTickets;
+      if (day.spend != null) {
+        runningSpend += day.spend;
+        hasAnySpend = true;
+      }
       day.cpt =
-        day.spend !== null &&
-        day.spend > 0 &&
+        hasAnySpend &&
+        runningSpend > 0 &&
         day.tickets !== null &&
         day.tickets > 0
-          ? day.spend / day.tickets
+          ? runningSpend / day.tickets
           : null;
     }
   }
@@ -184,9 +219,35 @@ export function aggregateTrendChartPoints(
     weekly.set(key, cur);
   }
 
-  return [...weekly.entries()]
+  const weeklyDays = [...weekly.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([date, v]) => deriveMetrics(date, v));
+
+  if (hasCumulativeTickets) {
+    // Same lifetime/lifetime CPT semantics as the daily path — weekly
+    // tickets is the week-ending cumulative, weekly CPT is the
+    // running lifetime spend through the end of that week divided by
+    // that cumulative. Without this re-pass, weekly CPT would be
+    // (weekSpend / cumulative_tickets), which still mixes daily and
+    // lifetime denominators.
+    let runningSpend = 0;
+    let hasAnySpend = false;
+    for (const week of weeklyDays) {
+      if (week.spend != null) {
+        runningSpend += week.spend;
+        hasAnySpend = true;
+      }
+      week.cpt =
+        hasAnySpend &&
+        runningSpend > 0 &&
+        week.tickets !== null &&
+        week.tickets > 0
+          ? runningSpend / week.tickets
+          : null;
+    }
+  }
+
+  return weeklyDays;
 }
 
 export function summarizeTrendChartPoints(
