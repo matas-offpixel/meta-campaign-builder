@@ -57,11 +57,12 @@ interface Props {
    */
   additionalSpend: AdditionalSpendRow[];
   /**
-   * Weekly ticket snapshots across all events under this client.
-   * Pre-collapsed on the server so the venue-expansion weekly
-   * trends chart receives one row per (event, week).
+   * Dominant-source snapshots (WoW comparability). One row per
+   * (event, week) filtered to the event's dominant source.
    */
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /** Source-stitched snapshots for trend chart / tracker continuity. */
+  trendTicketSnapshots: WeeklyTicketSnapshotRow[];
   /**
    * True when rendered inside `/clients/[id]/dashboard` (the
    * internal admin counterpart). Unlocks per-row admin actions on
@@ -96,6 +97,7 @@ export function ClientPortal({
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
+  trendTicketSnapshots,
   isInternal = false,
   hideChrome = false,
   showRefreshDailyBudgets = true,
@@ -348,6 +350,7 @@ export function ClientPortal({
               dailyRollups={dailyRollups}
               additionalSpend={additionalSpend}
               weeklyTicketSnapshots={weeklyTicketSnapshots}
+              trendTicketSnapshots={trendTicketSnapshots}
               isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}
             />

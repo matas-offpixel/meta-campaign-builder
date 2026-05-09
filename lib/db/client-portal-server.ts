@@ -341,10 +341,13 @@ export type ClientPortalData =
       additionalSpend: AdditionalSpendRow[];
       /**
        * Weekly ticket-sales snapshots across every event under the
-       * client, collapsed to one row per (event, week) with source
-       * priority manual > xlsx_import > eventbrite. Used as the
-       * venue trend chart ticket fallback when rollups only carry
-       * spend/clicks.
+       * client, collapsed to one row per (event, week) with a single
+       * dominant source per event (manual > xlsx_import > fourthefans
+       * > eventbrite). Used exclusively by the WoW aggregator
+       * (`aggregateVenueWoW`) where cumulative comparability within
+       * an event's own history is required — mixing xlsx_import week A
+       * (cumulative 1,783) with fourthefans week B (cumulative 1,091)
+       * produces phantom regressions.
        *
        * Kept as a flat array keyed by event_id rather than a
        * Map<eventId, Snapshot[]> because the public share JSON
@@ -356,6 +359,17 @@ export type ClientPortalData =
        * well under any payload concern.
        */
       weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+      /**
+       * Source-stitched ticket snapshots for trend chart and daily
+       * tracker rendering. Unlike `weeklyTicketSnapshots`, this array
+       * uses per-day priority resolution (`collapseTrendPerEventStitched`)
+       * so events with mixed sources (e.g. Manchester WC26 with xlsx_import
+       * through Apr 28 then fourthefans Apr 29 → today) produce a
+       * continuous timeline rather than going dark after the last import.
+       *
+       * Do NOT use for WoW computation — use `weeklyTicketSnapshots`.
+       */
+      trendTicketSnapshots: WeeklyTicketSnapshotRow[];
       /**
        * Channel set for this client (migration 076). One row per
        * (client_id, channel_name). Threaded onto the portal payload so
@@ -546,6 +560,9 @@ export async function loadVenuePortalByToken(
   const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots.filter((r) =>
     eventIdSet.has(r.event_id),
   );
+  const venueTrendTicketSnapshots = portal.trendTicketSnapshots.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
   return {
     ok: true,
     event_code: share.event_code,
@@ -559,6 +576,7 @@ export async function loadVenuePortalByToken(
     dailyRollups: venueDailyRollups,
     additionalSpend: venueAdditionalSpend,
     weeklyTicketSnapshots: venueWeeklyTicketSnapshots,
+    trendTicketSnapshots: venueTrendTicketSnapshots,
     tierChannels: portal.tierChannels,
     shareVisibility: portal.shareVisibility,
   };
@@ -789,11 +807,15 @@ async function loadPortalForClientId(
     );
   }
 
-  // Weekly ticket snapshots (`ticket_sales_snapshots`) — collapse +
-  // dominant-source resolution preserved exactly as pre-parallelise.
-  // See the original docblock on `collapseWeeklyNormalizedPerEvent`
-  // for why we stay strictly per-event when normalising.
+  // Weekly ticket snapshots (`ticket_sales_snapshots`).
+  //
+  // Two separate arrays built from the same raw rows:
+  //   weeklyTicketSnapshots  — dominant-source per event (WoW comparability)
+  //   trendTicketSnapshots   — source-stitched per day (trend/tracker continuity)
+  // See docblocks on `collapseWeeklyNormalizedPerEvent` and
+  // `collapseTrendPerEventStitched` for the full reasoning.
   const weeklyTicketSnapshots: WeeklyTicketSnapshotRow[] = [];
+  const trendTicketSnapshots: WeeklyTicketSnapshotRow[] = [];
   if (ticketSnapshotRows) {
     const rows = ticketSnapshotRows;
     {
@@ -865,13 +887,24 @@ async function loadPortalForClientId(
       // delta from PR 2's brief. See the docblocks on
       // `collapseWeekly` and `collapseWeeklyNormalizedPerEvent` for
       // the full reasoning.
-      const { collapseWeeklyNormalizedPerEvent } = await import(
+      const { collapseWeeklyNormalizedPerEvent, collapseTrendPerEventStitched } = await import(
         "@/lib/db/event-history-collapse"
       );
       for (const [eid, rowsForEvent] of byEvent) {
+        // WoW: dominant-source per event (comparability).
         const collapsed = collapseWeeklyNormalizedPerEvent(rowsForEvent);
         for (const c of collapsed) {
           weeklyTicketSnapshots.push({
+            event_id: eid,
+            snapshot_at: c.snapshot_at,
+            tickets_sold: c.tickets_sold,
+            source: c.source,
+          });
+        }
+        // Trend/tracker: source-stitched per day (continuity).
+        const stitched = collapseTrendPerEventStitched(rowsForEvent);
+        for (const c of stitched) {
+          trendTicketSnapshots.push({
             event_id: eid,
             snapshot_at: c.snapshot_at,
             tickets_sold: c.tickets_sold,
@@ -940,6 +973,7 @@ async function loadPortalForClientId(
     dailyRollups,
     additionalSpend,
     weeklyTicketSnapshots,
+    trendTicketSnapshots,
     tierChannels,
     shareVisibility: {
       showCreativeInsights: true,

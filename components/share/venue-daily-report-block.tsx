@@ -87,6 +87,12 @@ export function buildVenueReportModel(
   dailyRollups: DailyRollupRow[],
   additionalSpend: AdditionalSpendRow[],
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+  /**
+   * Source-stitched snapshots for trend/tracker continuity. Falls back
+   * to `weeklyTicketSnapshots` when absent (legacy callers / tests that
+   * haven't been updated yet). See `collapseTrendPerEventStitched`.
+   */
+  trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
 ): VenueReportModel {
   const eventIds = new Set(events.map((event) => event.id));
   const isMultiEventVenue = eventIds.size > 1;
@@ -109,7 +115,7 @@ export function buildVenueReportModel(
     dailyRollups,
     dailyEntries,
     isMultiEventVenue,
-    weeklyTicketSnapshots,
+    trendTicketSnapshots ?? weeklyTicketSnapshots,
     events,
   );
   const generalSaleAt = earliestIso(
@@ -157,6 +163,7 @@ export function useVenueReportModel(
   dailyRollups: DailyRollupRow[],
   additionalSpend: AdditionalSpendRow[],
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+  trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
 ): VenueReportModel & {
   tierLifetimeTickets: number | null;
   tierLifetimeRevenue: number | null;
@@ -169,8 +176,9 @@ export function useVenueReportModel(
         dailyRollups,
         additionalSpend,
         weeklyTicketSnapshots,
+        trendTicketSnapshots,
       ),
-    [events, dailyEntries, dailyRollups, additionalSpend, weeklyTicketSnapshots],
+    [events, dailyEntries, dailyRollups, additionalSpend, weeklyTicketSnapshots, trendTicketSnapshots],
   );
 
   const tierLifetimeTickets = useMemo(() => {

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   collapseWeekly,
   collapseWeeklyNormalizedPerEvent,
+  collapseTrendPerEventStitched,
 } from "../event-history-collapse.ts";
 
 describe("collapseWeekly", () => {
@@ -112,5 +113,105 @@ describe("collapseWeeklyNormalizedPerEvent", () => {
     assert.equal(out.length, 1);
     assert.equal(out[0].source, "xlsx_import");
     assert.equal(out[0].tickets_sold, 200);
+  });
+});
+
+// ─── collapseTrendPerEventStitched ───────────────────────────────────────────
+//
+// Manchester WC26 regression (fix/venue-trend-cumulative-source-stitch):
+// Croatia/Ghana/Panama have xlsx_import rows through Apr 28 + fourthefans
+// rows continuing to today. collapseWeeklyNormalizedPerEvent keeps only
+// xlsx_import (dominant) → tracker dark after Apr 28.
+// collapseTrendPerEventStitched keeps ALL days, per-day priority resolution
+// → continuous trend line using best available source per date.
+
+describe("collapseTrendPerEventStitched", () => {
+  it("Manchester WC26: keeps both xlsx_import and fourthefans days (source-stitch)", () => {
+    const rows = [
+      // xlsx_import rows: Feb – Apr 28
+      { snapshot_at: "2026-02-28", tickets_sold: 120, source: "xlsx_import" },
+      { snapshot_at: "2026-03-28", tickets_sold: 240, source: "xlsx_import" },
+      { snapshot_at: "2026-04-28", tickets_sold: 246, source: "xlsx_import" },
+      // fourthefans rows: Apr 28 (same day — xlsx_import wins) + later days
+      { snapshot_at: "2026-04-28", tickets_sold: 250, source: "fourthefans" },
+      { snapshot_at: "2026-05-01", tickets_sold: 280, source: "fourthefans" },
+      { snapshot_at: "2026-05-09", tickets_sold: 310, source: "fourthefans" },
+    ];
+    const out = collapseTrendPerEventStitched(rows);
+
+    // 5 distinct dates: Feb 28, Mar 28, Apr 28 (merged), May 1, May 9.
+    assert.equal(out.length, 5);
+    const dates = out.map((r) => r.snapshot_at);
+    assert.ok(dates.includes("2026-02-28"), "Feb 28 xlsx_import row");
+    assert.ok(dates.includes("2026-05-09"), "May 9 fourthefans row (continues after xlsx_import ended)");
+  });
+
+  it("keeps all distinct dates — not just dominant-source dates", () => {
+    const rows = [
+      { snapshot_at: "2026-02-28", tickets_sold: 120, source: "xlsx_import" },
+      { snapshot_at: "2026-03-28", tickets_sold: 240, source: "xlsx_import" },
+      { snapshot_at: "2026-04-28", tickets_sold: 246, source: "xlsx_import" },
+      { snapshot_at: "2026-05-01", tickets_sold: 280, source: "fourthefans" },
+      { snapshot_at: "2026-05-09", tickets_sold: 310, source: "fourthefans" },
+    ];
+    const out = collapseTrendPerEventStitched(rows);
+    // Should keep ALL 5 dates (no dominant-source filter).
+    assert.equal(out.length, 5);
+    const dates = out.map((r) => r.snapshot_at);
+    assert.ok(dates.includes("2026-02-28"), "Feb 28 (xlsx_import) should be present");
+    assert.ok(dates.includes("2026-05-09"), "May 9 (fourthefans) should be present");
+  });
+
+  it("Apr 28: same day xlsx_import beats fourthefans", () => {
+    const rows = [
+      { snapshot_at: "2026-04-28", tickets_sold: 246, source: "xlsx_import" },
+      { snapshot_at: "2026-04-28", tickets_sold: 250, source: "fourthefans" },
+    ];
+    const out = collapseTrendPerEventStitched(rows);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].source, "xlsx_import");
+    assert.equal(out[0].tickets_sold, 246);
+  });
+
+  it("post-import dates: fourthefans used as-is (only available source)", () => {
+    const rows = [
+      { snapshot_at: "2026-04-28", tickets_sold: 246, source: "xlsx_import" },
+      { snapshot_at: "2026-05-01", tickets_sold: 280, source: "fourthefans" },
+    ];
+    const out = collapseTrendPerEventStitched(rows);
+    assert.equal(out.length, 2);
+    const may1 = out.find((r) => r.snapshot_at === "2026-05-01");
+    assert.ok(may1, "May 1 fourthefans row should be present");
+    assert.equal(may1.source, "fourthefans");
+    assert.equal(may1.tickets_sold, 280);
+  });
+
+  it("collapseWeeklyNormalizedPerEvent WoW isolation: only Apr 28 xlsx row survives", () => {
+    // Confirm the WoW path still filters to dominant source (xlsx_import = 1 row).
+    const rows = [
+      { snapshot_at: "2026-04-28", tickets_sold: 246, source: "xlsx_import" },
+      { snapshot_at: "2026-05-01", tickets_sold: 280, source: "fourthefans" },
+    ];
+    const wow = collapseWeeklyNormalizedPerEvent(rows);
+    assert.equal(wow.length, 1, "WoW collapse should keep only xlsx_import (dominant)");
+    assert.equal(wow[0].source, "xlsx_import");
+
+    // But the trend collapse keeps both.
+    const trend = collapseTrendPerEventStitched(rows);
+    assert.equal(trend.length, 2, "trend collapse should keep both dates");
+  });
+
+  it("single source event: no regression — all rows preserved", () => {
+    const rows = [
+      { snapshot_at: "2026-02-01", tickets_sold: 100, source: "fourthefans" },
+      { snapshot_at: "2026-03-01", tickets_sold: 200, source: "fourthefans" },
+      { snapshot_at: "2026-04-01", tickets_sold: 300, source: "fourthefans" },
+    ];
+    const out = collapseTrendPerEventStitched(rows);
+    assert.equal(out.length, 3);
+  });
+
+  it("returns empty array for empty input", () => {
+    assert.deepEqual(collapseTrendPerEventStitched([]), []);
   });
 });

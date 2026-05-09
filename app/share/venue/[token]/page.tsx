@@ -150,6 +150,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             dailyRollups={result.dailyRollups}
             additionalSpend={result.additionalSpend}
             weeklyTicketSnapshots={result.weeklyTicketSnapshots}
+            trendTicketSnapshots={result.trendTicketSnapshots}
             londonOnsaleSpend={result.londonOnsaleSpend}
             londonPresaleSpend={result.londonPresaleSpend}
             canEdit={result.can_edit}

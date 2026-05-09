@@ -40,6 +40,7 @@ interface Props {
   dailyRollups: DailyRollupRow[];
   additionalSpend: AdditionalSpendRow[];
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  trendTicketSnapshots: WeeklyTicketSnapshotRow[];
   showCreativeInsights: boolean;
   showFunnelPacing: boolean;
   isShared: boolean;
@@ -60,6 +61,7 @@ export function DashboardTabs({
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
+  trendTicketSnapshots,
   showCreativeInsights,
   showFunnelPacing,
   isShared,
@@ -195,6 +197,7 @@ export function DashboardTabs({
           dailyRollups={dailyRollups}
           additionalSpend={additionalSpend}
           weeklyTicketSnapshots={weeklyTicketSnapshots}
+          trendTicketSnapshots={trendTicketSnapshots}
           isInternal={!isShared}
           hideChrome={isShared}
           showRefreshDailyBudgets={false}
