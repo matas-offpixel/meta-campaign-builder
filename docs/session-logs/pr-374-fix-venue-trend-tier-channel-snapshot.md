@@ -2,9 +2,9 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** _set after `gh pr create`_
-- **Branch:** `fix/venue-trend-tier-channel-snapshot`
+- **Number:** 374
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/374
+- **Branch:** `fix/venue-trend-tier-channel-snapshot` (merged + deleted)
 
 ## Summary
 
