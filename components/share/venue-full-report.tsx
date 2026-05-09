@@ -80,6 +80,8 @@ interface Props {
   dailyRollups: DailyRollupRow[];
   additionalSpend: AdditionalSpendRow[];
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /** Source-stitched snapshots for trend/tracker continuity. */
+  trendTicketSnapshots?: WeeklyTicketSnapshotRow[];
   londonOnsaleSpend: number | null;
   londonPresaleSpend: number | null;
   isInternal?: boolean;
@@ -121,6 +123,7 @@ export function VenueFullReport({
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
+  trendTicketSnapshots,
   londonOnsaleSpend,
   isInternal = false,
   canEdit = false,
@@ -173,6 +176,7 @@ export function VenueFullReport({
     dailyRollups,
     additionalSpend,
     weeklyTicketSnapshots,
+    trendTicketSnapshots,
   );
 
   return (

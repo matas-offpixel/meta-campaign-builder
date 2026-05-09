@@ -173,6 +173,7 @@ interface Props {
         dailyRollups: DailyRollupRow[];
         additionalSpend: AdditionalSpendRow[];
         weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+        trendTicketSnapshots: WeeklyTicketSnapshotRow[];
       }
     | null;
   hasTaggedEvents?: boolean;
@@ -614,6 +615,7 @@ export function ClientDetail({
                   dailyRollups={portal.dailyRollups}
                   additionalSpend={portal.additionalSpend}
                   weeklyTicketSnapshots={portal.weeklyTicketSnapshots}
+                  trendTicketSnapshots={portal.trendTicketSnapshots}
                   isInternal
                 />
               ) : (

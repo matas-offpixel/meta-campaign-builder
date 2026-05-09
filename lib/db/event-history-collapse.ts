@@ -129,6 +129,41 @@ export function collapseWeeklyNormalizedPerEvent(
   return collapsed.filter((r) => r.source === dominantSource);
 }
 
+/**
+ * Source-stitched collapse for trend / tracker rendering.
+ *
+ * Unlike `collapseWeeklyNormalizedPerEvent` (which picks ONE dominant
+ * source for the entire event and discards all rows from lower-priority
+ * sources), this function applies the priority tie-break *per calendar
+ * day* and returns every day that has at least one row in any source.
+ *
+ * Manchester WC26 problem it solves:
+ *   - Croatia / Ghana / Panama have xlsx_import rows (Feb 12 – Apr 28)
+ *     AND fourthefans rows (Feb 12 – today).
+ *   - Dominant source = xlsx_import (priority 3 > 2).
+ *   - `collapseWeeklyNormalizedPerEvent` keeps only xlsx_import days,
+ *     so post-Apr 28 the tracker goes dark for those three events.
+ *   - This function keeps ALL days: Apr 28 uses xlsx_import (higher
+ *     priority); May 1 uses fourthefans (only available source).
+ *     The trend chart stays continuous.
+ *
+ * WoW comparability is NOT guaranteed by this function — do not use it
+ * for WoW delta computation. Use `collapseWeeklyNormalizedPerEvent`
+ * for week-over-week comparability; use this for trend / tracker continuity.
+ *
+ * Implementation note: this is identical to `collapseWeekly` (per-day
+ * priority). The named alias exists to make intent explicit at call-sites.
+ */
+export function collapseTrendPerEventStitched(
+  rows: Array<{
+    snapshot_at: string;
+    tickets_sold: number;
+    source: string;
+  }>,
+): WeeklySnapshot[] {
+  return collapseWeekly(rows);
+}
+
 function normalizeSource(s: string): WeeklySnapshot["source"] {
   if (
     s === "eventbrite" ||

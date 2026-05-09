@@ -133,6 +133,7 @@ export default async function ClientVenueReportPage({
   const venueDailyRollups = portal.dailyRollups;
   const venueAdditionalSpend = portal.additionalSpend;
   const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots;
+  const venueTrendTicketSnapshots = portal.trendTicketSnapshots;
   const linkedDrafts = await listDraftsForEventIds(supabase, [
     ...eventIdSet,
   ]);
@@ -196,6 +197,7 @@ export default async function ClientVenueReportPage({
           dailyRollups={venueDailyRollups}
           additionalSpend={venueAdditionalSpend}
           weeklyTicketSnapshots={venueWeeklyTicketSnapshots}
+          trendTicketSnapshots={venueTrendTicketSnapshots}
           londonOnsaleSpend={portal.londonOnsaleSpend}
           londonPresaleSpend={portal.londonPresaleSpend}
           datePreset={datePreset}

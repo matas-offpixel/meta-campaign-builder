@@ -132,11 +132,18 @@ interface Props {
   /** Additional spend rows across the client, filtered per venue card. */
   additionalSpend: AdditionalSpendRow[];
   /**
-   * Weekly ticket snapshots across every event under the client.
-   * Retained for callers that still load the field; venue trend
-   * bucketing now derives weekly points from `dailyRollups`.
+   * Dominant-source snapshots (WoW comparability). One row per
+   * (event, week) using the highest-priority source overall for each
+   * event. Used by WoW aggregation; NOT the trend chart ticket line.
    */
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /**
+   * Source-stitched snapshots for the trend chart ticket line. Uses
+   * per-day priority resolution so events with mixed sources produce a
+   * continuous trend line. Forwarded to `buildVenueTrendPoints` →
+   * `buildVenueTicketSnapshotPoints`.
+   */
+  trendTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Exposes admin-only controls per row when true. */
   isInternal: boolean;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
@@ -758,6 +765,7 @@ export function ClientPortalVenueTable({
   dailyRollups,
   additionalSpend,
   weeklyTicketSnapshots,
+  trendTicketSnapshots,
   isInternal,
   onSnapshotSaved,
   forceExpandAll = false,
@@ -921,6 +929,7 @@ export function ClientPortalVenueTable({
                 wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
                 dailyRollups={dailyRollups}
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
+                trendTicketSnapshots={trendTicketSnapshots}
                 additionalSpend={additionalSpend}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
@@ -1162,11 +1171,16 @@ interface VenueSectionProps {
    */
   dailyRollups: DailyRollupRow[];
   /**
-   * Snapshot fallback for venues whose rollups currently carry spend
-   * but no ticket values. The chart folds these into the same shared
-   * point shape instead of re-fetching.
+   * Dominant-source snapshots (WoW comparability). Used by the venue
+   * table's WoW computation; NOT used for the trend chart ticket line.
    */
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /**
+   * Source-stitched snapshots for the trend chart ticket line. Uses
+   * per-day priority so events with mixed sources (xlsx_import → fourthefans)
+   * produce a continuous trend instead of going dark after the last import.
+   */
+  trendTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Client-wide additional spend rows; venue card filters by event ids/code. */
   additionalSpend: AdditionalSpendRow[];
   /**
@@ -1214,20 +1228,18 @@ function buildVenueTrendPoints(
   dailyRollups: DailyRollupRow[],
   venueEventIds: Set<string>,
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+  trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
   const isMultiEventVenue = venueEventIds.size > 1;
 
-  // Build snapshot points first — they are the authoritative cumulative source
-  // (Eventbrite / FourtheFans). When snapshots exist, rollup tickets_sold
-  // (meta_regs, a partial on-meta count) MUST be suppressed. If both were
-  // present as points, the aggregator in cumulative mode would treat
-  // today's meta_regs value (e.g. 4) as the new cumulative total, instantly
-  // dropping the chart from 699 → 4. The gate was previously inverted
-  // (!hasRollupTickets) which caused the snapshot path to be skipped entirely
-  // whenever even a single day of meta_regs landed in the rollup table.
+  // Build snapshot points using source-stitched data when available.
+  // `trendTicketSnapshots` uses per-day priority resolution so events with
+  // mixed sources (xlsx_import → fourthefans hand-off like Manchester WC26)
+  // produce a continuous line. Falls back to `weeklyTicketSnapshots` for
+  // call-sites that haven't been updated yet.
   const snapshotPoints = buildVenueTicketSnapshotPoints(
-    weeklyTicketSnapshots,
+    trendTicketSnapshots ?? weeklyTicketSnapshots,
     venueEventIds,
   );
   const hasSnapshotTickets = snapshotPoints.length > 0;
@@ -1391,6 +1403,7 @@ function VenueSection({
   wow,
   dailyRollups,
   weeklyTicketSnapshots,
+  trendTicketSnapshots,
   additionalSpend,
   isExpanded,
   onToggle,
@@ -1490,8 +1503,9 @@ function VenueSection({
         dailyRollups,
         venueEventIds,
         weeklyTicketSnapshots,
+        trendTicketSnapshots,
       ),
-    [dailyRollups, venueEventIds, weeklyTicketSnapshots],
+    [dailyRollups, venueEventIds, weeklyTicketSnapshots, trendTicketSnapshots],
   );
   const hasVenueTrend = useMemo(
     () => new Set(venueTrendPoints.map((point) => point.date)).size >= 2,

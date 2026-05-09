@@ -58,6 +58,7 @@ export default async function ClientPortalPage({ params, searchParams }: Props) 
       dailyRollups={result.dailyRollups}
       additionalSpend={result.additionalSpend}
       weeklyTicketSnapshots={result.weeklyTicketSnapshots}
+      trendTicketSnapshots={result.trendTicketSnapshots}
       showCreativeInsights={result.shareVisibility.showCreativeInsights}
       showFunnelPacing={result.shareVisibility.showFunnelPacing}
       isShared
