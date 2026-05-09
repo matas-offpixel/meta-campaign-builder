@@ -608,6 +608,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
       ticket_tiers: ev.ticket_tiers,
       latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
       fallback_tickets: ev.tickets_sold ?? null,
+      tier_channel_sales_sum: ev.tier_channel_sales_tickets ?? null,
     });
     tickets += sold;
     prevTickets += ev.tickets_sold_previous ?? 0;
@@ -616,6 +617,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
         ? resolveDisplayTicketRevenue({
             ticket_tiers: ev.ticket_tiers,
             latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+            tier_channel_sales_revenue: ev.tier_channel_sales_revenue ?? null,
           })
         : ev.latest_snapshot?.revenue ?? null;
     if (r !== null && r !== undefined) {
@@ -981,6 +983,7 @@ function computeOverallLondon(
         ticket_tiers: ev.ticket_tiers,
         latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
         fallback_tickets: ev.tickets_sold ?? null,
+        tier_channel_sales_sum: ev.tier_channel_sales_tickets ?? null,
       });
       prevTickets += ev.tickets_sold_previous ?? 0;
       const r = ev.latest_snapshot?.revenue;
