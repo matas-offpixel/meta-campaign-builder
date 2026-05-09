@@ -172,6 +172,7 @@ function sumTicketsSold(events: PortalEvent[]): number {
             ticket_tiers: event.ticket_tiers,
             latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
             fallback_tickets: event.tickets_sold ?? null,
+            tier_channel_sales_sum: event.tier_channel_sales_tickets ?? null,
           })
         : event.latest_snapshot?.tickets_sold ?? event.tickets_sold ?? 0),
     0,

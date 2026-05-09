@@ -118,6 +118,15 @@ export function resolveDisplayTicketCount(input: {
   ticket_tiers: EventTicketTierRow[];
   latest_snapshot_tickets: number | null | undefined;
   fallback_tickets?: number | null | undefined;
+  /**
+   * Raw SUM of `tier_channel_sales.tickets_sold` across all tiers and
+   * channels for this event. Passed as a direct Math.max input so that
+   * multi-channel venues (e.g. Manchester WC26 with 4TF + Venue rows)
+   * surface their full total even when `event_ticket_tiers.quantity_sold`
+   * only reflects the 4TF connector's write target. See fix/resolver-read-
+   * tier-channel-sales for the failure mode this guards against.
+   */
+  tier_channel_sales_sum?: number | null | undefined;
 }): number {
   const tierTickets =
     input.ticket_tiers.length > 0
@@ -125,7 +134,8 @@ export function resolveDisplayTicketCount(input: {
       : 0;
   const snapshotTickets = input.latest_snapshot_tickets ?? 0;
   const fallbackTickets = input.fallback_tickets ?? 0;
-  return Math.max(snapshotTickets, tierTickets, fallbackTickets, 0);
+  const channelSalesTickets = input.tier_channel_sales_sum ?? 0;
+  return Math.max(snapshotTickets, tierTickets, fallbackTickets, channelSalesTickets, 0);
 }
 
 /** Sum `tier_channel_sales.revenue_amount` for one tier's channel rows. */
@@ -192,25 +202,36 @@ export function perTierDisplayTicketRevenue(tier: EventTicketTierRow): number {
 export function resolveDisplayTicketRevenue(input: {
   ticket_tiers: EventTicketTierRow[];
   latest_snapshot_revenue: number | null | undefined;
+  /**
+   * Raw SUM of `tier_channel_sales.revenue_amount` across all tiers and
+   * channels for this event. Included as an additional Math.max input
+   * alongside the per-tier hybrid calculation so that venues with explicit
+   * multi-channel revenue rows (e.g. 4TF + Venue) always surface the
+   * highest available revenue figure.
+   */
+  tier_channel_sales_revenue?: number | null | undefined;
 }): number | null {
   const { ticket_tiers, latest_snapshot_revenue } = input;
+  const channelSalesRevenue = input.tier_channel_sales_revenue ?? null;
   if (ticket_tiers.length === 0) {
     if (latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
-      return latest_snapshot_revenue;
+      const best = channelSalesRevenue != null && channelSalesRevenue > 0
+        ? Math.max(latest_snapshot_revenue, channelSalesRevenue)
+        : latest_snapshot_revenue;
+      return best;
     }
+    if (channelSalesRevenue != null && channelSalesRevenue > 0) return channelSalesRevenue;
     return latest_snapshot_revenue ?? null;
   }
   let total = 0;
   for (const tier of ticket_tiers) {
     total += perTierDisplayTicketRevenue(tier);
   }
-  if (total > 0 && latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
-    return Math.max(total, latest_snapshot_revenue);
-  }
-  if (total > 0) return total;
-  if (latest_snapshot_revenue != null && latest_snapshot_revenue > 0) {
-    return latest_snapshot_revenue;
-  }
+  const candidates = [total, latest_snapshot_revenue ?? 0, channelSalesRevenue ?? 0].filter(
+    (v) => v > 0,
+  );
+  if (candidates.length > 0) return Math.max(...candidates);
+  // All sources yielded zero — return snapshot as-is (may be 0 or null).
   return latest_snapshot_revenue ?? null;
 }
 

@@ -57,6 +57,10 @@ export interface AggregatableEvent {
   } | null;
   /** When present (portal loaders), revenue prefers tier_channel_sales sums. */
   ticket_tiers?: EventTicketTierRow[];
+  /** Raw SUM of tier_channel_sales.tickets_sold for this event. Optional for legacy callers. */
+  tier_channel_sales_tickets?: number | null;
+  /** Raw SUM of tier_channel_sales.revenue_amount for this event. Optional for legacy callers. */
+  tier_channel_sales_revenue?: number | null;
 }
 
 function ticketRevenueForAggregatableEvent(ev: AggregatableEvent): number | null {
@@ -64,6 +68,7 @@ function ticketRevenueForAggregatableEvent(ev: AggregatableEvent): number | null
     return resolveDisplayTicketRevenue({
       ticket_tiers: ev.ticket_tiers,
       latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+      tier_channel_sales_revenue: ev.tier_channel_sales_revenue ?? null,
     });
   }
   return ev.latest_snapshot?.revenue ?? null;
@@ -75,6 +80,7 @@ function ticketsForAggregatableEvent(ev: AggregatableEvent): number {
       ticket_tiers: ev.ticket_tiers,
       latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
       fallback_tickets: ev.tickets_sold ?? null,
+      tier_channel_sales_sum: ev.tier_channel_sales_tickets ?? null,
     });
   }
   return ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;

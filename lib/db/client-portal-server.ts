@@ -94,6 +94,17 @@ export interface PortalEvent {
   freshness_at?: string | null;
   ticketing_status: PortalTicketingStatus;
   ticket_tiers: EventTicketTierRow[];
+  /**
+   * Raw SUM of `tier_channel_sales.tickets_sold` across all tiers and
+   * channels for this event. `null` when no `tier_channel_sales` rows
+   * exist (e.g. 4TF-only events before the channel import ran).
+   * Passed directly to `resolveDisplayTicketCount` so multi-channel
+   * venues (4TF + Venue) surface the full total rather than only the
+   * figure written to `event_ticket_tiers` by the 4TF connector.
+   */
+  tier_channel_sales_tickets: number | null;
+  /** Matching SUM of `tier_channel_sales.revenue_amount` for the same set. */
+  tier_channel_sales_revenue: number | null;
 }
 
 export interface PortalTicketingStatus {
@@ -752,6 +763,32 @@ async function loadPortalForClientId(
     sales: tierChannelSales,
   });
 
+  // Build per-event SUM of tier_channel_sales for the resolver.
+  //
+  // Outernet double-count investigation (fix/resolver-read-tier-channel-sales):
+  // Outernet has 2 external link IDs (presale + gen-sale). Both link IDs map
+  // through the same event_id. The upsert key on tier_channel_sales is
+  // (event_id, tier_name, channel_id) — if the same tier_name + channel
+  // appears from both link IDs, the second upsert REPLACES the first row
+  // rather than adding a new one. Raw SUM across all rows is therefore free
+  // of link-ID-induced double-counting. If a tier_name differs per link (e.g.
+  // "GA [presale]" vs "GA"), the two rows represent genuinely different
+  // ticket pools and should be summed. Result: no deduplication needed here;
+  // the raw SUM equals the true cross-channel total per event.
+  const tierChannelSalesTicketsByEvent = new Map<string, number>();
+  const tierChannelSalesRevenueByEvent = new Map<string, number>();
+  for (const sale of tierChannelSales) {
+    const eid = sale.event_id;
+    tierChannelSalesTicketsByEvent.set(
+      eid,
+      (tierChannelSalesTicketsByEvent.get(eid) ?? 0) + sale.tickets_sold,
+    );
+    tierChannelSalesRevenueByEvent.set(
+      eid,
+      (tierChannelSalesRevenueByEvent.get(eid) ?? 0) + Number(sale.revenue_amount ?? 0),
+    );
+  }
+
   // Weekly ticket snapshots (`ticket_sales_snapshots`) — collapse +
   // dominant-source resolution preserved exactly as pre-parallelise.
   // See the original docblock on `collapseWeeklyNormalizedPerEvent`
@@ -970,6 +1007,12 @@ async function loadPortalForClientId(
           preferred_provider: (e.preferred_provider as string | null) ?? null,
         },
         ticket_tiers: ticketTiersByEvent.get(e.id) ?? [],
+        tier_channel_sales_tickets: tierChannelSalesTicketsByEvent.has(e.id)
+          ? (tierChannelSalesTicketsByEvent.get(e.id) ?? null)
+          : null,
+        tier_channel_sales_revenue: tierChannelSalesRevenueByEvent.has(e.id)
+          ? (tierChannelSalesRevenueByEvent.get(e.id) ?? null)
+          : null,
       };
     }),
   };

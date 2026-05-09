@@ -60,6 +60,7 @@ export function computePortalEventSpendRowMetrics(
           ticket_tiers: ev.ticket_tiers,
           latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
           fallback_tickets: ev.tickets_sold ?? null,
+          tier_channel_sales_sum: ev.tier_channel_sales_tickets ?? null,
         })
       : ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
   const prev = ev.tickets_sold_previous ?? 0;
@@ -78,6 +79,7 @@ export function computePortalEventSpendRowMetrics(
       ? resolveDisplayTicketRevenue({
           ticket_tiers: ev.ticket_tiers,
           latest_snapshot_revenue: ev.latest_snapshot?.revenue ?? null,
+          tier_channel_sales_revenue: ev.tier_channel_sales_revenue ?? null,
         })
       : ev.latest_snapshot?.revenue ?? null;
   const roas =

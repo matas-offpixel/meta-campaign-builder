@@ -525,6 +525,7 @@ function computeEventMetrics(
       ? resolveDisplayTicketRevenue({
           ticket_tiers: event.ticket_tiers,
           latest_snapshot_revenue: event.latest_snapshot?.revenue ?? null,
+          tier_channel_sales_revenue: event.tier_channel_sales_revenue ?? null,
         })
       : event.latest_snapshot?.revenue ?? null;
 
@@ -663,6 +664,7 @@ function tierAllocationTotals(event: PortalEvent): {
       ticket_tiers: event.ticket_tiers,
       latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
       fallback_tickets: event.tickets_sold ?? null,
+      tier_channel_sales_sum: event.tier_channel_sales_tickets ?? null,
     }),
     allocation: rollup.allocation,
     allTiersOnSaleSoon: onSaleCount === 0,

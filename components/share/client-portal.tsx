@@ -167,6 +167,7 @@ export function ClientPortal({
               ticket_tiers: ev.ticket_tiers,
               latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
               fallback_tickets: ev.tickets_sold ?? null,
+              tier_channel_sales_sum: ev.tier_channel_sales_tickets ?? null,
             })
           : ev.latest_snapshot?.tickets_sold ?? ev.tickets_sold ?? 0;
       sold += resolvedSold;

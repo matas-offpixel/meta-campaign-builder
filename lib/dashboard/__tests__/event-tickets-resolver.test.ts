@@ -62,6 +62,43 @@ describe("display ticket resolver", () => {
     );
   });
 
+  // Manchester WC26 regression: tier_tiers=699 (4TF write target),
+  // snapshot=699 (same source), tier_channel_sales=1362 (4TF+Venue).
+  // Math.max must pick 1362 not 699.
+  it("picks tier_channel_sales_sum when it exceeds both snapshot and tier-rollup (Manchester WC26 scenario)", () => {
+    assert.equal(
+      resolveDisplayTicketCount({
+        ticket_tiers: [tier({ quantity_sold: 699 })],
+        latest_snapshot_tickets: 699,
+        fallback_tickets: null,
+        tier_channel_sales_sum: 1362,
+      }),
+      1362,
+    );
+  });
+
+  it("ignores tier_channel_sales_sum when null (no multi-channel rows)", () => {
+    assert.equal(
+      resolveDisplayTicketCount({
+        ticket_tiers: [tier({ quantity_sold: 356 })],
+        latest_snapshot_tickets: 246,
+        tier_channel_sales_sum: null,
+      }),
+      356,
+    );
+  });
+
+  it("picks tier_channel_sales_sum over snapshot when tiers are empty (no tier rows)", () => {
+    assert.equal(
+      resolveDisplayTicketCount({
+        ticket_tiers: [],
+        latest_snapshot_tickets: 500,
+        tier_channel_sales_sum: 800,
+      }),
+      800,
+    );
+  });
+
   it("uses tier-channel revenue when it exceeds snapshot revenue", () => {
     assert.equal(
       resolveDisplayTicketRevenue({
