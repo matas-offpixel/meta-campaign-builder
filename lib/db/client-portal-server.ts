@@ -371,6 +371,22 @@ export type ClientPortalData =
        */
       trendTicketSnapshots: WeeklyTicketSnapshotRow[];
       /**
+       * Per-day cumulative tier_channel_sales snapshots (migration 089).
+       * When present for a date, these take priority over the
+       * `ticket_sales_snapshots` envelope in the trend chart resolver,
+       * eliminating the "all tickets land on today" spike that occurred
+       * before the nightly cron started writing daily history rows.
+       *
+       * source_kind = 'smoothed_historical' rows are marked with
+       * `isSmoothed = true` in the resolver so the trend chart tooltip
+       * can show a subtle "(est.)" indicator.
+       *
+       * Empty until migration 089 is applied and the cron has run at
+       * least once (or the one-shot smooth endpoint has been called for
+       * existing events). The resolver gracefully degrades to the envelope.
+       */
+      trendDailyHistory: import("@/lib/db/tier-channel-daily-history").TierChannelDailyHistoryRow[];
+      /**
        * Channel set for this client (migration 076). One row per
        * (client_id, channel_name). Threaded onto the portal payload so
        * the venue report can render the operator-facing inline edit
@@ -563,6 +579,9 @@ export async function loadVenuePortalByToken(
   const venueTrendTicketSnapshots = portal.trendTicketSnapshots.filter((r) =>
     eventIdSet.has(r.event_id),
   );
+  const venueTrendDailyHistory = portal.trendDailyHistory.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
   return {
     ok: true,
     event_code: share.event_code,
@@ -577,6 +596,7 @@ export async function loadVenuePortalByToken(
     additionalSpend: venueAdditionalSpend,
     weeklyTicketSnapshots: venueWeeklyTicketSnapshots,
     trendTicketSnapshots: venueTrendTicketSnapshots,
+    trendDailyHistory: venueTrendDailyHistory,
     tierChannels: portal.tierChannels,
     shareVisibility: portal.shareVisibility,
   };
@@ -958,6 +978,26 @@ async function loadPortalForClientId(
       .filter((r) => Number.isFinite(r.amount));
   }
 
+  // Per-day tier_channel_sales history (migration 089) — gives the trend
+  // chart a day-by-day cumulative without the "all tickets land on today"
+  // spike that existed before the nightly cron started writing rows.
+  // Fetched after the ticket-snapshot section so eventIds is populated.
+  // Gracefully degraded: if the table doesn't exist yet (pre-migration),
+  // the catch produces an empty array and the resolver falls back to the
+  // snapshot envelope.
+  let trendDailyHistory: import("@/lib/db/tier-channel-daily-history").TierChannelDailyHistoryRow[] =
+    [];
+  if (eventIds.length > 0) {
+    try {
+      const { listDailyHistoryForEvents } = await import(
+        "@/lib/db/tier-channel-daily-history"
+      );
+      trendDailyHistory = await listDailyHistoryForEvents(admin, eventIds);
+    } catch {
+      // Pre-migration fallback — table may not exist on older environments.
+    }
+  }
+
   if (devTiming) console.timeEnd(overallLabel);
   return {
     ok: true,
@@ -974,6 +1014,7 @@ async function loadPortalForClientId(
     additionalSpend,
     weeklyTicketSnapshots,
     trendTicketSnapshots,
+    trendDailyHistory,
     tierChannels,
     shareVisibility: {
       showCreativeInsights: true,

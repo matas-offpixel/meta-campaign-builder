@@ -16,6 +16,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
 import {
   CLIENT_REGION_LABELS,
   defaultClientRegion,
@@ -41,6 +42,7 @@ interface Props {
   additionalSpend: AdditionalSpendRow[];
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   trendTicketSnapshots: WeeklyTicketSnapshotRow[];
+  trendDailyHistory?: TierChannelDailyHistoryRow[];
   showCreativeInsights: boolean;
   showFunnelPacing: boolean;
   isShared: boolean;
@@ -62,6 +64,7 @@ export function DashboardTabs({
   additionalSpend,
   weeklyTicketSnapshots,
   trendTicketSnapshots,
+  trendDailyHistory,
   showCreativeInsights,
   showFunnelPacing,
   isShared,
@@ -198,6 +201,7 @@ export function DashboardTabs({
           additionalSpend={additionalSpend}
           weeklyTicketSnapshots={weeklyTicketSnapshots}
           trendTicketSnapshots={trendTicketSnapshots}
+          trendDailyHistory={trendDailyHistory}
           isInternal={!isShared}
           hideChrome={isShared}
           showRefreshDailyBudgets={false}

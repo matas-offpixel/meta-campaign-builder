@@ -11,6 +11,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
 import {
   aggregateAllocationByEvent,
   aggregateVenueCampaignPerformance,
@@ -147,6 +148,12 @@ interface Props {
    * `buildVenueTicketSnapshotPoints`.
    */
   trendTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /**
+   * Per-day snapshots from `tier_channel_sales_daily_history` (migration
+   * 089). When present these take priority over the `ticket_sales_snapshots`
+   * envelope for the mini-trend chart in each venue card.
+   */
+  trendDailyHistory?: TierChannelDailyHistoryRow[];
   /** Exposes admin-only controls per row when true. */
   isInternal: boolean;
   onSnapshotSaved: (eventId: string, snapshot: SavedSnapshot) => void;
@@ -769,6 +776,7 @@ export function ClientPortalVenueTable({
   additionalSpend,
   weeklyTicketSnapshots,
   trendTicketSnapshots,
+  trendDailyHistory,
   isInternal,
   onSnapshotSaved,
   forceExpandAll = false,
@@ -933,6 +941,7 @@ export function ClientPortalVenueTable({
                 dailyRollups={dailyRollups}
                 weeklyTicketSnapshots={weeklyTicketSnapshots}
                 trendTicketSnapshots={trendTicketSnapshots}
+                trendDailyHistory={trendDailyHistory}
                 additionalSpend={additionalSpend}
                 isExpanded={expanded.has(group.expandKey)}
                 onToggle={() => toggleGroup(group.expandKey)}
@@ -1184,6 +1193,8 @@ interface VenueSectionProps {
    * produce a continuous trend instead of going dark after the last import.
    */
   trendTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /** Per-day tier_channel_sales history rows for the trend chart (migration 089). */
+  trendDailyHistory?: TierChannelDailyHistoryRow[];
   /** Client-wide additional spend rows; venue card filters by event ids/code. */
   additionalSpend: AdditionalSpendRow[];
   /**
@@ -1233,6 +1244,7 @@ function buildVenueTrendPoints(
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
   trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
   tierChannelAnchors?: TierChannelSalesAnchorRow[],
+  dailyHistory?: TierChannelDailyHistoryRow[],
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
   const isMultiEventVenue = venueEventIds.size > 1;
@@ -1244,16 +1256,14 @@ function buildVenueTrendPoints(
   // call-sites that haven't been updated yet.
   //
   // `tierChannelAnchors` (PR fix/venue-trend-tier-channel-snapshot) anchors
-  // today's cumulative to the per-event `tier_channel_sales` SUM — which
-  // captures all channels (4TF + Venue + operator-entered) and is the
-  // authoritative cross-channel total used by the Event Breakdown row.
-  // The envelope inside `buildVenueTicketSnapshotPoints` enforces a
-  // monotonic curve so the Apr 28 → 29 phantom drop on Manchester WC26
-  // collapses to a 0 growth day instead of a -594 ticket cliff.
+  // today's cumulative to the per-event `tier_channel_sales` SUM.
+  //
+  // `dailyHistory` (migration 089) takes priority over the snapshot envelope
+  // for dates it covers, eliminating the "all tickets land on today" spike.
   const snapshotPoints = buildVenueTicketSnapshotPoints(
     trendTicketSnapshots ?? weeklyTicketSnapshots,
     venueEventIds,
-    { tierChannelAnchors },
+    { tierChannelAnchors, dailyHistory },
   );
   const hasSnapshotTickets = snapshotPoints.length > 0;
 
@@ -1417,6 +1427,7 @@ function VenueSection({
   dailyRollups,
   weeklyTicketSnapshots,
   trendTicketSnapshots,
+  trendDailyHistory,
   additionalSpend,
   isExpanded,
   onToggle,
@@ -1533,6 +1544,7 @@ function VenueSection({
         weeklyTicketSnapshots,
         trendTicketSnapshots,
         tierChannelAnchors,
+        trendDailyHistory,
       ),
     [
       dailyRollups,
@@ -1540,6 +1552,7 @@ function VenueSection({
       weeklyTicketSnapshots,
       trendTicketSnapshots,
       tierChannelAnchors,
+      trendDailyHistory,
     ],
   );
   const hasVenueTrend = useMemo(

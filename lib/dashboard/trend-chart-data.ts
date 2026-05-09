@@ -7,6 +7,14 @@ export interface TrendChartPoint {
   revenue: number | null;
   linkClicks: number | null;
   ticketsKind?: "additive" | "cumulative_snapshot";
+  /**
+   * When true, the tickets value on this point came from a
+   * `tier_channel_sales_daily_history` row with
+   * source_kind = 'smoothed_historical'. The trend chart tooltip shows
+   * a muted "(est.)" suffix so the operator knows the day's exact total
+   * is a proportional estimate rather than a live cron snapshot.
+   */
+  ticketsSmoothed?: boolean;
 }
 
 export interface TrendChartDay extends TrendChartPoint {
@@ -173,12 +181,21 @@ export function aggregateTrendChartPoints(
     //
     // Ratio uses lifetime/lifetime so the tooltip CPT matches the
     // venue-card top-line CPT pill at the right edge of the chart.
+    //
+    // ticketsSmoothed carries forward alongside tickets so the tooltip
+    // "(est.)" indicator appears on all carry-forward days until a real
+    // cron snapshot arrives.
     let latestTickets: number | null = null;
+    let latestSmoothed = false;
     let runningSpend = 0;
     let hasAnySpend = false;
     for (const day of daily) {
-      if (day.tickets != null) latestTickets = day.tickets;
+      if (day.tickets != null) {
+        latestTickets = day.tickets;
+        latestSmoothed = day.ticketsSmoothed === true;
+      }
       day.tickets = latestTickets;
+      day.ticketsSmoothed = latestSmoothed || day.ticketsSmoothed;
       if (day.spend != null) {
         runningSpend += day.spend;
         hasAnySpend = true;

@@ -15,6 +15,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
 import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -82,6 +83,13 @@ interface Props {
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Source-stitched snapshots for trend/tracker continuity. */
   trendTicketSnapshots?: WeeklyTicketSnapshotRow[];
+  /**
+   * Per-day snapshots from `tier_channel_sales_daily_history` (migration
+   * 089). When present these take priority over the
+   * `ticket_sales_snapshots` envelope, eliminating the "all tickets land
+   * on today" spike visible before the nightly cron started writing history.
+   */
+  trendDailyHistory?: TierChannelDailyHistoryRow[];
   londonOnsaleSpend: number | null;
   londonPresaleSpend: number | null;
   isInternal?: boolean;
@@ -124,6 +132,7 @@ export function VenueFullReport({
   additionalSpend,
   weeklyTicketSnapshots,
   trendTicketSnapshots,
+  trendDailyHistory,
   londonOnsaleSpend,
   isInternal = false,
   canEdit = false,
@@ -177,6 +186,7 @@ export function VenueFullReport({
     additionalSpend,
     weeklyTicketSnapshots,
     trendTicketSnapshots,
+    trendDailyHistory,
   );
 
   return (

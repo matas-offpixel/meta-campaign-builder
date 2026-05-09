@@ -452,6 +452,8 @@ function LegacyTrendChart({
                       <ul className="space-y-0.5">
                         {series.map((s) => {
                           const v = day[s.metric.key];
+                          const isSmoothedTickets =
+                            s.metric.key === "tickets" && day.ticketsSmoothed === true;
                           return (
                             <li
                               key={s.metric.key}
@@ -469,6 +471,11 @@ function LegacyTrendChart({
                                 {v !== null && Number.isFinite(v)
                                   ? s.metric.format(v)
                                   : "—"}
+                                {isSmoothedTickets && v !== null ? (
+                                  <span className="ml-1 text-[10px] text-muted-foreground/60">
+                                    est.
+                                  </span>
+                                ) : null}
                               </span>
                             </li>
                           );

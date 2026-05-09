@@ -10,6 +10,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
 import { aggregateClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
 import {
   CLIENT_REGION_LABELS,
@@ -63,6 +64,8 @@ interface Props {
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   /** Source-stitched snapshots for trend chart / tracker continuity. */
   trendTicketSnapshots: WeeklyTicketSnapshotRow[];
+  /** Per-day tier_channel_sales history (migration 089). Optional until fully deployed. */
+  trendDailyHistory?: TierChannelDailyHistoryRow[];
   /**
    * True when rendered inside `/clients/[id]/dashboard` (the
    * internal admin counterpart). Unlocks per-row admin actions on
@@ -98,6 +101,7 @@ export function ClientPortal({
   additionalSpend,
   weeklyTicketSnapshots,
   trendTicketSnapshots,
+  trendDailyHistory,
   isInternal = false,
   hideChrome = false,
   showRefreshDailyBudgets = true,
@@ -351,6 +355,7 @@ export function ClientPortal({
               additionalSpend={additionalSpend}
               weeklyTicketSnapshots={weeklyTicketSnapshots}
               trendTicketSnapshots={trendTicketSnapshots}
+              trendDailyHistory={trendDailyHistory}
               isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}
             />

@@ -28,6 +28,7 @@ import {
   buildVenueCumulativeTicketTimeline,
   buildVenueTicketSnapshotPoints,
   ticketDeltasFromCumulativeTimeline,
+  type TierChannelDailyHistoryRow,
   type TierChannelSalesAnchorRow,
 } from "@/lib/dashboard/venue-trend-points";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
@@ -110,7 +111,18 @@ export function buildVenueReportModel(
    * haven't been updated yet). See `collapseTrendPerEventStitched`.
    */
   trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
-  options?: { todayIso?: string },
+  options?: {
+    todayIso?: string;
+    /**
+     * Per-day rows from `tier_channel_sales_daily_history` (migration
+     * 089). When present these take priority over the
+     * `ticket_sales_snapshots` envelope — daily history rows are exact
+     * cron snapshots or proportional estimates (source_kind =
+     * 'smoothed_historical') that eliminate the "all tickets land on
+     * today" spike visible before the cron started running.
+     */
+    dailyHistory?: TierChannelDailyHistoryRow[];
+  },
 ): VenueReportModel {
   const eventIds = new Set(events.map((event) => event.id));
   const isMultiEventVenue = eventIds.size > 1;
@@ -153,6 +165,7 @@ export function buildVenueReportModel(
     {
       tierChannelAnchors,
       todayIso: options?.todayIso,
+      dailyHistory: options?.dailyHistory,
     },
   );
 
@@ -162,6 +175,7 @@ export function buildVenueReportModel(
     {
       tierChannelAnchors,
       todayIso: options?.todayIso,
+      dailyHistory: options?.dailyHistory,
     },
   );
 
@@ -219,6 +233,7 @@ export function useVenueReportModel(
   additionalSpend: AdditionalSpendRow[],
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
   trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
+  dailyHistory?: TierChannelDailyHistoryRow[],
 ): VenueReportModel & {
   tierLifetimeTickets: number | null;
   tierLifetimeRevenue: number | null;
@@ -232,6 +247,7 @@ export function useVenueReportModel(
         additionalSpend,
         weeklyTicketSnapshots,
         trendTicketSnapshots,
+        { dailyHistory },
       ),
     [
       events,
@@ -240,6 +256,7 @@ export function useVenueReportModel(
       additionalSpend,
       weeklyTicketSnapshots,
       trendTicketSnapshots,
+      dailyHistory,
     ],
   );
 
