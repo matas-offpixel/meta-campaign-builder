@@ -6,6 +6,7 @@ import {
   VIDEO_BATCH_SIZE,
   type RawVideoMetadata,
 } from "./batch-fetch-video-metadata.ts";
+import { runWithConcurrency } from "./run-with-concurrency.ts";
 import { withActPrefix, withoutActPrefix } from "../meta/ad-account-id.ts";
 import {
   fetchBusinessIdForAccount,
@@ -495,23 +496,111 @@ export interface AudienceMultiCampaignVideosResult {
   campaignCount: number;
 }
 
+// ─── Bounded-concurrency helpers for multi-campaign walk ─────────────────────
+// runWithConcurrency is imported from ./run-with-concurrency.ts above.
+
+/** Max simultaneous campaign ad-walks. 3 gives ~2-3× speedup vs sequential
+ *  without materially increasing Meta per-account rate pressure. */
+export const CAMPAIGN_WALK_CONCURRENCY = 3;
+
+/**
+ * Walk one campaign's ads, collecting video IDs and creative page IDs.
+ * Extracted so it can run concurrently across campaigns in
+ * fetchAudienceMultiCampaignVideos.
+ */
+async function walkCampaignAds(
+  campaignId: string,
+  expectedAccountId: string,
+  token: string,
+): Promise<{
+  videoIds: string[];
+  pageIds: string[];
+}> {
+  const ADS_FIELDS =
+    "id,creative{id,name,video_id,object_story_spec{video_data,page_id},asset_feed_spec,platform_customizations}";
+  const ADS_PAGE_LIMIT = "100";
+  const MAX_AD_PAGES = 50;
+
+  const campaign = await graphGetWithToken<{
+    id: string;
+    account_id?: string;
+  }>(`/${campaignId}`, { fields: "id,account_id" }, token).catch(() => null);
+
+  if (campaign?.account_id && campaign.account_id !== expectedAccountId) {
+    throw new Error(
+      `Campaign ${campaignId} does not belong to this client's Meta ad account`,
+    );
+  }
+
+  const videoIds: string[] = [];
+  const pageIds: string[] = [];
+
+  let adsAfter: string | undefined;
+  for (let adPage = 0; adPage < MAX_AD_PAGES; adPage++) {
+    const params: Record<string, string> = {
+      fields: ADS_FIELDS,
+      limit: ADS_PAGE_LIMIT,
+    };
+    if (adsAfter) params.after = adsAfter;
+
+    const adsPage = await graphGetWithToken<GraphPagedResponse<RawAd>>(
+      `/${campaignId}/ads`,
+      params,
+      token,
+    );
+    const chunk = adsPage.data ?? [];
+
+    for (const ad of chunk) {
+      for (const id of extractVideoIdsFromCreative(ad.creative)) {
+        videoIds.push(id);
+      }
+      const creative = ad.creative as Record<string, unknown> | undefined;
+      if (!creative) continue;
+
+      const spec = creative.object_story_spec as
+        | Record<string, unknown>
+        | undefined;
+      if (typeof spec?.page_id === "string" && spec.page_id) {
+        pageIds.push(spec.page_id);
+      }
+
+      const platforms = creative.platform_customizations as
+        | Record<string, { page_id?: unknown }>
+        | undefined;
+      for (const platform of ["facebook", "instagram"] as const) {
+        const platformPageId = platforms?.[platform]?.page_id;
+        if (typeof platformPageId === "string" && platformPageId) {
+          pageIds.push(platformPageId);
+        }
+      }
+
+      const assetFeed = creative.asset_feed_spec as
+        | { page_ids?: unknown }
+        | undefined;
+      if (Array.isArray(assetFeed?.page_ids)) {
+        for (const id of assetFeed.page_ids) {
+          if (typeof id === "string" && id) {
+            pageIds.push(id);
+          }
+        }
+      }
+    }
+
+    adsAfter = adsPage.paging?.cursors?.after;
+    if (!adsAfter || chunk.length === 0) break;
+  }
+
+  return { videoIds, pageIds };
+}
+
 /**
  * Fetch and dedup videos across multiple campaigns in one server pass.
  *
- * Problem: the per-campaign endpoint walks `/campaignId/ads` + fetches
- * per-video metadata independently for every campaign. When campaigns share
- * videos (Meta's "include views from related ads"), the same 18 videos can
- * be fetched up to 7 times, blowing through Vercel's function timeout on
- * high-spend ad accounts like Junction 2 Fragrance.
- *
- * Fix:
- *   1. Walk each campaign's ads sequentially (avoids hammering `/ads`
- *      with parallel page streams on the same account).
- *   2. Accumulate a SINGLE Set of unique video IDs across all campaigns.
- *   3. Fetch video metadata exactly once per unique video (chunked, 5-
- *      concurrent — same rate-safe pattern as the single-campaign path).
- *   4. Apply the Page-association filter and resolve contextPageId from
- *      all creative shapes exactly as the single-campaign path does.
+ * Ad pagination runs concurrently across campaigns (CAMPAIGN_WALK_CONCURRENCY=3)
+ * — ~2-3× faster than sequential for the common 2-5 campaign case, which
+ * previously hit Vercel's 60s kill when two slow campaigns walked in series.
+ * Video metadata is then fetched once for the full unique set via the batched
+ * /?ids=... endpoint (PR #377).
  */
 export async function fetchAudienceMultiCampaignVideos(
   adAccountId: string,
@@ -529,93 +618,21 @@ export async function fetchAudienceMultiCampaignVideos(
   }
 
   const expectedAccountId = withoutActPrefix(adAccountId);
-  const ADS_FIELDS =
-    "id,creative{id,name,video_id,object_story_spec{video_data,page_id},asset_feed_spec,platform_customizations}";
-  const ADS_PAGE_LIMIT = "100";
-  const MAX_AD_PAGES = 50;
-
   const allVideoIds = new Set<string>();
   const pageCounts = new Map<string, number>();
 
-  // Walk each campaign sequentially to avoid parallel page-stream rate pressure.
-  for (const campaignId of campaignIds) {
-    // Ownership check: validate campaign belongs to this ad account.
-    const campaign = await graphGetWithToken<{
-      id: string;
-      account_id?: string;
-    }>(`/${campaignId}`, { fields: "id,account_id" }, token).catch(
-      () => null,
-    );
-    if (
-      campaign?.account_id &&
-      campaign.account_id !== expectedAccountId
-    ) {
-      throw new Error(
-        `Campaign ${campaignId} does not belong to this client's Meta ad account`,
-      );
-    }
+  // Walk campaigns concurrently (CAMPAIGN_WALK_CONCURRENCY=3) — cuts 2-5
+  // campaign selections from 60s+ sequential to ~20-30s.
+  const campaignResults = await runWithConcurrency(
+    campaignIds,
+    CAMPAIGN_WALK_CONCURRENCY,
+    (campaignId) => walkCampaignAds(campaignId, expectedAccountId, token),
+  );
 
-    // Paginated ad walk — same shape as fetchAudienceCampaignVideos.
-    let adsAfter: string | undefined;
-    for (let adPage = 0; adPage < MAX_AD_PAGES; adPage++) {
-      const params: Record<string, string> = {
-        fields: ADS_FIELDS,
-        limit: ADS_PAGE_LIMIT,
-      };
-      if (adsAfter) params.after = adsAfter;
-
-      const adsPage = await graphGetWithToken<GraphPagedResponse<RawAd>>(
-        `/${campaignId}/ads`,
-        params,
-        token,
-      );
-      const chunk = adsPage.data ?? [];
-
-      for (const ad of chunk) {
-        for (const id of extractVideoIdsFromCreative(ad.creative)) {
-          allVideoIds.add(id);
-        }
-        const creative = ad.creative as Record<string, unknown> | undefined;
-        if (!creative) continue;
-
-        const spec = creative.object_story_spec as
-          | Record<string, unknown>
-          | undefined;
-        const standardPageId = spec?.page_id;
-        if (typeof standardPageId === "string" && standardPageId) {
-          pageCounts.set(
-            standardPageId,
-            (pageCounts.get(standardPageId) ?? 0) + 1,
-          );
-        }
-
-        const platforms = creative.platform_customizations as
-          | Record<string, { page_id?: unknown }>
-          | undefined;
-        for (const platform of ["facebook", "instagram"] as const) {
-          const platformPageId = platforms?.[platform]?.page_id;
-          if (typeof platformPageId === "string" && platformPageId) {
-            pageCounts.set(
-              platformPageId,
-              (pageCounts.get(platformPageId) ?? 0) + 1,
-            );
-          }
-        }
-
-        const assetFeed = creative.asset_feed_spec as
-          | { page_ids?: unknown }
-          | undefined;
-        if (Array.isArray(assetFeed?.page_ids)) {
-          for (const id of assetFeed.page_ids) {
-            if (typeof id === "string" && id) {
-              pageCounts.set(id, (pageCounts.get(id) ?? 0) + 1);
-            }
-          }
-        }
-      }
-
-      adsAfter = adsPage.paging?.cursors?.after;
-      if (!adsAfter || chunk.length === 0) break;
+  for (const result of campaignResults) {
+    for (const id of result.videoIds) allVideoIds.add(id);
+    for (const pageId of result.pageIds) {
+      pageCounts.set(pageId, (pageCounts.get(pageId) ?? 0) + 1);
     }
   }
 

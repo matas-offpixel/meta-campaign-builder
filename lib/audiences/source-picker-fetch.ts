@@ -139,7 +139,7 @@ export async function fetchAudienceMultiCampaignVideos(
         return {
           ok: false,
           error: looksLikeTimeout
-            ? `Campaign video fetch timed out (HTTP ${res.status}). Try again — Meta may be rate-limiting this ad account.`
+            ? `This selection took too long to load (HTTP ${res.status}). Try selecting fewer campaigns (1-3 max), or wait a moment and retry.`
             : `Server returned non-JSON response (HTTP ${res.status})`,
           rateLimited: res.status === 429,
         };

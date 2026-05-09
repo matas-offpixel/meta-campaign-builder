@@ -12,10 +12,11 @@ import {
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 
-// Same rationale as ./campaign-videos/route.ts: bumped from the 10s
-// default to 60s now that the DB cache (mig 087) means cold-start
-// callers can pay the full Meta fetch without timing out.
-export const maxDuration = 60;
+// Bumped from 60 to 120 (Vercel Pro ceiling 800). The concurrent campaign
+// walk (CAMPAIGN_WALK_CONCURRENCY=3) cuts typical wall-clock to 20-30s; 120s
+// gives headroom for edge cases (10+ campaigns, large ad sets) beyond what
+// concurrency alone fixes.
+export const maxDuration = 120;
 
 const MAX_CAMPAIGN_IDS = 20;
 const TTL_MS = 30 * 60 * 1000;
