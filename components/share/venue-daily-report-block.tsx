@@ -24,6 +24,13 @@ import {
   resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
 } from "@/lib/dashboard/tier-channel-rollups";
+import {
+  buildVenueCumulativeTicketTimeline,
+  buildVenueTicketSnapshotPoints,
+  ticketDeltasFromCumulativeTimeline,
+  type TierChannelSalesAnchorRow,
+} from "@/lib/dashboard/venue-trend-points";
+import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 
 /**
  * components/share/venue-daily-report-block.tsx
@@ -74,6 +81,16 @@ export interface VenueReportModel {
     string,
     Array<{ category: string; amount: number }>
   >;
+  /**
+   * Cumulative-snapshot ticket points for the trend chart line.
+   * Built from the per-event monotonic envelope across all snapshot
+   * sources, anchored at "today" to the per-event
+   * `tier_channel_sales` SUM. Pre-tagged with
+   * `ticketsKind: "cumulative_snapshot"` so the aggregator's carry-
+   * forward path activates and a date without a fresh snapshot still
+   * shows the prior cumulative (no Apr 28 → 29 phantom drop).
+   */
+  cumulativeTicketPoints: TrendChartPoint[];
 }
 
 /**
@@ -93,6 +110,7 @@ export function buildVenueReportModel(
    * haven't been updated yet). See `collapseTrendPerEventStitched`.
    */
   trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
+  options?: { todayIso?: string },
 ): VenueReportModel {
   const eventIds = new Set(events.map((event) => event.id));
   const isMultiEventVenue = eventIds.size > 1;
@@ -111,11 +129,47 @@ export function buildVenueReportModel(
   const otherSpendBreakdownByDate =
     additionalSpendBreakdownLinesByDate(additionalSpendRows);
 
+  // Per-event tier_channel_sales anchors — exposed on PortalEvent by
+  // the loader (sum across tiers/channels for each event). Events
+  // without a tier_channel_sales row contribute null and the envelope
+  // falls back to snapshot-only behaviour.
+  const tierChannelAnchors: TierChannelSalesAnchorRow[] = events
+    .filter(
+      (event) =>
+        event.tier_channel_sales_tickets != null ||
+        event.tier_channel_sales_revenue != null,
+    )
+    .map((event) => ({
+      event_id: event.id,
+      tickets: event.tier_channel_sales_tickets ?? null,
+      revenue: event.tier_channel_sales_revenue ?? null,
+    }));
+
+  const snapshotsForTrend = trendTicketSnapshots ?? weeklyTicketSnapshots;
+
+  const cumulativeTicketPoints = buildVenueTicketSnapshotPoints(
+    snapshotsForTrend,
+    eventIds,
+    {
+      tierChannelAnchors,
+      todayIso: options?.todayIso,
+    },
+  );
+
+  const cumulativeTicketTimeline = buildVenueCumulativeTicketTimeline(
+    snapshotsForTrend,
+    eventIds,
+    {
+      tierChannelAnchors,
+      todayIso: options?.todayIso,
+    },
+  );
+
   const timeline = mergeVenueTimeline(
     dailyRollups,
     dailyEntries,
     isMultiEventVenue,
-    trendTicketSnapshots ?? weeklyTicketSnapshots,
+    cumulativeTicketTimeline,
     events,
   );
   const generalSaleAt = earliestIso(
@@ -144,6 +198,7 @@ export function buildVenueReportModel(
     additionalSpendRows,
     otherSpendByDate,
     otherSpendBreakdownByDate,
+    cumulativeTicketPoints,
   };
 }
 
@@ -178,7 +233,14 @@ export function useVenueReportModel(
         weeklyTicketSnapshots,
         trendTicketSnapshots,
       ),
-    [events, dailyEntries, dailyRollups, additionalSpend, weeklyTicketSnapshots, trendTicketSnapshots],
+    [
+      events,
+      dailyEntries,
+      dailyRollups,
+      additionalSpend,
+      weeklyTicketSnapshots,
+      trendTicketSnapshots,
+    ],
   );
 
   const tierLifetimeTickets = useMemo(() => {
@@ -222,6 +284,11 @@ export function useVenueReportModel(
  * Stand-alone trend chart section. Filters the model timeline to the
  * given date window and (optionally) to a single platform, then hands
  * off to the existing multi-metric chart.
+ *
+ * Tickets line uses the venue's pre-built cumulative-snapshot points
+ * (see `cumulativeTicketPoints`), so the line is monotonically non-
+ * decreasing and the tooltip CPT is lifetime / lifetime — matching the
+ * top-line CPT pill at every hover position.
  */
 export function VenueTrendChartSection({
   model,
@@ -236,7 +303,7 @@ export function VenueTrendChartSection({
   platform: PlatformId;
   title?: string;
 }) {
-  const { timeline, otherSpendByDate } = model;
+  const { timeline, otherSpendByDate, cumulativeTicketPoints } = model;
   const chartTimeline = useMemo(
     () =>
       trimTimelineForTrackerDisplay(timeline, {
@@ -267,7 +334,39 @@ export function VenueTrendChartSection({
     [windowedChartTimeline, platform],
   );
 
-  return <EventTrendChart timeline={platformTimeline} title={title} />;
+  // Build mixed-mode points: per-day spend (and revenue/clicks) from
+  // the trimmed timeline + cumulative-snapshot tickets from the model.
+  // The aggregator detects `ticketsKind: "cumulative_snapshot"`, runs
+  // its carry-forward pass on tickets, and computes lifetime/lifetime
+  // CPT from the running spend total — fixing the Manchester WC26
+  // tooltip bug where "Spend £92.86 / Tickets 843 = CPT £0.11" mixed
+  // daily and lifetime denominators.
+  const points = useMemo<TrendChartPoint[]>(() => {
+    const dayPoints = platformTimeline.map<TrendChartPoint>((row) => ({
+      date: row.date,
+      spend:
+        row.ad_spend != null || row.tiktok_spend != null
+          ? Number(row.ad_spend ?? 0) + Number(row.tiktok_spend ?? 0)
+          : null,
+      // Tickets/revenue come from the cumulative-snapshot points below;
+      // null here so the aggregator's carry-forward path owns the line.
+      tickets: null,
+      revenue: row.revenue != null ? Number(row.revenue) : null,
+      linkClicks:
+        row.link_clicks != null || row.tiktok_clicks != null
+          ? Number(row.link_clicks ?? 0) + Number(row.tiktok_clicks ?? 0)
+          : null,
+    }));
+    const cumulativePoints =
+      windowDaySet === null
+        ? cumulativeTicketPoints
+        : cumulativeTicketPoints.filter((point) =>
+            windowDaySet.has(point.date),
+          );
+    return [...dayPoints, ...cumulativePoints];
+  }, [platformTimeline, cumulativeTicketPoints, windowDaySet]);
+
+  return <EventTrendChart points={points} title={title} />;
 }
 
 /**
@@ -475,7 +574,7 @@ function mergeVenueTimeline(
   rollups: DailyRollupRow[],
   manualEntries: DailyEntry[],
   isMultiEventVenue: boolean,
-  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
+  cumulativeTicketTimeline: Array<{ date: string; cumulative: number }>,
   events: PortalEvent[],
 ): TimelineRow[] {
   const byDate = new Map<string, TimelineRow>();
@@ -514,16 +613,25 @@ function mergeVenueTimeline(
     byDate.set(row.date, current);
   }
 
-  // Snapshot deltas are authoritative when available (Eventbrite / FourtheFans).
-  // Previously gated on `rollupTicketTotal === 0`, so a single day of meta_regs
-  // (rollup tickets_sold) blocked all 259 Manchester snapshot rows from
-  // contributing to the timeline — producing a flat zero tickets line.
+  // Replace the rollup-driven on-meta ticket counts (meta_regs) with
+  // snapshot-derived deltas so the Daily Tracker shows ticketing-
+  // provider data rather than Meta conversion counts.
   //
-  // Fix: always compute snapshot deltas. When they exist, clear the rollup
-  // tickets_sold values that came from meta_regs (partial on-meta counts) and
-  // replace them with snapshot-derived weekly deltas so the daily tracker and
-  // trend chart show ticketing-provider data, not Meta conversion counts.
-  const snapshotDeltas = venueSnapshotTicketDeltas(weeklyTicketSnapshots);
+  // PR fix/venue-trend-tier-channel-snapshot:
+  // Deltas now come from the per-event monotonic envelope across all
+  // snapshot sources, anchored at "today" to the per-event
+  // `tier_channel_sales` SUM. This:
+  //   1. Eliminates phantom drops when source coverage shifts
+  //      (Manchester WC26: xlsx_import Apr 28 → fourthefans Apr 29).
+  //      The Apr 28 → 29 cliff collapses to a 0 delta instead of a
+  //      negative one that re-baselines `prev` and distorts every
+  //      subsequent day.
+  //   2. Reconciles the timeline with `tier_channel_sales` on today
+  //      so the venue card and Event Breakdown row show the same
+  //      lifetime total as the Daily Tracker bottom row.
+  const snapshotDeltas = ticketDeltasFromCumulativeTimeline(
+    cumulativeTicketTimeline,
+  );
   if (snapshotDeltas.size > 0) {
     for (const current of byDate.values()) {
       current.tickets_sold = null;
@@ -546,30 +654,6 @@ function mergeVenueTimeline(
   return [...byDate.values()].sort((a, b) =>
     a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
   );
-}
-
-function venueSnapshotTicketDeltas(
-  weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
-): Map<string, number> {
-  const byEvent = new Map<string, WeeklyTicketSnapshotRow[]>();
-  for (const row of weeklyTicketSnapshots) {
-    const rows = byEvent.get(row.event_id) ?? [];
-    rows.push(row);
-    byEvent.set(row.event_id, rows);
-  }
-  const deltas = new Map<string, number>();
-  for (const rows of byEvent.values()) {
-    rows.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
-    let prev = 0;
-    for (const row of rows) {
-      const delta = Math.max(0, row.tickets_sold - prev);
-      prev = row.tickets_sold;
-      if (delta > 0) {
-        deltas.set(row.snapshot_at, (deltas.get(row.snapshot_at) ?? 0) + delta);
-      }
-    }
-  }
-  return deltas;
 }
 
 function venueSnapshotRevenueDeltas(events: PortalEvent[]): Map<string, number> {

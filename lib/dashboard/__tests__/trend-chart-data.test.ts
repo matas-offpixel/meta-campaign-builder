@@ -181,4 +181,156 @@ describe("trend chart aggregation", () => {
 
     assert.deepEqual(aggregateTrendChartPoints(points, "daily"), []);
   });
+
+  // ─── PR fix/venue-trend-tier-channel-snapshot ─────────────────────────────
+  //
+  // Manchester WC26 tooltip bug: in cumulative mode the per-day CPT was
+  // computed as (today's spend / cumulative tickets carried forward),
+  // mixing daily and lifetime denominators. Tooltip on Mon 4 May read
+  // "Spend £92.86, Tickets 843, CPT £0.11" — meaningless. The fix uses
+  // lifetime spend through that date / cumulative tickets through that
+  // date so the tooltip is always interpretable as "running CPT".
+
+  describe("lifetime/lifetime CPT in cumulative mode", () => {
+    it("uses running spend ÷ cumulative tickets for per-day CPT", () => {
+      const points: TrendChartPoint[] = [
+        {
+          date: "2026-04-20",
+          spend: 100,
+          tickets: 200,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+        // Carry-forward day: no fresh ticket snapshot but daily spend.
+        { date: "2026-04-21", spend: 200, tickets: null, revenue: null, linkClicks: null },
+        {
+          date: "2026-04-22",
+          spend: null,
+          tickets: 400,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+      ];
+
+      const daily = aggregateTrendChartPoints(points, "daily");
+      assert.equal(daily.length, 3);
+
+      // Day 0: spend=100, tickets=200 → CPT = 100 / 200 = 0.5
+      assert.equal(daily[0]?.cpt, 0.5);
+
+      // Day 1: lifetime spend = 100 + 200 = 300, cumulative tickets carries
+      // 200 forward → CPT = 300 / 200 = 1.5 (NOT 200 / 200 = 1 — that
+      // would be the broken per-day-spend-over-cumulative-tickets calc)
+      assert.equal(daily[1]?.cpt, 1.5);
+
+      // Day 2: lifetime spend still 300 (no spend), cumulative tickets
+      // jumps to 400 → CPT = 300 / 400 = 0.75
+      assert.equal(daily[2]?.cpt, 0.75);
+    });
+
+    it("Manchester scenario: Mon 4 May tooltip CPT == lifetime spend / cumulative tickets through Mon 4 May", () => {
+      // Each prior day adds a small amount of spend; tickets snapshot
+      // every few days. The tooltip we used to render said
+      // "£92.86 / 843 = £0.11" — wrong. The correct value is the running
+      // spend / cumulative tickets carry-forward through that date.
+      const points: TrendChartPoint[] = [
+        {
+          date: "2026-04-28",
+          spend: 50,
+          tickets: 600,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+        { date: "2026-04-29", spend: 60, tickets: null, revenue: null, linkClicks: null },
+        { date: "2026-04-30", spend: 70, tickets: null, revenue: null, linkClicks: null },
+        {
+          date: "2026-05-01",
+          spend: 80,
+          tickets: 720,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+        { date: "2026-05-02", spend: 85, tickets: null, revenue: null, linkClicks: null },
+        { date: "2026-05-03", spend: 90, tickets: null, revenue: null, linkClicks: null },
+        {
+          date: "2026-05-04",
+          spend: 92.86,
+          tickets: 843,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+      ];
+
+      const daily = aggregateTrendChartPoints(points, "daily");
+      const may4 = daily.find((d) => d.date === "2026-05-04");
+      assert.ok(may4, "Mon 4 May should be in the daily array");
+      // Running spend through May 4 = 50 + 60 + 70 + 80 + 85 + 90 + 92.86 = 527.86
+      // Cumulative tickets May 4 = 843
+      // CPT = 527.86 / 843 ≈ 0.626
+      const expected = 527.86 / 843;
+      assert.ok(
+        may4.cpt != null && Math.abs(may4.cpt - expected) < 0.001,
+        `CPT should be ${expected.toFixed(3)}, got ${may4.cpt}`,
+      );
+
+      // Demonstrate the OLD broken value: per-day spend (£92.86) /
+      // cumulative tickets (843) ≈ £0.11. The new value must NOT equal
+      // that.
+      const brokenValue = 92.86 / 843;
+      assert.ok(
+        Math.abs((may4.cpt ?? 0) - brokenValue) > 0.01,
+        `CPT must not match the broken per-day/cumulative formula (≈${brokenValue.toFixed(3)})`,
+      );
+    });
+
+    it("weekly CPT also uses lifetime spend / cumulative tickets at week-end", () => {
+      // Two weeks: week 1 spend 100 + tickets cumulative 200,
+      // week 2 spend 200 + tickets cumulative 400. Weekly CPT for week
+      // 2 must be (100+200)/400 = 0.75, not 200/400 = 0.5.
+      const points: TrendChartPoint[] = [
+        {
+          date: "2026-04-20",
+          spend: 50,
+          tickets: 100,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+        { date: "2026-04-21", spend: 50, tickets: null, revenue: null, linkClicks: null },
+        {
+          date: "2026-04-26",
+          spend: null,
+          tickets: 200,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+        { date: "2026-04-27", spend: 100, tickets: null, revenue: null, linkClicks: null },
+        { date: "2026-04-28", spend: 100, tickets: null, revenue: null, linkClicks: null },
+        {
+          date: "2026-05-03",
+          spend: null,
+          tickets: 400,
+          revenue: null,
+          linkClicks: null,
+          ticketsKind: "cumulative_snapshot",
+        },
+      ];
+
+      const weekly = aggregateTrendChartPoints(points, "weekly");
+      assert.equal(weekly.length, 2);
+
+      // Week 1 (w/c Apr 20): spend = 100, tickets = 200 → CPT = 0.5
+      assert.equal(weekly[0]?.cpt, 0.5);
+
+      // Week 2 (w/c Apr 27): running spend = 100 + 200 = 300,
+      // cumulative tickets at week-end = 400 → CPT = 0.75
+      assert.equal(weekly[1]?.cpt, 0.75);
+    });
+  });
 });

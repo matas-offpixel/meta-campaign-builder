@@ -55,7 +55,10 @@ import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/addit
 import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
-import { buildVenueTicketSnapshotPoints } from "@/lib/dashboard/venue-trend-points";
+import {
+  buildVenueTicketSnapshotPoints,
+  type TierChannelSalesAnchorRow,
+} from "@/lib/dashboard/venue-trend-points";
 import { VenueActiveCreatives } from "./venue-active-creatives";
 import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueSyncButton } from "./venue-sync-button";
@@ -1229,6 +1232,7 @@ function buildVenueTrendPoints(
   venueEventIds: Set<string>,
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
   trendTicketSnapshots?: WeeklyTicketSnapshotRow[],
+  tierChannelAnchors?: TierChannelSalesAnchorRow[],
 ): TrendChartPoint[] {
   const rows = dailyRollups.filter((row) => venueEventIds.has(row.event_id));
   const isMultiEventVenue = venueEventIds.size > 1;
@@ -1238,9 +1242,18 @@ function buildVenueTrendPoints(
   // mixed sources (xlsx_import → fourthefans hand-off like Manchester WC26)
   // produce a continuous line. Falls back to `weeklyTicketSnapshots` for
   // call-sites that haven't been updated yet.
+  //
+  // `tierChannelAnchors` (PR fix/venue-trend-tier-channel-snapshot) anchors
+  // today's cumulative to the per-event `tier_channel_sales` SUM — which
+  // captures all channels (4TF + Venue + operator-entered) and is the
+  // authoritative cross-channel total used by the Event Breakdown row.
+  // The envelope inside `buildVenueTicketSnapshotPoints` enforces a
+  // monotonic curve so the Apr 28 → 29 phantom drop on Manchester WC26
+  // collapses to a 0 growth day instead of a -594 ticket cliff.
   const snapshotPoints = buildVenueTicketSnapshotPoints(
     trendTicketSnapshots ?? weeklyTicketSnapshots,
     venueEventIds,
+    { tierChannelAnchors },
   );
   const hasSnapshotTickets = snapshotPoints.length > 0;
 
@@ -1497,6 +1510,21 @@ function VenueSection({
     () => new Set(group.events.map((e) => e.id)),
     [group.events],
   );
+  const tierChannelAnchors = useMemo<TierChannelSalesAnchorRow[]>(
+    () =>
+      group.events
+        .filter(
+          (event) =>
+            event.tier_channel_sales_tickets != null ||
+            event.tier_channel_sales_revenue != null,
+        )
+        .map((event) => ({
+          event_id: event.id,
+          tickets: event.tier_channel_sales_tickets ?? null,
+          revenue: event.tier_channel_sales_revenue ?? null,
+        })),
+    [group.events],
+  );
   const venueTrendPoints = useMemo(
     () =>
       buildVenueTrendPoints(
@@ -1504,8 +1532,15 @@ function VenueSection({
         venueEventIds,
         weeklyTicketSnapshots,
         trendTicketSnapshots,
+        tierChannelAnchors,
       ),
-    [dailyRollups, venueEventIds, weeklyTicketSnapshots, trendTicketSnapshots],
+    [
+      dailyRollups,
+      venueEventIds,
+      weeklyTicketSnapshots,
+      trendTicketSnapshots,
+      tierChannelAnchors,
+    ],
   );
   const hasVenueTrend = useMemo(
     () => new Set(venueTrendPoints.map((point) => point.date)).size >= 2,

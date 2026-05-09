@@ -23,7 +23,12 @@ import {
   summarizeTrendChartPoints,
   type TrendChartPoint,
 } from "../trend-chart-data.ts";
-import { buildVenueTicketSnapshotPoints } from "../venue-trend-points.ts";
+import {
+  buildEventCumulativeTicketTimeline,
+  buildVenueCumulativeTicketTimeline,
+  buildVenueTicketSnapshotPoints,
+  ticketDeltasFromCumulativeTimeline,
+} from "../venue-trend-points.ts";
 import type { WeeklyTicketSnapshotRow } from "../../db/client-portal-server.ts";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -42,8 +47,9 @@ function snapshot(
   eventId: string,
   snapshotAt: string,
   ticketsSold: number,
+  source: WeeklyTicketSnapshotRow["source"] = "fourthefans",
 ): WeeklyTicketSnapshotRow {
-  return { event_id: eventId, snapshot_at: snapshotAt, tickets_sold: ticketsSold, source: "fourthefans" };
+  return { event_id: eventId, snapshot_at: snapshotAt, tickets_sold: ticketsSold, source };
 }
 
 function rollupPoint(date: string, spend: number, tickets: number | null): TrendChartPoint {
@@ -265,5 +271,256 @@ describe("mixed: snapshots for some events, no snapshots for others", () => {
     const may8 = daily.find((d) => d.date === "2026-05-08");
     // Carry-forward from Mar 19 (510) to May 8
     assert.equal(may8?.tickets, 510);
+  });
+});
+
+// ─── PR fix/venue-trend-tier-channel-snapshot regressions ──────────────────
+//
+// These guard the Manchester WC26 trend bug: source coverage transitions
+// (xlsx_import Apr 28 = 878 all-channel → fourthefans Apr 29 = 284 4TF-only)
+// produced a 590-ticket "drop" overnight that didn't actually happen. The
+// envelope-based cumulative + tier_channel_sales today-anchor collapses
+// the cliff to 0 growth and snaps the latest day to the cross-channel
+// authoritative total.
+
+describe("buildEventCumulativeTicketTimeline (envelope across sources)", () => {
+  it("running max envelope: Apr 29 fourthefans 246 carries Apr 28 xlsx_import 274 forward", () => {
+    const rows = [
+      snapshot("croatia-id", "2026-04-28", 274, "xlsx_import"),
+      snapshot("croatia-id", "2026-04-29", 246, "fourthefans"),
+      snapshot("croatia-id", "2026-04-30", 250, "fourthefans"),
+      snapshot("croatia-id", "2026-05-05", 482, "fourthefans"),
+    ];
+    const timeline = buildEventCumulativeTicketTimeline(rows, null, "2026-05-05");
+
+    const byDate = new Map(timeline.map((s) => [s.date, s.cumulative]));
+    assert.equal(byDate.get("2026-04-28"), 274);
+    // Apr 29 fourthefans 246 < envelope 274 → carries forward.
+    assert.equal(byDate.get("2026-04-29"), 274);
+    assert.equal(byDate.get("2026-04-30"), 274);
+    // May 5 fourthefans 482 > envelope 274 → envelope grows.
+    assert.equal(byDate.get("2026-05-05"), 482);
+  });
+
+  it("monotonic non-decreasing across the entire timeline", () => {
+    const rows = [
+      snapshot("e", "2026-04-28", 878, "xlsx_import"),
+      snapshot("e", "2026-04-29", 284, "fourthefans"),
+      snapshot("e", "2026-04-30", 290, "fourthefans"),
+      snapshot("e", "2026-05-01", 300, "fourthefans"),
+      snapshot("e", "2026-05-02", 310, "fourthefans"),
+    ];
+    const timeline = buildEventCumulativeTicketTimeline(rows, null, "2026-05-02");
+    let prev = 0;
+    for (const step of timeline) {
+      assert.ok(
+        step.cumulative >= prev,
+        `cumulative regressed on ${step.date}: ${prev} → ${step.cumulative}`,
+      );
+      prev = step.cumulative;
+    }
+  });
+
+  it("tier_channel_sales anchor: today's cumulative jumps to the cross-channel SUM", () => {
+    const rows = [
+      snapshot("croatia-id", "2026-04-28", 274, "xlsx_import"),
+      snapshot("croatia-id", "2026-05-05", 482, "fourthefans"),
+    ];
+    // tier_channel_sales SUM for Croatia today = 4TF 482 + Venue 120 = 602
+    const timeline = buildEventCumulativeTicketTimeline(
+      rows,
+      { tickets: 602, revenue: null },
+      "2026-05-09",
+    );
+    const last = timeline.at(-1);
+    assert.equal(last?.date, "2026-05-09");
+    assert.equal(last?.cumulative, 602);
+  });
+
+  it("anchor below envelope: keeps envelope, does not regress", () => {
+    const rows = [
+      snapshot("e", "2026-04-28", 878, "xlsx_import"),
+      snapshot("e", "2026-05-05", 950, "fourthefans"),
+    ];
+    // tier_channel_sales says 700 — stale or partial. Envelope already
+    // hit 950, so the today step must stay at 950, not regress to 700.
+    const timeline = buildEventCumulativeTicketTimeline(
+      rows,
+      { tickets: 700, revenue: null },
+      "2026-05-09",
+    );
+    const last = timeline.at(-1);
+    assert.ok(last !== undefined);
+    assert.ok(last.cumulative >= 950, `expected >=950, got ${last.cumulative}`);
+  });
+
+  it("event with no snapshots but a tier_channel_sales anchor: emits a single today step", () => {
+    const timeline = buildEventCumulativeTicketTimeline(
+      [],
+      { tickets: 124, revenue: 850 },
+      "2026-05-09",
+    );
+    assert.equal(timeline.length, 1);
+    assert.equal(timeline[0]?.date, "2026-05-09");
+    assert.equal(timeline[0]?.cumulative, 124);
+    assert.equal(timeline[0]?.cumulativeRevenue, 850);
+  });
+});
+
+describe("buildVenueTicketSnapshotPoints + tier_channel_sales anchors (Manchester WC26)", () => {
+  /**
+   * The Manchester WC26 four-fixture scenario from the bug report:
+   *
+   *   xlsx_import Apr 28: Croatia 274 + Panama 498 + Ghana 67 + Last 32 39 = 878
+   *   fourthefans Apr 29: Croatia 246 + Last 32 39 + (Ghana, Panama no data) = 285
+   *   tier_channel_sales today: 602 + 142 + 540 + 78 = 1,362
+   *
+   * The trend chart must:
+   *   - Show 878 cumulative on Apr 28 (xlsx baseline)
+   *   - Stay >= 878 on Apr 29 (no phantom drop)
+   *   - End at 1,362 today (matches Event Breakdown)
+   *   - Be monotonic non-decreasing the whole way
+   */
+  const snaps: WeeklyTicketSnapshotRow[] = [
+    // Apr 28: xlsx_import all-channel cumulative
+    snapshot(MANCHESTER_IDS.croatia, "2026-04-28", 274, "xlsx_import"),
+    snapshot(MANCHESTER_IDS.panama,  "2026-04-28", 498, "xlsx_import"),
+    snapshot(MANCHESTER_IDS.ghana,   "2026-04-28",  67, "xlsx_import"),
+    snapshot(MANCHESTER_IDS.last32,  "2026-04-28",  39, "xlsx_import"),
+    // Apr 29: fourthefans 4TF-only — Ghana / Panama not yet covered
+    snapshot(MANCHESTER_IDS.croatia, "2026-04-29", 246, "fourthefans"),
+    snapshot(MANCHESTER_IDS.last32,  "2026-04-29",  39, "fourthefans"),
+    // May 5: fourthefans grows for Croatia, others catch up
+    snapshot(MANCHESTER_IDS.croatia, "2026-05-05", 482, "fourthefans"),
+    snapshot(MANCHESTER_IDS.ghana,   "2026-05-05", 139, "fourthefans"),
+    snapshot(MANCHESTER_IDS.panama,  "2026-05-05", 336, "fourthefans"),
+    snapshot(MANCHESTER_IDS.last32,  "2026-05-05",  78, "fourthefans"),
+  ];
+
+  const anchors = [
+    { event_id: MANCHESTER_IDS.croatia, tickets: 602, revenue: 3612 },
+    { event_id: MANCHESTER_IDS.ghana,   tickets: 142, revenue:  852 },
+    { event_id: MANCHESTER_IDS.panama,  tickets: 540, revenue: 3240 },
+    { event_id: MANCHESTER_IDS.last32,  tickets:  78, revenue:  468 },
+  ];
+
+  it("Apr 28 venue cumulative = 878 (xlsx_import all-channel)", () => {
+    const points = buildVenueTicketSnapshotPoints(snaps, ALL_MANCHESTER, {
+      tierChannelAnchors: anchors,
+      todayIso: "2026-05-09",
+    });
+    const apr28 = points.find((p) => p.date === "2026-04-28");
+    assert.equal(apr28?.tickets, 878);
+  });
+
+  it("Apr 29 venue cumulative >= 878 (no phantom drop)", () => {
+    const points = buildVenueTicketSnapshotPoints(snaps, ALL_MANCHESTER, {
+      tierChannelAnchors: anchors,
+      todayIso: "2026-05-09",
+    });
+    const apr29 = points.find((p) => p.date === "2026-04-29");
+    assert.ok(apr29?.tickets != null);
+    assert.ok(
+      apr29.tickets >= 878,
+      `Apr 29 should not regress below Apr 28 (878), got ${apr29.tickets}`,
+    );
+  });
+
+  it("today (May 9) venue cumulative = 1,362 = tier_channel_sales SUM (Event Breakdown match)", () => {
+    const points = buildVenueTicketSnapshotPoints(snaps, ALL_MANCHESTER, {
+      tierChannelAnchors: anchors,
+      todayIso: "2026-05-09",
+    });
+    const today = points.find((p) => p.date === "2026-05-09");
+    assert.equal(today?.tickets, 1362);
+  });
+
+  it("trend line is monotonically non-decreasing across the entire window", () => {
+    const points = buildVenueTicketSnapshotPoints(snaps, ALL_MANCHESTER, {
+      tierChannelAnchors: anchors,
+      todayIso: "2026-05-09",
+    });
+    let prev = 0;
+    for (const point of points) {
+      assert.ok(
+        point.tickets != null && point.tickets >= prev,
+        `cumulative regressed on ${point.date}: ${prev} → ${point.tickets}`,
+      );
+      prev = point.tickets;
+    }
+  });
+
+  it("CL Final / single-source venue with no anchor: trend unchanged (no regression)", () => {
+    const clFinalSnaps = [
+      snapshot("outernet-id", "2026-04-15", 100, "fourthefans"),
+      snapshot("outernet-id", "2026-04-22", 250, "fourthefans"),
+      snapshot("outernet-id", "2026-04-29", 350, "fourthefans"),
+    ];
+    const result = buildVenueTicketSnapshotPoints(
+      clFinalSnaps,
+      new Set(["outernet-id"]),
+      // No tier_channel_sales anchor passed — falls through to snapshot-only.
+      { todayIso: "2026-05-09" },
+    );
+    assert.equal(result.length, 3);
+    assert.deepEqual(
+      result.map((p) => p.tickets),
+      [100, 250, 350],
+    );
+  });
+});
+
+describe("ticketDeltasFromCumulativeTimeline", () => {
+  it("emits positive deltas only — no negatives on phantom-drop days", () => {
+    const cumulative = [
+      { date: "2026-04-28", cumulative: 878 },
+      // No Apr 29 entry — envelope stays at 878.
+      { date: "2026-05-05", cumulative: 1132 },
+      { date: "2026-05-09", cumulative: 1362 },
+    ];
+    const deltas = ticketDeltasFromCumulativeTimeline(cumulative);
+    assert.equal(deltas.get("2026-04-28"), 878); // first-day delta
+    assert.equal(deltas.has("2026-04-29"), false); // no growth → no entry
+    assert.equal(deltas.get("2026-05-05"), 254);
+    assert.equal(deltas.get("2026-05-09"), 230);
+  });
+
+  it("treats equal consecutive cumulatives as zero deltas (renders as — in tracker)", () => {
+    const cumulative = [
+      { date: "2026-04-28", cumulative: 100 },
+      { date: "2026-04-29", cumulative: 100 },
+      { date: "2026-04-30", cumulative: 100 },
+    ];
+    const deltas = ticketDeltasFromCumulativeTimeline(cumulative);
+    assert.equal(deltas.size, 1); // only Apr 28's first-day delta of 100
+    assert.equal(deltas.get("2026-04-28"), 100);
+  });
+});
+
+describe("buildVenueCumulativeTicketTimeline", () => {
+  it("returns a sorted, monotonic timeline including the tier_channel_sales today anchor", () => {
+    const snaps = [
+      snapshot(MANCHESTER_IDS.croatia, "2026-04-28", 274, "xlsx_import"),
+      snapshot(MANCHESTER_IDS.croatia, "2026-04-29", 246, "fourthefans"),
+    ];
+    const timeline = buildVenueCumulativeTicketTimeline(
+      snaps,
+      new Set([MANCHESTER_IDS.croatia]),
+      {
+        tierChannelAnchors: [
+          { event_id: MANCHESTER_IDS.croatia, tickets: 602, revenue: 3612 },
+        ],
+        todayIso: "2026-05-09",
+      },
+    );
+    // Sorted asc + monotonic + ends at the today anchor.
+    assert.deepEqual(
+      timeline.map((s) => s.date),
+      ["2026-04-28", "2026-04-29", "2026-05-09"],
+    );
+    assert.deepEqual(
+      timeline.map((s) => s.cumulative),
+      [274, 274, 602],
+    );
   });
 });
