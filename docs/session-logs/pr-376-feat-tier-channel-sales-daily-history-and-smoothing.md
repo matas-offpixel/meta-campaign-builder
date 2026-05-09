@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 376
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/376
 - **Branch:** `feat/tier-channel-sales-daily-history-and-smoothing`
 
 ## Summary
