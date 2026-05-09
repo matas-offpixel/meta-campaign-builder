@@ -26,6 +26,7 @@ import {
 } from "@/lib/dashboard/tier-channel-rollups";
 import {
   buildVenueCumulativeTicketTimeline,
+  buildVenueDailyHistoryTimelines,
   buildVenueTicketSnapshotPoints,
   ticketDeltasFromCumulativeTimeline,
   type TierChannelDailyHistoryRow,
@@ -179,12 +180,21 @@ export function buildVenueReportModel(
     },
   );
 
+  // Compute venue-wide cumulative timelines directly from daily_history
+  // so mergeVenueTimeline can derive precise per-day ticket AND revenue
+  // deltas without going through the snapshot-envelope path.
+  const dailyHistoryTimelines = buildVenueDailyHistoryTimelines(
+    options?.dailyHistory ?? [],
+    eventIds,
+  );
+
   const timeline = mergeVenueTimeline(
     dailyRollups,
     dailyEntries,
     isMultiEventVenue,
     cumulativeTicketTimeline,
     events,
+    dailyHistoryTimelines,
   );
   const generalSaleAt = earliestIso(
     events.map((event) => event.general_sale_at).filter(isString),
@@ -593,6 +603,20 @@ function mergeVenueTimeline(
   isMultiEventVenue: boolean,
   cumulativeTicketTimeline: Array<{ date: string; cumulative: number }>,
   events: PortalEvent[],
+  /**
+   * Venue-wide cumulative timelines derived directly from
+   * `tier_channel_sales_daily_history` (migration 089). When present
+   * these are used as the primary source for per-day ticket and revenue
+   * deltas — both tickets and revenue are derived as
+   * `today_cumulative − yesterday_cumulative`. Negative differences are
+   * clamped to 0. Falls back to the snapshot-envelope path
+   * (`cumulativeTicketTimeline` / `venueSnapshotRevenueDeltas`) for
+   * dates not covered by daily_history.
+   */
+  dailyHistoryTimelines: {
+    tickets: Array<{ date: string; cumulative: number }>;
+    revenue: Array<{ date: string; cumulative: number }>;
+  },
 ): TimelineRow[] {
   const byDate = new Map<string, TimelineRow>();
   const rollupRevenueTotal = rollups.reduce(
@@ -630,37 +654,67 @@ function mergeVenueTimeline(
     byDate.set(row.date, current);
   }
 
-  // Replace the rollup-driven on-meta ticket counts (meta_regs) with
-  // snapshot-derived deltas so the Daily Tracker shows ticketing-
-  // provider data rather than Meta conversion counts.
+  // --- Ticket deltas ---
   //
-  // PR fix/venue-trend-tier-channel-snapshot:
-  // Deltas now come from the per-event monotonic envelope across all
-  // snapshot sources, anchored at "today" to the per-event
-  // `tier_channel_sales` SUM. This:
-  //   1. Eliminates phantom drops when source coverage shifts
-  //      (Manchester WC26: xlsx_import Apr 28 → fourthefans Apr 29).
-  //      The Apr 28 → 29 cliff collapses to a 0 delta instead of a
-  //      negative one that re-baselines `prev` and distorts every
-  //      subsequent day.
-  //   2. Reconciles the timeline with `tier_channel_sales` on today
-  //      so the venue card and Event Breakdown row show the same
-  //      lifetime total as the Daily Tracker bottom row.
+  // Primary: derive from `tier_channel_sales_daily_history` when rows
+  // are present.  Secondary: fall back to the snapshot-envelope
+  // cumulative (PR fix/venue-trend-tier-channel-snapshot) for any dates
+  // not covered by daily_history, which eliminates the
+  // xlsx_import → fourthefans phantom drop and reconciles with the
+  // `tier_channel_sales` SUM anchor.
+  const histTicketDeltas = ticketDeltasFromCumulativeTimeline(
+    dailyHistoryTimelines.tickets,
+  );
   const snapshotDeltas = ticketDeltasFromCumulativeTimeline(
     cumulativeTicketTimeline,
   );
-  if (snapshotDeltas.size > 0) {
+
+  // Merge: daily_history deltas take priority; snapshot envelope fills
+  // in for dates not covered by daily_history.
+  const effectiveTicketDeltas: Map<string, number> =
+    histTicketDeltas.size > 0
+      ? (() => {
+          const merged = new Map(snapshotDeltas);
+          for (const [date, delta] of histTicketDeltas) {
+            merged.set(date, delta);
+          }
+          return merged;
+        })()
+      : snapshotDeltas;
+
+  if (effectiveTicketDeltas.size > 0) {
     for (const current of byDate.values()) {
       current.tickets_sold = null;
     }
-    for (const [date, tickets] of snapshotDeltas) {
+    for (const [date, tickets] of effectiveTicketDeltas) {
       const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
       current.tickets_sold = addNullable(current.tickets_sold, tickets);
       byDate.set(date, current);
     }
   }
 
-  if (rollupRevenueTotal === 0) {
+  // --- Revenue deltas ---
+  //
+  // Primary: derive from daily_history `revenue_total` cumulative.
+  // Secondary: when daily_history has no revenue rows, and rollup has
+  // no revenue (e.g. provider integration not yet live), fall back to
+  // the weekly ticket_sales_snapshot revenue column.
+  const histRevenueDeltas = ticketDeltasFromCumulativeTimeline(
+    dailyHistoryTimelines.revenue,
+  );
+
+  if (histRevenueDeltas.size > 0) {
+    // Replace rollup revenue with daily_history-derived deltas.
+    // Spend column is untouched (still from event_daily_rollups).
+    for (const current of byDate.values()) {
+      current.revenue = null;
+    }
+    for (const [date, revenue] of histRevenueDeltas) {
+      const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
+      current.revenue = addNullable(current.revenue, revenue);
+      byDate.set(date, current);
+    }
+  } else if (rollupRevenueTotal === 0) {
     for (const [date, revenue] of venueSnapshotRevenueDeltas(events)) {
       const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
       current.revenue = addNullable(current.revenue, revenue);
