@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 378
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/378
 - **Branch:** `fix/daily-tracker-derive-deltas-from-daily-history`
 
 ## Summary
