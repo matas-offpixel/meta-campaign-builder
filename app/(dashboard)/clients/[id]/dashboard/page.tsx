@@ -142,6 +142,7 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
         additionalSpend={result.additionalSpend}
         weeklyTicketSnapshots={result.weeklyTicketSnapshots}
         trendTicketSnapshots={result.trendTicketSnapshots}
+        trendDailyHistory={result.trendDailyHistory}
         showCreativeInsights={true}
         showFunnelPacing={true}
         isShared={false}

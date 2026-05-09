@@ -39,6 +39,7 @@
  */
 
 import type { WeeklyTicketSnapshotRow } from "@/lib/db/client-portal-server";
+import type { TierChannelDailyHistoryRow } from "@/lib/db/tier-channel-daily-history";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
 
 /**
@@ -55,11 +56,18 @@ export interface TierChannelSalesAnchorRow {
 /**
  * One step of the per-event cumulative timeline. `cumulative` is
  * monotonic non-decreasing — see envelope rule above.
+ *
+ * `isSmoothed` is true when the step came from a
+ * `tier_channel_sales_daily_history` row with
+ * source_kind = 'smoothed_historical'. The value is a proportional
+ * estimate rather than a live snapshot, so the trend chart tooltip
+ * shows "(est.)" for those days.
  */
 export interface CumulativeTicketStep {
   date: string;
   cumulative: number;
   cumulativeRevenue: number | null;
+  isSmoothed?: boolean;
 }
 
 /**
@@ -72,6 +80,16 @@ export interface CumulativeTicketStep {
  *   - anchor: the current `tier_channel_sales` SUM for the event
  *             (or null when the event has no multi-channel breakdown).
  *   - todayIso: ISO date used as the anchor date for `anchor`.
+ *   - dailyHistoryRows (optional): per-day rows from
+ *     `tier_channel_sales_daily_history` for this event. When present
+ *     these take priority over the snapshot envelope for their dates.
+ *     source_kind = 'smoothed_historical' rows are tagged `isSmoothed`
+ *     so the chart tooltip can show "(est.)".
+ *
+ * Priority order:
+ *   1. `tier_channel_sales_daily_history` when present for a date
+ *   2. `ticket_sales_snapshots` monotonic envelope as fallback
+ *   3. Today's `tier_channel_sales` SUM anchor (unchanged)
  *
  * Output
  *   A sorted-asc array with one step per date that contributed signal.
@@ -82,10 +100,26 @@ export function buildEventCumulativeTicketTimeline(
   rows: WeeklyTicketSnapshotRow[],
   anchor: { tickets: number | null; revenue: number | null } | null,
   todayIso: string,
+  dailyHistoryRows?: TierChannelDailyHistoryRow[],
 ): CumulativeTicketStep[] {
-  // 1. Group by date — keep the max across sources for each date so a
-  //    higher-coverage source (xlsx_import all-channel) wins over a
-  //    narrower one (fourthefans 4TF-only) on the same day.
+  // 1. Build daily_history lookup by date.
+  //    When a row exists for a date, it overrides the envelope.
+  const historyByDate = new Map<
+    string,
+    { cumulative: number; revenue: number; isSmoothed: boolean }
+  >();
+  for (const hr of dailyHistoryRows ?? []) {
+    historyByDate.set(hr.snapshot_date, {
+      cumulative: Number(hr.tickets_sold_total),
+      revenue: Number(hr.revenue_total),
+      isSmoothed: hr.source_kind === "smoothed_historical",
+    });
+  }
+
+  // 2. Build envelope: group snapshot rows by date — keep the max
+  //    across sources for each date so a higher-coverage source
+  //    (xlsx_import all-channel) wins over a narrower one
+  //    (fourthefans 4TF-only) on the same day.
   const maxByDate = new Map<string, number>();
   for (const row of rows) {
     const date = row.snapshot_at;
@@ -96,19 +130,37 @@ export function buildEventCumulativeTicketTimeline(
     }
   }
 
-  // 2. Walk dates ascending, applying running max — cumulative never
-  //    decreases. A lower fourthefans Apr 29 (284) carries forward the
-  //    higher xlsx_import Apr 28 (878).
-  const sortedDates = [...maxByDate.keys()].sort();
+  // 3. Merge: all distinct dates from either source.
+  const allDates = new Set([...maxByDate.keys(), ...historyByDate.keys()]);
+  const sortedDates = [...allDates].sort();
+
+  // 4. Walk ascending. For each date:
+  //    - If daily_history covers it → use that value (already cumulative)
+  //    - Otherwise → apply running max over the envelope value
+  //    Running max is always applied to guarantee monotonicity when
+  //    the two sources are mixed.
   const steps: CumulativeTicketStep[] = [];
   let runningMax = 0;
   for (const date of sortedDates) {
-    const value = maxByDate.get(date) ?? 0;
-    if (value > runningMax) runningMax = value;
-    steps.push({ date, cumulative: runningMax, cumulativeRevenue: null });
+    const hist = historyByDate.get(date);
+    if (hist !== undefined) {
+      // daily_history takes priority — apply running max so an old
+      // smoothed row can't regress below a later real cron snapshot.
+      if (hist.cumulative > runningMax) runningMax = hist.cumulative;
+      steps.push({
+        date,
+        cumulative: runningMax,
+        cumulativeRevenue: hist.revenue,
+        isSmoothed: hist.isSmoothed,
+      });
+    } else {
+      const value = maxByDate.get(date) ?? 0;
+      if (value > runningMax) runningMax = value;
+      steps.push({ date, cumulative: runningMax, cumulativeRevenue: null });
+    }
   }
 
-  // 3. Anchor today to the tier_channel_sales SUM. This is the
+  // 5. Anchor today to the tier_channel_sales SUM. This is the
   //    cross-channel authoritative total — guaranteed >= any single-
   //    source snapshot once the operator has seeded operator-owned
   //    channels (Venue, etc.). Apply running max so a stale anchor
@@ -118,7 +170,7 @@ export function buildEventCumulativeTicketTimeline(
     const last = steps[steps.length - 1];
     if (last && last.date === todayIso) {
       last.cumulative = anchored;
-      last.cumulativeRevenue = anchor.revenue ?? null;
+      last.cumulativeRevenue = anchor.revenue ?? last.cumulativeRevenue ?? null;
     } else if (anchored > runningMax || anchor.revenue != null) {
       steps.push({
         date: todayIso,
@@ -126,8 +178,6 @@ export function buildEventCumulativeTicketTimeline(
         cumulativeRevenue: anchor.revenue ?? null,
       });
     } else if (steps.length > 0) {
-      // Anchor matches the running max — keep timeline as-is but
-      // still mark the latest revenue if we know it.
       const tail = steps[steps.length - 1]!;
       if (tail.cumulativeRevenue == null && anchor.revenue != null) {
         tail.cumulativeRevenue = anchor.revenue;
@@ -167,6 +217,12 @@ export function buildVenueTicketSnapshotPoints(
   options?: {
     tierChannelAnchors?: TierChannelSalesAnchorRow[];
     todayIso?: string;
+    /**
+     * Per-day snapshots from `tier_channel_sales_daily_history`.
+     * When present for a date, these take priority over the
+     * `ticket_sales_snapshots` envelope for that date.
+     */
+    dailyHistory?: TierChannelDailyHistoryRow[];
   },
 ): TrendChartPoint[] {
   const todayIso = options?.todayIso ?? todayInLondon();
@@ -193,15 +249,28 @@ export function buildVenueTicketSnapshotPoints(
     });
   }
 
+  // Group daily_history rows by event.
+  const dailyHistByEvent = new Map<string, TierChannelDailyHistoryRow[]>();
+  for (const hr of options?.dailyHistory ?? []) {
+    if (!venueEventIds.has(hr.event_id)) continue;
+    const list = dailyHistByEvent.get(hr.event_id) ?? [];
+    list.push(hr);
+    dailyHistByEvent.set(hr.event_id, list);
+  }
+
   // Make sure events that have an anchor but no snapshots still
   // surface a final today-row (operator-only channels, no API sync).
   for (const eventId of anchorsByEvent.keys()) {
     if (!byEvent.has(eventId)) byEvent.set(eventId, []);
   }
+  // Events that only have daily_history but no snapshots.
+  for (const eventId of dailyHistByEvent.keys()) {
+    if (!byEvent.has(eventId)) byEvent.set(eventId, []);
+  }
 
   if (byEvent.size === 0) return [];
 
-  // Per-event monotonic envelopes.
+  // Per-event monotonic envelopes (with daily_history priority).
   const timelinesByEvent = new Map<string, CumulativeTicketStep[]>();
   const dates = new Set<string>();
   for (const [eventId, rows] of byEvent) {
@@ -209,6 +278,7 @@ export function buildVenueTicketSnapshotPoints(
       rows,
       anchorsByEvent.get(eventId) ?? null,
       todayIso,
+      dailyHistByEvent.get(eventId),
     );
     timelinesByEvent.set(eventId, timeline);
     for (const step of timeline) dates.add(step.date);
@@ -218,14 +288,16 @@ export function buildVenueTicketSnapshotPoints(
 
   // For each distinct date across events, sum each event's running
   // cumulative on or before that date (carry-forward per event).
+  // If ANY contributing step is smoothed, the combined point is also
+  // marked smoothed so the tooltip shows "(est.)".
   const sortedDates = [...dates].sort();
   return sortedDates.map((date) => {
     let total = 0;
     let revenueTotal = 0;
     let hasTickets = false;
     let hasRevenue = false;
+    let anySmoothed = false;
     for (const timeline of timelinesByEvent.values()) {
-      // Walk backward to find the most recent step on or before `date`.
       for (let i = timeline.length - 1; i >= 0; i--) {
         const step = timeline[i]!;
         if (step.date <= date) {
@@ -235,6 +307,7 @@ export function buildVenueTicketSnapshotPoints(
             revenueTotal += step.cumulativeRevenue;
             hasRevenue = true;
           }
+          if (step.isSmoothed) anySmoothed = true;
           break;
         }
       }
@@ -246,6 +319,7 @@ export function buildVenueTicketSnapshotPoints(
       revenue: hasRevenue ? revenueTotal : null,
       linkClicks: null,
       ticketsKind: "cumulative_snapshot" as const,
+      ticketsSmoothed: anySmoothed || undefined,
     };
   });
 }
@@ -264,6 +338,7 @@ export function buildVenueCumulativeTicketTimeline(
   options?: {
     tierChannelAnchors?: TierChannelSalesAnchorRow[];
     todayIso?: string;
+    dailyHistory?: TierChannelDailyHistoryRow[];
   },
 ): Array<{ date: string; cumulative: number }> {
   const points = buildVenueTicketSnapshotPoints(
@@ -278,6 +353,10 @@ export function buildVenueCumulativeTicketTimeline(
     )
     .map((p) => ({ date: p.date, cumulative: p.tickets }));
 }
+
+// Re-export TierChannelDailyHistoryRow so callers can import from this
+// module without reaching into the db layer directly.
+export type { TierChannelDailyHistoryRow };
 
 /**
  * Compute per-day ticket deltas from a sorted cumulative timeline.
