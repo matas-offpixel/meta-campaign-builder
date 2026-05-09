@@ -40,13 +40,14 @@ describe("multi-campaign-videos source endpoint", () => {
     assert.match(sources, /for.*campaignId.*of.*campaignIds/s);
   });
 
-  it("sources.ts uses sequential ad walk to avoid parallel rate pressure", () => {
+  it("sources.ts uses sequential ad walk + batched video metadata fetch", () => {
     const sources = readFileSync("lib/audiences/sources.ts", "utf8");
     // Sequential outer loop: for (const campaignId of campaignIds) { ... for adPage }
     assert.match(sources, /for.*const campaignId of campaignIds/);
     assert.match(sources, /for.*adPage.*MAX_AD_PAGES/s);
-    // Video metadata still chunked at 5-concurrent (same as single-campaign path)
-    assert.match(sources, /VIDEO_FETCH_CONCURRENCY/);
+    // Video metadata now batched (VIDEO_BATCH_SIZE=25), not per-video chunked
+    assert.match(sources, /VIDEO_BATCH_SIZE/);
+    assert.match(sources, /batchFetchVideoMetadata/);
   });
 
   it("sources.ts returns uniqueVideoCount and campaignCount", () => {
@@ -90,8 +91,9 @@ describe("campaign-videos source endpoint", () => {
     assert.match(sources, /new Set<string>\(\)/);
     assert.match(sources, /extractVideoIdsFromCreative/);
     assert.match(sources, /extract-video-ids-from-creative/);
-    // 'from' is now included to detect orphan videos (no Page association).
-    assert.match(sources, /fields: "id,picture,title,length,from"/);
+    // 'from' field is included in batch-fetch-video-metadata.ts to detect orphan videos.
+    const batchUtil = readFileSync("lib/audiences/batch-fetch-video-metadata.ts", "utf8");
+    assert.match(batchUtil, /fields.*id,picture,title,length,from/);
   });
 
   it("sources.ts filters orphan videos with no from.id and returns skippedCount", () => {
@@ -134,11 +136,11 @@ describe("campaign-videos source endpoint", () => {
     );
   });
 
-  it("sources.ts uses small /ads page size + paging + chunked video metadata fetch", () => {
+  it("sources.ts uses small /ads page size + paging + batched video metadata fetch", () => {
     const sources = readFileSync("lib/audiences/sources.ts", "utf8");
     assert.match(sources, /ADS_PAGE_LIMIT.*100|"100"|limit: ADS_PAGE_LIMIT/s);
-    assert.match(sources, /VIDEO_FETCH_CONCURRENCY/);
-    assert.match(sources, /chunk\.map\(async/);
+    assert.match(sources, /VIDEO_BATCH_SIZE/);
+    assert.match(sources, /batchFetchVideoMetadata/);
     assert.match(sources, /params\.after|after.*adsAfter/);
   });
 });

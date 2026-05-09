@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { extractVideoIdsFromCreative } from "./extract-video-ids-from-creative.ts";
+import {
+  batchFetchVideoMetadata as _batchFetchVideoMetadata,
+  VIDEO_BATCH_SIZE,
+  type RawVideoMetadata,
+} from "./batch-fetch-video-metadata.ts";
 import { withActPrefix, withoutActPrefix } from "../meta/ad-account-id.ts";
 import {
   fetchBusinessIdForAccount,
@@ -90,14 +95,8 @@ interface RawAd {
   creative?: Record<string, unknown>;
 }
 
-interface RawVideo {
-  id: string;
-  title?: string;
-  picture?: string;
-  length?: number;
-  /** Present when the video was published from a FB Page (not uploaded directly to the ad account). */
-  from?: { id?: string; name?: string };
-}
+/** Alias for the shared video-metadata shape from batch-fetch-video-metadata.ts. */
+type RawVideo = RawVideoMetadata;
 
 interface RawThumbnail {
   uri?: string;
@@ -250,6 +249,61 @@ export async function fetchAudienceCampaigns(
     .sort((a, b) => b.spend - a.spend || (b.impressions ?? 0) - (a.impressions ?? 0) || a.name.localeCompare(b.name));
 }
 
+// ─── Batched video-metadata helpers ──────────────────────────────────────────
+
+// VIDEO_BATCH_SIZE is re-exported from batch-fetch-video-metadata.ts (imported above).
+// Referenced here as a named const so downstream code and tests can grep for it.
+void VIDEO_BATCH_SIZE; // re-exported via import
+
+/**
+ * Max concurrent thumbnail-fallback calls when picture is absent.
+ * The batch metadata fetch is already sequential (ceil(N/25) serial calls),
+ * so only the rare thumbnail fallbacks need their own concurrency cap.
+ */
+const THUMBNAIL_FALLBACK_CONCURRENCY = 3;
+
+/** Minimal concurrency semaphore for the thumbnail-fallback fan-out. */
+function makeSemaphore(concurrency: number): <T>(fn: () => Promise<T>) => Promise<T> {
+  let running = 0;
+  const queue: Array<() => void> = [];
+  return function run<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      function attempt() {
+        if (running >= concurrency) {
+          queue.push(attempt);
+          return;
+        }
+        running++;
+        fn().then(
+          (v) => { running--; queue.shift()?.(); resolve(v); },
+          (e) => { running--; queue.shift()?.(); reject(e as unknown); },
+        );
+      }
+      attempt();
+    });
+  };
+}
+
+/**
+ * Bound wrapper around `batchFetchVideoMetadata` from the utility module,
+ * supplying `graphGetWithToken` as the fetcher. Cuts N per-video Graph
+ * calls down to ceil(N/25) batched calls.
+ */
+async function batchFetchVideoMetadata(
+  videoIds: readonly string[],
+  token: string,
+): Promise<Map<string, RawVideo>> {
+  return _batchFetchVideoMetadata(
+    videoIds,
+    token,
+    graphGetWithToken as (
+      path: string,
+      params: Record<string, string>,
+      token: string,
+    ) => Promise<Record<string, RawVideo>>,
+  );
+}
+
 export async function fetchAudienceCampaignVideos(
   adAccountId: string,
   campaignId: string,
@@ -350,64 +404,57 @@ export async function fetchAudienceCampaignVideos(
   // feed creatives with no top-level page_ids).
   const videoFromPageCounts = new Map<string, number>();
 
-  // CHUNKED CONCURRENCY: per-video Graph calls were hammering Meta's per-account
-  // budget (#1 "reduce data" / #80004 "too many calls") on high-spend campaigns
-  // with 100+ videos. Cap parallelism at 5 — same pattern as bulk-video runner
-  // (lib/audiences/bulk-video.ts uses 5 concurrent). For a 200-video campaign
-  // this takes ~20s instead of triggering rate limits.
-  const VIDEO_FETCH_CONCURRENCY = 5;
+  // BATCHED FETCH: replace per-video Graph calls with Meta's `GET /?ids=...`
+  // batched endpoint (max 25 IDs per call). Cuts ~50 serial calls down to
+  // ceil(50/25)=2 calls. Thumbnail fallbacks (rare) are bounded at 3-concurrent.
   const videoIdList = Array.from(videoIds);
-  const videoResults: Array<AudienceVideoSource | null> = [];
+  const videoMap = await batchFetchVideoMetadata(videoIdList, token);
+  const thumbnailSem = makeSemaphore(THUMBNAIL_FALLBACK_CONCURRENCY);
 
-  for (let i = 0; i < videoIdList.length; i += VIDEO_FETCH_CONCURRENCY) {
-    const chunk = videoIdList.slice(i, i + VIDEO_FETCH_CONCURRENCY);
-    const chunkResults = await Promise.all(
-      chunk.map(async (videoId) => {
-        const video = await graphGetWithToken<RawVideo>(
-          `/${videoId}`,
-          { fields: "id,picture,title,length,from" },
-          token,
-        ).catch(() => ({ id: videoId } as RawVideo));
+  const videoResults: Array<AudienceVideoSource | null> = await Promise.all(
+    videoIdList.map(async (videoId) => {
+      const video = videoMap.get(videoId) ?? ({ id: videoId } as RawVideo);
 
-        // Meta requires every video in a video-views audience to be published from
-        // a FB Page (not uploaded directly to the ad account). Videos with no
-        // `from.id` trigger #2654 subcode 1713216 "No Page or New Page Experience
-        // Association". Return null so we can filter them out below.
-        if (!video.from?.id) {
-          return null;
-        }
+      // Meta requires every video in a video-views audience to be published from
+      // a FB Page (not uploaded directly to the ad account). Videos with no
+      // `from.id` trigger #2654 subcode 1713216 "No Page or New Page Experience
+      // Association". Return null so we can filter them out below.
+      if (!video.from?.id) {
+        return null;
+      }
 
-        // Track which page each surviving video was published from — used as
-        // contextPageId fallback below.
-        videoFromPageCounts.set(
-          video.from.id,
-          (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
-        );
+      // Track which page each surviving video was published from — used as
+      // contextPageId fallback below.
+      videoFromPageCounts.set(
+        video.from.id,
+        (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
+      );
 
-        let thumbnailUrl: string | undefined = video.picture ?? undefined;
+      let thumbnailUrl: string | undefined = video.picture ?? undefined;
 
-        // Fallback: try /{id}/thumbnails when picture is absent (common for
-        // archived / age-out videos where Meta strips the stored asset).
-        if (!thumbnailUrl) {
-          thumbnailUrl = await graphGetWithToken<{ data?: RawThumbnail[] }>(
+      // Fallback: try /{id}/thumbnails when picture is absent (common for
+      // archived / age-out videos where Meta strips the stored asset).
+      // Rate-limited to THUMBNAIL_FALLBACK_CONCURRENCY=3 concurrent calls.
+      if (!thumbnailUrl) {
+        thumbnailUrl = await thumbnailSem(() =>
+          graphGetWithToken<{ data?: RawThumbnail[] }>(
             `/${videoId}/thumbnails`,
             { limit: "1" },
             token,
           )
             .then((r) => r.data?.[0]?.uri ?? undefined)
-            .catch(() => undefined);
-        }
+            .catch(() => undefined),
+        );
+      }
 
-        return {
-          id: video.id,
-          title: video.title,
-          thumbnailUrl,
-          length: video.length,
-        };
-      }),
-    );
-    videoResults.push(...chunkResults);
-  }
+      return {
+        id: video.id,
+        title: video.title,
+        thumbnailUrl,
+        length: video.length,
+      };
+    }),
+  );
 
   const validVideos = videoResults.filter(
     (v): v is NonNullable<typeof v> => v !== null,
@@ -580,48 +627,42 @@ export async function fetchAudienceMultiCampaignVideos(
   )[0]?.[0];
 
   const videoFromPageCounts = new Map<string, number>();
-  const VIDEO_FETCH_CONCURRENCY = 5;
   const videoIdList = Array.from(allVideoIds);
-  const videoResults: Array<AudienceVideoSource | null> = [];
+  const videoMap = await batchFetchVideoMetadata(videoIdList, token);
+  const thumbnailSem = makeSemaphore(THUMBNAIL_FALLBACK_CONCURRENCY);
 
-  for (let i = 0; i < videoIdList.length; i += VIDEO_FETCH_CONCURRENCY) {
-    const chunk = videoIdList.slice(i, i + VIDEO_FETCH_CONCURRENCY);
-    const chunkResults = await Promise.all(
-      chunk.map(async (videoId) => {
-        const video = await graphGetWithToken<RawVideo>(
-          `/${videoId}`,
-          { fields: "id,picture,title,length,from" },
-          token,
-        ).catch(() => ({ id: videoId } as RawVideo));
+  const videoResults: Array<AudienceVideoSource | null> = await Promise.all(
+    videoIdList.map(async (videoId) => {
+      const video = videoMap.get(videoId) ?? ({ id: videoId } as RawVideo);
 
-        if (!video.from?.id) return null;
+      if (!video.from?.id) return null;
 
-        videoFromPageCounts.set(
-          video.from.id,
-          (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
-        );
+      videoFromPageCounts.set(
+        video.from.id,
+        (videoFromPageCounts.get(video.from.id) ?? 0) + 1,
+      );
 
-        let thumbnailUrl: string | undefined = video.picture ?? undefined;
-        if (!thumbnailUrl) {
-          thumbnailUrl = await graphGetWithToken<{ data?: RawThumbnail[] }>(
+      let thumbnailUrl: string | undefined = video.picture ?? undefined;
+      if (!thumbnailUrl) {
+        thumbnailUrl = await thumbnailSem(() =>
+          graphGetWithToken<{ data?: RawThumbnail[] }>(
             `/${videoId}/thumbnails`,
             { limit: "1" },
             token,
           )
             .then((r) => r.data?.[0]?.uri ?? undefined)
-            .catch(() => undefined);
-        }
+            .catch(() => undefined),
+        );
+      }
 
-        return {
-          id: video.id,
-          title: video.title,
-          thumbnailUrl,
-          length: video.length,
-        };
-      }),
-    );
-    videoResults.push(...chunkResults);
-  }
+      return {
+        id: video.id,
+        title: video.title,
+        thumbnailUrl,
+        length: video.length,
+      };
+    }),
+  );
 
   const validVideos = videoResults.filter(
     (v): v is NonNullable<typeof v> => v !== null,

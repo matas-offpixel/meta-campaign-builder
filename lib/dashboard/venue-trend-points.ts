@@ -359,6 +359,82 @@ export function buildVenueCumulativeTicketTimeline(
 export type { TierChannelDailyHistoryRow };
 
 /**
+ * Build venue-wide cumulative ticket and revenue timelines directly
+ * from `tier_channel_sales_daily_history` rows, bypassing the
+ * snapshot-envelope path entirely.
+ *
+ * Each event's daily_history rows are carry-forwarded so that on dates
+ * where one event has no row the previous known value is used (handles
+ * events that started capturing at different times). The per-event
+ * carry-forward totals are then summed per calendar date to produce a
+ * venue-wide monotonic cumulative.
+ *
+ * Returns empty arrays when `dailyHistory` is empty (caller falls back
+ * to the snapshot envelope via `ticketDeltasFromCumulativeTimeline`).
+ */
+export function buildVenueDailyHistoryTimelines(
+  dailyHistory: TierChannelDailyHistoryRow[],
+  venueEventIds: Set<string>,
+): {
+  tickets: Array<{ date: string; cumulative: number }>;
+  revenue: Array<{ date: string; cumulative: number }>;
+} {
+  // Group daily_history rows by event, filtering to this venue only.
+  const byEvent = new Map<string, Map<string, { tickets: number; revenue: number }>>();
+  for (const row of dailyHistory) {
+    if (!venueEventIds.has(row.event_id)) continue;
+    const map = byEvent.get(row.event_id) ?? new Map();
+    map.set(row.snapshot_date, {
+      tickets: Number(row.tickets_sold_total),
+      revenue: Number(row.revenue_total),
+    });
+    byEvent.set(row.event_id, map);
+  }
+
+  if (byEvent.size === 0) {
+    return { tickets: [], revenue: [] };
+  }
+
+  // Collect all distinct dates across all events.
+  const allDates = new Set<string>();
+  for (const map of byEvent.values()) {
+    for (const date of map.keys()) allDates.add(date);
+  }
+
+  const sortedDates = [...allDates].sort();
+
+  // Per-event carry-forward state — holds the last known cumulative for
+  // each event so gaps in coverage are filled with the prior value.
+  const lastTickets = new Map<string, number>();
+  const lastRevenue = new Map<string, number>();
+
+  const ticketsCumulative: Array<{ date: string; cumulative: number }> = [];
+  const revenueCumulative: Array<{ date: string; cumulative: number }> = [];
+
+  for (const date of sortedDates) {
+    let venueTickets = 0;
+    let venueRevenue = 0;
+    for (const [eventId, map] of byEvent) {
+      const row = map.get(date);
+      if (row !== undefined) {
+        lastTickets.set(eventId, row.tickets);
+        lastRevenue.set(eventId, row.revenue);
+        venueTickets += row.tickets;
+        venueRevenue += row.revenue;
+      } else {
+        // Carry forward last known value (0 before first row).
+        venueTickets += lastTickets.get(eventId) ?? 0;
+        venueRevenue += lastRevenue.get(eventId) ?? 0;
+      }
+    }
+    ticketsCumulative.push({ date, cumulative: venueTickets });
+    revenueCumulative.push({ date, cumulative: venueRevenue });
+  }
+
+  return { tickets: ticketsCumulative, revenue: revenueCumulative };
+}
+
+/**
  * Compute per-day ticket deltas from a sorted cumulative timeline.
  * Returns a Map keyed by date — only entries with a strictly positive
  * delta are emitted. Day 0 (the earliest cumulative) emits its full
