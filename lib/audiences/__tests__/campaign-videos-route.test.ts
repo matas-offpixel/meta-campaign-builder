@@ -36,14 +36,17 @@ describe("multi-campaign-videos source endpoint", () => {
     assert.match(sources, /fetchAudienceMultiCampaignVideos/);
     // Accumulates into a single shared Set across all campaigns
     assert.match(sources, /allVideoIds\.add/);
-    // Walks campaigns sequentially (for loop over campaignIds, not Promise.all)
-    assert.match(sources, /for.*campaignId.*of.*campaignIds/s);
+    // Walks campaigns concurrently via runWithConcurrency
+    assert.match(sources, /runWithConcurrency/);
+    assert.match(sources, /CAMPAIGN_WALK_CONCURRENCY/);
   });
 
-  it("sources.ts uses sequential ad walk + batched video metadata fetch", () => {
+  it("sources.ts uses concurrent ad walk + batched video metadata fetch", () => {
     const sources = readFileSync("lib/audiences/sources.ts", "utf8");
-    // Sequential outer loop: for (const campaignId of campaignIds) { ... for adPage }
-    assert.match(sources, /for.*const campaignId of campaignIds/);
+    // Concurrent campaign walk bounded at CAMPAIGN_WALK_CONCURRENCY=3
+    assert.match(sources, /CAMPAIGN_WALK_CONCURRENCY/);
+    assert.match(sources, /walkCampaignAds/);
+    // Per-campaign ad paging still uses MAX_AD_PAGES guard
     assert.match(sources, /for.*adPage.*MAX_AD_PAGES/s);
     // Video metadata now batched (VIDEO_BATCH_SIZE=25), not per-video chunked
     assert.match(sources, /VIDEO_BATCH_SIZE/);
