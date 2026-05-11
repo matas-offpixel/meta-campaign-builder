@@ -33,7 +33,7 @@ import {
  */
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ region?: string; tab?: string; phase?: string; funnel?: string }>;
+  searchParams: Promise<{ region?: string; tab?: string; phase?: string; funnel?: string; past?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -150,6 +150,7 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
         activeRegion={sp.region}
         patternsPhase={parseCreativePatternPhase(sp.phase)}
         patternsFunnel={parseCreativePatternFunnel(sp.funnel)}
+        initialPastExpanded={sp.past === "1"}
       />
     </>
   );

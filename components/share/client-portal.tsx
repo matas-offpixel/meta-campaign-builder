@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   AdditionalSpendRow,
@@ -75,6 +75,13 @@ interface Props {
   isInternal?: boolean;
   hideChrome?: boolean;
   showRefreshDailyBudgets?: boolean;
+  /**
+   * Server-side hint: whether the Past Events accordion should start
+   * expanded. Read from `?past=1` in the page's `searchParams` so a
+   * shared URL opens in the same state the sender had. Defaults to
+   * false; the client-side URL listener will sync afterwards.
+   */
+  initialPastExpanded?: boolean;
 }
 
 function formatNumber(n: number): string {
@@ -105,6 +112,7 @@ export function ClientPortal({
   isInternal = false,
   hideChrome = false,
   showRefreshDailyBudgets = true,
+  initialPastExpanded = false,
 }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
@@ -114,10 +122,50 @@ export function ClientPortal({
     setEvents(initial);
   }, [initial]);
 
+  // ── Past section accordion state ─────────────────────────────────
+  // Start from the server-rendered hint (derived from ?past=1 in
+  // searchParams). After hydration, sync from the actual URL so
+  // refreshes and direct link visits work even if the server hint
+  // wasn't threaded through.
+  const [pastExpanded, setPastExpanded] = useState<boolean>(initialPastExpanded);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncFromUrl = () => {
+      const sp = new URLSearchParams(window.location.search);
+      setPastExpanded(sp.get("past") === "1");
+    };
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, []);
+
+  const handlePastToggle = useCallback(() => {
+    setPastExpanded((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        if (next) {
+          url.searchParams.set("past", "1");
+        } else {
+          url.searchParams.delete("past");
+        }
+        window.history.replaceState(null, "", url.toString());
+      }
+      return next;
+    });
+  }, []);
+
   // Client-wide totals — always lifetime, regardless of the per-card
   // timeframe pills. Folds the WC26 on-sale shared-campaign spend
   // (when present) into the topline's adSpend / totalSpend so the
   // topline reconciles with the venue table's Overall London row.
+  //
+  // recencyFilter='active': exclude entirely-past venue groups from
+  // headline cards (Total Marketing, Paid Media, Tickets). Multi-
+  // fixture groups like Arsenal Title Run In still contribute all
+  // their events' data (including past fixtures) because the GROUP is
+  // active — that matches the spec and the venue table's own totals.
   const clientWideTotals = useMemo(
     () =>
       aggregateClientWideTotals(
@@ -125,6 +173,7 @@ export function ClientPortal({
         dailyRollups,
         additionalSpend,
         londonOnsaleSpend ?? 0,
+        "active",
       ),
     [events, dailyRollups, additionalSpend, londonOnsaleSpend],
   );
@@ -358,6 +407,8 @@ export function ClientPortal({
               trendDailyHistory={trendDailyHistory}
               isInternal={isInternal}
               onSnapshotSaved={handleSnapshot}
+              pastExpanded={pastExpanded}
+              onPastToggle={handlePastToggle}
             />
           </>
         )}

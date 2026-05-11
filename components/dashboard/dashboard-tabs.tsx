@@ -50,6 +50,8 @@ interface Props {
   activeRegion?: string;
   patternsPhase?: CreativePatternPhase;
   patternsFunnel?: CreativePatternFunnel;
+  /** Whether the Past Events accordion should render expanded on first paint. */
+  initialPastExpanded?: boolean;
 }
 
 export function DashboardTabs({
@@ -72,6 +74,7 @@ export function DashboardTabs({
   activeRegion,
   patternsPhase,
   patternsFunnel,
+  initialPastExpanded = false,
 }: Props) {
   const grouped = groupEventsByClientRegion(events);
   const visibleRegions = visibleClientRegions(grouped);
@@ -205,6 +208,7 @@ export function DashboardTabs({
           isInternal={!isShared}
           hideChrome={isShared}
           showRefreshDailyBudgets={false}
+          initialPastExpanded={initialPastExpanded}
         />
       ) : (
         <main className="mx-auto max-w-7xl px-6 py-8">

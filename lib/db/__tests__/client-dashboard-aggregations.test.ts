@@ -15,6 +15,12 @@ import {
 import type { DailyRollupRow } from "../client-portal-server.ts";
 import { venueSpend } from "../../dashboard/venue-spend-model.ts";
 
+/** Offset a YYYY-MM-DD string by N days (positive = future). */
+function offsetDateForRecency(dateIso: string, days: number): string {
+  const ms = Date.parse(`${dateIso}T00:00:00Z`);
+  return new Date(ms + days * 86_400_000).toISOString().slice(0, 10);
+}
+
 function ev(
   overrides: Partial<AggregatableEvent> & { id: string },
 ): AggregatableEvent {
@@ -1384,5 +1390,78 @@ describe("venueSpend — allocated branch (Villa regression)", () => {
       Math.abs(perf.paidMediaUsedPct! - (EXPECTED_TOTAL / 12500) * 100) < 1e-4,
       "paidMediaUsedPct should reflect actual spend / 12500",
     );
+  });
+});
+
+// ─── aggregateClientWideTotals — recencyFilter ─────────────────────────────
+
+describe("aggregateClientWideTotals recencyFilter", () => {
+  const TODAY = "2026-05-11";
+  // noon UTC is safely within the London day for both GMT and BST.
+  const now = new Date(`${TODAY}T12:00:00Z`);
+
+  const pastDate = offsetDateForRecency(TODAY, -2);   // 2 days ago → IS past
+  const futureDate = offsetDateForRecency(TODAY, +7); // 7 days out → NOT past
+
+  // Three events: two belonging to a multi-fixture "active" group (one past
+  // fixture + one future fixture) and one belonging to a solo past group.
+  const ACTIVE_GROUP_CODE = "4TF-ACTIVE-SERIES";
+  const PAST_SOLO_CODE = "4TF-PAST-SOLO";
+
+  const activeFixture1 = ev({
+    id: "active-1",
+    event_code: ACTIVE_GROUP_CODE,
+    event_date: pastDate,   // this fixture has passed…
+    tickets_sold: 1000,
+    latest_snapshot: { tickets_sold: 1000, revenue: null },
+  });
+  const activeFixture2 = ev({
+    id: "active-2",
+    event_code: ACTIVE_GROUP_CODE,
+    event_date: futureDate, // …but the series is still active (future fixture)
+    tickets_sold: 500,
+    latest_snapshot: { tickets_sold: 500, revenue: null },
+  });
+  const pastSolo = ev({
+    id: "past-solo",
+    event_code: PAST_SOLO_CODE,
+    event_date: pastDate,   // solo past event — group is entirely past
+    tickets_sold: 200,
+    latest_snapshot: { tickets_sold: 200, revenue: null },
+  });
+
+  const allEvents = [activeFixture1, activeFixture2, pastSolo];
+  const rollups: DailyRollupRow[] = [];
+  const addlSpend: AdditionalSpendRow[] = [];
+
+  it("recencyFilter='all' includes all events (legacy / default)", () => {
+    const totals = aggregateClientWideTotals(allEvents, rollups, addlSpend, 0, "all", now);
+    // 1000 + 500 + 200 = 1700
+    assert.equal(totals.ticketsSold, 1700);
+    assert.equal(totals.venueGroups, 2);
+    assert.equal(totals.events, 3);
+  });
+
+  it("recencyFilter='active' includes the active group (both fixtures) but excludes the solo past group", () => {
+    const totals = aggregateClientWideTotals(allEvents, rollups, addlSpend, 0, "active", now);
+    // Active group: active-1 (1000) + active-2 (500) = 1500 (group has future fixture)
+    // Excluded: past-solo (200) because every event in that group is past
+    assert.equal(totals.ticketsSold, 1500, "should exclude solo-past group");
+    assert.equal(totals.venueGroups, 1, "one active venue group");
+    assert.equal(totals.events, 2, "two events in the active group");
+  });
+
+  it("recencyFilter='past' includes only events from the fully-past group", () => {
+    const totals = aggregateClientWideTotals(allEvents, rollups, addlSpend, 0, "past", now);
+    // Only past-solo (200) qualifies — its group is 100% past
+    assert.equal(totals.ticketsSold, 200, "should include only past-solo");
+    assert.equal(totals.venueGroups, 1, "one past venue group");
+  });
+
+  it("recencyFilter='active' with no active events returns zeroed totals", () => {
+    const allPast = [pastSolo];
+    const totals = aggregateClientWideTotals(allPast, rollups, addlSpend, 0, "active", now);
+    assert.equal(totals.ticketsSold, 0);
+    assert.equal(totals.venueGroups, 0);
   });
 });
