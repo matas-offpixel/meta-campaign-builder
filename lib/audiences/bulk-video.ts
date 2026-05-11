@@ -11,12 +11,14 @@ import {
   campaignMatchesBracketedEventCode,
 } from "../insights/meta-event-code-match.ts";
 import { buildAudienceName } from "./naming.ts";
-import { mergeVideoSourcesDeduped } from "./merge-video-sources.ts";
 import { eventCodeMatchesPrefix } from "./event-code-prefix-scanner.ts";
+import { isMetaAdAccountRateLimitError } from "./meta-rate-limit.ts";
 import {
   fetchAudienceCampaigns,
-  fetchAudienceCampaignVideos,
+  walkCampaignAds,
+  hydrateVideoMetadataConcurrent,
 } from "./sources.ts";
+import { withoutActPrefix } from "../meta/ad-account-id.ts";
 import {
   BULK_FUNNEL_CONFIG,
   META_MAX_RETENTION_DAYS,
@@ -69,11 +71,19 @@ export interface RunBulkPreviewOpts {
 /**
  * Resolves the full preview for a bulk video-views run.
  * Pure dry-run: no DB writes, no Meta writes.
+ *
+ * Three-phase design to eliminate cross-event duplicate video metadata fetches:
+ *   Phase 1 — walk every event's campaign ads (collect raw video IDs, no metadata calls).
+ *   Phase 2 — hydrate the unified Set<video_id> once via batched /?ids= with concurrency=5.
+ *   Phase 3 — apply orphan filter and build audience payloads per event from the cache.
  */
 export async function runBulkVideoPreview(
   opts: RunBulkPreviewOpts,
 ): Promise<BulkPreviewRow[]> {
-  const { supabase, userId, clientId, metaAdAccountId, clientName, clientSlug, token, eventCodePrefix, funnelStages, customStages } = opts;
+  const {
+    supabase, userId, clientId, metaAdAccountId, clientName, clientSlug,
+    token, eventCodePrefix, funnelStages, customStages,
+  } = opts;
 
   // 1. Fetch all events for this client
   const { data: eventsData, error: eventsError } = await supabase
@@ -108,13 +118,88 @@ export async function runBulkVideoPreview(
     }));
   }
 
-  // 3. Process each event (capped at 5 concurrent)
-  const rows = await mapConcurrent(events, 5, async (event): Promise<BulkPreviewRow> => {
-    const code = event.event_code!.toUpperCase();
+  const expectedAccountId = withoutActPrefix(metaAdAccountId);
 
+  // Phase 1 — walk each event's matched campaigns to collect raw video IDs.
+  // No metadata fetches yet; 5 events processed concurrently.
+  type EventWalk = {
+    event: EventRow;
+    code: string;
+    matched: Array<{ id: string; name: string }>;
+    rawVideoIds: Set<string>;
+    pageIds: string[];
+    errorMsg?: string;
+  };
+
+  const walks = await mapConcurrent(events, 5, async (event): Promise<EventWalk> => {
+    const code = event.event_code!.toUpperCase();
     const matched = allCampaigns.filter((c) =>
       campaignMatchesBracketedEventCode(c.name, code),
     );
+
+    const rawVideoIds = new Set<string>();
+    const pageIds: string[] = [];
+    let errorMsg: string | undefined;
+
+    if (matched.length > 0) {
+      const walkResults = await Promise.allSettled(
+        matched.map((c) => walkCampaignAds(c.id, expectedAccountId, token)),
+      );
+      for (const result of walkResults) {
+        if (result.status === "rejected") {
+          const msg =
+            result.reason instanceof Error ? result.reason.message : String(result.reason);
+          errorMsg = /rate.limit|429/i.test(msg)
+            ? "Meta rate limit — retry in a few minutes."
+            : `Failed to fetch videos: ${msg}`;
+          continue;
+        }
+        for (const id of result.value.videoIds) rawVideoIds.add(id);
+        pageIds.push(...result.value.pageIds);
+      }
+    }
+
+    return { event, code, matched, rawVideoIds, pageIds, errorMsg };
+  });
+
+  // Phase 2 — unified metadata hydration across ALL events.
+  // Build one flat Set, hydrate once (chunks ≤50, concurrency=5).
+  const unifiedVideoIds = new Set<string>();
+  for (const walk of walks) {
+    for (const id of walk.rawVideoIds) unifiedVideoIds.add(id);
+  }
+
+  let videoCache: Awaited<ReturnType<typeof hydrateVideoMetadataConcurrent>> = new Map();
+
+  if (unifiedVideoIds.size > 0) {
+    try {
+      videoCache = await hydrateVideoMetadataConcurrent(Array.from(unifiedVideoIds), token);
+    } catch (err) {
+      if (isMetaAdAccountRateLimitError(err)) {
+        // Rate-limit abort: mark every event as skipped, no partial writes.
+        const skipReason =
+          "User request limit reached (Meta #17) — try again in a few minutes.";
+        return walks.map((w) => ({
+          eventId: w.event.id,
+          eventCode: w.code,
+          eventName: w.event.name,
+          matchedCampaigns: w.matched.map((c) => ({ id: c.id, name: c.name })),
+          pagePublishedVideos: 0,
+          orphanVideos: 0,
+          audiences: [],
+          skipped: true,
+          skipReason,
+        }));
+      }
+      throw err;
+    }
+  }
+
+  // Phase 3 — build per-event rows from the cached metadata.
+  return walks.map((walk): BulkPreviewRow => {
+    const { event, code, matched, rawVideoIds, pageIds, errorMsg } = walk;
+    const campaignSummaries = matched.map((c) => ({ id: c.id, name: c.name }));
+    const campaignIds = matched.map((c) => c.id);
 
     if (matched.length === 0) {
       return {
@@ -130,42 +215,44 @@ export async function runBulkVideoPreview(
       };
     }
 
-    // 4. Fetch videos for each matched campaign
-    const videoResults = await Promise.allSettled(
-      matched.map((c) => fetchAudienceCampaignVideos(metaAdAccountId, c.id, token)),
-    );
-
-    let totalOrphan = 0;
-    const videoGroups: Array<{ id: string }[]> = [];
-    const contextCounts = new Map<string, number>();
-    let errorMsg: string | undefined;
-
-    for (const result of videoResults) {
-      if (result.status === "rejected") {
-        const msg =
-          result.reason instanceof Error ? result.reason.message : String(result.reason);
-        errorMsg = /rate.limit|429/i.test(msg)
-          ? "Meta rate limit — retry in a few minutes."
-          : `Failed to fetch videos: ${msg}`;
-        continue;
-      }
-      const { videos, skippedCount, contextPageId: cpid } = result.value;
-      totalOrphan += skippedCount;
-      videoGroups.push(videos);
-      if (cpid) {
-        contextCounts.set(cpid, (contextCounts.get(cpid) ?? 0) + videos.length);
-      }
+    // contextPageId: most-common page from creative-level extraction.
+    const pageCounts = new Map<string, number>();
+    for (const id of pageIds) {
+      pageCounts.set(id, (pageCounts.get(id) ?? 0) + 1);
     }
-
-    const contextPageId =
-      contextCounts.size > 0
-        ? [...contextCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0]
+    let contextPageId =
+      pageCounts.size > 0
+        ? [...pageCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0]
         : undefined;
 
-    const mergedVideos = mergeVideoSourcesDeduped(videoGroups);
-    const campaignSummaries = matched.map((c) => ({ id: c.id, name: c.name }));
-    const campaignIds = matched.map((c) => c.id);
-    const videoIds = mergedVideos.map((v) => v.id);
+    // Orphan filter: drop videos with no FB Page association (no from.id).
+    // Happens once here using the unified metadata cache — not per-event re-fetch.
+    const videoFromPageCounts = new Map<string, number>();
+    const validVideoIds: string[] = [];
+    let orphanCount = 0;
+
+    for (const videoId of rawVideoIds) {
+      const meta = videoCache.get(videoId);
+      if (!meta?.from?.id) {
+        orphanCount++;
+        continue;
+      }
+      videoFromPageCounts.set(meta.from.id, (videoFromPageCounts.get(meta.from.id) ?? 0) + 1);
+      validVideoIds.push(videoId);
+    }
+    validVideoIds.sort();
+
+    // contextPageId fallback: most-common from.id across surviving videos.
+    if (!contextPageId && videoFromPageCounts.size > 0) {
+      contextPageId = [...videoFromPageCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+    }
+
+    if (orphanCount > 0) {
+      console.warn(
+        `[runBulkVideoPreview] Dropped ${orphanCount} video(s) with no Page association` +
+          ` (event ${code}). Meta requires videos to be published from a FB Page.`,
+      );
+    }
 
     if (errorMsg) {
       return {
@@ -173,8 +260,8 @@ export async function runBulkVideoPreview(
         eventCode: code,
         eventName: event.name,
         matchedCampaigns: campaignSummaries,
-        pagePublishedVideos: mergedVideos.length,
-        orphanVideos: totalOrphan,
+        pagePublishedVideos: validVideoIds.length,
+        orphanVideos: orphanCount,
         contextPageId,
         audiences: [],
         skipped: true,
@@ -182,25 +269,25 @@ export async function runBulkVideoPreview(
       };
     }
 
-    if (mergedVideos.length === 0) {
+    if (validVideoIds.length === 0) {
       return {
         eventId: event.id,
         eventCode: code,
         eventName: event.name,
         matchedCampaigns: campaignSummaries,
         pagePublishedVideos: 0,
-        orphanVideos: totalOrphan,
+        orphanVideos: orphanCount,
         contextPageId,
         audiences: [],
         skipped: true,
         skipReason:
-          totalOrphan > 0
+          orphanCount > 0
             ? "No page-published videos — all found videos were uploaded directly to the ad account."
             : "No videos found in matched campaigns.",
       };
     }
 
-    // 5. Build proposed audiences per funnel stage then per custom stage
+    // Build proposed audiences per funnel stage then per custom stage.
     const namingOpts = {
       scope: "event" as const,
       client: { slug: clientSlug, name: clientName },
@@ -212,31 +299,27 @@ export async function runBulkVideoPreview(
     const funnelAudiences: BulkPreviewAudience[] = funnelStages.map((stage) => {
       const { threshold, retentionDays } = BULK_FUNNEL_CONFIG[stage];
       const name = buildAudienceName({ ...namingOpts, retentionDays, threshold });
-      return { funnelStage: stage, name, threshold, retentionDays, videoIds, campaignIds, campaignSummaries };
+      return { funnelStage: stage, name, threshold, retentionDays, videoIds: validVideoIds, campaignIds, campaignSummaries };
     });
 
     const customAudiences: BulkPreviewAudience[] = customStages.map((cs) => {
       const retentionDays = Math.min(META_MAX_RETENTION_DAYS, Math.max(1, Math.trunc(cs.retentionDays)));
       const name = buildAudienceName({ ...namingOpts, retentionDays, threshold: cs.threshold });
-      return { funnelStage: "custom", name, threshold: cs.threshold, retentionDays, videoIds, campaignIds, campaignSummaries };
+      return { funnelStage: "custom", name, threshold: cs.threshold, retentionDays, videoIds: validVideoIds, campaignIds, campaignSummaries };
     });
-
-    const audiences: BulkPreviewAudience[] = [...funnelAudiences, ...customAudiences];
 
     return {
       eventId: event.id,
       eventCode: code,
       eventName: event.name,
       matchedCampaigns: campaignSummaries,
-      pagePublishedVideos: mergedVideos.length,
-      orphanVideos: totalOrphan,
+      pagePublishedVideos: validVideoIds.length,
+      orphanVideos: orphanCount,
       contextPageId,
-      audiences,
+      audiences: [...funnelAudiences, ...customAudiences],
       skipped: false,
     };
   });
-
-  return rows;
 }
 
 // ── Concurrency helper ────────────────────────────────────────────────────────
@@ -259,4 +342,3 @@ async function mapConcurrent<T, R>(
   );
   return results;
 }
-
