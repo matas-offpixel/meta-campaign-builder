@@ -1,11 +1,306 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   buildMetaCustomAudiencePayload,
   sanitizeAudienceName,
 } from "../audience-payload.ts";
+import { resolveAudienceWriteToken } from "../audience-write-token.ts";
 import type { MetaCustomAudience } from "../../types/audience.ts";
+
+// ─── resolveAudienceWriteToken (Phase 1 canary) ──────────────────────────────
+//
+// Phase 1 canary tests for the audience-write token resolver. The
+// design lives in `docs/META_TOKEN_ARCHITECTURE_2026-05-11.md` §5.
+// We test the resolver directly rather than through
+// `createMetaCustomAudience` because the latter pulls
+// `getAudienceById` / `updateAudience` from a cookie-bound Supabase
+// client which is awkward to mock end-to-end. The resolver is what
+// the brief actually asks us to assert: "prefers system user when
+// present, falls back to personal when null". The MetaAudiencePost
+// stub plumbing for the full createMetaCustomAudience path stays as
+// the historical `audience-payload` coverage above.
+
+const ENV_FLAG = "OFFPIXEL_META_SYSTEM_USER_ENABLED";
+const ENV_KEY = "META_SYSTEM_TOKEN_KEY";
+const ENV_FALLBACK = "META_ACCESS_TOKEN";
+const ENV_SUPABASE_URL = "NEXT_PUBLIC_SUPABASE_URL";
+const ENV_SUPABASE_SERVICE_ROLE = "SUPABASE_SERVICE_ROLE_KEY";
+
+let originalFlag: string | undefined;
+let originalKey: string | undefined;
+let originalEnvToken: string | undefined;
+let originalSupabaseUrl: string | undefined;
+let originalServiceRole: string | undefined;
+
+beforeEach(() => {
+  originalFlag = process.env[ENV_FLAG];
+  originalKey = process.env[ENV_KEY];
+  originalEnvToken = process.env[ENV_FALLBACK];
+  originalSupabaseUrl = process.env[ENV_SUPABASE_URL];
+  originalServiceRole = process.env[ENV_SUPABASE_SERVICE_ROLE];
+});
+
+afterEach(() => {
+  restoreEnv(ENV_FLAG, originalFlag);
+  restoreEnv(ENV_KEY, originalKey);
+  restoreEnv(ENV_FALLBACK, originalEnvToken);
+  restoreEnv(ENV_SUPABASE_URL, originalSupabaseUrl);
+  restoreEnv(ENV_SUPABASE_SERVICE_ROLE, originalServiceRole);
+});
+
+function restoreEnv(name: string, prior: string | undefined) {
+  if (prior === undefined) delete process.env[name];
+  else process.env[name] = prior;
+}
+
+interface FakeClientRow {
+  id: string;
+  user_id: string;
+  meta_ad_account_id: string;
+}
+
+interface FakeUserTokenRow {
+  user_id: string;
+  provider_token: string;
+  updated_at: string | null;
+  expires_at: string | null;
+}
+
+/**
+ * Tiny fake matching the subset of `SupabaseClient` that
+ * `resolveSystemUserToken` uses when we hand it an injected
+ * service-role client: a single `rpc("get_meta_system_user_token", …)`
+ * call plus a fire-and-forget `clients.update().eq()` for the
+ * last-used-at stamp. The shape mirrors the equivalent fake in
+ * `lib/meta/__tests__/system-user-token.test.ts`.
+ */
+function fakeServiceRoleForSystemUser(
+  rpcImpl: (fn: string, args: Record<string, unknown>) => unknown,
+) {
+  return {
+    async rpc(fn: string, args: Record<string, unknown>) {
+      try {
+        const data = rpcImpl(fn, args);
+        return { data, error: null };
+      } catch (err) {
+        return {
+          data: null,
+          error: { message: err instanceof Error ? err.message : String(err) },
+        };
+      }
+    },
+    from() {
+      return {
+        update() {
+          return {
+            eq() {
+              return Promise.resolve({ error: null });
+            },
+          };
+        },
+      };
+    },
+  } as unknown as Parameters<typeof resolveAudienceWriteToken>[2]["injectedServiceRoleClient"];
+}
+
+/**
+ * Minimal Supabase fake covering the two reads
+ * `resolveAudienceWriteToken` performs:
+ *
+ *   1. `findClientByMetaAdAccountId` →
+ *        `clients.select("id, user_id").eq("meta_ad_account_id", …).maybeSingle()`
+ *   2. `resolveServerMetaToken` →
+ *        `user_facebook_tokens.select(…).eq("user_id", …).maybeSingle()`
+ *
+ * The resolver also calls into `resolveSystemUserToken`, which uses
+ * its own service-role client. We override that with a stub via
+ * `installFakeServiceRole` below so the resolver tests stay
+ * hermetic.
+ */
+function fakeSupabase(opts: {
+  clientRows?: FakeClientRow[];
+  userTokenRows?: FakeUserTokenRow[];
+}): Parameters<typeof resolveAudienceWriteToken>[0] {
+  return {
+    from(table: string) {
+      if (table === "clients") {
+        return {
+          select() {
+            return {
+              eq(_col: string, val: string) {
+                return {
+                  limit() {
+                    return {
+                      maybeSingle() {
+                        const row = (opts.clientRows ?? []).find(
+                          (r) => r.meta_ad_account_id === val,
+                        );
+                        return Promise.resolve({
+                          data: row ?? null,
+                          error: null,
+                        });
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      if (table === "user_facebook_tokens") {
+        return {
+          select() {
+            return {
+              eq(_col: string, val: string) {
+                return {
+                  maybeSingle() {
+                    const row = (opts.userTokenRows ?? []).find(
+                      (r) => r.user_id === val,
+                    );
+                    return Promise.resolve({
+                      data: row ?? null,
+                      error: null,
+                    });
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  } as unknown as Parameters<typeof resolveAudienceWriteToken>[0];
+}
+
+describe("resolveAudienceWriteToken", () => {
+  it("prefers the System User token when one is provisioned", async () => {
+    process.env[ENV_FLAG] = "true";
+    process.env[ENV_KEY] = "x".repeat(32);
+    // Personal env fallback set so we'd notice if the resolver
+    // accidentally fell all the way through to env=…
+    process.env[ENV_FALLBACK] = "ENV-PERSONAL-TOKEN";
+
+    const supabase = fakeSupabase({
+      clientRows: [
+        {
+          id: "client_4tf",
+          user_id: "user_matas",
+          meta_ad_account_id: "act_4thefans",
+        },
+      ],
+      // Personal token row also populated to prove the resolver
+      // doesn't read it when System User is present.
+      userTokenRows: [
+        {
+          user_id: "user_matas",
+          provider_token: "PERSONAL-OAUTH-TOKEN",
+          updated_at: null,
+          expires_at: null,
+        },
+      ],
+    });
+
+    const injectedServiceRoleClient = fakeServiceRoleForSystemUser(
+      (fn) => {
+        assert.equal(fn, "get_meta_system_user_token");
+        return "EAAB-system-user-canary-token";
+      },
+    );
+    const result = await resolveAudienceWriteToken(
+      supabase,
+      {
+        userId: "user_matas",
+        metaAdAccountId: "act_4thefans",
+        audienceId: "audience_1",
+      },
+      { injectedServiceRoleClient },
+    );
+    assert.equal(result.source, "system_user");
+    assert.equal(result.token, "EAAB-system-user-canary-token");
+  });
+
+  it("falls back to the personal OAuth token when no System User is provisioned", async () => {
+    process.env[ENV_FLAG] = "true";
+    process.env[ENV_KEY] = "x".repeat(32);
+    delete process.env[ENV_FALLBACK];
+
+    const supabase = fakeSupabase({
+      clientRows: [
+        {
+          id: "client_no_su",
+          user_id: "user_matas",
+          meta_ad_account_id: "act_legacy",
+        },
+      ],
+      userTokenRows: [
+        {
+          user_id: "user_matas",
+          provider_token: "PERSONAL-OAUTH-TOKEN",
+          updated_at: null,
+          expires_at: null,
+        },
+      ],
+    });
+
+    // Service-role RPC returns null → resolver returns null →
+    // resolver falls back to resolveServerMetaToken (db).
+    const injectedServiceRoleClient = fakeServiceRoleForSystemUser(
+      () => null,
+    );
+    const result = await resolveAudienceWriteToken(
+      supabase,
+      {
+        userId: "user_matas",
+        metaAdAccountId: "act_legacy",
+        audienceId: "audience_2",
+      },
+      { injectedServiceRoleClient },
+    );
+    assert.equal(result.source, "db");
+    assert.equal(result.token, "PERSONAL-OAUTH-TOKEN");
+  });
+
+  it("falls back when the ad account has no owning client row", async () => {
+    process.env[ENV_FLAG] = "true";
+    process.env[ENV_KEY] = "x".repeat(32);
+    delete process.env[ENV_FALLBACK];
+
+    const supabase = fakeSupabase({
+      clientRows: [],
+      userTokenRows: [
+        {
+          user_id: "user_matas",
+          provider_token: "PERSONAL-OAUTH-TOKEN",
+          updated_at: null,
+          expires_at: null,
+        },
+      ],
+    });
+
+    // injectedServiceRoleClient should NEVER fire because the
+    // client lookup returns null first. We point it at a throwing
+    // implementation as a tripwire.
+    const injectedServiceRoleClient = fakeServiceRoleForSystemUser(() => {
+      throw new Error(
+        "system-user RPC must not run when no client row matches",
+      );
+    });
+    const result = await resolveAudienceWriteToken(
+      supabase,
+      {
+        userId: "user_matas",
+        metaAdAccountId: "act_orphan",
+        audienceId: "audience_3",
+      },
+      { injectedServiceRoleClient },
+    );
+    assert.equal(result.source, "db");
+    assert.equal(result.token, "PERSONAL-OAUTH-TOKEN");
+  });
+});
 
 /**
  * Rule shapes verified 2026-05-07 via Graph API Explorer vs reference audiences in

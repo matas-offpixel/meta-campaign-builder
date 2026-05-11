@@ -1,5 +1,7 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { createClient } from "@/lib/supabase/client";
-import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
+import type { Database, Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -176,4 +178,45 @@ export async function deleteClientRow(id: string): Promise<void> {
     console.warn("Supabase deleteClient error:", error.message);
     throw error;
   }
+}
+
+// ─── Server-only lookup helpers ──────────────────────────────────────────────
+
+/**
+ * Resolves the owning client for a Meta `act_…` ad account id. Used by
+ * code paths that only know the ad account (e.g. audience-write
+ * receives `audience.metaAdAccountId`, not `audience.clientId`) but
+ * still need to resolve the per-client System User token via
+ * `lib/meta/system-user-token.ts#resolveSystemUserToken`.
+ *
+ * Takes a `SupabaseClient` so server route handlers and library code
+ * can pass either the cookie-bound client (RLS) or the service-role
+ * client (rollup-sync cron). Returns `null` instead of throwing when
+ * the lookup fails — callers fall back to the personal-OAuth path.
+ *
+ * `meta_ad_account_id` is the same column that `app/api/meta/*` reads
+ * surface as the "linked ad account" for a client (see migration
+ * 009). It is unique enough in practice — one ad account belongs to
+ * one Meta Business Manager which we onboard one client per — that
+ * `.maybeSingle()` is safe; if a duplicate ever lands the warning log
+ * lets us spot it.
+ */
+export async function findClientByMetaAdAccountId(
+  supabase: SupabaseClient<Database>,
+  adAccountId: string,
+): Promise<{ id: string; userId: string } | null> {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("id, user_id")
+    .eq("meta_ad_account_id", adAccountId)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn(
+      `[findClientByMetaAdAccountId] lookup failed ad_account_id=${adAccountId} msg=${error.message}`,
+    );
+    return null;
+  }
+  if (!data) return null;
+  return { id: data.id, userId: data.user_id };
 }

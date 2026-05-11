@@ -24,6 +24,7 @@ import {
 import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
+import { MetaSystemUserTokenCard } from "./meta-system-user-token-card";
 import { BillingSection } from "./billing-section";
 import { ClientShareLinkCard } from "./client-share-link-card";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
@@ -157,6 +158,17 @@ interface Props {
    */
   initialTab?: ClientTab;
   /**
+   * Phase 1 canary System User token surface (see
+   * `docs/META_TOKEN_ARCHITECTURE_2026-05-11.md`). Server-rendered so
+   * the section short-circuits cleanly when
+   * `OFFPIXEL_META_SYSTEM_USER_ENABLED=true` isn't set, and so the
+   * existing-token state lands in the UI on first paint.
+   */
+  metaSystemUserToken?: {
+    enabled: boolean;
+    initial: { present: boolean; setAt: string | null; lastUsedAt: string | null };
+  };
+  /**
    * Client-portal payload — drives the Events tab's venue-grouped
    * rendering via `<ClientPortal isInternal />`. Null when the
    * server loader failed (no events, or transient Supabase error);
@@ -203,6 +215,7 @@ export function ClientDetail({
   initialTab = "overview",
   portal,
   hasTaggedEvents = false,
+  metaSystemUserToken,
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -519,6 +532,13 @@ export function ClientDetail({
             metaAdAccountId={client.meta_ad_account_id ?? null}
             metaPixelId={client.meta_pixel_id ?? null}
           />
+
+          {metaSystemUserToken?.enabled && (
+            <MetaSystemUserTokenCard
+              clientId={client.id}
+              initial={metaSystemUserToken.initial}
+            />
+          )}
 
           <BillingSection
             clientId={client.id}

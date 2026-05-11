@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { ClientDetail } from "@/components/dashboard/clients/client-detail";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { metaSystemUserEnabled } from "@/lib/meta/system-user-token";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { listEventsServer } from "@/lib/db/events-server";
 import {
@@ -201,6 +202,44 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
   const initialTab: ClientTab =
     tab && ALLOWED_TABS.has(tab) ? (tab as ClientTab) : "overview";
 
+  // Phase 1 canary: surface the System User token panel only when the
+  // env flag is on. Probe the row via the service-role client because
+  // the new columns aren't covered by RLS reads from the cookie-bound
+  // session yet (see migration 090) and aren't in the generated
+  // types. Non-fatal if it errors — the panel just renders as
+  // "Not set" and the operator can still save.
+  const metaSystemUserFlag = metaSystemUserEnabled();
+  let metaSystemUserInitial: {
+    present: boolean;
+    setAt: string | null;
+    lastUsedAt: string | null;
+  } = { present: false, setAt: null, lastUsedAt: null };
+  if (metaSystemUserFlag) {
+    try {
+      const serviceClient = createServiceRoleClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (serviceClient as any)
+        .from("clients")
+        .select(
+          "meta_system_user_token_encrypted, meta_system_user_token_set_at, meta_system_user_token_last_used_at",
+        )
+        .eq("id", id)
+        .maybeSingle();
+      if (data) {
+        metaSystemUserInitial = {
+          present: Boolean(data.meta_system_user_token_encrypted),
+          setAt: data.meta_system_user_token_set_at ?? null,
+          lastUsedAt: data.meta_system_user_token_last_used_at ?? null,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        "[client-detail] Meta System User token probe failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
   return (
     <ClientDetail
       client={client}
@@ -220,6 +259,10 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       initialTab={initialTab}
       portal={portal.ok ? portal : null}
       hasTaggedEvents={hasTaggedEvents}
+      metaSystemUserToken={{
+        enabled: metaSystemUserFlag,
+        initial: metaSystemUserInitial,
+      }}
     />
   );
 }

@@ -76,6 +76,14 @@ interface EventSyncResult {
   googleAdsError: string | null;
   rowsUpserted: number;
   durationMs: number;
+  /**
+   * Phase 1 canary telemetry — surfaces the token family the Meta
+   * leg used so a smoke test against `?clientId=<4tF-id>` can
+   * verify `metaTokenSource=system_user` lands without grepping
+   * Vercel logs. `null` when the Meta leg short-circuited before
+   * any token was resolved.
+   */
+  metaTokenSource: "system_user" | "db" | "env" | null;
 }
 
 interface CronResponse {
@@ -91,6 +99,19 @@ interface CronResponse {
   eventsConsidered: number;
   eventsProcessed: number;
   totalRowsUpserted: number;
+  /**
+   * Per-token-source counts across the batch — surfaces the Phase 1
+   * canary mix so we can answer "how many events used the System
+   * User token in this run?" without a grep. Sum is ≤ eventsProcessed
+   * (events that errored before resolving a token contribute to the
+   * `null` bucket via the `unresolved` count).
+   */
+  metaTokenSourceCounts: {
+    system_user: number;
+    db: number;
+    env: number;
+    unresolved: number;
+  };
   results: EventSyncResult[];
 }
 
@@ -152,6 +173,7 @@ export async function GET(req: NextRequest) {
       eventsConsidered: 0,
       eventsProcessed: 0,
       totalRowsUpserted: 0,
+      metaTokenSourceCounts: { system_user: 0, db: 0, env: 0, unresolved: 0 },
       results: [],
     };
     console.log(
@@ -242,6 +264,7 @@ export async function GET(req: NextRequest) {
         googleAdsError: result.summary.googleAdsError,
         rowsUpserted: result.summary.rowsUpserted,
         durationMs: Date.now() - t0,
+        metaTokenSource: result.summary.metaTokenSource,
       });
     } catch (err) {
       // Per-event isolation — one Meta rate limit shouldn't abort
@@ -263,12 +286,23 @@ export async function GET(req: NextRequest) {
         googleAdsError: message,
         rowsUpserted: 0,
         durationMs: Date.now() - t0,
+        metaTokenSource: null,
       });
     }
   }
 
   const finishedAt = new Date().toISOString();
   const allOk = results.every((r) => r.ok);
+  const metaTokenSourceCounts = results.reduce(
+    (acc, r) => {
+      if (r.metaTokenSource === "system_user") acc.system_user++;
+      else if (r.metaTokenSource === "db") acc.db++;
+      else if (r.metaTokenSource === "env") acc.env++;
+      else acc.unresolved++;
+      return acc;
+    },
+    { system_user: 0, db: 0, env: 0, unresolved: 0 },
+  );
   const response: CronResponse = {
     ok: allOk,
     startedAt,
@@ -277,11 +311,12 @@ export async function GET(req: NextRequest) {
     eventsConsidered: events.length,
     eventsProcessed: results.length,
     totalRowsUpserted,
+    metaTokenSourceCounts,
     results,
   };
 
   console.log(
-    `[cron rollup-sync-events] cadence=base done events=${results.length} all_ok=${allOk} total_rows=${totalRowsUpserted}`,
+    `[cron rollup-sync-events] cadence=base done events=${results.length} all_ok=${allOk} total_rows=${totalRowsUpserted} meta_token_sources=system_user:${metaTokenSourceCounts.system_user},db:${metaTokenSourceCounts.db},env:${metaTokenSourceCounts.env},unresolved:${metaTokenSourceCounts.unresolved}`,
   );
 
   try {

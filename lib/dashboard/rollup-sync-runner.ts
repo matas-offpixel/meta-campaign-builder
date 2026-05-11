@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { resolveSystemUserToken } from "@/lib/meta/system-user-token";
 import {
   fetchEventDailyMetaMetrics,
   fetchEventTodayMetaSnapshot,
@@ -221,6 +222,19 @@ export interface SyncDiagnostics {
    */
   todayRowAfterSync: TodayRowProbe | null;
   /**
+   * Which token family supplied the Meta leg's access token (Phase 1
+   * canary — see `docs/META_TOKEN_ARCHITECTURE_2026-05-11.md`):
+   *   - `system_user` — per-client Meta Business Manager System User
+   *     token (`lib/meta/system-user-token.ts`). Hits the BUC bucket
+   *     (per ad account) and never expires.
+   *   - `db` — Matas's personal OAuth token from
+   *     `user_facebook_tokens` (legacy fallback).
+   *   - `env` — `META_ACCESS_TOKEN` env var (last-resort fallback).
+   *   - `null` — Meta leg short-circuited before any token resolved
+   *     (no event_code / no ad_account / leg threw before resolve).
+   */
+  metaTokenSource: "system_user" | "db" | "env" | null;
+  /**
    * Summary of the per-event spend allocator leg (PR D2). `null`
    * when the allocator didn't run (no event_code, no client_id —
    * old callers that haven't opted in, or solo-event venues where
@@ -282,6 +296,13 @@ export interface SyncSummary {
   allocatorClassErrors: number;
   /** Sum across all legs — the easiest "did anything happen?" gauge. */
   rowsUpserted: number;
+  /**
+   * Phase 1 canary telemetry — which token family supplied the Meta
+   * leg's access token. Mirrors `SyncDiagnostics.metaTokenSource` but
+   * surfaced here for callers (e.g. `/api/cron/rollup-sync-events`)
+   * that prefer to consume the flat summary block.
+   */
+  metaTokenSource: "system_user" | "db" | "env" | null;
   /**
    * Semantic success: "did every leg that was supposed to run
    * actually succeed?". Treats **expected terminal states** as
@@ -405,6 +426,7 @@ export async function runRollupSyncForEvent(
     eventbriteWindowDaysPadded: 0,
     todayRowAfterSync: null,
     allocatorResult: null,
+    metaTokenSource: null,
   };
 
   console.log(
@@ -465,7 +487,13 @@ export async function runRollupSyncForEvent(
     console.warn(`[rollup-sync] meta skip: ${metaResult.reason}`);
   } else {
     try {
-      const { token } = await resolveServerMetaToken(supabase, userId);
+      const resolved = await resolveMetaTokenForRollupSync({
+        supabase,
+        userId,
+        clientId: clientId ?? null,
+      });
+      const token = resolved.token;
+      diagnostics.metaTokenSource = resolved.source;
       const metaFetch = await fetchEventDailyMetaMetrics({
         eventCode,
         adAccountId,
@@ -705,7 +733,15 @@ export async function runRollupSyncForEvent(
       console.info(
         `[rollup-sync] allocator invoking event_code=${allocatorEventCode} client_id=${allocatorClientId} event_date=${eventDate ?? "<null>"} window=${sinceStr}..${untilStr}`,
       );
-      const { token } = await resolveServerMetaToken(supabase, userId);
+      // Re-resolve via the same Phase 1 helper so the allocator leg
+      // also benefits from the per-client System User token. Cheap —
+      // the System User RPC + last_used_at write fire once per call,
+      // which is fine for the allocator's per-event run.
+      const { token } = await resolveMetaTokenForRollupSync({
+        supabase,
+        userId,
+        clientId: allocatorClientId,
+      });
       const allocator = await allocateVenueSpendForCode({
         supabase,
         userId,
@@ -1134,6 +1170,7 @@ export async function runRollupSyncForEvent(
       (tiktokResult.rowsWritten ?? 0) +
       (googleAdsResult.rowsWritten ?? 0) +
       allocatorRowsUpserted,
+    metaTokenSource: diagnostics.metaTokenSource,
     synced,
   };
 
@@ -1142,7 +1179,7 @@ export async function runRollupSyncForEvent(
       summary.metaOk
     }${summary.metaReason ? `(${summary.metaReason})` : ""} meta_rows=${
       summary.metaRowsUpserted
-    } tt_ok=${summary.tiktokOk}${
+    } meta_token_source=${summary.metaTokenSource ?? "n/a"} tt_ok=${summary.tiktokOk}${
       summary.tiktokReason ? `(${summary.tiktokReason})` : ""
     } tt_rows=${summary.tiktokRowsUpserted} gads_ok=${summary.googleAdsOk}${
       summary.googleAdsReason ? `(${summary.googleAdsReason})` : ""
@@ -1267,6 +1304,38 @@ function snapshotSourceForProvider(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Phase 1 canary token resolver for the rollup-sync Meta leg (see
+ * `docs/META_TOKEN_ARCHITECTURE_2026-05-11.md`). Prefer the per-client
+ * Meta System User token (BUC bucket, non-expiring); fall back to the
+ * personal OAuth resolver when no client_id was passed in or the
+ * resolver returned null.
+ *
+ * Always returns a token (or rethrows from `resolveServerMetaToken`)
+ * so the caller doesn't need a second guard — the new path is
+ * strictly additive.
+ */
+async function resolveMetaTokenForRollupSync(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  clientId: string | null;
+}): Promise<{ token: string; source: "system_user" | "db" | "env" }> {
+  if (args.clientId) {
+    const systemUser = await resolveSystemUserToken(args.clientId, args.supabase);
+    if (systemUser) {
+      console.info(
+        `[rollup-sync] tokenSource=system_user clientId=${args.clientId}`,
+      );
+      return { token: systemUser.token, source: "system_user" };
+    }
+  }
+  const fallback = await resolveServerMetaToken(args.supabase, args.userId);
+  console.info(
+    `[rollup-sync] tokenSource=${fallback.source} clientId=${args.clientId ?? "<null>"} userId=${args.userId}`,
+  );
+  return { token: fallback.token, source: fallback.source };
 }
 
 function ymd(d: Date): string {
