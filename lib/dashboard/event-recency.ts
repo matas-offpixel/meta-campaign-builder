@@ -82,3 +82,38 @@ export function isPastVenueGroup(
   if (events.length === 0) return false;
   return events.every((ev) => isPastEvent(ev.event_date, now));
 }
+
+// ─── Cancellation helpers ──────────────────────────────────────────────────
+
+/**
+ * Returns true when the event's `status` field equals `'cancelled'`.
+ * Treats absent / null status as NOT cancelled, preserving backwards
+ * compatibility with legacy event rows that predate the status column.
+ *
+ * Cancellation takes priority over all recency logic — a cancelled event
+ * with a future date still belongs in the Cancelled section, not Active.
+ */
+export function isCancelledEvent(event: {
+  status?: string | null;
+}): boolean {
+  return event.status === "cancelled";
+}
+
+/**
+ * Returns true ONLY when EVERY event in the group is cancelled.
+ *
+ * If any fixture in a multi-event group is NOT cancelled, the whole
+ * group stays in whichever bucket its non-cancelled events qualify for
+ * (active or past). This is the group-level counterpart of
+ * `isCancelledEvent` and mirrors `isPastVenueGroup`'s semantics.
+ *
+ * Priority: cancelled > past > active. A venue group where every event
+ * has `status='cancelled'` goes to the Cancelled accordion regardless
+ * of its `event_date`s.
+ */
+export function isCancelledVenueGroup(
+  events: ReadonlyArray<{ status?: string | null }>,
+): boolean {
+  if (events.length === 0) return false;
+  return events.every((ev) => isCancelledEvent(ev));
+}

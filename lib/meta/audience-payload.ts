@@ -93,9 +93,19 @@ export function buildMetaCustomAudiencePayload(
     // sends ONLY {name, rule, prefill} — no subtype, no extra fields.
     //
     // Also: event_sources.id is sent as a STRING (not number-coerced).
+    //
+    // FOLLOWERS RETENTION CONSTRAINT (verified 2026-05-11 from Meta error
+    // #2654 subcode 1713214 "Can't Choose Data Time Limit"):
+    //   FB/IG followers audiences ("page_liked" event) MUST have retention_seconds = 0.
+    //   These audiences are always-live "everyone who currently likes the Page"
+    //   with no rolling window. Meta's UI even disables the retention field
+    //   when this event is selected. The working campaign creator code in
+    //   lib/meta/client.ts:1197 sets retentionSeconds: 0 for fb_likes
+    //   regardless of any user input.
+    const effectiveRetentionSeconds = isFollowers ? 0 : retentionSeconds;
     const rules = pageIds.map((pageId) => ({
       event_sources: [{ type: isIg ? "ig_business" : "page", id: pageId }],
-      retention_seconds: retentionSeconds,
+      retention_seconds: effectiveRetentionSeconds,
       filter: {
         operator: "and",
         filters: [metaLeafEq("event", eventValue)],

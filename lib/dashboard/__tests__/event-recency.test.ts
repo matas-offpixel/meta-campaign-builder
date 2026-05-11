@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   PAST_THRESHOLD_DAYS,
+  isCancelledEvent,
+  isCancelledVenueGroup,
   isPastEvent,
   isPastVenueGroup,
   londonTodayIso,
@@ -180,5 +182,92 @@ describe("isPastVenueGroup", () => {
     ];
     // threshold = July 3 - 1 = July 2; July 1 < July 2 → past
     assert.equal(isPastVenueGroup(fixtures, july3), true);
+  });
+});
+
+// ─── isCancelledEvent ──────────────────────────────────────────────────────
+
+describe("isCancelledEvent", () => {
+  it("returns true when status === 'cancelled'", () => {
+    assert.equal(isCancelledEvent({ status: "cancelled" }), true);
+  });
+
+  it("returns false when status is null", () => {
+    assert.equal(isCancelledEvent({ status: null }), false);
+  });
+
+  it("returns false when status is undefined (legacy row without status column)", () => {
+    assert.equal(isCancelledEvent({ status: undefined }), false);
+    assert.equal(isCancelledEvent({}), false);
+  });
+
+  it("returns false for other status values", () => {
+    assert.equal(isCancelledEvent({ status: "announced" }), false);
+    assert.equal(isCancelledEvent({ status: "on_sale" }), false);
+    assert.equal(isCancelledEvent({ status: "complete" }), false);
+    assert.equal(isCancelledEvent({ status: "postponed" }), false);
+  });
+
+  it("status comparison is case-sensitive (partial match does not qualify)", () => {
+    assert.equal(isCancelledEvent({ status: "Cancelled" }), false);
+    assert.equal(isCancelledEvent({ status: "CANCELLED" }), false);
+  });
+});
+
+// ─── isCancelledVenueGroup ────────────────────────────────────────────────
+
+describe("isCancelledVenueGroup", () => {
+  function ce(status: string | null | undefined) {
+    return { status };
+  }
+
+  it("empty group is NOT cancelled", () => {
+    assert.equal(isCancelledVenueGroup([]), false);
+  });
+
+  it("single cancelled event IS a cancelled group", () => {
+    assert.equal(isCancelledVenueGroup([ce("cancelled")]), true);
+  });
+
+  it("all-cancelled multi-event group IS cancelled", () => {
+    assert.equal(
+      isCancelledVenueGroup([ce("cancelled"), ce("cancelled"), ce("cancelled")]),
+      true,
+    );
+  });
+
+  it("[cancelled, active] group is NOT cancelled (one active fixture keeps it out)", () => {
+    assert.equal(
+      isCancelledVenueGroup([ce("cancelled"), ce("on_sale")]),
+      false,
+    );
+  });
+
+  it("[cancelled, null-status] group is NOT cancelled (null treated as non-cancelled)", () => {
+    assert.equal(
+      isCancelledVenueGroup([ce("cancelled"), ce(null)]),
+      false,
+    );
+  });
+
+  it("[cancelled, undefined-status] group is NOT cancelled (legacy row)", () => {
+    assert.equal(
+      isCancelledVenueGroup([ce("cancelled"), ce(undefined)]),
+      false,
+    );
+  });
+
+  // Forest/Chelsea scenario: two shows at The Vic — Forest cancelled, Chelsea active
+  it("Forest/Chelsea at same venue stays ACTIVE when only one fixture is cancelled", () => {
+    const forest = ce("cancelled");
+    const chelsea = ce("on_sale");
+    assert.equal(isCancelledVenueGroup([forest, chelsea]), false);
+  });
+
+  // All fixtures cancelled: group migrates to Cancelled accordion
+  it("Forest/Chelsea group moves to CANCELLED when both fixtures are cancelled", () => {
+    const forest = ce("cancelled");
+    const chelsea = ce("cancelled");
+    assert.equal(isCancelledVenueGroup([forest, chelsea]), true);
   });
 });

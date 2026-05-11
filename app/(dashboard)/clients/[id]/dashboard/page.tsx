@@ -33,7 +33,7 @@ import {
  */
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ region?: string; tab?: string; phase?: string; funnel?: string; past?: string }>;
+  searchParams: Promise<{ region?: string; tab?: string; phase?: string; funnel?: string; past?: string; cancelled?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -151,6 +151,7 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
         patternsPhase={parseCreativePatternPhase(sp.phase)}
         patternsFunnel={parseCreativePatternFunnel(sp.funnel)}
         initialPastExpanded={sp.past === "1"}
+        initialCancelledExpanded={sp.cancelled === "1"}
       />
     </>
   );

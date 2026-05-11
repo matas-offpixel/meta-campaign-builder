@@ -57,6 +57,15 @@ export interface PortalEvent {
   report_cadence: "daily" | "weekly";
   budget_marketing: number | null;
   /**
+   * Event lifecycle status from `events.status`. Populated by the
+   * portal loader so the dashboard can bucket cancelled events into
+   * their own section instead of showing them as active.
+   * Common values: `'announced'`, `'on_sale'`, `'complete'`,
+   * `'cancelled'`, `'postponed'`. Null for legacy rows where the
+   * column has never been set.
+   */
+  status: string | null;
+  /**
    * Meta campaign id covering this event (migration 023). All events at
    * the same venue share one campaign, so the venue-level rollup in the
    * portal matches the campaign's lifetime spend exactly.
@@ -633,7 +642,7 @@ async function loadPortalForClientId(
   const eventsQueryBase = admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status",
     )
     .eq("client_id", clientId);
   const eventsQuery = options?.eventCode
@@ -1058,6 +1067,7 @@ async function loadPortalForClientId(
         meta_campaign_id: e.meta_campaign_id,
         meta_spend_cached: e.meta_spend_cached,
         prereg_spend: e.prereg_spend,
+        status: (e as unknown as { status?: string | null }).status ?? null,
         tickets_sold: resolvedTicketsSold,
         api_tickets_sold: apiTicketsSold,
         additional_tickets_sold: additionalTicketsSold,

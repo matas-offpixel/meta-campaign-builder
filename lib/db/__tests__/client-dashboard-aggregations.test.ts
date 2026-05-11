@@ -1465,3 +1465,108 @@ describe("aggregateClientWideTotals recencyFilter", () => {
     assert.equal(totals.venueGroups, 0);
   });
 });
+
+// ─── aggregateClientWideTotals — recencyFilter='cancelled' ─────────────────
+
+describe("aggregateClientWideTotals recencyFilter='cancelled'", () => {
+  const TODAY = "2026-05-11";
+  const now = new Date(`${TODAY}T12:00:00Z`);
+
+  const pastDate = offsetDateForRecency(TODAY, -2);
+  const futureDate = offsetDateForRecency(TODAY, +7);
+
+  // Group A: fully cancelled (both fixtures cancelled — goes to Cancelled bucket)
+  const CANCELLED_GROUP_CODE = "4TF-CANCELLED-GROUP";
+  const cancelledFx1 = ev({
+    id: "can-1",
+    event_code: CANCELLED_GROUP_CODE,
+    event_date: futureDate,
+    status: "cancelled",
+    tickets_sold: 300,
+    latest_snapshot: { tickets_sold: 300, revenue: null },
+  });
+  const cancelledFx2 = ev({
+    id: "can-2",
+    event_code: CANCELLED_GROUP_CODE,
+    event_date: futureDate,
+    status: "cancelled",
+    tickets_sold: 100,
+    latest_snapshot: { tickets_sold: 100, revenue: null },
+  });
+
+  // Group B: mixed — one cancelled, one active → stays in Active bucket
+  const MIXED_GROUP_CODE = "4TF-MIXED-GROUP";
+  const mixedCancelledFx = ev({
+    id: "mixed-can",
+    event_code: MIXED_GROUP_CODE,
+    event_date: futureDate,
+    status: "cancelled",
+    tickets_sold: 50,
+    latest_snapshot: { tickets_sold: 50, revenue: null },
+  });
+  const mixedActiveFx = ev({
+    id: "mixed-active",
+    event_code: MIXED_GROUP_CODE,
+    event_date: futureDate,
+    status: "on_sale",
+    tickets_sold: 200,
+    latest_snapshot: { tickets_sold: 200, revenue: null },
+  });
+
+  // Group C: fully past (no cancellation)
+  const PAST_GROUP_CODE = "4TF-PAST-ONLY";
+  const pastFx = ev({
+    id: "past-fx",
+    event_code: PAST_GROUP_CODE,
+    event_date: pastDate,
+    tickets_sold: 400,
+    latest_snapshot: { tickets_sold: 400, revenue: null },
+  });
+
+  const allEvents = [cancelledFx1, cancelledFx2, mixedCancelledFx, mixedActiveFx, pastFx];
+  const rollups: DailyRollupRow[] = [];
+  const addlSpend: AdditionalSpendRow[] = [];
+
+  it("recencyFilter='cancelled' returns only the fully-cancelled group", () => {
+    const totals = aggregateClientWideTotals(allEvents, rollups, addlSpend, 0, "cancelled", now);
+    // Only Group A qualifies: 300 + 100 = 400 tickets
+    assert.equal(totals.ticketsSold, 400, "should only count fully-cancelled group");
+    assert.equal(totals.venueGroups, 1, "one cancelled venue group");
+    assert.equal(totals.events, 2, "two events in the cancelled group");
+  });
+
+  it("recencyFilter='active' excludes the fully-cancelled group", () => {
+    const totals = aggregateClientWideTotals(allEvents, rollups, addlSpend, 0, "active", now);
+    // Mixed group is active (has a non-cancelled fixture): 50 + 200 = 250
+    // Fully-cancelled group is excluded; past group is excluded
+    assert.equal(totals.ticketsSold, 250, "should exclude cancelled group and past group");
+    assert.equal(totals.venueGroups, 1, "only the mixed-but-active group");
+  });
+
+  it("recencyFilter='all' includes every group including cancelled", () => {
+    const totals = aggregateClientWideTotals(allEvents, rollups, addlSpend, 0, "all", now);
+    // 300 + 100 + 50 + 200 + 400 = 1050
+    assert.equal(totals.ticketsSold, 1050);
+    assert.equal(totals.venueGroups, 3);
+  });
+
+  it("recencyFilter='cancelled' returns zeroed totals when no cancelled groups exist", () => {
+    const noCancel = [mixedActiveFx, pastFx];
+    const totals = aggregateClientWideTotals(noCancel, rollups, addlSpend, 0, "cancelled", now);
+    assert.equal(totals.ticketsSold, 0);
+    assert.equal(totals.venueGroups, 0);
+  });
+
+  it("cancelled group with future dates goes to Cancelled bucket (not Past or Active)", () => {
+    // A group can be cancelled even if all event_dates are in the future
+    const totals = aggregateClientWideTotals(
+      [cancelledFx1, cancelledFx2],
+      rollups,
+      addlSpend,
+      0,
+      "cancelled",
+      now,
+    );
+    assert.equal(totals.venueGroups, 1, "future-dated but cancelled → Cancelled bucket");
+  });
+});
