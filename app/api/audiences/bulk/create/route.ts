@@ -22,6 +22,9 @@ import {
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 
+export const maxDuration = 300;
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const {
