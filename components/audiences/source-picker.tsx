@@ -18,6 +18,19 @@ import {
 } from "@/lib/audiences/source-picker-fetch";
 import type { AudienceSubtype } from "@/lib/types/audience";
 
+export function isAlwaysLiveFollowersSubtype(subtype: AudienceSubtype): boolean {
+  return subtype === "page_followers_fb" || subtype === "page_followers_ig";
+}
+
+export function FollowersRetentionNote() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Followers audience is always-live; Meta doesn&apos;t allow time limits on this
+      type
+    </p>
+  );
+}
+
 export interface SourceSelection {
   sourceId?: string;
   sourceName?: string;
@@ -276,6 +289,7 @@ export function SourcePicker({
       <IgSourcePicker
         clientId={clientId}
         instanceId={instanceId}
+        subtype={subtype}
         value={value}
         onChange={onChange}
         onRateLimitChange={onRateLimitChange}
@@ -286,6 +300,7 @@ export function SourcePicker({
     <PageSourcePicker
       clientId={clientId}
       instanceId={instanceId}
+      subtype={subtype}
       value={value}
       onChange={onChange}
       onRateLimitChange={onRateLimitChange}
@@ -296,12 +311,14 @@ export function SourcePicker({
 function PageSourcePicker({
   clientId,
   instanceId,
+  subtype,
   value,
   onChange,
   onRateLimitChange,
 }: {
   clientId: string;
   instanceId: string;
+  subtype: AudienceSubtype;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
   onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
@@ -398,6 +415,7 @@ function PageSourcePicker({
         rateLimited={rateLimited}
         empty={!loading && filtered.length === 0}
       />
+      {isAlwaysLiveFollowersSubtype(subtype) && <FollowersRetentionNote />}
     </div>
   );
 }
@@ -405,12 +423,14 @@ function PageSourcePicker({
 function IgSourcePicker({
   clientId,
   instanceId,
+  subtype,
   value,
   onChange,
   onRateLimitChange,
 }: {
   clientId: string;
   instanceId: string;
+  subtype: AudienceSubtype;
   value: SourceSelection;
   onChange: (value: SourceSelection) => void;
   onRateLimitChange?: (instanceId: string, rateLimited: boolean) => void;
@@ -529,6 +549,7 @@ function IgSourcePicker({
         rateLimited={rateLimited}
         empty={!loading && accounts.length === 0}
       />
+      {isAlwaysLiveFollowersSubtype(subtype) && <FollowersRetentionNote />}
     </div>
   );
 }

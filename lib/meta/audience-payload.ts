@@ -102,6 +102,8 @@ export function buildMetaCustomAudiencePayload(
     //   when this event is selected. The working campaign creator code in
     //   lib/meta/client.ts:1197 sets retentionSeconds: 0 for fb_likes
     //   regardless of any user input.
+    //   We still preserve audience.retentionDays elsewhere for naming / UI
+    //   readability even though the payload itself must send zero.
     const effectiveRetentionSeconds = isFollowers ? 0 : retentionSeconds;
     const rules = pageIds.map((pageId) => ({
       event_sources: [{ type: isIg ? "ig_business" : "page", id: pageId }],
