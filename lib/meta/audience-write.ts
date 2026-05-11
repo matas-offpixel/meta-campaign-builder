@@ -11,10 +11,10 @@ import {
   metaAudienceIdempotencyKey,
   withMetaAudienceWriteIdempotency,
 } from "@/lib/meta/audience-idempotency";
+import { resolveAudienceWriteToken } from "@/lib/meta/audience-write-token";
 import { buildMetaCustomAudiencePayload } from "@/lib/meta/audience-payload";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { MetaApiError } from "@/lib/meta/client";
-import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 import type { MetaCustomAudience } from "@/lib/types/audience";
 
@@ -74,7 +74,11 @@ export async function createMetaCustomAudience(
     throw new Error("Only draft or failed audiences can be created on Meta");
   }
 
-  const { token } = await resolveServerMetaToken(supabase, options.userId);
+  const { token } = await resolveAudienceWriteToken(supabase, {
+    userId: options.userId,
+    metaAdAccountId: audience.metaAdAccountId,
+    audienceId: audience.id,
+  });
   const idempotencyKey = metaAudienceIdempotencyKey(audience.id, options.userId);
 
   await updateAudience(audience.id, { status: "creating", statusError: null });
@@ -164,7 +168,11 @@ export async function archiveMetaCustomAudience(
   if (!audience || audience.userId !== options.userId) return false;
   if (metaAudienceWritesEnabled() && audience.metaAudienceId) {
     const supabase = options.supabase ?? (await createClient());
-    const { token } = await resolveServerMetaToken(supabase, options.userId);
+    const { token } = await resolveAudienceWriteToken(supabase, {
+      userId: options.userId,
+      metaAdAccountId: audience.metaAdAccountId,
+      audienceId: audience.id,
+    });
     await deleteMetaAudience(
       audience.metaAdAccountId,
       audience.metaAudienceId,
