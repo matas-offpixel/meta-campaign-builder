@@ -157,8 +157,8 @@ describe("previewRowsToInserts", () => {
       orphanVideos: 0,
       audiences: [
         {
-          funnelStage: "top_of_funnel",
-          name: "[WC26-MANCHESTER] 50% video views 365d",
+          funnelStage: "mid_top",
+          name: "[WC26-MANCHESTER] Mid-Top — 50% VV 365d",
           threshold: 50,
           retentionDays: 365,
           videoIds,
@@ -166,8 +166,8 @@ describe("previewRowsToInserts", () => {
           campaignSummaries,
         },
         {
-          funnelStage: "bottom_funnel",
-          name: "[WC26-MANCHESTER] 95% video views 30d",
+          funnelStage: "bottom",
+          name: "[WC26-MANCHESTER] Bottom — 95% VV 30d",
           threshold: 95,
           retentionDays: 30,
           videoIds,
@@ -204,7 +204,7 @@ describe("previewRowsToInserts", () => {
   it("uses audience name from preview row directly", () => {
     const inserts = previewRowsToInserts(rows, opts);
     const top = inserts.find((i) => i.funnelStage === "top_of_funnel");
-    assert.equal(top?.name, "[WC26-MANCHESTER] 50% video views 365d");
+    assert.equal(top?.name, "[WC26-MANCHESTER] Mid-Top — 50% VV 365d");
   });
 
   it("maps custom funnelStage → retargeting in DB insert", () => {
@@ -254,9 +254,10 @@ describe("naming for bulk video views", () => {
   });
 
   it("BULK_FUNNEL_CONFIG has correct thresholds", () => {
-    assert.equal(BULK_FUNNEL_CONFIG.top_of_funnel.threshold, 50);
-    assert.equal(BULK_FUNNEL_CONFIG.mid_funnel.threshold, 75);
-    assert.equal(BULK_FUNNEL_CONFIG.bottom_funnel.threshold, 95);
+    assert.equal(BULK_FUNNEL_CONFIG.mid_top.threshold, 50);
+    assert.equal(BULK_FUNNEL_CONFIG.mid.threshold, 75);
+    assert.equal(BULK_FUNNEL_CONFIG.mid_bottom.threshold, 95);
+    assert.equal(BULK_FUNNEL_CONFIG.bottom.threshold, 95);
   });
 });
 
@@ -301,8 +302,8 @@ describe("2 funnel + 2 custom stages × 3 events → 12 audiences", () => {
 
   const rows = eventCodes.map((code) =>
     makePreviewRow(code, [
-      makeAudience("top_of_funnel", 50, 365, code),
-      makeAudience("bottom_funnel", 95, 30, code),
+      makeAudience("mid_top", 50, 365, code),
+      makeAudience("bottom", 95, 30, code),
       makeAudience("custom", 95, 60, code),
       makeAudience("custom", 95, 30, code),
     ]),

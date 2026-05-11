@@ -7,20 +7,29 @@ import type { FunnelStage, MetaCustomAudienceInsert } from "../types/audience.ts
 
 // ── Funnel stage configuration ────────────────────────────────────────────────
 
-export type BulkFunnelStage = "top_of_funnel" | "mid_funnel" | "bottom_funnel";
+export type BulkFunnelStage = "mid_top" | "mid" | "mid_bottom" | "bottom";
 
 export const BULK_FUNNEL_CONFIG: Record<
   BulkFunnelStage,
-  { threshold: 25 | 50 | 75 | 95 | 100; retentionDays: number }
+  { threshold: 25 | 50 | 75 | 95 | 100; retentionDays: number; label: string }
 > = {
-  top_of_funnel: { threshold: 50, retentionDays: 365 },
-  mid_funnel: { threshold: 75, retentionDays: 60 },
-  bottom_funnel: { threshold: 95, retentionDays: 30 },
+  mid_top:    { threshold: 50, retentionDays: 365, label: "Mid-Top" },
+  mid:        { threshold: 75, retentionDays: 180, label: "Mid" },
+  mid_bottom: { threshold: 95, retentionDays: 60,  label: "Mid-Bottom" },
+  bottom:     { threshold: 95, retentionDays: 30,  label: "Bottom" },
+};
+
+/** Maps bulk preset stages to the canonical DB FunnelStage values. */
+const BULK_STAGE_TO_FUNNEL_STAGE: Record<BulkFunnelStage, FunnelStage> = {
+  mid_top:    "top_of_funnel",
+  mid:        "mid_funnel",
+  mid_bottom: "bottom_funnel",
+  bottom:     "bottom_funnel",
 };
 
 export function isBulkFunnelStage(v: unknown): v is BulkFunnelStage {
   return (
-    v === "top_of_funnel" || v === "mid_funnel" || v === "bottom_funnel"
+    v === "mid_top" || v === "mid" || v === "mid_bottom" || v === "bottom"
   );
 }
 
@@ -112,7 +121,9 @@ export function previewRowsToInserts(
     if (row.skipped) continue;
     for (const audience of row.audiences) {
       const funnelStage: FunnelStage =
-        audience.funnelStage === "custom" ? "retargeting" : audience.funnelStage;
+        audience.funnelStage === "custom"
+          ? "retargeting"
+          : BULK_STAGE_TO_FUNNEL_STAGE[audience.funnelStage];
       inserts.push({
         userId: opts.userId,
         clientId: opts.clientId,
