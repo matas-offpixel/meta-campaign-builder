@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 383
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/383
 - **Branch:** `creator/audience-followers-retention-zero`
 
 ## Summary
@@ -16,7 +16,7 @@ Align the audience builder with Meta's follower-audience retention constraint by
 - `lib/meta/__tests__/audience-write.test.ts`
 - `components/audiences/source-picker.tsx`
 - `app/(dashboard)/audiences/[clientId]/new/audience-create-form.tsx`
-- `docs/session-logs/pr-pending-creator-audience-followers-retention-zero.md`
+- `docs/session-logs/pr-383-creator-audience-followers-retention-zero.md`
 
 ## Validation
 
