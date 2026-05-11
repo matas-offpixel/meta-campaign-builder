@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  aggregateAllBuckets,
   aggregateAllocationByEvent,
   aggregateClientWideTotals,
   aggregateVenueCampaignPerformance,
@@ -1568,5 +1569,127 @@ describe("aggregateClientWideTotals recencyFilter='cancelled'", () => {
       now,
     );
     assert.equal(totals.venueGroups, 1, "future-dated but cancelled → Cancelled bucket");
+  });
+});
+
+// ─── aggregateAllBuckets ─────────────────────────────────────────────────────
+
+describe("aggregateAllBuckets", () => {
+  const TODAY = "2026-05-11";
+  const now = new Date(`${TODAY}T12:00:00Z`);
+  const pastDate = offsetDateForRecency(TODAY, -2);
+  const futureDate = offsetDateForRecency(TODAY, +7);
+
+  const activeEv = ev({
+    id: "active",
+    event_code: "4TF-ACTIVE",
+    event_date: futureDate,
+    tickets_sold: 500,
+    latest_snapshot: { tickets_sold: 500, revenue: null },
+  });
+  const pastEv = ev({
+    id: "past",
+    event_code: "4TF-PAST",
+    event_date: pastDate,
+    tickets_sold: 200,
+    latest_snapshot: { tickets_sold: 200, revenue: null },
+  });
+  const cancelledEv = ev({
+    id: "cancelled",
+    event_code: "4TF-CANCELLED",
+    event_date: futureDate,
+    status: "cancelled",
+    tickets_sold: 100,
+    latest_snapshot: { tickets_sold: 100, revenue: null },
+  });
+
+  it("returns three non-overlapping buckets that together cover all events", () => {
+    const buckets = aggregateAllBuckets(
+      [activeEv, pastEv, cancelledEv],
+      [],
+      [],
+      0,
+      now,
+    );
+    assert.equal(buckets.active.ticketsSold, 500, "active bucket: only active event");
+    assert.equal(buckets.past.ticketsSold, 200, "past bucket: only past event");
+    assert.equal(buckets.cancelled.ticketsSold, 100, "cancelled bucket: only cancelled event");
+  });
+
+  it("extraAdSpend only credits the active bucket", () => {
+    const buckets = aggregateAllBuckets(
+      [activeEv, pastEv, cancelledEv],
+      [],
+      [],
+      1000, // extraAdSpend
+      now,
+    );
+    assert.equal(buckets.active.adSpend, 1000, "active bucket includes extraAdSpend");
+    assert.equal(buckets.past.adSpend, 0, "past bucket does not include extraAdSpend");
+    assert.equal(buckets.cancelled.adSpend, 0, "cancelled bucket does not include extraAdSpend");
+  });
+
+  it("ROAS in each bucket uses revenue and spend from the same bucket (consistent denominator)", () => {
+    const evWithRevenue = ev({
+      id: "rev",
+      event_code: "4TF-REV",
+      event_date: futureDate,
+      tickets_sold: 100,
+      latest_snapshot: { tickets_sold: 100, revenue: 5000 },
+    });
+    const rollupForRev = rollup("rev", 500);
+    const buckets = aggregateAllBuckets([evWithRevenue], [rollupForRev], [], 0, now);
+    // ROAS = 5000 / 500 = 10
+    assert.ok(buckets.active.roas !== null, "ROAS should be non-null");
+    assert.ok(
+      Math.abs(buckets.active.roas! - 10) < 0.001,
+      `ROAS should be 10 (revenue/adSpend), got ${buckets.active.roas}`,
+    );
+  });
+});
+
+// ─── BUG-1: multi-event-code unallocated spend deduplication ────────────────
+
+describe("aggregateClientWideTotals — multi-event-code unallocated spend deduplication (BUG-1)", () => {
+  // Two events share the same event code (same venue, different dates).
+  // Their daily rollup rows both carry the FULL campaign ad_spend for that
+  // day (£200). Without deduplication the topline would show £400. With
+  // the fix it should show £200 (max per (event_code, date)).
+  const SHARED_CODE = "4TF-PALACE";
+  const evA = ev({ id: "palace-a", event_code: SHARED_CODE, event_date: "2026-05-20" });
+  const evB = ev({ id: "palace-b", event_code: SHARED_CODE, event_date: "2026-06-10" });
+
+  const rowA = rollup("palace-a", 200); // ad_spend_allocated is null (no allocation)
+  const rowB = rollup("palace-b", 200); // same campaign, same day spend
+
+  it("does NOT double-count shared campaign spend when allocator hasn't run", () => {
+    const totals = aggregateClientWideTotals([evA, evB], [rowA, rowB], [], 0, "all");
+    // Before fix: 200 + 200 = 400. After fix: 200 (dedup by event_code + date).
+    assert.equal(
+      totals.adSpend,
+      200,
+      `multi-event-code unallocated: expect £200 (deduped), got £${totals.adSpend}`,
+    );
+  });
+
+  it("uses allocated spend when available, not raw ad_spend", () => {
+    // Allocated: evA gets 120, evB gets 80. Sum = 200 (correct distribution).
+    const rowAAllocated = rollup("palace-a", 200, { ad_spend_allocated: 120 });
+    const rowBAllocated = rollup("palace-b", 200, { ad_spend_allocated: 80 });
+    const totals = aggregateClientWideTotals(
+      [evA, evB],
+      [rowAAllocated, rowBAllocated],
+      [],
+      0,
+      "all",
+    );
+    assert.equal(totals.adSpend, 200, "allocated: 120 + 80 = 200");
+  });
+
+  it("single-event-code events are NOT deduped (own campaign, full spend)", () => {
+    const solo = ev({ id: "solo", event_code: "4TF-SOLO-UNIQUE" });
+    const soloRow = rollup("solo", 300);
+    const totals = aggregateClientWideTotals([solo], [soloRow], [], 0, "all");
+    assert.equal(totals.adSpend, 300, "single-event-code: full spend counted");
   });
 });

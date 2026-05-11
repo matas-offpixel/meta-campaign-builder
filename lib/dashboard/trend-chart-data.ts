@@ -90,13 +90,35 @@ function hasRangeAnchorMetric(
   // Zero is treated as "no signal" — backfill rows for newly-onboarded events
   // carry numeric 0 for all metrics (not null), which would push the X-axis
   // back to the first backfilled date (~80 days ago). Only positive values
-  // anchor the trim range. The cumulative-tickets path is excluded because
-  // zero is meaningful there (a snapshot row with tickets=0 is still a signal).
+  // anchor the trim range.
+  //
+  // Cumulative-snapshot mode (BUG-4 fix):
+  //   Only positive spend anchors the leading edge.
+  //
+  //   - `linkClicks > 0` alone is NOT an anchor in cumulative mode. Awareness
+  //     campaigns that run before the main ticket-sale campaign produce
+  //     link_clicks weeks/months before any spend or sales start. Including
+  //     linkClicks as an anchor would push the X-axis back to the first
+  //     awareness impression — exactly the CL Final Dec 25 bug.
+  //   - `revenue > 0` follows the same reasoning (can appear from non-Meta
+  //     sources before the main campaign).
+  //   - `tickets > 0` from cumulative snapshots is intentionally excluded:
+  //     ticket tracking (e.g. 4TF weekly cron) may predate the Meta campaign
+  //     by months. A snapshot row from Jan with tickets=517 would otherwise
+  //     pull the X-axis back to Jan even when the campaign only launched in
+  //     Apr. The "synthetic snapshot doesn't anchor" guard from PR #339 is
+  //     preserved here.
+  //
+  // Additive (non-cumulative) mode retains the full original set of anchors
+  // — all four metrics, any positive value.
+  if (hasCumulativeTickets) {
+    return (day.spend !== null && day.spend > 0);
+  }
   return (
     (day.spend !== null && day.spend > 0) ||
     (day.revenue !== null && day.revenue > 0) ||
     (day.linkClicks !== null && day.linkClicks > 0) ||
-    (!hasCumulativeTickets && day.tickets !== null && day.tickets > 0)
+    (day.tickets !== null && day.tickets > 0)
   );
 }
 

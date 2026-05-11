@@ -970,22 +970,33 @@ export function ClientPortalVenueTable({
     return { tickets, venues: pastVenues.length };
   }, [pastVenues]);
 
+  // Cancelled section summary: shows ad spend LOST (already paid to Meta,
+  // unrecoverable regardless of ticket refunds) + tickets refunded.
+  // Deliberately NO revenue figure — cancelled tickets are refunded so
+  // showing revenue would misrepresent the financial reality.
   const cancelledSectionSummary = useMemo(() => {
-    let budgetTotal = 0;
-    let hasBudget = false;
+    let adSpentTotal = 0;
+    let ticketsRefunded = 0;
     for (const group of cancelledVenues) {
       for (const ev of group.events) {
-        if (ev.budget_marketing != null) {
-          budgetTotal += ev.budget_marketing;
-          hasBudget = true;
-        }
+        // Ad spend from rollups for this event
+        const spend = paidSpendByEventMap.get(ev.id) ?? 0;
+        adSpentTotal += spend;
+        // Tickets that were sold (and subsequently refunded)
+        ticketsRefunded += resolveDisplayTicketCount({
+          ticket_tiers: ev.ticket_tiers,
+          latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
+          fallback_tickets: ev.tickets_sold ?? null,
+          tier_channel_sales_sum: ev.tier_channel_sales_tickets ?? null,
+        });
       }
     }
     return {
       venues: cancelledVenues.length,
-      budget: hasBudget ? budgetTotal : null,
+      adSpent: adSpentTotal,
+      ticketsRefunded,
     };
-  }, [cancelledVenues]);
+  }, [cancelledVenues, paidSpendByEventMap]);
 
   if (allVenues.length === 0) {
     return (
@@ -1160,20 +1171,34 @@ export function ClientPortalVenueTable({
 
           {cancelledExpanded && (
             <div id="cancelled-events-section" className="space-y-6">
+              {/* Cancelled subheadline: ad spend unrecoverable + tickets
+                  refunded. Revenue is intentionally omitted — cancelled
+                  tickets are refunded so any "revenue" figure would be
+                  misleading (it nets to £0). ROAS is not applicable. */}
               <p className="text-xs text-muted-foreground">
-                Cancelled totals:{" "}
-                {cancelledSectionSummary.budget !== null ? (
+                <span className="font-medium text-red-600/80 dark:text-red-400/80">
+                  Ad spend unrecoverable:
+                </span>{" "}
+                <span className="font-semibold text-foreground">
+                  {formatGBP(cancelledSectionSummary.adSpent)}
+                </span>
+                {cancelledSectionSummary.ticketsRefunded > 0 && (
                   <>
-                    <span className="font-medium text-foreground">
-                      {formatGBP(cancelledSectionSummary.budget)} budgets
+                    {" · "}
+                    <span className="font-medium text-muted-foreground">
+                      Tickets refunded:
                     </span>{" "}
-                    ·{" "}
+                    <span className="font-semibold text-foreground">
+                      {cancelledSectionSummary.ticketsRefunded.toLocaleString()}
+                    </span>
                   </>
-                ) : null}
-                <span className="font-medium text-foreground">
+                )}
+                {" · "}
+                <span className="font-semibold text-foreground">
                   {cancelledSectionSummary.venues} venue
                   {cancelledSectionSummary.venues === 1 ? "" : "s"}
                 </span>
+                <span className="ml-2 text-muted-foreground/60">(ROAS not applicable — refunded)</span>
               </p>
               {cancelledVenues.map((group) => (
                 <VenueSection

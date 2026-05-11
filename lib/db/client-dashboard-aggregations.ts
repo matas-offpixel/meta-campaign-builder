@@ -349,15 +349,38 @@ export function aggregateClientWideTotals(
   const eventIds = new Set(events.map((e) => e.id));
   const eventCodeCounts = eventCodeCountsByEventId(events);
 
+  // Build event_code lookup for deduplication below.
+  const eventCodeByEventId = new Map<string, string>();
+  for (const ev of events) {
+    if (ev.event_code) eventCodeByEventId.set(ev.id, ev.event_code);
+  }
+
   // Sum across allowed events only — guards against stray rows that
   // belong to a different client slipping into the arrays.
+  //
+  // Multi-event-code groups with NO allocation data get deduplicated:
+  // each (event_code, date) pair is counted at most once (taking the
+  // max across the group's events for that day). This avoids both the
+  // old "return 0 → undercount" and the alternative "sum naively →
+  // double-count the shared Meta campaign" failure modes.
   let adSpend = 0;
+  const unallocatedGroupDateSpend = new Map<string, number>(); // `${code}::${date}` → max spend
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
-    adSpend += clientWidePaidSpendOf(
-      r,
-      (eventCodeCounts.get(r.event_id) ?? 1) > 1,
-    );
+    const isMultiCode = (eventCodeCounts.get(r.event_id) ?? 1) > 1;
+
+    if (isMultiCode && r.ad_spend_allocated == null && r.ad_spend_presale == null) {
+      // Unallocated multi-event-code: deduplicate by (event_code, date).
+      const code = eventCodeByEventId.get(r.event_id) ?? r.event_id;
+      const key = `${code}::${r.date}`;
+      const prev = unallocatedGroupDateSpend.get(key) ?? 0;
+      unallocatedGroupDateSpend.set(key, Math.max(prev, paidSpendOf(r)));
+    } else {
+      adSpend += clientWidePaidSpendOf(r, isMultiCode);
+    }
+  }
+  for (const v of unallocatedGroupDateSpend.values()) {
+    adSpend += v;
   }
   adSpend += extraAdSpend;
 
@@ -432,6 +455,37 @@ export function aggregateClientWideTotals(
     roas,
     cpt,
     sellThroughPct,
+  };
+}
+
+/**
+ * Compute active / past / cancelled totals for all three buckets in
+ * three calls to `aggregateClientWideTotals`. Callers that need the
+ * breakdown for topline cards (BUG-1 fix) should use this instead of
+ * calling the single-filter variant three times manually — it's a
+ * thin wrapper that ensures consistent signatures.
+ *
+ * `extraAdSpend` (London onsale shared campaign) is only credited to
+ * the `active` bucket; past and cancelled buckets receive 0 so the
+ * London spend isn't double-counted in the breakdown subtext.
+ */
+export interface AllBucketTotals {
+  active: ClientWideTotals;
+  past: ClientWideTotals;
+  cancelled: ClientWideTotals;
+}
+
+export function aggregateAllBuckets(
+  events: AggregatableEvent[],
+  dailyRollups: DailyRollupRow[],
+  additionalSpend: AdditionalSpendRow[],
+  extraAdSpend = 0,
+  now?: Date,
+): AllBucketTotals {
+  return {
+    active: aggregateClientWideTotals(events, dailyRollups, additionalSpend, extraAdSpend, "active", now),
+    past: aggregateClientWideTotals(events, dailyRollups, additionalSpend, 0, "past", now),
+    cancelled: aggregateClientWideTotals(events, dailyRollups, additionalSpend, 0, "cancelled", now),
   };
 }
 

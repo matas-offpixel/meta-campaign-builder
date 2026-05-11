@@ -334,3 +334,114 @@ describe("trend chart aggregation", () => {
     });
   });
 });
+
+// ─── BUG-4: trimEmptyRange — cumulative-snapshot leading-zero trim ──────────
+
+describe("trimEmptyRange (BUG-4): cumulative-snapshot mode leading-zero handling", () => {
+  // Simulates the CL Final pattern: ticket_sales_snapshots rows with
+  // tickets_sold=0 stretching back from Dec 25 (when 4TF started tracking)
+  // plus some early link_click awareness activity, before actual spend +
+  // tickets arrive in April.
+
+  it("trims leading days with linkClicks-only awareness activity (no spend) — CL Final pattern", () => {
+    // CL Final: ticket_sales_snapshots from Dec 25 (tickets=0), some early
+    // linkClicks from awareness Meta campaigns, spend only starts Apr 19.
+    // Before BUG-4 fix: linkClicks > 0 anchored Dec 25 → X-axis showed Dec 25.
+    // After fix: only spend > 0 anchors cumulative mode → X-axis starts Apr 19.
+    const points: TrendChartPoint[] = [
+      // Dec 25 – Apr 18: snapshot rows with 0 tickets, no spend, some link clicks
+      ...Array.from({ length: 115 }, (_, i): TrendChartPoint => {
+        const d = new Date("2025-12-25T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + i);
+        return {
+          date: d.toISOString().slice(0, 10),
+          spend: null,
+          tickets: 0,
+          revenue: null,
+          linkClicks: i < 30 ? 50 : null, // early awareness link clicks (Jan)
+          ticketsKind: "cumulative_snapshot",
+        };
+      }),
+      // Apr 19: first spend day (campaign launches)
+      {
+        date: "2026-04-19",
+        spend: 100,
+        tickets: 0,
+        revenue: null,
+        linkClicks: null,
+        ticketsKind: "cumulative_snapshot",
+      },
+      // May 10: first actual ticket sales
+      {
+        date: "2026-05-10",
+        spend: 80,
+        tickets: 411,
+        revenue: null,
+        linkClicks: null,
+        ticketsKind: "cumulative_snapshot",
+      },
+    ];
+
+    const daily = aggregateTrendChartPoints(points, "daily");
+
+    // X-axis must start from first spend day (Apr 19), NOT Dec 25
+    assert.ok(daily.length > 0, "should return non-empty");
+    assert.equal(
+      daily[0]?.date,
+      "2026-04-19",
+      `X-axis should start at 2026-04-19 (first spend day), got ${daily[0]?.date}`,
+    );
+
+    // linkClicks on Dec 25 – Jan 23 must NOT cause the range to extend back
+    const dec25 = daily.find((d) => d.date === "2025-12-25");
+    assert.equal(dec25, undefined, "Dec 25 (linkClicks-only, tickets=0) should be trimmed");
+
+    const jan15 = daily.find((d) => d.date === "2026-01-15");
+    assert.equal(jan15, undefined, "Jan 15 (linkClicks-only day) should also be trimmed");
+  });
+
+  it("cumulative-snapshot tickets-only days (no spend) do not anchor the start — existing guard preserved", () => {
+    // Ticket tracking (4TF cron) may predate the Meta campaign by months.
+    // tickets=517 from Jan should NOT pull the chart start to Jan.
+    const points: TrendChartPoint[] = [
+      {
+        date: "2026-01-12",
+        spend: null,
+        tickets: 517,
+        revenue: null,
+        linkClicks: null,
+        ticketsKind: "cumulative_snapshot",
+      },
+      // First real spend day is Apr 2
+      { date: "2026-04-02", spend: 53.53, tickets: null, revenue: null, linkClicks: 515 },
+      { date: "2026-04-03", spend: null, tickets: null, revenue: null, linkClicks: null },
+    ];
+    const daily = aggregateTrendChartPoints(points, "daily");
+    // Preserving existing PR #339 guard: cumulative ticket snapshot alone
+    // does NOT anchor the start in cumulative mode.
+    assert.equal(
+      daily[0]?.date,
+      "2026-04-02",
+      "cumulative tickets-only day should not anchor; start must be first spend day",
+    );
+    // The Jan 12 snapshot's tickets DO carry forward into the trimmed range
+    assert.equal(daily[0]?.tickets, 517, "cumulative ticket value carries forward into range");
+  });
+
+  it("additive mode still uses linkClicks as anchor (no regression)", () => {
+    const points: TrendChartPoint[] = [
+      // additive (no ticketsKind tag)
+      { date: "2026-01-01", spend: null, tickets: null, revenue: null, linkClicks: 200 },
+      { date: "2026-01-05", spend: 100, tickets: 20, revenue: null, linkClicks: null },
+    ];
+
+    const daily = aggregateTrendChartPoints(points, "daily");
+
+    // In additive mode, linkClicks>0 is a valid anchor
+    assert.equal(
+      daily[0]?.date,
+      "2026-01-01",
+      "additive mode: linkClicks>0 should anchor start (no regression)",
+    );
+  });
+});

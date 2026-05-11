@@ -26,8 +26,11 @@ export const maxDuration = 120;
  * Body:
  *   {
  *     eventId: string,           required
- *     fromDate: string,          required — YYYY-MM-DD
- *     toDate: string,            required — YYYY-MM-DD (typically yesterday)
+ *     fromDate: string | "auto", required — YYYY-MM-DD or "auto" to
+ *                                           use the event's earliest
+ *                                           ticket_sales_snapshot date
+ *     toDate: string | "auto",  required — YYYY-MM-DD or "auto" for
+ *                                           yesterday (London time)
  *   }
  *
  * The endpoint reads `tier_channel_sales` SUM and
@@ -37,6 +40,13 @@ export const maxDuration = 120;
  * Idempotent: calling it twice produces the same rows (all upserted).
  * Requires the caller to be signed in as the event owner.
  */
+
+/** Returns yesterday's date in YYYY-MM-DD (London/UTC, either works for this use case). */
+function yesterdayIso(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 
 interface RequestBody {
   eventId?: unknown;
@@ -56,27 +66,45 @@ export async function POST(req: NextRequest) {
     typeof body.eventId === "string" && body.eventId.trim()
       ? body.eventId.trim()
       : null;
-  const fromDate =
-    typeof body.fromDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.fromDate)
-      ? body.fromDate
+
+  // Accept either a YYYY-MM-DD date or the sentinel "auto".
+  const fromDateRaw = typeof body.fromDate === "string" ? body.fromDate.trim() : null;
+  const toDateRaw = typeof body.toDate === "string" ? body.toDate.trim() : null;
+
+  const fromDateIsAuto = fromDateRaw === "auto";
+  const toDateIsAuto = toDateRaw === "auto";
+
+  const fromDateExplicit =
+    fromDateRaw && !fromDateIsAuto && /^\d{4}-\d{2}-\d{2}$/.test(fromDateRaw)
+      ? fromDateRaw
       : null;
-  const toDate =
-    typeof body.toDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.toDate)
-      ? body.toDate
+  const toDateExplicit =
+    toDateRaw && !toDateIsAuto && /^\d{4}-\d{2}-\d{2}$/.test(toDateRaw)
+      ? toDateRaw
       : null;
 
   if (!eventId) {
     return NextResponse.json({ ok: false, error: "eventId is required" }, { status: 400 });
   }
-  if (!fromDate || !toDate) {
+  if (!fromDateRaw || !toDateRaw) {
     return NextResponse.json(
-      { ok: false, error: "fromDate and toDate are required (YYYY-MM-DD)" },
+      {
+        ok: false,
+        error:
+          'fromDate and toDate are required — pass YYYY-MM-DD or "auto" for each',
+      },
       { status: 400 },
     );
   }
-  if (fromDate > toDate) {
+  if (!fromDateIsAuto && !fromDateExplicit) {
     return NextResponse.json(
-      { ok: false, error: "fromDate must be <= toDate" },
+      { ok: false, error: 'fromDate must be YYYY-MM-DD or "auto"' },
+      { status: 400 },
+    );
+  }
+  if (!toDateIsAuto && !toDateExplicit) {
+    return NextResponse.json(
+      { ok: false, error: 'toDate must be YYYY-MM-DD or "auto"' },
       { status: 400 },
     );
   }
@@ -160,6 +188,31 @@ export async function POST(req: NextRequest) {
     envelopeSteps.push({ date, cumulative: runningMax });
   }
 
+  // Resolve "auto" dates now that we have snapshot data.
+  //   fromDate "auto" → earliest ticket_sales_snapshot date for this event
+  //   toDate   "auto" → yesterday (most recent complete day)
+  const earliestSnapshot = sortedDates[0] ?? null;
+  const fromDate: string | null = fromDateIsAuto
+    ? earliestSnapshot
+    : fromDateExplicit;
+  const toDate: string = toDateIsAuto ? yesterdayIso() : toDateExplicit!;
+
+  if (!fromDate) {
+    return NextResponse.json({
+      ok: true,
+      message:
+        'fromDate="auto" but no ticket_sales_snapshots exist for this event — nothing to smooth',
+      rowsWritten: 0,
+      autoFromDate: null,
+    });
+  }
+  if (fromDate > toDate) {
+    return NextResponse.json(
+      { ok: false, error: `fromDate (${fromDate}) must be <= toDate (${toDate})` },
+      { status: 400 },
+    );
+  }
+
   // 3. Compute smoothed history for [fromDate..toDate].
   const smoothed = computeSmoothedHistory(
     fromDate,
@@ -193,6 +246,10 @@ export async function POST(req: NextRequest) {
     eventId,
     fromDate,
     toDate,
+    autoResolved: {
+      fromDate: fromDateIsAuto ? fromDate : undefined,
+      toDate: toDateIsAuto ? toDate : undefined,
+    },
     currentTotalTickets,
     currentTotalRevenue,
     envelopeStepsUsed: envelopeSteps.length,

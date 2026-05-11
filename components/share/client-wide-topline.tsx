@@ -2,7 +2,12 @@ import type { ClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
 
 interface Props {
   clientName: string;
+  /** Active-only totals — shown as headline values. */
   totals: ClientWideTotals;
+  /** Past-group totals — shown as muted breakdown subtext when non-zero. */
+  pastTotals?: ClientWideTotals;
+  /** Cancelled-group totals — shown as muted breakdown subtext when non-zero. */
+  cancelledTotals?: ClientWideTotals;
 }
 
 const GBP = new Intl.NumberFormat("en-GB", {
@@ -53,7 +58,10 @@ function roasClass(n: number | null): string {
  * so operators can reconcile "this week vs. lifetime" in one glance
  * without a second control to adjust.
  */
-export function ClientWideTopline({ clientName, totals }: Props) {
+export function ClientWideTopline({ clientName, totals, pastTotals, cancelledTotals }: Props) {
+  const hasPast = (pastTotals?.venueGroups ?? 0) > 0;
+  const hasCancelled = (cancelledTotals?.venueGroups ?? 0) > 0;
+  const hasBreakdown = hasPast || hasCancelled;
   return (
     <section className="overflow-hidden rounded-md border-2 border-foreground bg-card shadow-sm">
       <header className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border bg-foreground px-4 py-3 text-background">
@@ -148,6 +156,38 @@ export function ClientWideTopline({ clientName, totals }: Props) {
           </>
         )}
       </footer>
+      {/* Breakdown subtext — only rendered when past or cancelled groups exist.
+          Shows muted per-bucket spend so operators can reconcile the headline
+          "active" figure against the full-portfolio total at a glance.
+          Cancelled spend is labelled "unrecoverable" because it was paid to Meta
+          regardless of refunds and represents a real sunk cost. */}
+      {hasBreakdown && (
+        <div className="border-t border-border/50 bg-muted/50 px-4 py-2 text-[11px] text-muted-foreground/70">
+          <span className="font-medium text-muted-foreground">
+            Marketing spend breakdown:
+          </span>
+          {" "}
+          <span className="font-semibold text-foreground/80">
+            {formatGBP(totals.marketingSpend)}
+          </span>{" "}active
+          {hasPast && (
+            <>
+              {" · "}
+              <span className="font-semibold text-foreground/60">
+                {formatGBP(pastTotals!.marketingSpend)}
+              </span>{" "}past
+            </>
+          )}
+          {hasCancelled && (
+            <>
+              {" · "}
+              <span className="font-semibold text-destructive/70">
+                {formatGBP(cancelledTotals!.marketingSpend)}
+              </span>{" "}cancelled (unrecoverable)
+            </>
+          )}
+        </div>
+      )}
     </section>
   );
 }

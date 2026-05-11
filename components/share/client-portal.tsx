@@ -11,7 +11,7 @@ import type {
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
-import { aggregateClientWideTotals } from "@/lib/db/client-dashboard-aggregations";
+import { aggregateAllBuckets } from "@/lib/db/client-dashboard-aggregations";
 import {
   CLIENT_REGION_LABELS,
   defaultClientRegion,
@@ -180,26 +180,28 @@ export function ClientPortal({
   }, []);
 
   // Client-wide totals — always lifetime, regardless of the per-card
-  // timeframe pills. Folds the WC26 on-sale shared-campaign spend
-  // (when present) into the topline's adSpend / totalSpend so the
-  // topline reconciles with the venue table's Overall London row.
+  // timeframe pills. Computes all three recency buckets (active / past
+  // / cancelled) in one aggregation call so the topline headline cards
+  // show the active-only figures with a muted breakdown sub-line.
   //
-  // recencyFilter='active': exclude entirely-past venue groups from
-  // headline cards (Total Marketing, Paid Media, Tickets). Multi-
-  // fixture groups like Arsenal Title Run In still contribute all
-  // their events' data (including past fixtures) because the GROUP is
-  // active — that matches the spec and the venue table's own totals.
-  const clientWideTotals = useMemo(
+  // extraAdSpend (London onsale shared campaign) is only credited to
+  // the active bucket — past/cancelled buckets receive 0 so the shared
+  // campaign spend isn't counted in both the headline and the breakdown.
+  //
+  // Multi-event-code groups without allocation data are now correctly
+  // deduped per (event_code, date) instead of returning 0, fixing the
+  // "£9,672 spend vs £21,182 expected" inconsistency (BUG-1).
+  const allBucketTotals = useMemo(
     () =>
-      aggregateClientWideTotals(
+      aggregateAllBuckets(
         events,
         dailyRollups,
         additionalSpend,
         londonOnsaleSpend ?? 0,
-        "active",
       ),
     [events, dailyRollups, additionalSpend, londonOnsaleSpend],
   );
+  const clientWideTotals = allBucketTotals.active;
 
   const grouped = useMemo(() => {
     return groupEventsByClientRegion(events);
@@ -341,6 +343,8 @@ export function ClientPortal({
           <ClientWideTopline
             clientName={client.name}
             totals={clientWideTotals}
+            pastTotals={allBucketTotals.past}
+            cancelledTotals={allBucketTotals.cancelled}
           />
         )}
 
