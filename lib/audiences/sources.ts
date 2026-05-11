@@ -7,6 +7,7 @@ import {
   type RawVideoMetadata,
 } from "./batch-fetch-video-metadata.ts";
 import { runWithConcurrency } from "./run-with-concurrency.ts";
+import { isMetaAdAccountRateLimitError } from "./meta-rate-limit.ts";
 import { withActPrefix, withoutActPrefix } from "../meta/ad-account-id.ts";
 import {
   fetchBusinessIdForAccount,
@@ -506,9 +507,9 @@ export const CAMPAIGN_WALK_CONCURRENCY = 3;
 /**
  * Walk one campaign's ads, collecting video IDs and creative page IDs.
  * Extracted so it can run concurrently across campaigns in
- * fetchAudienceMultiCampaignVideos.
+ * fetchAudienceMultiCampaignVideos and the bulk cross-event dedupe path.
  */
-async function walkCampaignAds(
+export async function walkCampaignAds(
   campaignId: string,
   expectedAccountId: string,
   token: string,
@@ -706,6 +707,54 @@ export async function fetchAudienceMultiCampaignVideos(
     uniqueVideoCount,
     campaignCount: campaignIds.length,
   };
+}
+
+// ─── Cross-event unified video hydration ─────────────────────────────────────
+
+const VIDEO_HYDRATE_BATCH_SIZE = 50;
+const VIDEO_HYDRATE_CONCURRENCY = 5;
+
+/**
+ * Hydrate video metadata for a flat set of IDs with bounded concurrency.
+ * Used by the bulk cross-event dedupe path: builds ONE unified Set<video_id>
+ * across all events and calls this once instead of per-event re-fetching.
+ *
+ * Rate-limit errors (MetaApiError code #17) are re-thrown so the caller can
+ * abort the run cleanly. Other per-chunk errors are swallowed (missing IDs
+ * are treated as orphans by the orphan filter downstream).
+ */
+export async function hydrateVideoMetadataConcurrent(
+  videoIds: readonly string[],
+  token: string,
+): Promise<Map<string, RawVideo>> {
+  const result = new Map<string, RawVideo>();
+  if (videoIds.length === 0) return result;
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < videoIds.length; i += VIDEO_HYDRATE_BATCH_SIZE) {
+    chunks.push(videoIds.slice(i, i + VIDEO_HYDRATE_BATCH_SIZE) as string[]);
+  }
+
+  await runWithConcurrency(chunks, VIDEO_HYDRATE_CONCURRENCY, async (chunk): Promise<void> => {
+    try {
+      const response = await graphGetWithToken<Record<string, RawVideo>>(
+        "",
+        { ids: chunk.join(","), fields: "id,picture,title,length,from" },
+        token,
+      );
+      for (const [vid, video] of Object.entries(response)) {
+        result.set(vid, video);
+      }
+    } catch (err) {
+      if (isMetaAdAccountRateLimitError(err)) throw err;
+      console.warn("[hydrateVideoMetadataConcurrent] batch failed", {
+        batchSize: chunk.length,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  return result;
 }
 
 function slugFromLink(link?: string): string | undefined {
