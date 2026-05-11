@@ -25,7 +25,7 @@ import { ClientPortalUnavailable } from "@/components/share/client-portal-unavai
 
 interface Props {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ region?: string; tab?: string }>;
+  searchParams: Promise<{ region?: string; tab?: string; past?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -65,6 +65,7 @@ export default async function ClientPortalPage({ params, searchParams }: Props) 
       isShared
       activeTab={sp.tab}
       activeRegion={sp.region}
+      initialPastExpanded={sp.past === "1"}
     />
   );
 }

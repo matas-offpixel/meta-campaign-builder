@@ -22,8 +22,19 @@ import {
   resolveDisplayTicketRevenue,
 } from "../dashboard/tier-channel-rollups.ts";
 import { metaPaidSpendOf, paidSpendOf } from "../dashboard/paid-spend.ts";
+import { isPastVenueGroup } from "../dashboard/event-recency.ts";
 import type { DailyRollupRow } from "./client-portal-server";
 import type { EventTicketTierRow } from "./ticketing.ts";
+
+/**
+ * Controls which venue groups are included in `aggregateClientWideTotals`.
+ *
+ * - `'active'`  — only groups where at least one event is not past
+ *                 (default for headline cards).
+ * - `'past'`    — only groups where every event is past.
+ * - `'all'`     — include all groups regardless of recency (legacy default).
+ */
+export type RecencyFilter = "active" | "past" | "all";
 
 /** Minimal event shape the aggregators need — a subset of PortalEvent. */
 export interface AggregatableEvent {
@@ -252,13 +263,62 @@ export interface ClientWideTotals {
  * WC26-LONDON-ONSALE shared-campaign placeholders). The caller can
  * pass `londonOnsaleSpend` to include the shared-campaign spend in
  * `adSpend` / `totalSpend` when the client uses that model.
+ *
+ * `recencyFilter` controls which venue groups are included:
+ *   - `'active'` (recommended for headline cards) — exclude fully-past groups.
+ *     Groups with at least one upcoming/today event (e.g. Arsenal Title Run In
+ *     with one past + two future fixtures) are still included in full.
+ *   - `'past'`  — only fully-past groups (for the Past Events sub-headline).
+ *   - `'all'`   — legacy behaviour, no filtering (backward-compatible default).
+ *
+ * `now` is injectable for tests; defaults to `new Date()` at call time.
  */
 export function aggregateClientWideTotals(
   events: AggregatableEvent[],
   dailyRollups: DailyRollupRow[],
   additionalSpend: AdditionalSpendRow[],
   extraAdSpend = 0,
+  recencyFilter: RecencyFilter = "all",
+  now?: Date,
 ): ClientWideTotals {
+  // ── Recency pre-filter ──────────────────────────────────────────────
+  // Build groups first so we can classify at the GROUP level (not the
+  // individual event level). A multi-fixture group like Title Run In
+  // stays ACTIVE even when one fixture has already passed — only the
+  // group where EVERY event is past gets excluded from the active set.
+  if (recencyFilter !== "all") {
+    const filterNow = now ?? new Date();
+    const tempGroupingRows: GroupableRow[] = events.map((ev) => ({
+      eventId: ev.id,
+      eventCode: ev.event_code,
+      eventDate: ev.event_date,
+      venueName: ev.venue_name ?? null,
+      capacity: null,
+      ticketingMode: "none",
+      status: "ready",
+      missing: [],
+      warnings: [],
+      hasShare: false,
+    }));
+    const tempKeyByEventId = buildRolloutGroupKeyByEventId(tempGroupingRows);
+
+    // Map each canonical group key → the events that belong to it.
+    const groupEventMap = new Map<string, AggregatableEvent[]>();
+    for (const ev of events) {
+      const key = tempKeyByEventId.get(ev.id) ?? `__solo__::${ev.id}`;
+      const bucket = groupEventMap.get(key) ?? [];
+      bucket.push(ev);
+      groupEventMap.set(key, bucket);
+    }
+
+    events = events.filter((ev) => {
+      const key = tempKeyByEventId.get(ev.id) ?? `__solo__::${ev.id}`;
+      const groupEvents = groupEventMap.get(key) ?? [ev];
+      const groupIsPast = isPastVenueGroup(groupEvents, filterNow);
+      return recencyFilter === "past" ? groupIsPast : !groupIsPast;
+    });
+  }
+
   const eventIds = new Set(events.map((e) => e.id));
   const eventCodeCounts = eventCodeCountsByEventId(events);
 
