@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 384
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/384
 - **Branch:** `fix/migrations-cleanup-and-schema-regen`
 
 ## Summary
