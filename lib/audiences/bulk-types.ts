@@ -72,6 +72,8 @@ export interface BulkPreviewAudience {
   videoIds: string[];
   campaignIds: string[];
   campaignSummaries: Array<{ id: string; name: string }>;
+  /** FB page ID that owns the videos — required for Meta video audience rule (source_meta.contextId). */
+  contextId?: string;
 }
 
 export interface BulkPreviewRow {
@@ -124,6 +126,7 @@ export function previewRowsToInserts(
           subtype: "video_views",
           threshold: audience.threshold as 25 | 50 | 75 | 95 | 100,
           videoIds: audience.videoIds,
+          contextId: audience.contextId,
           campaignId: audience.campaignIds[0],
           campaignIds: audience.campaignIds,
           campaignSummaries: audience.campaignSummaries,
