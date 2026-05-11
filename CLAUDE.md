@@ -4,6 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTS.md
 
+## Tool Ownership & Branch Convention
+
+This repo is worked on by two coding tools — Claude Code (terminal) and Cursor (editor). To avoid conflicts and stale buffers, ownership is declared via branch prefix.
+
+**Branch prefixes:**
+- `cc/...` — Claude Code-owned branch. Only Claude Code edits files on this branch.
+- `cursor/...` — Cursor-owned branch. Only Cursor edits files on this branch.
+
+**Rules:**
+1. **One tool per branch, end-to-end.** Whatever opens the branch finishes the branch. Never hand off mid-PR.
+2. **Never edit files on a branch owned by the other tool.** If you're Claude Code and the current branch starts with `cursor/`, refuse the edit and ask the user to switch tools or open a new `cc/` branch.
+3. **Never edit the same file in both tools on the same day**, even on different branches. Stale buffers cause real problems.
+4. **Always pull `main` before opening a new branch.** Open `cc/...` and `cursor/...` branches off fresh `main`, never off another tool's branch.
+5. **One PR per branch, no follow-up commits to a merged branch** (existing rule from PRs #104→#107).
+6. **Worktrees for parallel work** — Claude Code in `~/meta-campaign-builder` and Cursor in `~/worktrees/...` keeps physical directories separate when both tools need to run at once. Close the editor before manual git surgery.
+
+**Tool split heuristic** (also captured in user memory):
+- Claude Code: single-file fixes with diagnosed root cause, tests, parser additions, mechanical refactors, documentation, log queries, MCP-driven ops work, 1–3 file changes.
+- Cursor: multi-file architectural work (4+ files), new primitives, cross-cutting refactors, anything where the parallel diff-review UI earns its keep.
+
 ## Project
 
 Internal tool for building Meta/Facebook ad campaigns for event marketing. An 8-step campaign creation wizard with Supabase auth/persistence and a Meta API integration layer.
