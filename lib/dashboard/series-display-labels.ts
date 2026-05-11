@@ -4,14 +4,17 @@
  */
 
 export const SERIES_DISPLAY_LABELS: Record<string, string> = {
+  "4TF-CFC-FAC-MAY26": "Chelsea FA Cup Final FanPark",
   "4TF-TITLERUNIN-LONDON": "Arsenal Title Run In",
   "4TF26-ARSENAL-CL-FL": "Arsenal Champions League Final – London",
   "4TF26-ARSENAL-CL-DUBLIN": "Arsenal Champions League Final – Dublin",
   "4TF26-ARSENAL-CL-SF": "Arsenal Champions League Semi Final",
   "4TF26-ARSENAL-CL-QF": "Arsenal Champions League Quarter Final",
   "4TF26-CPFC-CL-FINAL": "Crystal Palace Conference League Final",
+  "4TF26-PALACE-FINAL": "Crystal Palace Conference League Final",
   "4TF26-NFFC-UEL-FINAL": "Nottingham Forest Europa League Final",
   "4TF26-VILLA-UEL-FINAL": "Aston Villa Europa League Final",
+  "4TF26-VILLA-FINAL": "Aston Villa Europa League Final",
   "LEEDS26-FACUP": "Leeds FA Cup Semi Final",
 };
 
