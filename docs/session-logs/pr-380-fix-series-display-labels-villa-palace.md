@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 380
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/380
 - **Branch:** `fix/series-display-labels-villa-palace`
 
 ## Summary
@@ -14,7 +14,7 @@ Fix the branded series display-label map so the dashboard stops falling back to 
 
 - `lib/dashboard/series-display-labels.ts`
 - `lib/dashboard/__tests__/series-display-labels.test.ts`
-- `docs/session-logs/pr-pending-fix-series-display-labels-villa-palace.md`
+- `docs/session-logs/pr-380-fix-series-display-labels-villa-palace.md`
 
 ## Validation
 
