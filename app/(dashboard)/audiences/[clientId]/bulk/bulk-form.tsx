@@ -16,28 +16,11 @@ import type { EventCodePrefixOption } from "@/lib/audiences/event-code-prefix-sc
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const FUNNEL_STAGE_DISPLAY: Record<
-  BulkFunnelStage,
-  { label: string; description: string }
-> = {
-  top_of_funnel: {
-    label: "Top funnel",
-    description: "50% video views, 365d retention",
-  },
-  mid_funnel: {
-    label: "Mid funnel",
-    description: "75% video views, 60d retention",
-  },
-  bottom_funnel: {
-    label: "Bottom funnel",
-    description: "95% video views, 30d retention",
-  },
-};
-
 const ALL_STAGES: BulkFunnelStage[] = [
-  "top_of_funnel",
-  "mid_funnel",
-  "bottom_funnel",
+  "mid_top",
+  "mid",
+  "mid_bottom",
+  "bottom",
 ];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -359,9 +342,8 @@ export function BulkVideoForm({
           <p className="mt-1 text-sm text-muted-foreground">
             Select preset funnel stages and/or add custom (threshold, retention) pairs.
           </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid gap-2 sm:grid-cols-4">
             {ALL_STAGES.map((stage) => {
-              const { label, description } = FUNNEL_STAGE_DISPLAY[stage];
               const cfg = BULK_FUNNEL_CONFIG[stage];
               const checked = selectedStages.has(stage);
               return (
@@ -380,10 +362,9 @@ export function BulkVideoForm({
                     className="mt-0.5"
                   />
                   <div>
-                    <p className="font-medium">{label}</p>
-                    <p className="text-xs text-muted-foreground">{description}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {cfg.threshold}% · {cfg.retentionDays}d
+                    <p className="font-medium">{cfg.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {cfg.threshold}% VV · {cfg.retentionDays}d
                     </p>
                   </div>
                 </label>

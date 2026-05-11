@@ -299,8 +299,8 @@ export async function runBulkVideoPreview(
     };
 
     const funnelAudiences: BulkPreviewAudience[] = funnelStages.map((stage) => {
-      const { threshold, retentionDays } = BULK_FUNNEL_CONFIG[stage];
-      const name = buildAudienceName({ ...namingOpts, retentionDays, threshold });
+      const { threshold, retentionDays, label } = BULK_FUNNEL_CONFIG[stage];
+      const name = `[${code}] ${label} — ${threshold}% VV ${retentionDays}d`;
       return { funnelStage: stage, name, threshold, retentionDays, videoIds: validVideoIds, campaignIds, campaignSummaries, contextId: contextPageId };
     });
 
