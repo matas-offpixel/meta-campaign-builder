@@ -3,7 +3,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, Loader2, Pencil } from "lucide-react";
-import { isPastEvent, isPastVenueGroup } from "@/lib/dashboard/event-recency";
+import {
+  isCancelledEvent,
+  isCancelledVenueGroup,
+  isPastEvent,
+  isPastVenueGroup,
+} from "@/lib/dashboard/event-recency";
 
 import type {
   AdditionalSpendRow,
@@ -181,6 +186,16 @@ interface Props {
    * Parent updates URL and flips `pastExpanded`.
    */
   onPastToggle?: () => void;
+  /**
+   * Controls whether the "Cancelled Events" collapsible section is
+   * open. Managed by the parent (`ClientPortal`) for `?cancelled=1`
+   * URL deeplink parity. Defaults to false.
+   */
+  cancelledExpanded?: boolean;
+  /**
+   * Called when the user clicks the Cancelled Events accordion header.
+   */
+  onCancelledToggle?: () => void;
 }
 
 /**
@@ -795,6 +810,8 @@ export function ClientPortalVenueTable({
   forceExpandAll = false,
   pastExpanded = false,
   onPastToggle,
+  cancelledExpanded = false,
+  onCancelledToggle,
 }: Props) {
   // Stable `now` for the lifetime of this component mount — all
   // recency checks on this render use the same clock so there's no
@@ -803,21 +820,23 @@ export function ClientPortalVenueTable({
 
   const allVenues = useMemo(() => groupByEventCodeAndDate(events), [events]);
 
-  // Split into active (at least one event not past) and past (all
-  // events past). The split is computed once per `events` change so
-  // the REGION_ORDER render and the past-section accordion use the
-  // same classification.
-  const { activeVenues, pastVenues } = useMemo(() => {
+  // Three-bucket split with priority: cancelled > past > active.
+  // A cancelled group is never shown in active or past — it goes
+  // straight to the Cancelled accordion regardless of its event_date.
+  const { activeVenues, pastVenues, cancelledVenues } = useMemo(() => {
     const active: VenueGroup[] = [];
     const past: VenueGroup[] = [];
+    const cancelled: VenueGroup[] = [];
     for (const group of allVenues) {
-      if (isPastVenueGroup(group.events, now)) {
+      if (isCancelledVenueGroup(group.events)) {
+        cancelled.push(group);
+      } else if (isPastVenueGroup(group.events, now)) {
         past.push(group);
       } else {
         active.push(group);
       }
     }
-    return { activeVenues: active, pastVenues: past };
+    return { activeVenues: active, pastVenues: past, cancelledVenues: cancelled };
   }, [allVenues, now]);
 
   // Use only active venues for the main region rendering.
@@ -933,11 +952,9 @@ export function ClientPortalVenueTable({
     [hashOverride],
   );
 
-  // Past-section aggregates (tickets + venue count) shown in the
-  // accordion header. Computed from pastVenues so the number updates
-  // automatically when recency changes (e.g. across midnight).
-  // Must be declared BEFORE any early returns so hooks are called in the
-  // same order on every render.
+  // Past/cancelled section aggregates shown in accordion headers.
+  // Both must be declared BEFORE any early returns so hooks are called
+  // in the same order on every render.
   const pastSectionSummary = useMemo(() => {
     let tickets = 0;
     for (const group of pastVenues) {
@@ -952,6 +969,23 @@ export function ClientPortalVenueTable({
     }
     return { tickets, venues: pastVenues.length };
   }, [pastVenues]);
+
+  const cancelledSectionSummary = useMemo(() => {
+    let budgetTotal = 0;
+    let hasBudget = false;
+    for (const group of cancelledVenues) {
+      for (const ev of group.events) {
+        if (ev.budget_marketing != null) {
+          budgetTotal += ev.budget_marketing;
+          hasBudget = true;
+        }
+      }
+    }
+    return {
+      venues: cancelledVenues.length,
+      budget: hasBudget ? budgetTotal : null,
+    };
+  }, [cancelledVenues]);
 
   if (allVenues.length === 0) {
     return (
@@ -1009,6 +1043,7 @@ export function ClientPortalVenueTable({
                 onSnapshotSaved={onSnapshotSaved}
                 now={now}
               />
+
             ))}
           </div>
         );
@@ -1088,6 +1123,83 @@ export function ClientPortalVenueTable({
                   onSnapshotSaved={onSnapshotSaved}
                   now={now}
                   isPastGroup
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Cancelled Events accordion ──────────────────────────────── */}
+      {cancelledVenues.length > 0 && (
+        <div className="space-y-6">
+          <button
+            type="button"
+            onClick={onCancelledToggle}
+            aria-expanded={cancelledExpanded}
+            aria-controls="cancelled-events-section"
+            className="flex w-full items-center gap-2 text-left"
+          >
+            <span
+              className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-red-500/70 transition-colors hover:bg-muted hover:text-foreground"
+              aria-hidden="true"
+            >
+              {cancelledExpanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </span>
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-red-600/70 dark:text-red-400/70">
+              Cancelled Events
+            </h2>
+            <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+              {cancelledSectionSummary.venues}
+            </span>
+          </button>
+
+          {cancelledExpanded && (
+            <div id="cancelled-events-section" className="space-y-6">
+              <p className="text-xs text-muted-foreground">
+                Cancelled totals:{" "}
+                {cancelledSectionSummary.budget !== null ? (
+                  <>
+                    <span className="font-medium text-foreground">
+                      {formatGBP(cancelledSectionSummary.budget)} budgets
+                    </span>{" "}
+                    ·{" "}
+                  </>
+                ) : null}
+                <span className="font-medium text-foreground">
+                  {cancelledSectionSummary.venues} venue
+                  {cancelledSectionSummary.venues === 1 ? "" : "s"}
+                </span>
+              </p>
+              {cancelledVenues.map((group) => (
+                <VenueSection
+                  key={group.key}
+                  token={token}
+                  clientId={clientId}
+                  group={group}
+                  londonOnsaleSpend={londonOnsaleSpend}
+                  spend={venueSpend(
+                    group,
+                    londonOnsaleSpend,
+                    allocationByEvent,
+                    paidSpendByEventMap,
+                  )}
+                  wow={wowByVenue.get(group.key) ?? EMPTY_WOW}
+                  dailyRollups={dailyRollups}
+                  weeklyTicketSnapshots={weeklyTicketSnapshots}
+                  trendTicketSnapshots={trendTicketSnapshots}
+                  trendDailyHistory={trendDailyHistory}
+                  additionalSpend={additionalSpend}
+                  isExpanded={expanded.has(group.expandKey)}
+                  onToggle={() => toggleGroup(group.expandKey)}
+                  isInternal={isInternal}
+                  onSnapshotSaved={onSnapshotSaved}
+                  now={now}
+                  isCancelledGroup
                 />
               ))}
             </div>
@@ -1368,6 +1480,12 @@ interface VenueSectionProps {
    * (detected per-row via `isPastWithinActive`).
    */
   isPastGroup?: boolean;
+  /**
+   * When true, every event in this group is cancelled — the group
+   * renders in the "Cancelled Events" accordion with red-tinted
+   * muted chrome. Overrides `isPastGroup` when set.
+   */
+  isCancelledGroup?: boolean;
 }
 
 function dailyRollupSpend(row: DailyRollupRow): number | null {
@@ -1589,6 +1707,7 @@ function VenueSection({
   onSnapshotSaved,
   now,
   isPastGroup = false,
+  isCancelledGroup = false,
 }: VenueSectionProps) {
   const router = useRouter();
   const [editMode, setEditMode] = useState(false);
@@ -1725,8 +1844,16 @@ function VenueSection({
     [group.events],
   );
 
+  // Muted section styling: cancelled gets a subtle red border tint;
+  // past groups get reduced opacity; active groups are unstyled.
+  const sectionClass = isCancelledGroup
+    ? "rounded-md border border-red-200 bg-card shadow-sm opacity-80 dark:border-red-900/40"
+    : isPastGroup
+    ? "rounded-md border border-border bg-card shadow-sm opacity-75"
+    : "rounded-md border border-border bg-card shadow-sm";
+
   return (
-    <section className={`rounded-md border border-border bg-card shadow-sm${isPastGroup ? " opacity-75" : ""}`}>
+    <section className={sectionClass}>
       <header className="flex min-h-[56px] min-w-0 flex-nowrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <button
           type="button"
@@ -2036,7 +2163,8 @@ function VenueSection({
                   editMode={effectiveEditMode}
                   spend={spend}
                   onSnapshotSaved={onSnapshotSaved}
-                  isPastWithinActive={!isPastGroup && isPastEvent(ev.event_date, now)}
+                  isPastWithinActive={!isPastGroup && !isCancelledGroup && isPastEvent(ev.event_date, now)}
+                  isCancelledWithinActive={!isCancelledGroup && isCancelledEvent(ev)}
                 />
                 {ev.ticket_tiers.length > 0 && (
                   <tr className="border-t border-border bg-background">
@@ -2548,6 +2676,12 @@ interface EventRowProps {
    * removing the row — operators need the data for post-event analysis.
    */
   isPastWithinActive?: boolean;
+  /**
+   * True when this individual event is cancelled but its parent group
+   * is still active (some sibling event in the group is not cancelled).
+   * Renders with red-tinted muted styling + "CANCELLED" badge.
+   */
+  isCancelledWithinActive?: boolean;
 }
 
 function EventRow({
@@ -2558,6 +2692,7 @@ function EventRow({
   spend,
   onSnapshotSaved,
   isPastWithinActive = false,
+  isCancelledWithinActive = false,
 }: EventRowProps) {
   const m = computePortalEventSpendRowMetrics(event, spend);
   const rowBg = striped ? "bg-muted" : "bg-card";
@@ -2577,13 +2712,29 @@ function EventRow({
       }`
     : undefined;
 
+  const rowOpacity = isCancelledWithinActive
+    ? " opacity-60"
+    : isPastWithinActive
+    ? " opacity-60"
+    : "";
+  const nameClass = isCancelledWithinActive
+    ? "block font-medium text-red-600/70 line-through decoration-red-400/50 dark:text-red-400/60"
+    : isPastWithinActive
+    ? "block font-medium text-muted-foreground line-through decoration-muted-foreground/50"
+    : "block font-medium text-foreground";
+
   return (
-    <tr className={`border-t border-border ${rowBg} hover:bg-muted/50${isPastWithinActive ? " opacity-60" : ""}`}>
+    <tr className={`border-t border-border ${rowBg} hover:bg-muted/50${rowOpacity}`}>
       <td className="px-3 py-2.5 align-top">
-        <span className={`block font-medium${isPastWithinActive ? " text-muted-foreground line-through decoration-muted-foreground/50" : " text-foreground"}`}>
+        <span className={nameClass}>
           {event.name}
         </span>
-        {isPastWithinActive && (
+        {isCancelledWithinActive && (
+          <span className="mt-0.5 inline-flex items-center rounded-sm bg-red-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-900/30 dark:text-red-400">
+            Cancelled
+          </span>
+        )}
+        {!isCancelledWithinActive && isPastWithinActive && (
           <span className="mt-0.5 inline-flex items-center rounded-sm bg-muted px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Past
           </span>

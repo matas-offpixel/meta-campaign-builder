@@ -25,7 +25,7 @@ import { ClientPortalUnavailable } from "@/components/share/client-portal-unavai
 
 interface Props {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ region?: string; tab?: string; past?: string }>;
+  searchParams: Promise<{ region?: string; tab?: string; past?: string; cancelled?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -66,6 +66,7 @@ export default async function ClientPortalPage({ params, searchParams }: Props) 
       activeTab={sp.tab}
       activeRegion={sp.region}
       initialPastExpanded={sp.past === "1"}
+      initialCancelledExpanded={sp.cancelled === "1"}
     />
   );
 }

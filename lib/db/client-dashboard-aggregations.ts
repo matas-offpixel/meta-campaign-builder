@@ -22,19 +22,23 @@ import {
   resolveDisplayTicketRevenue,
 } from "../dashboard/tier-channel-rollups.ts";
 import { metaPaidSpendOf, paidSpendOf } from "../dashboard/paid-spend.ts";
-import { isPastVenueGroup } from "../dashboard/event-recency.ts";
+import { isCancelledVenueGroup, isPastVenueGroup } from "../dashboard/event-recency.ts";
 import type { DailyRollupRow } from "./client-portal-server";
 import type { EventTicketTierRow } from "./ticketing.ts";
 
 /**
  * Controls which venue groups are included in `aggregateClientWideTotals`.
  *
- * - `'active'`  — only groups where at least one event is not past
- *                 (default for headline cards).
- * - `'past'`    — only groups where every event is past.
- * - `'all'`     — include all groups regardless of recency (legacy default).
+ * Priority order for bucketing: cancelled > past > active.
+ *
+ * - `'active'`    — groups where NOT every event is past AND NOT every event
+ *                   is cancelled (default for headline cards).
+ * - `'past'`      — groups where every event is past AND not cancelled.
+ * - `'cancelled'` — groups where every event is cancelled (regardless of date).
+ * - `'all'`       — include all groups regardless of recency / status
+ *                   (legacy default, backward-compatible).
  */
-export type RecencyFilter = "active" | "past" | "all";
+export type RecencyFilter = "active" | "past" | "cancelled" | "all";
 
 /** Minimal event shape the aggregators need — a subset of PortalEvent. */
 export interface AggregatableEvent {
@@ -51,6 +55,13 @@ export interface AggregatableEvent {
   /** Loaded for UI labels; grouping keys use `event_code` counts only. */
   venue_name?: string | null;
   event_date: string | null;
+  /**
+   * Event lifecycle status — `'announced'`, `'on_sale'`, `'complete'`,
+   * `'cancelled'`, `'postponed'`, etc. Optional for legacy callers that
+   * don't load this column; absent / null is treated as NOT cancelled so
+   * old code paths remain unaffected.
+   */
+  status?: string | null;
   capacity: number | null;
   prereg_spend: number | null;
   tickets_sold: number | null;
@@ -281,11 +292,17 @@ export function aggregateClientWideTotals(
   recencyFilter: RecencyFilter = "all",
   now?: Date,
 ): ClientWideTotals {
-  // ── Recency pre-filter ──────────────────────────────────────────────
+  // ── Recency / status pre-filter ────────────────────────────────────
   // Build groups first so we can classify at the GROUP level (not the
   // individual event level). A multi-fixture group like Title Run In
   // stays ACTIVE even when one fixture has already passed — only the
   // group where EVERY event is past gets excluded from the active set.
+  //
+  // Bucket priority: cancelled > past > active.
+  //   - 'active'    → include if group is NOT cancelled AND NOT past
+  //   - 'past'      → include if group is NOT cancelled AND IS past
+  //   - 'cancelled' → include if group IS cancelled (date irrelevant)
+  //   - 'all'       → no filtering
   if (recencyFilter !== "all") {
     const filterNow = now ?? new Date();
     const tempGroupingRows: GroupableRow[] = events.map((ev) => ({
@@ -314,8 +331,18 @@ export function aggregateClientWideTotals(
     events = events.filter((ev) => {
       const key = tempKeyByEventId.get(ev.id) ?? `__solo__::${ev.id}`;
       const groupEvents = groupEventMap.get(key) ?? [ev];
-      const groupIsPast = isPastVenueGroup(groupEvents, filterNow);
-      return recencyFilter === "past" ? groupIsPast : !groupIsPast;
+      const groupIsCancelled = isCancelledVenueGroup(groupEvents);
+      const groupIsPast = !groupIsCancelled && isPastVenueGroup(groupEvents, filterNow);
+
+      switch (recencyFilter) {
+        case "cancelled":
+          return groupIsCancelled;
+        case "past":
+          return groupIsPast;
+        case "active":
+        default:
+          return !groupIsCancelled && !groupIsPast;
+      }
     });
   }
 

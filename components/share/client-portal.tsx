@@ -82,6 +82,11 @@ interface Props {
    * false; the client-side URL listener will sync afterwards.
    */
   initialPastExpanded?: boolean;
+  /**
+   * Server-side hint: whether the Cancelled Events accordion should
+   * start expanded. Read from `?cancelled=1`. Defaults to false.
+   */
+  initialCancelledExpanded?: boolean;
 }
 
 function formatNumber(n: number): string {
@@ -113,6 +118,7 @@ export function ClientPortal({
   hideChrome = false,
   showRefreshDailyBudgets = true,
   initialPastExpanded = false,
+  initialCancelledExpanded = false,
 }: Props) {
   // Local state owns every per-event row. Optimistic updates from the
   // event-card component flow back here via `onSnapshotSaved`.
@@ -122,18 +128,19 @@ export function ClientPortal({
     setEvents(initial);
   }, [initial]);
 
-  // ── Past section accordion state ─────────────────────────────────
-  // Start from the server-rendered hint (derived from ?past=1 in
-  // searchParams). After hydration, sync from the actual URL so
-  // refreshes and direct link visits work even if the server hint
-  // wasn't threaded through.
+  // ── Past / Cancelled section accordion state ─────────────────────
+  // Start from the server-rendered hint (derived from ?past=1 /
+  // ?cancelled=1 in searchParams). After hydration, sync from the
+  // actual URL so refreshes and direct link visits always work.
   const [pastExpanded, setPastExpanded] = useState<boolean>(initialPastExpanded);
+  const [cancelledExpanded, setCancelledExpanded] = useState<boolean>(initialCancelledExpanded);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const syncFromUrl = () => {
       const sp = new URLSearchParams(window.location.search);
       setPastExpanded(sp.get("past") === "1");
+      setCancelledExpanded(sp.get("cancelled") === "1");
     };
     syncFromUrl();
     window.addEventListener("popstate", syncFromUrl);
@@ -149,6 +156,22 @@ export function ClientPortal({
           url.searchParams.set("past", "1");
         } else {
           url.searchParams.delete("past");
+        }
+        window.history.replaceState(null, "", url.toString());
+      }
+      return next;
+    });
+  }, []);
+
+  const handleCancelledToggle = useCallback(() => {
+    setCancelledExpanded((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        if (next) {
+          url.searchParams.set("cancelled", "1");
+        } else {
+          url.searchParams.delete("cancelled");
         }
         window.history.replaceState(null, "", url.toString());
       }
@@ -409,6 +432,8 @@ export function ClientPortal({
               onSnapshotSaved={handleSnapshot}
               pastExpanded={pastExpanded}
               onPastToggle={handlePastToggle}
+              cancelledExpanded={cancelledExpanded}
+              onCancelledToggle={handleCancelledToggle}
             />
           </>
         )}
