@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 382
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/382
 - **Branch:** `feat/dashboard-cancelled-events-section`
 
 ## Summary
