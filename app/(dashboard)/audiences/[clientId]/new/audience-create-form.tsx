@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { SourcePicker, type SourceSelection } from "@/components/audiences/source-picker";
+import {
+  FollowersRetentionNote,
+  SourcePicker,
+  isAlwaysLiveFollowersSubtype,
+  type SourceSelection,
+} from "@/components/audiences/source-picker";
 import { FUNNEL_STAGE_PRESETS } from "@/lib/audiences/funnel-presets";
 import { buildAudienceName } from "@/lib/audiences/naming";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
@@ -431,13 +436,20 @@ function SingleAudienceEditor({
         onRateLimitChange={onPickerRateLimit}
       />
       <div className="grid gap-3 md:grid-cols-2">
-        <TextField
-          id="audience-retention"
-          label="Retention days"
-          type="number"
-          value={String(retentionDays)}
-          onChange={(value) => setRetentionDays(clampRetention(Number(value)))}
-        />
+        {isAlwaysLiveFollowersSubtype(audienceSubtype) ? (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">Retention days</p>
+            <FollowersRetentionNote />
+          </div>
+        ) : (
+          <TextField
+            id="audience-retention"
+            label="Retention days"
+            type="number"
+            value={String(retentionDays)}
+            onChange={(value) => setRetentionDays(clampRetention(Number(value)))}
+          />
+        )}
         <ScopeFields
           events={events}
           scope={scope}
@@ -540,17 +552,24 @@ function BundleAudienceEditor({
               onRateLimitChange={onPickerRateLimit}
             />
             <div className="grid gap-3 md:grid-cols-2">
-              <TextField
-                id={`${row.localId}-retention`}
-                label="Retention days"
-                type="number"
-                value={String(row.retentionDays)}
-                onChange={(value) =>
-                  updateRow(row.localId, {
-                    retentionDays: clampRetention(Number(value)),
-                  })
-                }
-              />
+              {isAlwaysLiveFollowersSubtype(row.audienceSubtype) ? (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">Retention days</p>
+                  <FollowersRetentionNote />
+                </div>
+              ) : (
+                <TextField
+                  id={`${row.localId}-retention`}
+                  label="Retention days"
+                  type="number"
+                  value={String(row.retentionDays)}
+                  onChange={(value) =>
+                    updateRow(row.localId, {
+                      retentionDays: clampRetention(Number(value)),
+                    })
+                  }
+                />
+              )}
               <ScopeFields
                 events={events}
                 scope={row.scope}

@@ -64,6 +64,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     // event_sources.id sent as string, not coerced to number.
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "202868440480679");
     assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "string");
+    assert.equal(rule.inclusions.rules[0].retention_seconds, 365 * 86_400);
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.field, "event");
     assert.equal(ev.operator, "eq");
@@ -124,6 +125,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "100000003");
     assert.equal(typeof rule.inclusions.rules[0].event_sources[0].id, "string");
+    assert.equal(rule.inclusions.rules[0].retention_seconds, 365 * 86_400);
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.value, "ig_business_profile_all");
   });
@@ -170,6 +172,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "page");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "202868440480679");
+    assert.equal(rule.inclusions.rules[0].retention_seconds, 0);
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.value, "page_liked");
   });
@@ -190,6 +193,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     assert.equal(rule.inclusions.rules[0].event_sources[0].type, "ig_business");
     assert.equal(rule.inclusions.rules[0].event_sources[0].id, "100000004");
+    assert.equal(rule.inclusions.rules[0].retention_seconds, 0);
     const ev = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
     assert.equal(ev.value, "INSTAGRAM_PROFILE_FOLLOW");
   });
