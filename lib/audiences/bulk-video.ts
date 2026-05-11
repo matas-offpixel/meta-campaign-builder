@@ -75,7 +75,9 @@ export interface RunBulkPreviewOpts {
  * Three-phase design to eliminate cross-event duplicate video metadata fetches:
  *   Phase 1 — walk every event's campaign ads (collect raw video IDs, no metadata calls).
  *   Phase 2 — hydrate the unified Set<video_id> once via batched /?ids= with concurrency=5.
- *   Phase 3 — apply orphan filter and build audience payloads per event from the cache.
+ *   Phase 3  — apply orphan filter and build audience payloads per event from the cache.
+ *   Phase 3b — deduplicate by event_code: union video IDs across sibling events sharing
+ *              the same event_code; emit one audience per (event_code, threshold, retention).
  */
 export async function runBulkVideoPreview(
   opts: RunBulkPreviewOpts,
@@ -196,7 +198,7 @@ export async function runBulkVideoPreview(
   }
 
   // Phase 3 — build per-event rows from the cached metadata.
-  return walks.map((walk): BulkPreviewRow => {
+  const rows = walks.map((walk): BulkPreviewRow => {
     const { event, code, matched, rawVideoIds, pageIds, errorMsg } = walk;
     const campaignSummaries = matched.map((c) => ({ id: c.id, name: c.name }));
     const campaignIds = matched.map((c) => c.id);
@@ -318,6 +320,90 @@ export async function runBulkVideoPreview(
       contextPageId,
       audiences: [...funnelAudiences, ...customAudiences],
       skipped: false,
+    };
+  });
+
+  // Phase 3b — deduplicate audiences by event_code.
+  // Events sharing the same event_code (e.g. three Scotland fixtures at O2)
+  // produce identical audience names and identical videos. Union their video
+  // ID sets into the primary row; clear sibling rows so previewRowsToInserts
+  // creates ONE insert per (event_code, threshold, retention) tuple, not one
+  // per event.
+  return dedupeRowsByEventCode(rows);
+}
+
+// ── Event-code dedup ──────────────────────────────────────────────────────────
+
+/**
+ * Group rows by event_code; keep ONE set of audiences on the primary (first
+ * non-skipped) row per event_code. Union video IDs across all siblings into
+ * the primary so a shared trailer/highlight is included even if it only
+ * appeared in one sibling event's campaign walk. Sibling rows keep their
+ * per-event fields (campaigns, video counts) but get `audiences: []` so
+ * previewRowsToInserts produces one draft per (event_code, threshold,
+ * retention) tuple rather than one per event.
+ *
+ * contextPageId on the primary's audiences is updated to the most-common
+ * contextPageId across all siblings — correct when siblings share campaigns
+ * and a no-op when they have distinct campaigns pointing to the same page.
+ */
+function dedupeRowsByEventCode(rows: BulkPreviewRow[]): BulkPreviewRow[] {
+  type CodeState = {
+    primaryIdx: number;
+    mergedVideoIds: Set<string>;
+    contextPageCounts: Map<string, number>;
+  };
+
+  const byCode = new Map<string, CodeState>();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    if (row.skipped || row.audiences.length === 0) continue;
+
+    if (!byCode.has(row.eventCode)) {
+      byCode.set(row.eventCode, {
+        primaryIdx: i,
+        mergedVideoIds: new Set<string>(),
+        contextPageCounts: new Map<string, number>(),
+      });
+    }
+    const state = byCode.get(row.eventCode)!;
+    for (const audience of row.audiences) {
+      for (const vid of audience.videoIds) state.mergedVideoIds.add(vid);
+    }
+    if (row.contextPageId) {
+      state.contextPageCounts.set(
+        row.contextPageId,
+        (state.contextPageCounts.get(row.contextPageId) ?? 0) + 1,
+      );
+    }
+  }
+
+  return rows.map((row, i): BulkPreviewRow => {
+    if (row.skipped || row.audiences.length === 0) return row;
+
+    const state = byCode.get(row.eventCode);
+    if (!state) return row;
+
+    const mergedIds = [...state.mergedVideoIds].sort();
+    const mergedContextPageId =
+      state.contextPageCounts.size > 0
+        ? [...state.contextPageCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0]
+        : row.contextPageId;
+
+    if (i !== state.primaryIdx) {
+      // Sibling: per-event data intact, audiences cleared — covered by primary.
+      return { ...row, audiences: [] };
+    }
+
+    // Primary: audiences carry the union of all sibling video IDs + merged contextId.
+    return {
+      ...row,
+      audiences: row.audiences.map((a) => ({
+        ...a,
+        videoIds: mergedIds,
+        contextId: mergedContextPageId,
+      })),
     };
   });
 }
