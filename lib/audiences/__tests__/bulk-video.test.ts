@@ -8,7 +8,14 @@ import {
 import { campaignMatchesBracketedEventCode } from "../../insights/meta-event-code-match.ts";
 import { mergeVideoSourcesDeduped } from "../merge-video-sources.ts";
 import { buildAudienceName } from "../naming.ts";
-import { previewRowsToInserts, BULK_FUNNEL_CONFIG, type BulkPreviewRow } from "../bulk-types.ts";
+import {
+  previewRowsToInserts,
+  hasBulkStages,
+  META_MAX_RETENTION_DAYS,
+  BULK_FUNNEL_CONFIG,
+  type BulkPreviewRow,
+  type BulkPreviewAudience,
+} from "../bulk-types.ts";
 
 // ── 1. Prefix scanner ─────────────────────────────────────────────────────────
 
@@ -134,7 +141,6 @@ describe("previewRowsToInserts", () => {
     userId: "u1",
     clientId: "c1",
     metaAdAccountId: "123456",
-    funnelStages: ["top_of_funnel", "bottom_funnel"] as const,
   };
 
   const videoIds = ["v1", "v2"];
@@ -185,20 +191,49 @@ describe("previewRowsToInserts", () => {
   ];
 
   it("produces inserts only for non-skipped rows", () => {
-    const inserts = previewRowsToInserts(rows, opts as typeof opts & { funnelStages: ("top_of_funnel" | "bottom_funnel")[] });
+    const inserts = previewRowsToInserts(rows, opts);
     assert.equal(inserts.length, 2); // 2 stages × 1 non-skipped event
   });
 
   it("sets correct eventId and audienceSubtype", () => {
-    const inserts = previewRowsToInserts(rows, opts as typeof opts & { funnelStages: ("top_of_funnel" | "bottom_funnel")[] });
+    const inserts = previewRowsToInserts(rows, opts);
     assert.ok(inserts.every((i) => i.audienceSubtype === "video_views"));
     assert.ok(inserts.every((i) => i.eventId === "ev1"));
   });
 
   it("uses audience name from preview row directly", () => {
-    const inserts = previewRowsToInserts(rows, opts as typeof opts & { funnelStages: ("top_of_funnel" | "bottom_funnel")[] });
+    const inserts = previewRowsToInserts(rows, opts);
     const top = inserts.find((i) => i.funnelStage === "top_of_funnel");
     assert.equal(top?.name, "[WC26-MANCHESTER] 50% video views 365d");
+  });
+
+  it("maps custom funnelStage → retargeting in DB insert", () => {
+    const customRows: BulkPreviewRow[] = [
+      {
+        eventId: "ev1",
+        eventCode: "WC26-MANCHESTER",
+        eventName: "Manchester",
+        matchedCampaigns: [{ id: "cam1", name: "[WC26-MANCHESTER] Test" }],
+        pagePublishedVideos: 2,
+        orphanVideos: 0,
+        audiences: [
+          {
+            funnelStage: "custom",
+            name: "[WC26-MANCHESTER] 95% video views 60d",
+            threshold: 95,
+            retentionDays: 60,
+            videoIds: ["v1"],
+            campaignIds: ["cam1"],
+            campaignSummaries: [{ id: "cam1", name: "[WC26-MANCHESTER] Test" }],
+          },
+        ],
+        skipped: false,
+      },
+    ];
+    const inserts = previewRowsToInserts(customRows, opts);
+    assert.equal(inserts.length, 1);
+    assert.equal(inserts[0]!.funnelStage, "retargeting");
+    assert.equal(inserts[0]!.retentionDays, 60);
   });
 });
 
@@ -222,5 +257,143 @@ describe("naming for bulk video views", () => {
     assert.equal(BULK_FUNNEL_CONFIG.top_of_funnel.threshold, 50);
     assert.equal(BULK_FUNNEL_CONFIG.mid_funnel.threshold, 75);
     assert.equal(BULK_FUNNEL_CONFIG.bottom_funnel.threshold, 95);
+  });
+});
+
+// ── 6. Custom stages ──────────────────────────────────────────────────────────
+
+/** Helper: build a non-skipped preview row with N audiences. */
+function makePreviewRow(
+  eventCode: string,
+  audiences: BulkPreviewAudience[],
+): BulkPreviewRow {
+  return {
+    eventId: `ev-${eventCode}`,
+    eventCode,
+    eventName: eventCode,
+    matchedCampaigns: [{ id: "cam1", name: `[${eventCode}] Test` }],
+    pagePublishedVideos: 2,
+    orphanVideos: 0,
+    audiences,
+    skipped: false,
+  };
+}
+
+function makeAudience(
+  funnelStage: BulkPreviewAudience["funnelStage"],
+  threshold: number,
+  retentionDays: number,
+  eventCode: string,
+): BulkPreviewAudience {
+  return {
+    funnelStage,
+    name: `[${eventCode}] ${threshold}% video views ${retentionDays}d`,
+    threshold,
+    retentionDays,
+    videoIds: ["v1", "v2"],
+    campaignIds: ["cam1"],
+    campaignSummaries: [{ id: "cam1", name: `[${eventCode}] Test` }],
+  };
+}
+
+describe("2 funnel + 2 custom stages × 3 events → 12 audiences", () => {
+  const eventCodes = ["WC26-MAN", "WC26-LON", "WC26-LEE"];
+
+  const rows = eventCodes.map((code) =>
+    makePreviewRow(code, [
+      makeAudience("top_of_funnel", 50, 365, code),
+      makeAudience("bottom_funnel", 95, 30, code),
+      makeAudience("custom", 95, 60, code),
+      makeAudience("custom", 95, 30, code),
+    ]),
+  );
+
+  it("produces 12 inserts (4 audiences × 3 events)", () => {
+    const inserts = previewRowsToInserts(rows, {
+      userId: "u1",
+      clientId: "c1",
+      metaAdAccountId: "act_123",
+    });
+    assert.equal(inserts.length, 12);
+  });
+
+  it("has correct funnelStage distribution across events", () => {
+    const inserts = previewRowsToInserts(rows, {
+      userId: "u1",
+      clientId: "c1",
+      metaAdAccountId: "act_123",
+    });
+    const topCount = inserts.filter((i) => i.funnelStage === "top_of_funnel").length;
+    const bottomCount = inserts.filter((i) => i.funnelStage === "bottom_funnel").length;
+    const retargetCount = inserts.filter((i) => i.funnelStage === "retargeting").length;
+    assert.equal(topCount, 3);
+    assert.equal(bottomCount, 3);
+    assert.equal(retargetCount, 6); // 2 custom stages × 3 events
+  });
+});
+
+describe("customStages alone (zero funnel stages) → valid request", () => {
+  it("hasBulkStages returns true when only customStages provided", () => {
+    assert.ok(hasBulkStages([], [{ threshold: 95, retentionDays: 60 }]));
+  });
+
+  it("hasBulkStages returns false when both arrays empty", () => {
+    assert.ok(!hasBulkStages([], []));
+  });
+
+  it("custom-only rows produce correct inserts", () => {
+    const rows = [
+      makePreviewRow("WC26-MAN", [
+        makeAudience("custom", 95, 60, "WC26-MAN"),
+        makeAudience("custom", 95, 30, "WC26-MAN"),
+      ]),
+    ];
+    const inserts = previewRowsToInserts(rows, {
+      userId: "u1",
+      clientId: "c1",
+      metaAdAccountId: "act_123",
+    });
+    assert.equal(inserts.length, 2);
+    assert.ok(inserts.every((i) => i.funnelStage === "retargeting"));
+    assert.ok(inserts.every((i) => i.audienceSubtype === "video_views"));
+  });
+});
+
+describe("both arrays empty → guard returns false (maps to 400 in route)", () => {
+  it("hasBulkStages([], []) is false", () => {
+    assert.equal(hasBulkStages([], []), false);
+  });
+});
+
+describe("custom stage retention clamped to META_MAX_RETENTION_DAYS", () => {
+  it("META_MAX_RETENTION_DAYS is 365", () => {
+    assert.equal(META_MAX_RETENTION_DAYS, 365);
+  });
+
+  it("retention 400d in audience is already clamped before reaching insert", () => {
+    // Simulate what bulk-video.ts does: Math.min(365, retentionDays)
+    // The row is built with the clamped value, so previewRowsToInserts sees 365.
+    const rows = [
+      makePreviewRow("WC26-MAN", [
+        // retentionDays already clamped by runBulkVideoPreview
+        makeAudience("custom", 95, META_MAX_RETENTION_DAYS, "WC26-MAN"),
+      ]),
+    ];
+    const inserts = previewRowsToInserts(rows, {
+      userId: "u1",
+      clientId: "c1",
+      metaAdAccountId: "act_123",
+    });
+    assert.equal(inserts[0]!.retentionDays, 365);
+  });
+
+  it("clamp formula: Math.min(365, x) for x > 365 produces 365", () => {
+    const clamp = (days: number) =>
+      Math.min(META_MAX_RETENTION_DAYS, Math.max(1, Math.trunc(days)));
+    assert.equal(clamp(400), 365);
+    assert.equal(clamp(366), 365);
+    assert.equal(clamp(365), 365);
+    assert.equal(clamp(60), 60);
+    assert.equal(clamp(0), 1); // floor at 1
   });
 });

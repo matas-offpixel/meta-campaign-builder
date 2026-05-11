@@ -5,7 +5,13 @@ import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { BULK_FUNNEL_CONFIG, type BulkFunnelStage, type BulkPreviewRow } from "@/lib/audiences/bulk-types";
+import {
+  BULK_FUNNEL_CONFIG,
+  VALID_VIDEO_THRESHOLDS,
+  type BulkCustomStage,
+  type BulkFunnelStage,
+  type BulkPreviewRow,
+} from "@/lib/audiences/bulk-types";
 import type { EventCodePrefixOption } from "@/lib/audiences/event-code-prefix-scanner";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -69,6 +75,7 @@ export function BulkVideoForm({
   const [selectedStages, setSelectedStages] = useState<Set<BulkFunnelStage>>(
     new Set(ALL_STAGES),
   );
+  const [customStages, setCustomStages] = useState<BulkCustomStage[]>([]);
   const [previewRows, setPreviewRows] = useState<BulkPreviewRow[]>([]);
   const [createResult, setCreateResult] = useState<CreateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,13 +92,32 @@ export function BulkVideoForm({
     });
   }, []);
 
+  const addCustomStage = useCallback(() => {
+    setCustomStages((prev) => [...prev, { threshold: 95, retentionDays: 60 }]);
+  }, []);
+
+  const removeCustomStage = useCallback((idx: number) => {
+    setCustomStages((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const updateCustomStage = useCallback(
+    (idx: number, patch: Partial<BulkCustomStage>) => {
+      setCustomStages((prev) =>
+        prev.map((cs, i) => (i === idx ? { ...cs, ...patch } : cs)),
+      );
+    },
+    [],
+  );
+
+  const hasAnyStage = selectedStages.size > 0 || customStages.length > 0;
+
   const totalAudiences = previewRows.reduce(
     (sum, r) => sum + (r.skipped ? 0 : r.audiences.length),
     0,
   );
 
   async function handlePreview() {
-    if (!selectedPrefix || selectedStages.size === 0) return;
+    if (!selectedPrefix || !hasAnyStage) return;
     setPhase("previewing");
     setError(null);
     setPreviewRows([]);
@@ -104,6 +130,7 @@ export function BulkVideoForm({
           clientId,
           eventCodePrefix: selectedPrefix,
           funnelStages: Array.from(selectedStages),
+          customStages,
         }),
       });
       const json = (await res.json()) as
@@ -134,6 +161,7 @@ export function BulkVideoForm({
           clientId,
           eventCodePrefix: selectedPrefix,
           funnelStages: Array.from(selectedStages),
+          customStages,
           createOnMeta: writesEnabled,
         }),
       });
@@ -158,6 +186,7 @@ export function BulkVideoForm({
     setPreviewRows([]);
     setCreateResult(null);
     setError(null);
+    setCustomStages([]);
   }
 
   if (prefixOptions.length === 0) {
@@ -278,7 +307,7 @@ export function BulkVideoForm({
         <div className="space-y-1.5">
           {allAudiences.map((a) => (
             <div
-              key={`${a.funnelStage}-${a.name}`}
+              key={a.name}
               className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-2.5 text-sm"
             >
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -328,7 +357,7 @@ export function BulkVideoForm({
             Step 2 — Funnel stages
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Select which funnel stages to generate.
+            Select preset funnel stages and/or add custom (threshold, retention) pairs.
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {ALL_STAGES.map((stage) => {
@@ -361,13 +390,67 @@ export function BulkVideoForm({
               );
             })}
           </div>
+
+          {/* Custom stages */}
+          <div className="mt-4 space-y-2">
+            {customStages.map((cs, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+                  <label className="text-xs text-muted-foreground whitespace-nowrap">Threshold</label>
+                  <select
+                    className="bg-transparent text-sm outline-none"
+                    value={cs.threshold}
+                    onChange={(e) =>
+                      updateCustomStage(idx, {
+                        threshold: Number(e.target.value) as BulkCustomStage["threshold"],
+                      })
+                    }
+                  >
+                    {VALID_VIDEO_THRESHOLDS.map((t) => (
+                      <option key={t} value={t}>{t}%</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+                  <label className="text-xs text-muted-foreground whitespace-nowrap">Retention</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    className="w-16 bg-transparent text-sm outline-none"
+                    value={cs.retentionDays}
+                    onChange={(e) =>
+                      updateCustomStage(idx, {
+                        retentionDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)),
+                      })
+                    }
+                  />
+                  <span className="text-xs text-muted-foreground">d</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeCustomStage(idx)}
+                  className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-destructive"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addCustomStage}
+              className="text-xs text-primary hover:underline"
+            >
+              + Add custom stage
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
           <Button
             type="button"
             onClick={() => void handlePreview()}
-            disabled={phase === "previewing" || selectedStages.size === 0 || !selectedPrefix}
+            disabled={phase === "previewing" || !hasAnyStage || !selectedPrefix}
           >
             {phase === "previewing" ? "Loading preview…" : "Step 3 — Preview"}
           </Button>
@@ -500,7 +583,7 @@ function PreviewEventCard({ row }: { row: BulkPreviewRow }) {
         <div className="mt-3 grid gap-1.5 sm:grid-cols-3">
           {row.audiences.map((a) => (
             <div
-              key={a.funnelStage}
+              key={a.name}
               className="rounded-md border border-border bg-background px-3 py-2 text-xs"
             >
               <p className="font-medium truncate">{a.name}</p>

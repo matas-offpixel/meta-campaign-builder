@@ -19,14 +19,27 @@ import {
 } from "./sources.ts";
 import {
   BULK_FUNNEL_CONFIG,
+  META_MAX_RETENTION_DAYS,
+  type BulkCustomStage,
   type BulkFunnelStage,
   type BulkPreviewAudience,
   type BulkPreviewRow,
 } from "./bulk-types.ts";
 import type { Database } from "../db/database.types.ts";
 
-export { BULK_FUNNEL_CONFIG, isBulkFunnelStage, previewRowsToInserts } from "./bulk-types.ts";
-export type { BulkFunnelStage, BulkPreviewAudience, BulkPreviewRow } from "./bulk-types.ts";
+export {
+  BULK_FUNNEL_CONFIG,
+  isBulkFunnelStage,
+  isValidCustomStage,
+  hasBulkStages,
+  previewRowsToInserts,
+} from "./bulk-types.ts";
+export type {
+  BulkCustomStage,
+  BulkFunnelStage,
+  BulkPreviewAudience,
+  BulkPreviewRow,
+} from "./bulk-types.ts";
 
 type TypedSupabaseClient = SupabaseClient<Database>;
 
@@ -49,6 +62,8 @@ export interface RunBulkPreviewOpts {
   token: string;
   eventCodePrefix: string;
   funnelStages: BulkFunnelStage[];
+  /** User-defined (threshold, retentionDays) pairs; retentionDays clamped to META_MAX_RETENTION_DAYS. */
+  customStages: BulkCustomStage[];
 }
 
 /**
@@ -58,7 +73,7 @@ export interface RunBulkPreviewOpts {
 export async function runBulkVideoPreview(
   opts: RunBulkPreviewOpts,
 ): Promise<BulkPreviewRow[]> {
-  const { supabase, userId, clientId, metaAdAccountId, clientName, clientSlug, token, eventCodePrefix, funnelStages } = opts;
+  const { supabase, userId, clientId, metaAdAccountId, clientName, clientSlug, token, eventCodePrefix, funnelStages, customStages } = opts;
 
   // 1. Fetch all events for this client
   const { data: eventsData, error: eventsError } = await supabase
@@ -185,20 +200,28 @@ export async function runBulkVideoPreview(
       };
     }
 
-    // 5. Build proposed audiences per funnel stage
-    const audiences: BulkPreviewAudience[] = funnelStages.map((stage) => {
+    // 5. Build proposed audiences per funnel stage then per custom stage
+    const namingOpts = {
+      scope: "event" as const,
+      client: { slug: clientSlug, name: clientName },
+      event: { eventCode: code, name: event.name },
+      subtype: "video_views" as const,
+      campaignNames: campaignSummaries.map((c) => c.name),
+    };
+
+    const funnelAudiences: BulkPreviewAudience[] = funnelStages.map((stage) => {
       const { threshold, retentionDays } = BULK_FUNNEL_CONFIG[stage];
-      const name = buildAudienceName({
-        scope: "event",
-        client: { slug: clientSlug, name: clientName },
-        event: { eventCode: code, name: event.name },
-        subtype: "video_views",
-        retentionDays,
-        threshold,
-        campaignNames: campaignSummaries.map((c) => c.name),
-      });
+      const name = buildAudienceName({ ...namingOpts, retentionDays, threshold });
       return { funnelStage: stage, name, threshold, retentionDays, videoIds, campaignIds, campaignSummaries };
     });
+
+    const customAudiences: BulkPreviewAudience[] = customStages.map((cs) => {
+      const retentionDays = Math.min(META_MAX_RETENTION_DAYS, Math.max(1, Math.trunc(cs.retentionDays)));
+      const name = buildAudienceName({ ...namingOpts, retentionDays, threshold: cs.threshold });
+      return { funnelStage: "custom", name, threshold: cs.threshold, retentionDays, videoIds, campaignIds, campaignSummaries };
+    });
+
+    const audiences: BulkPreviewAudience[] = [...funnelAudiences, ...customAudiences];
 
     return {
       eventId: event.id,

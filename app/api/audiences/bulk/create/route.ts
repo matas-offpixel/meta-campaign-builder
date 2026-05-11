@@ -5,9 +5,12 @@ import {
   isMetaAdAccountRateLimitError,
 } from "@/lib/audiences/meta-rate-limit";
 import {
+  hasBulkStages,
   isBulkFunnelStage,
+  isValidCustomStage,
   previewRowsToInserts,
   runBulkVideoPreview,
+  type BulkCustomStage,
   type BulkFunnelStage,
 } from "@/lib/audiences/bulk-video";
 import { resolveAudienceSourceContext } from "@/lib/audiences/sources";
@@ -32,6 +35,7 @@ export async function POST(req: NextRequest) {
     clientId?: unknown;
     eventCodePrefix?: unknown;
     funnelStages?: unknown;
+    customStages?: unknown;
     createOnMeta?: unknown;
   } | null;
 
@@ -41,6 +45,8 @@ export async function POST(req: NextRequest) {
     typeof body?.eventCodePrefix === "string" ? body.eventCodePrefix.trim() : null;
   const rawStages = Array.isArray(body?.funnelStages) ? body.funnelStages : null;
   const funnelStages: BulkFunnelStage[] = (rawStages ?? []).filter(isBulkFunnelStage);
+  const rawCustom = Array.isArray(body?.customStages) ? body.customStages : null;
+  const customStages: BulkCustomStage[] = (rawCustom ?? []).filter(isValidCustomStage);
   const createOnMeta = body?.createOnMeta === true;
 
   if (!clientId) {
@@ -49,8 +55,11 @@ export async function POST(req: NextRequest) {
   if (!eventCodePrefix) {
     return NextResponse.json({ ok: false, error: "eventCodePrefix is required" }, { status: 400 });
   }
-  if (funnelStages.length === 0) {
-    return NextResponse.json({ ok: false, error: "At least one funnelStage is required" }, { status: 400 });
+  if (!hasBulkStages(funnelStages, customStages)) {
+    return NextResponse.json(
+      { ok: false, error: "Pick at least one stage to generate audiences" },
+      { status: 400 },
+    );
   }
 
   try {
@@ -81,6 +90,7 @@ export async function POST(req: NextRequest) {
       token,
       eventCodePrefix,
       funnelStages,
+      customStages,
     });
 
     const skippedEvents = previewRows
@@ -92,7 +102,6 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       clientId,
       metaAdAccountId: context.metaAdAccountId,
-      funnelStages,
     });
 
     if (inserts.length === 0) {
