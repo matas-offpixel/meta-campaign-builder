@@ -246,6 +246,18 @@ export async function GET(req: NextRequest) {
   const autoTagEnabled = isAutoTagEnabled();
   const anthropic = autoTagEnabled ? getAnthropicClient() : null;
 
+  // Always log the autotag state so ops can diagnose "no tags being
+  // written" without guessing whether the env var is set.
+  if (autoTagEnabled && !anthropic) {
+    console.error(
+      "[cron refresh-active-creatives] ENABLE_AI_AUTOTAG=1 but ANTHROPIC_API_KEY is missing — tagging disabled",
+    );
+  } else {
+    console.log(
+      `[cron refresh-active-creatives] autotag_enabled=${autoTagEnabled} anthropic_key_present=${!!process.env.ANTHROPIC_API_KEY}`,
+    );
+  }
+
   for (const event of events) {
     const t0 = Date.now();
     const aiAutoTag = createAutoTagSummary(autoTagEnabled);

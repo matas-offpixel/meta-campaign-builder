@@ -105,7 +105,14 @@ GOOGLE_ADS_REDIRECT_URI=
 GOOGLE_ADS_TOKEN_KEY=
 EVENTBRITE_TOKEN_KEY=
 ANTHROPIC_API_KEY=
+ENABLE_AI_AUTOTAG=
 ```
+
+> **`ENABLE_AI_AUTOTAG`** must be set to `"1"` in Vercel prod env vars for the
+> AI creative auto-tagger to run inside the `refresh-active-creatives` cron.
+> Without it the tagger silently skips (no error, no tags written). Requires
+> `ANTHROPIC_API_KEY` to also be present. Check cron logs for
+> `autotag_enabled=false` to confirm the env var state.
 
 ### Database
 
