@@ -2688,12 +2688,14 @@ function LazyVenueDailyBudget({
     return (
       <>
         <span>Daily budget:</span>
-        <span
-          className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums"
-          title={state.reason ?? "Daily budget unavailable"}
-        >
+        <span className="font-heading text-xl tracking-wide text-muted-foreground tabular-nums">
           —
         </span>
+        {state.reason && (
+          <span className="text-xs text-muted-foreground/70">
+            ({state.reason})
+          </span>
+        )}
       </>
     );
   }
@@ -2706,10 +2708,12 @@ function LazyVenueDailyBudget({
         className={`font-heading text-xl tracking-wide tabular-nums ${
           state.dailyBudget == null ? "text-muted-foreground" : "text-foreground"
         }`}
-        title={state.dailyBudget == null ? (state.reason ?? undefined) : undefined}
       >
         {formatGBP(state.dailyBudget)}
       </span>
+      {state.dailyBudget == null && state.reason && (
+        <span className="text-xs text-muted-foreground/70">({state.reason})</span>
+      )}
     </>
   );
 }

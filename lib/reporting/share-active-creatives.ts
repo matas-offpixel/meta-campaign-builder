@@ -7,6 +7,7 @@ import { getOwnerFacebookToken, type ResolvedShare } from "@/lib/db/report-share
 import {
   fetchActiveCreativesForEvent,
   FacebookAuthExpiredError,
+  FacebookRateLimitError,
 } from "@/lib/reporting/active-creatives-fetch";
 import {
   groupByAssetSignature,
@@ -79,11 +80,11 @@ export type ShareActiveCreativesResult =
       reason: "no_event_code" | "no_ad_account" | "no_linked_campaigns";
     }
   | {
-      // Hard failure (token expired, Meta upstream error, etc).
+      // Hard failure (token expired, rate-limited, Meta upstream error, etc).
       // Caller renders the muted "Creative breakdown unavailable"
       // note instead of 500-ing the whole share page.
       kind: "error";
-      reason: "auth_expired" | "meta_failed" | "no_owner_token";
+      reason: "auth_expired" | "rate_limited" | "meta_failed" | "no_owner_token";
       message: string;
     };
 
@@ -180,6 +181,19 @@ export async function fetchShareActiveCreatives(
       err instanceof Error
         ? { message: err.message, stack: err.stack }
         : String(err);
+    if (err instanceof FacebookRateLimitError) {
+      console.warn("[share/active-creatives] Meta rate limited", {
+        token: input.share.token,
+        adAccountId: input.adAccountId,
+        eventCode: input.eventCode,
+        metaCode: err.metaCode,
+      });
+      return {
+        kind: "error",
+        reason: "rate_limited",
+        message: `Meta rate limited (#${err.metaCode ?? "?"}) — retry in a few minutes.`,
+      };
+    }
     if (err instanceof FacebookAuthExpiredError) {
       console.error("[share/active-creatives] fetch failed", {
         token: input.share.token,
