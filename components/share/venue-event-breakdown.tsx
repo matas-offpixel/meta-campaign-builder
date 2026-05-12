@@ -42,6 +42,7 @@ import {
   type VenueSpendGroup,
 } from "@/lib/dashboard/venue-spend-model";
 import { EventTicketingStatusBadge } from "./last-updated-indicator";
+import { resolveEventCapacity } from "@/lib/dashboard/event-capacity-resolver";
 
 interface Props {
   events: PortalEvent[];
@@ -495,13 +496,10 @@ function computeEventMetrics(
     paidMedia == null ? null : prereg + paidMedia + eventAdditionalSpend;
   const tierTotals = tierAllocationTotals(event);
   const tickets = tierTotals.sold;
-  const capacity = tierTotals.allocation ?? event.capacity;
+  const capacity = resolveEventCapacity(event.capacity, tierTotals.allocation);
   const soldPct =
     capacity != null && capacity > 0 ? (tickets / capacity) * 100 : null;
-  const isSoldOut =
-    tierTotals.allocation != null
-      ? tierTotals.sold >= tierTotals.allocation
-      : capacity != null && capacity > 0 && tickets >= capacity;
+  const isSoldOut = capacity != null && capacity > 0 && tickets >= capacity;
   const suggested =
     tierTotals.allTiersOnSaleSoon
       ? "ON SALE SOON"
