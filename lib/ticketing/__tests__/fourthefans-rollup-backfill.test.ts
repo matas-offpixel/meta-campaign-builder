@@ -1,7 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { reconstructFourthefansRollupDeltas } from "../fourthefans-rollup-backfill.ts";
+import {
+  aggregateMultiLinkSnapshots,
+  reconstructFourthefansRollupDeltas,
+} from "../fourthefans-rollup-backfill.ts";
 
 describe("reconstructFourthefansRollupDeltas", () => {
   it("reconstructs daily deltas from cumulative lifetime snapshots", () => {
@@ -81,6 +84,49 @@ describe("reconstructFourthefansRollupDeltas", () => {
   });
 });
 
+describe("aggregateMultiLinkSnapshots", () => {
+  it("sums two links on the same day and computes correct delta", () => {
+    const raw = [
+      rawSnapshot("conn-1", "ext-A", "2026-05-01T10:00:00.000Z", 100, 100_00),
+      rawSnapshot("conn-1", "ext-B", "2026-05-01T10:00:00.000Z", 50, 50_00),
+      rawSnapshot("conn-1", "ext-A", "2026-05-02T10:00:00.000Z", 150, 150_00),
+      rawSnapshot("conn-1", "ext-B", "2026-05-02T10:00:00.000Z", 80, 80_00),
+    ];
+    const aggregated = aggregateMultiLinkSnapshots(raw);
+    assert.equal(aggregated.length, 2);
+    assert.deepEqual(
+      aggregated.map((r) => r.tickets_sold),
+      [150, 230],
+    );
+    assert.deepEqual(
+      aggregated.map((r) => r.gross_revenue_cents),
+      [150_00, 230_00],
+    );
+
+    const deltas = reconstructFourthefansRollupDeltas(aggregated);
+    assert.deepEqual(
+      deltas.map((r) => r.tickets_sold),
+      [150, 80],
+    );
+    assert.deepEqual(
+      deltas.map((r) => r.revenue),
+      [150, 80],
+    );
+  });
+
+  it("picks the latest intra-day snapshot per link before summing", () => {
+    const raw = [
+      rawSnapshot("conn-1", "ext-A", "2026-05-01T09:00:00.000Z", 90, 90_00),
+      rawSnapshot("conn-1", "ext-A", "2026-05-01T18:00:00.000Z", 110, 110_00),
+      rawSnapshot("conn-1", "ext-B", "2026-05-01T10:00:00.000Z", 40, 40_00),
+    ];
+    const aggregated = aggregateMultiLinkSnapshots(raw);
+    assert.equal(aggregated.length, 1);
+    assert.equal(aggregated[0].tickets_sold, 150);
+    assert.equal(aggregated[0].gross_revenue_cents, 150_00);
+  });
+});
+
 function snapshot(
   snapshot_at: string,
   tickets_sold: number,
@@ -89,6 +135,24 @@ function snapshot(
   return {
     event_id: "event-1",
     user_id: "user-1",
+    snapshot_at,
+    tickets_sold,
+    gross_revenue_cents,
+  };
+}
+
+function rawSnapshot(
+  connection_id: string,
+  external_event_id: string,
+  snapshot_at: string,
+  tickets_sold: number,
+  gross_revenue_cents: number | null,
+) {
+  return {
+    event_id: "event-1",
+    user_id: "user-1",
+    connection_id,
+    external_event_id,
     snapshot_at,
     tickets_sold,
     gross_revenue_cents,
