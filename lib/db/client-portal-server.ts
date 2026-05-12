@@ -730,7 +730,15 @@ async function loadPortalForClientId(
             week_start: string;
           }>,
         }),
-    fetchAllDailyEntries(admin, clientId),
+    fetchAllDailyEntries(
+      admin,
+      clientId,
+      // Venue-scoped load: pass the narrow eventIds so only entries
+      // for THIS venue's events are fetched. Without this, entries
+      // from unrelated events under the same client (e.g. Scotland v
+      // Brazil) leak into the Villa venue's daily tracker.
+      options?.eventCode ? eventIds : undefined,
+    ),
     eventIds.length > 0
       ? fetchAllDailyRollups(admin, eventIds)
       : Promise.resolve([] as DailyRollupRow[]),
@@ -1351,10 +1359,57 @@ async function fetchTicketingStatusByEvent(
 
 const PORTAL_PAGE_SIZE = 1000;
 
+function mapDailyEntryRows(
+  data: Array<{
+    id: unknown;
+    event_id: unknown;
+    date: unknown;
+    day_spend: unknown;
+    tickets: unknown;
+    revenue: unknown;
+    link_clicks: unknown;
+    notes: unknown;
+  }>,
+): DailyEntry[] {
+  return data.map((r) => ({
+    id: r.id as string,
+    event_id: r.event_id as string,
+    date: r.date as string,
+    day_spend: (r.day_spend as number | null) ?? null,
+    tickets: (r.tickets as number | null) ?? null,
+    revenue: (r.revenue as number | null) ?? null,
+    link_clicks: (r.link_clicks as number | null) ?? null,
+    notes: (r.notes as string | null) ?? null,
+  }));
+}
+
 async function fetchAllDailyEntries(
   admin: ReturnType<typeof createServiceRoleClient>,
   clientId: string,
+  narrowEventIds?: string[],
 ): Promise<DailyEntry[]> {
+  // Venue-scoped load: query by event_id IN (...) so entries from
+  // other events under the same client never reach the portal payload.
+  // The result set is bounded (at most a few hundred rows per venue),
+  // so pagination is unnecessary.
+  if (narrowEventIds !== undefined) {
+    if (narrowEventIds.length === 0) return [];
+    const { data, error } = await admin
+      .from("daily_tracking_entries")
+      .select("id, event_id, date, day_spend, tickets, revenue, link_clicks, notes")
+      .in("event_id", narrowEventIds)
+      .order("event_id", { ascending: true })
+      .order("date", { ascending: true });
+    if (error) {
+      console.warn("[client-portal-server] daily entries load failed", {
+        message: error.message,
+      });
+      return [];
+    }
+    return mapDailyEntryRows(data ?? []);
+  }
+
+  // Client-wide load (whole-portal): paginated scan by client_id.
   const rows: DailyEntry[] = [];
   for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
     const to = from + PORTAL_PAGE_SIZE - 1;
@@ -1366,8 +1421,6 @@ async function fetchAllDailyEntries(
       .order("date", { ascending: true })
       .range(from, to);
 
-    // Soft-fail: if the legacy table doesn't exist or the query trips,
-    // render the rest of the portal rather than 500-ing the page.
     if (error) {
       console.warn("[client-portal-server] daily entries load failed", {
         from,
@@ -1377,20 +1430,7 @@ async function fetchAllDailyEntries(
       return rows;
     }
     if (!data || data.length === 0) break;
-
-    rows.push(
-      ...data.map((r) => ({
-        id: r.id as string,
-        event_id: r.event_id as string,
-        date: r.date as string,
-        day_spend: (r.day_spend as number | null) ?? null,
-        tickets: (r.tickets as number | null) ?? null,
-        revenue: (r.revenue as number | null) ?? null,
-        link_clicks: (r.link_clicks as number | null) ?? null,
-        notes: (r.notes as string | null) ?? null,
-      })),
-    );
-
+    rows.push(...mapDailyEntryRows(data));
     if (data.length < PORTAL_PAGE_SIZE) break;
   }
   return rows;
