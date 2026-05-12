@@ -40,6 +40,30 @@ describe("reconstructFourthefansRollupDeltas", () => {
     );
   });
 
+  it("revenue delta sequence [100, 250, 250, 380] → [100, 150, 0, 130]", () => {
+    const rows = reconstructFourthefansRollupDeltas([
+      snapshot("2026-05-09T10:00:00.000Z", 10, 100_00),
+      snapshot("2026-05-10T10:00:00.000Z", 25, 250_00),
+      snapshot("2026-05-11T10:00:00.000Z", 25, 250_00),
+      snapshot("2026-05-12T10:00:00.000Z", 38, 380_00),
+    ]);
+    assert.deepEqual(
+      rows.map((row) => row.revenue),
+      [100, 150, 0, 130],
+    );
+  });
+
+  it("revenue refund clamp: lifetime drops [300→250] → daily delta=0, not -50", () => {
+    const rows = reconstructFourthefansRollupDeltas([
+      snapshot("2026-05-10T10:00:00.000Z", 30, 300_00),
+      snapshot("2026-05-11T10:00:00.000Z", 25, 250_00),
+    ]);
+    assert.deepEqual(
+      rows.map((row) => row.revenue),
+      [300, 0],
+    );
+  });
+
   it("uses the latest same-day lifetime snapshot before differencing days", () => {
     const rows = reconstructFourthefansRollupDeltas([
       snapshot("2026-04-30T09:00:00.000Z", 100, 100_00),
