@@ -26,22 +26,23 @@ describe("isWc26OpponentAllocatorEventCode", () => {
 /**
  * KOC allocator routing regression tests.
  *
- * KOC fixture codes are WC26-KOC-{VENUE}-{T1}-{T2} (5 parts).
- * Meta campaigns use the 3-part venue bracket ([WC26-KOC-BRIXTON]),
- * so the allocator must use equal-split, not the opponent path.
+ * KOC event_codes are WC26-KOC-{VENUE}-{T1}-{T2} (5 parts) in the DB.
+ * Meta campaigns are tagged at venue level ([WC26-KOC-BRIXTON] — 3 parts),
+ * so isKocVenueFixtureCode must fire for ANY WC26-KOC-* code, regardless
+ * of depth. The allocator uses equal-split, not the opponent path, for all KOC.
  */
 describe("isKocVenueFixtureCode", () => {
-  it("returns true for 5-part KOC fixture codes", () => {
+  it("returns true for 5-part KOC fixture event_codes", () => {
     assert.equal(isKocVenueFixtureCode("WC26-KOC-BRIXTON-ENG-CRO"), true);
     assert.equal(isKocVenueFixtureCode("WC26-KOC-HACKNEY-FRA-SEN"), true);
     assert.equal(isKocVenueFixtureCode("WC26-KOC-SOHO-SCO-BRA"), true);
     assert.equal(isKocVenueFixtureCode("  wc26-koc-brixton-aus-usa  "), true);
   });
 
-  it("returns false for 3-part venue codes (not fixture-level)", () => {
-    // Campaign bracket code — not a fixture event_code
-    assert.equal(isKocVenueFixtureCode("WC26-KOC-BRIXTON"), false);
-    assert.equal(isKocVenueFixtureCode("WC26-KOC-HACKNEY"), false);
+  it("also returns true for 3-part venue prefix codes (campaign bracket level)", () => {
+    // Meta campaigns use [WC26-KOC-BRIXTON] — these must also be detected
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-BRIXTON"), true);
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-HACKNEY"), true);
   });
 
   it("returns false for non-KOC WC26 codes", () => {

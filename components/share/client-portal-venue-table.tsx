@@ -39,6 +39,10 @@ import {
 } from "@/lib/dashboard/rollout-grouping";
 import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
 import {
+  extractKocVenuePrefix,
+  isKocVenueFixtureCode,
+} from "@/lib/dashboard/venue-equal-split";
+import {
   paidLinkClicksOf,
   paidSpendOf,
 } from "@/lib/dashboard/paid-spend";
@@ -554,16 +558,22 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
         }
         continue;
       }
+      // KOC fixture codes (WC26-KOC-BRIXTON-ENG-CRO) share a venue-level
+      // campaign bracket ([WC26-KOC-BRIXTON]) — use the 3-part prefix as
+      // the canonical code for URL hash, Meta bracket join, and display.
+      // TODO: remove when allocator strategy registry lands (Task #73).
+      const effectiveCode =
+        ev.event_code && isKocVenueFixtureCode(ev.event_code)
+          ? extractKocVenuePrefix(ev.event_code)
+          : ev.event_code;
       const group: VenueGroup = {
         key: rollKey,
-        // event_code is a stable, user-visible handle the operator
-        // recognises in the URL hash — beats a UUID every time.
-        expandKey: ev.event_code as string,
-        eventCode: ev.event_code,
+        expandKey: effectiveCode as string,
+        eventCode: effectiveCode,
         displayName:
-          getSeriesDisplayLabel(ev.event_code) ??
+          getSeriesDisplayLabel(effectiveCode) ??
           ev.venue_name ??
-          (ev.event_code as string),
+          (effectiveCode as string),
         city: ev.venue_city,
         budget: ev.budget_marketing,
         campaignSpend: ev.meta_spend_cached,

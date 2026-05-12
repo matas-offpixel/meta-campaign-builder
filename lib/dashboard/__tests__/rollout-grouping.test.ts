@@ -227,6 +227,58 @@ describe("buildRolloutGroups", () => {
     assert.equal(nodes.length, 2);
     assert.ok(nodes.every((n) => n.kind === "single"));
   });
+
+  it("groups KOC fixture codes by 3-part venue prefix (Brixton ×5 → 1 group)", () => {
+    const brixtonCodes = [
+      "WC26-KOC-BRIXTON-ENG-CRO",
+      "WC26-KOC-BRIXTON-AUS-USA",
+      "WC26-KOC-BRIXTON-ENG-GHA",
+      "WC26-KOC-BRIXTON-SCO-BRA",
+      "WC26-KOC-BRIXTON-ENG-PAN",
+    ];
+    const nodes = buildRolloutGroups(
+      brixtonCodes.map((code, i) =>
+        row({ eventId: `b${i}`, eventCode: code, eventDate: `2026-06-${17 + i}` }),
+      ),
+    );
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, "group");
+    if (nodes[0].kind !== "group") throw new Error();
+    assert.equal(nodes[0].group.key, "series:WC26-KOC-BRIXTON");
+    assert.equal(nodes[0].group.eventCode, "WC26-KOC-BRIXTON");
+    assert.equal(nodes[0].group.children.length, 5);
+  });
+
+  it("keeps KOC venues in separate groups (Brixton and Hackney do not merge)", () => {
+    const nodes = buildRolloutGroups([
+      row({ eventId: "b1", eventCode: "WC26-KOC-BRIXTON-ENG-CRO", eventDate: "2026-06-17" }),
+      row({ eventId: "b2", eventCode: "WC26-KOC-BRIXTON-AUS-USA", eventDate: "2026-06-19" }),
+      row({ eventId: "h1", eventCode: "WC26-KOC-HACKNEY-ENG-CRO", eventDate: "2026-06-17" }),
+      row({ eventId: "h2", eventCode: "WC26-KOC-HACKNEY-AUS-USA", eventDate: "2026-06-19" }),
+    ]);
+    assert.equal(nodes.length, 2);
+    assert.ok(nodes.every((n) => n.kind === "group"));
+    const keys = nodes
+      .filter((n) => n.kind === "group")
+      .map((n) => n.kind === "group" ? n.group.key : "");
+    assert.ok(keys.includes("series:WC26-KOC-BRIXTON"));
+    assert.ok(keys.includes("series:WC26-KOC-HACKNEY"));
+  });
+
+  it("does not affect 4theFans WC26 venue codes (no regression)", () => {
+    const nodes = buildRolloutGroups([
+      row({ eventId: "a", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-17" }),
+      row({ eventId: "b", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-21" }),
+      row({ eventId: "c", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-24" }),
+      row({ eventId: "d", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-27" }),
+    ]);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, "group");
+    if (nodes[0].kind !== "group") throw new Error();
+    assert.equal(nodes[0].group.key, "series:WC26-BRIGHTON");
+    assert.equal(nodes[0].group.eventCode, "WC26-BRIGHTON");
+    assert.equal(nodes[0].group.children.length, 4);
+  });
 });
 
 describe("expanded hash helpers", () => {

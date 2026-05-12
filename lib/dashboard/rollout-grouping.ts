@@ -28,6 +28,10 @@ import type {
   ReadinessStatus,
   ReadinessTicketingMode,
 } from "@/lib/db/event-readiness";
+import {
+  extractKocVenuePrefix,
+  isKocVenueFixtureCode,
+} from "./venue-equal-split.ts";
 
 /** Minimal shape needed to group; a structural subset of `RolloutRowProps`. */
 export interface GroupableRow {
@@ -84,6 +88,18 @@ const STATUS_RANK: Record<ReadinessStatus, number> = {
 };
 
 /**
+ * KOC fixture codes (WC26-KOC-BRIXTON-ENG-CRO) must group by their
+ * 3-part venue prefix (WC26-KOC-BRIXTON) — Meta campaigns are tagged
+ * at venue level, not fixture level.
+ * TODO: remove when allocator strategy registry lands (Task #73).
+ */
+function effectiveGroupCode(eventCode: string): string {
+  return isKocVenueFixtureCode(eventCode)
+    ? extractKocVenuePrefix(eventCode)
+    : eventCode;
+}
+
+/**
  * Precompute stable grouping keys for every row. Used by rollout UI,
  * client-wide venue counts, and the share portal venue table so they
  * stay aligned.
@@ -95,9 +111,10 @@ export function buildRolloutGroupKeyByEventId<TRow extends GroupableRow>(
   const byCode = new Map<string, TRow[]>();
   for (const r of rows) {
     if (!r.eventCode) continue;
-    const list = byCode.get(r.eventCode) ?? [];
+    const gc = effectiveGroupCode(r.eventCode);
+    const list = byCode.get(gc) ?? [];
     list.push(r);
-    byCode.set(r.eventCode, list);
+    byCode.set(gc, list);
   }
 
   for (const r of rows) {
@@ -105,11 +122,12 @@ export function buildRolloutGroupKeyByEventId<TRow extends GroupableRow>(
       out.set(r.eventId, `__solo__::${r.eventId}`);
       continue;
     }
-    const bucket = byCode.get(r.eventCode) ?? [];
+    const gc = effectiveGroupCode(r.eventCode);
+    const bucket = byCode.get(gc) ?? [];
     const key =
       bucket.length >= 2
-        ? `series:${r.eventCode}`
-        : `${r.eventCode}::${r.eventDate ?? ""}`;
+        ? `series:${gc}`
+        : `${gc}::${r.eventDate ?? ""}`;
     out.set(r.eventId, key);
   }
   return out;
@@ -176,7 +194,7 @@ export function buildRolloutGroups<TRow extends GroupableRow>(
       kind: "group",
       group: {
         key: k,
-        eventCode: r.eventCode as string,
+        eventCode: effectiveGroupCode(r.eventCode as string),
         eventDate: aggregateParentEventDate(children),
         venueName: children[0]?.venueName ?? null,
         children,
