@@ -59,9 +59,11 @@ Three venues, ~17 confirmed fixtures total (per client's Skiddle listings as of 
 
 **Knockout fixtures (R16, QF, SF, Final)** — not yet listed on Skiddle. Will be added once group stages resolve. Client commits 7+ key matches per venue minimum across the run.
 
-**Event code convention:** `WC26-KOC-[VENUE]-[FIXTURE]`
-- Example: `WC26-KOC-BRIXTON-ENG-CRO`
-- Example: `WC26-KOC-SOHO-FRA-SEN`
+**Event code convention:** `WC26-KOC-[VENUE]` (venue-level, same pattern as 4theFans)
+- Example: `WC26-KOC-BRIXTON` — all 5 Brixton fixtures share this code
+- Example: `WC26-KOC-SOHO` — all 5 Soho fixtures share this code
+- Fixture identity lives in `events.name` + `event_date` (e.g. "England vs Croatia · 17 Jun")
+- Migration 091 flattened the original 5-part fixture codes seeded in 090
 
 ---
 
@@ -98,7 +100,7 @@ Examples:
 
 ### Allocator strategy
 
-Hard-code a temporary `[WC26-KOC-*]` branch matching pattern in `lib/dashboard/venue-spend-allocator.ts` until the allocator strategy registry PR lands (queued: Task #73 / Week 2). Once registry lands, migrate to `getAllocatorStrategy(client, event)` returning `equal_split_per_fixture` for catch-all campaigns and `opponent_match` for fixture-specific.
+KOC uses the standard WC26 opponent-allocator path (all spend classified as generic → equal split across venue siblings). No client-specific branches required — venue-level event_codes mean the sibling lookup, Meta bracket join, and dashboard grouping all work identically to 4theFans.
 
 Brand awareness campaigns: use the existing `event.kind = 'brand_campaign'` pattern (per memory `project_creator_awareness_template_shipped_2026-04-30.md`). Do NOT bolt a new "client_level_aware" strategy into the ticketed allocator.
 

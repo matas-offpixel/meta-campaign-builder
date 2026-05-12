@@ -13,8 +13,6 @@ import {
 } from "@/lib/dashboard/venue-spend-allocation";
 import {
   equalSplitMonetaryAmounts,
-  extractKocVenuePrefix,
-  isKocVenueFixtureCode,
   isWc26OpponentAllocatorEventCode,
 } from "@/lib/dashboard/venue-equal-split.ts";
 
@@ -585,20 +583,12 @@ export async function allocateVenueSpendForCode(
   // event_code only so the WC26 opponent allocator receives the full
   // sibling set and can split correctly.
   //
-  // KOC temp branch (until strategy registry — Task #73): fixture-level
-  // event_codes (WC26-KOC-BRIXTON-ENG-CRO) require a prefix ILIKE to
-  // collect all Brixton siblings in one group.
-  const kocVenuePrefix = isKocVenueFixtureCode(eventCode)
-    ? extractKocVenuePrefix(eventCode)
-    : null;
   const client = supabase as unknown as SupabaseClient;
-  const siblingsBase = client
+  const { data: siblings, error: siblingsErr } = await client
     .from("events")
     .select("id, name")
-    .eq("client_id", clientId);
-  const { data: siblings, error: siblingsErr } = kocVenuePrefix
-    ? await siblingsBase.ilike("event_code", kocVenuePrefix + "-%")
-    : await siblingsBase.eq("event_code", eventCode);
+    .eq("client_id", clientId)
+    .eq("event_code", eventCode);
   if (siblingsErr) {
     console.info(
       `[venue-spend-allocator] early-return reason=upsert_failed stage=sibling_lookup event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${siblingsErr.message}`,
@@ -647,13 +637,7 @@ export async function allocateVenueSpendForCode(
   // Club Football & non-WC26 multi-fixture: equal split across siblings using
   // rollup `ad_spend` / `ad_spend_presale` from the Meta leg (event_code is the
   // budget unit per PR #302). WC26 keeps opponent + umbrella special cases below.
-  //
-  // KOC fixture codes (WC26-KOC-BRIXTON-ENG-CRO) are also equal-split: Meta
-  // campaigns use the 3-part venue bracket ([WC26-KOC-BRIXTON]), not a
-  // per-fixture bracket, so all ads are "venue-generic" — equal split is
-  // the correct strategy and avoids running the opponent classifier on names
-  // that will never match a fixture-level opponent.
-  if (!isWc26OpponentAllocatorEventCode(eventCode) || isKocVenueFixtureCode(eventCode)) {
+  if (!isWc26OpponentAllocatorEventCode(eventCode)) {
     return equalSplitNonWc26AllocatedSpend({
       supabase,
       userId,
