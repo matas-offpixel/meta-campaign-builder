@@ -632,8 +632,32 @@ function createSemaphore(limit: number) {
   };
 }
 
+/**
+ * Meta error codes that signal rate-limiting rather than auth expiry.
+ * 80004 is the "hard lockout" variant that results from exhausting the
+ * hourly account budget (often a cascade from softer codes 4/17).
+ * Must be excluded from OAuthException detection because Meta sometimes
+ * tags rate-limit responses with type="OAuthException".
+ */
+const RATE_LIMIT_CODES = new Set([2, 4, 17, 32, 80004, 341, 613]);
+
+export function isMetaRateLimitError(err: unknown): boolean {
+  if (err instanceof MetaApiError && err.code != null) {
+    return RATE_LIMIT_CODES.has(err.code);
+  }
+  return false;
+}
+
+/**
+ * Returns true only for genuine token-expiry / invalid-token errors
+ * (code 190 or OAuthException type when NOT a known rate-limit code).
+ * Rate-limit codes (2, 4, 17, 32, 80004, 341, 613) are explicitly
+ * excluded — Meta sometimes tags them with type="OAuthException" which
+ * previously caused the "session expired" banner to fire on a rate-limit.
+ */
 export function isMetaAuthError(err: unknown): boolean {
   if (err instanceof MetaApiError) {
+    if (RATE_LIMIT_CODES.has(err.code ?? -1)) return false;
     if (err.code === 190) return true;
     if (err.type === "OAuthException") return true;
   }
@@ -649,6 +673,22 @@ export class FacebookAuthExpiredError extends Error {
   constructor(message = "Facebook session expired") {
     super(message);
     this.name = "FacebookAuthExpiredError";
+  }
+}
+
+/**
+ * Rate-limit sentinel thrown by `fetchActiveCreativesForEvent` when
+ * the campaign-list or ads call fails with a Meta rate-limit code
+ * (4, 17, 80004). Distinct from `FacebookAuthExpiredError` so callers
+ * can surface "retry in a few minutes" copy instead of "reconnect."
+ */
+export class FacebookRateLimitError extends Error {
+  constructor(
+    public readonly metaCode: number | undefined,
+    message = "Meta rate limited",
+  ) {
+    super(message);
+    this.name = "FacebookRateLimitError";
   }
 }
 
@@ -1108,6 +1148,12 @@ export async function fetchActiveCreativesForEvent(
   try {
     campaigns = await listLinkedCampaignIds(adAccountId, eventCode, token);
   } catch (err) {
+    if (isMetaRateLimitError(err)) {
+      throw new FacebookRateLimitError(
+        err instanceof MetaApiError ? err.code : undefined,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     if (isMetaAuthError(err)) {
       throw new FacebookAuthExpiredError();
     }
@@ -1157,6 +1203,12 @@ export async function fetchActiveCreativesForEvent(
       `[active-creatives] event_ads_fetch_ok event=${eventCode} ad_account=${adAccountId} campaigns=${campaigns.length} ads=${rawAds.length}`,
     );
   } catch (err) {
+    if (isMetaRateLimitError(err)) {
+      throw new FacebookRateLimitError(
+        err instanceof MetaApiError ? err.code : undefined,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     if (isMetaAuthError(err)) {
       throw new FacebookAuthExpiredError();
     }

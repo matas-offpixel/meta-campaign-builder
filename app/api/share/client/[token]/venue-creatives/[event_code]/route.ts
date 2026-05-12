@@ -6,6 +6,7 @@ import {
 } from "@/lib/db/report-shares";
 import {
   FacebookAuthExpiredError,
+  FacebookRateLimitError,
   fetchActiveCreativesForEvent,
 } from "@/lib/reporting/active-creatives-fetch";
 import { groupByAssetSignature } from "@/lib/reporting/group-creatives";
@@ -227,6 +228,21 @@ export async function GET(
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (err instanceof FacebookRateLimitError) {
+      console.warn("[venue-creatives] Meta rate limited", {
+        token,
+        eventCode: eventCodeRaw,
+        adAccountId,
+        metaCode: err.metaCode,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Meta rate limited (#${err.metaCode ?? "?"}) — retry in a few minutes.`,
+        },
+        { status: 429 },
+      );
+    }
     if (err instanceof FacebookAuthExpiredError) {
       console.error("[venue-creatives] owner FB token expired", {
         token,
