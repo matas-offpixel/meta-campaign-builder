@@ -582,12 +582,21 @@ export async function allocateVenueSpendForCode(
   // row → 4× over-attribution on the dashboard. Fix: always query by
   // event_code only so the WC26 opponent allocator receives the full
   // sibling set and can split correctly.
+  //
+  // KOC temp branch (until strategy registry — Task #73): fixture-level
+  // event_codes (WC26-KOC-BRIXTON-ENG-CRO) require a prefix ILIKE to
+  // collect all Brixton siblings in one group.
+  const kocVenuePrefix = isKocVenueFixtureCode(eventCode)
+    ? extractKocVenuePrefix(eventCode)
+    : null;
   const client = supabase as unknown as SupabaseClient;
-  const { data: siblings, error: siblingsErr } = await client
+  const siblingsBase = client
     .from("events")
     .select("id, name")
-    .eq("client_id", clientId)
-    .eq("event_code", eventCode);
+    .eq("client_id", clientId);
+  const { data: siblings, error: siblingsErr } = kocVenuePrefix
+    ? await siblingsBase.ilike("event_code", kocVenuePrefix + "-%")
+    : await siblingsBase.eq("event_code", eventCode);
   if (siblingsErr) {
     console.info(
       `[venue-spend-allocator] early-return reason=upsert_failed stage=sibling_lookup event_code=${eventCode} client_id=${clientId} event_date=${eventDate ?? "<null>"} msg=${siblingsErr.message}`,
@@ -682,7 +691,7 @@ export async function allocateVenueSpendForCode(
   // handles that cleanly (returns empty perEvent allocations, which we
   // then DON'T upsert).
   const adFetch = await fetchVenueDailyAdMetrics({
-    eventCode,
+    eventCode: kocVenuePrefix ?? eventCode,
     adAccountId,
     token,
     since: effectiveSince,
@@ -1077,4 +1086,18 @@ function sumMap(values: Map<string, number>): number {
 
 function isBristolEventCode(eventCode: string): boolean {
   return eventCode.toUpperCase().includes("BRISTOL");
+}
+
+// KOC temp branch — until allocator strategy registry lands (Task #73 / Week 2).
+// KOC uses fixture-level event_codes (WC26-KOC-BRIXTON-ENG-CRO) but campaigns
+// are named with the venue-level bracket ([WC26-KOC-BRIXTON]). Strip the
+// fixture suffix for sibling lookup and Meta fetch.
+function isKocVenueFixtureCode(code: string): boolean {
+  const up = code.trim().toUpperCase();
+  return up.startsWith("WC26-KOC-") && up.split("-").length >= 5;
+}
+
+function extractKocVenuePrefix(code: string): string {
+  // WC26-KOC-BRIXTON-ENG-CRO → WC26-KOC-BRIXTON
+  return code.trim().toUpperCase().split("-").slice(0, 3).join("-");
 }
