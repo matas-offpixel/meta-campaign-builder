@@ -13,6 +13,7 @@ import {
   type RunGoogleAdsRollupLegInput,
 } from "../google-ads-rollup-leg.ts";
 import { shouldInvokeVenueAllocator } from "../venue-allocator-trigger.ts";
+import { isSuspiciousTicketingZeroFetch } from "../ticketing-zero-fetch-guard.ts";
 import { TikTokApiError } from "../../tiktok/client.ts";
 import type { TikTokDailyInsightRow } from "../../tiktok/rollup-insights.ts";
 import type { GoogleAdsCredentials } from "../../google-ads/credentials.ts";
@@ -398,5 +399,34 @@ describe("shouldInvokeVenueAllocator", () => {
       }),
       false,
     );
+  });
+});
+
+// ── Bug #1: today-zeros guard ─────────────────────────────────────────────
+//
+// The 4theFans / foursomething provider returns a cumulative lifetime total.
+// A lifetime total of 0 when a previous snapshot already recorded > 0 is
+// physically impossible — it means the API returned bad data (rate-limit,
+// empty body, outage).  The guard must detect this and skip the row write
+// so today's rollup is not corrupted with false zeros.
+describe("isSuspiciousTicketingZeroFetch", () => {
+  it("flags a zero lifetime total when previous snapshot was positive", () => {
+    // Core regression: cron returned 0 but yesterday had 100 cumulative → skip
+    assert.equal(isSuspiciousTicketingZeroFetch(0, 100), true);
+    assert.equal(isSuspiciousTicketingZeroFetch(0, 1), true);
+  });
+
+  it("does not flag a zero when there is no previous snapshot (genuine first sync)", () => {
+    assert.equal(isSuspiciousTicketingZeroFetch(0, null), false);
+  });
+
+  it("does not flag a zero when previous was also zero (no tickets sold yet)", () => {
+    assert.equal(isSuspiciousTicketingZeroFetch(0, 0), false);
+  });
+
+  it("does not flag positive totals regardless of previous", () => {
+    assert.equal(isSuspiciousTicketingZeroFetch(5, 3), false);
+    assert.equal(isSuspiciousTicketingZeroFetch(100, null), false);
+    assert.equal(isSuspiciousTicketingZeroFetch(242, 238), false);
   });
 });

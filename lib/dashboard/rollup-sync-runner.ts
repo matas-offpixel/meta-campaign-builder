@@ -53,6 +53,7 @@ import {
   type GoogleAdsRollupDeps,
 } from "@/lib/dashboard/google-ads-rollup-leg";
 import { shouldInvokeVenueAllocator } from "@/lib/dashboard/venue-allocator-trigger";
+import { isSuspiciousTicketingZeroFetch } from "@/lib/dashboard/ticketing-zero-fetch-guard";
 
 /**
  * lib/dashboard/rollup-sync-runner.ts
@@ -1219,6 +1220,20 @@ async function fetchFourthefansRollupSnapshotContribution(args: {
       ? Math.max(0, revenueCurrentCents)
       : Math.max(0, revenueCurrentCents - revenuePreviousCents);
   const revenueDelta = Number((revenueDeltaCents / 100).toFixed(2));
+
+  // Guard: if the provider returned a lifetime total of 0 while we already
+  // have a positive previous snapshot, this is a suspicious API response
+  // (rate-limit, empty body, provider outage).  Writing 0 into
+  // ticket_sales_snapshots would corrupt the delta chain — tomorrow's sync
+  // would compute its delta against 0 and produce a false spike.
+  // Skip both the snapshot insert and the rollup row; the next successful
+  // sync fills the gap.
+  if (isSuspiciousTicketingZeroFetch(fetched.ticketsSold, previousSnapshot?.tickets_sold ?? null)) {
+    console.warn(
+      `[rollup-sync] ticketing fetch empty for event ${args.externalEventId} event_id=${args.eventId}, skipping write — current_lifetime=0 previous_lifetime=${previousSnapshot?.tickets_sold ?? 0}`,
+    );
+    return { rows: [], ticketTiers: fetched.ticketTiers };
+  }
 
   const source = snapshotSourceForProvider(args.connection.provider);
   if (source) {
