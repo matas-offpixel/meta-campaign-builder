@@ -129,7 +129,12 @@ export default async function ClientVenueReportPage({
 
   const venueEvents = portal.events;
   const eventIdSet = new Set(venueEvents.map((e) => e.id));
-  const venueDailyEntries = portal.dailyEntries;
+  // Defence-in-depth: the loader already scopes the DB query by
+  // event_id, but filter here too so a future loader change can't
+  // accidentally re-introduce cross-event leakage.
+  const venueDailyEntries = portal.dailyEntries.filter((r) =>
+    eventIdSet.has(r.event_id),
+  );
   const venueDailyRollups = portal.dailyRollups;
   const venueAdditionalSpend = portal.additionalSpend;
   const venueWeeklyTicketSnapshots = portal.weeklyTicketSnapshots;
