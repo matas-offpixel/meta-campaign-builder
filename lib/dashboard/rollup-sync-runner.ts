@@ -1209,15 +1209,22 @@ async function fetchFourthefansRollupSnapshotContribution(args: {
     currentTotal: fetched.ticketsSold,
     previousTotal: previousSnapshot?.tickets_sold ?? null,
   });
+  // Revenue delta: same approach as tickets — 4thefans/foursomething report
+  // lifetime cumulative gross revenue, so we subtract the previous snapshot.
+  // Clamped to 0 to avoid negative revenue rows on refunds / API jitter.
+  const revenueCurrentCents = fetched.grossRevenueCents ?? 0;
+  const revenuePreviousCents = previousSnapshot?.gross_revenue_cents ?? null;
+  const revenueDeltaCents =
+    revenuePreviousCents == null
+      ? Math.max(0, revenueCurrentCents)
+      : Math.max(0, revenueCurrentCents - revenuePreviousCents);
+  const revenueDelta = Number((revenueDeltaCents / 100).toFixed(2));
+
   const source = snapshotSourceForProvider(args.connection.provider);
   if (source) {
-    const revenue =
-      fetched.grossRevenueCents == null
-        ? 0
-        : Number((fetched.grossRevenueCents / 100).toFixed(2));
     if (args.connection.provider === "fourthefans") {
       console.info(
-        `[fourthefans-sync] writing snapshot lifetime_tickets=${fetched.ticketsSold} previous_lifetime_tickets=${previousSnapshot?.tickets_sold ?? "<none>"} daily_delta=${ticketsSold} revenue=£${revenue.toFixed(2)}`,
+        `[fourthefans-sync] writing snapshot lifetime_tickets=${fetched.ticketsSold} previous_lifetime_tickets=${previousSnapshot?.tickets_sold ?? "<none>"} daily_delta=${ticketsSold} lifetime_revenue=£${(revenueCurrentCents / 100).toFixed(2)} previous_lifetime_revenue=£${((revenuePreviousCents ?? 0) / 100).toFixed(2)} revenue_delta=£${revenueDelta.toFixed(2)}`,
       );
     }
     const snapshot = await insertSnapshot(args.supabase, {
@@ -1247,10 +1254,7 @@ async function fetchFourthefansRollupSnapshotContribution(args: {
       {
         date: args.todayStr,
         ticketsSold,
-        revenue:
-          fetched.grossRevenueCents == null
-            ? 0
-            : Number((fetched.grossRevenueCents / 100).toFixed(2)),
+        revenue: revenueDelta,
       },
     ],
     ticketTiers: fetched.ticketTiers,
