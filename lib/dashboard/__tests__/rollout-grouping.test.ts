@@ -227,6 +227,51 @@ describe("buildRolloutGroups", () => {
     assert.equal(nodes.length, 2);
     assert.ok(nodes.every((n) => n.kind === "single"));
   });
+
+  it("KOC: 5 events sharing WC26-KOC-BRIXTON group via exact match (same path as 4theFans)", () => {
+    const nodes = buildRolloutGroups(
+      Array.from({ length: 5 }, (_, i) =>
+        row({ eventId: `b${i}`, eventCode: "WC26-KOC-BRIXTON", eventDate: `2026-06-${17 + i}` }),
+      ),
+    );
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, "group");
+    if (nodes[0].kind !== "group") throw new Error();
+    assert.equal(nodes[0].group.key, "series:WC26-KOC-BRIXTON");
+    assert.equal(nodes[0].group.eventCode, "WC26-KOC-BRIXTON");
+    assert.equal(nodes[0].group.children.length, 5);
+  });
+
+  it("KOC: Brixton and Hackney stay in separate groups", () => {
+    const nodes = buildRolloutGroups([
+      row({ eventId: "b1", eventCode: "WC26-KOC-BRIXTON", eventDate: "2026-06-17" }),
+      row({ eventId: "b2", eventCode: "WC26-KOC-BRIXTON", eventDate: "2026-06-19" }),
+      row({ eventId: "h1", eventCode: "WC26-KOC-HACKNEY", eventDate: "2026-06-17" }),
+      row({ eventId: "h2", eventCode: "WC26-KOC-HACKNEY", eventDate: "2026-06-19" }),
+    ]);
+    assert.equal(nodes.length, 2);
+    assert.ok(nodes.every((n) => n.kind === "group"));
+    const keys = nodes
+      .filter((n) => n.kind === "group")
+      .map((n) => (n.kind === "group" ? n.group.key : ""));
+    assert.ok(keys.includes("series:WC26-KOC-BRIXTON"));
+    assert.ok(keys.includes("series:WC26-KOC-HACKNEY"));
+  });
+
+  it("4theFans WC26 venue codes group correctly (no regression)", () => {
+    const nodes = buildRolloutGroups([
+      row({ eventId: "a", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-17" }),
+      row({ eventId: "b", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-21" }),
+      row({ eventId: "c", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-24" }),
+      row({ eventId: "d", eventCode: "WC26-BRIGHTON", eventDate: "2026-06-27" }),
+    ]);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, "group");
+    if (nodes[0].kind !== "group") throw new Error();
+    assert.equal(nodes[0].group.key, "series:WC26-BRIGHTON");
+    assert.equal(nodes[0].group.eventCode, "WC26-BRIGHTON");
+    assert.equal(nodes[0].group.children.length, 4);
+  });
 });
 
 describe("expanded hash helpers", () => {
