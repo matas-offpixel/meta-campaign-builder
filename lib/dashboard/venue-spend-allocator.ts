@@ -13,6 +13,8 @@ import {
 } from "@/lib/dashboard/venue-spend-allocation";
 import {
   equalSplitMonetaryAmounts,
+  extractKocVenuePrefix,
+  isKocVenueFixtureCode,
   isWc26OpponentAllocatorEventCode,
 } from "@/lib/dashboard/venue-equal-split.ts";
 
@@ -645,7 +647,13 @@ export async function allocateVenueSpendForCode(
   // Club Football & non-WC26 multi-fixture: equal split across siblings using
   // rollup `ad_spend` / `ad_spend_presale` from the Meta leg (event_code is the
   // budget unit per PR #302). WC26 keeps opponent + umbrella special cases below.
-  if (!isWc26OpponentAllocatorEventCode(eventCode)) {
+  //
+  // KOC fixture codes (WC26-KOC-BRIXTON-ENG-CRO) are also equal-split: Meta
+  // campaigns use the 3-part venue bracket ([WC26-KOC-BRIXTON]), not a
+  // per-fixture bracket, so all ads are "venue-generic" — equal split is
+  // the correct strategy and avoids running the opponent classifier on names
+  // that will never match a fixture-level opponent.
+  if (!isWc26OpponentAllocatorEventCode(eventCode) || isKocVenueFixtureCode(eventCode)) {
     return equalSplitNonWc26AllocatedSpend({
       supabase,
       userId,
@@ -691,7 +699,7 @@ export async function allocateVenueSpendForCode(
   // handles that cleanly (returns empty perEvent allocations, which we
   // then DON'T upsert).
   const adFetch = await fetchVenueDailyAdMetrics({
-    eventCode: kocVenuePrefix ?? eventCode,
+    eventCode,
     adAccountId,
     token,
     since: effectiveSince,
@@ -1086,18 +1094,4 @@ function sumMap(values: Map<string, number>): number {
 
 function isBristolEventCode(eventCode: string): boolean {
   return eventCode.toUpperCase().includes("BRISTOL");
-}
-
-// KOC temp branch — until allocator strategy registry lands (Task #73 / Week 2).
-// KOC uses fixture-level event_codes (WC26-KOC-BRIXTON-ENG-CRO) but campaigns
-// are named with the venue-level bracket ([WC26-KOC-BRIXTON]). Strip the
-// fixture suffix for sibling lookup and Meta fetch.
-function isKocVenueFixtureCode(code: string): boolean {
-  const up = code.trim().toUpperCase();
-  return up.startsWith("WC26-KOC-") && up.split("-").length >= 5;
-}
-
-function extractKocVenuePrefix(code: string): string {
-  // WC26-KOC-BRIXTON-ENG-CRO → WC26-KOC-BRIXTON
-  return code.trim().toUpperCase().split("-").slice(0, 3).join("-");
 }

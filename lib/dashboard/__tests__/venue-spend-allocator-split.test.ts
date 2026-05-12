@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 
 import {
   equalSplitMonetaryAmounts,
+  extractKocVenuePrefix,
+  isKocVenueFixtureCode,
   isWc26OpponentAllocatorEventCode,
 } from "../venue-equal-split.ts";
 
@@ -18,6 +20,80 @@ describe("isWc26OpponentAllocatorEventCode", () => {
     assert.equal(isWc26OpponentAllocatorEventCode("4TF26-PALACE-FINAL"), false);
     assert.equal(isWc26OpponentAllocatorEventCode("LEEDS26-FACUP"), false);
     assert.equal(isWc26OpponentAllocatorEventCode("BB26-KAYODE"), false);
+  });
+});
+
+/**
+ * KOC allocator routing regression tests.
+ *
+ * KOC fixture codes are WC26-KOC-{VENUE}-{T1}-{T2} (5 parts).
+ * Meta campaigns use the 3-part venue bracket ([WC26-KOC-BRIXTON]),
+ * so the allocator must use equal-split, not the opponent path.
+ */
+describe("isKocVenueFixtureCode", () => {
+  it("returns true for 5-part KOC fixture codes", () => {
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-BRIXTON-ENG-CRO"), true);
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-HACKNEY-FRA-SEN"), true);
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-SOHO-SCO-BRA"), true);
+    assert.equal(isKocVenueFixtureCode("  wc26-koc-brixton-aus-usa  "), true);
+  });
+
+  it("returns false for 3-part venue codes (not fixture-level)", () => {
+    // Campaign bracket code — not a fixture event_code
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-BRIXTON"), false);
+    assert.equal(isKocVenueFixtureCode("WC26-KOC-HACKNEY"), false);
+  });
+
+  it("returns false for non-KOC WC26 codes", () => {
+    assert.equal(isKocVenueFixtureCode("WC26-BRIGHTON"), false);
+    assert.equal(isKocVenueFixtureCode("WC26-GLASGOW-HAMPDEN-ENG-SCO"), false);
+  });
+
+  it("returns false for non-WC26 codes", () => {
+    assert.equal(isKocVenueFixtureCode("4TF26-PALACE-FINAL"), false);
+    assert.equal(isKocVenueFixtureCode("LEEDS26-FACUP"), false);
+  });
+});
+
+describe("extractKocVenuePrefix", () => {
+  it("strips fixture suffix to 3-part venue code", () => {
+    assert.equal(extractKocVenuePrefix("WC26-KOC-BRIXTON-ENG-CRO"), "WC26-KOC-BRIXTON");
+    assert.equal(extractKocVenuePrefix("WC26-KOC-HACKNEY-FRA-SEN"), "WC26-KOC-HACKNEY");
+    assert.equal(extractKocVenuePrefix("WC26-KOC-SOHO-SCO-BRA"), "WC26-KOC-SOHO");
+    assert.equal(extractKocVenuePrefix("wc26-koc-brixton-eng-gha"), "WC26-KOC-BRIXTON");
+  });
+
+  it("Brixton has 5 fixtures → spend ÷ 5 per allocation", () => {
+    const prefix = extractKocVenuePrefix("WC26-KOC-BRIXTON-ENG-CRO");
+    assert.equal(prefix, "WC26-KOC-BRIXTON");
+    const totalSpend = 5000;
+    const shares = equalSplitMonetaryAmounts(totalSpend, 5);
+    assert.equal(shares.length, 5);
+    assert.ok(Math.abs(shares.reduce((a, b) => a + b, 0) - totalSpend) < 0.02);
+    for (const s of shares) {
+      assert.ok(s >= 999 && s <= 1001, `share ${s} should be ~1000`);
+    }
+  });
+
+  it("Hackney has 6 fixtures → spend ÷ 6 per allocation", () => {
+    const prefix = extractKocVenuePrefix("WC26-KOC-HACKNEY-FRA-SEN");
+    assert.equal(prefix, "WC26-KOC-HACKNEY");
+    const totalSpend = 6000;
+    const shares = equalSplitMonetaryAmounts(totalSpend, 6);
+    assert.equal(shares.length, 6);
+    assert.ok(Math.abs(shares.reduce((a, b) => a + b, 0) - totalSpend) < 0.02);
+    for (const s of shares) {
+      assert.ok(s >= 999 && s <= 1001, `share ${s} should be ~1000`);
+    }
+  });
+
+  it("Soho has 5 fixtures → spend ÷ 5 per allocation", () => {
+    const prefix = extractKocVenuePrefix("WC26-KOC-SOHO-FRA-SEN");
+    assert.equal(prefix, "WC26-KOC-SOHO");
+    const totalSpend = 5000;
+    const shares = equalSplitMonetaryAmounts(totalSpend, 5);
+    assert.equal(shares.length, 5);
+    assert.ok(Math.abs(shares.reduce((a, b) => a + b, 0) - totalSpend) < 0.02);
   });
 });
 
