@@ -17,6 +17,20 @@ export function isWc26OpponentAllocatorEventCode(eventCode: string): boolean {
   return eventCode.trim().toUpperCase().startsWith("WC26-");
 }
 
+/**
+ * KOC uses fixture-level event_codes (WC26-KOC-BRIXTON-ENG-CRO) but
+ * Meta campaigns are tagged at venue level ([WC26-KOC-BRIXTON]).
+ * Any WC26-KOC-* code → venue-prefix equal-split path.
+ */
+export function isKocVenueFixtureCode(code: string): boolean {
+  return code.trim().toUpperCase().startsWith("WC26-KOC-");
+}
+
+/** WC26-KOC-BRIXTON-ENG-CRO → WC26-KOC-BRIXTON */
+export function extractKocVenuePrefix(code: string): string {
+  return code.trim().toUpperCase().split("-").slice(0, 3).join("-");
+}
+
 /** Split venue-level pounds across `n` fixtures; last index absorbs rounding drift. */
 export function equalSplitMonetaryAmounts(total: number, n: number): number[] {
   const t = round2(sanitiseSpend(total));

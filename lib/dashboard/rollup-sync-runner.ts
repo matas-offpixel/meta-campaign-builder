@@ -53,6 +53,10 @@ import {
   type GoogleAdsRollupDeps,
 } from "@/lib/dashboard/google-ads-rollup-leg";
 import { shouldInvokeVenueAllocator } from "@/lib/dashboard/venue-allocator-trigger";
+import {
+  extractKocVenuePrefix,
+  isKocVenueFixtureCode,
+} from "@/lib/dashboard/venue-equal-split";
 
 /**
  * lib/dashboard/rollup-sync-runner.ts
@@ -466,8 +470,15 @@ export async function runRollupSyncForEvent(
   } else {
     try {
       const { token } = await resolveServerMetaToken(supabase, userId);
+      // KOC fixture codes (WC26-KOC-BRIXTON-ENG-CRO) use venue-level Meta
+      // campaign brackets ([WC26-KOC-BRIXTON]). Strip the fixture suffix so
+      // the bracket filter matches campaigns actually running for this venue.
+      const metaEventCode =
+        eventCode && isKocVenueFixtureCode(eventCode)
+          ? extractKocVenuePrefix(eventCode)
+          : eventCode;
       const metaFetch = await fetchEventDailyMetaMetrics({
-        eventCode,
+        eventCode: metaEventCode ?? eventCode,
         adAccountId,
         token,
         since: sinceStr,
