@@ -4,7 +4,12 @@ type DbClient = Pick<SupabaseClient, "from">;
 
 const WINDOW_DAYS = 60;
 const CODE_MATCH_EVENT_DATE_LOOKBACK_DAYS = 180;
-const CODE_MATCH_STATUSES = ["on_sale", "live"] as const;
+// "upcoming" is included so events whose ticket sale has not yet
+// opened (but whose Meta campaigns ARE already running for waitlist
+// / awareness) receive snapshot coverage. Without it, events like
+// Villa FanPark and Palace Steel Yard sit in the dark until their
+// operator manually updates the status to "on_sale".
+const CODE_MATCH_STATUSES = ["on_sale", "live", "upcoming"] as const;
 
 export interface CronEligibilityResult {
   eligibleIds: string[];
