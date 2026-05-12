@@ -6,6 +6,20 @@ export interface FourthefansSnapshotForBackfill {
   gross_revenue_cents: number | null;
 }
 
+/**
+ * Raw snapshot row including per-link identifiers. Used by the backfill
+ * route before aggregating multi-link events into per-day sums.
+ */
+export interface FourthefansRawSnapshotForBackfill {
+  event_id: string;
+  user_id: string;
+  connection_id: string;
+  external_event_id: string;
+  snapshot_at: string;
+  tickets_sold: number;
+  gross_revenue_cents: number | null;
+}
+
 export interface ExistingRollupForBackfill {
   date: string;
   tickets_sold: number | null;
@@ -72,6 +86,80 @@ export function reconstructFourthefansRollupDeltas(
   }
 
   return rows;
+}
+
+/**
+ * Collapses raw per-link snapshots into per-(event_id, date) sums so
+ * `reconstructFourthefansRollupDeltas` sees a single lifetime total per
+ * day rather than one row per external_event_id.
+ *
+ * Two-pass:
+ *   1. Pick the latest snapshot per (event_id, connection_id,
+ *      external_event_id, date) — discards stale intra-day duplicates.
+ *   2. Sum tickets + revenue across links for the same (event_id, date).
+ */
+export function aggregateMultiLinkSnapshots(
+  raw: FourthefansRawSnapshotForBackfill[],
+): FourthefansSnapshotForBackfill[] {
+  // Pass 1: latest per link-day
+  const latestPerLink = new Map<
+    string,
+    FourthefansRawSnapshotForBackfill & { date: string }
+  >();
+  for (const snap of raw) {
+    const date = snap.snapshot_at.slice(0, 10);
+    const key = `${snap.event_id}|${snap.connection_id}|${snap.external_event_id}|${date}`;
+    const cur = latestPerLink.get(key);
+    if (!cur || snap.snapshot_at > cur.snapshot_at) {
+      latestPerLink.set(key, { ...snap, date });
+    }
+  }
+
+  // Pass 2: sum per (event_id, date)
+  const sumByDay = new Map<
+    string,
+    {
+      event_id: string;
+      user_id: string;
+      date: string;
+      latest_snapshot_at: string;
+      tickets_sold: number;
+      gross_revenue_cents: number | null;
+    }
+  >();
+  for (const snap of latestPerLink.values()) {
+    const key = `${snap.event_id}|${snap.date}`;
+    const cur = sumByDay.get(key);
+    if (!cur) {
+      sumByDay.set(key, {
+        event_id: snap.event_id,
+        user_id: snap.user_id,
+        date: snap.date,
+        latest_snapshot_at: snap.snapshot_at,
+        tickets_sold: snap.tickets_sold,
+        gross_revenue_cents: snap.gross_revenue_cents,
+      });
+    } else {
+      if (snap.snapshot_at > cur.latest_snapshot_at) {
+        cur.latest_snapshot_at = snap.snapshot_at;
+      }
+      cur.tickets_sold += snap.tickets_sold;
+      if (snap.gross_revenue_cents != null) {
+        cur.gross_revenue_cents =
+          (cur.gross_revenue_cents ?? 0) + snap.gross_revenue_cents;
+      }
+    }
+  }
+
+  return [...sumByDay.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((row) => ({
+      event_id: row.event_id,
+      user_id: row.user_id,
+      snapshot_at: row.latest_snapshot_at,
+      tickets_sold: row.tickets_sold,
+      gross_revenue_cents: row.gross_revenue_cents,
+    }));
 }
 
 function latestSnapshotByDay(

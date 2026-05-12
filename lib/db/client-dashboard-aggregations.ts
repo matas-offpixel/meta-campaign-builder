@@ -565,6 +565,10 @@ export interface VenueCampaignPerformance {
   pacingTicketsPerDay: number | null;
   pacingSpendPerDay: number | null;
   earliestEventDate: string | null;
+  /** Sum of event_daily_rollups.revenue for the venue's events. Null when no rollup has revenue. */
+  ticketRevenue: number | null;
+  /** ticketRevenue / paidMediaSpent. Null when either is zero/null. */
+  roas: number | null;
 }
 
 const NULL_EVENT_DATE_PACING_DAYS = 90;
@@ -642,6 +646,7 @@ export function aggregateVenueCampaignPerformance(
   }
 
   let paidSpent = paidMediaSpentOverride ?? null;
+  let ticketRevenue: number | null = null;
   if (paidSpent == null) {
     paidSpent = 0;
     for (const row of dailyRollups) {
@@ -650,6 +655,16 @@ export function aggregateVenueCampaignPerformance(
         ad_spend: row.ad_spend_allocated ?? row.ad_spend,
         tiktok_spend: row.tiktok_spend,
       });
+      if (row.revenue != null) {
+        ticketRevenue = (ticketRevenue ?? 0) + row.revenue;
+      }
+    }
+  } else {
+    for (const row of dailyRollups) {
+      if (!eventIds.has(row.event_id)) continue;
+      if (row.revenue != null) {
+        ticketRevenue = (ticketRevenue ?? 0) + row.revenue;
+      }
     }
   }
 
@@ -686,6 +701,11 @@ export function aggregateVenueCampaignPerformance(
       ? Math.round(paidMediaRemaining / Math.max(daysUntil, 1))
       : null;
 
+  const roas =
+    ticketRevenue != null && ticketRevenue > 0 && paidSpent > 0
+      ? ticketRevenue / paidSpent
+      : null;
+
   return {
     paidMediaBudget,
     additionalSpend: additional,
@@ -701,6 +721,8 @@ export function aggregateVenueCampaignPerformance(
     pacingTicketsPerDay,
     pacingSpendPerDay,
     earliestEventDate,
+    ticketRevenue,
+    roas,
   };
 }
 

@@ -2377,7 +2377,7 @@ function VenueCampaignPerformanceCards({
           Campaign performance
         </h3>
       </div>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
         <div className="rounded-md border border-border bg-card p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Total marketing
@@ -2507,6 +2507,39 @@ function VenueCampaignPerformanceCards({
                 "—"
               )}
             </p>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Ticket revenue
+          </p>
+          <div className="mt-3 space-y-2 text-foreground">
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.ticketRevenue != null ? (
+                formatGBP(performance.ticketRevenue)
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.roas != null ? (
+                <>
+                  {formatRoas(performance.roas)}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    ROAS
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            {performance.ticketRevenue != null && performance.paidMediaSpent > 0 ? (
+              <p className="text-[11px] text-muted-foreground tabular-nums">
+                {formatGBP(performance.paidMediaSpent / performance.ticketRevenue, 2)} cost per
+                acquired £1
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

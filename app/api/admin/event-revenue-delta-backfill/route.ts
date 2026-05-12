@@ -12,7 +12,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
+  aggregateMultiLinkSnapshots,
   reconstructFourthefansRollupDeltas,
+  type FourthefansRawSnapshotForBackfill,
   type FourthefansSnapshotForBackfill,
 } from "@/lib/ticketing/fourthefans-rollup-backfill";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -99,7 +101,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: snapshotsResult.error }, { status: 500 });
   }
 
-  const byEvent = groupByEvent(snapshotsResult.rows);
+  const aggregated = aggregateMultiLinkSnapshots(snapshotsResult.rows);
+  const byEvent = groupByEvent(aggregated);
   const results: EventResult[] = [];
 
   for (const [evtId, eventSnapshots] of byEvent) {
@@ -149,10 +152,12 @@ async function loadSnapshots(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   admin: any,
   args: { userId: string; eventId: string | null },
-): Promise<{ ok: true; rows: FourthefansSnapshotForBackfill[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; rows: FourthefansRawSnapshotForBackfill[] } | { ok: false; error: string }> {
   let query = admin
     .from("ticket_sales_snapshots")
-    .select("event_id, user_id, snapshot_at, tickets_sold, gross_revenue_cents")
+    .select(
+      "event_id, user_id, connection_id, external_event_id, snapshot_at, tickets_sold, gross_revenue_cents",
+    )
     .eq("user_id", args.userId)
     .in("source", ["fourthefans", "foursomething"])
     .order("event_id", { ascending: true })
@@ -162,7 +167,7 @@ async function loadSnapshots(
   }
   const { data, error } = await query;
   if (error) return { ok: false, error: error.message };
-  return { ok: true, rows: (data ?? []) as FourthefansSnapshotForBackfill[] };
+  return { ok: true, rows: (data ?? []) as FourthefansRawSnapshotForBackfill[] };
 }
 
 async function upsertRevenue(

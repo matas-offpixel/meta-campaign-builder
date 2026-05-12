@@ -40,8 +40,9 @@ export function resolveProxiedRepresentativeThumbnail(
   group: ConceptGroupRow,
   auth: MetaThumbnailProxyAuth | null | undefined,
 ): string | null {
+  const adId = group.representative_thumbnail_ad_id ?? group.representative_ad_id;
   const proxy = buildMetaThumbnailProxyUrl(
-    group.representative_thumbnail_ad_id,
+    adId,
     auth,
     group.display_name ?? null,
   );
