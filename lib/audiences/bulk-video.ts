@@ -19,6 +19,7 @@ import {
   hydrateVideoMetadataConcurrent,
 } from "./sources.ts";
 import { withoutActPrefix } from "../meta/ad-account-id.ts";
+import { MetaApiError } from "../meta/client.ts";
 import {
   BULK_FUNNEL_CONFIG,
   META_MAX_RETENTION_DAYS,
@@ -50,6 +51,28 @@ interface EventRow {
   name: string;
   event_code: string | null;
   client_id: string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function campaignFetchSkipReason(err: unknown): string {
+  if (!(err instanceof MetaApiError)) {
+    return "Failed to fetch campaigns from Meta — check ad account connection.";
+  }
+  const { code } = err;
+  if (code === 4 || code === 17 || code === 80004) {
+    return `Rate limited (#${code}) — retry in a few minutes.`;
+  }
+  if (code === 190) {
+    return "Auth expired (#190) — reconnect Facebook.";
+  }
+  if (code === 200) {
+    return "Missing ad account permission (#200) — re-grant access to ad account.";
+  }
+  if (code !== undefined) {
+    return `Meta API error #${code} — ${err.message}`;
+  }
+  return "Failed to fetch campaigns from Meta — check ad account connection.";
 }
 
 // ── Core resolver ─────────────────────────────────────────────────────────────
@@ -106,7 +129,9 @@ export async function runBulkVideoPreview(
   let allCampaigns: Array<{ id: string; name: string }> = [];
   try {
     allCampaigns = await fetchAudienceCampaigns(metaAdAccountId, token, 200);
-  } catch {
+  } catch (err: unknown) {
+    console.error("[bulk-video] campaign fetch failed", err);
+    const skipReason = campaignFetchSkipReason(err);
     return events.map((e) => ({
       eventId: e.id,
       eventCode: e.event_code!.toUpperCase(),
@@ -116,7 +141,7 @@ export async function runBulkVideoPreview(
       orphanVideos: 0,
       audiences: [],
       skipped: true,
-      skipReason: "Failed to fetch campaigns from Meta — check ad account connection.",
+      skipReason,
     }));
   }
 
