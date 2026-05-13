@@ -24,12 +24,13 @@ export interface GoogleAdsRollupDeps {
       eventId: string;
       rows: GoogleAdsDailyInsightRow[];
     },
-  ) => Promise<void>;
+  ) => Promise<{ upserted: number; skipped_noop: number }>;
 }
 
 export interface GoogleAdsRollupLegResult {
   ok: boolean;
   rowsWritten?: number;
+  skipped_noop?: number;
   error?: string;
   reason?: string;
 }
@@ -109,15 +110,19 @@ export async function runGoogleAdsRollupLeg(
       );
     }
 
-    await args.deps.upsertRollups(args.supabase, {
-      userId: args.userId,
-      eventId: args.eventId,
-      rows: paddedRows,
-    });
+    const { upserted, skipped_noop } = await args.deps.upsertRollups(
+      args.supabase,
+      {
+        userId: args.userId,
+        eventId: args.eventId,
+        rows: paddedRows,
+      },
+    );
     result.ok = true;
-    result.rowsWritten = paddedRows.length;
+    result.rowsWritten = upserted;
+    result.skipped_noop = skipped_noop;
     console.log(
-      `[rollup-sync][google-ads] upsert ok event_id=${args.eventId} rows_written=${paddedRows.length} source_rows=${rows.length}`,
+      `[rollup-sync][google-ads] upsert ok event_id=${args.eventId} rows_written=${upserted} skipped_noop=${skipped_noop} source_rows=${rows.length}`,
     );
     return result;
   } catch (err) {

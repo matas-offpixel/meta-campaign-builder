@@ -22,13 +22,14 @@ export interface TikTokRollupDeps {
       eventId: string;
       rows: TikTokDailyInsightRow[];
     },
-  ) => Promise<void>;
+  ) => Promise<{ upserted: number; skipped_noop: number }>;
   sleep: (ms: number) => Promise<void>;
 }
 
 export interface TikTokRollupLegResult {
   ok: boolean;
   rowsWritten?: number;
+  skipped_noop?: number;
   error?: string;
   reason?: string;
 }
@@ -107,15 +108,19 @@ export async function runTikTokRollupLeg(
       return result;
     }
 
-    await args.deps.upsertRollups(args.supabase, {
-      userId: args.userId,
-      eventId: args.eventId,
-      rows,
-    });
+    const { upserted, skipped_noop } = await args.deps.upsertRollups(
+      args.supabase,
+      {
+        userId: args.userId,
+        eventId: args.eventId,
+        rows,
+      },
+    );
     result.ok = true;
-    result.rowsWritten = rows.length;
+    result.rowsWritten = upserted;
+    result.skipped_noop = skipped_noop;
     console.log(
-      `[rollup-sync][tiktok] upsert ok event_id=${args.eventId} rows_written=${rows.length}`,
+      `[rollup-sync][tiktok] upsert ok event_id=${args.eventId} rows_written=${upserted} skipped_noop=${skipped_noop}`,
     );
     return result;
   } catch (err) {

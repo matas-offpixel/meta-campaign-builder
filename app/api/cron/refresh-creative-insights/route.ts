@@ -294,6 +294,7 @@ export async function GET(req: NextRequest) {
       const errors: PairResult["errors"] = [];
       let presetsRun = 0;
       let snapshotsWritten = 0;
+      let snapshotsSkipped = 0;
       let rateLimitedThisAccount = false;
 
       for (const preset of presetsForThisRun) {
@@ -305,7 +306,7 @@ export async function GET(req: NextRequest) {
           const rows = await fetchCreativeInsights(pair.adAccountId, token, {
             datePreset: preset,
           });
-          const { written } = await upsertCreativeSnapshots({
+          const { written, skipped_noop } = await upsertCreativeSnapshots({
             supabase,
             userId: pair.userId,
             adAccountId: pair.adAccountId,
@@ -314,6 +315,7 @@ export async function GET(req: NextRequest) {
           });
           presetsRun += 1;
           snapshotsWritten += written;
+          snapshotsSkipped += skipped_noop;
           totalSnapshotsWritten += written;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -336,8 +338,8 @@ export async function GET(req: NextRequest) {
             : "other_error";
       const detail =
         outcome === "ok"
-          ? `presetsRun=${presetsRun} snapshotsWritten=${snapshotsWritten}`
-          : `presetsRun=${presetsRun} snapshotsWritten=${snapshotsWritten} errors=${errors
+          ? `presetsRun=${presetsRun} snapshotsWritten=${snapshotsWritten} snapshotsSkipped=${snapshotsSkipped}`
+          : `presetsRun=${presetsRun} snapshotsWritten=${snapshotsWritten} snapshotsSkipped=${snapshotsSkipped} errors=${errors
               .map((e) => `${e.preset}:${e.message}`)
               .join(" | ")}`;
       logAccount(pair, outcome, detail);

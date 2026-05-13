@@ -136,6 +136,7 @@ function googleInput(overrides: {
       overrides.fetchDailyInsights ? overrides.fetchDailyInsights() : [],
     upsertRollups: async (_supabase, args) => {
       upserted.push(args.rows);
+      return { upserted: args.rows.length, skipped_noop: 0 };
     },
   };
   return {
@@ -172,6 +173,7 @@ function baseInput(overrides: {
       overrides.fetchDailyInsights ? overrides.fetchDailyInsights() : [],
     upsertRollups: async (_supabase, args) => {
       upserted.push(args.rows);
+      return { upserted: args.rows.length, skipped_noop: 0 };
     },
     sleep: async () => undefined,
   };

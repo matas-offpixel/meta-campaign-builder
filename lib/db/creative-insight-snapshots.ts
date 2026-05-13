@@ -71,6 +71,24 @@ type SnapshotInsert = Omit<SnapshotRow, "id" | "snapshot_at" | "created_at"> & {
 
 const TABLE = "creative_insight_snapshots";
 
+const MONEY_TOL = 0.005;
+
+function numEq(
+  a: number | null | undefined,
+  b: number | null | undefined,
+  tol = 0,
+): boolean {
+  const aN = a ?? null;
+  const bN = b ?? null;
+  if (aN === null && bN === null) return true;
+  if (aN === null || bN === null) return false;
+  return tol === 0 ? aN === bN : Math.abs(aN - bN) <= tol;
+}
+
+function strEq(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? null) === (b ?? null);
+}
+
 function num(v: number | null | undefined): number {
   if (v == null || !Number.isFinite(v)) return 0;
   return Number(v);
@@ -181,6 +199,40 @@ interface UpsertParams {
   adAccountId: string;
   datePreset: CreativeDatePreset;
   rows: CreativeInsightRow[];
+  /**
+   * When `false`, every row is written regardless of whether it
+   * differs from the existing cache (manual-refresh semantics).
+   * Default `true` — cron path skips rows that haven't changed.
+   */
+  skipIfUnchanged?: boolean;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function creativeDataMatch(ins: SnapshotInsert, ex: Record<string, any>): boolean {
+  return (
+    strEq(ins.ad_name, ex.ad_name) &&
+    strEq(ins.ad_status, ex.ad_status) &&
+    strEq(ins.campaign_id, ex.campaign_id) &&
+    strEq(ins.campaign_name, ex.campaign_name) &&
+    strEq(ins.campaign_objective, ex.campaign_objective) &&
+    strEq(ins.adset_id, ex.adset_id) &&
+    strEq(ins.creative_id, ex.creative_id) &&
+    strEq(ins.creative_name, ex.creative_name) &&
+    strEq(ins.thumbnail_url, ex.thumbnail_url) &&
+    strEq(ins.fatigue_score ?? null, ex.fatigue_score) &&
+    numEq(ins.spend, ex.spend, MONEY_TOL) &&
+    numEq(ins.ctr, ex.ctr, MONEY_TOL) &&
+    numEq(ins.cpm, ex.cpm, MONEY_TOL) &&
+    numEq(ins.cpc, ex.cpc, MONEY_TOL) &&
+    numEq(ins.frequency, ex.frequency, MONEY_TOL) &&
+    numEq(ins.cpl, ex.cpl, MONEY_TOL) &&
+    numEq(ins.impressions, ex.impressions) &&
+    numEq(ins.clicks, ex.clicks) &&
+    numEq(ins.reach, ex.reach) &&
+    numEq(ins.link_clicks, ex.link_clicks) &&
+    numEq(ins.purchases, ex.purchases) &&
+    numEq(ins.registrations, ex.registrations)
+  );
 }
 
 /**
@@ -194,19 +246,47 @@ interface UpsertParams {
  */
 export async function upsertCreativeSnapshots(
   params: UpsertParams,
-): Promise<{ written: number }> {
+): Promise<{ written: number; skipped_noop: number }> {
   const { supabase, userId, adAccountId, datePreset, rows } = params;
-  if (rows.length === 0) return { written: 0 };
-
-  const inserts = rows.map((r) =>
-    rowToInsert(r, userId, adAccountId, datePreset),
-  );
+  if (rows.length === 0) return { written: 0, skipped_noop: 0 };
 
   // Cast through `any` because regenerated Supabase types haven't
   // caught up with migration 032 on every checkout. The cast is
   // contained to this module so callers see the typed surface only.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
+
+  const allInserts = rows.map((r) =>
+    rowToInsert(r, userId, adAccountId, datePreset),
+  );
+
+  let inserts = allInserts;
+  let skipped_noop = 0;
+
+  if (params.skipIfUnchanged !== false) {
+    const adIds = allInserts.map((i) => i.ad_id);
+    const { data: existing } = await sb
+      .from(TABLE)
+      .select(
+        "ad_id,ad_name,ad_status,campaign_id,campaign_name,campaign_objective,adset_id,creative_id,creative_name,thumbnail_url,fatigue_score,spend,impressions,clicks,ctr,cpm,cpc,frequency,reach,link_clicks,purchases,registrations,cpl",
+      )
+      .eq("user_id", userId)
+      .eq("ad_account_id", adAccountId)
+      .eq("date_preset", datePreset)
+      .in("ad_id", adIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingMap = new Map<string, Record<string, any>>();
+    for (const row of existing ?? []) existingMap.set(row.ad_id, row);
+
+    inserts = allInserts.filter((ins) => {
+      const ex = existingMap.get(ins.ad_id);
+      return !ex || !creativeDataMatch(ins, ex);
+    });
+    skipped_noop = allInserts.length - inserts.length;
+  }
+
+  if (inserts.length === 0) return { written: 0, skipped_noop };
+
   const { data, error } = await sb
     .from(TABLE)
     .upsert(inserts, {
@@ -219,9 +299,12 @@ export async function upsertCreativeSnapshots(
       "[creative-insight-snapshots upsert] error:",
       error.message,
     );
-    return { written: 0 };
+    return { written: 0, skipped_noop };
   }
-  return { written: Array.isArray(data) ? data.length : inserts.length };
+  return {
+    written: Array.isArray(data) ? data.length : inserts.length,
+    skipped_noop,
+  };
 }
 
 interface ReadParams {

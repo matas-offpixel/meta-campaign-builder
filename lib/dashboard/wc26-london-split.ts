@@ -203,12 +203,13 @@ export async function runWc26LondonSplit(
 
       if (allocationRows.length === 0) continue;
 
-      await upsertAllocatedSpendRollups(supabase, {
+      const r = await upsertAllocatedSpendRollups(supabase, {
         userId,
         eventId: fixtureId,
         rows: allocationRows,
+        force: true,
       });
-      totalRowsUpserted += allocationRows.length;
+      totalRowsUpserted += r.upserted;
       console.info(
         `[wc26-london-split] venue=${venueCode} event=${fixtureId} rows=${allocationRows.length} total_allocated=${allocationRows.reduce((s, r) => s + r.ad_spend_allocated, 0).toFixed(2)}`,
       );
@@ -232,12 +233,13 @@ export async function runWc26LondonSplit(
       }));
 
     if (zeroRows.length > 0) {
-      await upsertAllocatedSpendRollups(supabase, {
+      const r = await upsertAllocatedSpendRollups(supabase, {
         userId,
         eventId: sourceEv.id,
         rows: zeroRows,
+        force: true,
       });
-      sourceRowsZeroed += zeroRows.length;
+      sourceRowsZeroed += r.upserted;
     }
   }
 

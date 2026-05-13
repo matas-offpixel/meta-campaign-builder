@@ -213,6 +213,7 @@ export async function GET(req: NextRequest) {
     adAccountId,
     datePreset,
     rows,
+    skipIfUnchanged: false,
   }).catch((err) => {
     console.warn(
       "[/api/intelligence/creatives] cache write failed:",

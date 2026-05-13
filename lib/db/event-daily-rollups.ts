@@ -85,6 +85,20 @@ function asAny(supabase: AnySupabaseClient): AnySupabaseClient {
   return supabase;
 }
 
+const MONEY_TOL = 0.005;
+
+function numEq(
+  a: number | null | undefined,
+  b: number | null | undefined,
+  tol = 0,
+): boolean {
+  const aN = a ?? null;
+  const bN = b ?? null;
+  if (aN === null && bN === null) return true;
+  if (aN === null || bN === null) return false;
+  return tol === 0 ? aN === bN : Math.abs(aN - bN) <= tol;
+}
+
 /**
  * Read every rollup row for a single event, sorted by date (newest
  * first to match the table render order). Returns an empty array on
@@ -247,28 +261,69 @@ export interface MetaUpsertRow {
   meta_engagements?: number;
 }
 
+function metaDataMatch(
+  r: MetaUpsertRow,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ex: Record<string, any>,
+): boolean {
+  return (
+    numEq(r.ad_spend, ex.ad_spend, MONEY_TOL) &&
+    numEq(r.ad_spend_presale, ex.ad_spend_presale, MONEY_TOL) &&
+    numEq(r.link_clicks, ex.link_clicks) &&
+    numEq(r.meta_regs, ex.meta_regs) &&
+    numEq(r.meta_impressions, ex.meta_impressions) &&
+    numEq(r.meta_reach, ex.meta_reach) &&
+    numEq(r.meta_video_plays_3s, ex.meta_video_plays_3s) &&
+    numEq(r.meta_video_plays_15s, ex.meta_video_plays_15s) &&
+    numEq(r.meta_video_plays_p100, ex.meta_video_plays_p100) &&
+    numEq(r.meta_engagements, ex.meta_engagements)
+  );
+}
+
 export async function upsertMetaRollups(
   supabase: AnySupabaseClient,
   args: { userId: string; eventId: string; rows: MetaUpsertRow[] },
-): Promise<void> {
-  if (args.rows.length === 0) return;
+): Promise<{ upserted: number; skipped_noop: number }> {
+  if (args.rows.length === 0) return { upserted: 0, skipped_noop: 0 };
   const now = new Date().toISOString();
-  const payload = args.rows.map((r) => ({
-    user_id: args.userId,
-    event_id: args.eventId,
-    date: r.date,
-    ad_spend: r.ad_spend,
-    ad_spend_presale: r.ad_spend_presale,
-    link_clicks: r.link_clicks,
-    meta_regs: r.meta_regs,
-    meta_impressions: r.meta_impressions ?? null,
-    meta_reach: r.meta_reach ?? null,
-    meta_video_plays_3s: r.meta_video_plays_3s ?? null,
-    meta_video_plays_15s: r.meta_video_plays_15s ?? null,
-    meta_video_plays_p100: r.meta_video_plays_p100 ?? null,
-    meta_engagements: r.meta_engagements ?? null,
-    source_meta_at: now,
-  }));
+  const dates = args.rows.map((r) => r.date);
+
+  const { data: existing } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .select(
+      "date,ad_spend,ad_spend_presale,link_clicks,meta_regs,meta_impressions,meta_reach,meta_video_plays_3s,meta_video_plays_15s,meta_video_plays_p100,meta_engagements",
+    )
+    .eq("event_id", args.eventId)
+    .in("date", dates);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existingMap = new Map<string, Record<string, any>>();
+  for (const row of existing ?? []) existingMap.set(row.date, row);
+
+  const payload = args.rows
+    .filter((r) => {
+      const ex = existingMap.get(r.date);
+      return !ex || !metaDataMatch(r, ex);
+    })
+    .map((r) => ({
+      user_id: args.userId,
+      event_id: args.eventId,
+      date: r.date,
+      ad_spend: r.ad_spend,
+      ad_spend_presale: r.ad_spend_presale,
+      link_clicks: r.link_clicks,
+      meta_regs: r.meta_regs,
+      meta_impressions: r.meta_impressions ?? null,
+      meta_reach: r.meta_reach ?? null,
+      meta_video_plays_3s: r.meta_video_plays_3s ?? null,
+      meta_video_plays_15s: r.meta_video_plays_15s ?? null,
+      meta_video_plays_p100: r.meta_video_plays_p100 ?? null,
+      meta_engagements: r.meta_engagements ?? null,
+      source_meta_at: now,
+    }));
+
+  const skipped_noop = args.rows.length - payload.length;
+  if (payload.length === 0) return { upserted: 0, skipped_noop };
+
   // Note: `onConflict: "event_id,date"` — the unique constraint name
   // doesn't matter to Supabase; what matters is the column tuple.
   const { error } = await asAny(supabase)
@@ -278,6 +333,7 @@ export async function upsertMetaRollups(
     console.warn("[event-daily-rollups upsertMeta]", error.message);
     throw new Error(error.message);
   }
+  return { upserted: payload.length, skipped_noop };
 }
 
 export interface EventbriteUpsertRow {
@@ -289,17 +345,41 @@ export interface EventbriteUpsertRow {
 export async function upsertEventbriteRollups(
   supabase: AnySupabaseClient,
   args: { userId: string; eventId: string; rows: EventbriteUpsertRow[] },
-): Promise<void> {
-  if (args.rows.length === 0) return;
+): Promise<{ upserted: number; skipped_noop: number }> {
+  if (args.rows.length === 0) return { upserted: 0, skipped_noop: 0 };
   const now = new Date().toISOString();
-  const payload = args.rows.map((r) => ({
-    user_id: args.userId,
-    event_id: args.eventId,
-    date: r.date,
-    tickets_sold: r.tickets_sold,
-    revenue: r.revenue,
-    source_eventbrite_at: now,
-  }));
+  const dates = args.rows.map((r) => r.date);
+
+  const { data: existing } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .select("date,tickets_sold,revenue")
+    .eq("event_id", args.eventId)
+    .in("date", dates);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existingMap = new Map<string, Record<string, any>>();
+  for (const row of existing ?? []) existingMap.set(row.date, row);
+
+  const payload = args.rows
+    .filter((r) => {
+      const ex = existingMap.get(r.date);
+      if (!ex) return true;
+      return (
+        !numEq(r.tickets_sold, ex.tickets_sold) ||
+        !numEq(r.revenue, ex.revenue, MONEY_TOL)
+      );
+    })
+    .map((r) => ({
+      user_id: args.userId,
+      event_id: args.eventId,
+      date: r.date,
+      tickets_sold: r.tickets_sold,
+      revenue: r.revenue,
+      source_eventbrite_at: now,
+    }));
+
+  const skipped_noop = args.rows.length - payload.length;
+  if (payload.length === 0) return { upserted: 0, skipped_noop };
+
   const { error } = await asAny(supabase)
     .from("event_daily_rollups")
     .upsert(payload, { onConflict: "event_id,date" });
@@ -307,6 +387,7 @@ export async function upsertEventbriteRollups(
     console.warn("[event-daily-rollups upsertEventbrite]", error.message);
     throw new Error(error.message);
   }
+  return { upserted: payload.length, skipped_noop };
 }
 
 export async function clearHistoricalCurrentSnapshotTicketPadding(
@@ -356,31 +437,75 @@ export interface TikTokUpsertRow {
  * `ad_spend_*`) and Eventbrite ticket columns are deliberately omitted so a
  * TikTok sync can never overwrite existing Meta / ticketing values.
  */
+function tiktokDataMatch(
+  r: TikTokUpsertRow,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ex: Record<string, any>,
+): boolean {
+  const derivedViews = r.tiktok_video_views_100p ?? r.tiktok_video_views ?? 0;
+  const derived100p = r.tiktok_video_views_100p ?? r.tiktok_video_views ?? null;
+  return (
+    numEq(r.tiktok_spend, ex.tiktok_spend, MONEY_TOL) &&
+    numEq(r.tiktok_impressions, ex.tiktok_impressions) &&
+    numEq(r.tiktok_reach, ex.tiktok_reach) &&
+    numEq(r.tiktok_clicks, ex.tiktok_clicks) &&
+    numEq(derivedViews, ex.tiktok_video_views) &&
+    numEq(r.tiktok_video_views_2s, ex.tiktok_video_views_2s) &&
+    numEq(r.tiktok_video_views_6s, ex.tiktok_video_views_6s) &&
+    numEq(derived100p, ex.tiktok_video_views_100p) &&
+    numEq(r.tiktok_avg_play_time_ms, ex.tiktok_avg_play_time_ms) &&
+    numEq(r.tiktok_post_engagement, ex.tiktok_post_engagement) &&
+    numEq(r.tiktok_results, ex.tiktok_results)
+  );
+}
+
 export async function upsertTikTokRollups(
   supabase: AnySupabaseClient,
   args: { userId: string; eventId: string; rows: TikTokUpsertRow[] },
-): Promise<void> {
-  if (args.rows.length === 0) return;
+): Promise<{ upserted: number; skipped_noop: number }> {
+  if (args.rows.length === 0) return { upserted: 0, skipped_noop: 0 };
   const now = new Date().toISOString();
-  const payload = args.rows.map((r) => ({
-    user_id: args.userId,
-    event_id: args.eventId,
-    date: r.date,
-    tiktok_spend: r.tiktok_spend,
-    tiktok_impressions: r.tiktok_impressions,
-    tiktok_reach: r.tiktok_reach ?? null,
-    tiktok_clicks: r.tiktok_clicks,
-    tiktok_video_views:
-      r.tiktok_video_views_100p ?? r.tiktok_video_views ?? 0,
-    tiktok_video_views_2s: r.tiktok_video_views_2s ?? null,
-    tiktok_video_views_6s: r.tiktok_video_views_6s ?? null,
-    tiktok_video_views_100p:
-      r.tiktok_video_views_100p ?? r.tiktok_video_views ?? null,
-    tiktok_avg_play_time_ms: r.tiktok_avg_play_time_ms ?? null,
-    tiktok_post_engagement: r.tiktok_post_engagement ?? null,
-    tiktok_results: r.tiktok_results,
-    source_tiktok_at: now,
-  }));
+  const dates = args.rows.map((r) => r.date);
+
+  const { data: existing } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .select(
+      "date,tiktok_spend,tiktok_impressions,tiktok_reach,tiktok_clicks,tiktok_video_views,tiktok_video_views_2s,tiktok_video_views_6s,tiktok_video_views_100p,tiktok_avg_play_time_ms,tiktok_post_engagement,tiktok_results",
+    )
+    .eq("event_id", args.eventId)
+    .in("date", dates);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existingMap = new Map<string, Record<string, any>>();
+  for (const row of existing ?? []) existingMap.set(row.date, row);
+
+  const payload = args.rows
+    .filter((r) => {
+      const ex = existingMap.get(r.date);
+      return !ex || !tiktokDataMatch(r, ex);
+    })
+    .map((r) => ({
+      user_id: args.userId,
+      event_id: args.eventId,
+      date: r.date,
+      tiktok_spend: r.tiktok_spend,
+      tiktok_impressions: r.tiktok_impressions,
+      tiktok_reach: r.tiktok_reach ?? null,
+      tiktok_clicks: r.tiktok_clicks,
+      tiktok_video_views:
+        r.tiktok_video_views_100p ?? r.tiktok_video_views ?? 0,
+      tiktok_video_views_2s: r.tiktok_video_views_2s ?? null,
+      tiktok_video_views_6s: r.tiktok_video_views_6s ?? null,
+      tiktok_video_views_100p:
+        r.tiktok_video_views_100p ?? r.tiktok_video_views ?? null,
+      tiktok_avg_play_time_ms: r.tiktok_avg_play_time_ms ?? null,
+      tiktok_post_engagement: r.tiktok_post_engagement ?? null,
+      tiktok_results: r.tiktok_results,
+      source_tiktok_at: now,
+    }));
+
+  const skipped_noop = args.rows.length - payload.length;
+  if (payload.length === 0) return { upserted: 0, skipped_noop };
+
   const { error } = await asAny(supabase)
     .from("event_daily_rollups")
     .upsert(payload, { onConflict: "event_id,date" });
@@ -388,6 +513,7 @@ export async function upsertTikTokRollups(
     console.warn("[event-daily-rollups upsertTikTok]", error.message);
     throw new Error(error.message);
   }
+  return { upserted: payload.length, skipped_noop };
 }
 
 export interface GoogleAdsUpsertRow {
@@ -409,20 +535,49 @@ export interface GoogleAdsUpsertRow {
 export async function upsertGoogleAdsRollups(
   supabase: AnySupabaseClient,
   args: { userId: string; eventId: string; rows: GoogleAdsUpsertRow[] },
-): Promise<void> {
-  if (args.rows.length === 0) return;
+): Promise<{ upserted: number; skipped_noop: number }> {
+  if (args.rows.length === 0) return { upserted: 0, skipped_noop: 0 };
   const now = new Date().toISOString();
-  const payload = args.rows.map((r) => ({
-    user_id: args.userId,
-    event_id: args.eventId,
-    date: r.date,
-    google_ads_spend: r.google_ads_spend,
-    google_ads_impressions: r.google_ads_impressions,
-    google_ads_clicks: r.google_ads_clicks,
-    google_ads_conversions: r.google_ads_conversions,
-    google_ads_video_views: r.google_ads_video_views,
-    source_google_ads_at: now,
-  }));
+  const dates = args.rows.map((r) => r.date);
+
+  const { data: existing } = await asAny(supabase)
+    .from("event_daily_rollups")
+    .select(
+      "date,google_ads_spend,google_ads_impressions,google_ads_clicks,google_ads_conversions,google_ads_video_views",
+    )
+    .eq("event_id", args.eventId)
+    .in("date", dates);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existingMap = new Map<string, Record<string, any>>();
+  for (const row of existing ?? []) existingMap.set(row.date, row);
+
+  const payload = args.rows
+    .filter((r) => {
+      const ex = existingMap.get(r.date);
+      if (!ex) return true;
+      return (
+        !numEq(r.google_ads_spend, ex.google_ads_spend, MONEY_TOL) ||
+        !numEq(r.google_ads_impressions, ex.google_ads_impressions) ||
+        !numEq(r.google_ads_clicks, ex.google_ads_clicks) ||
+        !numEq(r.google_ads_conversions, ex.google_ads_conversions) ||
+        !numEq(r.google_ads_video_views, ex.google_ads_video_views)
+      );
+    })
+    .map((r) => ({
+      user_id: args.userId,
+      event_id: args.eventId,
+      date: r.date,
+      google_ads_spend: r.google_ads_spend,
+      google_ads_impressions: r.google_ads_impressions,
+      google_ads_clicks: r.google_ads_clicks,
+      google_ads_conversions: r.google_ads_conversions,
+      google_ads_video_views: r.google_ads_video_views,
+      source_google_ads_at: now,
+    }));
+
+  const skipped_noop = args.rows.length - payload.length;
+  if (payload.length === 0) return { upserted: 0, skipped_noop };
+
   const { error } = await asAny(supabase)
     .from("event_daily_rollups")
     .upsert(payload, { onConflict: "event_id,date" });
@@ -430,6 +585,7 @@ export async function upsertGoogleAdsRollups(
     console.warn("[event-daily-rollups upsertGoogleAds]", error.message);
     throw new Error(error.message);
   }
+  return { upserted: payload.length, skipped_noop };
 }
 
 /**
@@ -488,10 +644,45 @@ export async function upsertAllocatedSpendRollups(
     userId: string;
     eventId: string;
     rows: AllocatedSpendUpsertRow[];
+    /** Pass `true` to bypass the skip-noop guard (admin backfill paths). */
+    force?: boolean;
   },
-): Promise<void> {
-  if (args.rows.length === 0) return;
-  const payload = args.rows.map((r) => ({
+): Promise<{ upserted: number; skipped_noop: number }> {
+  if (args.rows.length === 0) return { upserted: 0, skipped_noop: 0 };
+
+  let rowsToWrite = args.rows;
+  let skipped_noop = 0;
+
+  if (!args.force) {
+    const dates = args.rows.map((r) => r.date);
+    const { data: existing } = await asAny(supabase)
+      .from("event_daily_rollups")
+      .select(
+        "date,ad_spend_allocated,ad_spend_specific,ad_spend_generic_share,ad_spend_presale,link_clicks",
+      )
+      .eq("event_id", args.eventId)
+      .in("date", dates);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingMap = new Map<string, Record<string, any>>();
+    for (const row of existing ?? []) existingMap.set(row.date, row);
+
+    rowsToWrite = args.rows.filter((r) => {
+      const ex = existingMap.get(r.date);
+      if (!ex) return true;
+      return (
+        !numEq(r.ad_spend_allocated, ex.ad_spend_allocated, MONEY_TOL) ||
+        !numEq(r.ad_spend_specific, ex.ad_spend_specific, MONEY_TOL) ||
+        !numEq(r.ad_spend_generic_share, ex.ad_spend_generic_share, MONEY_TOL) ||
+        !numEq(r.ad_spend_presale, ex.ad_spend_presale, MONEY_TOL) ||
+        (r.link_clicks != null && !numEq(r.link_clicks, ex.link_clicks))
+      );
+    });
+    skipped_noop = args.rows.length - rowsToWrite.length;
+  }
+
+  if (rowsToWrite.length === 0) return { upserted: 0, skipped_noop };
+
+  const payload = rowsToWrite.map((r) => ({
     user_id: args.userId,
     event_id: args.eventId,
     date: r.date,
@@ -508,4 +699,5 @@ export async function upsertAllocatedSpendRollups(
     console.warn("[event-daily-rollups upsertAllocated]", error.message);
     throw new Error(error.message);
   }
+  return { upserted: payload.length, skipped_noop };
 }
