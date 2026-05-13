@@ -62,6 +62,20 @@ interface Props {
   /** Settings href used by the "Not connected" cards. Internal-only;
    *  the share view passes a tooltip-disabled href. */
   settingsHref?: string | null;
+  /**
+   * Events powering this grid — must include `id` + `event_code` for
+   * each event whose rollups appear in `rows`. Drives the
+   * `(event_code, date)` dedup of campaign-wide Meta columns inside
+   * `aggregateStatsForPlatform`. A multi-event WC26 venue (e.g. four
+   * Shepherd's Bush fixtures sharing `WC26-LONDON-SHEPHERDS`) holds
+   * the SAME campaign-wide `meta_reach` value on every sibling row —
+   * without this map the aggregator would 4× the venue total.
+   *
+   * Pass an empty array on legacy call-sites where the rows are
+   * already pre-deduped or per-event-correct; the aggregator skips
+   * the dedup pass when the resulting map is empty.
+   */
+  events: ReadonlyArray<{ id: string; event_code: string | null }>;
 }
 
 export function VenueStatsGrid({
@@ -71,13 +85,22 @@ export function VenueStatsGrid({
   hasTikTokAccount,
   hasGoogleAdsAccount,
   settingsHref,
+  events,
 }: Props) {
   const windowSet = useMemo(() => buildWindowDaySet(windowDays), [windowDays]);
 
+  const eventIdToCode = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const event of events) map.set(event.id, event.event_code);
+    return map;
+  }, [events]);
+
   const cells = useMemo<VenueStatsGridCells>(() => {
-    if (platform === "all") return aggregateStatsForAll(rows, windowSet);
-    return aggregateStatsForPlatform(rows, platform, windowSet);
-  }, [rows, platform, windowSet]);
+    if (platform === "all") {
+      return aggregateStatsForAll(rows, windowSet, eventIdToCode);
+    }
+    return aggregateStatsForPlatform(rows, platform, windowSet, eventIdToCode);
+  }, [rows, platform, windowSet, eventIdToCode]);
 
   // Empty-state cards: only when the user has selected TikTok or
   // Google Ads AND there's no data AND the venue isn't connected.
@@ -141,8 +164,16 @@ export function VenueStatsGrid({
             : undefined
         }
       >
-        <Cell label="Spend" value={fmtCurrency(cells.spend)} />
-        <Cell label="Impressions" value={fmtIntOrDash(cells.impressions)} />
+        <Cell
+          label="Spend"
+          value={fmtCurrency(cells.spend)}
+          testid="venue-stats-cell-spend"
+        />
+        <Cell
+          label="Impressions"
+          value={fmtIntOrDash(cells.impressions)}
+          testid="venue-stats-cell-impressions"
+        />
         <Cell
           label={
             <span className="inline-flex items-center gap-1">
@@ -158,6 +189,7 @@ export function VenueStatsGrid({
             </span>
           }
           value={fmtIntOrDash(cells.reach)}
+          testid="venue-stats-cell-reach"
         />
         <Cell
           label="Clicks"
@@ -167,18 +199,37 @@ export function VenueStatsGrid({
               ? `${fmtCurrency(cells.costPerClick)} per click`
               : null
           }
+          testid="venue-stats-cell-clicks"
         />
-        <Cell label="CTR" value={fmtPctOrDash(cells.ctr)} />
-        <Cell label="CPM" value={fmtCurrencyOrDash(cells.cpm)} />
-        <Cell label="Video Plays" value={fmtIntOrDash(cells.videoPlays)} />
-        <Cell label="Engagements" value={fmtIntOrDash(cells.engagements)} />
+        <Cell
+          label="CTR"
+          value={fmtPctOrDash(cells.ctr)}
+          testid="venue-stats-cell-ctr"
+        />
+        <Cell
+          label="CPM"
+          value={fmtCurrencyOrDash(cells.cpm)}
+          testid="venue-stats-cell-cpm"
+        />
+        <Cell
+          label="Video Plays"
+          value={fmtIntOrDash(cells.videoPlays)}
+          testid="venue-stats-cell-video-plays"
+        />
+        <Cell
+          label="Engagements"
+          value={fmtIntOrDash(cells.engagements)}
+          testid="venue-stats-cell-engagements"
+        />
         <Cell
           label="Cost per Video Play"
           value={fmtCurrencyOrDash(cells.costPerVideoPlay)}
+          testid="venue-stats-cell-cost-per-video-play"
         />
         <Cell
           label="Cost per Engagement"
           value={fmtCurrencyOrDash(cells.costPerEngagement)}
+          testid="venue-stats-cell-cost-per-engagement"
         />
       </div>
     </section>
@@ -189,17 +240,31 @@ function Cell({
   label,
   value,
   sub,
+  testid,
 }: {
   label: ReactNode;
   value: string;
   sub?: string | null;
+  /**
+   * `data-testid` for DOM-level regression tests. Memory anchor:
+   * `feedback_resolver_dashboard_test_gap.md` — pipeline tests
+   * cannot catch a missing data-loader wire-up, only DOM tests can,
+   * so every cell in the grid is individually addressable.
+   */
+  testid?: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-card p-3">
+    <div
+      className="rounded-md border border-border bg-card p-3"
+      data-testid={testid}
+    >
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground [&_button]:normal-case">
         {label}
       </div>
-      <p className="mt-1 font-heading text-lg tracking-wide tabular-nums text-foreground">
+      <p
+        className="mt-1 font-heading text-lg tracking-wide tabular-nums text-foreground"
+        data-testid={testid ? `${testid}-value` : undefined}
+      >
         {value}
       </p>
       {sub ? (
