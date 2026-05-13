@@ -169,6 +169,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             phase={patternsPhase}
             funnel={patternsFunnel}
             venueEventCode={result.event_code}
+            venueShareToken={token}
             isShared
           />
         ) : (

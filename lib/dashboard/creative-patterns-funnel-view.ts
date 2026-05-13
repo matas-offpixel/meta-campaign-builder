@@ -404,6 +404,9 @@ export type CreativePatternsInsightsLinkCtx =
       surface: "venue";
       clientId: string;
       eventCode: string;
+      /** Venue-scoped share token; required when isShared is true. */
+      token?: string;
+      isShared?: boolean;
       phase: CreativePatternPhase;
       funnel: CreativePatternFunnel;
     };
@@ -428,6 +431,12 @@ export function buildCreativePatternsInsightsHref(
     return `${base}?${sp.toString()}`;
   }
 
-  const path = `/clients/${ctx.clientId}/venues/${encodeURIComponent(ctx.eventCode)}`;
-  return `${path}?${sp.toString()}`;
+  // Venue surface: keep share viewers on /share/venue/[token]. Falling back to
+  // the internal /clients/[id]/venues/[event_code] route puts the request
+  // behind the proxy's default-deny and bounces them to /login.
+  const base =
+    ctx.isShared && ctx.token
+      ? `/share/venue/${encodeURIComponent(ctx.token)}`
+      : `/clients/${ctx.clientId}/venues/${encodeURIComponent(ctx.eventCode)}`;
+  return `${base}?${sp.toString()}`;
 }
