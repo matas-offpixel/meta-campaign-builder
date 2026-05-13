@@ -72,6 +72,16 @@ export function isPublicPath(
   if (pathname === "/api/admin/rollup-pre-pr395-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
+  // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`
+  // (app/api/clients/[id]/venues/[event_code]/daily-budget/route.ts) accepts
+  // either a Supabase session OR a `client_token` query param that it
+  // validates via the service-role client. Without this carve-out the proxy
+  // default-deny redirects share-surface viewers to /login before the
+  // route's own auth runs, silently degrading the Daily Budget cell on
+  // /share/client/[token] venue cards. Same pattern as PR #407.
+  if (/^\/api\/clients\/[^/]+\/venues\/[^/]+\/daily-budget$/.test(pathname)) {
+    return true;
+  }
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
