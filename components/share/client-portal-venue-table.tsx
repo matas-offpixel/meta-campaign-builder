@@ -28,9 +28,10 @@ import {
 } from "@/lib/db/client-dashboard-aggregations";
 import {
   DAILY_BUDGET_UPDATED_EVENT,
+  fetchVenueDailyBudgetDetail,
   getDailyBudgetUpdate,
   type DailyBudgetUpdateDetail,
-} from "./client-refresh-daily-budgets-button";
+} from "@/lib/share/venue-daily-budget-fetch";
 import {
   buildRolloutGroupKeyByEventId,
   parseExpandedHash,
@@ -2633,26 +2634,17 @@ function LazyVenueDailyBudget({
       if (hydratedFromBroadcastRef.current) return;
       setState({ kind: "loading" });
       try {
-        const qs = new URLSearchParams();
-        if (shareToken) qs.set("client_token", shareToken);
-        const res = await fetch(
-          `/api/clients/${encodeURIComponent(clientId)}/venues/${encodeURIComponent(eventCode)}/daily-budget${
-            qs.size > 0 ? `?${qs.toString()}` : ""
-          }`,
-        );
-        const json = (await res.json()) as {
-          dailyBudget?: number | null;
-          label?: "daily" | "effective_daily";
-          reasonLabel?: string | null;
-          error?: string;
-        };
-        if (!res.ok) throw new Error("Daily budget unavailable");
+        const detail = await fetchVenueDailyBudgetDetail({
+          clientId,
+          eventCode,
+          shareToken: shareToken || undefined,
+        });
         if (!cancelled) {
           setState({
             kind: "ready",
-            dailyBudget: json.dailyBudget ?? null,
-            label: json.label ?? "daily",
-            reason: json.reasonLabel ?? json.error ?? null,
+            dailyBudget: detail.dailyBudget,
+            label: detail.label,
+            reason: detail.reasonLabel,
           });
         }
       } catch (err) {

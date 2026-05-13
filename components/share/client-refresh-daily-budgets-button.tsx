@@ -4,17 +4,21 @@ import { useCallback, useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { runWithConcurrency } from "@/lib/dashboard/sync-button-helpers";
+import {
+  DAILY_BUDGET_UPDATED_EVENT,
+  type DailyBudgetUpdateDetail,
+  dispatchDailyBudgetUpdate,
+  fetchVenueDailyBudgetDetail,
+  getDailyBudgetUpdate,
+} from "@/lib/share/venue-daily-budget-fetch";
 
-export const DAILY_BUDGET_UPDATED_EVENT = "venue-daily-budget:updated";
-
-export interface DailyBudgetUpdateDetail {
-  clientId: string;
-  eventCode: string;
-  dailyBudget: number | null;
-  label: "daily" | "effective_daily";
-  reason: string | null;
-  reasonLabel: string | null;
-}
+export {
+  DAILY_BUDGET_UPDATED_EVENT,
+  dispatchDailyBudgetUpdate,
+  fetchVenueDailyBudgetDetail,
+  getDailyBudgetUpdate,
+  type DailyBudgetUpdateDetail,
+};
 
 interface Props {
   clientId: string;
@@ -38,85 +42,6 @@ type Status =
     };
 
 const CONCURRENCY = 3;
-const dailyBudgetUpdates = new Map<string, DailyBudgetUpdateDetail>();
-
-function updateKey(clientId: string, eventCode: string): string {
-  return `${clientId}::${eventCode}`;
-}
-
-export function dispatchDailyBudgetUpdate(detail: DailyBudgetUpdateDetail) {
-  dailyBudgetUpdates.set(updateKey(detail.clientId, detail.eventCode), detail);
-  window.dispatchEvent(
-    new CustomEvent<DailyBudgetUpdateDetail>(DAILY_BUDGET_UPDATED_EVENT, {
-      detail,
-    }),
-  );
-}
-
-/**
- * Fetches one venue's daily Meta ad-set budget row and broadcasts it to
- * `DAILY_BUDGET_UPDATED_EVENT` (same contract as the bulk refresh button).
- * Used after Sync now with throttling so spam-clicking sync doesn't hammer Graph.
- */
-export async function fetchVenueDailyBudgetDetail(opts: {
-  clientId: string;
-  eventCode: string;
-  shareToken?: string;
-}): Promise<DailyBudgetUpdateDetail> {
-  let dispatched = false;
-  try {
-    const qs = new URLSearchParams();
-    if (opts.shareToken) qs.set("client_token", opts.shareToken);
-    const res = await fetch(
-      `/api/clients/${encodeURIComponent(opts.clientId)}/venues/${encodeURIComponent(opts.eventCode)}/daily-budget${
-        qs.size > 0 ? `?${qs.toString()}` : ""
-      }`,
-      { cache: "no-store" },
-    );
-    const json = (await res.json()) as {
-      dailyBudget?: number | null;
-      label?: "daily" | "effective_daily";
-      reason?: string | null;
-      reasonLabel?: string | null;
-      error?: string;
-    };
-    const reason =
-      json.reasonLabel ?? json.error ?? "Daily budget unavailable";
-    const detail: DailyBudgetUpdateDetail = {
-      clientId: opts.clientId,
-      eventCode: opts.eventCode,
-      dailyBudget: json.dailyBudget ?? null,
-      label: json.label ?? "daily",
-      reason: json.reason ?? (res.ok ? null : "fetch_error"),
-      reasonLabel: reason,
-    };
-    dispatchDailyBudgetUpdate(detail);
-    dispatched = true;
-    if (!res.ok) throw new Error(reason);
-    return detail;
-  } catch (err) {
-    const msg =
-      err instanceof Error ? err.message : "Daily budget unavailable";
-    if (!dispatched) {
-      dispatchDailyBudgetUpdate({
-        clientId: opts.clientId,
-        eventCode: opts.eventCode,
-        dailyBudget: null,
-        label: "daily",
-        reason: "fetch_error",
-        reasonLabel: msg,
-      });
-    }
-    throw err instanceof Error ? err : new Error(msg);
-  }
-}
-
-export function getDailyBudgetUpdate(
-  clientId: string,
-  eventCode: string,
-): DailyBudgetUpdateDetail | null {
-  return dailyBudgetUpdates.get(updateKey(clientId, eventCode)) ?? null;
-}
 
 export function ClientRefreshDailyBudgetsButton({
   clientId,
@@ -138,54 +63,8 @@ export function ClientRefreshDailyBudgetsButton({
     const results = await runWithConcurrency(
       venues,
       CONCURRENCY,
-      async (eventCode) => {
-        let dispatched = false;
-        try {
-          const qs = new URLSearchParams();
-          if (shareToken) qs.set("client_token", shareToken);
-          const res = await fetch(
-            `/api/clients/${encodeURIComponent(clientId)}/venues/${encodeURIComponent(eventCode)}/daily-budget${
-              qs.size > 0 ? `?${qs.toString()}` : ""
-            }`,
-            { cache: "no-store" },
-          );
-          const json = (await res.json()) as {
-            dailyBudget?: number | null;
-            label?: "daily" | "effective_daily";
-            reason?: string | null;
-            reasonLabel?: string | null;
-            error?: string;
-          };
-          const reason =
-            json.reasonLabel ?? json.error ?? "Daily budget unavailable";
-          const detail: DailyBudgetUpdateDetail = {
-            clientId,
-            eventCode,
-            dailyBudget: json.dailyBudget ?? null,
-            label: json.label ?? "daily",
-            reason: json.reason ?? (res.ok ? null : "fetch_error"),
-            reasonLabel: reason,
-          };
-          dispatchDailyBudgetUpdate(detail);
-          dispatched = true;
-          if (!res.ok) throw new Error(reason);
-          return detail;
-        } catch (err) {
-          const reason =
-            err instanceof Error ? err.message : "Daily budget unavailable";
-          if (!dispatched) {
-            dispatchDailyBudgetUpdate({
-              clientId,
-              eventCode,
-              dailyBudget: null,
-              label: "daily",
-              reason: "fetch_error",
-              reasonLabel: reason,
-            });
-          }
-          throw err;
-        }
-      },
+      (eventCode) =>
+        fetchVenueDailyBudgetDetail({ clientId, eventCode, shareToken }),
       (completed, totalSoFar) => {
         setStatus({ kind: "pending", completed, total: totalSoFar });
       },
