@@ -23,6 +23,7 @@ import {
   type FunnelRollupInput,
 } from "@/lib/reporting/funnel-pacing-derive";
 import {
+  splitEventCodeLpvByClickShare,
   sumLandingPageViewsFromSharePayload,
   type SnapshotPayloadForLpv,
 } from "@/lib/reporting/funnel-pacing-payload";
@@ -126,10 +127,13 @@ export async function buildClientFunnelPacing(
   );
   const currentRollups = rollups.filter((row) => liveEventIds.has(row.event_id));
   const baseCurrent = aggregateRollups(currentRollups);
+  const codeByEventId = new Map<string, string | null>();
+  for (const event of events) codeByEventId.set(event.id, event.event_code);
   const lpvByEvent = await resolveLpvByEventIds(
     [...liveEventIds],
     currentRollups,
     sinceDays,
+    codeByEventId,
   );
   let lpvTotal = 0;
   for (const id of liveEventIds) {
@@ -263,10 +267,13 @@ async function deriveAndUpsertTarget(
     soldOutEvents.map((event) => event.id),
     daysAgoYmd(180),
   );
+  const soldOutCodeByEventId = new Map<string, string | null>();
+  for (const e of soldOutEvents) soldOutCodeByEventId.set(e.id, e.event_code);
   const lpvByEvent = await resolveLpvByEventIds(
     soldOutEvents.map((e) => e.id),
     rollups,
     180,
+    soldOutCodeByEventId,
   );
   const derived = deriveFunnelTargetsFromSoldOutEvents(
     soldOutEvents,
@@ -438,10 +445,26 @@ function funnelSnapshotPresetForWindow(sinceDays: number): DatePreset {
   return sinceDays === 30 ? "last_30d" : "maximum";
 }
 
+/**
+ * Resolve a per-event LPV map, deduped across sibling events that share
+ * an `event_code`.
+ *
+ * `fetchActiveCreativesForEvent` matches campaigns by `event_code`
+ * substring, so every sibling event (e.g. the four WC26 fixtures at one
+ * venue) ends up storing the same campaign-wide LPV in its snapshot.
+ * The previous implementation summed those duplicates and produced
+ * BOFU LPV > MOFU clicks at venue scope (the bug in PR #291). The dedup
+ * step here picks one representative LPV per event_code (latest
+ * fetched_at — the only thing meaningfully different across snapshots
+ * of the same Meta data) and splits it across siblings by their rollup
+ * click share so per-event values stay sensible and the scope-level
+ * sum equals the real campaign LPV.
+ */
 async function resolveLpvByEventIds(
   eventIds: string[],
   rollups: RollupRow[],
   sinceDays: number,
+  codeByEventId: ReadonlyMap<string, string | null>,
 ): Promise<Map<string, number>> {
   const preset = funnelSnapshotPresetForWindow(sinceDays);
   const snapshotSums = await fetchSnapshotLpvSumByEvent(eventIds, preset);
@@ -454,15 +477,49 @@ async function resolveLpvByEventIds(
       (clicksByEvent.get(row.event_id) ?? 0) + (row.link_clicks ?? 0),
     );
   }
-  const out = new Map<string, number>();
+
+  const idsByCode = new Map<string, string[]>();
+  const ungrouped: string[] = [];
   for (const id of eventIds) {
+    const code = codeByEventId.get(id) ?? null;
+    if (!code) {
+      ungrouped.push(id);
+      continue;
+    }
+    const list = idsByCode.get(code) ?? [];
+    list.push(id);
+    idsByCode.set(code, list);
+  }
+
+  const out = new Map<string, number>();
+  const computeFallback = (id: string): number => {
+    const clicks = clicksByEvent.get(id) ?? 0;
+    return Math.round(clicks * FUNNEL_LPV_CLICKS_FALLBACK_RATIO);
+  };
+
+  for (const id of ungrouped) {
     if (snapshotSums.has(id)) {
       out.set(id, snapshotSums.get(id)!);
     } else {
-      const clicks = clicksByEvent.get(id) ?? 0;
-      out.set(id, Math.round(clicks * FUNNEL_LPV_CLICKS_FALLBACK_RATIO));
+      out.set(id, computeFallback(id));
     }
   }
+
+  for (const ids of idsByCode.values()) {
+    const withSnapshot = ids.filter((id) => snapshotSums.has(id));
+    if (withSnapshot.length === 0) {
+      for (const id of ids) out.set(id, computeFallback(id));
+      continue;
+    }
+    let codeLpv = 0;
+    for (const id of withSnapshot) {
+      const v = snapshotSums.get(id) ?? 0;
+      if (v > codeLpv) codeLpv = v;
+    }
+    const split = splitEventCodeLpvByClickShare(ids, codeLpv, clicksByEvent);
+    for (const [id, value] of split) out.set(id, value);
+  }
+
   return out;
 }
 
