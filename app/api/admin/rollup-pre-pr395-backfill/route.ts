@@ -237,7 +237,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         });
         continue;
       }
-      const beforeByDate = new Map(
+      const beforeByDate = new Map<string, { date: string; tickets_sold: number | null; revenue: number | null }>(
         (beforeRows ?? []).map(
           (r: { date: string; tickets_sold: number | null; revenue: number | null }) => [
             r.date,
