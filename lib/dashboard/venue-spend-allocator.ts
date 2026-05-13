@@ -283,12 +283,14 @@ async function soloPassThroughAllocatedSpend(args: {
     });
   }
 
+  let soloUpserted = 0;
   try {
-    await upsertAllocatedSpendRollups(supabase, {
+    const r = await upsertAllocatedSpendRollups(supabase, {
       userId,
       eventId,
       rows,
     });
+    soloUpserted = r.upserted;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return EMPTY_RESULT({
@@ -314,7 +316,7 @@ async function soloPassThroughAllocatedSpend(args: {
     reason: "solo_pass_through",
     venueEventIds: [eventId],
     adNames: [],
-    rowsWritten: rows.length,
+    rowsWritten: soloUpserted,
     perEventLifetime: [
       {
         eventId,
@@ -474,12 +476,12 @@ async function equalSplitNonWc26AllocatedSpend(args: {
     const rows = payloads.get(e.id) ?? [];
     if (rows.length === 0) continue;
     try {
-      await upsertAllocatedSpendRollups(supabase, {
+      const r = await upsertAllocatedSpendRollups(supabase, {
         userId,
         eventId: e.id,
         rows,
       });
-      rowsWritten += rows.length;
+      rowsWritten += r.upserted;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return EMPTY_RESULT({
@@ -932,12 +934,12 @@ export async function allocateVenueSpendForCode(
   for (const [eventId, rows] of upsertPayloads) {
     if (rows.length === 0) continue;
     try {
-      await upsertAllocatedSpendRollups(supabase, {
+      const r = await upsertAllocatedSpendRollups(supabase, {
         userId,
         eventId,
         rows,
       });
-      rowsWritten += rows.length;
+      rowsWritten += r.upserted;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.info(

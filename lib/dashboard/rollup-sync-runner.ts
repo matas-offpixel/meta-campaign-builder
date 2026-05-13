@@ -141,6 +141,7 @@ export interface RollupSyncInput {
 export interface SyncLegResult {
   ok: boolean;
   rowsWritten?: number;
+  skipped_noop?: number;
   error?: string;
   reason?: string;
 }
@@ -654,15 +655,17 @@ export async function runRollupSyncForEvent(
           `[rollup-sync] meta window zero-pad added=${metaPadded} dates (map before pad=${metaDaysBeforeWindowPad})`,
         );
         try {
-          await upsertMetaRollups(supabase, {
-            userId,
-            eventId,
-            rows: metaRows,
-          });
+          const { upserted: metaUpserted, skipped_noop: metaSkipped } =
+            await upsertMetaRollups(supabase, {
+              userId,
+              eventId,
+              rows: metaRows,
+            });
           metaResult.ok = true;
-          metaResult.rowsWritten = metaRows.length;
+          metaResult.rowsWritten = metaUpserted;
+          metaResult.skipped_noop = metaSkipped;
           console.log(
-            `[rollup-sync] meta upsert ok rows_written=${metaRows.length} today_in_window=${hasToday} today_from_snapshot=${diagnostics.metaTodayFromSnapshot} today_padded=${diagnostics.metaTodayPadded}`,
+            `[rollup-sync] meta upsert ok rows_written=${metaUpserted} skipped_noop=${metaSkipped} today_in_window=${hasToday} today_from_snapshot=${diagnostics.metaTodayFromSnapshot} today_padded=${diagnostics.metaTodayPadded}`,
           );
         } catch (err) {
           metaResult.error =
@@ -785,6 +788,7 @@ export async function runRollupSyncForEvent(
         )}`,
       );
       let totalRows = 0;
+      let ebSkipped = 0;
       let firstError: string | null = null;
       const mergedEbByDate = new Map<
         string,
@@ -1005,18 +1009,21 @@ export async function runRollupSyncForEvent(
       );
 
       if (ebUpsertRows.length > 0) {
-        await upsertEventbriteRollups(supabase, {
-          userId,
-          eventId,
-          rows: ebUpsertRows,
-        });
-        totalRows = ebUpsertRows.length;
+        const { upserted: ebUpserted, skipped_noop: ebSkippedNoop } =
+          await upsertEventbriteRollups(supabase, {
+            userId,
+            eventId,
+            rows: ebUpsertRows,
+          });
+        totalRows = ebUpserted;
+        ebSkipped = ebSkippedNoop;
+        eventbriteResult.skipped_noop = ebSkippedNoop;
         console.log(
-          `[rollup-sync] eventbrite merged upsert ok rows_written=${ebUpsertRows.length} today_in_window=${hadOrdersToday}`,
+          `[rollup-sync] eventbrite merged upsert ok rows_written=${ebUpserted} skipped_noop=${ebSkippedNoop} today_in_window=${hadOrdersToday}`,
         );
       }
 
-      if (firstError && totalRows === 0) {
+      if (firstError && (totalRows + ebSkipped) === 0) {
         eventbriteResult.error = firstError;
       } else {
         eventbriteResult.ok = true;
@@ -1143,17 +1150,19 @@ export async function runRollupSyncForEvent(
       summary.metaOk
     }${summary.metaReason ? `(${summary.metaReason})` : ""} meta_rows=${
       summary.metaRowsUpserted
-    } tt_ok=${summary.tiktokOk}${
+    } meta_skipped=${metaResult.skipped_noop ?? 0} tt_ok=${summary.tiktokOk}${
       summary.tiktokReason ? `(${summary.tiktokReason})` : ""
-    } tt_rows=${summary.tiktokRowsUpserted} gads_ok=${summary.googleAdsOk}${
+    } tt_rows=${summary.tiktokRowsUpserted} tt_skipped=${
+      tiktokResult.skipped_noop ?? 0
+    } gads_ok=${summary.googleAdsOk}${
       summary.googleAdsReason ? `(${summary.googleAdsReason})` : ""
-    } gads_rows=${
-      summary.googleAdsRowsUpserted
+    } gads_rows=${summary.googleAdsRowsUpserted} gads_skipped=${
+      googleAdsResult.skipped_noop ?? 0
     } eb_ok=${summary.eventbriteOk}${
       summary.eventbriteReason ? `(${summary.eventbriteReason})` : ""
-    } eb_rows=${summary.eventbriteRowsUpserted} alloc_ok=${
-      summary.allocatorOk ?? "n/a"
-    }${
+    } eb_rows=${summary.eventbriteRowsUpserted} eb_skipped=${
+      eventbriteResult.skipped_noop ?? 0
+    } alloc_ok=${summary.allocatorOk ?? "n/a"}${
       summary.allocatorReason ? `(${summary.allocatorReason})` : ""
     } alloc_rows=${summary.allocatorRowsUpserted} alloc_class_errors=${
       summary.allocatorClassErrors
