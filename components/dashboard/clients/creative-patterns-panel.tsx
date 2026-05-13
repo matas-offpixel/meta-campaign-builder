@@ -40,6 +40,8 @@ interface Props {
     isShared?: boolean;
   };
   venueEventCode?: string;
+  /** Venue-scoped share token; threaded to phase/funnel pill hrefs on share-surface venue pages. */
+  venueShareToken?: string;
   isShared?: boolean;
 }
 
@@ -52,6 +54,7 @@ export async function CreativePatternsPanel({
   funnel: funnelProp,
   dashboardInsights,
   venueEventCode,
+  venueShareToken,
   isShared = false,
 }: Props) {
   const phase = phaseProp ?? "ticket_sale";
@@ -79,6 +82,8 @@ export async function CreativePatternsPanel({
           surface: "venue",
           clientId,
           eventCode: venueEventCode,
+          token: venueShareToken,
+          isShared,
           phase,
           funnel,
         }
