@@ -9,6 +9,10 @@ import {
   additionalSpendTotalsByDate,
 } from "@/lib/db/additional-spend-sum";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
+import {
+  buildEventIdToCodeMap,
+  dedupVenueRollupsByEventCode,
+} from "@/lib/dashboard/venue-rollup-dedup";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -188,8 +192,22 @@ export function buildVenueReportModel(
     eventIds,
   );
 
-  const timeline = mergeVenueTimeline(
+  // Dedup campaign-wide Meta columns across sibling events that share
+  // an `event_code` BEFORE the timeline merge. `mergeVenueTimeline`
+  // sums `link_clicks` and `meta_regs` across rollup rows, and both
+  // columns hold the IDENTICAL campaign-wide value on every sibling
+  // event for the same calendar day (Meta returns campaign-grain data,
+  // and the spend allocator only overwrites `link_clicks` per-event
+  // when it has run). Without this pass, a 4-fixture venue's chart
+  // line shows 4× the real clicks/regs. See
+  // `lib/dashboard/venue-rollup-dedup.ts` for the full rule.
+  const dedupedDailyRollups = dedupVenueRollupsByEventCode(
     dailyRollups,
+    buildEventIdToCodeMap(events),
+  ).rows;
+
+  const timeline = mergeVenueTimeline(
+    dedupedDailyRollups,
     dailyEntries,
     isMultiEventVenue,
     cumulativeTicketTimeline,

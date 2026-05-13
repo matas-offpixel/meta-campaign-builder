@@ -14,6 +14,13 @@
 
 import type { DailyRollupRow } from "@/lib/db/client-portal-server";
 import type { PlatformId } from "@/lib/dashboard/platform-colors";
+// Relative import on purpose: this file is exercised by
+// `node --test --experimental-strip-types`, which strips type-only
+// imports (so `@/`-aliased type imports work) but does NOT resolve
+// `@/`-aliased VALUE imports at runtime. The dedup helper is a
+// runtime export, so it must use a relative path. Any future
+// runtime import added to this file should follow the same rule.
+import { dedupVenueRollupsByEventCode } from "./venue-rollup-dedup.ts";
 
 export interface VenueStatsGridCells {
   spend: number;
@@ -88,17 +95,41 @@ function isInWindow(
  * (Meta returns the campaign total per event), which would
  * triple-count for a 3-event venue group. Allocated spend is per-
  * event-correct.
+ *
+ * Note on Meta awareness columns: `meta_impressions` / `meta_reach` /
+ * `meta_video_plays_*` / `meta_engagements` / `meta_regs` are NEVER
+ * touched by the allocator — Meta returns them at campaign granularity
+ * and every sibling event sharing one bracketed `[event_code]` carries
+ * the IDENTICAL value for the same calendar day. Naively summing them
+ * across the venue produced the Shepherd's Bush 4× over-attribution
+ * bug (Reach 1,231,744 vs the true 175,330 across 3 campaigns). The
+ * dedup pass at the top collapses each `(event_code, date)` group to
+ * one canonical row holding the MAX of those columns; siblings get
+ * zeroed for those columns, so the SUM below resolves back to the
+ * real campaign-wide total. See `lib/dashboard/venue-rollup-dedup.ts`
+ * for the rule and the audit anchor that lists every column on each
+ * side of the per-event / campaign-wide line.
+ *
+ * `eventIdToCode` is the `(event_id → event_code)` map for the
+ * caller's scope (one venue = one code, but the map shape generalises
+ * to any caller). Pass `undefined` to skip dedup — used by legacy
+ * tests and by call-sites where the rows are guaranteed pre-deduped.
  */
 export function aggregateStatsForPlatform(
   rows: DailyRollupRow[],
   platform: Exclude<PlatformId, "all">,
   windowDays: ReadonlySet<string> | null,
+  eventIdToCode?: ReadonlyMap<string, string | null>,
 ): VenueStatsGridCells {
   const cells: VenueStatsGridCells = { ...EMPTY_CELLS };
   const days = new Set<string>();
   let fetchedAt: string | null = null;
 
-  for (const row of rows) {
+  const dedupedRows = eventIdToCode
+    ? dedupVenueRollupsByEventCode(rows, eventIdToCode).rows
+    : rows;
+
+  for (const row of dedupedRows) {
     if (!isInWindow(row.date, windowDays)) continue;
 
     if (platform === "meta") {
@@ -193,10 +224,16 @@ export function aggregateStatsForPlatform(
 export function aggregateStatsForAll(
   rows: DailyRollupRow[],
   windowDays: ReadonlySet<string> | null,
+  eventIdToCode?: ReadonlyMap<string, string | null>,
 ): VenueStatsGridCells {
-  const meta = aggregateStatsForPlatform(rows, "meta", windowDays);
-  const tiktok = aggregateStatsForPlatform(rows, "tiktok", windowDays);
-  const google = aggregateStatsForPlatform(rows, "google_ads", windowDays);
+  const meta = aggregateStatsForPlatform(rows, "meta", windowDays, eventIdToCode);
+  const tiktok = aggregateStatsForPlatform(rows, "tiktok", windowDays, eventIdToCode);
+  const google = aggregateStatsForPlatform(
+    rows,
+    "google_ads",
+    windowDays,
+    eventIdToCode,
+  );
   const cells: VenueStatsGridCells = {
     spend: meta.spend + tiktok.spend + google.spend,
     impressions: meta.impressions + tiktok.impressions + google.impressions,

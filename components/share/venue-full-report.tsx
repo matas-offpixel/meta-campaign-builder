@@ -212,6 +212,7 @@ export function VenueFullReport({
         hasTikTokAccount={hasTikTokAccount}
         hasGoogleAdsAccount={hasGoogleAdsAccount}
         settingsHref={settingsHref}
+        events={initialEvents}
       />
       <VenueTrendChartSection
         model={model}
