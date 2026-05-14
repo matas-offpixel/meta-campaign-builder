@@ -45,6 +45,19 @@ describe("isPublicPath — venue daily-budget carve-out", () => {
   });
 });
 
+describe("isPublicPath — event-code lifetime meta backfill carve-out", () => {
+  it("admits the admin backfill route", () => {
+    assert.equal(
+      isPublicPath("/api/admin/event-code-lifetime-meta-backfill"),
+      true,
+    );
+  });
+
+  it("does not admit other /api/admin/ routes by default", () => {
+    assert.equal(isPublicPath("/api/admin/some-other-admin-route"), false);
+  });
+});
+
 describe("isPublicPath — pre-existing rules still hold", () => {
   it("admits /share/* prefixes", () => {
     assert.equal(isPublicPath("/share/client/abcdef1234"), true);

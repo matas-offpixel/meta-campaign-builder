@@ -70,6 +70,11 @@ export function isPublicPath(
   // manually via Bearer CRON_SECRET; must bypass the session middleware so the
   // route's own isCronAuthorized check can run (same pattern as probe above).
   if (pathname === "/api/admin/rollup-pre-pr395-backfill") return true;
+  // `/api/admin/event-code-lifetime-meta-backfill` — Admin Bearer-authed route;
+  // the route's own isCronAuthorized handles auth. Bypass the session
+  // middleware so a bearer-only curl reaches the handler (same pattern as
+  // PR #407 + PR #411).
+  if (pathname === "/api/admin/event-code-lifetime-meta-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`
