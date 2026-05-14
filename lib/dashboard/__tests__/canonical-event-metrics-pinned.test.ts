@@ -275,3 +275,192 @@ describe("Canonical pipeline — Cat F regression chain", () => {
     );
   });
 });
+
+describe("PR #419 — Manchester funnel-pacing pin (Bug 1)", () => {
+  // Pre-PR-#419 funnel-pacing handed the helper a client-wide cache
+  // (all 18 venues), and the helper unioned all cache codes into the
+  // result map. Manchester's pacing TOFU reach surfaced as the SUM
+  // of every venue's deduped reach (4.89M for 4thefans) instead of
+  // Manchester's own 805k row.
+  //
+  // The fix scopes `cacheRows` to the live event_codes (here:
+  // Manchester only) BEFORE the helper call. This test exercises
+  // the same shape `aggregateRollupsWithCanonical` produces — pure
+  // map construction + scope filter + canonical helper — so we can
+  // pin Manchester's value end-to-end without spinning up Supabase.
+
+  // Build cache rows directly with hyphenated event_codes (production
+  // shape: `WC26-MANCHESTER` etc.), bypassing the underscore-keyed
+  // PINNED test fixture used elsewhere in this file. Reach values
+  // are still pinned from the PINNED map.
+  function liveEventCacheRow(
+    code: string,
+    reach: number,
+  ): EventCodeLifetimeMetaCacheRow {
+    return {
+      client_id: "c-4tf",
+      event_code: code,
+      meta_reach: reach,
+      meta_impressions: reach * 5,
+      meta_link_clicks: Math.round(reach * 0.02),
+      meta_regs: Math.round(reach * 0.0005),
+      meta_video_plays_3s: Math.round(reach * 0.1),
+      meta_video_plays_15s: Math.round(reach * 0.02),
+      meta_video_plays_p100: Math.round(reach * 0.005),
+      meta_engagements: Math.round(reach * 0.03),
+      campaign_names: [`[${code}] BOFU`, `[${code}] Presale`],
+      fetched_at: FROZEN_NOW,
+      created_at: FROZEN_NOW,
+      updated_at: FROZEN_NOW,
+    };
+  }
+
+  it("Manchester-scoped pacing reach equals Manchester cache row, not the client-wide sum", () => {
+    const liveEvents = [
+      { id: "manchester-eng-cro", event_code: "WC26-MANCHESTER" },
+      { id: "manchester-eng-fra", event_code: "WC26-MANCHESTER" },
+    ];
+
+    // Build eventsByCode the same way funnel-pacing does for live
+    // events (one bucket per event_code).
+    const eventsByCode = new Map<
+      string,
+      Array<{ id: string; event_code: string | null }>
+    >();
+    for (const event of liveEvents) {
+      const list = eventsByCode.get(event.event_code) ?? [];
+      list.push({ id: event.id, event_code: event.event_code });
+      eventsByCode.set(event.event_code, list);
+    }
+
+    // Pre-fix shape — every 4thefans venue's cache row arrives. Use
+    // hyphenated production event_codes so the in-scope filter
+    // matches the live events' code.
+    const VENUE_CACHE_INPUTS: Array<[string, number]> = [
+      ["WC26-MANCHESTER", PINNED.WC26_MANCHESTER],
+      ["WC26-BRIGHTON", PINNED.WC26_BRIGHTON],
+      ["WC26-LONDON-KENTISH-TOWN", PINNED.WC26_LONDON_KENTISH],
+      ["WC26-LONDON-SHEPHERDS-BUSH", PINNED.WC26_LONDON_SHEPHERDS],
+    ];
+    const clientWideCache: EventCodeLifetimeMetaCacheRow[] =
+      VENUE_CACHE_INPUTS.map(([code, reach]) =>
+        liveEventCacheRow(code, reach),
+      );
+
+    // The PR #419 fix — narrow the cache list to the in-scope codes.
+    const inScope = new Set(eventsByCode.keys());
+    const scopedCache = clientWideCache.filter((row) =>
+      inScope.has(row.event_code),
+    );
+
+    const byCode = computeCanonicalEventMetricsByEventCode({
+      cacheRows: scopedCache,
+      rollupsByEventCode: new Map(),
+      eventsByEventCode: eventsByCode,
+    });
+    const total = sumCanonicalEventMetrics([...byCode.values()]);
+
+    assert.equal(
+      byCode.size,
+      1,
+      "scope filter narrows the result map to Manchester only",
+    );
+    assert.ok(
+      total.reach != null,
+      "Manchester cache hit must surface a number, not null",
+    );
+    assert.ok(
+      within(total.reach!, PINNED.WC26_MANCHESTER, PIN_TOLERANCE),
+      `Manchester pacing reach ${total.reach} drifted from ${PINNED.WC26_MANCHESTER} > ${PIN_TOLERANCE * 100}%`,
+    );
+
+    // Pin the BAD shape so any future regression that drops the
+    // scope filter immediately fails this assertion. The pre-fix
+    // sum was the simple sum of every venue's cache reach.
+    const expectedClientWideSum = VENUE_CACHE_INPUTS.reduce(
+      (a, [, reach]) => a + reach,
+      0,
+    );
+    assert.notEqual(
+      total.reach,
+      expectedClientWideSum,
+      "regression: Manchester pacing must NOT equal the client-wide sum (the +507% bug shape)",
+    );
+  });
+
+  it("funnel-pacing source filters cacheRows to in-scope event_codes before calling the canonical helper", () => {
+    const src = readFileSync("lib/reporting/funnel-pacing.ts", "utf8");
+    // The fix-shape regex: a `Set` built from `eventsByCode.keys()`
+    // is used to filter `cacheRows` before they reach the helper.
+    assert.match(
+      src,
+      /inScopeEventCodes\s*=\s*new Set\(eventsByCode\.keys\(\)\)/,
+      "funnel-pacing must build an in-scope event_codes set from eventsByCode.keys()",
+    );
+    assert.match(
+      src,
+      /cacheRows\.filter\(\(row\)[\s\S]*?inScopeEventCodes\.has\(row\.event_code\)/,
+      "funnel-pacing must filter cacheRows by the in-scope set BEFORE the canonical helper call",
+    );
+    assert.match(
+      src,
+      /cacheRows:\s*scopedCacheRows/,
+      "funnel-pacing must pass the filtered list to the helper, not the raw client-wide cache",
+    );
+  });
+});
+
+describe("PR #419 — Manchester Creative Insights pin (Bug 2)", () => {
+  // Pre-PR-#419 the venue insights route returned `totals.reachSum`
+  // (per-campaign sum), which the UI rendered verbatim — Cat F bug
+  // class for venue scope (Manchester showed 932k vs Meta UI 805k).
+  //
+  // The fix decorates `result.totals.reach` from the lifetime cache
+  // and the UI prefers it over `reachSum`. These tests pin the
+  // wire-up so a future refactor can't silently drop back to the
+  // per-campaign sum path.
+  it("venue insights routes call decorateWithCanonicalLifetimeReach for the lifetime preset", () => {
+    const shareSrc = readFileSync(
+      "app/api/share/venue/[token]/insights/route.ts",
+      "utf8",
+    );
+    const internalSrc = readFileSync(
+      "app/api/insights/venue/[clientId]/[event_code]/route.ts",
+      "utf8",
+    );
+    for (const src of [shareSrc, internalSrc]) {
+      assert.match(
+        src,
+        /decorateWithCanonicalLifetimeReach/,
+        "venue insights routes must decorate the result with canonical lifetime reach",
+      );
+    }
+  });
+
+  it("MetaCampaignStatsSection prefers totals.reach over totals.reachSum on cache hit", () => {
+    const src = readFileSync(
+      "components/report/meta-insights-sections.tsx",
+      "utf8",
+    );
+    assert.match(
+      src,
+      /lifetime_cache_hit/,
+      "stats section must branch on canonical reachSource",
+    );
+    assert.match(
+      src,
+      /lifetime_cache_miss/,
+      "stats section must hard-fail on cache miss like Stats Grid",
+    );
+    assert.match(
+      src,
+      /Awaiting Meta sync\. Data refreshes every 6h via cron\./,
+      "cache-miss branch must use the audit-mandated tooltip text",
+    );
+    assert.match(
+      src,
+      /venue-insights-reach-value/,
+      "cache-hit cell must carry the venue-insights-reach-value test id",
+    );
+  });
+});

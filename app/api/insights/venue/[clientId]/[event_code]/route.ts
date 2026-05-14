@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { sumVenueTicketsSoldInWindow } from "@/lib/db/venue-insights";
+import { decorateWithCanonicalLifetimeReach } from "@/lib/insights/decorate-canonical-lifetime-reach";
 import { fetchEventInsights } from "@/lib/insights/meta";
 import {
   DATE_PRESETS,
@@ -137,8 +138,23 @@ export async function GET(
     ticketsInWindowResolver: (preset, range) =>
       sumVenueTicketsSoldInWindow(supabase, eventIds, preset, range),
   });
+
+  // PR #419 — same Cat F decorator as the public share route. The
+  // dashboard's `<VenueLiveReportInsights>` switches between this
+  // route and `/api/share/venue/[token]/insights` via `isInternal`,
+  // so internal Joe-style users would otherwise still see the
+  // inflated per-campaign reach sum.
+  const decorated = await decorateWithCanonicalLifetimeReach({
+    result,
+    supabase,
+    clientId,
+    eventCode,
+    datePreset,
+    customRange,
+  });
+
   const headers = forceRefresh
     ? { "Cache-Control": "no-store, max-age=0" }
     : undefined;
-  return NextResponse.json(result, { headers });
+  return NextResponse.json(decorated, { headers });
 }

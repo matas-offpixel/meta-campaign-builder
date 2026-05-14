@@ -506,8 +506,27 @@ function aggregateRollupsWithCanonical(
     rollupsByCode.set(code, list);
   }
 
+  // PR #419 (audit follow-up — Bug 1, +507% Manchester drift):
+  // Pre-fix `cacheRows` was the client-wide cache (all 18 venues),
+  // and `computeCanonicalEventMetricsByEventCode` UNIONs cache codes
+  // with rollup/event codes when building its iteration set. That
+  // pulled every venue's cache reach into the result map even when
+  // the pacing scope was just one venue, and `sumCanonicalEventMetrics`
+  // then summed the lot (Manchester pacing showed 4.89M instead of the
+  // 805k cache row).
+  //
+  // The fix is caller-side: scope `cacheRows` to the same event_codes
+  // the live events resolve to (`eventsByCode.keys()`) BEFORE handing
+  // to the helper. The helper's union behaviour is preserved for
+  // surfaces that intentionally want partial-coverage signal (see the
+  // pinned tests in `canonical-event-metrics-pinned.test.ts`).
+  const inScopeEventCodes = new Set(eventsByCode.keys());
+  const scopedCacheRows = cacheRows.filter((row) =>
+    inScopeEventCodes.has(row.event_code),
+  );
+
   const canonicalByCode = computeCanonicalEventMetricsByEventCode({
-    cacheRows,
+    cacheRows: scopedCacheRows,
     rollupsByEventCode: rollupsByCode,
     eventsByEventCode: eventsByCode,
   });

@@ -14,6 +14,86 @@ import type { CampaignStatusReason } from "@/lib/insights/campaign-status";
 import type { EventInsightsPayload } from "@/lib/insights/types";
 import type { MetaDemographicRow } from "@/lib/insights/types";
 
+/**
+ * PR #419 (audit follow-up — Bug 2): the venue insights routes now
+ * decorate `totals.reach` / `totals.reachSource` from
+ * `event_code_lifetime_meta_cache` for the lifetime preset (Cat F
+ * deduplicated). Mirror the Stats Grid pattern from PR #418:
+ *   - `lifetime_cache_hit`   → render deduped reach as plain "Reach"
+ *   - `lifetime_cache_miss`  → render "—" with the audit tooltip
+ *   - `non_lifetime_scope`   → fall back to `reachSum` ("Reach (sum)")
+ *   - undefined (legacy)     → fall back to `reachSum`
+ *
+ * Callers that haven't adopted the canonical decorator (e.g. the
+ * /share/report and overview routes) keep the pre-PR-#419 "Reach
+ * (sum)" cell unchanged.
+ */
+function ReachCell({ totals }: { totals: EventInsightsPayload["totals"] }) {
+  const source = totals.reachSource;
+  if (source === "lifetime_cache_hit" && totals.reach != null) {
+    return (
+      <Metric
+        label="Reach"
+        value={fmtInt(totals.reach)}
+        title="Cross-campaign deduplicated reach for this event_code (Meta /act_*/insights level=account, refreshed every 6h via cron)."
+        data-testid="venue-insights-reach-value"
+      />
+    );
+  }
+  if (source === "lifetime_cache_miss") {
+    return (
+      <Metric
+        label="Reach"
+        value="—"
+        title="Awaiting Meta sync. Data refreshes every 6h via cron."
+        data-testid="venue-insights-reach-cache-miss"
+      />
+    );
+  }
+  return (
+    <Metric
+      label="Reach (sum)"
+      value={fmtInt(totals.reachSum)}
+      data-testid="venue-insights-reach-sum"
+    />
+  );
+}
+
+function reachAsideCopy(totals: EventInsightsPayload["totals"]) {
+  const source = totals.reachSource;
+  if (source === "lifetime_cache_hit") {
+    return (
+      <>
+        <span className="font-medium text-foreground">Reach</span> is the
+        cross-campaign deduplicated reach for this event_code, sourced from
+        Meta&rsquo;s account-level insights and cached every 6 hours. Per-campaign
+        rows below show each campaign&rsquo;s individual deduplicated reach
+        (which can overlap users across campaigns).
+      </>
+    );
+  }
+  if (source === "lifetime_cache_miss") {
+    return (
+      <>
+        <span className="font-medium text-foreground">Reach</span> is awaiting
+        Meta sync — the cross-campaign deduplicated value refreshes every 6
+        hours via cron. Per-campaign rows below show each campaign&rsquo;s
+        deduplicated reach in the meantime.
+      </>
+    );
+  }
+  return (
+    <>
+      <span className="font-medium text-foreground">Reach (sum)</span> is summed
+      across campaigns — not deduplicated unique reach across the event. A user
+      reached by more than one campaign is counted once per campaign. Frequency
+      is derived from the same sum and is therefore a conservative
+      under-estimate. Per-campaign rows below show each campaign&rsquo;s
+      deduplicated reach.
+    </>
+  );
+}
+
 export function MetaCampaignStatsSection({
   meta,
   isRefreshing = false,
@@ -36,7 +116,7 @@ export function MetaCampaignStatsSection({
         >
           <Metric label="Spend" value={fmtCurrency(meta.totals.spend)} />
           <Metric label="Impressions" value={fmtInt(meta.totals.impressions)} />
-          <Metric label="Reach (sum)" value={fmtInt(meta.totals.reachSum)} />
+          <ReachCell totals={meta.totals} />
           <Metric
             label="Clicks"
             value={fmtInt(meta.totals.clicks)}
@@ -71,11 +151,8 @@ export function MetaCampaignStatsSection({
           ) : null}
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          <span className="font-medium text-foreground">Reach (sum)</span> is
-          summed across campaigns — not deduplicated unique reach across the
-          event. A user reached by more than one campaign is counted once per
-          campaign. Video Plays uses Meta&rsquo;s default 3-second video view
-          action.
+          {reachAsideCopy(meta.totals)} Video Plays uses Meta&rsquo;s default
+          3-second video view action.
         </p>
       </Section>
     );
@@ -89,7 +166,7 @@ export function MetaCampaignStatsSection({
       >
         <Metric label="Spend" value={fmtCurrency(meta.totals.spend)} />
         <Metric label="Impressions" value={fmtInt(meta.totals.impressions)} />
-        <Metric label="Reach (sum)" value={fmtInt(meta.totals.reachSum)} />
+        <ReachCell totals={meta.totals} />
         {!isBrandCampaign ? (
           <Metric
             label="Landing page views"
@@ -127,12 +204,7 @@ export function MetaCampaignStatsSection({
         <Metric label="CPR" value={fmtCurrency(meta.totals.cpr)} />
       </div>
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">Reach (sum)</span> is
-        summed across campaigns — not deduplicated unique reach across the
-        event. A user reached by more than one campaign is counted once per
-        campaign. Frequency is derived from the same sum and is therefore a
-        conservative under-estimate. Per-campaign rows below show each
-        campaign&rsquo;s deduplicated reach.
+        {reachAsideCopy(meta.totals)}
       </p>
     </Section>
   );
@@ -326,13 +398,23 @@ export function Metric({
   label,
   value,
   sub,
+  title,
+  "data-testid": dataTestId,
 }: {
   label: string;
   value: string;
   sub?: string | null;
+  /** Optional native `title` tooltip (used for the canonical Reach
+   *  cell — PR #419 — to mirror Stats Grid's hover hint). */
+  title?: string;
+  "data-testid"?: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-card p-3">
+    <div
+      className="rounded-md border border-border bg-card p-3"
+      title={title}
+      data-testid={dataTestId}
+    >
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
         {label}
       </p>

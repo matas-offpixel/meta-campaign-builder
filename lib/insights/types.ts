@@ -34,6 +34,38 @@ export interface MetaTotals {
    * rather than mutating this one — keeps the contract honest.
    */
   reachSum: number;
+  /**
+   * Cross-campaign deduplicated reach for the event, sourced from
+   * `event_code_lifetime_meta_cache` (the PR #418 / Cat F-fixed
+   * two-pass `level=account` cache row). Optional — only populated
+   * by surfaces that read the lifetime cache (e.g. the share/venue
+   * insights route). When `undefined`, the consumer falls back to
+   * the per-campaign `reachSum`.
+   *
+   * `null` signals a cache miss for a lifetime scope: the UI should
+   * hard-fail to "—" with the audit-mandated tooltip rather than
+   * silently dropping back to the inflated `reachSum` (see PR #418
+   * Stats Grid pattern).
+   *
+   * Unlike `reachSum`, this is the value to render as plain "Reach"
+   * in lifetime-window views — no "(sum)" suffix.
+   */
+  reach?: number | null;
+  /**
+   * Provenance for `reach` so UIs can pick the right label / fallback
+   * branch:
+   *   - `lifetime_cache_hit`   render `reach` as "Reach" (deduped).
+   *   - `lifetime_cache_miss`  render "—" with the audit tooltip.
+   *   - `non_lifetime_scope`   render `reachSum` as "Reach (sum)" (no
+   *                            cache lookup attempted for the chosen
+   *                            window).
+   * Undefined preserves pre-PR-#419 behaviour for callers that haven't
+   * adopted the canonical reach field.
+   */
+  reachSource?:
+    | "lifetime_cache_hit"
+    | "lifetime_cache_miss"
+    | "non_lifetime_scope";
   /** "Clicks (all)" — link clicks across destinations. */
   clicks: number;
   /** Landing page views — derived from `actions[action_type=landing_page_view]`. */
