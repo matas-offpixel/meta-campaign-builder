@@ -451,6 +451,74 @@ Per the PR #415 session log: "Glasgow venue cards will show LOWER reach post-mer
 
 If Joe expects to see a "Reach" column in the Daily Tracker rows, he won't find one. `mergeVenueTimeline` doesn't carry `meta_reach` / `meta_impressions` / `meta_video_plays_*` / `meta_engagements` into the timeline, so the Tracker can only show spend / clicks / regs / tickets / revenue per day. This is a feature, not a bug — daily reach is rarely meaningful — but worth noting in case a question arises.
 
+### Flag 7 — "Manchester England v Croatia 2026-05-13 rollup tickets_sold=1, but snapshot delta 247→254 = 7"
+
+**Joe's hypothesis:** `isSuspiciousTicketingZeroFetch` (PR #403) is over-skipping legitimate writes.
+
+**Verdict: hypothesis refuted. PR #403's guard is inert here.** The guard at `lib/dashboard/ticketing-zero-fetch-guard.ts:33` fires only when `currentLifetime === 0 && previousLifetime > 0`. Both 247 and 254 are positive — the guard has no opinion on this fetch and lets it through. Confirmed by re-reading the guard signature and PR #403's session log ("only fires when `currentLifetime === 0` AND `previousLifetime > 0`. A genuine first-sync zero (null previous) and a genuine equal-day zero (previous also 0) are both allowed through").
+
+**What is actually happening (likely):** The runner's "previous snapshot" lookup uses `getLatestSnapshotForLinkBeforeDate` (`lib/db/ticketing.ts:542`), which returns the **most recent snapshot strictly before today 00:00 UTC** — not the start-of-yesterday value. Because the cron runs hourly (or near-hourly), 4thefans accumulates intra-day snapshots like:
+
+```
+Mon 2026-05-12 06:00 UTC → 240
+Mon 2026-05-12 12:00 UTC → 244
+Mon 2026-05-12 18:00 UTC → 247   ← what Joe is reading
+Mon 2026-05-12 23:30 UTC → 253   ← what the runner picks as "previous"
+Tue 2026-05-13 06:00 UTC → 254
+```
+
+When the Tuesday 06:00 sync runs:
+- `currentTotal = 254`
+- `previousSnapshot.tickets_sold = 253` (most recent < 2026-05-13T00:00:00Z, picked by `.order("snapshot_at", desc).limit(1)`)
+- `currentSnapshotDailyDelta(254, 253) = 1`
+- Tuesday's rollup row written with `tickets_sold = 1`
+
+That `1` is the **correct since-last-snapshot delta**. The "missing 6" sales (247 → 253) were already written to **Monday's** rollup row earlier on Monday evening — they aren't lost. Joe is comparing two non-adjacent snapshots (the morning of day-1 vs the morning of day-2) and expecting the system to write that span as Tuesday's delta, but the system writes adjacent-snapshot deltas — which is the only way to avoid double-counting Monday's sales.
+
+This is a Cat D (Concept Mismatch) issue, not a backfill bug. The **rollup row's tickets_sold is correctly the delta from the last pre-today snapshot** — but the **per-day daily-tracker semantic** (which a viewer reads as "total tickets sold on Tuesday") is undefined when there are multiple intra-day snapshots in the previous day. Pick one of two repair models:
+
+1. **Day-aligned semantic** — define yesterday's "last" as `snapshot_at::date = today − 1 INTERVAL DAY ORDER BY snapshot_at DESC LIMIT 1` and Today's "first" as `snapshot_at::date = today ORDER BY snapshot_at ASC LIMIT 1`. The intra-day delta on the previous day (last-of-day minus first-of-day) gets attributed entirely to yesterday; today's row gets the cross-midnight delta.
+2. **Cumulative-truth semantic** — store `tickets_sold_cumulative` per day in the rollup (last snapshot of the day), let the Daily Tracker subtract neighbouring days at read time. This collapses the multi-snapshot intra-day uncertainty.
+
+Both models change the meaning of `event_daily_rollups.tickets_sold` and need a coordinated rewrite + a backfill across all 4thefans events. **Defer to a dedicated PR** — it is independent of the reach / N-counting work in Sections 5–7. It is **not a Friday demo blocker** (numbers reconcile to within ±1 ticket per day, and the lifetime totals across multi-day spans are correct).
+
+**Runbook for the operator (verify the diagnosis):**
+
+```sql
+-- 1. List EVERY snapshot for the Manchester England v Croatia event_id on 2026-05-12 and 2026-05-13.
+--    Look for >1 row per day. The "last < 2026-05-13T00:00:00Z" row is what the runner reads as "previous".
+SELECT s.snapshot_at, s.tickets_sold, s.gross_revenue_cents, s.source, s.connection_id, s.external_event_id
+  FROM ticket_sales_snapshots s
+  JOIN events e ON e.id = s.event_id
+ WHERE e.event_code = 'WC26-MANCHESTER'
+   AND e.name ILIKE '%Croatia%'
+   AND s.snapshot_at >= '2026-05-12T00:00:00Z'
+   AND s.snapshot_at <  '2026-05-14T00:00:00Z'
+ ORDER BY s.snapshot_at;
+
+-- 2. The corresponding rollup rows. The Mon row should be ~6 (240→247?) or ~13 (240→253),
+--    Tue row should equal (254 − last-pre-Tue-snapshot).
+SELECT r.date, r.tickets_sold AS daily_delta, r.revenue,
+       r.source_eventbrite_at, r.updated_at
+  FROM event_daily_rollups r
+  JOIN events e ON e.id = r.event_id
+ WHERE e.event_code = 'WC26-MANCHESTER'
+   AND e.name ILIKE '%Croatia%'
+   AND r.date BETWEEN '2026-05-11' AND '2026-05-13'
+ ORDER BY r.date;
+```
+
+If Query 1 shows multiple snapshots on 2026-05-12 with the latest being 253 (or any value > 247), the diagnosis above is confirmed and **PR #403 is not at fault**. If Query 1 shows only one snapshot on 2026-05-12 at value 247, then there is a separate bug to investigate (probably in the runner's snapshot insert path skipping today's first write).
+
+**Secondary candidate to rule out** — multi-link aggregation. If the Manchester England v Croatia event has multiple ticketing links (e.g. one 4thefans listing per ticket category) and one of those links wrote a partial delta of 1 while another link's delta was 6 but errored before merging, the rollup would land at 1. The runner's `mergeDailyTicketsRow` path adds across links into the same date bucket (`lib/dashboard/rollup-sync-runner.ts:889`), so a single failed link mid-loop would leak the partial sum. Check the runner logs around the Tuesday sync for `firstError` warnings tagged with `WC26-MANCHESTER`. The current code has a `firstError ??= message; continue;` pattern that does NOT abort the rollup write — so a partial-merge tickets_sold=1 outcome is possible if the first sibling link returned 1 and the second errored.
+
+**What I checked and ruled out:**
+- `isSuspiciousTicketingZeroFetch` cannot fire when current > 0 (verified at `lib/dashboard/ticketing-zero-fetch-guard.ts:33`).
+- `currentSnapshotDailyDelta(254, 247)` returns 7 (verified at `lib/ticketing/current-snapshot-delta.ts`); the only way the runner writes 1 from a 247-base is if the "previous" snapshot it reads is 253, not 247.
+- PR #404's `rollup-pre-pr395-backfill` filter is `r.date < PRE_PR395_CUTOFF` (i.e. `< 2026-05-08`); it cannot touch the 2026-05-13 row.
+- `upsertEventbriteRollups` at `lib/db/event-daily-rollups.ts:345` does a per-(event_id, date) UPSERT (replaces, not adds) — so no double-write accumulation.
+- The admin `fourthefans-rollup-backfill` route (`app/api/admin/fourthefans-rollup-backfill/route.ts`) protects pre-existing positive `tickets_sold` rows via `protectedDates` — it cannot demote a 7 to a 1.
+
 ---
 
 ## Section 7 — Recommended sequence
