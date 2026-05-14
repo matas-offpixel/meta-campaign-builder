@@ -15,6 +15,13 @@ import {
   campaignMatchesBracketedEventCode,
   metaCampaignFilterPrefix,
 } from "@/lib/insights/meta-event-code-match";
+import {
+  aggregatePass1Pages,
+  buildPass2CampaignIdFilter,
+  combineTwoPassReach,
+  type AccountLevelLifetimeRow as Pass2Row,
+  type PerCampaignLifetimeRow as Pass1Row,
+} from "@/lib/insights/event-code-lifetime-two-pass";
 import { ISO_COUNTRY_CODES } from "@/lib/share/country-codes";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
@@ -2528,29 +2535,41 @@ export type LifetimeMetaMetricsResult =
  * Plays / Engagements cells via `event_code_lifetime_meta_cache`
  * (migration 068).
  *
- * Distinct from `fetchEventDailyMetaMetrics`:
- *   - No `time_increment` parameter — Meta returns ONE row per campaign
- *     at campaign-window granularity, with reach already deduplicated
- *     within each campaign across the campaign's lifetime.
- *   - Uses `date_preset=maximum` so Meta picks the campaign's
- *     start..today window (matches Ads Manager's default "Maximum"
- *     timeframe).
- *   - Returns ONE totals object (sum across campaigns), not a per-day
- *     array.
+ * **Two-pass design (Cat F fix, PR #418).** Reach is non-additive across
+ * campaigns: Meta dedupes within a campaign at the campaign-window
+ * granularity, but summing per-campaign reach re-counts every user who
+ * appeared in 2+ campaigns under the same `[event_code]`. For Manchester
+ * (8 overlapping presale + conversion campaigns) the cross-campaign sum
+ * inflated lifetime reach by **+15.9% (932,982 vs Meta UI 805,264)** —
+ * see PR #417 audit Section 6 Flag F.
  *
- * Why summing per-campaign reach across campaigns is acceptable:
- *   Meta's UI shows cross-campaign deduplicated reach when you filter
- *   the dashboard to a campaign group. Our per-campaign sum slightly
- *   over-counts users who appeared in multiple campaigns under the
- *   same `[event_code]`. For ±5% acceptance (Joe's brief) the simple
- *   sum is sufficient; if exact match is ever required we can add a
- *   second call using `breakdown=campaign_name` which Meta dedupes
- *   across campaigns in the same response.
+ * Pass 1 — `level=campaign`. One row per matching campaign. Used to:
+ *   1. Enumerate matching `campaign_id`s (case-sensitive bracket
+ *      post-filter on `campaign_name` so `[leeds26-facup-v2]` doesn't
+ *      bleed into `LEEDS26-FACUP`).
+ *   2. Sum the **additive** metrics — impressions, inline_link_clicks,
+ *      registrations, video plays, engagements. These sum cleanly
+ *      across campaigns; PR #418 leaves them unchanged.
  *
- * Case sensitivity: same as `fetchEventDailyMetaMetrics` — the API
- * filter is case-insensitive but we re-apply
- * `campaignMatchesBracketedEventCode` post-fetch so
- * `[leeds26-facup-v2]` doesn't bleed into `LEEDS26-FACUP`.
+ * Pass 2 — `level=account`, `filtering=[{ field: "campaign.id",
+ * operator: "IN", value: [ids] }]`. ONE row across the matched
+ * campaigns. Used for **non-additive** unique-user metrics:
+ *   1. `reach` (cross-campaign deduplicated unique users).
+ *   2. (Future) `frequency`, `estimated_ad_recall` — currently neither
+ *      is rendered in the dashboard so they are not requested.
+ *
+ * No `time_increment` on either pass: lifetime cache stores ONE total
+ * per `(client_id, event_code)`, not a timeseries.
+ *
+ * Edge cases:
+ *   - **Zero matched campaigns**: Pass 2 is skipped (Meta would return
+ *     an error on an empty `IN` list). Result is all zeros, cache row
+ *     stores nulls — same as before PR #418.
+ *   - **Pass 2 fails**: Helper falls back to summed-campaign reach with
+ *     a `console.warn` so the cron leg makes progress. The drift in
+ *     this case is the same as the pre-PR #418 behaviour, which is
+ *     better than blocking the entire venue's cache update on a
+ *     transient account-level call failure.
  *
  * Glasgow umbrella: NOT included in lifetime totals. The daily helper
  * special-cases umbrella attribution (date-based, shifts spend
@@ -2566,6 +2585,27 @@ export type LifetimeMetaMetricsResult =
 export async function fetchEventLifetimeMetaMetrics(
   args: FetchEventLifetimeMetaMetricsArgs,
 ): Promise<LifetimeMetaMetricsResult> {
+  return fetchEventLifetimeMetaMetricsWithFetcher(args, graphGetWithToken);
+}
+
+/**
+ * Test seam for `fetchEventLifetimeMetaMetrics`. Production callers use
+ * the wrapper above which injects the real Graph client. Unit tests
+ * inject a stub `GraphPageFetcher` so they can pin the per-campaign
+ * reach sum (`932k` for Manchester) vs the account-level deduped reach
+ * (`805k`) without round-tripping to Meta — see
+ * `lib/insights/__tests__/fetchEventLifetimeMetaMetrics.test.ts`.
+ */
+export type GraphPageFetcher = <T>(
+  path: string,
+  params: Record<string, string>,
+  token: string,
+) => Promise<GraphPaged<T>>;
+
+export async function fetchEventLifetimeMetaMetricsWithFetcher(
+  args: FetchEventLifetimeMetaMetricsArgs,
+  graphGet: GraphPageFetcher,
+): Promise<LifetimeMetaMetricsResult> {
   const { eventCode, adAccountId, token } = args;
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
@@ -2579,81 +2619,107 @@ export async function fetchEventLifetimeMetaMetrics(
 
   const account = ensureActPrefix(adAccountId);
   const filterPrefix = metaCampaignFilterPrefix(eventCode);
-  const filtering = JSON.stringify([
+  const namedFiltering = JSON.stringify([
     { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
   ]);
 
-  const regActionTypes = [
-    "complete_registration",
-    "offsite_conversion.fb_pixel_complete_registration",
-  ];
-
   try {
-    let totalReach = 0;
-    let totalImpressions = 0;
-    let totalLinkClicks = 0;
-    let totalRegs = 0;
-    let totalVideo3s = 0;
-    let totalVideo15s = 0;
-    let totalVideoP100 = 0;
-    let totalEngagements = 0;
-    const matchedCampaigns = new Set<string>();
-    const filteredOutCampaignNames = new Set<string>();
-
+    // ── Pass 1: level=campaign ─────────────────────────────────────
+    // Pull every page, hand off to the pure aggregator for the
+    // bracket post-filter + additive-metric sum.
+    const pass1Pages: Array<{ data: Pass1Row[] }> = [];
     let after: string | undefined;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
-        // No `time_increment` on purpose: one row per campaign at the
-        // campaign-window granularity Meta dedupes reach against.
+        // PR #418 added `campaign_id` so Pass 2 can filter by exact
+        // matched campaign IDs. Without it, Pass 2 has nothing to
+        // restrict to and Meta would return account-wide reach.
         fields:
-          "impressions,reach,inline_link_clicks,campaign_name,actions,action_values",
+          "impressions,reach,inline_link_clicks,campaign_id,campaign_name,actions,action_values",
         level: "campaign",
         date_preset: "maximum",
-        filtering,
+        filtering: namedFiltering,
         action_attribution_windows: ATTRIBUTION_WINDOWS,
         limit: "500",
       };
       if (after) params.after = after;
 
-      const res = await graphGetWithToken<
-        GraphPaged<{
-          impressions?: string;
-          reach?: string;
-          inline_link_clicks?: string;
-          campaign_name?: string;
-          actions?: ActionRow[];
-        }>
-      >(`/${account}/insights`, params, token);
-
-      for (const row of res.data ?? []) {
-        const name = row.campaign_name ?? "";
-        if (!campaignMatchesBracketedEventCode(name, eventCode)) {
-          if (name) filteredOutCampaignNames.add(name);
-          continue;
-        }
-        matchedCampaigns.add(name);
-        totalReach += parseNum(row.reach);
-        totalImpressions += parseNum(row.impressions);
-        totalLinkClicks += parseNum(row.inline_link_clicks);
-        totalRegs += sumActions(row.actions, regActionTypes);
-        totalVideo3s += sumActions(row.actions, ["video_view"]);
-        totalVideo15s += sumActions(row.actions, [
-          "video_15_sec_watched_actions",
-        ]);
-        totalVideoP100 += sumActions(row.actions, [
-          "video_p100_watched_actions",
-        ]);
-        totalEngagements += sumActions(row.actions, ["post_engagement"]);
-      }
+      const res = await graphGet<Pass1Row>(
+        `/${account}/insights`,
+        params,
+        token,
+      );
+      pass1Pages.push({ data: res.data ?? [] });
 
       after = res.paging?.cursors?.after;
       if (!res.paging?.next || !after) break;
     }
 
-    const filteredSorted = [...filteredOutCampaignNames].sort();
-    if (filteredSorted.length > 0) {
+    const pass1 = aggregatePass1Pages(pass1Pages, eventCode);
+
+    if (pass1.filteredOutCampaignNames.length > 0) {
       console.warn(
-        `[insights/meta] fetchEventLifetimeMetaMetrics bracket_filtered=${filteredSorted.length} sample=${JSON.stringify(filteredSorted.slice(0, 12))}`,
+        `[insights/meta] fetchEventLifetimeMetaMetrics bracket_filtered=${pass1.filteredOutCampaignNames.length} sample=${JSON.stringify(pass1.filteredOutCampaignNames.slice(0, 12))}`,
+      );
+    }
+
+    // ── Pass 2: level=account, filtered to matched campaign IDs ─────
+    // The Cat F fix. Asks Meta for ONE row across the matched
+    // campaign set, with reach deduped across campaigns server-side.
+    // Manchester (8 campaigns) returns ~805k here vs the ~933k Pass-1
+    // sum. Skipped when no campaigns matched (Meta rejects empty IN).
+    let accountRow: Pass2Row | undefined;
+    if (pass1.matchedCampaignIds.length > 0) {
+      try {
+        const accountParams: Record<string, string> = {
+          fields: "reach,frequency",
+          level: "account",
+          date_preset: "maximum",
+          filtering: buildPass2CampaignIdFilter(pass1.matchedCampaignIds),
+          action_attribution_windows: ATTRIBUTION_WINDOWS,
+          limit: "1",
+        };
+        const accountRes = await graphGet<Pass2Row>(
+          `/${account}/insights`,
+          accountParams,
+          token,
+        );
+        accountRow = (accountRes.data ?? [])[0];
+      } catch (err) {
+        // Pass 2 specifically — fall back to Pass-1 reach sum. Don't
+        // surface as an overall helper failure; the cron leg has the
+        // additive metrics regardless.
+        console.warn(
+          `[insights/meta] fetchEventLifetimeMetaMetrics pass2 threw: ${
+            err instanceof Error ? err.message : "unknown"
+          } — falling back to campaign sum=${pass1.perCampaignReachSum}`,
+        );
+      }
+    }
+
+    const { reach: totalReach, source: reachSource } = combineTwoPassReach({
+      perCampaignSum: pass1.perCampaignReachSum,
+      accountRow,
+    });
+
+    if (
+      reachSource === "campaign_sum_fallback" &&
+      pass1.matchedCampaignIds.length > 0 &&
+      accountRow == null
+    ) {
+      // Account-level call returned no rows at all (rare; Meta sometimes
+      // returns an empty data array on transient internal errors).
+      console.warn(
+        `[insights/meta] fetchEventLifetimeMetaMetrics pass2 returned no rows for ${pass1.matchedCampaignIds.length} campaign(s) — falling back to campaign sum=${pass1.perCampaignReachSum}`,
+      );
+    }
+
+    if (pass1.matchedCampaignNames.length > 0) {
+      console.info(
+        `[insights/meta] fetchEventLifetimeMetaMetrics ok event_code=${eventCode} campaigns=${pass1.matchedCampaignNames.length} reach=${totalReach} reach_source=${reachSource}` +
+          (reachSource === "account_dedup" && pass1.perCampaignReachSum > 0
+            ? ` per_campaign_sum=${pass1.perCampaignReachSum} dedup_drop_pct=${(((pass1.perCampaignReachSum - totalReach) / pass1.perCampaignReachSum) * 100).toFixed(1)}`
+            : ""),
       );
     }
 
@@ -2661,17 +2727,17 @@ export async function fetchEventLifetimeMetaMetrics(
       ok: true,
       totals: {
         reach: totalReach,
-        impressions: totalImpressions,
-        linkClicks: totalLinkClicks,
-        metaRegs: totalRegs,
-        videoPlays3s: totalVideo3s,
-        videoPlays15s: totalVideo15s,
-        videoPlaysP100: totalVideoP100,
-        engagements: totalEngagements,
+        impressions: pass1.impressions,
+        linkClicks: pass1.linkClicks,
+        metaRegs: pass1.metaRegs,
+        videoPlays3s: pass1.videoPlays3s,
+        videoPlays15s: pass1.videoPlays15s,
+        videoPlaysP100: pass1.videoPlaysP100,
+        engagements: pass1.engagements,
       },
-      campaignNames: [...matchedCampaigns].sort(),
-      ...(filteredSorted.length > 0
-        ? { filteredOutCampaignNames: filteredSorted }
+      campaignNames: pass1.matchedCampaignNames,
+      ...(pass1.filteredOutCampaignNames.length > 0
+        ? { filteredOutCampaignNames: pass1.filteredOutCampaignNames }
         : {}),
     };
   } catch (err) {

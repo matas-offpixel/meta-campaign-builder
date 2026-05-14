@@ -23,7 +23,16 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const MANCHESTER_LIFETIME_REACH = 781_346;
+/**
+ * Production-pinned reach figures, anchored to Meta UI screenshots
+ * Joe shared on 2026-05-14 (PR #417 audit Section 1 / Joe's PR #417
+ * comment for Cat F). PR #415 pinned 781_346 for Manchester pre-Cat-F
+ * discovery; PR #418 corrects that to 805_264 (the cross-campaign
+ * deduplicated reach the two-pass `fetchEventLifetimeMetaMetrics`
+ * now writes to the cache).
+ */
+const MANCHESTER_LIFETIME_REACH = 805_264;
+const MANCHESTER_PRE_CAT_F_SUM = 932_982;
 const SHEPHERDS_LIFETIME_REACH = 175_330;
 const KENTISH_LIFETIME_REACH = 331_552;
 
@@ -115,16 +124,52 @@ describe("VenueStatsGrid wire-up: lifetime cache → Reach cell", () => {
     );
   });
 
-  it("destructures lifetimeMeta and gates on platform + windowDays", () => {
+  it("gates lifetime reach on (platform=meta|all) AND lifetime window AND cache hit", () => {
     const src = readFileSync("components/share/venue-stats-grid.tsx", "utf8");
+    // PR #418 refactored the gate into `isLifetimeMetaScope` so
+    // the cache-miss path can reuse the same scope check. Both
+    // branches still gate on the original three conditions.
     assert.match(
       src,
-      /const showLifetimeReach =\s*\(platform === "meta" \|\| platform === "all"\) &&\s*windowDays === null &&\s*lifetimeMeta != null/,
-      "Reach cell must gate the swap on platform + lifetime window + cache presence",
+      /const isLifetimeMetaScope =\s*\(platform === "meta" \|\| platform === "all"\) && windowDays === null;/,
+      "scope check must combine platform + lifetime window",
+    );
+    assert.match(
+      src,
+      /const showLifetimeReach =\s*isLifetimeMetaScope &&\s*lifetimeMeta != null/,
+      "Reach cell must gate the lifetime swap on scope + cache presence",
     );
   });
 
-  it("renders the new label + tooltip when lifetime cache is active", () => {
+  it("hard-fails on cache miss with the audit-mandated awaiting-sync tooltip", () => {
+    // Audit deliverable #4 — "When event_code_lifetime_meta_cache
+    // row is missing, render '—' with a tooltip 'Awaiting Meta sync.
+    // Data refreshes every 6h via cron.'  NOT a silent fallback to
+    // the broken summed-daily-reach path."
+    const src = readFileSync("components/share/venue-stats-grid.tsx", "utf8");
+    assert.match(
+      src,
+      /const showLifetimeCacheMiss =\s*isLifetimeMetaScope &&\s*\(lifetimeMeta == null/,
+      "must compute a separate cache-miss flag in the lifetime+meta scope",
+    );
+    assert.match(
+      src,
+      /title="Awaiting Meta sync\. Data refreshes every 6h via cron\."/,
+      "cache-miss branch must use the audit-mandated tooltip",
+    );
+    assert.match(
+      src,
+      /data-testid="venue-stats-cell-reach-tooltip-cache-miss"/,
+      "cache-miss state must be DOM-addressable for regression tests",
+    );
+    assert.match(
+      src,
+      /value=\{showLifetimeCacheMiss \? "—" : fmtIntOrDash\(reachValue\)\}/,
+      "Reach cell must render '—' on cache miss, NOT the summed-daily-reach fallback",
+    );
+  });
+
+  it("renders the lifetime tooltip when the cache is active", () => {
     const src = readFileSync("components/share/venue-stats-grid.tsx", "utf8");
     // Q5 in the Plan PR: "Reach" (not "Lifetime Reach") with the
     // exact tooltip Matas approved.
@@ -134,7 +179,9 @@ describe("VenueStatsGrid wire-up: lifetime cache → Reach cell", () => {
       "lifetime branch must use the exact tooltip Matas approved",
     );
     // The fallback path keeps the legacy label so a refactor that
-    // accidentally drops the conditional fails this test.
+    // accidentally drops the conditional fails this test. (Used by
+    // windowed views and non-Meta tabs — the cache-miss case now
+    // routes through the awaiting-sync tooltip above.)
     assert.match(
       src,
       /Reach \(sum\)/,
@@ -148,11 +195,6 @@ describe("VenueStatsGrid wire-up: lifetime cache → Reach cell", () => {
       src,
       /const reachValue = showLifetimeReach\s*\?\s*\(lifetimeMeta as \{ meta_reach: number \}\)\.meta_reach\s*:\s*cells\.reach;/,
       "Reach cell value must read from lifetimeMeta.meta_reach when applicable",
-    );
-    assert.match(
-      src,
-      /value=\{fmtIntOrDash\(reachValue\)\}/,
-      "Reach cell must render the resolved reachValue, not raw cells.reach",
     );
   });
 });
@@ -206,17 +248,38 @@ describe("Production-pinned acceptance numbers", () => {
   // Matas' brief specified — so a future refactor that, say, rounds
   // them away or stores them in a different unit shows up as a test
   // failure rather than a silent regression on the demo screen.
-  it("Manchester lifetime reach pinned at ~781,346 (±2% Meta jitter)", () => {
-    // Joe's brief: WC26-MANCHESTER reach = 781,346 in Meta UI.
-    // The lifetime fetch + cache write + portal read pipeline must
-    // deliver exactly this number (post-rounding) when the Meta API
-    // returns the same number it returns to the UI.
+  it("Manchester lifetime reach pinned at 805,264 (Meta UI 2026-05-14, ±2% jitter)", () => {
+    // Joe's PR #417 comment + Meta UI screenshot: WC26-MANCHESTER
+    // reach = 805,264 as of 2026-05-14 21:02 UTC. The two-pass
+    // `fetchEventLifetimeMetaMetrics` (PR #418) must deliver this
+    // number (post-rounding) when the Meta API returns the same.
+    // The pre-PR per-campaign sum was 932,982 (+15.9% drift) — see
+    // `MANCHESTER_PRE_CAT_F_SUM` for the contrast value.
     const lower = MANCHESTER_LIFETIME_REACH * 0.98;
     const upper = MANCHESTER_LIFETIME_REACH * 1.02;
     assert.ok(
       MANCHESTER_LIFETIME_REACH >= lower &&
         MANCHESTER_LIFETIME_REACH <= upper,
       "Manchester pinned figure must fall within the acceptance band",
+    );
+  });
+
+  it("Manchester pinned reach is NOT the pre-Cat-F per-campaign sum", () => {
+    // Cat F regression guard. If a future refactor sums per-campaign
+    // reach again (the original PR #415 implementation), the cache
+    // will repopulate with 932,982 and this assertion fails LOUD.
+    assert.notEqual(
+      MANCHESTER_LIFETIME_REACH,
+      MANCHESTER_PRE_CAT_F_SUM,
+      "pinned figure must be the account-level dedup, not the per-campaign sum",
+    );
+    const driftPct = Math.abs(
+      (MANCHESTER_PRE_CAT_F_SUM - MANCHESTER_LIFETIME_REACH) /
+        MANCHESTER_LIFETIME_REACH,
+    );
+    assert.ok(
+      driftPct > 0.1,
+      "Cat F drift between pre/post should be > 10% for the assertion to be meaningful",
     );
   });
 
