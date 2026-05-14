@@ -10,6 +10,11 @@ import {
   type ClientRegionKey,
 } from "@/lib/dashboard/client-regions";
 import {
+  computeCanonicalEventMetricsByEventCode,
+  sumCanonicalEventMetrics,
+} from "@/lib/dashboard/canonical-event-metrics";
+import { loadEventCodeLifetimeMetaCacheForClient } from "@/lib/db/event-code-lifetime-meta-cache";
+import {
   selectLatestSnapshotsByEvent,
   type PatternSnapshotRow,
 } from "@/lib/reporting/creative-patterns-snapshots";
@@ -18,7 +23,6 @@ import {
   FALLBACK_FUNNEL_TARGETS,
   FUNNEL_LPV_CLICKS_FALLBACK_RATIO,
   deriveFunnelTargetsFromSoldOutEvents,
-  rollupSpend,
   type DerivedFunnelTargets,
   type FunnelRollupInput,
 } from "@/lib/reporting/funnel-pacing-derive";
@@ -27,6 +31,7 @@ import {
   sumLandingPageViewsFromSharePayload,
   type SnapshotPayloadForLpv,
 } from "@/lib/reporting/funnel-pacing-payload";
+import type { DailyRollupRow } from "@/lib/db/client-portal-server";
 
 export { sumLandingPageViewsFromSharePayload } from "@/lib/reporting/funnel-pacing-payload";
 
@@ -126,9 +131,26 @@ export async function buildClientFunnelPacing(
       .map((event) => event.id),
   );
   const currentRollups = rollups.filter((row) => liveEventIds.has(row.event_id));
-  const baseCurrent = aggregateRollups(currentRollups);
   const codeByEventId = new Map<string, string | null>();
   for (const event of events) codeByEventId.set(event.id, event.event_code);
+
+  // PR #418 (audit Section 5 — kills Cat A + Cat B + Cat F at TOFU):
+  // Pre-PR `aggregateRollups` summed `meta_reach` across rollup rows,
+  // which N-counts (sibling events share the same campaign-wide reach
+  // per day) AND Cat-B-overcounts (daily-deduped reach summed across
+  // days ≠ lifetime unique reach). Post-PR the canonical helper
+  // resolves reach from `event_code_lifetime_meta_cache` per
+  // `event_code`, then sums across the venue codes the live events
+  // belong to. Each cache row is a campaign-window dedup so the
+  // event_code-level sum is structurally safe.
+  const liveEvents = events.filter((event) => liveEventIds.has(event.id));
+  const lifetimeCacheRows =
+    await loadEventCodeLifetimeMetaCacheForClient(supabase, clientId);
+  const baseCurrent = aggregateRollupsWithCanonical(
+    currentRollups,
+    liveEvents,
+    lifetimeCacheRows,
+  );
   const lpvByEvent = await resolveLpvByEventIds(
     [...liveEventIds],
     currentRollups,
@@ -413,17 +435,102 @@ function scopeFromFilter(
   return { type: "client_region", value: filter.value };
 }
 
-function aggregateRollups(rows: RollupRow[]) {
-  return rows.reduce(
-    (sum, row) => ({
-      spend: sum.spend + rollupSpend(row),
-      reach: sum.reach + (row.meta_reach ?? 0),
-      clicks: sum.clicks + (row.link_clicks ?? 0),
-      purchases: sum.purchases + (row.tickets_sold ?? 0),
-    }),
-    { spend: 0, reach: 0, clicks: 0, purchases: 0 },
-  );
+/**
+ * Canonical replacement for the old `aggregateRollups` (PR #418).
+ *
+ * **Reach** is now sourced from `event_code_lifetime_meta_cache` via
+ * the canonical helper. The cache holds one cross-campaign
+ * deduplicated number per `(client_id, event_code)`, populated by the
+ * cron + admin backfill route which both call the two-pass
+ * `fetchEventLifetimeMetaMetrics`. Summing reach across *event_codes*
+ * is structurally safe (each cache row is its own campaign-window
+ * dedup; two venues' campaigns may share a few overlap users but the
+ * audit accepts that ±2-3% drift at venue-aggregate scope — the Cat A
+ * + Cat B compounded ~8.74× was the real bug).
+ *
+ * **Spend / link clicks** come from rollups via the canonical helper's
+ * sibling-deduped sum. **Purchases** stays as a per-event-day rollup
+ * sum (`tickets_sold`) — the field is per-event correct (provider-
+ * sourced delta), no dedup needed.
+ *
+ * On TOTAL cache miss (no rows for any of the live event_codes the
+ * scope covers), `reach` falls through as `null`. The TOFU stage
+ * renders `actual=0` + `pacingPct=null` (status `red`) — the audit's
+ * preferred posture vs the pre-PR 8x-inflated number.
+ */
+function aggregateRollupsWithCanonical(
+  rows: RollupRow[],
+  liveEvents: EventRow[],
+  cacheRows: ReadonlyArray<{
+    client_id: string;
+    event_code: string;
+    meta_reach: number | null;
+    meta_impressions: number | null;
+    meta_link_clicks: number | null;
+    meta_regs: number | null;
+    meta_video_plays_3s: number | null;
+    meta_video_plays_15s: number | null;
+    meta_video_plays_p100: number | null;
+    meta_engagements: number | null;
+    campaign_names: string[];
+    fetched_at: string;
+    created_at: string;
+    updated_at: string;
+  }>,
+): { spend: number; reach: number; clicks: number; purchases: number } {
+  // Group live events + their rollup rows by event_code. Events with
+  // no event_code fall through to a synthetic `__nocode__` bucket so
+  // their spend / clicks still aggregate (no reach since no cache row
+  // can exist without an event_code).
+  const NO_CODE = "__nocode__";
+  const eventsByCode = new Map<
+    string,
+    Array<{ id: string; event_code: string | null }>
+  >();
+  for (const event of liveEvents) {
+    const code = event.event_code ?? NO_CODE;
+    const list = eventsByCode.get(code) ?? [];
+    list.push({ id: event.id, event_code: event.event_code });
+    eventsByCode.set(code, list);
+  }
+  const rollupsByCode = new Map<string, DailyRollupRow[]>();
+  const eventIdToCode = new Map<string, string>();
+  for (const event of liveEvents) {
+    eventIdToCode.set(event.id, event.event_code ?? NO_CODE);
+  }
+  for (const row of rows) {
+    const code = eventIdToCode.get(row.event_id);
+    if (!code) continue;
+    const list = rollupsByCode.get(code) ?? [];
+    list.push(row as unknown as DailyRollupRow);
+    rollupsByCode.set(code, list);
+  }
+
+  const canonicalByCode = computeCanonicalEventMetricsByEventCode({
+    cacheRows,
+    rollupsByEventCode: rollupsByCode,
+    eventsByEventCode: eventsByCode,
+  });
+  const total = sumCanonicalEventMetrics([...canonicalByCode.values()]);
+
+  // Purchases = per-event tickets_sold sum across the rollup window.
+  // Rollup tickets are per-event-day deltas (provider-sourced) so a
+  // simple sum is correct.
+  let purchases = 0;
+  for (const row of rows) purchases += row.tickets_sold ?? 0;
+
+  return {
+    spend: total.spend,
+    // `reach` from canonical is `number | null`. Pre-PR aggregator
+    // returned `number` (always); to keep the FunnelStage signature
+    // unchanged we coerce null → 0 — the stage already renders
+    // `actual=0` + red status when pacing pct is null.
+    reach: total.reach ?? 0,
+    clicks: total.linkClicksRollupSum,
+    purchases,
+  };
 }
+
 
 function scaleFunnelTargetVolumes(row: FunnelTargetRow, scale: number): FunnelTargetRow {
   return {

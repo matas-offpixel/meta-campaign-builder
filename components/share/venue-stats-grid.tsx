@@ -129,12 +129,27 @@ export function VenueStatsGrid({
   // The lifetime cache row only applies to lifetime Meta-or-All views.
   // Anything else (windowed view, TikTok/GA tab) falls back to the
   // summed reach with the legacy "Reach (sum)" label + tooltip.
+  //
+  // PR #418 (audit deliverable #4 — "hard-fail Stats Grid on cache
+  // miss"): in the lifetime+meta scope, when the cache row is MISSING
+  // (cron hasn't written for this event_code yet, or the venue has no
+  // matching campaigns) the grid renders "—" with the
+  // awaiting-sync tooltip — NOT the broken summed-daily-reach
+  // fallback (PR #417 audit Cat B). The cache-miss state is a
+  // legitimate signal that the audit told us to surface, not paper
+  // over.
+  const isLifetimeMetaScope =
+    (platform === "meta" || platform === "all") && windowDays === null;
   const showLifetimeReach =
-    (platform === "meta" || platform === "all") &&
-    windowDays === null &&
+    isLifetimeMetaScope &&
     lifetimeMeta != null &&
     typeof lifetimeMeta.meta_reach === "number" &&
     lifetimeMeta.meta_reach > 0;
+  const showLifetimeCacheMiss =
+    isLifetimeMetaScope &&
+    (lifetimeMeta == null ||
+      typeof lifetimeMeta.meta_reach !== "number" ||
+      lifetimeMeta.meta_reach <= 0);
   const reachValue = showLifetimeReach
     ? (lifetimeMeta as { meta_reach: number }).meta_reach
     : cells.reach;
@@ -226,6 +241,19 @@ export function VenueStatsGrid({
                   <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
                 </button>
               </span>
+            ) : showLifetimeCacheMiss ? (
+              <span className="inline-flex items-center gap-1">
+                Reach
+                <button
+                  type="button"
+                  className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="Awaiting Meta sync. Data refreshes every 6h via cron."
+                  aria-label="About Reach (awaiting Meta sync)"
+                  data-testid="venue-stats-cell-reach-tooltip-cache-miss"
+                >
+                  <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+                </button>
+              </span>
             ) : (
               <span className="inline-flex items-center gap-1">
                 Reach (sum)
@@ -241,7 +269,7 @@ export function VenueStatsGrid({
               </span>
             )
           }
-          value={fmtIntOrDash(reachValue)}
+          value={showLifetimeCacheMiss ? "—" : fmtIntOrDash(reachValue)}
           testid="venue-stats-cell-reach"
         />
         <Cell

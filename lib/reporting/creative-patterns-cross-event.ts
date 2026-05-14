@@ -231,6 +231,21 @@ export async function buildClientCreativePatterns(
   let phaseSpend = 0;
   let totalGroups = 0;
   let filteredGroups = 0;
+  let dedupedConceptDuplicates = 0;
+
+  // PR #418 (audit Section 5 row 5.3 — kills Cat A in creative
+  // patterns): Sibling events under the same `[event_code]` carry
+  // IDENTICAL per-creative concept metrics in their per-event
+  // snapshots. The pre-PR `addGroup` accumulated each sibling's
+  // contribution which N-counted spend / reach / impressions / LPV
+  // by the venue's event count. The seen-set below collapses
+  // `(event_code, ad_id)` pairs so each creative concept lands in
+  // every tile EXACTLY once, matching the audit's "pre-pass the
+  // snapshot iteration to dedup `(event_code, creative_id)` pairs".
+  // Events without an `event_code` (synthetic / ungrouped) are
+  // bucketed under their `event_id` so single-event venues don't
+  // collide.
+  const seenConceptKeys = new Set<string>();
 
   for (const snapshot of snapshots) {
     console.log("[creative-patterns] snapshot-loop", {
@@ -246,10 +261,20 @@ export async function buildClientCreativePatterns(
     if (snapshot.payload.kind !== "ok") continue;
 
     const event = eventById.get(snapshot.event_id);
+    const dedupBucket = event?.event_code ?? `__noevent__\u0000${snapshot.event_id}`;
     for (const group of snapshot.payload.groups) {
       totalGroups += 1;
       if (classifyPhaseForGroup(group) !== phase) continue;
       filteredGroups += 1;
+
+      const conceptKey = `${dedupBucket}\u0000${
+        group.representative_ad_id ?? group.display_name
+      }`;
+      if (seenConceptKeys.has(conceptKey)) {
+        dedupedConceptDuplicates += 1;
+        continue;
+      }
+      seenConceptKeys.add(conceptKey);
       phaseSpend += group.spend;
 
       const matchedTags = tagsForGroup(
@@ -270,6 +295,12 @@ export async function buildClientCreativePatterns(
         tiles.set(key, acc);
       }
     }
+  }
+  if (dedupedConceptDuplicates > 0) {
+    console.log("[creative-patterns] sibling-N dedup", {
+      duplicates_collapsed: dedupedConceptDuplicates,
+      unique_concepts_kept: seenConceptKeys.size,
+    });
   }
   console.log("[creative-patterns] phase-filter", {
     phase,
