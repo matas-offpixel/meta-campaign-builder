@@ -514,6 +514,23 @@ CREATE TABLE IF NOT EXISTS "event_daily_rollups" (
   "meta_engagements" integer
 );
 
+CREATE TABLE IF NOT EXISTS "event_code_lifetime_meta_cache" (
+  "client_id" uuid NOT NULL,
+  "event_code" text NOT NULL,
+  "meta_reach" bigint,
+  "meta_impressions" bigint,
+  "meta_link_clicks" bigint,
+  "meta_regs" bigint,
+  "meta_video_plays_3s" bigint,
+  "meta_video_plays_15s" bigint,
+  "meta_video_plays_p100" bigint,
+  "meta_engagements" bigint,
+  "campaign_names" jsonb DEFAULT '[]'::jsonb NOT NULL,
+  "fetched_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS "event_funnel_overrides" (
   "id" uuid DEFAULT gen_random_uuid() NOT NULL,
   "client_id" uuid NOT NULL,
@@ -1121,6 +1138,8 @@ CREATE INDEX event_daily_rollups_event_date_meta_imp_idx ON public.event_daily_r
 CREATE INDEX event_daily_rollups_event_date_tiktok_idx ON public.event_daily_rollups USING btree (event_id, date) WHERE (tiktok_spend > (0)::numeric);
 CREATE UNIQUE INDEX event_daily_rollups_event_date_unique ON public.event_daily_rollups USING btree (event_id, date);
 CREATE UNIQUE INDEX event_daily_rollups_pkey ON public.event_daily_rollups USING btree (id);
+CREATE INDEX event_code_lifetime_meta_cache_fetched_at_idx ON public.event_code_lifetime_meta_cache USING btree (fetched_at DESC);
+CREATE UNIQUE INDEX event_code_lifetime_meta_cache_pkey ON public.event_code_lifetime_meta_cache USING btree (client_id, event_code);
 CREATE INDEX event_funnel_overrides_client_idx ON public.event_funnel_overrides USING btree (client_id);
 CREATE UNIQUE INDEX event_funnel_overrides_pkey ON public.event_funnel_overrides USING btree (id);
 CREATE UNIQUE INDEX event_funnel_overrides_scope_unique_idx ON public.event_funnel_overrides USING btree (client_id, COALESCE((event_id)::text, event_code));

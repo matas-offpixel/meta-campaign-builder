@@ -15,6 +15,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { EventCodeLifetimeMetaCacheRow } from "@/lib/db/event-code-lifetime-meta-cache";
 import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
 import type { EventLinkedDraft } from "@/lib/db/events";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
@@ -120,6 +121,17 @@ interface Props {
    * cleanup removes it from the page-level loaders.
    */
   linkedDrafts?: EventLinkedDraft[];
+  /**
+   * Per-`event_code` lifetime Meta totals from
+   * `event_code_lifetime_meta_cache` (migration 068). The single
+   * matching row drives the Reach cell on the topline stats grid —
+   * see `<VenueStatsGrid>`'s `lifetimeMeta` prop docblock.
+   *
+   * Optional for back-compat with any caller that hasn't been wired
+   * up yet; unsupplied or empty array renders the legacy "Reach
+   * (sum)" cell.
+   */
+  lifetimeMetaByEventCode?: EventCodeLifetimeMetaCacheRow[];
 }
 
 export function VenueFullReport({
@@ -140,6 +152,7 @@ export function VenueFullReport({
   customRange,
   platform = "all",
   settingsHref = null,
+  lifetimeMetaByEventCode,
 }: Props) {
   const mode: "dashboard" | "share" = isInternal ? "dashboard" : "share";
   const readOnly = !isInternal && !canEdit;
@@ -179,6 +192,22 @@ export function VenueFullReport({
     [datePreset, customRange],
   );
 
+  // Pick the cache row matching this venue's event_code. The portal
+  // payload may carry every venue's row under one client (internal
+  // dashboard) or just this venue's row (share-token loader narrows
+  // the array). Either shape produces the right single match.
+  const lifetimeMetaForVenue = useMemo(() => {
+    if (!lifetimeMetaByEventCode?.length) return null;
+    const match = lifetimeMetaByEventCode.find(
+      (row) => row.event_code === eventCode,
+    );
+    if (!match) return null;
+    return {
+      meta_reach: match.meta_reach,
+      meta_impressions: match.meta_impressions,
+    };
+  }, [lifetimeMetaByEventCode, eventCode]);
+
   const model = useVenueReportModel(
     initialEvents,
     dailyEntries,
@@ -213,6 +242,7 @@ export function VenueFullReport({
         hasGoogleAdsAccount={hasGoogleAdsAccount}
         settingsHref={settingsHref}
         events={initialEvents}
+        lifetimeMeta={lifetimeMetaForVenue}
       />
       <VenueTrendChartSection
         model={model}

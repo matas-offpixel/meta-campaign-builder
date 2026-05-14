@@ -13,6 +13,10 @@ import {
   listSalesForEvents,
   type TierChannelRow,
 } from "@/lib/db/tier-channels";
+import {
+  loadEventCodeLifetimeMetaCacheForClient,
+  type EventCodeLifetimeMetaCacheRow,
+} from "@/lib/db/event-code-lifetime-meta-cache";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -402,6 +406,21 @@ export type ClientPortalData =
        * UI without an extra round-trip.
        */
       tierChannels: TierChannelRow[];
+      /**
+       * Per-`event_code` lifetime Meta totals from
+       * `event_code_lifetime_meta_cache` (migration 068). One entry per
+       * venue grouping under this client, written by the rollup-sync
+       * cron. `meta_reach` here is the campaign-window deduplicated
+       * unique-users number that powers the venue card "Reach" cell —
+       * see PR #414's Plan PR for the rationale (sum-of-daily-reach
+       * does NOT match Meta UI's lifetime reach).
+       *
+       * Empty when the cron has never written for this client (fresh
+       * environment, migration not applied, or all venues failed the
+       * Meta fetch). The venue card falls back to `—` on the Reach
+       * cell in that case.
+       */
+      lifetimeMetaByEventCode: EventCodeLifetimeMetaCacheRow[];
       shareVisibility: {
         showCreativeInsights: boolean;
         showFunnelPacing: boolean;
@@ -591,6 +610,13 @@ export async function loadVenuePortalByToken(
   const venueTrendDailyHistory = portal.trendDailyHistory.filter((r) =>
     eventIdSet.has(r.event_id),
   );
+  // Lifetime cache narrowed to this venue's event_code only. The public
+  // share JSON otherwise leaks every sibling venue's lifetime totals
+  // through the payload — the venue card only needs its own row, and
+  // omitting siblings keeps the share token strictly scoped.
+  const venueLifetimeMetaByEventCode = portal.lifetimeMetaByEventCode.filter(
+    (r) => r.event_code === share.event_code,
+  );
   return {
     ok: true,
     event_code: share.event_code,
@@ -607,6 +633,7 @@ export async function loadVenuePortalByToken(
     trendTicketSnapshots: venueTrendTicketSnapshots,
     trendDailyHistory: venueTrendDailyHistory,
     tierChannels: portal.tierChannels,
+    lifetimeMetaByEventCode: venueLifetimeMetaByEventCode,
     shareVisibility: portal.shareVisibility,
   };
 }
@@ -714,6 +741,7 @@ async function loadPortalForClientId(
     tierChannelSales,
     ticketSnapshotRows,
     additionalSpendRows,
+    lifetimeMetaByEventCode,
   ] = await Promise.all([
     eventIds.length > 0
       ? admin
@@ -780,6 +808,12 @@ async function loadPortalForClientId(
             venue_event_code?: string | null;
           }> | null,
         ),
+    // Lifetime Meta cache (migration 068). One row per
+    // (client_id, event_code). Read-only here — writes happen in
+    // `lib/dashboard/rollup-sync-runner.ts` after the daily Meta leg
+    // succeeds. A failed read returns [] so the venue card falls
+    // back to `—` rather than crashing the portal load.
+    loadEventCodeLifetimeMetaCacheForClient(admin, clientId),
   ]);
   if (devTiming) console.timeEnd(parallelLabel);
 
@@ -1033,6 +1067,7 @@ async function loadPortalForClientId(
     trendTicketSnapshots,
     trendDailyHistory,
     tierChannels,
+    lifetimeMetaByEventCode,
     shareVisibility: {
       showCreativeInsights: true,
       showFunnelPacing: true,
