@@ -413,6 +413,92 @@ describe("computeCanonicalEventMetrics — windowDays filter", () => {
   });
 });
 
+describe("computeCanonicalEventMetricsByEventCode — scope contract (PR #419)", () => {
+  // PR #419 (audit follow-up — Bug 1, +507% Manchester drift):
+  // `computeCanonicalEventMetricsByEventCode` UNIONs cache codes
+  // with rollup/event codes when building its iteration set. That
+  // is the documented behaviour and is preserved (some callers
+  // intentionally pass cache rows for codes that have no events
+  // / rollups in scope to surface partial-coverage signal).
+  //
+  // The bug class the regression below pins is *caller-side*:
+  // funnel-pacing was passing the client-wide cache (all 18 venues)
+  // when its scope was a single venue. Manchester's pacing page
+  // showed 4.89M instead of 805k because the helper happily included
+  // every cache row's reach in the result map.
+  //
+  // The helper's job is unchanged. Callers are responsible for
+  // filtering `cacheRows` to their intended scope BEFORE invoking
+  // the helper. The two tests below pin both halves of this
+  // contract.
+
+  it("REGRESSION: when a caller leaks cacheRows for codes outside its scope, the helper unions them in (caller MUST filter first)", () => {
+    // Pre-PR-#419 funnel-pacing shape: scope is one venue, cacheRows
+    // is client-wide. Helper picks up every cache row.
+    const clientWideCache: EventCodeLifetimeMetaCacheRow[] = [
+      MANCHESTER_CACHE,
+      { ...MANCHESTER_CACHE, event_code: "WC26-BRIGHTON", meta_reach: 175_000 },
+      { ...MANCHESTER_CACHE, event_code: "WC26-EDINBURGH", meta_reach: 410_000 },
+    ];
+    const out = computeCanonicalEventMetricsByEventCode({
+      cacheRows: clientWideCache,
+      rollupsByEventCode: new Map(),
+      // Scope = Manchester only. Pre-PR-#419 funnel-pacing built
+      // this map correctly from `liveEvents`, but failed to filter
+      // `cacheRows` to match. Brighton + Edinburgh leak in.
+      eventsByEventCode: new Map([
+        ["WC26-MANCHESTER", [{ id: "m1", event_code: "WC26-MANCHESTER" }]],
+      ]),
+    });
+    assert.equal(
+      out.size,
+      3,
+      "helper unions ALL input cache codes — this is the documented contract; the bug is the caller passing too many rows",
+    );
+    const summed = sumCanonicalEventMetrics([...out.values()]);
+    assert.equal(
+      summed.reach,
+      805_264 + 175_000 + 410_000,
+      "summing the leaked rows gives the +507% Manchester pacing drift Joe reported",
+    );
+  });
+
+  it("when caller filters cacheRows to its scope first, helper output matches scope exactly", () => {
+    // Post-PR-#419 funnel-pacing shape: scope is one venue, cacheRows
+    // is filtered to that scope first. Helper output is exactly the
+    // scoped venue.
+    const clientWideCache: EventCodeLifetimeMetaCacheRow[] = [
+      MANCHESTER_CACHE,
+      { ...MANCHESTER_CACHE, event_code: "WC26-BRIGHTON", meta_reach: 175_000 },
+      { ...MANCHESTER_CACHE, event_code: "WC26-EDINBURGH", meta_reach: 410_000 },
+    ];
+    const eventsByCode = new Map<
+      string,
+      Array<{ id: string; event_code: string | null }>
+    >([["WC26-MANCHESTER", [{ id: "m1", event_code: "WC26-MANCHESTER" }]]]);
+
+    // The fix: caller filters `cacheRows` to event_codes in scope.
+    const inScope = new Set(eventsByCode.keys());
+    const scopedCache = clientWideCache.filter((row) =>
+      inScope.has(row.event_code),
+    );
+
+    const out = computeCanonicalEventMetricsByEventCode({
+      cacheRows: scopedCache,
+      rollupsByEventCode: new Map(),
+      eventsByEventCode: eventsByCode,
+    });
+    assert.equal(out.size, 1);
+    assert.deepEqual([...out.keys()], ["WC26-MANCHESTER"]);
+    const summed = sumCanonicalEventMetrics([...out.values()]);
+    assert.equal(
+      summed.reach,
+      805_264,
+      "scope-filtered cache yields the in-scope venue's deduped reach — no Cat F leak from siblings",
+    );
+  });
+});
+
 describe("computeCanonicalEventMetricsByEventCode (multi-code variant)", () => {
   it("walks the union of cache codes + rollup codes + event codes", () => {
     const cacheRows: EventCodeLifetimeMetaCacheRow[] = [MANCHESTER_CACHE];

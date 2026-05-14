@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { decorateWithCanonicalLifetimeReach } from "@/lib/insights/decorate-canonical-lifetime-reach";
 import { resolveShareByToken } from "@/lib/db/report-shares";
 import { getOwnerFacebookToken } from "@/lib/db/report-shares";
 import { sumVenueTicketsSoldInWindow } from "@/lib/db/venue-insights";
@@ -112,8 +113,25 @@ export async function GET(
     ticketsInWindowResolver: (preset, range) =>
       sumVenueTicketsSoldInWindow(admin, eventIds, preset, range),
   });
+
+  // PR #419 (audit follow-up — Bug 2, +15.9% Manchester drift):
+  // `fetchEventInsights` returns `totals.reachSum` (per-campaign sum,
+  // Cat F bug class for venue scope). Mirror the Stats Grid pattern
+  // from PR #418 — for the lifetime preset, surface the cross-campaign
+  // deduplicated reach from `event_code_lifetime_meta_cache` via the
+  // canonical `totals.reach` field. UI prefers `reach` when present
+  // and hard-fails to "—" on cache miss.
+  const decorated = await decorateWithCanonicalLifetimeReach({
+    result,
+    supabase: admin,
+    clientId: share.client_id,
+    eventCode: share.event_code,
+    datePreset,
+    customRange,
+  });
+
   const headers = forceRefresh
     ? { "Cache-Control": "no-store, max-age=0" }
     : undefined;
-  return NextResponse.json(result, { headers });
+  return NextResponse.json(decorated, { headers });
 }
