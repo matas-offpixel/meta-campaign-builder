@@ -207,6 +207,7 @@ export default async function ClientVenueReportPage({
           trendDailyHistory={venueTrendDailyHistory}
           londonOnsaleSpend={portal.londonOnsaleSpend}
           londonPresaleSpend={portal.londonPresaleSpend}
+          lifetimeMetaByEventCode={portal.lifetimeMetaByEventCode}
           datePreset={datePreset}
           customRange={customRange}
           linkedDrafts={linkedDrafts}

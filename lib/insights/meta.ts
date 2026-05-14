@@ -2466,6 +2466,219 @@ export async function fetchEventTodayMetaSnapshot(
   }
 }
 
+// ─── Lifetime venue-card metrics (event_code_lifetime_meta_cache) ─────────
+
+export interface FetchEventLifetimeMetaMetricsArgs {
+  /** Bracket-naked event code, e.g. "WC26-MANCHESTER". The matcher wraps it. */
+  eventCode: string;
+  /** "act_…" prefixed ad account id. */
+  adAccountId: string;
+  /** OAuth token of the event owner. */
+  token: string;
+}
+
+export interface LifetimeMetaMetricsTotals {
+  /**
+   * Meta-deduplicated unique users reached across every campaign whose
+   * name contains `[<eventCode>]`. This is the **venue card's Reach**
+   * cell — matches Meta Ads Manager's "Reach" column for the same
+   * filtered campaign group within ±5% (Meta's own cross-campaign
+   * dedup is approximate; per-campaign dedup is exact).
+   */
+  reach: number;
+  /** Lifetime impressions (additive across days, summed across campaigns). */
+  impressions: number;
+  /**
+   * Lifetime inline link clicks. Meta dedupes within a campaign for the
+   * attribution window, so summing across campaigns slightly overcounts
+   * users who clicked in multiple campaigns — same caveat as `reach`,
+   * still within the ±5% acceptance band.
+   */
+  linkClicks: number;
+  /**
+   * Lifetime registrations from the standard pixel/CR action types
+   * (matches the daily helper's `regActionTypes`).
+   */
+  metaRegs: number;
+  videoPlays3s: number;
+  videoPlays15s: number;
+  videoPlaysP100: number;
+  /** Lifetime post engagements (Meta's `post_engagement` action). */
+  engagements: number;
+}
+
+export type LifetimeMetaMetricsResult =
+  | {
+      ok: true;
+      totals: LifetimeMetaMetricsTotals;
+      /** Distinct campaign names that contributed to the totals. */
+      campaignNames: string[];
+      /**
+       * Distinct campaign names that survived Meta's case-insensitive
+       * `CONTAIN` filter but were rejected by the case-sensitive
+       * post-filter. Used by the runner for diagnostic logging.
+       */
+      filteredOutCampaignNames?: string[];
+    }
+  | { ok: false; error: InsightsError };
+
+/**
+ * Lifetime Meta metrics for every campaign whose name contains
+ * `[<eventCode>]`. Backs the venue card's Reach / Impressions / Video
+ * Plays / Engagements cells via `event_code_lifetime_meta_cache`
+ * (migration 068).
+ *
+ * Distinct from `fetchEventDailyMetaMetrics`:
+ *   - No `time_increment` parameter — Meta returns ONE row per campaign
+ *     at campaign-window granularity, with reach already deduplicated
+ *     within each campaign across the campaign's lifetime.
+ *   - Uses `date_preset=maximum` so Meta picks the campaign's
+ *     start..today window (matches Ads Manager's default "Maximum"
+ *     timeframe).
+ *   - Returns ONE totals object (sum across campaigns), not a per-day
+ *     array.
+ *
+ * Why summing per-campaign reach across campaigns is acceptable:
+ *   Meta's UI shows cross-campaign deduplicated reach when you filter
+ *   the dashboard to a campaign group. Our per-campaign sum slightly
+ *   over-counts users who appeared in multiple campaigns under the
+ *   same `[event_code]`. For ±5% acceptance (Joe's brief) the simple
+ *   sum is sufficient; if exact match is ever required we can add a
+ *   second call using `breakdown=campaign_name` which Meta dedupes
+ *   across campaigns in the same response.
+ *
+ * Case sensitivity: same as `fetchEventDailyMetaMetrics` — the API
+ * filter is case-insensitive but we re-apply
+ * `campaignMatchesBracketedEventCode` post-fetch so
+ * `[leeds26-facup-v2]` doesn't bleed into `LEEDS26-FACUP`.
+ *
+ * Glasgow umbrella: NOT included in lifetime totals. The daily helper
+ * special-cases umbrella attribution (date-based, shifts spend
+ * between sibling venues by general-sale cutover); lifetime is one
+ * number per campaign so the date-based split doesn't apply. The
+ * venue card's Reach therefore shows only the venue's OWN bracketed
+ * campaigns — which is exactly the architecture the Plan PR ratified
+ * ("venue cards show ONLY campaigns whose name bracket matches that
+ * specific venue's event_code"). Glasgow umbrella metrics live on the
+ * synthetic `WC26-GLASGOW` event row; an optional follow-up panel can
+ * surface them separately if ops complain.
+ */
+export async function fetchEventLifetimeMetaMetrics(
+  args: FetchEventLifetimeMetaMetricsArgs,
+): Promise<LifetimeMetaMetricsResult> {
+  const { eventCode, adAccountId, token } = args;
+  if (!eventCode.trim()) {
+    return errorResult("no_event_code", "Event has no event_code set.");
+  }
+  if (!adAccountId.trim()) {
+    return errorResult(
+      "no_ad_account",
+      "Client has no Meta ad account linked.",
+    );
+  }
+
+  const account = ensureActPrefix(adAccountId);
+  const filterPrefix = metaCampaignFilterPrefix(eventCode);
+  const filtering = JSON.stringify([
+    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
+  ]);
+
+  const regActionTypes = [
+    "complete_registration",
+    "offsite_conversion.fb_pixel_complete_registration",
+  ];
+
+  try {
+    let totalReach = 0;
+    let totalImpressions = 0;
+    let totalLinkClicks = 0;
+    let totalRegs = 0;
+    let totalVideo3s = 0;
+    let totalVideo15s = 0;
+    let totalVideoP100 = 0;
+    let totalEngagements = 0;
+    const matchedCampaigns = new Set<string>();
+    const filteredOutCampaignNames = new Set<string>();
+
+    let after: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const params: Record<string, string> = {
+        // No `time_increment` on purpose: one row per campaign at the
+        // campaign-window granularity Meta dedupes reach against.
+        fields:
+          "impressions,reach,inline_link_clicks,campaign_name,actions,action_values",
+        level: "campaign",
+        date_preset: "maximum",
+        filtering,
+        action_attribution_windows: ATTRIBUTION_WINDOWS,
+        limit: "500",
+      };
+      if (after) params.after = after;
+
+      const res = await graphGetWithToken<
+        GraphPaged<{
+          impressions?: string;
+          reach?: string;
+          inline_link_clicks?: string;
+          campaign_name?: string;
+          actions?: ActionRow[];
+        }>
+      >(`/${account}/insights`, params, token);
+
+      for (const row of res.data ?? []) {
+        const name = row.campaign_name ?? "";
+        if (!campaignMatchesBracketedEventCode(name, eventCode)) {
+          if (name) filteredOutCampaignNames.add(name);
+          continue;
+        }
+        matchedCampaigns.add(name);
+        totalReach += parseNum(row.reach);
+        totalImpressions += parseNum(row.impressions);
+        totalLinkClicks += parseNum(row.inline_link_clicks);
+        totalRegs += sumActions(row.actions, regActionTypes);
+        totalVideo3s += sumActions(row.actions, ["video_view"]);
+        totalVideo15s += sumActions(row.actions, [
+          "video_15_sec_watched_actions",
+        ]);
+        totalVideoP100 += sumActions(row.actions, [
+          "video_p100_watched_actions",
+        ]);
+        totalEngagements += sumActions(row.actions, ["post_engagement"]);
+      }
+
+      after = res.paging?.cursors?.after;
+      if (!res.paging?.next || !after) break;
+    }
+
+    const filteredSorted = [...filteredOutCampaignNames].sort();
+    if (filteredSorted.length > 0) {
+      console.warn(
+        `[insights/meta] fetchEventLifetimeMetaMetrics bracket_filtered=${filteredSorted.length} sample=${JSON.stringify(filteredSorted.slice(0, 12))}`,
+      );
+    }
+
+    return {
+      ok: true,
+      totals: {
+        reach: totalReach,
+        impressions: totalImpressions,
+        linkClicks: totalLinkClicks,
+        metaRegs: totalRegs,
+        videoPlays3s: totalVideo3s,
+        videoPlays15s: totalVideo15s,
+        videoPlaysP100: totalVideoP100,
+        engagements: totalEngagements,
+      },
+      campaignNames: [...matchedCampaigns].sort(),
+      ...(filteredSorted.length > 0
+        ? { filteredOutCampaignNames: filteredSorted }
+        : {}),
+    };
+  } catch (err) {
+    return handleMetaError(err);
+  }
+}
+
 function handleMetaError(err: unknown): { ok: false; error: InsightsError } {
   // Reduce-data check first, BEFORE the generic MetaApiError branch:
   // a reduce-data error is a code 1 / 2 with a specific message, so

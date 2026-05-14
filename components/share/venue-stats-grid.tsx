@@ -76,6 +76,29 @@ interface Props {
    * the dedup pass when the resulting map is empty.
    */
   events: ReadonlyArray<{ id: string; event_code: string | null }>;
+  /**
+   * Lifetime Meta totals from `event_code_lifetime_meta_cache`
+   * (migration 068). Powers the **Reach** cell with Meta's
+   * campaign-window deduplicated unique-users number, matching Meta
+   * Ads Manager. Pre-PR #415 the cell summed daily reach values which
+   * over-counted by ~2× (users reached on 4 days = 4×). The fallback
+   * "Reach (sum)" label + old tooltip render when:
+   *   - cache row is missing (cron hasn't written yet for this
+   *     event_code), OR
+   *   - the user has selected a non-lifetime window (cache is one
+   *     number across the campaign window, not per-day), OR
+   *   - the user has filtered to TikTok / Google Ads (the cache only
+   *     covers Meta — TikTok / GA reach uses their respective
+   *     platform-specific dedup which is summed in the row pipeline).
+   *
+   * `null` is the explicit "no cache available" signal; an undefined
+   * prop renders the same fallback for backwards-compat with any
+   * caller that hasn't been wired up yet.
+   */
+  lifetimeMeta?: {
+    meta_reach: number | null;
+    meta_impressions: number | null;
+  } | null;
 }
 
 export function VenueStatsGrid({
@@ -86,6 +109,7 @@ export function VenueStatsGrid({
   hasGoogleAdsAccount,
   settingsHref,
   events,
+  lifetimeMeta,
 }: Props) {
   const windowSet = useMemo(() => buildWindowDaySet(windowDays), [windowDays]);
 
@@ -101,6 +125,19 @@ export function VenueStatsGrid({
     }
     return aggregateStatsForPlatform(rows, platform, windowSet, eventIdToCode);
   }, [rows, platform, windowSet, eventIdToCode]);
+
+  // The lifetime cache row only applies to lifetime Meta-or-All views.
+  // Anything else (windowed view, TikTok/GA tab) falls back to the
+  // summed reach with the legacy "Reach (sum)" label + tooltip.
+  const showLifetimeReach =
+    (platform === "meta" || platform === "all") &&
+    windowDays === null &&
+    lifetimeMeta != null &&
+    typeof lifetimeMeta.meta_reach === "number" &&
+    lifetimeMeta.meta_reach > 0;
+  const reachValue = showLifetimeReach
+    ? (lifetimeMeta as { meta_reach: number }).meta_reach
+    : cells.reach;
 
   // Empty-state cards: only when the user has selected TikTok or
   // Google Ads AND there's no data AND the venue isn't connected.
@@ -176,19 +213,35 @@ export function VenueStatsGrid({
         />
         <Cell
           label={
-            <span className="inline-flex items-center gap-1">
-              Reach (sum)
-              <button
-                type="button"
-                className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
-                title="Reach (sum) is summed across campaigns — not deduplicated unique reach across the venue. A user reached by more than one campaign is counted once per campaign. Video Plays uses Meta’s default 3-second video view action (and platform-equivalents on TikTok / Google Ads)."
-                aria-label="About Reach (sum)"
-              >
-                <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
-              </button>
-            </span>
+            showLifetimeReach ? (
+              <span className="inline-flex items-center gap-1">
+                Reach
+                <button
+                  type="button"
+                  className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="Unique people reached across this venue's campaigns — matches Meta Ads Manager's deduplicated reach figure."
+                  aria-label="About Reach"
+                  data-testid="venue-stats-cell-reach-tooltip-lifetime"
+                >
+                  <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+                </button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                Reach (sum)
+                <button
+                  type="button"
+                  className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="Reach (sum) is summed across campaigns — not deduplicated unique reach across the venue. A user reached by more than one campaign is counted once per campaign. Video Plays uses Meta’s default 3-second video view action (and platform-equivalents on TikTok / Google Ads)."
+                  aria-label="About Reach (sum)"
+                  data-testid="venue-stats-cell-reach-tooltip-summed"
+                >
+                  <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+                </button>
+              </span>
+            )
           }
-          value={fmtIntOrDash(cells.reach)}
+          value={fmtIntOrDash(reachValue)}
           testid="venue-stats-cell-reach"
         />
         <Cell

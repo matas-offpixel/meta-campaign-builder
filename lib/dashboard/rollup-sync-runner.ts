@@ -5,8 +5,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import {
   fetchEventDailyMetaMetrics,
+  fetchEventLifetimeMetaMetrics,
   fetchEventTodayMetaSnapshot,
 } from "@/lib/insights/meta";
+import {
+  isEventCodeLifetimeMetaCacheFresh,
+  upsertEventCodeLifetimeMetaCache,
+} from "@/lib/db/event-code-lifetime-meta-cache";
 import {
   getEarliestSnapshotForEventSource,
   getLatestSnapshotForLinkBeforeDate,
@@ -679,6 +684,85 @@ export async function runRollupSyncForEvent(
     }
   }
 
+  // ── Lifetime Meta cache (event_code_lifetime_meta_cache) ─────────
+  //
+  // Surfaces the venue card's "Reach" cell with Meta's campaign-window
+  // deduplicated unique-users number — what Ads Manager itself shows
+  // for the same `[<event_code>]` campaign group. Sibling daily reach
+  // (now correctly deduped after PR #413) sums to "user-day" reach,
+  // which over-counts users by the inter-day overlap factor (~2.2× on
+  // Manchester); this leg writes the lifetime number that matches
+  // Meta UI within ±5%.
+  //
+  // Cron freshness guard:
+  //   The runner runs once per event, but the metric is per
+  //   `(client_id, event_code)`. A 4-fixture venue (e.g. WC26-LONDON-
+  //   SHEPHERDS) would naively trigger 4 lifetime fetches per cron
+  //   tick. `isEventCodeLifetimeMetaCacheFresh` returns true once any
+  //   sibling within the last 30 minutes has populated the cache, so
+  //   the first sibling does the Meta call and the rest short-circuit.
+  //
+  // Failure policy: a failed lifetime fetch DOES NOT flip
+  // `metaResult.ok` — the daily rollups are already written, the
+  // allocator + downstream legs run as normal, and the venue card
+  // falls back to `—` on the Reach cell until the next sync.
+  if (metaResult.ok && eventCode && adAccountId && clientId) {
+    try {
+      const fresh = await isEventCodeLifetimeMetaCacheFresh(supabase, {
+        clientId,
+        eventCode,
+      });
+      if (fresh) {
+        console.log(
+          `[rollup-sync] lifetime cache fresh — skip event_code=${eventCode}`,
+        );
+      } else {
+        const { token } = await resolveServerMetaToken(supabase, userId);
+        const lifetime = await fetchEventLifetimeMetaMetrics({
+          eventCode,
+          adAccountId,
+          token,
+        });
+        if (!lifetime.ok) {
+          console.warn(
+            `[rollup-sync] lifetime fetch failed event_code=${eventCode} reason=${lifetime.error.reason} msg=${lifetime.error.message}`,
+          );
+        } else {
+          const upsert = await upsertEventCodeLifetimeMetaCache(supabase, {
+            clientId,
+            eventCode,
+            meta_reach: nullIfZero(lifetime.totals.reach),
+            meta_impressions: nullIfZero(lifetime.totals.impressions),
+            meta_link_clicks: nullIfZero(lifetime.totals.linkClicks),
+            meta_regs: nullIfZero(lifetime.totals.metaRegs),
+            meta_video_plays_3s: nullIfZero(lifetime.totals.videoPlays3s),
+            meta_video_plays_15s: nullIfZero(lifetime.totals.videoPlays15s),
+            meta_video_plays_p100: nullIfZero(
+              lifetime.totals.videoPlaysP100,
+            ),
+            meta_engagements: nullIfZero(lifetime.totals.engagements),
+            campaign_names: lifetime.campaignNames,
+          });
+          if (upsert.ok) {
+            console.log(
+              `[rollup-sync] lifetime upsert ok event_code=${eventCode} reach=${lifetime.totals.reach} impressions=${lifetime.totals.impressions} campaigns=${lifetime.campaignNames.length}`,
+            );
+          } else {
+            console.warn(
+              `[rollup-sync] lifetime upsert failed event_code=${eventCode} error=${upsert.error}`,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[rollup-sync] lifetime leg threw event_code=${eventCode} msg=${
+          err instanceof Error ? err.message : "Unknown error"
+        }`,
+      );
+    }
+  }
+
   // ── Per-event spend allocator (PR D2) ─────────────────────────────
   //
   // Runs after the Meta leg wrote `ad_spend` to every event in the
@@ -1295,6 +1379,18 @@ function snapshotSourceForProvider(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Round-trip helper for the lifetime cache write. Meta returns 0 for
+ * "no data" on every numeric field — but the venue card distinguishes
+ * "no campaigns yet" (render `—`) from "0 reach today" (also render
+ * `—`). Coercing 0 to null keeps the rendering rule simple at the
+ * read site.
+ */
+function nullIfZero(n: number): number | null {
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
 }
 
 function ymd(d: Date): string {

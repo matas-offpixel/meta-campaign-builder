@@ -154,6 +154,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             trendDailyHistory={result.trendDailyHistory}
             londonOnsaleSpend={result.londonOnsaleSpend}
             londonPresaleSpend={result.londonPresaleSpend}
+            lifetimeMetaByEventCode={result.lifetimeMetaByEventCode}
             canEdit={result.can_edit}
             datePreset={datePreset}
             customRange={customRange}
