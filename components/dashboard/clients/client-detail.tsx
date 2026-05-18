@@ -33,6 +33,8 @@ import { TicketingConnectionsPanel } from "@/components/dashboard/clients/ticket
 import { D2CConnectionsPanel } from "@/components/dashboard/clients/d2c-connections-panel";
 import { D2CTemplateEditor } from "@/components/dashboard/clients/d2c-template-editor";
 import { ClientPortal } from "@/components/share/client-portal";
+import { ClientCampaignsTab } from "@/components/dashboard/campaigns/client-campaigns-tab";
+import type { ClientCampaignsData } from "@/lib/dashboard/campaigns-loader";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -65,6 +67,7 @@ type ClientTab =
   | "events"
   | "ticketing"
   | "d2c"
+  | "campaigns"
   | "creatives"
   | "invoicing";
 
@@ -177,6 +180,12 @@ interface Props {
       }
     | null;
   hasTaggedEvents?: boolean;
+  /**
+   * Pre-aggregated campaigns-tab payload from the server (snapshots
+   * + canonical metrics → CampaignsAggregateRow[]). `null` lets the
+   * Campaigns tab render its own empty state.
+   */
+  campaignsData?: ClientCampaignsData | null;
 }
 
 /**
@@ -203,6 +212,7 @@ export function ClientDetail({
   initialTab = "overview",
   portal,
   hasTaggedEvents = false,
+  campaignsData = null,
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -389,6 +399,11 @@ export function ClientDetail({
                 count: ticketingCount,
               },
               { id: "d2c", label: "D2C", count: d2cCount },
+              {
+                id: "campaigns",
+                label: "Campaigns",
+                count: campaignsData?.rows.length ?? 0,
+              },
               {
                 id: "creatives",
                 label: "Creatives Templates",
@@ -650,6 +665,14 @@ export function ClientDetail({
                 initial={d2cConnections}
               />
             </div>
+          </TabPanel>
+
+          <TabPanel active={activeTab === "campaigns"}>
+            <ClientCampaignsTab
+              clientId={client.id}
+              data={campaignsData}
+              eventIds={events.map((e) => e.id)}
+            />
           </TabPanel>
 
           <TabPanel active={activeTab === "creatives"}>

@@ -16,6 +16,7 @@ import {
 } from "@/lib/db/d2c";
 import { listCreativeTemplatesForUser } from "@/lib/db/creative-templates";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
+import { loadClientCampaignsData } from "@/lib/dashboard/campaigns-loader";
 import {
   isBannerbearEnabled,
   isCanvaEnabled,
@@ -35,6 +36,7 @@ const ALLOWED_TABS = new Set([
   "events",
   "ticketing",
   "d2c",
+  "campaigns",
   "creatives",
   "invoicing",
 ]);
@@ -44,6 +46,7 @@ type ClientTab =
   | "events"
   | "ticketing"
   | "d2c"
+  | "campaigns"
   | "creatives"
   | "invoicing";
 
@@ -81,6 +84,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     // `{ ok: false }`) when the client has no events, and the
     // Events tab renders the legacy flat table in that case.
     portal,
+    campaignsData,
   ] = await Promise.all([
     getClientByIdServer(id),
     listEventsServer(user.id, { clientId: id }),
@@ -94,6 +98,12 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listCreativeTemplatesForUser(supabase),
     clientHasTaggedEvents(id),
     loadClientPortalByClientId(id),
+    loadClientCampaignsData(id).catch((err: unknown) => {
+      const message =
+        err instanceof Error ? err.message : String(err);
+      console.warn("[clients page] campaigns load failed", message);
+      return null;
+    }),
   ]);
 
   if (!client) notFound();
@@ -220,6 +230,7 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       initialTab={initialTab}
       portal={portal.ok ? portal : null}
       hasTaggedEvents={hasTaggedEvents}
+      campaignsData={campaignsData}
     />
   );
 }

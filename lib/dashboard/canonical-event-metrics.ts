@@ -59,6 +59,10 @@ import {
   buildEventIdToCodeMap,
   dedupVenueRollupsByEventCode,
 } from "./venue-rollup-dedup.ts";
+import {
+  computeAttributionState,
+  type AttributionClassification,
+} from "./attribution-state.ts";
 import type { EventCodeLifetimeMetaCacheRow } from "@/lib/db/event-code-lifetime-meta-cache";
 import type { DailyRollupRow } from "@/lib/db/client-portal-server";
 
@@ -118,6 +122,45 @@ export interface CanonicalEventMetrics {
   /** Gross revenue. `null` when no provider data is available. */
   revenue: number | null;
 
+  // ── Attribution gap (PR #422) ────────────────────────────────────
+  /**
+   * `MAX(SUM(tickets_sold_rollup), SUM(tier_channel_sales_sum))` across
+   * the venue's events. Multi-link asymmetry handled inside the
+   * resolver — the ticketing side is summed across `external_event_id`
+   * BEFORE delta calc (per `feedback_multi_link_backfill_scope.md`).
+   * Surface layer reads this value directly for the attribution tile.
+   *
+   * Distinct from the per-event `tickets` field above:
+   *   - `tickets` is caller-supplied for a single event in the venue.
+   *   - `ticketsTrue` is the venue-wide canonical count, computed
+   *     inside the resolver from `dailyRollups` + the per-event
+   *     `tier_channel_sales_sum` map.
+   *
+   * Zero is a meaningful value (`no_data` state when both sides are
+   * zero) — never null, even on cache miss.
+   */
+  ticketsTrue: number;
+  /**
+   * Three-state attribution classification computed from
+   * `metaRegs` (raw, non-deduped lifetime cache value) and
+   * `ticketsTrue`. The broken Meta data is exposed deliberately —
+   * the tile renders a labelled state rather than papering over
+   * the gap.
+   *
+   * `state` ∈ {no_data, capi_missing, over_attributed, tracked}.
+   * `rate` populated only for `tracked`; `band` populated only for
+   * `tracked`.
+   *
+   * See `lib/dashboard/attribution-state.ts` for the cutoffs.
+   */
+  attribution: AttributionClassification;
+  /**
+   * Convenience shortcut: `attribution.rate`. `null` outside of the
+   * `tracked` state. Surfaced for callers that just want the ratio
+   * for sortable columns.
+   */
+  attributionRate: number | null;
+
   // ── Provenance ───────────────────────────────────────────────────
   /**
    * `cache_hit` when at least the lifetime fields are populated from
@@ -175,6 +218,28 @@ export interface CanonicalEventMetricsInputs {
    * selector). `null` / `undefined` means "lifetime / all-dates".
    */
   windowDays?: ReadonlySet<string> | null;
+  /**
+   * Per-event SUM of `tier_channel_sales.tickets_sold` (PortalEvent.
+   * `tier_channel_sales_tickets`). Resolver computes
+   * `ticketsTrue = MAX(SUM(rollup.tickets_sold), SUM(this map))`
+   * across the venue's events, mirroring the `Math.max` shape from
+   * `resolveDisplayTicketCount` (PR #339 / #347 / #368) but at the
+   * canonical-event-metrics layer so every consumer reads one
+   * number.
+   *
+   * Multi-link contract: the caller supplies one entry per event_id
+   * already containing the SUM across that event's
+   * `external_event_id` rows. The asymmetry — tickets summed before
+   * delta on multi-link, Meta side per-event_code aggregation — is
+   * preserved at the loader / portal layer, not re-implemented
+   * here.
+   *
+   * Empty / undefined falls back to summing only the rollup-side
+   * tickets — sensible default for callers that haven't yet wired
+   * the tier-channel sum (the `ticketsTrue` value will simply be
+   * the rollup figure).
+   */
+  tierChannelTicketsByEventId?: ReadonlyMap<string, number | null>;
 }
 
 /**
@@ -218,6 +283,11 @@ export function computeCanonicalEventMetrics(
 
   let spend = 0;
   let linkClicksRollupSum = 0;
+  // Sum tickets_sold across the deduped rollup rows. Per the
+  // DailyRollupRow JSDoc the field is per-(event, day) so summing is
+  // correct (no N-counting concern; tickets are per-event, not
+  // venue-wide-broadcast like `meta_reach`).
+  let ticketsRollupSum = 0;
   for (const row of dedupedRows) {
     // Spend: prefer allocator output. The allocator splits campaign-
     // wide spend per-event so summing across rollup rows is correct.
@@ -234,7 +304,33 @@ export function computeCanonicalEventMetrics(
       spend += presale;
     }
     linkClicksRollupSum += row.link_clicks ?? 0;
+    ticketsRollupSum += row.tickets_sold ?? 0;
   }
+
+  // Tier-channel side. Sum across the events in scope, ignoring
+  // missing entries. Multi-link sum-before-delta is honoured at the
+  // caller layer (PortalEvent.tier_channel_sales_tickets is the SUM
+  // of every linked external_event_id's tier_channel_sales rows
+  // before the resolver sees it).
+  let tierChannelTicketsSum = 0;
+  if (inputs.tierChannelTicketsByEventId) {
+    const seen = new Set<string>();
+    for (const ev of inputs.events) {
+      if (seen.has(ev.id)) continue;
+      seen.add(ev.id);
+      const v = inputs.tierChannelTicketsByEventId.get(ev.id);
+      if (v != null && Number.isFinite(v)) tierChannelTicketsSum += v;
+    }
+  }
+
+  // ticketsTrue = MAX of the two sides. Both numbers are venue-wide
+  // by construction. The classifier handles `0 vs 0` as `no_data`.
+  const ticketsTrue = Math.max(ticketsRollupSum, tierChannelTicketsSum, 0);
+  const metaRegsForState = cache?.meta_regs ?? null;
+  const attribution = computeAttributionState({
+    metaRegs: metaRegsForState,
+    ticketsTrue,
+  });
 
   return {
     reach: cache?.meta_reach ?? null,
@@ -249,6 +345,9 @@ export function computeCanonicalEventMetrics(
     linkClicksRollupSum,
     tickets: inputs.tickets ?? 0,
     revenue: inputs.revenue ?? null,
+    ticketsTrue,
+    attribution,
+    attributionRate: attribution.rate,
     reachSource,
     cacheFetchedAt,
   };
@@ -277,6 +376,14 @@ export function computeCanonicalEventMetricsByEventCode(args: {
   ticketsByEventCode?: ReadonlyMap<string, number>;
   revenueByEventCode?: ReadonlyMap<string, number | null>;
   windowDays?: ReadonlySet<string> | null;
+  /**
+   * Per-event_id `tier_channel_sales.tickets_sold` SUM, threaded
+   * through to `computeCanonicalEventMetrics` so each event_code's
+   * `ticketsTrue` reads from the same canonical input map. Caller
+   * builds this once from the portal payload (`PortalEvent.
+   * tier_channel_sales_tickets`).
+   */
+  tierChannelTicketsByEventId?: ReadonlyMap<string, number | null>;
 }): Map<string, CanonicalEventMetrics> {
   const out = new Map<string, CanonicalEventMetrics>();
   const cacheByCode = new Map<string, EventCodeLifetimeMetaCacheRow>();
@@ -300,6 +407,7 @@ export function computeCanonicalEventMetricsByEventCode(args: {
         tickets: args.ticketsByEventCode?.get(code),
         revenue: args.revenueByEventCode?.get(code) ?? undefined,
         windowDays: args.windowDays,
+        tierChannelTicketsByEventId: args.tierChannelTicketsByEventId,
       }),
     );
   }
@@ -335,6 +443,9 @@ export function sumCanonicalEventMetrics(
       linkClicksRollupSum: 0,
       tickets: 0,
       revenue: null,
+      ticketsTrue: 0,
+      attribution: { state: "no_data", rate: null, band: null },
+      attributionRate: null,
       reachSource: "cache_miss",
       cacheFetchedAt: null,
     };
@@ -356,6 +467,7 @@ export function sumCanonicalEventMetrics(
   let spend = 0;
   let linkClicksRollupSum = 0;
   let tickets = 0;
+  let ticketsTrueSum = 0;
   let anyHit = false;
   let earliestFetchedAt: string | null = null;
   for (const m of metrics) {
@@ -366,6 +478,7 @@ export function sumCanonicalEventMetrics(
     spend += m.spend;
     linkClicksRollupSum += m.linkClicksRollupSum;
     tickets += m.tickets;
+    ticketsTrueSum += m.ticketsTrue;
     if (m.reachSource === "cache_hit") anyHit = true;
     if (m.cacheFetchedAt) {
       if (!earliestFetchedAt || m.cacheFetchedAt < earliestFetchedAt) {
@@ -373,11 +486,16 @@ export function sumCanonicalEventMetrics(
       }
     }
   }
+  const totalMetaRegs = sumNullable("metaRegs");
+  const totalAttribution = computeAttributionState({
+    metaRegs: totalMetaRegs,
+    ticketsTrue: ticketsTrueSum,
+  });
   return {
     reach: sumNullable("reach"),
     impressions: sumNullable("impressions"),
     linkClicks: sumNullable("linkClicks"),
-    metaRegs: sumNullable("metaRegs"),
+    metaRegs: totalMetaRegs,
     engagements: sumNullable("engagements"),
     videoPlays3s: sumNullable("videoPlays3s"),
     videoPlays15s: sumNullable("videoPlays15s"),
@@ -386,6 +504,9 @@ export function sumCanonicalEventMetrics(
     linkClicksRollupSum,
     tickets,
     revenue: revenueAny ? revenueTotal : null,
+    ticketsTrue: ticketsTrueSum,
+    attribution: totalAttribution,
+    attributionRate: totalAttribution.rate,
     reachSource: anyHit ? "cache_hit" : "cache_miss",
     cacheFetchedAt: earliestFetchedAt,
   };

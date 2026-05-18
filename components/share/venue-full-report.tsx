@@ -7,6 +7,8 @@ import { fmtInt } from "@/components/report/meta-insights-sections";
 import { fmtCurrencyCompact } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import { resolveDisplayTicketCount } from "@/lib/dashboard/tier-channel-rollups";
+import { computeCanonicalEventMetrics } from "@/lib/dashboard/canonical-event-metrics";
+import { AttributionGapTile } from "@/components/dashboard/event-report/AttributionGapTile";
 import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import type {
   AdditionalSpendRow,
@@ -208,6 +210,56 @@ export function VenueFullReport({
     };
   }, [lifetimeMetaByEventCode, eventCode]);
 
+  // Lifetime cache row matched on `event_code` — one per venue. Used
+  // by the AttributionGapTile to read `meta_regs` (raw / non-deduped
+  // by design) alongside the rollup-side ticket count.
+  const lifetimeCacheRowForVenue = useMemo(() => {
+    if (!lifetimeMetaByEventCode?.length) return null;
+    return (
+      lifetimeMetaByEventCode.find((row) => row.event_code === eventCode) ??
+      null
+    );
+  }, [lifetimeMetaByEventCode, eventCode]);
+
+  // Per-event tier_channel_sales SUM map. Multi-link asymmetry:
+  // PortalEvent.tier_channel_sales_tickets is already SUM'd over
+  // every linked external_event_id row at the loader layer; we just
+  // hand it through to the canonical resolver per event_id.
+  const tierChannelTicketsByEventId = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const ev of initialEvents) {
+      map.set(ev.id, ev.tier_channel_sales_tickets ?? null);
+    }
+    return map;
+  }, [initialEvents]);
+
+  // Canonical metrics for this venue — pure compute, lifetime-scoped
+  // (no windowDays filter). Supplies the AttributionGapTile + any
+  // future canonical-resolver-driven cells. Distinct from
+  // <VenueStatsGrid>'s windowed aggregator path which still owns the
+  // platform + timeframe selectors above; the attribution tile is
+  // intentionally lifetime-only because the over_attributed /
+  // capi_missing states are about cumulative pixel signal, not a
+  // sliced window.
+  const venueCanonicalMetrics = useMemo(
+    () =>
+      computeCanonicalEventMetrics({
+        cacheRow: lifetimeCacheRowForVenue,
+        dailyRollups,
+        events: initialEvents.map((ev) => ({
+          id: ev.id,
+          event_code: ev.event_code,
+        })),
+        tierChannelTicketsByEventId,
+      }),
+    [
+      lifetimeCacheRowForVenue,
+      dailyRollups,
+      initialEvents,
+      tierChannelTicketsByEventId,
+    ],
+  );
+
   const model = useVenueReportModel(
     initialEvents,
     dailyEntries,
@@ -243,6 +295,11 @@ export function VenueFullReport({
         settingsHref={settingsHref}
         events={initialEvents}
         lifetimeMeta={lifetimeMetaForVenue}
+      />
+      <AttributionGapTile
+        metaRegs={venueCanonicalMetrics.metaRegs}
+        ticketsTrue={venueCanonicalMetrics.ticketsTrue}
+        attribution={venueCanonicalMetrics.attribution}
       />
       <VenueTrendChartSection
         model={model}
