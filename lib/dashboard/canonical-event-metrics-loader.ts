@@ -50,6 +50,14 @@ export async function loadCanonicalEventMetrics(
     tickets?: number;
     revenue?: number | null;
     windowDays?: ReadonlySet<string> | null;
+    /**
+     * Per-event_id `tier_channel_sales.tickets_sold` SUM. PR #422 wires
+     * this through so `ticketsTrue` and `attribution` populate on
+     * surfaces that read from the resolver directly. Optional for
+     * backwards-compat with funnel-pacing's per-region path which
+     * doesn't render the attribution tile.
+     */
+    tierChannelTicketsByEventId?: ReadonlyMap<string, number | null>;
   },
 ): Promise<CanonicalEventMetrics> {
   const cacheRow = await loadEventCodeLifetimeMetaCache(supabase, {
@@ -63,5 +71,6 @@ export async function loadCanonicalEventMetrics(
     tickets: args.tickets,
     revenue: args.revenue,
     windowDays: args.windowDays,
+    tierChannelTicketsByEventId: args.tierChannelTicketsByEventId,
   });
 }
