@@ -161,6 +161,46 @@ export interface CanonicalEventMetrics {
    */
   attributionRate: number | null;
 
+  // ── Real Attribution Reconciliation v2 (PR #423, dark) ───────────
+  /**
+   * Meta's claim of how many Purchase events fired against this
+   * event_code. Sourced from the new `event_daily_rollups.meta_purchases`
+   * column (migration 093). `null` BEFORE the Purchase split backfill
+   * has run for the event — the surface should treat `null` as
+   * "we haven't asked Meta yet" rather than "Meta says zero".
+   *
+   * Distinct from `metaRegs` which currently pools every conversion
+   * event Meta reports (Lead / Registration on 4thefans). The new
+   * RealAttributionTile displays this number as the "Meta claims X
+   * purchases" headline.
+   */
+  metaReportedPurchases: number | null;
+  /**
+   * Real ticket sales matched back to a Meta click via the matcher
+   * cron (`/api/internal/match-attribution`). Source:
+   * `attribution_order_matches` rows where `match_strategy != 'unmatched'`,
+   * scoped to events belonging to this event_code.
+   *
+   * Always returns a non-null integer — zero is the honest answer
+   * before Joe ships the 4thefans webhook payload extension. The
+   * RealAttributionTile is gated by feature flag and does not render
+   * pre-Joe, so a zero here doesn't reach a client surface.
+   */
+  offpixelAttributedPurchases: number;
+  /**
+   * `offpixelAttributedPurchases / metaReportedPurchases`. `null`
+   * when the denominator is zero or null (no Meta-claimed purchases
+   * to reconcile against). Drives the RealAttributionTile "Trust"
+   * badge (green 0.7–1.3, amber outside).
+   */
+  attributionTrustRatio: number | null;
+  /**
+   * `offpixelAttributedPurchases / ticketsTrue`. `null` when
+   * `ticketsTrue === 0`. Drives the "Coverage" badge — what fraction
+   * of real sales we attribute to any paid Meta touchpoint.
+   */
+  attributionCoverageRatio: number | null;
+
   // ── Provenance ───────────────────────────────────────────────────
   /**
    * `cache_hit` when at least the lifetime fields are populated from
@@ -240,6 +280,28 @@ export interface CanonicalEventMetricsInputs {
    * the rollup figure).
    */
   tierChannelTicketsByEventId?: ReadonlyMap<string, number | null>;
+  /**
+   * Per-event_id sum of `event_daily_rollups.meta_purchases` over
+   * the same window the resolver is running against. Caller
+   * supplies an entry per event in `events`; the resolver collapses
+   * across events (sibling-deduped via the same dedup pass that
+   * handles spend / regs).
+   *
+   * Pre migration-093 callers pass an empty map → resolver returns
+   * `metaReportedPurchases: null` (the lifetime cache row's
+   * `meta_purchases` column doesn't exist; we deliberately do NOT
+   * read from `cacheRow` for purchases because the cache layer
+   * isn't extended in PR #423 — separate PR).
+   */
+  metaPurchasesByEventId?: ReadonlyMap<string, number | null>;
+  /**
+   * Per-event_id count of `attribution_order_matches` rows for this
+   * event_id where `match_strategy != 'unmatched'`. Always supplied
+   * (defaults to empty map → 0 verified). The DB read is a counted
+   * GROUP BY on `event_id`; loaders prefer to issue one bulk query
+   * per surface, then thread the map through.
+   */
+  offpixelAttributedPurchasesByEventId?: ReadonlyMap<string, number | null>;
 }
 
 /**
@@ -332,6 +394,60 @@ export function computeCanonicalEventMetrics(
     ticketsTrue,
   });
 
+  // ── PR #423: Real Attribution Reconciliation v2 ──────────────────
+  //
+  // metaReportedPurchases: sum across the venue's events of the
+  // per-event_id Meta purchase column. Caller-supplied so the
+  // loader can issue one window-bounded query and thread the map
+  // through — keeps this helper pure.
+  //
+  // We deliberately distinguish "no map supplied" (pre-093 caller
+  // → null) from "map supplied with all zeros" (Meta returned
+  // zeros; surface it as 0). The presence of the map means the
+  // caller went and asked.
+  let metaReportedPurchases: number | null = null;
+  if (inputs.metaPurchasesByEventId) {
+    let sum = 0;
+    let any = false;
+    const seenForPurchases = new Set<string>();
+    for (const ev of inputs.events) {
+      if (seenForPurchases.has(ev.id)) continue;
+      seenForPurchases.add(ev.id);
+      const v = inputs.metaPurchasesByEventId.get(ev.id);
+      if (v != null && Number.isFinite(v)) {
+        sum += v;
+        any = true;
+      }
+    }
+    metaReportedPurchases = any ? sum : 0;
+  }
+
+  // offpixelAttributedPurchases: always a number (zero is the
+  // honest pre-Joe answer). The loader supplies a map even when
+  // the table is empty — `getOffpixelAttributedPurchasesByEventId`
+  // returns `Map<event_id, 0>` rather than absent keys.
+  let offpixelAttributedPurchases = 0;
+  if (inputs.offpixelAttributedPurchasesByEventId) {
+    const seenForOpx = new Set<string>();
+    for (const ev of inputs.events) {
+      if (seenForOpx.has(ev.id)) continue;
+      seenForOpx.add(ev.id);
+      const v = inputs.offpixelAttributedPurchasesByEventId.get(ev.id);
+      if (v != null && Number.isFinite(v)) {
+        offpixelAttributedPurchases += v;
+      }
+    }
+  }
+
+  const attributionTrustRatio =
+    metaReportedPurchases && metaReportedPurchases > 0
+      ? offpixelAttributedPurchases / metaReportedPurchases
+      : null;
+  const attributionCoverageRatio =
+    ticketsTrue > 0
+      ? offpixelAttributedPurchases / ticketsTrue
+      : null;
+
   return {
     reach: cache?.meta_reach ?? null,
     impressions: cache?.meta_impressions ?? null,
@@ -348,6 +464,10 @@ export function computeCanonicalEventMetrics(
     ticketsTrue,
     attribution,
     attributionRate: attribution.rate,
+    metaReportedPurchases,
+    offpixelAttributedPurchases,
+    attributionTrustRatio,
+    attributionCoverageRatio,
     reachSource,
     cacheFetchedAt,
   };
@@ -384,6 +504,10 @@ export function computeCanonicalEventMetricsByEventCode(args: {
    * tier_channel_sales_tickets`).
    */
   tierChannelTicketsByEventId?: ReadonlyMap<string, number | null>;
+  /** PR #423 — see CanonicalEventMetricsInputs.metaPurchasesByEventId. */
+  metaPurchasesByEventId?: ReadonlyMap<string, number | null>;
+  /** PR #423 — see CanonicalEventMetricsInputs.offpixelAttributedPurchasesByEventId. */
+  offpixelAttributedPurchasesByEventId?: ReadonlyMap<string, number | null>;
 }): Map<string, CanonicalEventMetrics> {
   const out = new Map<string, CanonicalEventMetrics>();
   const cacheByCode = new Map<string, EventCodeLifetimeMetaCacheRow>();
@@ -408,6 +532,9 @@ export function computeCanonicalEventMetricsByEventCode(args: {
         revenue: args.revenueByEventCode?.get(code) ?? undefined,
         windowDays: args.windowDays,
         tierChannelTicketsByEventId: args.tierChannelTicketsByEventId,
+        metaPurchasesByEventId: args.metaPurchasesByEventId,
+        offpixelAttributedPurchasesByEventId:
+          args.offpixelAttributedPurchasesByEventId,
       }),
     );
   }
@@ -446,6 +573,10 @@ export function sumCanonicalEventMetrics(
       ticketsTrue: 0,
       attribution: { state: "no_data", rate: null, band: null },
       attributionRate: null,
+      metaReportedPurchases: null,
+      offpixelAttributedPurchases: 0,
+      attributionTrustRatio: null,
+      attributionCoverageRatio: null,
       reachSource: "cache_miss",
       cacheFetchedAt: null,
     };
@@ -491,6 +622,26 @@ export function sumCanonicalEventMetrics(
     metaRegs: totalMetaRegs,
     ticketsTrue: ticketsTrueSum,
   });
+
+  // PR #423: aggregate the verified-attribution fields. Same
+  // semantics as the per-event resolver — `metaReportedPurchases`
+  // stays null only when EVERY input was null (signals "we haven't
+  // backfilled this aggregate's dimensions yet"). Coverage / trust
+  // ratios are recomputed from the aggregate numerator / denominator
+  // so a venue-level ratio aren't a weighted average of per-event
+  // ratios — that would skew when one event dominates.
+  const totalMetaPurchases = sumNullable("metaReportedPurchases");
+  let totalOffpixelAttributed = 0;
+  for (const m of metrics) {
+    totalOffpixelAttributed += m.offpixelAttributedPurchases;
+  }
+  const totalTrustRatio =
+    totalMetaPurchases && totalMetaPurchases > 0
+      ? totalOffpixelAttributed / totalMetaPurchases
+      : null;
+  const totalCoverageRatio =
+    ticketsTrueSum > 0 ? totalOffpixelAttributed / ticketsTrueSum : null;
+
   return {
     reach: sumNullable("reach"),
     impressions: sumNullable("impressions"),
@@ -507,6 +658,10 @@ export function sumCanonicalEventMetrics(
     ticketsTrue: ticketsTrueSum,
     attribution: totalAttribution,
     attributionRate: totalAttribution.rate,
+    metaReportedPurchases: totalMetaPurchases,
+    offpixelAttributedPurchases: totalOffpixelAttributed,
+    attributionTrustRatio: totalTrustRatio,
+    attributionCoverageRatio: totalCoverageRatio,
     reachSource: anyHit ? "cache_hit" : "cache_miss",
     cacheFetchedAt: earliestFetchedAt,
   };

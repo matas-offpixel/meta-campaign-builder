@@ -2,9 +2,17 @@ import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  createServiceRoleClient,
+} from "@/lib/supabase/server";
 import { loadVenuePortalByCode } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
+import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
+import {
+  isLegacyAttributionTileEnabled,
+  isRealAttributionEnabled,
+} from "@/lib/attribution/feature-flags";
 import { VenueReportHeader, type VenueSubTab } from "@/components/share/venue-report-header";
 import { getShareForVenue } from "@/lib/db/report-shares";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
@@ -144,6 +152,21 @@ export default async function ClientVenueReportPage({
     ...eventIdSet,
   ]);
 
+  // PR #423 — Real Attribution Reconciliation v2 (dark build).
+  // Read flags + per-event attribution maps server-side so the
+  // client-side `<VenueFullReport>` doesn't have to consult
+  // `process.env`. When neither flag is on we still build the
+  // (empty) maps because they're cheap and the canonical resolver
+  // accepts undefined gracefully.
+  const realAttributionEnabled = isRealAttributionEnabled();
+  const legacyAttributionTileEnabled = isLegacyAttributionTileEnabled();
+  const purchaseAttributionMaps = realAttributionEnabled
+    ? await loadPurchaseAttributionMaps(createServiceRoleClient(), {
+        clientId: id,
+        eventIds: [...eventIdSet],
+      })
+    : { metaPurchasesByEventId: undefined, offpixelAttributedPurchasesByEventId: undefined };
+
   // Title: prefer the curated series label (e.g. "Arsenal Champions
   // League Final – London") over the raw venue_name fallback so the
   // sticky header reads like the marketing copy rather than the
@@ -214,6 +237,14 @@ export default async function ClientVenueReportPage({
           platform={platform}
           settingsHref={`/clients/${id}/settings`}
           isInternal
+          realAttributionEnabled={realAttributionEnabled}
+          legacyAttributionTileEnabled={legacyAttributionTileEnabled}
+          metaPurchasesByEventId={
+            purchaseAttributionMaps.metaPurchasesByEventId
+          }
+          offpixelAttributedPurchasesByEventId={
+            purchaseAttributionMaps.offpixelAttributedPurchasesByEventId
+          }
         />
       ) : activeTab === "insights" ? (
         // CreativePatternsPanel is an async server component that
