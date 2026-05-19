@@ -174,6 +174,26 @@ export function aggregateCampaignsFromSnapshots(args: {
   snapshots: ReadonlyArray<CampaignsSnapshotInput>;
   ticketsTrueByEventCode: ReadonlyMap<string, number>;
   attributionByEventCode: ReadonlyMap<string, AttributionClassification>;
+  /**
+   * PR #423 — verified-purchase counts per Meta `campaign_id`. When
+   * supplied (real-attribution flag on), the resolver replaces the
+   * spend-share `estSales` value on every campaign row with the
+   * verified count instead. Per-row `cpaDivergent` is recomputed
+   * against the verified count so the warning icon still surfaces
+   * Meta-vs-Off/Pixel mismatches when they're real, not allocator
+   * artefacts.
+   *
+   * Pre-Joe (flag on, table empty) → every value is 0; the column
+   * renders "0 verified · pending matches". The dark build deals
+   * with this gracefully because `estCpa` already returns null for
+   * a 0-denominator.
+   *
+   * Flag off ⇒ caller does NOT supply this; the legacy spend-share
+   * path stays intact.
+   */
+  verifiedSalesByCampaignId?: ReadonlyMap<string, number>;
+  /** Per-Meta-`adset_id` verified-purchase counts. Same contract. */
+  verifiedSalesByAdsetId?: ReadonlyMap<string, number>;
 }): CampaignsAggregateRow[] {
   // Pick one snapshot per event_code — sibling events share
   // campaigns; summing across siblings would N-count.
@@ -331,7 +351,25 @@ export function aggregateCampaignsFromSnapshots(args: {
     const cpm = acc.impressions > 0 ? (acc.spend / acc.impressions) * 1000 : null;
     const cpc = acc.clicks > 0 ? acc.spend / acc.clicks : null;
     const metaCpa = acc.metaRegs > 0 ? acc.spend / acc.metaRegs : null;
-    const estSales = acc.estSales > 0 ? acc.estSales : null;
+
+    // PR #423 — when the verified-matches map is supplied (real
+    // attribution flag on), source the headline `estSales` value
+    // from `attribution_order_matches` instead of the spend-share
+    // allocator. The map's value type is `number` (not nullable)
+    // because the loader supplies a 0 even for unobserved
+    // campaigns — the absence of a key is "row hasn't been
+    // matched yet" which is the same as 0 verified.
+    const verifiedSales = args.verifiedSalesByCampaignId
+      ? args.verifiedSalesByCampaignId.get(acc.campaignId) ?? 0
+      : null;
+    const estSales =
+      verifiedSales != null
+        ? verifiedSales > 0
+          ? verifiedSales
+          : null
+        : acc.estSales > 0
+          ? acc.estSales
+          : null;
     const estCpa = estSales != null && estSales > 0 ? acc.spend / estSales : null;
     const cpaDivergent = isDivergent(metaCpa, estCpa);
 
@@ -351,8 +389,22 @@ export function aggregateCampaignsFromSnapshots(args: {
       // rather than re-running the per-event_code allocation. This
       // keeps Σ(adset.estSales) = campaign.estSales which is the
       // invariant the table needs.
+      // PR #423 — verified-match swap at the ad-set tier. Mirrors
+      // the campaign-tier swap above. When the caller doesn't
+      // supply a verified map we fall back to the existing
+      // spend-share derivation, preserving Σ(adset.estSales) =
+      // campaign.estSales as the table's invariant.
+      const adsetVerified = args.verifiedSalesByAdsetId
+        ? args.verifiedSalesByAdsetId.get(aacc.adSetId) ?? 0
+        : null;
       const adsetEstSales =
-        estSales != null ? estSales * adsetSpendShare : null;
+        adsetVerified != null
+          ? adsetVerified > 0
+            ? adsetVerified
+            : null
+          : estSales != null
+            ? estSales * adsetSpendShare
+            : null;
       const adsetAttribution = campaignAttribution;
       const adsetCtr =
         aacc.impressions > 0 ? (aacc.clicks / aacc.impressions) * 100 : null;

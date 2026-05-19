@@ -48,6 +48,10 @@
     {
       "path": "/api/cron/snapshot-tier-channel-sales-daily",
       "schedule": "55 23 * * *"
+    },
+    {
+      "path": "/api/internal/match-attribution",
+      "schedule": "30 */6 * * *"
     }
   ]
 }

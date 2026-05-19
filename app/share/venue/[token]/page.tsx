@@ -3,6 +3,11 @@ import type { Metadata } from "next";
 import { loadVenuePortalByToken } from "@/lib/db/client-portal-server";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueFullReport } from "@/components/share/venue-full-report";
+import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
+import {
+  isLegacyAttributionTileEnabled,
+  isRealAttributionEnabled,
+} from "@/lib/attribution/feature-flags";
 import { VenueReportHeader, type VenueSubTab } from "@/components/share/venue-report-header";
 import { ClientPortalUnavailable } from "@/components/share/client-portal-unavailable";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
@@ -98,6 +103,22 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     getSeriesDisplayLabel(result.event_code) ??
     result.events[0]?.venue_name ??
     result.event_code;
+
+  // PR #423 — Real Attribution Reconciliation v2 (dark build).
+  // Server-side flag read + per-event attribution maps so the
+  // client-rendered <VenueFullReport> can route to the correct
+  // tile without consulting `process.env`.
+  const realAttributionEnabled = isRealAttributionEnabled();
+  const legacyAttributionTileEnabled = isLegacyAttributionTileEnabled();
+  const purchaseAttributionMaps = realAttributionEnabled
+    ? await loadPurchaseAttributionMaps(
+        (await import("@/lib/supabase/server")).createServiceRoleClient(),
+        {
+          clientId: result.client_id,
+          eventIds: result.events.map((event) => event.id),
+        },
+      )
+    : { metaPurchasesByEventId: undefined, offpixelAttributedPurchasesByEventId: undefined };
   const lastSyncedAt = computeLastSyncedAt(result.dailyRollups);
   const displayEventDate = displayVenueEventDate(result.events);
   const daysUntil = computeDaysUntil(displayEventDate);
@@ -161,6 +182,14 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             platform={platform}
             settingsHref={null}
             linkedDrafts={linkedDrafts}
+            realAttributionEnabled={realAttributionEnabled}
+            legacyAttributionTileEnabled={legacyAttributionTileEnabled}
+            metaPurchasesByEventId={
+              purchaseAttributionMaps.metaPurchasesByEventId
+            }
+            offpixelAttributedPurchasesByEventId={
+              purchaseAttributionMaps.offpixelAttributedPurchasesByEventId
+            }
           />
         ) : activeTab === "insights" ? (
           <CreativePatternsPanel

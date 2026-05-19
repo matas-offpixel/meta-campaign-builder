@@ -253,6 +253,14 @@ export interface MetaUpsertRow {
   ad_spend_presale: number;
   link_clicks: number;
   meta_regs: number;
+  /**
+   * Purchase-only conversion count (migration 093). Optional so
+   * pre-093 callers continue to compile; the cron path always
+   * supplies it. Defaults to 0 on insert via the column default.
+   */
+  meta_purchases?: number;
+  /** Lead/registration-only conversion count (migration 093). */
+  meta_leads?: number;
   meta_impressions?: number;
   meta_reach?: number;
   meta_video_plays_3s?: number;
@@ -271,6 +279,8 @@ function metaDataMatch(
     numEq(r.ad_spend_presale, ex.ad_spend_presale, MONEY_TOL) &&
     numEq(r.link_clicks, ex.link_clicks) &&
     numEq(r.meta_regs, ex.meta_regs) &&
+    numEq(r.meta_purchases, ex.meta_purchases) &&
+    numEq(r.meta_leads, ex.meta_leads) &&
     numEq(r.meta_impressions, ex.meta_impressions) &&
     numEq(r.meta_reach, ex.meta_reach) &&
     numEq(r.meta_video_plays_3s, ex.meta_video_plays_3s) &&
@@ -291,7 +301,7 @@ export async function upsertMetaRollups(
   const { data: existing } = await asAny(supabase)
     .from("event_daily_rollups")
     .select(
-      "date,ad_spend,ad_spend_presale,link_clicks,meta_regs,meta_impressions,meta_reach,meta_video_plays_3s,meta_video_plays_15s,meta_video_plays_p100,meta_engagements",
+      "date,ad_spend,ad_spend_presale,link_clicks,meta_regs,meta_purchases,meta_leads,meta_impressions,meta_reach,meta_video_plays_3s,meta_video_plays_15s,meta_video_plays_p100,meta_engagements",
     )
     .eq("event_id", args.eventId)
     .in("date", dates);
@@ -312,6 +322,12 @@ export async function upsertMetaRollups(
       ad_spend_presale: r.ad_spend_presale,
       link_clicks: r.link_clicks,
       meta_regs: r.meta_regs,
+      // Migration 093 columns. The DB defaults to 0 so an undefined
+      // here writes 0; we surface the explicit value when the Meta
+      // fetch reports it so existing rollup-sync paths upgrade
+      // automatically.
+      meta_purchases: r.meta_purchases ?? 0,
+      meta_leads: r.meta_leads ?? 0,
       meta_impressions: r.meta_impressions ?? null,
       meta_reach: r.meta_reach ?? null,
       meta_video_plays_3s: r.meta_video_plays_3s ?? null,

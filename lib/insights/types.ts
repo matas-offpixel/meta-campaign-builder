@@ -466,6 +466,23 @@ export interface DailyMetaMetricsRow {
    * actions for the day (Daily Tracker REGS column).
    */
   metaRegs: number;
+  /**
+   * Sum of `actions` rows whose `action_type` matches the
+   * `offsite_conversion.fb_pixel_purchase` family for the day. Powers
+   * the RealAttributionTile "Meta claims X purchases" headline number
+   * (PR #423). Distinct from `metaRegs` — the latter pools every
+   * conversion event Meta reports, the former is purchase-only.
+   */
+  metaPurchases: number;
+  /**
+   * Sum of `actions` rows whose `action_type` ∈
+   * (`lead`, `offsite_conversion.fb_pixel_lead`, `complete_registration`).
+   * Internal-only diagnostic; used by the funnel-pacing surface to
+   * separate top-of-funnel signups from purchase events. Always ≥
+   * `metaRegs` because the `complete_registration` action is the
+   * primary regs signal on 4thefans today.
+   */
+  metaLeads: number;
   impressions: number;
   reach: number;
   videoPlays3s: number;

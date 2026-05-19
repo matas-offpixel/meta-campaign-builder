@@ -1991,6 +1991,8 @@ export async function fetchEventDailyMetaMetrics(
     const totalsPresaleSpend = new Map<string, number>();
     const totalsClicks = new Map<string, number>();
     const totalsRegs = new Map<string, number>();
+    const totalsPurchases = new Map<string, number>();
+    const totalsLeads = new Map<string, number>();
     const totalsImpressions = new Map<string, number>();
     const totalsReach = new Map<string, number>();
     const totalsVideo3s = new Map<string, number>();
@@ -2004,9 +2006,24 @@ export async function fetchEventDailyMetaMetrics(
     const matchedCampaigns = new Set<string>();
     const filteredOutCampaignNames = new Set<string>();
 
+    // Action-type buckets used to populate `event_daily_rollups`
+    // columns from a single Meta /insights call. Keep the bucket
+    // lists in lock-step with the column docstrings on
+    // `DailyMetaMetricsRow` (lib/insights/types.ts) — the same lists
+    // power the lifetime-cache backfill in
+    // `lib/insights/event-code-lifetime-two-pass.ts`.
     const regActionTypes = [
       "complete_registration",
       "offsite_conversion.fb_pixel_complete_registration",
+    ];
+    const purchaseActionTypes = [
+      "offsite_conversion.fb_pixel_purchase",
+      "purchase",
+    ];
+    const leadActionTypes = [
+      "lead",
+      "offsite_conversion.fb_pixel_lead",
+      "complete_registration",
     ];
 
     let after: string | undefined;
@@ -2072,6 +2089,14 @@ export async function fetchEventDailyMetaMetrics(
         const regs = sumActions(row.actions, regActionTypes);
         if (regs > 0) {
           totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
+        }
+        const purchases = sumActions(row.actions, purchaseActionTypes);
+        if (purchases > 0) {
+          totalsPurchases.set(day, (totalsPurchases.get(day) ?? 0) + purchases);
+        }
+        const leads = sumActions(row.actions, leadActionTypes);
+        if (leads > 0) {
+          totalsLeads.set(day, (totalsLeads.get(day) ?? 0) + leads);
         }
         totalsVideo3s.set(
           day,
@@ -2172,6 +2197,17 @@ export async function fetchEventDailyMetaMetrics(
           if (regs > 0) {
             totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
           }
+          const purchases = sumActions(row.actions, purchaseActionTypes);
+          if (purchases > 0) {
+            totalsPurchases.set(
+              day,
+              (totalsPurchases.get(day) ?? 0) + purchases,
+            );
+          }
+          const leads = sumActions(row.actions, leadActionTypes);
+          if (leads > 0) {
+            totalsLeads.set(day, (totalsLeads.get(day) ?? 0) + leads);
+          }
           totalsVideo3s.set(
             day,
             (totalsVideo3s.get(day) ?? 0) +
@@ -2204,6 +2240,8 @@ export async function fetchEventDailyMetaMetrics(
       ...totalsPresaleSpend.keys(),
       ...totalsClicks.keys(),
       ...totalsRegs.keys(),
+      ...totalsPurchases.keys(),
+      ...totalsLeads.keys(),
       ...totalsImpressions.keys(),
       ...totalsReach.keys(),
       ...totalsVideo3s.keys(),
@@ -2219,6 +2257,8 @@ export async function fetchEventDailyMetaMetrics(
         presaleSpend: totalsPresaleSpend.get(day) ?? 0,
         linkClicks: totalsClicks.get(day) ?? 0,
         metaRegs: totalsRegs.get(day) ?? 0,
+        metaPurchases: totalsPurchases.get(day) ?? 0,
+        metaLeads: totalsLeads.get(day) ?? 0,
         impressions: totalsImpressions.get(day) ?? 0,
         reach: totalsReach.get(day) ?? 0,
         videoPlays3s: totalsVideo3s.get(day) ?? 0,
@@ -2316,6 +2356,8 @@ export async function fetchEventTodayMetaSnapshot(
     let totalPresaleSpend = 0;
     let totalClicks = 0;
     let totalRegs = 0;
+    let totalPurchases = 0;
+    let totalLeads = 0;
     let totalImpressions = 0;
     let totalReach = 0;
     let totalVideo3s = 0;
@@ -2323,9 +2365,21 @@ export async function fetchEventTodayMetaSnapshot(
     let totalVideoP100 = 0;
     let totalEngagements = 0;
     const matchedCampaigns = new Set<string>();
+    // Mirror the bucket lists used by the historical fetch above so
+    // today's snapshot writes the same `meta_purchases` / `meta_leads`
+    // semantics as the per-day backfill.
     const regActionTypes = [
       "complete_registration",
       "offsite_conversion.fb_pixel_complete_registration",
+    ];
+    const purchaseActionTypes = [
+      "offsite_conversion.fb_pixel_purchase",
+      "purchase",
+    ];
+    const leadActionTypes = [
+      "lead",
+      "offsite_conversion.fb_pixel_lead",
+      "complete_registration",
     ];
 
     let after: string | undefined;
@@ -2366,6 +2420,8 @@ export async function fetchEventTodayMetaSnapshot(
         totalPresaleSpend += presale;
         totalClicks += parseNum(row.inline_link_clicks);
         totalRegs += sumActions(row.actions, regActionTypes);
+        totalPurchases += sumActions(row.actions, purchaseActionTypes);
+        totalLeads += sumActions(row.actions, leadActionTypes);
         totalImpressions += parseNum(row.impressions);
         totalReach += parseNum(row.reach);
         totalVideo3s += sumActions(row.actions, ["video_view"]);
@@ -2432,6 +2488,8 @@ export async function fetchEventTodayMetaSnapshot(
           totalPresaleSpend += presale;
           totalClicks += parseNum(row.inline_link_clicks);
           totalRegs += sumActions(row.actions, regActionTypes);
+          totalPurchases += sumActions(row.actions, purchaseActionTypes);
+          totalLeads += sumActions(row.actions, leadActionTypes);
           totalImpressions += parseNum(row.impressions);
           totalReach += parseNum(row.reach);
           totalVideo3s += sumActions(row.actions, ["video_view"]);
@@ -2458,6 +2516,8 @@ export async function fetchEventTodayMetaSnapshot(
           presaleSpend: totalPresaleSpend,
           linkClicks: totalClicks,
           metaRegs: totalRegs,
+          metaPurchases: totalPurchases,
+          metaLeads: totalLeads,
           impressions: totalImpressions,
           reach: totalReach,
           videoPlays3s: totalVideo3s,

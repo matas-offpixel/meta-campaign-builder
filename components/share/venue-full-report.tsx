@@ -9,6 +9,7 @@ import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import { resolveDisplayTicketCount } from "@/lib/dashboard/tier-channel-rollups";
 import { computeCanonicalEventMetrics } from "@/lib/dashboard/canonical-event-metrics";
 import { AttributionGapTile } from "@/components/dashboard/event-report/AttributionGapTile";
+import { RealAttributionTile } from "@/components/dashboard/event-report/RealAttributionTile";
 import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import type {
   AdditionalSpendRow,
@@ -134,6 +135,18 @@ interface Props {
    * (sum)" cell.
    */
   lifetimeMetaByEventCode?: EventCodeLifetimeMetaCacheRow[];
+  /**
+   * PR #423 — Real Attribution Reconciliation v2 (dark build).
+   * Server-evaluated maps + flags threaded down so the
+   * `RealAttributionTile` can render without consulting `process.env`
+   * (a client component cannot read non-`NEXT_PUBLIC_` env vars; we
+   * deliberately don't `NEXT_PUBLIC_`-prefix the flag because its
+   * presence shouldn't be readable to an unauthenticated browser).
+   */
+  realAttributionEnabled?: boolean;
+  legacyAttributionTileEnabled?: boolean;
+  metaPurchasesByEventId?: ReadonlyMap<string, number | null>;
+  offpixelAttributedPurchasesByEventId?: ReadonlyMap<string, number | null>;
 }
 
 export function VenueFullReport({
@@ -155,6 +168,10 @@ export function VenueFullReport({
   platform = "all",
   settingsHref = null,
   lifetimeMetaByEventCode,
+  realAttributionEnabled = false,
+  legacyAttributionTileEnabled = false,
+  metaPurchasesByEventId,
+  offpixelAttributedPurchasesByEventId,
 }: Props) {
   const mode: "dashboard" | "share" = isInternal ? "dashboard" : "share";
   const readOnly = !isInternal && !canEdit;
@@ -251,12 +268,16 @@ export function VenueFullReport({
           event_code: ev.event_code,
         })),
         tierChannelTicketsByEventId,
+        metaPurchasesByEventId,
+        offpixelAttributedPurchasesByEventId,
       }),
     [
       lifetimeCacheRowForVenue,
       dailyRollups,
       initialEvents,
       tierChannelTicketsByEventId,
+      metaPurchasesByEventId,
+      offpixelAttributedPurchasesByEventId,
     ],
   );
 
@@ -296,11 +317,33 @@ export function VenueFullReport({
         events={initialEvents}
         lifetimeMeta={lifetimeMetaForVenue}
       />
-      <AttributionGapTile
-        metaRegs={venueCanonicalMetrics.metaRegs}
-        ticketsTrue={venueCanonicalMetrics.ticketsTrue}
-        attribution={venueCanonicalMetrics.attribution}
-      />
+      {/*
+        PR #423 — gated dual-tile combinator.
+        - Real flag ON  → render RealAttributionTile (the new
+          three-number reconciliation surface).
+        - Real flag OFF + Legacy flag ON → render the old
+          AttributionGapTile for diagnostics.
+        - Both OFF (the production default) → render nothing. The
+          PR #422 tile is hidden behind a kill-switch until the new
+          tile is the default surface.
+      */}
+      {realAttributionEnabled ? (
+        <RealAttributionTile
+          metaReportedPurchases={venueCanonicalMetrics.metaReportedPurchases}
+          offpixelAttributedPurchases={
+            venueCanonicalMetrics.offpixelAttributedPurchases
+          }
+          ticketsTrue={venueCanonicalMetrics.ticketsTrue}
+          trustRatio={venueCanonicalMetrics.attributionTrustRatio}
+          coverageRatio={venueCanonicalMetrics.attributionCoverageRatio}
+        />
+      ) : legacyAttributionTileEnabled ? (
+        <AttributionGapTile
+          metaRegs={venueCanonicalMetrics.metaRegs}
+          ticketsTrue={venueCanonicalMetrics.ticketsTrue}
+          attribution={venueCanonicalMetrics.attribution}
+        />
+      ) : null}
       <VenueTrendChartSection
         model={model}
         datePreset={datePreset}

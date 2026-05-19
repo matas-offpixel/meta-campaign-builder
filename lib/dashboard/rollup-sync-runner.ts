@@ -529,6 +529,8 @@ export async function runRollupSyncForEvent(
             ad_spend_presale: number;
             link_clicks: number;
             meta_regs: number;
+            meta_purchases: number;
+            meta_leads: number;
             meta_impressions: number;
             meta_reach: number;
             meta_video_plays_3s: number;
@@ -543,6 +545,10 @@ export async function runRollupSyncForEvent(
             ad_spend_presale: d.presaleSpend ?? 0,
             link_clicks: d.linkClicks,
             meta_regs: d.metaRegs,
+            // Migration 093 — Purchase / Lead split. Defaults to 0
+            // so pre-093 fixtures continue to compile.
+            meta_purchases: d.metaPurchases ?? 0,
+            meta_leads: d.metaLeads ?? 0,
             meta_impressions: d.impressions,
             meta_reach: d.reach,
             meta_video_plays_3s: d.videoPlays3s,
@@ -558,6 +564,8 @@ export async function runRollupSyncForEvent(
           let snapshotPresaleSpend = 0;
           let snapshotClicks = 0;
           let snapshotRegs = 0;
+          let snapshotPurchases = 0;
+          let snapshotLeads = 0;
           let snapshotImpressions = 0;
           let snapshotReach = 0;
           let snapshotVideo3s = 0;
@@ -577,6 +585,8 @@ export async function runRollupSyncForEvent(
               snapshotPresaleSpend = snap.days[0]?.presaleSpend ?? 0;
               snapshotClicks = snap.days[0]?.linkClicks ?? 0;
               snapshotRegs = snap.days[0]?.metaRegs ?? 0;
+              snapshotPurchases = snap.days[0]?.metaPurchases ?? 0;
+              snapshotLeads = snap.days[0]?.metaLeads ?? 0;
               snapshotImpressions = snap.days[0]?.impressions ?? 0;
               snapshotReach = snap.days[0]?.reach ?? 0;
               snapshotVideo3s = snap.days[0]?.videoPlays3s ?? 0;
@@ -586,7 +596,7 @@ export async function runRollupSyncForEvent(
               snapshotOk = true;
               diagnostics.metaTodayFromSnapshot = true;
               console.log(
-                `[rollup-sync] meta today snapshot ok spend=${snapshotSpend} clicks=${snapshotClicks} regs=${snapshotRegs}`,
+                `[rollup-sync] meta today snapshot ok spend=${snapshotSpend} clicks=${snapshotClicks} regs=${snapshotRegs} purchases=${snapshotPurchases}`,
               );
             } else if (!snap.ok) {
               console.warn(
@@ -611,6 +621,8 @@ export async function runRollupSyncForEvent(
             ad_spend_presale: snapshotPresaleSpend,
             link_clicks: snapshotClicks,
             meta_regs: snapshotRegs,
+            meta_purchases: snapshotPurchases,
+            meta_leads: snapshotLeads,
             meta_impressions: snapshotImpressions,
             meta_reach: snapshotReach,
             meta_video_plays_3s: snapshotVideo3s,
@@ -629,6 +641,8 @@ export async function runRollupSyncForEvent(
               ad_spend_presale: 0,
               link_clicks: 0,
               meta_regs: 0,
+              meta_purchases: 0,
+              meta_leads: 0,
               meta_impressions: 0,
               meta_reach: 0,
               meta_video_plays_3s: 0,
@@ -648,6 +662,8 @@ export async function runRollupSyncForEvent(
             ad_spend_presale: v.ad_spend_presale,
             link_clicks: v.link_clicks,
             meta_regs: v.meta_regs,
+            meta_purchases: v.meta_purchases,
+            meta_leads: v.meta_leads,
             meta_impressions: v.meta_impressions,
             meta_reach: v.meta_reach,
             meta_video_plays_3s: v.meta_video_plays_3s,
