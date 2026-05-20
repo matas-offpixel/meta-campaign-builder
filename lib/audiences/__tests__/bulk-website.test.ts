@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   BULK_WEBSITE_PIXEL_EVENTS,
+  DEFAULT_WEBSITE_RETENTIONS,
   META_MAX_WEBSITE_RETENTION_DAYS,
   buildWebsitePreview,
   clampWebsiteRetentionDays,
@@ -113,7 +114,39 @@ describe("buildWebsitePreview — cell count", () => {
   });
 });
 
-// ── 5. buildWebsitePreview — naming ──────────────────────────────────────────
+// ── 5. Duplicate-cell prevention (dedup by pixelEvent + clampedRetention) ────
+
+describe("buildWebsitePreview — dedup", () => {
+  it("180 + 365 yields ONE 180d cell (365 clamps to 180)", () => {
+    const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [180, 365] });
+    assert.equal(preview.cells.length, 1);
+    assert.equal(preview.cells[0]?.retentionDays, 180);
+  });
+
+  it("default retentions (no 365) produce no duplicates", () => {
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      retentions: Array.from(DEFAULT_WEBSITE_RETENTIONS),
+    });
+    // Expect one cell per default retention (all ≤180, all distinct).
+    assert.equal(preview.cells.length, DEFAULT_WEBSITE_RETENTIONS.length);
+    const days = preview.cells.map((c) => c.retentionDays);
+    assert.equal(new Set(days).size, days.length, "no duplicate retention days");
+  });
+
+  it("a single >180 value clamps to 180 and yields one cell", () => {
+    const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [365] });
+    assert.equal(preview.cells.length, 1);
+    assert.equal(preview.cells[0]?.retentionDays, META_MAX_WEBSITE_RETENTION_DAYS);
+  });
+
+  it("duplicate raw inputs (e.g. 180, 180, 365) still yield one 180d cell", () => {
+    const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [180, 180, 365] });
+    assert.equal(preview.cells.length, 1);
+  });
+});
+
+// ── 7. buildWebsitePreview — naming ──────────────────────────────────────────
 
 describe("buildWebsitePreview — naming", () => {
   it("includes [prefix] + event + retention (whole pixel)", () => {
@@ -159,7 +192,7 @@ describe("buildWebsitePreview — naming", () => {
   });
 });
 
-// ── 6. buildWebsitePreview — funnel stage mapping ────────────────────────────
+// ── 8. buildWebsitePreview — funnel stage mapping ────────────────────────────
 
 describe("buildWebsitePreview — funnel stages", () => {
   it("assigns correct funnel stages to cells", () => {
@@ -169,7 +202,7 @@ describe("buildWebsitePreview — funnel stages", () => {
   });
 });
 
-// ── 7. buildWebsitePreview — URL keyword passthrough ─────────────────────────
+// ── 9. buildWebsitePreview — URL keyword passthrough ─────────────────────────
 
 describe("buildWebsitePreview — urlKeyword", () => {
   it("trims whitespace from urlKeyword", () => {
@@ -189,7 +222,7 @@ describe("buildWebsitePreview — urlKeyword", () => {
   });
 });
 
-// ── 8. websitePreviewToInserts ────────────────────────────────────────────────
+// ── 10. websitePreviewToInserts ───────────────────────────────────────────────
 
 describe("websitePreviewToInserts", () => {
   const insertOpts = { userId: "u1", clientId: "c1", metaAdAccountId: "act_999" };

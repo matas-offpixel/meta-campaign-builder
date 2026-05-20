@@ -49,9 +49,14 @@ export const BULK_WEBSITE_EVENT_LABELS: Record<BulkWebsitePixelEvent, string> = 
 /** "whole_pixel" = all visitors (no URL filter); "url_keyword" = URL contains filter. */
 export type BulkWebsiteUrlMode = "whole_pixel" | "url_keyword";
 
-// ── Retention defaults (mirrors bulk-page-types.ts) ──────────────────────────
+// ── Retention defaults ────────────────────────────────────────────────────────
 
-export const DEFAULT_WEBSITE_RETENTIONS = [30, 60, 180, 365] as const;
+/**
+ * Default retention checkboxes for website-pixel audiences. All values must be
+ * ≤ META_MAX_WEBSITE_RETENTION_DAYS (180). 365 is intentionally absent —
+ * it would clamp to 180 and produce a duplicate cell alongside the 180d option.
+ */
+export const DEFAULT_WEBSITE_RETENTIONS = [30, 60, 90, 180] as const;
 
 /** Meta's hard cap for website-pixel audience retention (days). */
 export const META_MAX_WEBSITE_RETENTION_DAYS = 180;
@@ -122,6 +127,13 @@ export interface BuildWebsitePreviewOpts {
  *
  * Cell order: events first (stable order = BULK_WEBSITE_PIXEL_EVENTS), then
  * retention ascending — matches the UI grid row-major layout.
+ *
+ * Duplicate-prevention: after clamping, cells are deduplicated by
+ * (pixelEvent, clampedRetentionDays). This ensures that two inputs which
+ * clamp to the same value (e.g. 180 and 365 both → 180) yield ONE cell, not
+ * two identical Meta audiences. The UI already restricts selectable retentions
+ * to ≤180, so duplicates should not occur in normal use; the dedupe is a
+ * defensive safety net for any out-of-bounds values that reach the builder.
  */
 export function buildWebsitePreview(
   opts: BuildWebsitePreviewOpts,
@@ -129,10 +141,14 @@ export function buildWebsitePreview(
   const labelPrefix = resolveWebsiteLabelPrefix(opts);
   const urlKeyword = opts.urlKeyword.trim();
   const cells: BulkWebsitePreviewCell[] = [];
+  const seen = new Set<string>();
 
   for (const pixelEvent of opts.pixelEvents) {
     for (const rawRetention of opts.retentions) {
       const retentionDays = clampWebsiteRetentionDays(rawRetention);
+      const key = `${pixelEvent}:${retentionDays}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const funnelStage = funnelStageForWebsiteCell(retentionDays);
       const name = buildWebsiteCellName(labelPrefix, pixelEvent, urlKeyword, retentionDays);
       cells.push({ pixelEvent, retentionDays, funnelStage, name, urlKeyword });

@@ -75,6 +75,7 @@ export function BulkWebsiteAudiencesForm({
     new Set<number>(DEFAULT_WEBSITE_RETENTIONS),
   );
   const [customRetentions, setCustomRetentions] = useState<number[]>([]);
+  const [customRetentionErrors, setCustomRetentionErrors] = useState<Record<number, string>>({});
 
   // Optional name-prefix override.
   const [labelOverride, setLabelOverride] = useState("");
@@ -111,14 +112,27 @@ export function BulkWebsiteAudiencesForm({
   }, []);
 
   const updateCustomRetention = useCallback((idx: number, value: number) => {
-    setCustomRetentions((prev) =>
-      prev.map((v, i) => (i === idx ? clampWebsiteRetentionDays(value) : v)),
-    );
+    const clamped = clampWebsiteRetentionDays(value);
+    setCustomRetentions((prev) => prev.map((v, i) => (i === idx ? clamped : v)));
+    setCustomRetentionErrors((prev) => {
+      const next = { ...prev };
+      if (value > META_MAX_WEBSITE_RETENTION_DAYS) {
+        next[idx] = `Website audiences cap at ${META_MAX_WEBSITE_RETENTION_DAYS} days — clamped to ${clamped}d.`;
+      } else {
+        delete next[idx];
+      }
+      return next;
+    });
     resetPreview(setPhase, setPreview);
   }, []);
 
   const removeCustomRetention = useCallback((idx: number) => {
     setCustomRetentions((prev) => prev.filter((_, i) => i !== idx));
+    setCustomRetentionErrors((prev) => {
+      const next = { ...prev };
+      delete next[idx];
+      return next;
+    });
     resetPreview(setPhase, setPreview);
   }, []);
 
@@ -441,30 +455,37 @@ export function BulkWebsiteAudiencesForm({
           </div>
           <div className="mt-4 space-y-2">
             {customRetentions.map((days, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-sm">
-                  <label className="text-xs text-muted-foreground whitespace-nowrap">
-                    Retention
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={META_MAX_WEBSITE_RETENTION_DAYS}
-                    className="w-16 bg-transparent text-sm outline-none"
-                    value={days}
-                    onChange={(e) =>
-                      updateCustomRetention(idx, Number(e.target.value) || 1)
-                    }
-                  />
-                  <span className="text-xs text-muted-foreground">d</span>
+              <div key={idx} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className={`flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-sm ${customRetentionErrors[idx] ? "border-amber-400" : "border-border"}`}>
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">
+                      Retention
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={META_MAX_WEBSITE_RETENTION_DAYS}
+                      className="w-16 bg-transparent text-sm outline-none"
+                      value={days}
+                      onChange={(e) =>
+                        updateCustomRetention(idx, Number(e.target.value) || 1)
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground">d</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeCustomRetention(idx)}
+                    className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    Remove
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeCustomRetention(idx)}
-                  className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-destructive"
-                >
-                  Remove
-                </button>
+                {customRetentionErrors[idx] && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 pl-1">
+                    {customRetentionErrors[idx]}
+                  </p>
+                )}
               </div>
             ))}
             <button
