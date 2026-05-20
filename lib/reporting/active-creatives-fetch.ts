@@ -26,6 +26,8 @@ import {
   type RawCreative,
 } from "@/lib/reporting/creative-preview-extract";
 import type { ActiveCreativeThumbnailSource } from "@/lib/reporting/active-creatives-group";
+import { extractVideoIdsFromCreative } from "@/lib/audiences/extract-video-ids-from-creative";
+import { extractPageIdsFromCreative } from "@/lib/audiences/extract-page-ids-from-creative";
 
 /**
  * lib/reporting/active-creatives-fetch.ts
@@ -212,10 +214,51 @@ export interface UnattributedBucket {
   purchases: number;
 }
 
+/**
+ * Per-event (video_id, context_page_id) pair extracted from a
+ * hydrated creative during the cron-driven snapshot write. Each
+ * pair is the input the video-views audience builder needs:
+ * `video_id` flows to `source_meta.videoIds[]` and
+ * `context_page_id` is the FB Page that owns the video,
+ * required by `lib/meta/audience-payload.ts`'s `video_views`
+ * branch as `source_meta.contextId` (the bug PR #391 fixed).
+ *
+ * Storing the pre-extracted pairs inside the existing snapshot
+ * jsonb `payload` lets the audience builder serve from cache
+ * with zero Meta calls. See
+ * `docs/META_API_BOTTLENECKS_2026-05-08.md` for the rate-limit
+ * pressure this caching is mitigating (#80004 ad-account /
+ * #17 user lockouts on wide events like WC26 / Junction 2).
+ *
+ * Pair-deduped within the snapshot — two ads sharing a
+ * (video_id, page_id) collapse to one entry. Cross-event
+ * dedupe happens later in `runBulkVideoPreview`.
+ */
+export interface AudienceVideoSource {
+  video_id: string;
+  context_page_id: string;
+}
+
 export interface FetchActiveCreativesResult {
   creatives: CreativeRow[];
   ad_account_id: string;
   meta: FetchActiveCreativesMeta;
+  /**
+   * Deduped `(video_id, context_page_id)` pairs extracted from the
+   * hydrated creative payloads. Empty when none of the event's ads
+   * are video creatives, or when every video creative is missing
+   * a resolvable owning Page id (no `object_story_spec.page_id`,
+   * no `platform_customizations.*.page_id`, no
+   * `asset_feed_spec.page_ids[]`) — in which case the audience
+   * builder falls back to the live walk per-event rather than
+   * shipping a half-populated cache.
+   *
+   * Persisted into `active_creatives_snapshots.payload.audience_video_sources`
+   * (no new column / migration — additive within the existing
+   * jsonb blob). Read back by
+   * `getVideoSourcesFromSnapshot` in `lib/audiences/snapshot-video-sources.ts`.
+   */
+  audience_video_sources: AudienceVideoSource[];
 }
 
 /**
@@ -810,6 +853,14 @@ const CREATIVE_BATCH_FIELDS = [
   "link_url",
   "object_story_spec",
   "asset_feed_spec",
+  // PR-snapshot-cache — needed alongside the existing OSS / AFS
+  // fields so `extractPageIdsFromCreative` can resolve the FB
+  // Page that owns each video for Advantage+ creatives that
+  // surface the page id in the per-platform block rather than on
+  // top-level OSS. One extra Graph field on an already-paid
+  // batched call — does NOT add per-ad fan-out and stays
+  // comfortably under `CREATIVE_BATCH_SIZE=25`'s response budget.
+  "platform_customizations",
   // PR #74 — earlier PR #71 also requested nested-expansion
   // forms for the two parents above (asset_feed_spec.videos /
   // .images and object_story_spec.link_data.child_attachments)
@@ -1174,6 +1225,7 @@ export async function fetchActiveCreativesForEvent(
         cross_campaign_duplicates: 0,
         unattributed: emptyUnattributedBucket(),
       },
+      audience_video_sources: [],
     };
   }
 
@@ -1431,6 +1483,19 @@ export async function fetchActiveCreativesForEvent(
   let creativesHydrated = 0;
   let creativesMissing = 0;
   let creativesNoThumbnail = 0;
+  // Audience-builder cache feed: per-creative (video_id, context_page_id)
+  // pairs distilled from the same OSS / platform_customizations /
+  // asset_feed_spec shapes that `walkCampaignAds` reads in
+  // `lib/audiences/sources.ts` (PR #391). Keyed on
+  // `${video_id}\u0000${context_page_id}` so two ads with the same
+  // pair collapse to one entry. Persisted onto the snapshot
+  // payload as `audience_video_sources` so the bulk video-views
+  // builder can serve from cache instead of re-walking the
+  // campaign tree — see
+  // `docs/META_API_BOTTLENECKS_2026-05-08.md`.
+  const audienceVideoSourceKeys = new Set<string>();
+  const audienceVideoSources: { video_id: string; context_page_id: string }[] =
+    [];
   // Warn-once-per-creative-id so a single broken creative shape
   // doesn't spam Vercel logs across thousands of dup ad rows; cap
   // the warn lines to keep the diagnostic readable.
@@ -1491,6 +1556,41 @@ export async function fetchActiveCreativesForEvent(
     ad.object_story_id = creative.object_story_id?.trim() || null;
     ad.primary_asset_signature = deriveAssetSignature(creative);
     ad.preview = preview;
+    // Collect (video_id, context_page_id) pairs for the audience-
+    // builder snapshot feed. Skip when either side is empty: a
+    // video without a resolvable owning Page can't be turned into
+    // a valid video-views audience rule
+    // (`audience-payload.ts` `video_views` branch throws without
+    // `source_meta.contextId`), so we leave it for the live-walk
+    // fallback rather than poisoning the cache with orphans.
+    const creativeRecord = creative as unknown as Record<string, unknown>;
+    const videoIds = extractVideoIdsFromCreative(creativeRecord);
+    if (videoIds.length > 0) {
+      const pageIds = extractPageIdsFromCreative(creativeRecord);
+      if (pageIds.length > 0) {
+        // Mirror walkCampaignAds's contextPageId resolution:
+        // most-common page id within the creative wins. With one
+        // creative that's almost always the only id; ties broken
+        // by first-seen via the Map insertion order.
+        const pageCounts = new Map<string, number>();
+        for (const id of pageIds) {
+          pageCounts.set(id, (pageCounts.get(id) ?? 0) + 1);
+        }
+        const contextPageId = [...pageCounts.entries()].sort(
+          (a, b) => b[1] - a[1],
+        )[0]![0];
+        for (const videoId of videoIds) {
+          const pairKey = `${videoId}\u0000${contextPageId}`;
+          if (!audienceVideoSourceKeys.has(pairKey)) {
+            audienceVideoSourceKeys.add(pairKey);
+            audienceVideoSources.push({
+              video_id: videoId,
+              context_page_id: contextPageId,
+            });
+          }
+        }
+      }
+    }
     creativesHydrated += 1;
     // PR #73 — success-side diagnostic. Logged BEFORE the
     // hydration_no_thumbnail guard so it captures the rendered-
@@ -1679,6 +1779,10 @@ export async function fetchActiveCreativesForEvent(
     }
   }
 
+  console.info(
+    `[active-creatives] audience_video_sources event=${eventCode} videos_with_page=${audienceVideoSources.length}`,
+  );
+
   return {
     creatives,
     ad_account_id: adAccountId,
@@ -1697,5 +1801,6 @@ export async function fetchActiveCreativesForEvent(
       cross_campaign_duplicates: crossCampaignDuplicates,
       unattributed,
     },
+    audience_video_sources: audienceVideoSources,
   };
 }

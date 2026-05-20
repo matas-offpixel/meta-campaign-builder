@@ -8,6 +8,7 @@ import {
   fetchActiveCreativesForEvent,
   FacebookAuthExpiredError,
   FacebookRateLimitError,
+  type AudienceVideoSource,
 } from "@/lib/reporting/active-creatives-fetch";
 import {
   groupByAssetSignature,
@@ -72,6 +73,22 @@ export type ShareActiveCreativesResult =
           purchases: number;
         };
       };
+      /**
+       * Deduped `(video_id, context_page_id)` pairs extracted by the
+       * snapshot writer during creative hydration. Consumed by
+       * `getVideoSourcesFromSnapshot` so the bulk video-views audience
+       * builder can serve from cache instead of re-walking the
+       * campaign tree (Meta rate-limit mitigation —
+       * `docs/META_API_BOTTLENECKS_2026-05-08.md`).
+       *
+       * Optional for backward compatibility with snapshot rows
+       * written before PR-snapshot-cache landed: missing /
+       * empty `→ getVideoSourcesFromSnapshot` returns nothing
+       * for that event and `runBulkVideoPreview` falls back to
+       * the live walk for THAT event only. Full cache benefit
+       * kicks in after one cron cycle post-deploy (≤6h).
+       */
+      audience_video_sources?: AudienceVideoSource[];
     }
   | {
       // Soft-skip: this event genuinely has nothing to show. Caller
@@ -246,6 +263,11 @@ export async function fetchShareActiveCreatives(
       truncated: result.meta.truncated || allGroups.length > SHARE_GROUPS_CAP,
       unattributed: result.meta.unattributed,
     },
+    // Audience-builder cache feed — additive on the OK branch,
+    // ignored by every other consumer (share page, autotag,
+    // thumbnail warmer). Stored alongside `groups` inside the
+    // existing snapshot jsonb payload; no migration.
+    audience_video_sources: result.audience_video_sources,
   };
 
   if (!input.enrichVideoThumbnails) {
