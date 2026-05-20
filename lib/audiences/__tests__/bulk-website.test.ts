@@ -84,9 +84,9 @@ const BASE_OPTS = {
   clientName: "Junction 2",
   pixelId: "123456789012345",
   pixelEvents: ["PageView"] as const,
-  urlKeyword: "",
+  urlKeywords: [] as string[],
   retentions: [30, 60, 180],
-} as const;
+};
 
 describe("buildWebsitePreview — cell count", () => {
   it("produces events × retentions cells", () => {
@@ -95,8 +95,6 @@ describe("buildWebsitePreview — cell count", () => {
   });
 
   it("cell order: event first, retention in input order (routes pre-sort before calling)", () => {
-    // The builder iterates retentions in the order provided (routes sort ascending before calling).
-    // Passing pre-sorted input matches production behaviour.
     const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [30, 60, 180] });
     assert.equal(preview.cells[0]?.retentionDays, 30);
     assert.equal(preview.cells[1]?.retentionDays, 60);
@@ -128,7 +126,6 @@ describe("buildWebsitePreview — dedup", () => {
       ...BASE_OPTS,
       retentions: Array.from(DEFAULT_WEBSITE_RETENTIONS),
     });
-    // Expect one cell per default retention (all ≤180, all distinct).
     assert.equal(preview.cells.length, DEFAULT_WEBSITE_RETENTIONS.length);
     const days = preview.cells.map((c) => c.retentionDays);
     assert.equal(new Set(days).size, days.length, "no duplicate retention days");
@@ -146,24 +143,45 @@ describe("buildWebsitePreview — dedup", () => {
   });
 });
 
-// ── 7. buildWebsitePreview — naming ──────────────────────────────────────────
+// ── 6. buildWebsitePreview — naming ──────────────────────────────────────────
 
 describe("buildWebsitePreview — naming", () => {
-  it("includes [prefix] + event + retention (whole pixel)", () => {
+  it("whole pixel (no URLs): [prefix] event retention", () => {
     const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [30] });
     assert.equal(preview.cells[0]?.name, "[junction2] PageView 30d");
   });
 
-  it("includes [prefix] + event + urlKeyword + retention (url_keyword mode)", () => {
+  it("single URL: [prefix] event url retention", () => {
     const preview = buildWebsitePreview({
       ...BASE_OPTS,
-      urlKeyword: "https://junction2.com/events/glasgow",
+      urlKeywords: ["https://junction2.com/events/glasgow"],
       retentions: [30],
     });
     assert.equal(
       preview.cells[0]?.name,
       "[junction2] PageView https://junction2.com/events/glasgow 30d",
     );
+  });
+
+  it("two URLs: [prefix] event first-url +1 retention", () => {
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      urlKeywords: ["https://junction2.com/glasgow", "https://junction2.com/london"],
+      retentions: [30],
+    });
+    assert.equal(
+      preview.cells[0]?.name,
+      "[junction2] PageView https://junction2.com/glasgow +1 30d",
+    );
+  });
+
+  it("three URLs: [prefix] event first-url +2 retention", () => {
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      urlKeywords: ["https://a.com", "https://b.com", "https://c.com"],
+      retentions: [30],
+    });
+    assert.equal(preview.cells[0]?.name, "[junction2] PageView https://a.com +2 30d");
   });
 
   it("uses labelOverride as prefix", () => {
@@ -186,13 +204,12 @@ describe("buildWebsitePreview — naming", () => {
 
   it("clamps retentions to META_MAX_WEBSITE_RETENTION_DAYS", () => {
     const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [365] });
-    // 365 is clamped to 180
     assert.equal(preview.cells[0]?.retentionDays, META_MAX_WEBSITE_RETENTION_DAYS);
     assert.ok(preview.cells[0]?.name.endsWith(`${META_MAX_WEBSITE_RETENTION_DAYS}d`));
   });
 });
 
-// ── 8. buildWebsitePreview — funnel stage mapping ────────────────────────────
+// ── 7. buildWebsitePreview — funnel stage mapping ────────────────────────────
 
 describe("buildWebsitePreview — funnel stages", () => {
   it("assigns correct funnel stages to cells", () => {
@@ -202,27 +219,40 @@ describe("buildWebsitePreview — funnel stages", () => {
   });
 });
 
-// ── 9. buildWebsitePreview — URL keyword passthrough ─────────────────────────
+// ── 8. buildWebsitePreview — urlKeywords passthrough ─────────────────────────
 
-describe("buildWebsitePreview — urlKeyword", () => {
-  it("trims whitespace from urlKeyword", () => {
-    const preview = buildWebsitePreview({
-      ...BASE_OPTS,
-      urlKeyword: "  https://example.com  ",
-      retentions: [30],
-    });
-    assert.equal(preview.urlKeyword, "https://example.com");
-    assert.equal(preview.cells[0]?.urlKeyword, "https://example.com");
+describe("buildWebsitePreview — urlKeywords", () => {
+  it("empty urlKeywords = whole pixel", () => {
+    const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [30] });
+    assert.deepEqual(preview.urlKeywords, []);
+    assert.deepEqual(preview.cells[0]?.urlKeywords, []);
   });
 
-  it("empty urlKeyword = whole pixel", () => {
-    const preview = buildWebsitePreview({ ...BASE_OPTS, retentions: [30] });
-    assert.equal(preview.urlKeyword, "");
-    assert.equal(preview.cells[0]?.urlKeyword, "");
+  it("single URL passed through to cells", () => {
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      urlKeywords: ["https://example.com"],
+      retentions: [30],
+    });
+    assert.deepEqual(preview.urlKeywords, ["https://example.com"]);
+    assert.deepEqual(preview.cells[0]?.urlKeywords, ["https://example.com"]);
+  });
+
+  it("multiple URLs passed through to all cells unchanged", () => {
+    const urls = ["https://a.com", "https://b.com"];
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      urlKeywords: urls,
+      retentions: [30, 60],
+    });
+    assert.deepEqual(preview.urlKeywords, urls);
+    for (const cell of preview.cells) {
+      assert.deepEqual(cell.urlKeywords, urls);
+    }
   });
 });
 
-// ── 10. websitePreviewToInserts ───────────────────────────────────────────────
+// ── 9. websitePreviewToInserts ────────────────────────────────────────────────
 
 describe("websitePreviewToInserts", () => {
   const insertOpts = { userId: "u1", clientId: "c1", metaAdAccountId: "act_999" };
@@ -259,15 +289,41 @@ describe("websitePreviewToInserts", () => {
     assert.deepEqual(sm?.urlContains, []);
   });
 
-  it("sourceMeta.urlContains carries the keyword when set", () => {
+  it("sourceMeta.urlContains has 1 entry for a single URL", () => {
     const preview = buildWebsitePreview({
       ...BASE_OPTS,
-      urlKeyword: "https://example.com/glasgow",
+      urlKeywords: ["https://example.com/glasgow"],
       retentions: [30],
     });
     const [insert] = websitePreviewToInserts(preview, insertOpts);
     const sm = insert?.sourceMeta as Record<string, unknown> | undefined;
     assert.deepEqual(sm?.urlContains, ["https://example.com/glasgow"]);
+  });
+
+  it("sourceMeta.urlContains has 2 entries for two URLs (OR-group)", () => {
+    const urls = ["https://example.com/glasgow", "https://example.com/london"];
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      urlKeywords: urls,
+      retentions: [30],
+    });
+    const [insert] = websitePreviewToInserts(preview, insertOpts);
+    const sm = insert?.sourceMeta as Record<string, unknown> | undefined;
+    assert.deepEqual(sm?.urlContains, urls);
+  });
+
+  it("all cells in a matrix share the same urlKeywords", () => {
+    const urls = ["https://a.com", "https://b.com"];
+    const preview = buildWebsitePreview({
+      ...BASE_OPTS,
+      urlKeywords: urls,
+      retentions: [30, 60, 180],
+    });
+    const inserts = websitePreviewToInserts(preview, insertOpts);
+    for (const insert of inserts) {
+      const sm = insert.sourceMeta as Record<string, unknown>;
+      assert.deepEqual(sm.urlContains, urls);
+    }
   });
 
   it("sourceMeta.pixelEvent is PageView", () => {

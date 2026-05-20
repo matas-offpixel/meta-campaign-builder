@@ -11,8 +11,9 @@
  * Key design decisions (no migration needed):
  *   - `sourceId` on the DB insert carries the pixel ID (numeric string).
  *   - `sourceMeta.subtype = "website_pixel"` — audience-payload.ts keys on this.
- *   - `sourceMeta.urlContains = string[]` — empty array = whole-pixel (PageView
- *     fallback in audience-payload.ts else branch).
+ *   - `sourceMeta.urlContains = string[]` — the full parsed URL array.
+ *     Empty array = whole-pixel (PageView fallback in audience-payload.ts).
+ *     Multiple entries → OR-group of i_contains filters (verified 2026-05-07).
  *   - `sourceMeta.pixelEvent` — pixel event name sent into the Meta rule.
  *   - No 5-source splitting — CHUNKABLE_SUBTYPES in audience-write.ts does NOT
  *     include "website_pixel", so createMetaCustomAudience takes the direct
@@ -46,7 +47,7 @@ export const BULK_WEBSITE_EVENT_LABELS: Record<BulkWebsitePixelEvent, string> = 
 
 // ── URL scope mode ────────────────────────────────────────────────────────────
 
-/** "whole_pixel" = all visitors (no URL filter); "url_keyword" = URL contains filter. */
+/** "whole_pixel" = all visitors (no URL filter); "url_keyword" = URL contains filter(s). */
 export type BulkWebsiteUrlMode = "whole_pixel" | "url_keyword";
 
 // ── Retention defaults ────────────────────────────────────────────────────────
@@ -89,18 +90,18 @@ export interface BulkWebsitePreviewCell {
   /** Full human-readable name (UI display and DB `name` field). */
   name: string;
   /**
-   * Resolved URL keyword (trimmed, single string, empty = whole pixel).
-   * Stored for display in the preview panel ("WHERE url contains '…'").
+   * Parsed URL keywords for this cell (trimmed, deduplicated). Empty = whole pixel.
+   * Passed through to sourceMeta.urlContains — N entries → N i_contains OR filters.
    */
-  urlKeyword: string;
+  urlKeywords: string[];
 }
 
 export interface BulkWebsitePreview {
   /** Bracketed prefix used inside cell names, e.g. "Junction2". */
   labelPrefix: string;
   pixelId: string;
-  /** Resolved URL keyword (same as on each cell, for panel display). */
-  urlKeyword: string;
+  /** Parsed URL keywords (same across all cells for this run). Empty = whole pixel. */
+  urlKeywords: string[];
   cells: BulkWebsitePreviewCell[];
 }
 
@@ -114,10 +115,12 @@ export interface BuildWebsitePreviewOpts {
   pixelId: string;
   pixelEvents: BulkWebsitePixelEvent[];
   /**
-   * Raw URL keyword input from the form. Trimmed; empty string = whole-pixel
-   * mode (no URL filter, audience-payload.ts uses the PageView event filter).
+   * Parsed URL keywords for all cells in this run (one per line / comma-separated
+   * text has already been split by the caller via normalizeWebsitePixelUrlContains).
+   * Empty array = whole-pixel mode (no URL filter; audience-payload.ts uses the
+   * PageView event filter in its else branch).
    */
-  urlKeyword: string;
+  urlKeywords: string[];
   retentions: number[];
 }
 
@@ -139,7 +142,7 @@ export function buildWebsitePreview(
   opts: BuildWebsitePreviewOpts,
 ): BulkWebsitePreview {
   const labelPrefix = resolveWebsiteLabelPrefix(opts);
-  const urlKeyword = opts.urlKeyword.trim();
+  const urlKeywords = opts.urlKeywords;
   const cells: BulkWebsitePreviewCell[] = [];
   const seen = new Set<string>();
 
@@ -150,34 +153,39 @@ export function buildWebsitePreview(
       if (seen.has(key)) continue;
       seen.add(key);
       const funnelStage = funnelStageForWebsiteCell(retentionDays);
-      const name = buildWebsiteCellName(labelPrefix, pixelEvent, urlKeyword, retentionDays);
-      cells.push({ pixelEvent, retentionDays, funnelStage, name, urlKeyword });
+      const name = buildWebsiteCellName(labelPrefix, pixelEvent, urlKeywords, retentionDays);
+      cells.push({ pixelEvent, retentionDays, funnelStage, name, urlKeywords });
     }
   }
 
-  return { labelPrefix, pixelId: opts.pixelId, urlKeyword, cells };
+  return { labelPrefix, pixelId: opts.pixelId, urlKeywords, cells };
 }
 
 /**
  * Produce a human-readable (non-sanitized) audience name for a single cell.
  *
- * Pattern: "[prefix] <event> <urlKeyword?> <retention>d"
- * Examples:
- *   "[junction2] PageView glasgow-o2 30d"
- *   "[innervisions] PageView 180d"
+ * Pattern:
+ *   0 URLs: "[prefix] PageView 30d"
+ *   1 URL:  "[prefix] PageView https://example.com/glasgow 30d"
+ *   N URLs: "[prefix] PageView https://example.com/glasgow +2 30d"
+ *           (first URL + "+<additional count>")
  *
  * sanitizeAudienceName in audience-payload.ts sanitises at POST time (replaces
- * spaces/hyphens/brackets with underscores, truncates to 50 chars).
+ * spaces/hyphens/brackets/colons/slashes with underscores, truncates to 50 chars).
  */
 function buildWebsiteCellName(
   labelPrefix: string,
   pixelEvent: BulkWebsitePixelEvent,
-  urlKeyword: string,
+  urlKeywords: string[],
   retentionDays: number,
 ): string {
-  const keyword = urlKeyword.trim();
   const parts = [`[${labelPrefix}]`, pixelEvent];
-  if (keyword) parts.push(keyword);
+  if (urlKeywords.length === 1) {
+    parts.push(urlKeywords[0]!);
+  } else if (urlKeywords.length > 1) {
+    parts.push(urlKeywords[0]!);
+    parts.push(`+${urlKeywords.length - 1}`);
+  }
   parts.push(`${retentionDays}d`);
   return parts.join(" ");
 }
@@ -202,8 +210,10 @@ export interface BulkWebsiteInsertOpts {
  * Convert a preview into `MetaCustomAudienceInsert[]` — one per cell.
  *
  * `sourceId` = pixel ID (used by audience-payload.ts as the event_sources.id).
- * `sourceMeta.urlContains` = [urlKeyword] when a keyword is set, otherwise []
- * (audience-payload.ts's else branch fires the PageView-filter path).
+ * `sourceMeta.urlContains` = cell.urlKeywords (the full parsed URL array).
+ *   - [] → whole-pixel (audience-payload.ts's else branch fires PageView filter)
+ *   - [url] → single i_contains filter
+ *   - [a, b, ...] → OR-group of N i_contains filters (verified payload structure)
  * No splitting logic here — pixel audiences are single-source by definition
  * and CHUNKABLE_SUBTYPES does not include "website_pixel".
  */
@@ -222,7 +232,7 @@ export function websitePreviewToInserts(
     sourceId: preview.pixelId,
     sourceMeta: {
       subtype: "website_pixel" as const,
-      urlContains: cell.urlKeyword ? [cell.urlKeyword] : [],
+      urlContains: cell.urlKeywords,
       pixelEvent: cell.pixelEvent,
     },
     metaAdAccountId: opts.metaAdAccountId,

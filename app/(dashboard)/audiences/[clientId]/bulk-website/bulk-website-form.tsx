@@ -14,6 +14,7 @@ import {
   type BulkWebsitePreview,
   type BulkWebsiteUrlMode,
 } from "@/lib/audiences/bulk-website-types";
+import { normalizeWebsitePixelUrlContains } from "@/lib/audiences/pixel-url-contains";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,7 +64,9 @@ export function BulkWebsiteAudiencesForm({
 
   // Step 2 — URL scope.
   const [urlMode, setUrlMode] = useState<BulkWebsiteUrlMode>("whole_pixel");
-  const [urlKeyword, setUrlKeyword] = useState("");
+  // Raw textarea text — one URL per line (or comma-separated).
+  // Parsed on preview/create via normalizeWebsitePixelUrlContains.
+  const [urlKeywordsText, setUrlKeywordsText] = useState("");
 
   // Step 3 — pixel events.
   const [selectedEvents, setSelectedEvents] = useState<Set<BulkWebsitePixelEvent>>(
@@ -145,13 +148,20 @@ export function BulkWebsiteAudiencesForm({
   const eventsArr = Array.from(selectedEvents).filter((e) =>
     BULK_WEBSITE_PIXEL_EVENTS.includes(e),
   );
-  const resolvedUrlKeyword = urlMode === "url_keyword" ? urlKeyword.trim() : "";
+  // Parsed, deduplicated URL list — empty when whole_pixel mode.
+  const parsedUrlKeywords = useMemo(
+    () =>
+      urlMode === "url_keyword"
+        ? normalizeWebsitePixelUrlContains(urlKeywordsText)
+        : [],
+    [urlMode, urlKeywordsText],
+  );
   const validationError = validateForm({
     pixelId,
     events: eventsArr,
     retentions: allRetentions,
     urlMode,
-    urlKeyword,
+    parsedUrlKeywords,
   });
 
   function buildRequestBody(withMeta: boolean) {
@@ -160,7 +170,7 @@ export function BulkWebsiteAudiencesForm({
       pixelId: pixelId.trim(),
       labelOverride: labelOverride.trim() || null,
       pixelEvents: eventsArr,
-      urlKeyword: resolvedUrlKeyword,
+      urlKeywords: parsedUrlKeywords,
       retentions: allRetentions,
       ...(withMeta ? { createOnMeta: writesEnabled } : {}),
     };
@@ -371,21 +381,27 @@ export function BulkWebsiteAudiencesForm({
             </button>
           </div>
           {urlMode === "url_keyword" && (
-            <div className="mt-3 max-w-sm">
-              <input
-                type="text"
-                value={urlKeyword}
+            <div className="mt-3 max-w-lg">
+              <textarea
+                rows={4}
+                value={urlKeywordsText}
                 onChange={(e) => {
-                  setUrlKeyword(e.target.value);
+                  setUrlKeywordsText(e.target.value);
                   resetPreview(setPhase, setPreview);
                 }}
-                placeholder="https://example.com/events/glasgow-o2"
-                className="h-9 w-full rounded-md border border-border-strong bg-background px-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder={"https://example.com/events/glasgow\nhttps://example.com/events/london"}
+                className="w-full rounded-md border border-border-strong bg-background px-3 py-2 font-mono text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Verified format: full URL including scheme, e.g.{" "}
-                <code>https://example.com/events/glasgow</code>
+                One URL per line. All URLs become a single OR-group rule:{" "}
+                <code className="text-xs">url contains &ldquo;A&rdquo; OR &ldquo;B&rdquo;</code>.
+                Include the <code className="text-xs">https://</code> scheme (Meta requires it).
               </p>
+              {parsedUrlKeywords.length > 0 && (
+                <p className="mt-1 text-xs text-primary">
+                  {parsedUrlKeywords.length} URL{parsedUrlKeywords.length === 1 ? "" : "s"} parsed
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -578,10 +594,15 @@ function PreviewPanel({
           <code className="text-xs">{preview.pixelId}</code> ·{" "}
           <strong>Prefix:</strong> <code>[{preview.labelPrefix}]</code>
         </p>
-        {preview.urlKeyword ? (
+        {preview.urlKeywords.length > 0 ? (
           <p>
-            <strong>URL filter:</strong>{" "}
-            <code className="text-xs">url contains &quot;{preview.urlKeyword}&quot;</code>
+            <strong>URL filter ({preview.urlKeywords.length}):</strong>{" "}
+            {preview.urlKeywords.map((u, i) => (
+              <span key={u}>
+                {i > 0 && <span className="text-muted-foreground"> OR </span>}
+                <code className="text-xs">&ldquo;{u}&rdquo;</code>
+              </span>
+            ))}
           </p>
         ) : (
           <p className="text-muted-foreground">URL scope: whole pixel (all visitors)</p>
@@ -657,13 +678,13 @@ function validateForm(args: {
   events: BulkWebsitePixelEvent[];
   retentions: number[];
   urlMode: BulkWebsiteUrlMode;
-  urlKeyword: string;
+  parsedUrlKeywords: string[];
 }): string | null {
   if (!args.pixelId.trim()) return "Enter the pixel ID.";
   if (args.events.length === 0) return "Pick at least one pixel event.";
   if (args.retentions.length === 0) return "Pick at least one retention window.";
-  if (args.urlMode === "url_keyword" && !args.urlKeyword.trim()) {
-    return 'Enter a URL keyword or switch to "Whole pixel".';
+  if (args.urlMode === "url_keyword" && args.parsedUrlKeywords.length === 0) {
+    return 'Enter at least one URL or switch to "Whole pixel".';
   }
   return null;
 }
