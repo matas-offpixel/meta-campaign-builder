@@ -543,15 +543,18 @@ function PreviewEventCard({ row }: { row: BulkPreviewRow }) {
             </p>
           )}
         </div>
-        {row.skipped ? (
-          <span className="rounded-full border border-amber-400/50 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-            Skipped
-          </span>
-        ) : (
-          <span className="rounded-full border border-green-400/50 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
-            {row.audiences.length} audience{row.audiences.length === 1 ? "" : "s"}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          <PreviewSourceBadge source={row.source} />
+          {row.skipped ? (
+            <span className="rounded-full border border-amber-400/50 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+              Skipped
+            </span>
+          ) : (
+            <span className="rounded-full border border-green-400/50 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
+              {row.audiences.length} audience{row.audiences.length === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
       </div>
 
       {row.skipped && row.skipReason && (
@@ -577,6 +580,38 @@ function PreviewEventCard({ row }: { row: BulkPreviewRow }) {
         </div>
       )}
     </div>
+  );
+}
+
+function PreviewSourceBadge({ source }: { source: BulkPreviewRow["source"] }) {
+  if (!source) return null;
+  if (source === "cache") {
+    return (
+      <span
+        title="Served from the active-creatives snapshot cache — no Meta API call."
+        className="rounded-full border border-sky-400/50 bg-sky-100 dark:bg-sky-900/40 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300"
+      >
+        from cache
+      </span>
+    );
+  }
+  if (source === "cache_stale") {
+    return (
+      <span
+        title="Served from cache but the row is past its TTL — cron will refresh on the next cycle."
+        className="rounded-full border border-amber-400/50 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300"
+      >
+        cache (stale)
+      </span>
+    );
+  }
+  return (
+    <span
+      title="Snapshot missing or pre-cache build — fell back to a live Meta walk for this event."
+      className="rounded-full border border-purple-400/50 bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300"
+    >
+      live walk
+    </span>
   );
 }
 

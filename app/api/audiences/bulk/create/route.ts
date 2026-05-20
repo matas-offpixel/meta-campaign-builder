@@ -14,13 +14,14 @@ import {
   type BulkFunnelStage,
 } from "@/lib/audiences/bulk-video";
 import { resolveAudienceSourceContext } from "@/lib/audiences/sources";
+import { getVideoSourcesFromSnapshot } from "@/lib/audiences/snapshot-video-sources";
 import { createAudienceDrafts } from "@/lib/db/meta-custom-audiences";
 import {
   createMetaCustomAudienceBatch,
   metaAudienceWritesEnabled,
 } from "@/lib/meta/audience-write";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
@@ -82,6 +83,27 @@ export async function POST(req: NextRequest) {
     const clientName =
       (clientRow as { name?: string | null } | null)?.name ?? context.clientName;
 
+    // Snapshot-cache resolver — mirrors the preview route. Cache
+    // hits eliminate the per-event campaign walk on write paths
+    // too, so creating audiences for a fully-cached batch makes
+    // ZERO Meta calls during the preview/insert phase (Meta writes
+    // for `createMetaCustomAudienceBatch` still happen — those are
+    // the whole point of the create route).
+    let resolveSnapshotSources:
+      | Parameters<typeof runBulkVideoPreview>[0]["resolveSnapshotSources"]
+      | undefined;
+    try {
+      const admin = createServiceRoleClient();
+      resolveSnapshotSources = (eventIds) =>
+        getVideoSourcesFromSnapshot(admin, eventIds);
+    } catch (err) {
+      console.warn(
+        `[bulk/create] service-role client unavailable, cache disabled: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     // Run preview (dry-run) to get structured results
     const previewRows = await runBulkVideoPreview({
       supabase,
@@ -94,6 +116,7 @@ export async function POST(req: NextRequest) {
       eventCodePrefix,
       funnelStages,
       customStages,
+      resolveSnapshotSources,
     });
 
     const skippedEvents = previewRows

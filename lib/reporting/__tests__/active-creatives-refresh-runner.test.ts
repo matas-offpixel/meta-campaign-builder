@@ -89,6 +89,23 @@ const OK_RESULT: ShareActiveCreativesResult = {
   },
 };
 
+/**
+ * OK result carrying populated audience_video_sources — the writer
+ * (active-creatives-fetch) attaches these during creative
+ * hydration. We test here that the runner forwards them through
+ * to the snapshot upsert without mangling, so the
+ * `runBulkVideoPreview` cache-read path sees the same shape on
+ * the next read.
+ */
+const OK_RESULT_WITH_VIDEO_SOURCES: ShareActiveCreativesResult = {
+  ...OK_RESULT,
+  audience_video_sources: [
+    { video_id: "v100", context_page_id: "page-A" },
+    { video_id: "v200", context_page_id: "page-A" },
+    { video_id: "v300", context_page_id: "page-B" },
+  ],
+};
+
 const ERROR_RESULT: ShareActiveCreativesResult = {
   kind: "error",
   reason: "no_owner_token",
@@ -161,6 +178,33 @@ describe("refreshActiveCreativesForEvent", () => {
       assert.equal(u.row.event_id, "evt-1");
       assert.equal(u.row.user_id, "user-1");
       assert.equal(u.row.is_stale, false);
+    }
+  });
+
+  it("forwards audience_video_sources into the snapshot payload", async () => {
+    // Regression: the bulk video-views audience builder reads
+    // `payload.audience_video_sources` to skip the live walk.
+    // If the runner ever strips or mangles the field on its way
+    // from fetcher → writer, every cache lookup degrades to a
+    // live walk silently and we burn Meta rate budget again. Lock
+    // the round-trip in here.
+    const { client, rec } = makeFakeSupabase();
+    const out = await refreshActiveCreativesForEvent({
+      ...baseInput,
+      supabase: client,
+      presets: ["maximum"],
+      _fetcher: async () => OK_RESULT_WITH_VIDEO_SOURCES,
+    });
+    assert.equal(out.ok, true);
+    assert.equal(rec.upserts.length, 1);
+    const upserted = rec.upserts[0]!.row.payload as ShareActiveCreativesResult;
+    assert.equal(upserted.kind, "ok");
+    if (upserted.kind === "ok") {
+      assert.deepEqual(upserted.audience_video_sources, [
+        { video_id: "v100", context_page_id: "page-A" },
+        { video_id: "v200", context_page_id: "page-A" },
+        { video_id: "v300", context_page_id: "page-B" },
+      ]);
     }
   });
 

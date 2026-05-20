@@ -85,6 +85,27 @@ export interface BulkPreviewAudience {
   contextId?: string;
 }
 
+/**
+ * Where the per-event video source came from on this preview run.
+ *
+ *   - `cache`           — `active_creatives_snapshots` had a fresh
+ *                         hit with `audience_video_sources`; zero
+ *                         Meta calls were made for this event.
+ *   - `cache_stale`     — snapshot served but is past its TTL or
+ *                         `is_stale` flag was set; cron will
+ *                         refresh on the next cycle.
+ *   - `live`            — snapshot missed (no row, no
+ *                         `audience_video_sources`, build_version
+ *                         mismatch); fell back to the campaign-tree
+ *                         walk. Almost always temporary — disappears
+ *                         after one cron cycle once the new shape
+ *                         lands.
+ *
+ * Surfaced in the preview UI so the operator can see at a glance
+ * which events still hit Meta, without having to grep logs.
+ */
+export type BulkPreviewSource = "cache" | "cache_stale" | "live";
+
 export interface BulkPreviewRow {
   eventId: string;
   eventCode: string;
@@ -99,6 +120,13 @@ export interface BulkPreviewRow {
   audiences: BulkPreviewAudience[];
   skipped: boolean;
   skipReason?: string;
+  /**
+   * Optional for backward compatibility with older preview
+   * fixtures / tests that pre-date the cache integration. When
+   * absent the UI defaults to no badge — the preview still works,
+   * the operator just doesn't see provenance.
+   */
+  source?: BulkPreviewSource;
 }
 
 // ── Preview → DB insert conversion ───────────────────────────────────────────

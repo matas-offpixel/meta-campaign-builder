@@ -14,8 +14,9 @@ import {
 } from "@/lib/audiences/bulk-video";
 import { resolveAudienceSourceContext } from "@/lib/audiences/sources";
 import { buildPrefixOptions } from "@/lib/audiences/event-code-prefix-scanner";
+import { getVideoSourcesFromSnapshot } from "@/lib/audiences/snapshot-video-sources";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
@@ -76,6 +77,32 @@ export async function POST(req: NextRequest) {
     const clientName =
       (clientRow as { name?: string | null } | null)?.name ?? context.clientName;
 
+    // Snapshot-cache resolver — `runBulkVideoPreview` will classify
+    // each event as cache-hit / stale / miss and fall back to the
+    // live walk per-event. Service-role client built once and
+    // closed over; reads are gated by the user-scoped event lookup
+    // performed inside `runBulkVideoPreview` (only user-owned
+    // eventIds are ever passed to the snapshot read).
+    // userClient → eventIds → serviceClient → snapshots.
+    let resolveSnapshotSources:
+      | Parameters<typeof runBulkVideoPreview>[0]["resolveSnapshotSources"]
+      | undefined;
+    try {
+      const admin = createServiceRoleClient();
+      resolveSnapshotSources = (eventIds) =>
+        getVideoSourcesFromSnapshot(admin, eventIds);
+    } catch (err) {
+      // SUPABASE_SERVICE_ROLE_KEY not configured (e.g. local dev
+      // without service role). Degrade silently to live walk —
+      // runBulkVideoPreview handles `undefined` resolver by
+      // treating every event as cache-disabled.
+      console.warn(
+        `[bulk/preview] service-role client unavailable, cache disabled: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     const rows = await runBulkVideoPreview({
       supabase,
       userId: user.id,
@@ -87,6 +114,7 @@ export async function POST(req: NextRequest) {
       eventCodePrefix,
       funnelStages,
       customStages,
+      resolveSnapshotSources,
     });
 
     const totalAudiences = rows.reduce(
