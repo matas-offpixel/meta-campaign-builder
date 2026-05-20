@@ -3,7 +3,9 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  createAudienceDraft,
   getAudienceById,
+  listSplitChildAudiences,
   updateAudience,
 } from "@/lib/db/meta-custom-audiences";
 import type { Database } from "@/lib/db/database.types";
@@ -13,7 +15,11 @@ import {
 } from "@/lib/meta/audience-idempotency";
 import {
   buildMetaCustomAudiencePayload,
+  chunkPageIds,
+  MAX_PAGE_ENGAGEMENT_SOURCES,
   pageEngagementPageIds,
+  partAudienceName,
+  stripPartSuffix,
 } from "@/lib/meta/audience-payload";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { MetaApiError } from "@/lib/meta/client";
@@ -25,9 +31,17 @@ import {
 } from "@/lib/meta/page-access";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
-import type { MetaCustomAudience } from "@/lib/types/audience";
+import type {
+  MetaCustomAudience,
+  MetaCustomAudienceInsert,
+} from "@/lib/types/audience";
 
 type TypedSupabaseClient = SupabaseClient<Database>;
+
+// The structural client the idempotency helper accepts. Annotating internal
+// helpers with this (instead of the full SupabaseClient<Database>) avoids TS
+// "excessively deep" instantiation when the client crosses a call boundary.
+type IdempotencyClient = Parameters<typeof withMetaAudienceWriteIdempotency>[0];
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -77,6 +91,21 @@ export type MetaPageAccessResolver = (
  */
 const PAGE_ENGAGEMENT_SUBTYPES = new Set(["page_engagement_fb"]);
 
+/**
+ * Subtypes built from a multi-page source set that Meta caps at
+ * {@link MAX_PAGE_ENGAGEMENT_SOURCES} sources per audience. All four share the
+ * `inclusions.rules` (one OR'd rule per source) shape, so an oversized set is
+ * split into multiple ≤5-source audiences. Unlike the prefilter (FB only),
+ * chunking is purely a count limit, so it applies to IG and followers too —
+ * the cap is enforced regardless of how access is resolved.
+ */
+const CHUNKABLE_SUBTYPES = new Set([
+  "page_engagement_fb",
+  "page_engagement_ig",
+  "page_followers_fb",
+  "page_followers_ig",
+]);
+
 export function metaAudienceWritesEnabled(): boolean {
   return process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true";
 }
@@ -116,25 +145,38 @@ export async function createMetaCustomAudience(
         supabase,
         override: options.pageAccess,
       });
-    const payload = buildMetaCustomAudiencePayload(audienceForWrite);
     const post = options.request ?? postMetaAudienceForm;
-    const metaAudienceId = await withMetaAudienceWriteIdempotency(
-      supabase,
-      {
-        idempotencyKey,
+    const pageIds = pageEngagementPageIds(audienceForWrite);
+
+    // Oversized page-engagement set → split into ≤5-source audiences (Meta's
+    // hard cap). Returns the primary row; extra parts are persisted as siblings.
+    if (
+      CHUNKABLE_SUBTYPES.has(audience.audienceSubtype) &&
+      pageIds.length > MAX_PAGE_ENGAGEMENT_SOURCES
+    ) {
+      return await writeSplitPageEngagement({
+        supabase,
+        audience,
+        audienceForWrite,
+        pageIds,
+        token,
+        post,
         userId: options.userId,
-        audienceId: audience.id,
-      },
-      async () => {
-        const result = await post(
-          `/${withActPrefix(audience.metaAdAccountId)}/customaudiences`,
-          payload,
-          token,
-        );
-        if (!result.id) throw new Error("Meta returned no audience id");
-        return result.id;
-      },
-    );
+        warning,
+      });
+    }
+
+    const payload = buildMetaCustomAudiencePayload(audienceForWrite);
+    const metaAudienceId = await createOneMetaAudience({
+      payload,
+      adAccountId: audience.metaAdAccountId,
+      token,
+      post,
+      supabase,
+      idempotencyKey,
+      userId: options.userId,
+      audienceId: audience.id,
+    });
 
     const updated = await updateAudience(audience.id, {
       status: "ready",
@@ -277,6 +319,169 @@ function withPageIds(
     ...audience,
     sourceId: pageIds.join(","),
     sourceMeta: { ...(audience.sourceMeta as Record<string, unknown>), pageIds },
+  };
+}
+
+/** Create one Custom Audience on Meta (idempotent). Returns the Meta audience id. */
+async function createOneMetaAudience(args: {
+  payload: Record<string, string>;
+  adAccountId: string;
+  token: string;
+  post: MetaAudiencePost;
+  supabase: IdempotencyClient;
+  idempotencyKey: string;
+  userId: string;
+  audienceId: string;
+}): Promise<string> {
+  return withMetaAudienceWriteIdempotency(
+    args.supabase,
+    {
+      idempotencyKey: args.idempotencyKey,
+      userId: args.userId,
+      audienceId: args.audienceId,
+    },
+    async () => {
+      const result = await args.post(
+        `/${withActPrefix(args.adAccountId)}/customaudiences`,
+        args.payload,
+        args.token,
+      );
+      if (!result.id) throw new Error("Meta returned no audience id");
+      return result.id;
+    },
+  );
+}
+
+/**
+ * Split an oversized page-engagement source set into multiple ≤5-source Custom
+ * Audiences (Meta's hard cap; see {@link MAX_PAGE_ENGAGEMENT_SOURCES}). Each part
+ * is a valid OR'd-rules audience; together they mean "engaged with ANY of these
+ * pages" once both are selected at ad-set targeting.
+ *
+ * Two phases keep retries safe:
+ *   1. Create EVERY part's Meta audience first (idempotent per part). No DB row is
+ *      mutated until all Meta creates succeed, so a mid-way failure leaves the
+ *      original row intact (full page set) for a clean re-chunk on retry.
+ *   2. Persist rows: extra parts as sibling rows (find-or-create by
+ *      source_meta.splitParentId, so a retry never duplicates them), primary row
+ *      updated LAST so it only flips to "ready" once every sibling exists.
+ *
+ * Returns the primary (part 1) row; siblings surface in the UI on refresh.
+ */
+async function writeSplitPageEngagement(args: {
+  supabase: IdempotencyClient;
+  audience: MetaCustomAudience;
+  audienceForWrite: MetaCustomAudience;
+  pageIds: string[];
+  token: string;
+  post: MetaAudiencePost;
+  userId: string;
+  warning: string | null;
+}): Promise<MetaCustomAudience> {
+  const { supabase, audience, audienceForWrite, pageIds, token, post, userId, warning } =
+    args;
+  const chunks = chunkPageIds(pageIds, MAX_PAGE_ENGAGEMENT_SOURCES);
+  const total = chunks.length;
+  const baseName = stripPartSuffix(audience.name);
+  console.log(
+    `[audience-write] ${audience.id}: ${pageIds.length} sources exceed Meta's ` +
+      `${MAX_PAGE_ENGAGEMENT_SOURCES}-source cap — splitting into ${total} audiences.`,
+  );
+
+  // Phase 1 — create all Meta audiences (idempotent per part). No row writes yet.
+  const metaIds: string[] = [];
+  for (let part = 0; part < total; part++) {
+    const partAudience = withPageIds(
+      { ...audienceForWrite, name: partAudienceName(baseName, part, total) },
+      chunks[part],
+    );
+    const metaId = await createOneMetaAudience({
+      payload: buildMetaCustomAudiencePayload(partAudience),
+      adAccountId: audience.metaAdAccountId,
+      token,
+      post,
+      supabase,
+      idempotencyKey: metaAudienceIdempotencyKey(audience.id, userId, part),
+      userId,
+      audienceId: audience.id,
+    });
+    metaIds.push(metaId);
+  }
+
+  // Phase 2 — persist rows. Siblings first (find-or-create), primary last.
+  const existingByPart = new Map<number, string>();
+  for (const child of await listSplitChildAudiences(audience.id)) {
+    const part = Number((child.sourceMeta as Record<string, unknown>).splitPart);
+    if (Number.isInteger(part)) existingByPart.set(part, child.id);
+  }
+
+  for (let part = 1; part < total; part++) {
+    const name = partAudienceName(baseName, part, total);
+    const sourceMeta = splitPartSourceMeta(audienceForWrite.sourceMeta, chunks[part], {
+      splitParentId: audience.id,
+      splitPart: part,
+      splitTotal: total,
+    });
+    const childId =
+      existingByPart.get(part) ??
+      (await createAudienceDraft(splitChildInsert(audience, name, chunks[part], sourceMeta)))
+        .id;
+    await updateAudience(childId, {
+      status: "ready",
+      metaAudienceId: metaIds[part],
+      name,
+      sourceId: chunks[part].join(","),
+      sourceMeta,
+      statusError: null,
+    });
+  }
+
+  const primary = await updateAudience(audience.id, {
+    status: "ready",
+    metaAudienceId: metaIds[0],
+    name: partAudienceName(baseName, 0, total),
+    sourceId: chunks[0].join(","),
+    sourceMeta: splitPartSourceMeta(audienceForWrite.sourceMeta, chunks[0], {
+      splitPart: 0,
+      splitTotal: total,
+    }),
+    statusError: warning,
+  });
+  if (!primary) throw new Error("Audience not found after Meta write");
+  return primary;
+}
+
+/** source_meta for a split part: narrow pageIds to the chunk + add split markers. */
+function splitPartSourceMeta(
+  parentMeta: MetaCustomAudience["sourceMeta"],
+  chunk: string[],
+  markers: { splitParentId?: string; splitPart: number; splitTotal: number },
+): Record<string, unknown> {
+  return {
+    ...(parentMeta as Record<string, unknown>),
+    pageIds: chunk,
+    ...markers,
+  };
+}
+
+/** Insert input for a split sibling row, copied from the parent audience. */
+function splitChildInsert(
+  parent: MetaCustomAudience,
+  name: string,
+  chunk: string[],
+  sourceMeta: Record<string, unknown>,
+): MetaCustomAudienceInsert {
+  return {
+    userId: parent.userId,
+    clientId: parent.clientId,
+    eventId: parent.eventId,
+    name,
+    funnelStage: parent.funnelStage,
+    audienceSubtype: parent.audienceSubtype,
+    retentionDays: parent.retentionDays,
+    sourceId: chunk.join(","),
+    sourceMeta,
+    metaAdAccountId: parent.metaAdAccountId,
   };
 }
 

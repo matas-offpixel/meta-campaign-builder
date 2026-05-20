@@ -8,8 +8,16 @@ type TypedSupabaseClient = {
   };
 };
 
-export function metaAudienceIdempotencyKey(audienceId: string, userId: string) {
-  return `mca:${audienceId}:${userId}`;
+export function metaAudienceIdempotencyKey(
+  audienceId: string,
+  userId: string,
+  /** Part index for split (>5-source) audiences. Part 0 keeps the original key
+   *  for backward compatibility; later parts get a distinct `:p{n}` suffix so
+   *  each chunk's Meta create is independently idempotent. */
+  part = 0,
+) {
+  const base = `mca:${audienceId}:${userId}`;
+  return part > 0 ? `${base}:p${part}` : base;
 }
 
 export async function withMetaAudienceWriteIdempotency(
