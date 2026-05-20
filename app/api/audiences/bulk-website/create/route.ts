@@ -36,7 +36,7 @@ interface BulkWebsiteCreateBody {
   pixelId?: unknown;
   labelOverride?: unknown;
   pixelEvents?: unknown;
-  urlKeyword?: unknown;
+  urlKeywords?: unknown;
   retentions?: unknown;
   createOnMeta?: unknown;
 }
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       labelOverride: parsed.labelOverride,
       pixelId: parsed.pixelId,
       pixelEvents: parsed.pixelEvents,
-      urlKeyword: parsed.urlKeyword,
+      urlKeywords: parsed.urlKeywords,
       retentions: parsed.retentions,
     };
     const preview = buildWebsitePreview(sourceOpts);
@@ -186,7 +186,7 @@ interface ParsedCreateBody {
   pixelId: string;
   labelOverride: string | null;
   pixelEvents: BulkWebsitePixelEvent[];
-  urlKeyword: string;
+  urlKeywords: string[];
   retentions: number[];
   createOnMeta: boolean;
 }
@@ -214,8 +214,7 @@ function parseCreateBody(
     return { ok: false, error: "Pick at least one retention window" };
   }
 
-  const urlKeyword =
-    typeof body?.urlKeyword === "string" ? body.urlKeyword.trim() : "";
+  const urlKeywords = parseUrlKeywords(body?.urlKeywords);
 
   const labelOverride =
     typeof body?.labelOverride === "string" && body.labelOverride.trim()
@@ -228,10 +227,23 @@ function parseCreateBody(
     pixelId,
     labelOverride,
     pixelEvents,
-    urlKeyword,
+    urlKeywords,
     retentions,
     createOnMeta: body?.createOnMeta === true,
   };
+}
+
+function parseUrlKeywords(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    const s = typeof entry === "string" ? entry.trim() : "";
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
 }
 
 function parseRetentions(raw: unknown): number[] {
