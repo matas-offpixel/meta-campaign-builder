@@ -103,10 +103,28 @@ export interface RunBulkPreviewOpts {
    * — every event takes the live-walk path. Keeps backward
    * compatibility for any caller that hasn't been plumbed through
    * yet (and lets the existing test suite keep running unchanged).
+   *
+   * Ignored when `videoIdOverride` is set (video-ID mode bypasses the
+   * campaign walk and snapshot cache entirely).
    */
   resolveSnapshotSources?: (
     eventIds: readonly string[],
   ) => Promise<Map<string, SnapshotVideoSourcesResult>>;
+  /**
+   * Video-ID input mode. When provided, Phase 0 (snapshot cache) and
+   * Phase 1 (campaign walk) are both skipped. These IDs are used
+   * directly as the video source for every event under the selected
+   * prefix. Phase 2 (batched `/?ids=&fields=from` for from.id orphan
+   * filter) still runs — it hits Meta's video-object rate bucket (#4,
+   * high ceiling) rather than the ad-account campaign-walk bucket
+   * (#80004) that has been throttling.
+   *
+   * Campaigns are still fetched for display purposes (the preview
+   * card shows "N campaigns matched") but they do NOT gate which
+   * events are included or which videos are shown — events without
+   * matched campaigns are NOT skipped in this mode.
+   */
+  videoIdOverride?: string[];
 }
 
 /**
@@ -126,6 +144,7 @@ export async function runBulkVideoPreview(
   const {
     supabase, userId, clientId, metaAdAccountId, clientName, clientSlug,
     token, eventCodePrefix, funnelStages, customStages, resolveSnapshotSources,
+    videoIdOverride,
   } = opts;
 
   // 1. Fetch all events for this client
@@ -177,8 +196,11 @@ export async function runBulkVideoPreview(
   // drag the rest back onto Meta. See
   // `docs/META_API_BOTTLENECKS_2026-05-08.md` for the rate-limit
   // pressure this cache is mitigating.
+  //
+  // Skipped when `videoIdOverride` is set — user-provided IDs bypass
+  // both the snapshot cache and the campaign walk entirely.
   let snapshotByEvent: Map<string, SnapshotVideoSourcesResult> = new Map();
-  if (resolveSnapshotSources) {
+  if (resolveSnapshotSources && !videoIdOverride) {
     try {
       snapshotByEvent = await resolveSnapshotSources(events.map((e) => e.id));
     } catch (err) {
@@ -221,6 +243,13 @@ export async function runBulkVideoPreview(
     errorMsg?: string;
     /** `cache` / `cache_stale` / `live` — drives the preview-row badge. */
     source: BulkPreviewSource;
+    /**
+     * true when videoIdOverride is active. Skips the "no campaigns
+     * found" early-exit in buildRowFromWalk so the user can build
+     * audiences from explicit IDs even for events without matched
+     * campaigns in the ad account.
+     */
+    videoIdMode: boolean;
   };
 
   const walks = await mapConcurrent(events, 5, async (event): Promise<EventWalk> => {
@@ -233,6 +262,25 @@ export async function runBulkVideoPreview(
     const matched = allCampaigns.filter((c) =>
       campaignMatchesBracketedEventCode(c.name, event.event_code!),
     );
+
+    // Video-ID override mode — user supplied IDs directly (no campaign walk,
+    // no snapshot cache). Campaigns are still fetched for the display row
+    // (matched campaign count / names) but do NOT gate video collection.
+    if (videoIdOverride && videoIdOverride.length > 0) {
+      console.info(
+        `[bulk-video] event=${code} source=video_id_override videos=${videoIdOverride.length}`,
+      );
+      return {
+        event,
+        code,
+        matched,
+        rawVideoIds: new Set(videoIdOverride),
+        pageIds: [],
+        snapshotPageByVideo: new Map(),
+        source: "live" as const,
+        videoIdMode: true,
+      };
+    }
 
     const snapshot = snapshotByEvent.get(event.id);
 
@@ -263,6 +311,7 @@ export async function runBulkVideoPreview(
         pageIds,
         snapshotPageByVideo,
         source: snapshot.stale ? "cache_stale" : "cache",
+        videoIdMode: false,
       };
     }
 
@@ -299,6 +348,7 @@ export async function runBulkVideoPreview(
       snapshotPageByVideo: new Map(),
       errorMsg,
       source: "live",
+      videoIdMode: false,
     };
   });
 
@@ -388,6 +438,8 @@ type EventWalkInput = {
   snapshotPageByVideo: Map<string, string>;
   errorMsg?: string;
   source: BulkPreviewSource;
+  /** See RunBulkPreviewOpts.videoIdOverride. */
+  videoIdMode: boolean;
 };
 
 type RowBuilderOpts = {
@@ -419,12 +471,18 @@ function buildRowFromWalk(
     | undefined,
   opts: RowBuilderOpts,
 ): BulkPreviewRow {
-  const { event, code, matched, rawVideoIds, pageIds, snapshotPageByVideo, errorMsg, source } = walk;
+  const {
+    event, code, matched, rawVideoIds, pageIds, snapshotPageByVideo,
+    errorMsg, source, videoIdMode,
+  } = walk;
   const { clientSlug, clientName, funnelStages, customStages } = opts;
   const campaignSummaries = matched.map((c) => ({ id: c.id, name: c.name }));
   const campaignIds = matched.map((c) => c.id);
 
-  if (matched.length === 0) {
+  // In campaign-walk mode, no matched campaigns → nothing to walk → skip.
+  // In video-ID mode, matched campaigns are display-only; the user provided IDs
+  // directly so we proceed even when no campaigns matched the event code.
+  if (matched.length === 0 && !videoIdMode) {
     return {
       eventId: event.id,
       eventCode: code,
@@ -532,8 +590,10 @@ function buildRowFromWalk(
       skipped: true,
       skipReason:
         orphanCount > 0
-          ? "No page-published videos — all found videos were uploaded directly to the ad account."
-          : "No videos found in matched campaigns.",
+          ? "No page-published videos — all supplied videos were uploaded directly to the ad account (no FB Page link)."
+          : videoIdMode
+            ? "None of the provided video IDs resolved to a valid Meta video object."
+            : "No videos found in matched campaigns.",
       source,
     };
   }
