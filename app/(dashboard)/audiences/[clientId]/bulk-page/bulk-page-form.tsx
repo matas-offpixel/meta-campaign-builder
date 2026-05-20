@@ -410,8 +410,8 @@ export function BulkPageAudiencesForm({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Each ticked subtype becomes one audience per ticked retention.
-            Followers ignore retention on Meta — Meta forces always-live for
-            those rules — but the cell name still reflects the requested days.
+            Followers subtypes always produce exactly one audience (retention
+            not applicable — Meta forces always-live for followers rules).
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {BULK_PAGE_SUBTYPES.map((subtype) => {
@@ -466,6 +466,11 @@ export function BulkPageAudiencesForm({
           <p className="mt-1 text-sm text-muted-foreground">
             Tick standard windows or add custom day counts (1–365).
           </p>
+          {[...selectedSubtypes].some(isFollowersSubtype) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Retention not applicable to followers — one audience each regardless of how many windows are ticked.
+            </p>
+          )}
           <div className="mt-3 grid gap-2 sm:grid-cols-4">
             {DEFAULT_PAGE_RETENTIONS.map((days) => {
               const checked = selectedRetentions.has(days);
@@ -652,7 +657,8 @@ function PreviewPanel({
                 >
                   <p className="font-medium truncate">{cell.name}</p>
                   <p className="mt-0.5 text-muted-foreground">
-                    {cell.retentionDays}d · {cell.funnelStage.replace(/_/g, " ")}
+                    {isFollowersSubtype(cell.subtype) ? "always-live" : `${cell.retentionDays}d`}
+                    {" · "}{cell.funnelStage.replace(/_/g, " ")}
                   </p>
                 </div>
               ))}

@@ -103,7 +103,7 @@ describe("funnelStageForCell", () => {
 // ── 3. buildPagePreview — matrix shape ────────────────────────────────────────
 
 describe("buildPagePreview matrix shape", () => {
-  it("2 subtypes × 4 retentions = 8 cells in stable order", () => {
+  it("1 engagement + 1 followers × 4 retentions = 5 cells (engagement×4 + followers×1)", () => {
     const preview = buildPagePreview({
       clientSlug: "innervisions",
       clientName: "Innervisions",
@@ -114,15 +114,33 @@ describe("buildPagePreview matrix shape", () => {
       igAccountIds: [],
       igSummaries: [],
     });
-    assert.equal(preview.cells.length, 8);
-    // Subtype grouping: engagement cells come first.
+    // engagement×4 retentions + followers×1 = 5
+    assert.equal(preview.cells.length, 5);
+    // Subtype grouping: engagement cells come first, then the single followers cell.
     assert.equal(preview.cells[0]!.subtype, "page_engagement_fb");
     assert.equal(preview.cells[3]!.subtype, "page_engagement_fb");
     assert.equal(preview.cells[4]!.subtype, "page_followers_fb");
-    assert.equal(preview.cells[7]!.subtype, "page_followers_fb");
   });
 
-  it("4 subtypes × 4 retentions = 16 cells (full matrix)", () => {
+  it("followers always produce exactly 1 cell regardless of retention count", () => {
+    for (const subtype of ["page_followers_fb", "page_followers_ig"] as const) {
+      const ids = isIgSubtype(subtype) ? [] : ["100"];
+      const igIds = isIgSubtype(subtype) ? ["200"] : [];
+      const preview = buildPagePreview({
+        clientSlug: "x",
+        clientName: "X",
+        subtypes: [subtype],
+        retentions: [30, 60, 180, 365],
+        fbPageIds: ids,
+        fbSummaries: [],
+        igAccountIds: igIds,
+        igSummaries: [],
+      });
+      assert.equal(preview.cells.length, 1, `${subtype} should produce 1 cell`);
+    }
+  });
+
+  it("4 subtypes × 4 retentions → 2 engagement×4 + 2 followers×1 = 10 cells", () => {
     const preview = buildPagePreview({
       clientSlug: "innervisions",
       clientName: "Innervisions",
@@ -133,7 +151,23 @@ describe("buildPagePreview matrix shape", () => {
       igAccountIds: ["200"],
       igSummaries: [{ id: "200", name: "@innervisions" }],
     });
-    assert.equal(preview.cells.length, 16);
+    // 2 engagement subtypes × 4 retentions + 2 followers subtypes × 1 = 10
+    assert.equal(preview.cells.length, 10);
+  });
+
+  it("only engagement subtypes still produce the full N×M matrix", () => {
+    const preview = buildPagePreview({
+      clientSlug: "x",
+      clientName: "X",
+      subtypes: ["page_engagement_fb", "page_engagement_ig"],
+      retentions: [30, 60, 180, 365],
+      fbPageIds: ["100"],
+      fbSummaries: [],
+      igAccountIds: ["200"],
+      igSummaries: [],
+    });
+    // 2 engagement × 4 retentions = 8
+    assert.equal(preview.cells.length, 8);
   });
 });
 
@@ -153,6 +187,44 @@ describe("buildPagePreview naming", () => {
     });
     assert.equal(preview.labelPrefix, "innervisions");
     assert.equal(preview.cells[0]!.name, "[innervisions] FB page engagement 180d");
+  });
+
+  it("followers cell has NO retention suffix (always-live naming)", () => {
+    const preview = buildPagePreview({
+      clientSlug: "innervisions",
+      clientName: "Innervisions",
+      subtypes: ["page_followers_fb", "page_followers_ig"],
+      retentions: [30, 60, 180, 365],
+      fbPageIds: ["100"],
+      fbSummaries: [],
+      igAccountIds: ["200"],
+      igSummaries: [],
+    });
+    // Two followers subtypes → exactly 2 cells
+    assert.equal(preview.cells.length, 2);
+    assert.equal(preview.cells[0]!.name, "[innervisions] FB page followers");
+    assert.equal(preview.cells[1]!.name, "[innervisions] IG page followers");
+    // Retention sentinel is 365 (always-live convention)
+    assert.equal(preview.cells[0]!.retentionDays, 365);
+    assert.equal(preview.cells[1]!.retentionDays, 365);
+    // Funnel stage for followers is always top_of_funnel
+    assert.equal(preview.cells[0]!.funnelStage, "top_of_funnel");
+  });
+
+  it("labelOverride applied to followers cell name", () => {
+    const preview = buildPagePreview({
+      clientSlug: "innervisions",
+      clientName: "Innervisions",
+      labelOverride: "Spring Tour",
+      subtypes: ["page_followers_fb"],
+      retentions: [30, 60, 180],
+      fbPageIds: ["100"],
+      fbSummaries: [],
+      igAccountIds: [],
+      igSummaries: [],
+    });
+    assert.equal(preview.cells.length, 1);
+    assert.equal(preview.cells[0]!.name, "[Spring Tour] FB page followers");
   });
 
   it("falls back to client name when slug is null", () => {
