@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {to fill after `gh pr create`}
+- **Number:** 435
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/435
 - **Branch:** `cursor/creator/bulk-page-followers-no-retention`
 
 ## Summary
