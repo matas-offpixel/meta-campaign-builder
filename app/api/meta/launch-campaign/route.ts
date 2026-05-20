@@ -36,6 +36,7 @@ import {
   resolveIgActorForAdAccount,
 } from "@/lib/meta/page-token";
 import { validateMetaToken } from "@/lib/meta/server-token";
+import { mapLaunchTokenError } from "@/lib/meta/launch-error-classify";
 import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
   mapMetaObjectiveToInternal,
@@ -291,19 +292,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (liveTokenValidation) {
     if (!liveTokenValidation.valid) {
+      // A failed /debug_token does NOT always mean the token is expired — the
+      // validation call itself can be RATE-LIMITED (#4/#17/#341/#80004) when the
+      // token is fresh. Map by code so we don't tell the user to reconnect for a
+      // transient rate limit (see project_auth_error_masks_rate_limit).
+      const mapped = mapLaunchTokenError(liveTokenValidation.code);
       console.error(
-        `[launch-campaign] ⛔ /debug_token → INVALID — blocking launch` +
+        `[launch-campaign] ⛔ /debug_token → INVALID — blocking launch (${mapped.kind})` +
         `\n  tokenSource:    ${launchTokenSource}` +
+        `\n  meta_code:      ${liveTokenValidation.code ?? "n/a"}` +
         `\n  error:          ${liveTokenValidation.error ?? "unknown"}`,
       );
       return NextResponse.json(
         {
-          error:
-            "Your Facebook connection has expired. Please reconnect Facebook in Account Setup before launching.",
-          tokenExpired: true,
+          error: mapped.message,
+          // Only flag token expiry for genuine auth failures — a rate limit must
+          // not trigger the client's reconnect flow.
+          ...(mapped.kind === "rate_limit"
+            ? { rateLimited: true }
+            : { tokenExpired: true }),
           detail: liveTokenValidation.error,
         },
-        { status: 401 },
+        { status: mapped.status },
       );
     }
 

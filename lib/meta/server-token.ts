@@ -35,6 +35,14 @@ export interface TokenValidation {
   expiresAt?: number;
   scopes?: string[];
   error?: string;
+  /**
+   * Numeric Meta error code when `valid` is false. Lets callers distinguish a
+   * genuine auth failure (#190/#102 → reconnect) from a rate-limited
+   * /debug_token call (#4/#17/#341/#80004 → transient, retry) instead of
+   * blindly treating every failure as token expiry. Undefined for non-Meta
+   * failures (network error, missing app credentials).
+   */
+  code?: number;
 }
 
 /**
@@ -82,12 +90,20 @@ export async function validateMetaToken(token: string): Promise<TokenValidation>
     };
 
     if (!res.ok || json.error) {
-      return { valid: false, error: json.error?.message ?? `HTTP ${res.status}` };
+      return {
+        valid: false,
+        error: json.error?.message ?? `HTTP ${res.status}`,
+        code: json.error?.code,
+      };
     }
 
     const d = json.data ?? {};
     if (d.error) {
-      return { valid: false, error: d.error.message ?? "Meta returned data.error" };
+      return {
+        valid: false,
+        error: d.error.message ?? "Meta returned data.error",
+        code: d.error.code,
+      };
     }
 
     return {
