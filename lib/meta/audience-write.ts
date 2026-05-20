@@ -18,6 +18,7 @@ import {
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { MetaApiError } from "@/lib/meta/client";
 import {
+  businessSharedPages,
   pageLabel,
   resolvePageAccess,
   type PageAccessResult,
@@ -60,11 +61,21 @@ export type MetaPageAccessResolver = (
   token: string,
 ) => Promise<PageAccessResult>;
 
-/** Page-engagement subtypes whose multi-page source set Meta builds atomically. */
-const PAGE_ENGAGEMENT_SUBTYPES = new Set([
-  "page_engagement_fb",
-  "page_engagement_ig",
-]);
+/**
+ * Subtypes whose multi-page source set Meta builds atomically and that the
+ * access prefilter can actually validate.
+ *
+ * page_engagement_ig is INTENTIONALLY excluded: its source picker
+ * (components/audiences/source-picker.tsx IgSourcePicker) stores **Instagram
+ * Business Account IDs** (1784140…-prefix) in `pageIds`, not the linked FB Page
+ * IDs. The prefilter resolves access against FB Pages (per-page `tasks` probe +
+ * the BM owned/client_pages list), so it can't validate IG account IDs —
+ * probing them errors (#100, no `tasks` field on IGUser) and they never match
+ * the FB-page BM list, which would false-drop every IG page. Excluding IG sends
+ * those audiences straight to Meta (pre-#425 behaviour). Proper IG→FB-page
+ * mapping is a separate fix tracked outside this PR.
+ */
+const PAGE_ENGAGEMENT_SUBTYPES = new Set(["page_engagement_fb"]);
 
 export function metaAudienceWritesEnabled(): boolean {
   return process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true";
@@ -101,11 +112,10 @@ export async function createMetaCustomAudience(
   await updateAudience(audience.id, { status: "creating", statusError: null });
   try {
     const { audience: audienceForWrite, warning } =
-      await prefilterPageEngagementAccess(
-        audience,
-        token,
-        options.pageAccess ?? resolvePageAccess,
-      );
+      await prefilterPageEngagementAccess(audience, token, {
+        supabase,
+        override: options.pageAccess,
+      });
     const payload = buildMetaCustomAudiencePayload(audienceForWrite);
     const post = options.request ?? postMetaAudienceForm;
     const metaAudienceId = await withMetaAudienceWriteIdempotency(
@@ -146,14 +156,20 @@ export async function createMetaCustomAudience(
 }
 
 /**
- * For multi-page page-engagement audiences, drop pages the token can't access
- * BEFORE building the rule, so Meta doesn't atomically reject the whole create
- * with #200 subcode 1713153. Returns the (possibly rewritten) audience plus a
+ * For multi-page page-engagement audiences, drop pages we can't access BEFORE
+ * building the rule, so Meta doesn't atomically reject the whole create with
+ * #200 subcode 1713153. Returns the (possibly rewritten) audience plus a
  * non-fatal warning when some pages were dropped.
  *
  *   - 0 pages accessible → throws (caught upstream → status "failed").
  *   - some accessible    → builds from the accessible subset + warning.
  *   - all accessible     → audience unchanged, no warning.
+ *
+ * Access is resolved from TWO sources (see resolvePageAccess): the per-page
+ * tasks probe AND the client's Business Manager page list (owned + partner-
+ * shared). The BM list rescues "Ads and Insights" partner-shared pages whose
+ * personal-token tasks probe is empty. If the client has no meta_business_id we
+ * fall back to the per-page probe alone.
  *
  * Single-page audiences are left untouched: there is no atomic-set hazard, and
  * Meta's own error is clear enough for the one-page case.
@@ -161,7 +177,11 @@ export async function createMetaCustomAudience(
 async function prefilterPageEngagementAccess(
   audience: MetaCustomAudience,
   token: string,
-  resolve: MetaPageAccessResolver,
+  deps: {
+    supabase: TypedSupabaseClient;
+    /** Test/override hook — when set, bypasses BM resolution entirely. */
+    override?: MetaPageAccessResolver;
+  },
 ): Promise<{ audience: MetaCustomAudience; warning: string | null }> {
   if (!PAGE_ENGAGEMENT_SUBTYPES.has(audience.audienceSubtype)) {
     return { audience, warning: null };
@@ -172,14 +192,16 @@ async function prefilterPageEngagementAccess(
     return { audience, warning: null };
   }
 
+  const resolve =
+    deps.override ?? (await buildBmAwareResolver(deps.supabase, audience));
   const { accessiblePageIds, dropped, names } = await resolve(requested, token);
   const totalDistinct = accessiblePageIds.length + dropped.length;
 
   if (accessiblePageIds.length === 0) {
     const blocked = dropped.map((d) => pageLabel(d.pageId, names)).join(", ");
     throw new Error(
-      `No accessible pages — token lacks admin on: ${blocked}. ` +
-        `Ask the client to grant page access.`,
+      `No accessible pages — neither your token nor the client's Business ` +
+        `Manager can access: ${blocked}. Ask the client to grant page access.`,
     );
   }
 
@@ -190,10 +212,60 @@ async function prefilterPageEngagementAccess(
   const droppedLabels = dropped.map((d) => pageLabel(d.pageId, names)).join(", ");
   const warning =
     `Created from ${accessiblePageIds.length} of ${totalDistinct} pages. ` +
-    `Dropped (no token access): ${droppedLabels}.`;
+    `Dropped (no token or BM access): ${droppedLabels}.`;
   console.warn(`[audience-write] ${audience.id}: ${warning}`);
 
   return { audience: withPageIds(audience, accessiblePageIds), warning };
+}
+
+/**
+ * Build a page-access resolver wired to the client's Business Manager. Resolves
+ * the client's stored `meta_business_id`; when present, the resolver also checks
+ * the BM owned/partner-shared page list. When absent, it degrades to the
+ * per-page tasks probe alone (PR #425 behaviour).
+ */
+async function buildBmAwareResolver(
+  supabase: TypedSupabaseClient,
+  audience: MetaCustomAudience,
+): Promise<MetaPageAccessResolver> {
+  const businessId = await resolveClientBusinessId(supabase, audience.clientId);
+  const businessPages = businessId ? businessSharedPages(businessId) : undefined;
+  if (!businessId) {
+    console.warn(
+      `[audience-write] ${audience.id}: client ${audience.clientId} has no ` +
+        `meta_business_id — falling back to user-token-only page access probe.`,
+    );
+  }
+  return (pageIds, tok) => resolvePageAccess(pageIds, tok, { businessPages });
+}
+
+/** Read the client's stored Meta Business Manager id; null if unset or on error. */
+async function resolveClientBusinessId(
+  supabase: TypedSupabaseClient,
+  clientId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("meta_business_id")
+      .eq("id", clientId)
+      .maybeSingle();
+    if (error) {
+      console.warn(
+        `[audience-write] meta_business_id lookup failed for client ${clientId}: ${error.message}`,
+      );
+      return null;
+    }
+    const bid = (data as { meta_business_id?: string | null } | null)
+      ?.meta_business_id;
+    return bid && bid.trim() ? bid.trim() : null;
+  } catch (err) {
+    console.warn(
+      "[audience-write] meta_business_id lookup threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
 }
 
 /** Shallow clone with the page source narrowed to `pageIds` (accessible subset). */
