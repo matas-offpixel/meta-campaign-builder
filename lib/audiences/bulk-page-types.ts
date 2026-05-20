@@ -45,7 +45,9 @@ export const BULK_PAGE_SUBTYPE_SHORT_LABELS: Record<BulkPageSubtype, string> = {
 };
 
 /** True for followers subtypes — Meta forces retention to 0 (always-live). */
-export function isFollowersSubtype(subtype: BulkPageSubtype): boolean {
+export function isFollowersSubtype(
+  subtype: BulkPageSubtype,
+): subtype is "page_followers_fb" | "page_followers_ig" {
   return subtype === "page_followers_fb" || subtype === "page_followers_ig";
 }
 
@@ -134,6 +136,30 @@ export interface BulkPagePreview {
   cells: BulkPagePreviewCell[];
 }
 
+/**
+ * Audience name phrase for followers subtypes (no retention suffix).
+ *
+ * Followers are always-live on Meta (retention_seconds forced to 0 by the
+ * payload builder). Emitting one cell per retention would create identical
+ * duplicate audiences. So the builder emits exactly ONE cell per followers
+ * subtype, named without a retention suffix — matching what Meta actually
+ * stores. Uses the same phrasing as naming.ts:subtypeMiddlePhrase.
+ */
+const FOLLOWERS_CELL_PHRASE: Record<
+  "page_followers_fb" | "page_followers_ig",
+  string
+> = {
+  page_followers_fb: "FB page followers",
+  page_followers_ig: "IG page followers",
+};
+
+/**
+ * Retention days stored in the DB row for the single followers cell.
+ * Meta ignores this (forces retention_seconds=0), so we use 365 as a
+ * sentinel matching the funnel-presets convention for always-live audiences.
+ */
+const FOLLOWERS_RETENTION_SENTINEL = 365;
+
 // ── Preview builder (pure) ────────────────────────────────────────────────────
 
 export interface BuildPagePreviewOpts {
@@ -153,6 +179,15 @@ export interface BuildPagePreviewOpts {
 /**
  * Compute the (subtype × retention) matrix preview from a single source
  * selection. Pure: no DB, no Meta calls. Splits are derived from the cap.
+ *
+ * Followers subtypes emit exactly ONE cell regardless of how many retention
+ * windows are ticked. Page-followers audiences are always-live on Meta
+ * (retention_seconds forced to 0 by the payload builder), so "30d / 60d /
+ * 180d / 365d" followers cells are four IDENTICAL audiences. The single cell
+ * uses FOLLOWERS_RETENTION_SENTINEL (365) and carries no retention suffix in
+ * the name, matching how Meta actually stores the audience.
+ *
+ * Engagement subtypes keep the full (subtype × retention) matrix unchanged.
  */
 export function buildPagePreview(opts: BuildPagePreviewOpts): BulkPagePreview {
   const labelPrefix = resolveLabelPrefix(opts);
@@ -169,15 +204,21 @@ export function buildPagePreview(opts: BuildPagePreviewOpts): BulkPagePreview {
     const willSplit = partCount > 1;
     if (willSplit) anySplit = true;
 
-    const effectiveRetentions = isFollowersSubtype(subtype)
-      ? // Followers ignore retention on Meta, but we still keep one cell per
-        // requested retention so the preview reflects what the user asked for —
-        // every cell will be sanitised to the matching name and have its
-        // retention encoded as 0 by the payload builder.
-        opts.retentions
-      : opts.retentions;
+    if (isFollowersSubtype(subtype)) {
+      // Single cell — no retention window. Name has no "Nd" suffix.
+      const phrase = FOLLOWERS_CELL_PHRASE[subtype];
+      cells.push({
+        subtype,
+        retentionDays: FOLLOWERS_RETENTION_SENTINEL,
+        funnelStage: "top_of_funnel",
+        name: `[${labelPrefix}] ${phrase}`,
+        willSplit,
+        partCount,
+      });
+      continue;
+    }
 
-    for (const retentionDays of effectiveRetentions) {
+    for (const retentionDays of opts.retentions) {
       const clamped = clampRetentionDays(retentionDays);
       const funnelStage = funnelStageForCell(subtype, clamped);
       const name = buildAudienceName({
