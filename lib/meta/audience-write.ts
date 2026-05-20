@@ -11,9 +11,17 @@ import {
   metaAudienceIdempotencyKey,
   withMetaAudienceWriteIdempotency,
 } from "@/lib/meta/audience-idempotency";
-import { buildMetaCustomAudiencePayload } from "@/lib/meta/audience-payload";
+import {
+  buildMetaCustomAudiencePayload,
+  pageEngagementPageIds,
+} from "@/lib/meta/audience-payload";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import { MetaApiError } from "@/lib/meta/client";
+import {
+  pageLabel,
+  resolvePageAccess,
+  type PageAccessResult,
+} from "@/lib/meta/page-access";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 import type { MetaCustomAudience } from "@/lib/types/audience";
@@ -46,6 +54,18 @@ export type MetaAudiencePost = (
   token: string,
 ) => Promise<{ id: string }>;
 
+/** Page-access resolver — injectable so the pre-filter is testable offline. */
+export type MetaPageAccessResolver = (
+  pageIds: string[],
+  token: string,
+) => Promise<PageAccessResult>;
+
+/** Page-engagement subtypes whose multi-page source set Meta builds atomically. */
+const PAGE_ENGAGEMENT_SUBTYPES = new Set([
+  "page_engagement_fb",
+  "page_engagement_ig",
+]);
+
 export function metaAudienceWritesEnabled(): boolean {
   return process.env.OFFPIXEL_META_AUDIENCE_WRITES_ENABLED === "true";
 }
@@ -62,6 +82,7 @@ export async function createMetaCustomAudience(
     userId: string;
     supabase?: TypedSupabaseClient;
     request?: MetaAudiencePost;
+    pageAccess?: MetaPageAccessResolver;
   },
 ): Promise<MetaCustomAudience> {
   assertMetaAudienceWritesEnabled();
@@ -79,7 +100,13 @@ export async function createMetaCustomAudience(
 
   await updateAudience(audience.id, { status: "creating", statusError: null });
   try {
-    const payload = buildMetaCustomAudiencePayload(audience);
+    const { audience: audienceForWrite, warning } =
+      await prefilterPageEngagementAccess(
+        audience,
+        token,
+        options.pageAccess ?? resolvePageAccess,
+      );
+    const payload = buildMetaCustomAudiencePayload(audienceForWrite);
     const post = options.request ?? postMetaAudienceForm;
     const metaAudienceId = await withMetaAudienceWriteIdempotency(
       supabase,
@@ -102,7 +129,8 @@ export async function createMetaCustomAudience(
     const updated = await updateAudience(audience.id, {
       status: "ready",
       metaAudienceId,
-      statusError: null,
+      // Non-fatal warning (dropped pages) recorded on a successful create.
+      statusError: warning,
     });
     if (!updated) throw new Error("Audience not found after Meta write");
     return updated;
@@ -117,12 +145,76 @@ export async function createMetaCustomAudience(
   }
 }
 
+/**
+ * For multi-page page-engagement audiences, drop pages the token can't access
+ * BEFORE building the rule, so Meta doesn't atomically reject the whole create
+ * with #200 subcode 1713153. Returns the (possibly rewritten) audience plus a
+ * non-fatal warning when some pages were dropped.
+ *
+ *   - 0 pages accessible → throws (caught upstream → status "failed").
+ *   - some accessible    → builds from the accessible subset + warning.
+ *   - all accessible     → audience unchanged, no warning.
+ *
+ * Single-page audiences are left untouched: there is no atomic-set hazard, and
+ * Meta's own error is clear enough for the one-page case.
+ */
+async function prefilterPageEngagementAccess(
+  audience: MetaCustomAudience,
+  token: string,
+  resolve: MetaPageAccessResolver,
+): Promise<{ audience: MetaCustomAudience; warning: string | null }> {
+  if (!PAGE_ENGAGEMENT_SUBTYPES.has(audience.audienceSubtype)) {
+    return { audience, warning: null };
+  }
+
+  const requested = pageEngagementPageIds(audience);
+  if (requested.length <= 1) {
+    return { audience, warning: null };
+  }
+
+  const { accessiblePageIds, dropped, names } = await resolve(requested, token);
+  const totalDistinct = accessiblePageIds.length + dropped.length;
+
+  if (accessiblePageIds.length === 0) {
+    const blocked = dropped.map((d) => pageLabel(d.pageId, names)).join(", ");
+    throw new Error(
+      `No accessible pages — token lacks admin on: ${blocked}. ` +
+        `Ask the client to grant page access.`,
+    );
+  }
+
+  if (dropped.length === 0) {
+    return { audience, warning: null };
+  }
+
+  const droppedLabels = dropped.map((d) => pageLabel(d.pageId, names)).join(", ");
+  const warning =
+    `Created from ${accessiblePageIds.length} of ${totalDistinct} pages. ` +
+    `Dropped (no token access): ${droppedLabels}.`;
+  console.warn(`[audience-write] ${audience.id}: ${warning}`);
+
+  return { audience: withPageIds(audience, accessiblePageIds), warning };
+}
+
+/** Shallow clone with the page source narrowed to `pageIds` (accessible subset). */
+function withPageIds(
+  audience: MetaCustomAudience,
+  pageIds: string[],
+): MetaCustomAudience {
+  return {
+    ...audience,
+    sourceId: pageIds.join(","),
+    sourceMeta: { ...(audience.sourceMeta as Record<string, unknown>), pageIds },
+  };
+}
+
 export async function createMetaCustomAudienceBatch(
   audienceIds: string[],
   options: {
     userId: string;
     supabase?: TypedSupabaseClient;
     request?: MetaAudiencePost;
+    pageAccess?: MetaPageAccessResolver;
   },
 ): Promise<MetaAudienceBatchResult> {
   assertMetaAudienceWritesEnabled();

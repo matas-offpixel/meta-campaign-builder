@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   buildMetaCustomAudiencePayload,
+  pageEngagementPageIds,
   sanitizeAudienceName,
 } from "../audience-payload.ts";
 import type { MetaCustomAudience } from "../../types/audience.ts";
@@ -39,6 +40,31 @@ describe("sanitizeAudienceName", () => {
 
   it("collapses consecutive separators to a single underscore", () => {
     assert.equal(sanitizeAudienceName("a   b"), "a_b");
+  });
+});
+
+describe("pageEngagementPageIds", () => {
+  it("prefers sourceMeta.pageIds (trimmed) over sourceId", () => {
+    assert.deepEqual(
+      pageEngagementPageIds({
+        sourceId: "999",
+        sourceMeta: {
+          subtype: "page_engagement_fb",
+          pageIds: [" 100000001 ", "100000002"],
+        },
+      }),
+      ["100000001", "100000002"],
+    );
+  });
+
+  it("falls back to comma-split sourceId when pageIds is absent/empty", () => {
+    assert.deepEqual(
+      pageEngagementPageIds({
+        sourceId: "100000001, 100000002 ,",
+        sourceMeta: { subtype: "page_engagement_fb" },
+      }),
+      ["100000001", "100000002"],
+    );
   });
 });
 
