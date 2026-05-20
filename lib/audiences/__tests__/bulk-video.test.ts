@@ -113,6 +113,27 @@ describe("campaignMatchesBracketedEventCode", () => {
       ),
     );
   });
+
+  // Mixed-case event codes (e.g. UTB0045-New) must match their campaigns. The
+  // matcher is case-SENSITIVE, so bulk-video must pass the ORIGINAL-case code —
+  // these assertions pin that invariant: original case matches, uppercased does not.
+  it("matches [UTB0045-New] for the original-case code UTB0045-New", () => {
+    assert.ok(
+      campaignMatchesBracketedEventCode(
+        "[UTB0045-New] Innervisions Junction 2",
+        "UTB0045-New",
+      ),
+    );
+  });
+
+  it("does NOT match [UTB0045-New] for the uppercased code UTB0045-NEW", () => {
+    assert.ok(
+      !campaignMatchesBracketedEventCode(
+        "[UTB0045-New] Innervisions Junction 2",
+        "UTB0045-NEW",
+      ),
+    );
+  });
 });
 
 // ── 3. Video dedup / grouping ─────────────────────────────────────────────────
