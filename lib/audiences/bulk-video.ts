@@ -224,9 +224,14 @@ export async function runBulkVideoPreview(
   };
 
   const walks = await mapConcurrent(events, 5, async (event): Promise<EventWalk> => {
+    // `code` is the uppercased grouping/dedupe/display key (events with the same
+    // code in different case should group together). Campaign matching, however,
+    // MUST use the ORIGINAL-case event_code: campaign names embed it verbatim as
+    // `[event_code]` (e.g. `[UTB0045-New]`) and campaignMatchesBracketedEventCode
+    // is case-sensitive, so an uppercased `UTB0045-NEW` would miss `[UTB0045-New]`.
     const code = event.event_code!.toUpperCase();
     const matched = allCampaigns.filter((c) =>
-      campaignMatchesBracketedEventCode(c.name, code),
+      campaignMatchesBracketedEventCode(c.name, event.event_code!),
     );
 
     const snapshot = snapshotByEvent.get(event.id);
