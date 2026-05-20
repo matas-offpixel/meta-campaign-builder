@@ -61,6 +61,50 @@ export function pageEngagementPageIds(
   return audience.sourceId.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+/**
+ * Meta hard limit: a single page-engagement Custom Audience accepts at most FIVE
+ * stacked engagement sources. Verified via Meta's own UI — the "Create audience"
+ * button only enables with ≤5 sources, and a 6+-source POST fails atomically with
+ * #200 subcode 1713153. Larger source sets must be split into multiple audiences
+ * (combined back with OR at ad-set targeting time).
+ */
+export const MAX_PAGE_ENGAGEMENT_SOURCES = 5;
+
+/** Split `pageIds` into ordered chunks of at most `size` (default the Meta cap). */
+export function chunkPageIds(
+  pageIds: string[],
+  size: number = MAX_PAGE_ENGAGEMENT_SOURCES,
+): string[][] {
+  if (size < 1) throw new Error("chunk size must be >= 1");
+  const chunks: string[][] = [];
+  for (let i = 0; i < pageIds.length; i += size) {
+    chunks.push(pageIds.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/** Trailing " (n of m)" suffix appended to a split audience's name. */
+const PART_SUFFIX_RE = / \(\d+ of \d+\)$/;
+
+/** Remove a trailing " (n of m)" suffix so re-splitting never double-suffixes. */
+export function stripPartSuffix(name: string): string {
+  return name.replace(PART_SUFFIX_RE, "");
+}
+
+/**
+ * Name for part `index` (0-based) of `total`. With a single part the base name is
+ * returned unchanged (no regression for ≤5-source audiences); otherwise a
+ * 1-based " (i of total)" suffix is appended to the de-suffixed base.
+ */
+export function partAudienceName(
+  baseName: string,
+  index: number,
+  total: number,
+): string {
+  const base = stripPartSuffix(baseName);
+  return total > 1 ? `${base} (${index + 1} of ${total})` : base;
+}
+
 export function buildMetaCustomAudiencePayload(
   audience: MetaCustomAudience,
 ): Record<string, string> {

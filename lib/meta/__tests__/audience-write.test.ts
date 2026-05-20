@@ -3,8 +3,12 @@ import { describe, it } from "node:test";
 
 import {
   buildMetaCustomAudiencePayload,
+  chunkPageIds,
+  MAX_PAGE_ENGAGEMENT_SOURCES,
   pageEngagementPageIds,
+  partAudienceName,
   sanitizeAudienceName,
+  stripPartSuffix,
 } from "../audience-payload.ts";
 import type { MetaCustomAudience } from "../../types/audience.ts";
 
@@ -65,6 +69,82 @@ describe("pageEngagementPageIds", () => {
       }),
       ["100000001", "100000002"],
     );
+  });
+});
+
+describe("chunkPageIds (Meta 5-source cap)", () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
+
+  it("MAX_PAGE_ENGAGEMENT_SOURCES is 5", () => {
+    assert.equal(MAX_PAGE_ENGAGEMENT_SOURCES, 5);
+  });
+
+  it("splits 7 pages into 5 + 2", () => {
+    const chunks = chunkPageIds(ids(7));
+    assert.equal(chunks.length, 2);
+    assert.deepEqual(chunks[0], ["p1", "p2", "p3", "p4", "p5"]);
+    assert.deepEqual(chunks[1], ["p6", "p7"]);
+  });
+
+  it("leaves ≤5 pages as a single chunk (no regression)", () => {
+    assert.deepEqual(chunkPageIds(ids(3)), [["p1", "p2", "p3"]]);
+    assert.equal(chunkPageIds(ids(5)).length, 1);
+  });
+
+  it("splits 11 pages into 5 + 5 + 1", () => {
+    assert.deepEqual(
+      chunkPageIds(ids(11)).map((c) => c.length),
+      [5, 5, 1],
+    );
+  });
+
+  it("throws on a non-positive chunk size", () => {
+    assert.throws(() => chunkPageIds(ids(3), 0), /size/);
+  });
+});
+
+describe("partAudienceName / stripPartSuffix", () => {
+  it("leaves the name unchanged for a single part", () => {
+    assert.equal(partAudienceName("Innervisions FB 30d", 0, 1), "Innervisions FB 30d");
+  });
+
+  it("appends a 1-based ' (i of total)' suffix when split", () => {
+    assert.equal(partAudienceName("Innervisions FB 30d", 0, 2), "Innervisions FB 30d (1 of 2)");
+    assert.equal(partAudienceName("Innervisions FB 30d", 1, 2), "Innervisions FB 30d (2 of 2)");
+  });
+
+  it("does not double-suffix an already-split name (retry-safe)", () => {
+    assert.equal(
+      partAudienceName("Innervisions FB 30d (1 of 2)", 1, 2),
+      "Innervisions FB 30d (2 of 2)",
+    );
+    assert.equal(stripPartSuffix("Innervisions FB 30d (2 of 2)"), "Innervisions FB 30d");
+    assert.equal(stripPartSuffix("Innervisions FB 30d"), "Innervisions FB 30d");
+  });
+
+  it("builds the two part payloads for a 7-page FB audience: 5 + 2 OR'd rules each", () => {
+    const pageIds = Array.from({ length: 7 }, (_, i) => `1000000${i + 1}`);
+    const chunks = chunkPageIds(pageIds);
+    const total = chunks.length;
+    assert.equal(total, 2);
+
+    chunks.forEach((chunk, part) => {
+      const payload = buildMetaCustomAudiencePayload(
+        audience({
+          name: partAudienceName("Innervisions FB page engagement 30d", part, total),
+          audienceSubtype: "page_engagement_fb",
+          retentionDays: 30,
+          sourceId: chunk.join(","),
+          sourceMeta: { subtype: "page_engagement_fb", pageIds: chunk },
+        }),
+      );
+      const rule = JSON.parse(payload.rule) as EngagementRuleShape;
+      // One OR'd rule per page, one source per rule — the established shape.
+      assert.equal(rule.inclusions.rules.length, chunk.length);
+      assert.equal(rule.inclusions.rules[0].event_sources[0].id, chunk[0]);
+      // Sanitized name carries the distinguishing part suffix.
+      assert.match(payload.name, new RegExp(`_${part + 1}_of_2$`));
+    });
   });
 });
 

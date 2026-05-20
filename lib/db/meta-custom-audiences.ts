@@ -86,6 +86,27 @@ export async function getAudienceById(
   return data ? rowToAudience(data as MetaCustomAudienceRow) : null;
 }
 
+/**
+ * Child rows produced when an oversized page-engagement audience is split into
+ * ≤5-source parts. Each child stores `source_meta.splitParentId = <parent id>`
+ * (markers round-trip through migrateAudienceSourceMetaRead). Used to make split
+ * persistence idempotent across retries — find existing children before
+ * inserting new ones. Ordered by part for stable assignment.
+ */
+export async function listSplitChildAudiences(
+  parentId: string,
+): Promise<MetaCustomAudience[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("*")
+    .eq("source_meta->>splitParentId", parentId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as MetaCustomAudienceRow[]).map(rowToAudience);
+}
+
 export async function createAudienceDraft(
   input: MetaCustomAudienceInsert,
 ): Promise<MetaCustomAudience> {
