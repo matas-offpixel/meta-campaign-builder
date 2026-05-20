@@ -12,6 +12,7 @@ import {
   type BulkFunnelStage,
   type BulkPreviewRow,
 } from "@/lib/audiences/bulk-types";
+import { parseVideoIds, MAX_VIDEO_IDS } from "@/lib/audiences/parse-video-ids";
 import type { EventCodePrefixOption } from "@/lib/audiences/event-code-prefix-scanner";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -22,6 +23,8 @@ const ALL_STAGES: BulkFunnelStage[] = [
   "mid_bottom",
   "bottom",
 ];
+
+type VideoSourceMode = "campaign_walk" | "video_ids";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,6 +66,16 @@ export function BulkVideoForm({
   const [createResult, setCreateResult] = useState<CreateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Video-ID input mode
+  const [videoSourceMode, setVideoSourceMode] = useState<VideoSourceMode>("campaign_walk");
+  const [videoIdsText, setVideoIdsText] = useState("");
+  const [pullLoading, setPullLoading] = useState(false);
+  const [pullMeta, setPullMeta] = useState<{
+    fetchedAt: string | null;
+    stale: boolean;
+    count: number;
+  } | null>(null);
+
   const toggleStage = useCallback((stage: BulkFunnelStage) => {
     setSelectedStages((prev) => {
       const next = new Set(prev);
@@ -92,6 +105,8 @@ export function BulkVideoForm({
     [],
   );
 
+  const parsedVideoIds = parseVideoIds(videoIdsText);
+  const videoIdsOverLimit = parsedVideoIds.totalBeforeCap > MAX_VIDEO_IDS;
   const hasAnyStage = selectedStages.size > 0 || customStages.length > 0;
 
   const totalAudiences = previewRows.reduce(
@@ -99,22 +114,60 @@ export function BulkVideoForm({
     0,
   );
 
+  async function handlePullFromCache() {
+    setPullLoading(true);
+    setPullMeta(null);
+    try {
+      const res = await fetch("/api/audiences/bulk/video-ids-from-snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, eventCodePrefix: selectedPrefix }),
+      });
+      const json = (await res.json()) as
+        | { ok: true; videoIds: string[]; fetchedAt: string | null; stale: boolean }
+        | { ok: false; error: string };
+      if (!json.ok) {
+        setError(json.error);
+        return;
+      }
+      if (json.videoIds.length === 0) {
+        setError(
+          "No video IDs found in the snapshot cache for this prefix. " +
+          "The cron may not have run yet, or this prefix has no active creatives.",
+        );
+        return;
+      }
+      setVideoIdsText(json.videoIds.join("\n"));
+      setPullMeta({ fetchedAt: json.fetchedAt, stale: json.stale, count: json.videoIds.length });
+      setError(null);
+    } catch {
+      setError("Failed to pull from cache — check your connection.");
+    } finally {
+      setPullLoading(false);
+    }
+  }
+
   async function handlePreview() {
     if (!selectedPrefix || !hasAnyStage) return;
+    if (videoSourceMode === "video_ids" && parsedVideoIds.ids.length === 0) return;
     setPhase("previewing");
     setError(null);
     setPreviewRows([]);
 
     try {
+      const body: Record<string, unknown> = {
+        clientId,
+        eventCodePrefix: selectedPrefix,
+        funnelStages: Array.from(selectedStages),
+        customStages,
+      };
+      if (videoSourceMode === "video_ids") {
+        body.videoIds = parsedVideoIds.ids;
+      }
       const res = await fetch("/api/audiences/bulk/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId,
-          eventCodePrefix: selectedPrefix,
-          funnelStages: Array.from(selectedStages),
-          customStages,
-        }),
+        body: JSON.stringify(body),
       });
       const json = (await res.json()) as
         | { ok: true; rows: BulkPreviewRow[]; totalAudiences: number }
@@ -137,16 +190,20 @@ export function BulkVideoForm({
     setError(null);
 
     try {
+      const body: Record<string, unknown> = {
+        clientId,
+        eventCodePrefix: selectedPrefix,
+        funnelStages: Array.from(selectedStages),
+        customStages,
+        createOnMeta: writesEnabled,
+      };
+      if (videoSourceMode === "video_ids") {
+        body.videoIds = parsedVideoIds.ids;
+      }
       const res = await fetch("/api/audiences/bulk/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId,
-          eventCodePrefix: selectedPrefix,
-          funnelStages: Array.from(selectedStages),
-          customStages,
-          createOnMeta: writesEnabled,
-        }),
+        body: JSON.stringify(body),
       });
       const json = (await res.json()) as
         | { ok: true } & CreateResult
@@ -170,6 +227,8 @@ export function BulkVideoForm({
     setCreateResult(null);
     setError(null);
     setCustomStages([]);
+    setVideoIdsText("");
+    setPullMeta(null);
   }
 
   if (prefixOptions.length === 0) {
@@ -322,6 +381,7 @@ export function BulkVideoForm({
               value={selectedPrefix}
               onChange={(e) => {
                 setSelectedPrefix(e.target.value);
+                setPullMeta(null);
                 if (phase === "previewed") {
                   setPhase("idle");
                   setPreviewRows([]);
@@ -333,6 +393,107 @@ export function BulkVideoForm({
               }))}
             />
           </div>
+        </div>
+
+        {/* Step 1b — video source mode */}
+        <div>
+          <h2 className="font-heading text-lg tracking-wide">
+            Step 1b — Video source
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose how to discover the videos for these audiences.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setVideoSourceMode("campaign_walk");
+                if (phase === "previewed") { setPhase("idle"); setPreviewRows([]); }
+              }}
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                videoSourceMode === "campaign_walk"
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Campaign walk
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setVideoSourceMode("video_ids");
+                if (phase === "previewed") { setPhase("idle"); setPreviewRows([]); }
+              }}
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                videoSourceMode === "video_ids"
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Video IDs
+            </button>
+          </div>
+
+          {videoSourceMode === "campaign_walk" && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Walks every campaign matching the prefix to discover video IDs.
+              May be slow or hit Meta rate limits for large accounts.
+            </p>
+          )}
+
+          {videoSourceMode === "video_ids" && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Enter up to {MAX_VIDEO_IDS} video IDs — comma, semicolon, or newline separated.
+                  Skips the campaign walk; only resolves the owning FB page per video (fast, low rate-limit risk).
+                </p>
+              </div>
+              <div className="relative">
+                <textarea
+                  className={`w-full rounded-md border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground resize-y min-h-[80px] focus:outline-none focus:ring-1 ${
+                    videoIdsOverLimit ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary"
+                  }`}
+                  placeholder={"999159669120596\n123456789012345\n..."}
+                  value={videoIdsText}
+                  onChange={(e) => {
+                    setVideoIdsText(e.target.value);
+                    setPullMeta(null);
+                    if (phase === "previewed") { setPhase("idle"); setPreviewRows([]); }
+                  }}
+                  rows={4}
+                />
+                <span className={`absolute bottom-2 right-3 text-xs ${
+                  videoIdsOverLimit ? "text-destructive font-medium" : "text-muted-foreground"
+                }`}>
+                  {parsedVideoIds.totalBeforeCap}/{MAX_VIDEO_IDS}
+                  {videoIdsOverLimit && ` — truncated to ${MAX_VIDEO_IDS}`}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handlePullFromCache()}
+                  disabled={pullLoading || !selectedPrefix}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                >
+                  {pullLoading ? (
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                  ) : (
+                    <span>⬇</span>
+                  )}
+                  Pull from snapshot cache
+                </button>
+                {pullMeta && (
+                  <span className={`text-xs ${pullMeta.stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                    {pullMeta.count} ID{pullMeta.count === 1 ? "" : "s"} from cache
+                    {pullMeta.fetchedAt && ` · snapped ${formatRelative(pullMeta.fetchedAt)}`}
+                    {pullMeta.stale && " (stale)"}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
@@ -431,7 +592,13 @@ export function BulkVideoForm({
           <Button
             type="button"
             onClick={() => void handlePreview()}
-            disabled={phase === "previewing" || !hasAnyStage || !selectedPrefix}
+            disabled={
+              phase === "previewing" ||
+              !hasAnyStage ||
+              !selectedPrefix ||
+              (videoSourceMode === "video_ids" && parsedVideoIds.ids.length === 0) ||
+              videoIdsOverLimit
+            }
           >
             {phase === "previewing" ? "Loading preview…" : "Step 3 — Preview"}
           </Button>
@@ -498,6 +665,19 @@ export function BulkVideoForm({
       )}
     </div>
   );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatRelative(isoString: string): string {
+  const date = new Date(isoString);
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  if (diffMins < 2) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────

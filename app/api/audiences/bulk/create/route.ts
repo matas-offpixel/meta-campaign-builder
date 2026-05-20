@@ -13,6 +13,7 @@ import {
   type BulkCustomStage,
   type BulkFunnelStage,
 } from "@/lib/audiences/bulk-video";
+import { parseVideoIds, MAX_VIDEO_IDS } from "@/lib/audiences/parse-video-ids";
 import { resolveAudienceSourceContext } from "@/lib/audiences/sources";
 import { getVideoSourcesFromSnapshot } from "@/lib/audiences/snapshot-video-sources";
 import { createAudienceDrafts } from "@/lib/db/meta-custom-audiences";
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
     funnelStages?: unknown;
     customStages?: unknown;
     createOnMeta?: unknown;
+    videoIds?: unknown;
   } | null;
 
   const clientId =
@@ -52,6 +54,25 @@ export async function POST(req: NextRequest) {
   const rawCustom = Array.isArray(body?.customStages) ? body.customStages : null;
   const customStages: BulkCustomStage[] = (rawCustom ?? []).filter(isValidCustomStage);
   const createOnMeta = body?.createOnMeta === true;
+
+  let videoIdOverride: string[] | undefined;
+  if (Array.isArray(body?.videoIds) && (body.videoIds as unknown[]).length > 0) {
+    const { ids, totalBeforeCap } = parseVideoIds(
+      (body.videoIds as unknown[])
+        .filter((v): v is string => typeof v === "string")
+        .join(","),
+    );
+    if (totalBeforeCap > MAX_VIDEO_IDS) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Too many video IDs — maximum is ${MAX_VIDEO_IDS}, got ${totalBeforeCap} unique IDs.`,
+        },
+        { status: 400 },
+      );
+    }
+    videoIdOverride = ids;
+  }
 
   if (!clientId) {
     return NextResponse.json({ ok: false, error: "clientId is required" }, { status: 400 });
@@ -117,6 +138,7 @@ export async function POST(req: NextRequest) {
       funnelStages,
       customStages,
       resolveSnapshotSources,
+      videoIdOverride,
     });
 
     const skippedEvents = previewRows
