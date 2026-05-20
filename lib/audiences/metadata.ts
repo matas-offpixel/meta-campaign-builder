@@ -18,6 +18,7 @@ export const AUDIENCE_SUBTYPE_LABELS: Record<AudienceSubtype, string> = {
   page_followers_ig: "IG page followers",
   video_views: "Video views",
   website_pixel: "Website pixel",
+  lookalike: "Lookalike",
 };
 
 export const AUDIENCE_STATUS_LABELS: Record<AudienceStatus, string> = {
@@ -42,6 +43,7 @@ export const AUDIENCE_SUBTYPES = [
   "page_followers_ig",
   "video_views",
   "website_pixel",
+  "lookalike",
 ] as const satisfies readonly AudienceSubtype[];
 
 export const AUDIENCE_STATUSES = [

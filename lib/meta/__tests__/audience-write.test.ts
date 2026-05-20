@@ -607,3 +607,87 @@ function audience(patch: Partial<MetaCustomAudience>): MetaCustomAudience {
     ...patch,
   };
 }
+
+// ── Lookalike audience payload ───────────────────────────────────────────────
+//
+// Verified 2026-05-20 against Meta Marketing API docs (Lookalike Audiences).
+// Required POST shape for a similarity-based lookalike from a seed audience:
+//   name=<sanitised>
+//   subtype=LOOKALIKE       ← REQUIRED (documented exception vs engagement)
+//   origin_audience_id=<seed meta id>
+//   lookalike_spec={"type":"similarity","ratio":0.01,"country":"GB"}
+// No `rule`, no `prefill`, no `retention_days`.
+
+describe("buildMetaCustomAudiencePayload — lookalike subtype", () => {
+  it("emits {name, subtype:LOOKALIKE, origin_audience_id, lookalike_spec} with NO rule and NO prefill", () => {
+    const a = audience({
+      id: "lal_1",
+      audienceSubtype: "lookalike",
+      name: "[innervisions] Innervisions 95% VV 60d LAL 1% GB",
+      sourceId: "9988",
+      retentionDays: 1, // sentinel — should be ignored
+      sourceMeta: {
+        subtype: "lookalike",
+        originAudienceId: "9988",
+        ratio: 0.01,
+        country: "GB",
+        seedName: "Innervisions 95% VV 60d",
+        seedLocalAudienceId: "local-1",
+        type: "similarity",
+      },
+    });
+    const payload = buildMetaCustomAudiencePayload(a);
+    assert.equal(payload.subtype, "LOOKALIKE");
+    assert.equal(payload.origin_audience_id, "9988");
+    assert.equal(
+      payload.name,
+      // sanitizeAudienceName strips brackets/spaces/% and truncates to 50.
+      "innervisions_Innervisions_95_VV_60d_LAL_1_GB",
+    );
+    assert.equal(typeof payload.lookalike_spec, "string");
+    const spec = JSON.parse(payload.lookalike_spec) as Record<string, unknown>;
+    assert.deepEqual(spec, { type: "similarity", ratio: 0.01, country: "GB" });
+    assert.equal(
+      "rule" in payload,
+      false,
+      "lookalikes must not carry a rule field",
+    );
+    assert.equal(
+      "prefill" in payload,
+      false,
+      "lookalikes must not carry prefill (auto-refresh from seed)",
+    );
+    assert.equal(
+      "retention_days" in payload,
+      false,
+      "lookalikes have no retention concept on Meta's side",
+    );
+  });
+
+  it("maps ratio + country verbatim and defaults type to 'similarity' when sourceMeta.type omitted", () => {
+    const a = audience({
+      audienceSubtype: "lookalike",
+      sourceMeta: {
+        subtype: "lookalike",
+        originAudienceId: "7777",
+        ratio: 0.03,
+        country: "US",
+        seedName: "Ticket holders CSV",
+      },
+    });
+    const spec = JSON.parse(
+      buildMetaCustomAudiencePayload(a).lookalike_spec,
+    ) as Record<string, unknown>;
+    assert.equal(spec.type, "similarity");
+    assert.equal(spec.ratio, 0.03);
+    assert.equal(spec.country, "US");
+  });
+
+  it("throws when sourceMeta is the wrong shape", () => {
+    const a = audience({
+      audienceSubtype: "lookalike",
+      sourceMeta: { subtype: "video_views", videoIds: ["1"], threshold: 95 },
+    });
+    assert.throws(() => buildMetaCustomAudiencePayload(a));
+  });
+});

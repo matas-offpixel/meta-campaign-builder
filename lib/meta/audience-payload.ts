@@ -224,6 +224,36 @@ export function buildMetaCustomAudiencePayload(
     };
   }
 
+  if (audience.audienceSubtype === "lookalike") {
+    if (sourceMeta.subtype !== "lookalike") {
+      throw new Error("Lookalike audience requires lookalike source_meta");
+    }
+    // Verified 2026-05-20 against Meta Marketing API docs (Lookalike Audiences):
+    //   POST /act_{id}/customaudiences with subtype=LOOKALIKE,
+    //   origin_audience_id=<seed Meta id>, lookalike_spec={type, ratio, country}.
+    //
+    // Unlike engagement audiences (PR #340 lesson — subtype field dropped because
+    // Meta's POST deprecated it for engagement subtypes), LOOKALIKE audiences are
+    // a DOCUMENTED EXCEPTION: subtype=LOOKALIKE IS REQUIRED at create time.
+    //
+    // Also unlike other subtypes, lookalikes do NOT use `rule` and do NOT take
+    // `prefill` (lookalikes auto-refresh from the seed audience, so prefill
+    // has no meaning). We construct the payload from scratch rather than
+    // spreading `base`, because `base` includes prefill: "1".
+    const lookalikeType = sourceMeta.type ?? "similarity";
+    const lookalikeSpec = {
+      type: lookalikeType,
+      ratio: sourceMeta.ratio,
+      country: sourceMeta.country,
+    };
+    return {
+      name: sanitizeAudienceName(audience.name),
+      subtype: "LOOKALIKE",
+      origin_audience_id: sourceMeta.originAudienceId,
+      lookalike_spec: JSON.stringify(lookalikeSpec),
+    };
+  }
+
   if (audience.audienceSubtype === "website_pixel") {
     if (sourceMeta.subtype !== "website_pixel") {
       throw new Error("Website pixel audience requires website source_meta");
