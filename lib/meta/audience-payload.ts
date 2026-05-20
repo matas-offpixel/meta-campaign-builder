@@ -42,6 +42,25 @@ function metaLeafEq(field: string, value: string): Record<string, string> {
   return { field, operator: META_RULE_OP_EQ, value };
 }
 
+/**
+ * Resolve the FB Page IDs for a page-engagement / page-followers audience.
+ * Prefers `sourceMeta.pageIds` (multi-select) and falls back to the
+ * comma-separated `sourceId`. Both engagement subtypes (FB + IG) carry FB Page
+ * IDs here — the IG rule just wraps the same IDs in an `ig_business` event
+ * source (verified 2026-05-07). Exported so the write path can pre-filter the
+ * set against token access without duplicating the extraction logic.
+ */
+export function pageEngagementPageIds(
+  audience: Pick<MetaCustomAudience, "sourceMeta" | "sourceId">,
+): string[] {
+  const pageMeta = audience.sourceMeta as { pageIds?: unknown };
+  const fromMeta = Array.isArray(pageMeta.pageIds)
+    ? pageMeta.pageIds.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  if (fromMeta.length > 0) return fromMeta;
+  return audience.sourceId.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 export function buildMetaCustomAudiencePayload(
   audience: MetaCustomAudience,
 ): Record<string, string> {
@@ -70,11 +89,7 @@ export function buildMetaCustomAudiencePayload(
     const isFollowers =
       audience.audienceSubtype === "page_followers_fb" ||
       audience.audienceSubtype === "page_followers_ig";
-    const pageMeta = sourceMeta as { pageIds?: string[] };
-    const pageIds =
-      Array.isArray(pageMeta.pageIds) && pageMeta.pageIds.length > 0
-        ? pageMeta.pageIds
-        : audience.sourceId.split(",").map((s) => s.trim()).filter(Boolean);
+    const pageIds = pageEngagementPageIds(audience);
     const eventValue = (() => {
       if (isFollowers) {
         return isIg ? META_PAGE_FOLLOWERS_IG_EVENT : META_PAGE_FOLLOWERS_FB_EVENT;
