@@ -290,6 +290,16 @@ function mergeSourceMeta(
   sourceId: string,
   override?: Partial<AudienceSourceMeta> & Record<string, unknown>,
 ): AudienceSourceMeta {
+  // Lookalike audiences are built via the bulk lookalike flow
+  // (app/(dashboard)/audiences/[clientId]/lookalike/*) — they call
+  // createAudienceDrafts directly with a fully-formed lookalike sourceMeta
+  // and never go through this legacy single-audience constructor. Surfacing
+  // the constraint here keeps the narrowing below honest.
+  if (subtype === "lookalike") {
+    throw new Error(
+      "Lookalike audiences must be created via /audiences/[clientId]/lookalike",
+    );
+  }
   const merged = {
     ...base,
     ...(override ?? {}),

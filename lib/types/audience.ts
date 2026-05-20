@@ -10,7 +10,8 @@ export type AudienceSubtype =
   | "page_followers_fb"
   | "page_followers_ig"
   | "video_views"
-  | "website_pixel";
+  | "website_pixel"
+  | "lookalike";
 
 export type AudienceStatus =
   | "draft"
@@ -60,6 +61,23 @@ export type AudienceSourceMeta =
       pageSlug?: string;
       pageName?: string;
       pageIds?: string[];
+    }
+  | {
+      subtype: "lookalike";
+      /** Meta-side audience id of the seed (used as origin_audience_id at POST time). */
+      originAudienceId: string;
+      /** Lookalike ratio (Meta accepts 0.01–0.20 in 0.01 increments). */
+      ratio: number;
+      /** ISO-2 country code where the lookalike segment is drawn from. */
+      country: string;
+      /** Display name of the seed audience (for UI + DB row name building). */
+      seedName: string;
+      /** Local audiences-table id of the seed when the seed is one of OUR rows. Null when seed came from the live Meta list. */
+      seedLocalAudienceId?: string | null;
+      /** AudienceSubtype of the seed when known (informational; not used at POST time). */
+      seedSubtype?: string | null;
+      /** "similarity" by default. Reserved for future "reach"/"custom_ratio" extensions. */
+      type?: "similarity" | "reach" | "custom_ratio";
     };
 
 export interface MetaCustomAudience {

@@ -102,6 +102,11 @@ function subtypeMiddlePhrase(subtype: AudienceSubtype, threshold: number): strin
       return "pixel";
     case "video_views":
       return `${threshold}% video views`;
+    case "lookalike":
+      // Lookalike audiences build their own names via lookalike-types
+      // (`buildLookalikeCellName`) — this generic builder isn't on their path.
+      // Returning a sensible fallback keeps the exhaustive switch typed.
+      return "lookalike";
     default: {
       const _exhaustive: never = subtype;
       return _exhaustive;
