@@ -186,7 +186,10 @@ function jumpStep(code: string): GoogleSearchWizardStep | null {
     code === "rsa_too_few_descriptions" ||
     code === "headline_too_long" ||
     code === "description_too_long" ||
-    code === "ad_group_no_rsa"
+    code === "ad_group_no_rsa" ||
+    code === "rsa_final_url_missing" ||
+    code === "rsa_final_url_invalid" ||
+    code === "rsa_final_url_http"
   )
     return 4;
   if (code === "budget_over_allocated" || code === "budget_under_allocated") return 5;

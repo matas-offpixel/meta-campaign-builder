@@ -94,6 +94,7 @@ function makeTree(overrides: Partial<GoogleSearchPlanTree["plan"]> = {}): Google
       total_budget: 1000,
       bidding_strategy: "maximize_clicks",
       geo_targets: [],
+      geo_target_type: "PRESENCE",
       date_range: null,
       pushed_at: null,
       created_at: "2026-05-21T00:00:00Z",
@@ -337,6 +338,66 @@ describe("validateGoogleSearchStep — per-step gating", () => {
 });
 
 // ─── hasHardErrors ───────────────────────────────────────────────────
+
+// ─── RSA final URL validation (Phase 5b) ──────────────────────────────
+
+describe("validateGoogleSearchPlan — RSA final URL", () => {
+  it("hard-blocks pushes when an RSA has no final URL", () => {
+    const rsa = makeRsa([15, 15, 15], [40, 40]);
+    rsa.final_url = null;
+    const tree = makeTree();
+    tree.campaigns = [
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "kw" }], [rsa])]),
+    ];
+    const issues = validateGoogleSearchPlan(tree);
+    const error = issues.find((i) => i.code === "rsa_final_url_missing");
+    assert.ok(error, "expected rsa_final_url_missing hard error");
+    assert.equal(error.severity, "error");
+    assert.equal(hasHardErrors(issues), true);
+  });
+
+  it("hard-blocks when final URL is set but not http(s)", () => {
+    const rsa = makeRsa([15, 15, 15], [40, 40]);
+    rsa.final_url = "offpixel.com";
+    const tree = makeTree();
+    tree.campaigns = [
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "kw" }], [rsa])]),
+    ];
+    const issues = validateGoogleSearchPlan(tree);
+    const error = issues.find((i) => i.code === "rsa_final_url_invalid");
+    assert.ok(error, "expected rsa_final_url_invalid hard error");
+    assert.equal(error.severity, "error");
+  });
+
+  it("emits a soft warning when final URL is http:// (not https)", () => {
+    const rsa = makeRsa([15, 15, 15], [40, 40]);
+    rsa.final_url = "http://offpixel.com/event";
+    const tree = makeTree();
+    tree.campaigns = [
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "kw" }], [rsa])]),
+    ];
+    const issues = validateGoogleSearchPlan(tree);
+    const warning = issues.find((i) => i.code === "rsa_final_url_http");
+    assert.ok(warning, "expected rsa_final_url_http warning");
+    assert.equal(warning.severity, "warning");
+    assert.equal(hasHardErrors(issues), false);
+  });
+
+  it("a valid https URL produces no final-URL issues", () => {
+    const rsa = makeRsa([15, 15, 15], [40, 40]);
+    rsa.final_url = "https://offpixel.com/event";
+    const tree = makeTree();
+    tree.campaigns = [
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "tickets" }], [rsa])]),
+    ];
+    const issues = validateGoogleSearchPlan(tree);
+    assert.equal(
+      issues.filter((i) => i.code.startsWith("rsa_final_url")).length,
+      0,
+      JSON.stringify(issues, null, 2),
+    );
+  });
+});
 
 describe("hasHardErrors", () => {
   it("returns true when any error exists", () => {

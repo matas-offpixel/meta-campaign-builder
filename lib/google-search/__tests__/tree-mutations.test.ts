@@ -31,6 +31,7 @@ function emptyTree(): GoogleSearchPlanTree {
       total_budget: null,
       bidding_strategy: "maximize_clicks",
       geo_targets: [],
+      geo_target_type: "PRESENCE",
       date_range: null,
       pushed_at: null,
       created_at: "2026-05-21T00:00:00Z",

@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 
 import {
   classifyCharOverflow,
+  extractFinalUrlFromTab,
   normaliseCampaignKey,
   normaliseMatchType,
   parseGoogleSearchPlanXlsx,
@@ -447,5 +448,158 @@ describe("normaliseCampaignKey", () => {
     assert.equal(normaliseCampaignKey("C1 – BRAND: JUNCTION 2"), "c1 - brand: junction 2");
     assert.equal(normaliseCampaignKey("C1 — Brand: Junction 2"), "c1 - brand: junction 2");
     assert.equal(normaliseCampaignKey("  C1   –   Brand:  Junction 2  "), "c1 - brand: junction 2");
+  });
+});
+
+// ─── Final URL extraction + plan-level apply (Phase 5b) ─────────────
+
+describe("extractFinalUrlFromTab", () => {
+  it("returns null for a null sheet", () => {
+    assert.equal(extractFinalUrlFromTab(null), null);
+  });
+
+  it("pulls the first https?:// match from a pre-header metadata row", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Junction 2: Melodic — Ad Copy"],
+        [
+          "Headlines: max 30 chars each · Descriptions: max 90 chars each · " +
+            "Final URL: https://www.seetickets.com/event/junction-2-miss-monique-indo-warehouse/boston-manor-park/3598857",
+        ],
+        [],
+        ["Campaign", "Type", "Content"],
+        ["", "H1", "x"],
+      ]),
+      "Ad Copy",
+    );
+    const sheet = wb.Sheets["Ad Copy"];
+    const url = extractFinalUrlFromTab(sheet ?? null);
+    assert.equal(
+      url,
+      "https://www.seetickets.com/event/junction-2-miss-monique-indo-warehouse/boston-manor-park/3598857",
+    );
+  });
+
+  it("strips trailing punctuation (., ), etc.) from extracted URLs", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["See https://example.com/event/123)."],
+        ["Campaign", "Type"],
+      ]),
+      "Ad Copy",
+    );
+    const url = extractFinalUrlFromTab(wb.Sheets["Ad Copy"] ?? null);
+    assert.equal(url, "https://example.com/event/123");
+  });
+
+  it("returns null when no URL is present in the pre-header rows", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Junction 2: Melodic — Ad Copy"],
+        ["No URL on this line"],
+        ["Campaign", "Type"],
+        ["", "H1", "x"],
+      ]),
+      "Ad Copy",
+    );
+    const url = extractFinalUrlFromTab(wb.Sheets["Ad Copy"] ?? null);
+    assert.equal(url, null);
+  });
+});
+
+describe("parseGoogleSearchPlanXlsx — Final URL plumbing", () => {
+  it("propagates the Ad Copy metadata URL to every RSA's final_url", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Campaign", "Ad Group", "Keyword", "Match Type"],
+        ["C1 Brand", "Brand", "junction 2", "Exact"],
+        ["C2 Beyer", "Headliner", "adam beyer", "Phrase"],
+      ]),
+      "Keywords",
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Final URL: https://www.seetickets.com/event/j2-melodic"],
+        [],
+        ["Campaign", "Type", "Content"],
+        ["C1 Brand", "H1", "Junction 2 Melodic"],
+        ["C1 Brand", "H2", "Tickets On Sale"],
+        ["C1 Brand", "H3", "Official Brand"],
+        ["C1 Brand", "D1", "Get tickets now for J2 Melodic."],
+        ["C1 Brand", "D2", "Don't miss out."],
+        ["C2 Beyer", "H1", "Adam Beyer Live"],
+        ["C2 Beyer", "H2", "London Show"],
+        ["C2 Beyer", "H3", "Buy Tickets"],
+        ["C2 Beyer", "D1", "Catch Adam Beyer at Junction 2."],
+        ["C2 Beyer", "D2", "Selling fast."],
+      ]),
+      "Ad Copy",
+    );
+    const buf = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
+    const tree = parseGoogleSearchPlanXlsx(buf);
+
+    assert.ok(!tree.warnings.some((w) => w.code === "missing_final_url"));
+    for (const c of tree.campaigns) {
+      for (const ag of c.ad_groups) {
+        for (const rsa of ag.rsas) {
+          assert.equal(rsa.final_url, "https://www.seetickets.com/event/j2-melodic");
+        }
+      }
+    }
+  });
+
+  it("emits missing_final_url and leaves RSAs with null final_url when no URL is present anywhere", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Campaign", "Ad Group", "Keyword", "Match Type"],
+        ["C1 Brand", "Brand", "junction 2", "Exact"],
+      ]),
+      "Keywords",
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["No URLs here at all"],
+        ["Campaign", "Type", "Content"],
+        ["C1 Brand", "H1", "Junction 2 Melodic"],
+        ["C1 Brand", "H2", "Tickets On Sale"],
+        ["C1 Brand", "H3", "Official Brand"],
+        ["C1 Brand", "D1", "Get tickets now."],
+        ["C1 Brand", "D2", "Don't miss out."],
+      ]),
+      "Ad Copy",
+    );
+    const buf = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
+    const tree = parseGoogleSearchPlanXlsx(buf);
+
+    assert.ok(tree.warnings.some((w) => w.code === "missing_final_url"));
+    const rsa = tree.campaigns[0]?.ad_groups[0]?.rsas[0];
+    assert.equal(rsa?.final_url, null);
+  });
+
+  it("defaults the parsed plan's geo_target_type to PRESENCE", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Campaign", "Ad Group", "Keyword", "Match Type"],
+        ["C1", "AG", "kw", "Exact"],
+      ]),
+      "Keywords",
+    );
+    const buf = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
+    const tree = parseGoogleSearchPlanXlsx(buf);
+    assert.equal(tree.plan.geo_target_type, "PRESENCE");
   });
 });

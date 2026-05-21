@@ -14,6 +14,7 @@
  * and the xlsx parser agree.
  */
 
+import { isValidLandingUrl } from "./final-url-state.ts";
 import {
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchPlanTree,
@@ -163,6 +164,29 @@ function validateAdGroupRsas(
     return issues;
   }
   for (const rsa of adGroup.rsas) {
+    const url = (rsa.final_url ?? "").trim();
+    if (!url) {
+      issues.push({
+        severity: "error",
+        code: "rsa_final_url_missing",
+        message: `${scope}: RSA has no final URL — Google Ads rejects RSAs without a landing page.`,
+        scope,
+      });
+    } else if (!isValidLandingUrl(url)) {
+      issues.push({
+        severity: "error",
+        code: "rsa_final_url_invalid",
+        message: `${scope}: RSA final URL "${truncate(url, 48)}" must start with http:// or https://.`,
+        scope,
+      });
+    } else if (/^http:\/\//i.test(url)) {
+      issues.push({
+        severity: "warning",
+        code: "rsa_final_url_http",
+        message: `${scope}: RSA final URL uses http:// — Google warns about insecure landing pages. Prefer https://.`,
+        scope,
+      });
+    }
     if (rsa.headlines.length < GOOGLE_SEARCH_LIMITS.MIN_HEADLINES_PER_RSA) {
       issues.push({
         severity: "error",

@@ -27,6 +27,19 @@ export type GoogleSearchPlanStatus = (typeof PLAN_STATUSES)[number];
 export const BIDDING_STRATEGIES = ["maximize_clicks", "manual_cpc"] as const;
 export type GoogleSearchBiddingStrategy = (typeof BIDDING_STRATEGIES)[number];
 
+/**
+ * Google Ads location-targeting type:
+ *   - `PRESENCE`: only people physically in / regularly in the location.
+ *     Recommended for ticketed events — someone in Spain who is merely
+ *     "interested" in London can't attend.
+ *   - `PRESENCE_OR_INTEREST`: includes people who've shown interest in
+ *     the location. Google's default but wasteful for events.
+ */
+export const GEO_TARGET_TYPES = ["PRESENCE", "PRESENCE_OR_INTEREST"] as const;
+export type GoogleSearchGeoTargetType = (typeof GEO_TARGET_TYPES)[number];
+
+export const DEFAULT_GEO_TARGET_TYPE: GoogleSearchGeoTargetType = "PRESENCE";
+
 export interface GoogleSearchGeoTarget {
   location: string;
   bid_modifier_pct?: number | null;
@@ -61,6 +74,15 @@ export interface GoogleSearchPlan {
   total_budget: number | null;
   bidding_strategy: GoogleSearchBiddingStrategy;
   geo_targets: GoogleSearchGeoTarget[];
+  /**
+   * Google Ads location-targeting mode. Persists into the existing
+   * `geo_targets` jsonb column via a wrapper object — no migration
+   * (see `parseGeoTargetsColumn` / `serializeGeoTargetsColumn` in
+   * `lib/google-search/geo-targets-codec.ts`).
+   *
+   * Default: PRESENCE (recommended for ticketed events).
+   */
+  geo_target_type: GoogleSearchGeoTargetType;
   date_range: GoogleSearchDateRange | null;
   pushed_at: string | null;
   created_at: string;
@@ -234,7 +256,11 @@ export interface GoogleSearchImportWarning {
     /** The Negative Keywords tab's header row was not found — entire tab
      *  was skipped. (Defensive: tells the operator why no negatives
      *  imported when they expected some.) */
-    | "negatives_header_not_found";
+    | "negatives_header_not_found"
+    /** No landing URL found in the Ad Copy / Overview metadata. RSAs
+     *  will need a `Default final URL` set in the wizard before push
+     *  (Google Ads rejects RSAs without `finalUrls`). */
+    | "missing_final_url";
   message: string;
   /** Free-form context for the wizard to display. */
   context?: Record<string, string | number | null>;
