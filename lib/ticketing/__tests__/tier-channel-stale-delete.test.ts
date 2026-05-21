@@ -16,7 +16,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeStaleTierChannelDeletions } from "../tier-channel-stale-delete.ts";
+import {
+  computeStaleTierChannelDeletions,
+  rowHasMaterialChange,
+} from "../tier-channel-stale-delete.ts";
 
 const FTF = "4tf-channel-id";
 const VENUE = "venue-channel-id";
@@ -116,5 +119,54 @@ describe("computeStaleTierChannelDeletions — empty-response guard (the channel
       { tier_name: "GA", channel_id: VENUE },
     ];
     assert.deepEqual(computeStaleTierChannelDeletions(existing, [], FTF), []);
+  });
+});
+
+describe("rowHasMaterialChange — WAL/write-hygiene no-op guard", () => {
+  it("skips an unchanged row (same tickets + revenue) → false", () => {
+    assert.equal(
+      rowHasMaterialChange(
+        { tickets_sold: 50, revenue_amount: 450 },
+        { tickets_sold: 50, revenue_amount: 450 },
+      ),
+      false,
+    );
+  });
+
+  it("writes when tickets_sold changed → true", () => {
+    assert.equal(
+      rowHasMaterialChange(
+        { tickets_sold: 50, revenue_amount: 450 },
+        { tickets_sold: 51, revenue_amount: 450 },
+      ),
+      true,
+    );
+  });
+
+  it("writes when revenue changed but tickets did not → true", () => {
+    assert.equal(
+      rowHasMaterialChange(
+        { tickets_sold: 50, revenue_amount: 450 },
+        { tickets_sold: 50, revenue_amount: 465 },
+      ),
+      true,
+    );
+  });
+
+  it("writes a genuinely new row (no existing) → true", () => {
+    assert.equal(
+      rowHasMaterialChange(undefined, { tickets_sold: 0, revenue_amount: 0 }),
+      true,
+    );
+  });
+
+  it("ignores sub-cent revenue float jitter → false (no churn)", () => {
+    assert.equal(
+      rowHasMaterialChange(
+        { tickets_sold: 50, revenue_amount: 450.0 },
+        { tickets_sold: 50, revenue_amount: 450.0001 },
+      ),
+      false,
+    );
   });
 });
