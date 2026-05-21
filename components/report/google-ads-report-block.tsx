@@ -9,23 +9,26 @@ import type {
   GoogleAdsReportBlockData,
 } from "@/lib/reporting/google-ads-share-types";
 import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
+import {
+  googleAdsCampaignColumns,
+  googleAdsChannelKind,
+  googleAdsReportPresence,
+  googleAdsRow2Tiles,
+  type GoogleAdsRow2Tile,
+} from "@/lib/reporting/google-ads-report-shape";
 export type { GoogleAdsReportBlockData };
 
 export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData }) {
   const t = data.totals;
-  const hasVideo = data.campaigns.some((c) => c.campaign_type?.includes("VIDEO"));
+  const presence = googleAdsReportPresence(data.campaigns);
   const row1 = [
     { label: "Impressions", value: fmtInt(t.impressions) },
     { label: "Spend", value: fmtMoney(t.spend) },
     { label: "Clicks (all)", value: fmtInt(t.clicks) },
     { label: "CTR (all)", value: fmtPct(t.ctr) },
   ];
-  const row2 = [
-    { label: "Engagements", value: fmtInt(t.engagements) },
-    { label: "Avg CPC", value: fmtMoney(t.averageCpc) },
-    { label: "Cost per video view", value: fmtMoneyOrPence(t.costPerVideoView) },
-    { label: "View-through rate", value: fmtPct(t.viewThroughRate) },
-  ];
+  const row2Tiles = googleAdsRow2Tiles(presence);
+  const row2 = row2Tiles.map((tile) => row2TileCard(tile, t, presence));
   const row3 = [
     { label: "Video views (25%)", value: fmtNullableInt(t.videoViews25) },
     { label: "Video views (50%)", value: fmtNullableInt(t.videoViews50) },
@@ -41,8 +44,8 @@ export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData 
       </section>
       <div className="space-y-3">
         <StatGrid cards={row1} />
-        <StatGrid cards={row2} />
-        {hasVideo ? <StatGrid cards={row3} /> : null}
+        {row2.length > 0 ? <StatGrid cards={row2} /> : null}
+        {presence.hasVideo ? <StatGrid cards={row3} /> : null}
         {t.cpm != null || t.costPerEngagement != null ? (
           <p className="px-1 text-[11px] text-muted-foreground">
             CPM {fmtMoney(t.cpm)} · CPE {fmtMoneyOrPence(t.costPerEngagement)}
@@ -54,7 +57,7 @@ export function GoogleAdsReportBlock({ data }: { data: GoogleAdsReportBlockData 
           Top campaigns
         </summary>
         <div className="border-t border-border px-5 py-4">
-          <CampaignTable rows={data.campaigns} />
+          <CampaignTable rows={data.campaigns} presence={presence} />
         </div>
       </details>
       {data.creatives?.length ? (
@@ -88,36 +91,145 @@ function StatGrid({ cards }: { cards: { label: string; value: string }[] }) {
   );
 }
 
-function CampaignTable({ rows }: { rows: CampaignInsightsRow[] }) {
-  if (rows.length === 0) return <p className="text-xs text-muted-foreground">No Google Ads campaigns matched.</p>;
+function CampaignTable({
+  rows,
+  presence,
+}: {
+  rows: CampaignInsightsRow[];
+  presence: ReturnType<typeof googleAdsReportPresence>;
+}) {
+  if (rows.length === 0) {
+    return <p className="text-xs text-muted-foreground">No Google Ads campaigns matched.</p>;
+  }
+  const columns = googleAdsCampaignColumns(presence);
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-            <th className="pb-2">Campaign</th>
-            <th className="pb-2 text-right">Spend</th>
-            <th className="pb-2 text-right">Impr.</th>
-            <th className="pb-2 text-right">Eng.</th>
-            <th className="pb-2 text-right">CTR</th>
-            <th className="pb-2 text-right">CPE</th>
+            {columns.map((col) => (
+              <th
+                key={col}
+                className={`pb-2 ${col === "name" || col === "type" ? "" : "text-right"}`}
+              >
+                {columnLabel(col)}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-t border-border/40 text-foreground">
-              <td className="py-1.5 pr-3">{r.name}</td>
-              <td className="py-1.5 text-right tabular-nums">{fmtMoney(r.spend)}</td>
-              <td className="py-1.5 text-right tabular-nums">{fmtInt(r.impressions)}</td>
-              <td className="py-1.5 text-right tabular-nums">{fmtInt(r.video_views ?? r.results)}</td>
-              <td className="py-1.5 text-right tabular-nums">{fmtPct(r.ctr)}</td>
-              <td className="py-1.5 text-right tabular-nums">{fmtMoney(r.cost_per_view ?? null)}</td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const kind = googleAdsChannelKind(r);
+            const avgCpc = r.clicks > 0 ? r.spend / r.clicks : null;
+            return (
+              <tr key={r.id} className="border-t border-border/40 text-foreground">
+                {columns.map((col) => {
+                  if (col === "name") {
+                    return (
+                      <td key={col} className="py-1.5 pr-3">
+                        {r.name}
+                      </td>
+                    );
+                  }
+                  if (col === "type") {
+                    return (
+                      <td key={col} className="py-1.5 pr-3">
+                        <TypeBadge kind={kind} />
+                      </td>
+                    );
+                  }
+                  const value =
+                    col === "spend"
+                      ? fmtMoney(r.spend)
+                      : col === "impressions"
+                        ? fmtInt(r.impressions)
+                        : col === "clicks"
+                          ? fmtInt(r.clicks)
+                          : col === "ctr"
+                            ? fmtPct(r.ctr)
+                            : col === "avgCpc"
+                              ? fmtMoney(avgCpc)
+                              : col === "engagements"
+                                // Engagements column is only present when
+                                // hasVideo. For a SEARCH row in a mixed
+                                // event, show "—" — engagements is a
+                                // YouTube metric and noisy as a number 0
+                                // for search.
+                                ? kind === "VIDEO"
+                                  ? fmtInt(r.video_views ?? r.results)
+                                  : "—"
+                                : "—";
+                  return (
+                    <td key={col} className="py-1.5 text-right tabular-nums">
+                      {value}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
+}
+
+function TypeBadge({ kind }: { kind: ReturnType<typeof googleAdsChannelKind> }) {
+  const label = kind === "VIDEO" ? "Video" : kind === "SEARCH" ? "Search" : "Other";
+  return (
+    <span className="rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      {label}
+    </span>
+  );
+}
+
+function columnLabel(col: ReturnType<typeof googleAdsCampaignColumns>[number]): string {
+  switch (col) {
+    case "name":
+      return "Campaign";
+    case "type":
+      return "Type";
+    case "spend":
+      return "Spend";
+    case "impressions":
+      return "Impr.";
+    case "clicks":
+      return "Clicks";
+    case "ctr":
+      return "CTR";
+    case "avgCpc":
+      return "Avg CPC";
+    case "engagements":
+      return "Eng.";
+  }
+}
+
+function row2TileCard(
+  tile: GoogleAdsRow2Tile,
+  t: GoogleAdsReportBlockData["totals"],
+  presence: ReturnType<typeof googleAdsReportPresence>,
+): { label: string; value: string } {
+  switch (tile) {
+    case "engagements":
+      return { label: "Engagements", value: fmtInt(t.engagements) };
+    case "avgCpc":
+      return { label: "Avg CPC", value: fmtMoney(t.averageCpc) };
+    case "costPerVideoView":
+      return { label: "Cost per video view", value: fmtMoneyOrPence(t.costPerVideoView) };
+    case "viewThroughRate":
+      return { label: "View-through rate", value: fmtPct(t.viewThroughRate) };
+    case "conversions":
+      return { label: "Conversions", value: fmtInt(presence.searchConversions) };
+    case "costPerConversion":
+      return {
+        label: "Cost per conversion",
+        value: fmtMoney(
+          presence.searchConversions > 0
+            ? presence.searchSpend / presence.searchConversions
+            : null,
+        ),
+      };
+  }
 }
 
 function BreakdownSection({
