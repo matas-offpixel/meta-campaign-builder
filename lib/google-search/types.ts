@@ -226,7 +226,15 @@ export interface GoogleSearchImportWarning {
     | "missing_campaign"
     | "empty_keyword"
     | "empty_rsa"
-    | "duplicate_keyword";
+    | "duplicate_keyword"
+    /** A H/D row in the Ad Copy tab had no Campaign cell AND no preceding
+     *  section header — content was dropped because there's no campaign
+     *  to attach it to. */
+    | "ad_copy_orphan"
+    /** The Negative Keywords tab's header row was not found — entire tab
+     *  was skipped. (Defensive: tells the operator why no negatives
+     *  imported when they expected some.) */
+    | "negatives_header_not_found";
   message: string;
   /** Free-form context for the wizard to display. */
   context?: Record<string, string | number | null>;

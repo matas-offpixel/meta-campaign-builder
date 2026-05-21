@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,24 @@ interface Props {
 }
 
 export function CampaignsStep({ tree, onChange, onJumpToKeywords }: Props) {
+  // Google Ads campaign budgets are DAILY (the API expects amountMicros
+  // on a daily basis). The xlsx import stores the plan's monthly
+  // figure on `monthly_budget` for reference, but the push uses
+  // `daily_budget`. The bulk-set input below lets the operator
+  // populate every campaign's daily budget in one shot — common when
+  // running a £1/day smoke test before going live.
+  const [bulkDaily, setBulkDaily] = useState("");
+
+  const applyBulkDaily = () => {
+    const num = bulkDaily === "" ? null : Number(bulkDaily);
+    if (num != null && !Number.isFinite(num)) return;
+    let next = tree;
+    for (const c of tree.campaigns) {
+      next = updateCampaign(next, c.id, { daily_budget: num });
+    }
+    onChange(next);
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -33,6 +52,39 @@ export function CampaignsStep({ tree, onChange, onJumpToKeywords }: Props) {
           reporting matcher picks them up.
         </CardDescription>
       </CardHeader>
+
+      {tree.campaigns.length > 0 ? (
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-md border border-border bg-muted/30 p-3 text-sm">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground" htmlFor="gs-bulk-daily">
+              Set all daily budgets (£)
+            </label>
+            <Input
+              id="gs-bulk-daily"
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min={0}
+              value={bulkDaily}
+              onChange={(e) => setBulkDaily(e.target.value)}
+              placeholder="e.g. 1"
+              className="w-28"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={applyBulkDaily}
+            disabled={bulkDaily === ""}
+          >
+            Apply to all
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Google Ads budgets are <strong>daily</strong>. Use £1/day for a smoke test, then raise per campaign.
+          </p>
+        </div>
+      ) : null}
 
       {tree.campaigns.length === 0 ? (
         <div className="rounded-md border border-dashed border-border p-6 text-center">
@@ -52,7 +104,7 @@ export function CampaignsStep({ tree, onChange, onJumpToKeywords }: Props) {
                 <th className="w-8 p-3"></th>
                 <th className="p-3">Name</th>
                 <th className="w-32 p-3">Priority</th>
-                <th className="w-32 p-3">Monthly £</th>
+                <th className="w-32 p-3">Daily £</th>
                 <th className="p-3">Notes</th>
                 <th className="w-28 p-3">Ad groups</th>
                 <th className="w-32 p-3 text-right">Actions</th>
@@ -149,18 +201,23 @@ function CampaignRow({
       </td>
       <td className="p-2">
         <Input
-          aria-label={`Campaign ${index + 1} monthly budget`}
+          aria-label={`Campaign ${index + 1} daily budget`}
           type="number"
           inputMode="decimal"
           step="0.01"
           min={0}
-          value={campaign.monthly_budget ?? ""}
+          value={campaign.daily_budget ?? ""}
           onChange={(e) => {
             const raw = e.target.value;
             const num = raw === "" ? null : Number(raw);
-            onPatch({ monthly_budget: Number.isFinite(num) ? (num as number | null) : null });
+            onPatch({ daily_budget: Number.isFinite(num) ? (num as number | null) : null });
           }}
         />
+        {campaign.monthly_budget != null && campaign.monthly_budget > 0 ? (
+          <p className="mt-1 text-[10px] text-muted-foreground" title="Imported monthly figure from the plan — reference only, push uses daily.">
+            plan: £{Math.round(campaign.monthly_budget)}/mo
+          </p>
+        ) : null}
       </td>
       <td className="p-2">
         <Input
