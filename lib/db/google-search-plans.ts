@@ -415,116 +415,465 @@ export async function createGoogleSearchPlanTreeFromDraft(
 }
 
 /**
- * Wizard autosave hook (Phase 2 caller). Updates the plan row in-place,
- * then nukes-and-rewrites the entire child subtree. ON DELETE CASCADE on
- * google_search_campaigns drops everything below in one statement.
+ * Wizard autosave hook. **Diff-aware** — every save reconciles the
+ * incoming tree against the rows currently in Postgres by row id, so
+ * `pushed_resource_name` (set by the Phase 3 push adapter) is preserved
+ * across autosave. This is the gate that makes the wizard safe to use
+ * on a real client account: without it, the push adapter's per-row
+ * idempotency check (skip if `pushed_resource_name` is non-null) gets
+ * silently defeated every 1500 ms by the autosave debounce.
  *
- * Caveat: any `pushed_resource_name` values on existing rows are lost.
- * That's fine for Phase 1/2 (no pusher yet); Phase 3 will replace this
- * with a diff-aware writer that preserves push metadata.
+ * Reconciliation per child level (campaigns → ad_groups → keywords /
+ * rsas → negatives):
+ *   - Tree row with id present in DB  → UPDATE (excluding
+ *     `pushed_resource_name`, which the push adapter owns).
+ *   - Tree row with id absent from DB → INSERT (`pushed_resource_name`
+ *     stays NULL; correct, it hasn't been pushed).
+ *   - DB row whose id is absent from the tree → DELETE (CASCADE drops
+ *     descendants).
+ *
+ * Plan-level update purposefully omits `status` and `pushed_at` — those
+ * are owned by the push adapter (`lib/google-ads/campaign-writer.ts`).
+ * Letting the wizard write them would race the adapter's status
+ * updates and could un-do a `pushed` → `partially_pushed` transition.
  */
 export async function saveGoogleSearchPlanTree(
   supabase: SupabaseClient,
   tree: GoogleSearchPlanTree,
 ): Promise<void> {
+  // ── 1. Plan-level fields (status + pushed_at owned by push adapter) ─
   const { error: planErr } = await supabase
     .from("google_search_plans")
     .update({
       name: tree.plan.name,
       event_id: tree.plan.event_id,
       google_ads_account_id: tree.plan.google_ads_account_id,
-      status: tree.plan.status,
       total_budget: tree.plan.total_budget,
       bidding_strategy: tree.plan.bidding_strategy,
       geo_targets: tree.plan.geo_targets,
       date_range: tree.plan.date_range,
     })
     .eq("id", tree.plan.id);
-  if (planErr) throw new Error(`saveGoogleSearchPlanTree (plan update) failed: ${planErr.message}`);
+  if (planErr) {
+    throw new Error(`saveGoogleSearchPlanTree (plan update) failed: ${planErr.message}`);
+  }
 
-  const { error: nukeErr } = await supabase
+  // ── 2. Campaigns ──────────────────────────────────────────────────
+  const { data: existingCampaignsRaw, error: existCampErr } = await supabase
     .from("google_search_campaigns")
-    .delete()
+    .select("id")
     .eq("plan_id", tree.plan.id);
-  if (nukeErr) throw new Error(`saveGoogleSearchPlanTree (campaign nuke) failed: ${nukeErr.message}`);
-  const { error: negNukeErr } = await supabase
-    .from("google_search_negatives")
-    .delete()
-    .eq("plan_id", tree.plan.id);
-  if (negNukeErr) throw new Error(`saveGoogleSearchPlanTree (negatives nuke) failed: ${negNukeErr.message}`);
-
-  await createGoogleSearchPlanTreeFromDraft(
-    supabase,
-    tree.plan.user_id,
-    treeToDraft(tree),
-    {
-      event_id: tree.plan.event_id,
-      google_ads_account_id: tree.plan.google_ads_account_id,
-    },
+  if (existCampErr) {
+    throw new Error(`saveGoogleSearchPlanTree (load campaigns) failed: ${existCampErr.message}`);
+  }
+  const existingCampaignIds = new Set(
+    ((existingCampaignsRaw ?? []) as Array<{ id: string }>).map((r) => r.id),
   );
-}
+  const campaignPlan = partitionTreeRows(existingCampaignIds, tree.campaigns);
 
-function treeToDraft(tree: GoogleSearchPlanTree): GoogleSearchPlanDraftTree {
-  const campaignIdToName = new Map(tree.campaigns.map((c) => [c.id, c.name]));
-  return {
-    plan: {
-      name: tree.plan.name,
-      event_id: tree.plan.event_id,
-      google_ads_account_id: tree.plan.google_ads_account_id,
-      status: tree.plan.status,
-      total_budget: tree.plan.total_budget,
-      bidding_strategy: tree.plan.bidding_strategy,
-      geo_targets: tree.plan.geo_targets,
-      date_range: tree.plan.date_range,
-    },
-    campaigns: tree.campaigns.map((c) => ({
-      name: c.name,
-      priority: c.priority,
-      monthly_budget: c.monthly_budget,
-      daily_budget: c.daily_budget,
-      bid_adjustments: c.bid_adjustments,
-      notes: c.notes,
-      sort_order: c.sort_order,
-      ad_groups: c.ad_groups.map((ag) => ({
+  if (campaignPlan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("google_search_campaigns")
+      .delete()
+      .in("id", campaignPlan.deletes);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (campaign delete) failed: ${error.message}`);
+    }
+  }
+  for (const c of campaignPlan.updates) {
+    const { error } = await supabase
+      .from("google_search_campaigns")
+      .update({
+        name: c.name,
+        priority: c.priority,
+        monthly_budget: c.monthly_budget,
+        daily_budget: c.daily_budget,
+        bid_adjustments: c.bid_adjustments,
+        notes: c.notes,
+        sort_order: c.sort_order,
+      })
+      .eq("id", c.id);
+    if (error) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (campaign update "${c.name}") failed: ${error.message}`,
+      );
+    }
+  }
+  const campaignTmpToReal = new Map<string, string>();
+  for (const c of campaignPlan.inserts) {
+    const { data, error } = await supabase
+      .from("google_search_campaigns")
+      .insert({
+        plan_id: tree.plan.id,
+        name: c.name,
+        priority: c.priority,
+        monthly_budget: c.monthly_budget,
+        daily_budget: c.daily_budget,
+        bid_adjustments: c.bid_adjustments,
+        notes: c.notes,
+        sort_order: c.sort_order,
+      })
+      .select("id")
+      .single();
+    if (error || !data) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (campaign insert "${c.name}") failed: ${error?.message ?? "no row"}`,
+      );
+    }
+    campaignTmpToReal.set(c.id, (data as { id: string }).id);
+  }
+  const resolveCampaignId = (treeId: string): string =>
+    existingCampaignIds.has(treeId) && !campaignPlan.deletes.includes(treeId)
+      ? treeId
+      : campaignTmpToReal.get(treeId) ?? treeId;
+
+  // ── 3. Ad groups ──────────────────────────────────────────────────
+  // Load ad groups across the SURVIVING campaign ids only — the delete
+  // step above already cascaded ad groups of removed campaigns, so
+  // querying by the post-reconciliation set is correct.
+  const survivingCampaignIds: string[] = [
+    ...campaignPlan.updates.map((c) => c.id),
+    ...campaignTmpToReal.values(),
+  ];
+
+  const existingAdGroupIds = new Set<string>();
+  if (survivingCampaignIds.length > 0) {
+    const { data, error } = await supabase
+      .from("google_search_ad_groups")
+      .select("id")
+      .in("campaign_id", survivingCampaignIds);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (load ad_groups) failed: ${error.message}`);
+    }
+    for (const row of (data ?? []) as Array<{ id: string }>) existingAdGroupIds.add(row.id);
+  }
+
+  const treeAdGroups = tree.campaigns.flatMap((c) =>
+    c.ad_groups.map((ag) => ({ ag, campaignRealId: resolveCampaignId(c.id) })),
+  );
+  const adGroupPlan = partitionTreeRows(
+    existingAdGroupIds,
+    treeAdGroups.map(({ ag }) => ag),
+  );
+  // Re-attach the resolved campaign id to each ad group plan entry so
+  // inserts can write the FK; we keep the same row references so the
+  // partition above stays a pure id-based op.
+  const adGroupCampaignByTreeId = new Map(
+    treeAdGroups.map(({ ag, campaignRealId }) => [ag.id, campaignRealId]),
+  );
+
+  if (adGroupPlan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("google_search_ad_groups")
+      .delete()
+      .in("id", adGroupPlan.deletes);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (ad_group delete) failed: ${error.message}`);
+    }
+  }
+  for (const ag of adGroupPlan.updates) {
+    const { error } = await supabase
+      .from("google_search_ad_groups")
+      .update({
         name: ag.name,
         default_cpc: ag.default_cpc,
         sort_order: ag.sort_order,
-        keywords: ag.keywords.map((k) => ({
-          keyword: k.keyword,
-          match_type: k.match_type,
-          est_cpc_low: k.est_cpc_low,
-          est_cpc_high: k.est_cpc_high,
-          intent: k.intent,
-          notes: k.notes,
-        })),
-        rsas: ag.rsas.map((r) => ({
-          headlines: r.headlines,
-          descriptions: r.descriptions,
-          final_url: r.final_url,
-          path1: r.path1,
-          path2: r.path2,
-        })),
-      })),
-    })),
-    negatives: [
-      ...tree.plan_negatives.map((n) => ({
+      })
+      .eq("id", ag.id);
+    if (error) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (ad_group update "${ag.name}") failed: ${error.message}`,
+      );
+    }
+  }
+  const adGroupTmpToReal = new Map<string, string>();
+  for (const ag of adGroupPlan.inserts) {
+    const campaignId = adGroupCampaignByTreeId.get(ag.id);
+    if (!campaignId) {
+      throw new Error(
+        `saveGoogleSearchPlanTree: ad group "${ag.name}" has no resolved campaign id (orphan in tree)`,
+      );
+    }
+    const { data, error } = await supabase
+      .from("google_search_ad_groups")
+      .insert({
+        campaign_id: campaignId,
+        name: ag.name,
+        default_cpc: ag.default_cpc,
+        sort_order: ag.sort_order,
+      })
+      .select("id")
+      .single();
+    if (error || !data) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (ad_group insert "${ag.name}") failed: ${error?.message ?? "no row"}`,
+      );
+    }
+    adGroupTmpToReal.set(ag.id, (data as { id: string }).id);
+  }
+  const resolveAdGroupId = (treeId: string): string =>
+    existingAdGroupIds.has(treeId) && !adGroupPlan.deletes.includes(treeId)
+      ? treeId
+      : adGroupTmpToReal.get(treeId) ?? treeId;
+
+  // ── 4. Keywords ───────────────────────────────────────────────────
+  const survivingAdGroupIds: string[] = [
+    ...adGroupPlan.updates.map((ag) => ag.id),
+    ...adGroupTmpToReal.values(),
+  ];
+
+  const existingKeywordIds = new Set<string>();
+  if (survivingAdGroupIds.length > 0) {
+    const { data, error } = await supabase
+      .from("google_search_keywords")
+      .select("id")
+      .in("ad_group_id", survivingAdGroupIds);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (load keywords) failed: ${error.message}`);
+    }
+    for (const row of (data ?? []) as Array<{ id: string }>) existingKeywordIds.add(row.id);
+  }
+
+  const treeKeywords = tree.campaigns.flatMap((c) =>
+    c.ad_groups.flatMap((ag) =>
+      ag.keywords.map((k) => ({ k, adGroupRealId: resolveAdGroupId(ag.id) })),
+    ),
+  );
+  const keywordPlan = partitionTreeRows(
+    existingKeywordIds,
+    treeKeywords.map(({ k }) => k),
+  );
+  const keywordAdGroupByTreeId = new Map(
+    treeKeywords.map(({ k, adGroupRealId }) => [k.id, adGroupRealId]),
+  );
+
+  if (keywordPlan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("google_search_keywords")
+      .delete()
+      .in("id", keywordPlan.deletes);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (keyword delete) failed: ${error.message}`);
+    }
+  }
+  for (const k of keywordPlan.updates) {
+    const { error } = await supabase
+      .from("google_search_keywords")
+      .update({
+        keyword: k.keyword,
+        match_type: k.match_type,
+        est_cpc_low: k.est_cpc_low,
+        est_cpc_high: k.est_cpc_high,
+        intent: k.intent,
+        notes: k.notes,
+      })
+      .eq("id", k.id);
+    if (error) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (keyword update "${k.keyword}") failed: ${error.message}`,
+      );
+    }
+  }
+  if (keywordPlan.inserts.length > 0) {
+    const rows = keywordPlan.inserts.map((k) => {
+      const adGroupId = keywordAdGroupByTreeId.get(k.id);
+      if (!adGroupId) {
+        throw new Error(
+          `saveGoogleSearchPlanTree: keyword "${k.keyword}" has no resolved ad_group id`,
+        );
+      }
+      return {
+        ad_group_id: adGroupId,
+        keyword: k.keyword,
+        match_type: k.match_type,
+        est_cpc_low: k.est_cpc_low,
+        est_cpc_high: k.est_cpc_high,
+        intent: k.intent,
+        notes: k.notes,
+      };
+    });
+    const { error } = await supabase.from("google_search_keywords").insert(rows);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (keyword insert) failed: ${error.message}`);
+    }
+  }
+
+  // ── 5. RSAs ───────────────────────────────────────────────────────
+  const existingRsaIds = new Set<string>();
+  if (survivingAdGroupIds.length > 0) {
+    const { data, error } = await supabase
+      .from("google_search_rsas")
+      .select("id")
+      .in("ad_group_id", survivingAdGroupIds);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (load rsas) failed: ${error.message}`);
+    }
+    for (const row of (data ?? []) as Array<{ id: string }>) existingRsaIds.add(row.id);
+  }
+
+  const treeRsas = tree.campaigns.flatMap((c) =>
+    c.ad_groups.flatMap((ag) =>
+      ag.rsas.map((r) => ({ r, adGroupRealId: resolveAdGroupId(ag.id) })),
+    ),
+  );
+  const rsaPlan = partitionTreeRows(
+    existingRsaIds,
+    treeRsas.map(({ r }) => r),
+  );
+  const rsaAdGroupByTreeId = new Map(
+    treeRsas.map(({ r, adGroupRealId }) => [r.id, adGroupRealId]),
+  );
+
+  if (rsaPlan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("google_search_rsas")
+      .delete()
+      .in("id", rsaPlan.deletes);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (rsa delete) failed: ${error.message}`);
+    }
+  }
+  for (const r of rsaPlan.updates) {
+    const { error } = await supabase
+      .from("google_search_rsas")
+      .update({
+        headlines: r.headlines,
+        descriptions: r.descriptions,
+        final_url: r.final_url,
+        path1: r.path1,
+        path2: r.path2,
+      })
+      .eq("id", r.id);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (rsa update) failed: ${error.message}`);
+    }
+  }
+  if (rsaPlan.inserts.length > 0) {
+    const rows = rsaPlan.inserts.map((r) => {
+      const adGroupId = rsaAdGroupByTreeId.get(r.id);
+      if (!adGroupId) {
+        throw new Error("saveGoogleSearchPlanTree: RSA has no resolved ad_group id");
+      }
+      return {
+        ad_group_id: adGroupId,
+        headlines: r.headlines,
+        descriptions: r.descriptions,
+        final_url: r.final_url,
+        path1: r.path1,
+        path2: r.path2,
+      };
+    });
+    const { error } = await supabase.from("google_search_rsas").insert(rows);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (rsa insert) failed: ${error.message}`);
+    }
+  }
+
+  // ── 6. Negatives (plan- + campaign-scoped) ─────────────────────────
+  const { data: existingNegRaw, error: existNegErr } = await supabase
+    .from("google_search_negatives")
+    .select("id")
+    .eq("plan_id", tree.plan.id);
+  if (existNegErr) {
+    throw new Error(`saveGoogleSearchPlanTree (load negatives) failed: ${existNegErr.message}`);
+  }
+  const existingNegativeIds = new Set(
+    ((existingNegRaw ?? []) as Array<{ id: string }>).map((r) => r.id),
+  );
+
+  // Tag each negative with its target campaign id (null for plan-scoped)
+  // BEFORE diffing so inserts can resolve the FK without an extra map.
+  const taggedNegatives = [
+    ...tree.plan_negatives.map((n) => ({ n, campaignId: null as string | null })),
+    ...tree.campaigns.flatMap((c) =>
+      c.negatives.map((n) => ({ n, campaignId: resolveCampaignId(c.id) })),
+    ),
+  ];
+  const negativePlan = partitionTreeRows(
+    existingNegativeIds,
+    taggedNegatives.map(({ n }) => n),
+  );
+  const negativeCampaignByTreeId = new Map(
+    taggedNegatives.map(({ n, campaignId }) => [n.id, campaignId]),
+  );
+
+  if (negativePlan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("google_search_negatives")
+      .delete()
+      .in("id", negativePlan.deletes);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (negative delete) failed: ${error.message}`);
+    }
+  }
+  for (const n of negativePlan.updates) {
+    const campaignId = negativeCampaignByTreeId.get(n.id);
+    // campaignId of `undefined` shouldn't happen because every tree
+    // negative was tagged above; fall back to whatever the tree row
+    // carries so a stray case doesn't null the FK silently.
+    const resolvedCampaignId = campaignId === undefined ? n.campaign_id : campaignId;
+    const { error } = await supabase
+      .from("google_search_negatives")
+      .update({
+        campaign_id: resolvedCampaignId,
         keyword: n.keyword,
         match_type: n.match_type,
         reason: n.reason,
-        scope: { kind: "plan" as const },
-      })),
-      ...tree.campaigns.flatMap((c) =>
-        c.negatives.map((n) => ({
-          keyword: n.keyword,
-          match_type: n.match_type,
-          reason: n.reason,
-          scope: {
-            kind: "campaign" as const,
-            campaign_name: campaignIdToName.get(c.id) ?? c.name,
-          },
-        })),
-      ),
-    ],
-    warnings: [],
-  };
+      })
+      .eq("id", n.id);
+    if (error) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (negative update "${n.keyword}") failed: ${error.message}`,
+      );
+    }
+  }
+  if (negativePlan.inserts.length > 0) {
+    const rows = negativePlan.inserts.map((n) => ({
+      plan_id: tree.plan.id,
+      campaign_id: negativeCampaignByTreeId.get(n.id) ?? null,
+      keyword: n.keyword,
+      match_type: n.match_type,
+      reason: n.reason,
+    }));
+    const { error } = await supabase.from("google_search_negatives").insert(rows);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (negative insert) failed: ${error.message}`);
+    }
+  }
+}
+
+// ─── Pure reconciliation helper (exported for unit tests) ─────────────
+
+export interface ReconcilePlan<T extends { id: string }> {
+  updates: T[];
+  inserts: T[];
+  deletes: string[];
+}
+
+/**
+ * Splits a set of tree rows against the ids currently in the database
+ * into update / insert / delete buckets. Pure — testable in isolation
+ * + reused across the five child levels (campaigns, ad_groups,
+ * keywords, rsas, negatives).
+ *
+ *  - Tree row whose id is in `existing` → UPDATE.
+ *  - Tree row whose id is NOT in `existing` (tmp-foo, or stale UUID
+ *    pointing nowhere) → INSERT.
+ *  - DB id absent from `tree` → DELETE.
+ */
+export function partitionTreeRows<T extends { id: string }>(
+  existing: Set<string>,
+  tree: T[],
+): ReconcilePlan<T> {
+  const updates: T[] = [];
+  const inserts: T[] = [];
+  const treeIds = new Set<string>();
+  for (const row of tree) {
+    treeIds.add(row.id);
+    if (existing.has(row.id)) updates.push(row);
+    else inserts.push(row);
+  }
+  const deletes: string[] = [];
+  for (const id of existing) if (!treeIds.has(id)) deletes.push(id);
+  return { updates, inserts, deletes };
 }

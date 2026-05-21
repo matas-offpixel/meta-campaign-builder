@@ -56,16 +56,21 @@ export function PushStep({ tree, onChange }: Props) {
       tree.campaigns.reduce((s, c) => s + c.negatives.length, 0),
   };
 
-  async function handlePush() {
+  async function handlePush(opts: { force?: boolean } = {}) {
     setState({ phase: "pushing" });
     try {
       const res = await fetch(`/api/google-search/${tree.plan.id}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // `force: true` lets the operator deliberately re-push an
+        // already-pushed plan to pick up newly-added rows. Per-row
+        // idempotency on the adapter still prevents duplicates for
+        // rows that already carry pushed_resource_name.
+        body: JSON.stringify({ force: opts.force === true }),
       });
       const json = (await res.json().catch(() => null)) as
         | GoogleSearchLaunchSummary
-        | { ok: false; reason: string; details?: string }
+        | { ok: false; reason: string; details?: string; pushedCampaignCount?: number }
         | null;
 
       if (!json) {
@@ -133,10 +138,27 @@ export function PushStep({ tree, onChange }: Props) {
         )}
 
         <div className="mt-5 flex items-center gap-3">
-          <button id="gs-push-trigger" type="button" hidden onClick={handlePush}>
+          <button
+            id="gs-push-trigger"
+            type="button"
+            hidden
+            onClick={() => handlePush()}
+          >
             Hidden push trigger
           </button>
-          <Button onClick={handlePush} disabled={blocking || state.phase === "pushing"}>
+          <Button
+            onClick={() =>
+              handlePush({
+                // Re-attempts (complete / refused-by-guard) must opt in
+                // to force=true so the route's defence-in-depth guard
+                // accepts the second click.
+                force:
+                  state.phase === "complete" ||
+                  (state.phase === "refused" && state.reason === "already_pushed"),
+              })
+            }
+            disabled={blocking || state.phase === "pushing"}
+          >
             {state.phase === "pushing" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : state.phase === "complete" ? (
@@ -147,8 +169,10 @@ export function PushStep({ tree, onChange }: Props) {
             {state.phase === "pushing"
               ? "Pushing…"
               : state.phase === "complete"
-                ? "Push again (re-attempt failures)"
-                : "Push to Google Ads (PAUSED)"}
+                ? "Push again (re-attempt failures, force)"
+                : state.phase === "refused" && state.reason === "already_pushed"
+                  ? "Push again (force re-push)"
+                  : "Push to Google Ads (PAUSED)"}
           </Button>
           <span className="text-xs text-muted-foreground">
             All resources are created paused. Toggle Active in the Google Ads UI when ready.
@@ -384,6 +408,8 @@ function FailureSection({
 
 function humanReason(reason: string): string {
   switch (reason) {
+    case "already_pushed":
+      return "This plan was already pushed. Click Push again above to deliberately re-push (the adapter will skip rows that already exist on Google Ads).";
     case "validation_failed":
       return "Validation failed — fix the hard errors in Review before pushing.";
     case "no_google_ads_account_linked":
