@@ -25,6 +25,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
+  buildCorroboratedDailyDeltas,
   corroboratedDailyDeltas,
   shiftYmd,
 } from "../venue-trend-points.ts";
@@ -152,6 +153,92 @@ describe("corroboratedDailyDeltas — Last-32 down-correction re-based", () => {
       7,
       "the +7 must be 50−43 (re-based to the corrected 43), not 50−82",
     );
+  });
+});
+
+describe("buildCorroboratedDailyDeltas — canonical builder, Utilita (Eventbrite) fixture", () => {
+  // Utilita event 64d8f22a, verified in Supabase. daily_history cumulative
+  // (snapshot_date) vs the rollup writer's mis-attributed per-day rows.
+  const cumulativeTickets = [
+    { date: "2026-05-13", cumulative: 4384 },
+    { date: "2026-05-14", cumulative: 4603 },
+    { date: "2026-05-15", cumulative: 4580 }, // −23 down-correction
+    { date: "2026-05-16", cumulative: 6806 }, // +2226 real on-sale
+    { date: "2026-05-17", cumulative: 7309 },
+  ];
+  const cumulativeRevenue = [
+    { date: "2026-05-13", cumulative: 68599.5 },
+    { date: "2026-05-14", cumulative: 74168.5 },
+    { date: "2026-05-15", cumulative: 73766.5 },
+    { date: "2026-05-16", cumulative: 150291.5 },
+    { date: "2026-05-17", cumulative: 167929.5 },
+  ];
+  // Rollup writer lumped Eventbrite catch-up onto 05-15 (bogus 2458/£80,334).
+  const rollups = [
+    { date: "2026-05-13", tickets_sold: 102, revenue: 2550 },
+    { date: "2026-05-14", tickets_sold: 0, revenue: 0 },
+    { date: "2026-05-15", tickets_sold: 2458, revenue: 80334 },
+    { date: "2026-05-16", tickets_sold: 465, revenue: 16140 },
+    { date: "2026-05-17", tickets_sold: 218, revenue: 7565 },
+  ];
+
+  it("preserves the real on-sale (+2226) on the true sale day, NOT the bogus rollup 2458", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+    });
+    // +2226 (snapshot 05-16) lands on the true sale day 05-15 (snapshot −1).
+    assert.equal(tickets.get("2026-05-15"), 2226);
+    // The bogus rollup lump magnitude (2458) must never appear.
+    assert.ok(
+      ![...tickets.values()].includes(2458),
+      "rollup lump 2458 must not be displayed (presence-not-magnitude)",
+    );
+  });
+
+  it("emits the smooth daily-history deltas, suppresses the day-0 baseline + down-correction", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+    });
+    assert.deepEqual(
+      [...tickets.entries()].sort(),
+      [
+        ["2026-05-13", 219], // +219 (snapshot 05-14) → true day 05-13
+        ["2026-05-15", 2226], // +2226 (snapshot 05-16) → true day 05-15
+        ["2026-05-16", 503], // +503 (snapshot 05-17) → true day 05-16
+      ],
+      "day-0 baseline (4384) suppressed; 05-14→05-15 −23 down-correction re-based",
+    );
+  });
+
+  it("revenue rides the SAME grid as tickets (no Eventbrite row-split), history magnitude not rollup", () => {
+    const { revenue } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+    });
+    // £76,525 history delta on 05-15 — NOT the bogus rollup £80,334.
+    assert.equal(revenue.get("2026-05-15"), 76525);
+    assert.ok(![...revenue.values()].includes(80334));
+    // Same grid as tickets: both populate 05-13, 05-15, 05-16.
+    assert.deepEqual([...revenue.keys()].sort(), [
+      "2026-05-13",
+      "2026-05-15",
+      "2026-05-16",
+    ]);
+  });
+
+  it("returns empty maps for an event with no daily_history (rollup-direct fall-through)", () => {
+    const { tickets, revenue } = buildCorroboratedDailyDeltas({
+      cumulativeTickets: [],
+      cumulativeRevenue: [],
+      rollups,
+    });
+    assert.equal(tickets.size, 0);
+    assert.equal(revenue.size, 0);
   });
 });
 

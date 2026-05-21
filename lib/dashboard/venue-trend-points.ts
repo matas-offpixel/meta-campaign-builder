@@ -519,7 +519,7 @@ export interface CorroboratedDeltaOptions {
  * Returns Map<trueSaleDate, delta>.
  */
 export function corroboratedDailyDeltas(
-  timeline: Array<{ date: string; cumulative: number }>,
+  timeline: ReadonlyArray<{ date: string; cumulative: number }>,
   rollupActivityDates: ReadonlySet<string>,
   options?: CorroboratedDeltaOptions,
 ): Map<string, number> {
@@ -550,6 +550,58 @@ function hasActivityWithin(
     if (activity.has(shiftYmd(date, off))) return true;
   }
   return false;
+}
+
+/**
+ * Canonical per-day tickets+revenue delta builder shared by BOTH daily
+ * tracker surfaces so they cannot diverge:
+ *   - the per-EVENT internal tracker (lib/db/event-daily-timeline.ts
+ *     `mergeTimeline`), and
+ *   - the per-EVENT_CODE venue tracker (components/share/
+ *     venue-daily-report-block.tsx `mergeVenueTimeline`).
+ *
+ * Given the cumulative tickets + revenue timelines from
+ * `tier_channel_sales_daily_history` (built by
+ * `buildVenueDailyHistoryTimelines` — works for one event_id or a whole
+ * venue's set) and the rollup rows used as the corroboration *activity*
+ * signal, returns per-day tickets and revenue deltas keyed by the TRUE
+ * sale day. Tickets and revenue share ONE date grid + ONE corroboration
+ * pass, so they cannot misalign. Suppress / re-base / offset semantics
+ * live in `corroboratedDailyDeltas`.
+ *
+ * The rollup is a yes/no "was there a real sale here" gate (presence,
+ * never magnitude) — so an undercounting or catch-up-lumping rollup (e.g.
+ * the Eventbrite multi-day lump) still gates correctly while the displayed
+ * number comes from the smooth daily-history cumulative.
+ */
+export function buildCorroboratedDailyDeltas(args: {
+  cumulativeTickets: ReadonlyArray<{ date: string; cumulative: number }>;
+  cumulativeRevenue: ReadonlyArray<{ date: string; cumulative: number }>;
+  rollups: ReadonlyArray<{
+    date: string;
+    tickets_sold: number | null;
+    revenue: number | null;
+  }>;
+  options?: CorroboratedDeltaOptions;
+}): { tickets: Map<string, number>; revenue: Map<string, number> } {
+  const activity = new Set<string>();
+  for (const r of args.rollups) {
+    if ((r.tickets_sold ?? 0) > 0 || (r.revenue ?? 0) > 0) {
+      activity.add(r.date);
+    }
+  }
+  return {
+    tickets: corroboratedDailyDeltas(
+      args.cumulativeTickets,
+      activity,
+      args.options,
+    ),
+    revenue: corroboratedDailyDeltas(
+      args.cumulativeRevenue,
+      activity,
+      args.options,
+    ),
+  };
 }
 
 /**
