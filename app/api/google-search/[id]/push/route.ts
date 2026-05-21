@@ -14,6 +14,7 @@ import {
   hasHardErrors,
   validateGoogleSearchPlan,
 } from "@/lib/google-search/validation";
+import { evaluatePushGuard } from "@/lib/google-search/push-guard";
 import {
   pushGoogleSearchPlan,
   type GoogleSearchPushPersister,
@@ -32,9 +33,16 @@ export const maxDuration = 300;
  * resolves the linked event's `event_code` for the campaign-name
  * prefix, then runs `pushGoogleSearchPlan`. Returns a
  * `GoogleSearchLaunchSummary` that the wizard's Push step renders.
+ *
+ * Body: `{ force?: boolean }`. The route refuses to re-push a plan
+ * that's already been pushed (status='pushed' OR any row carries a
+ * `pushed_resource_name`) unless `force: true` is sent. The push
+ * adapter is per-row idempotent regardless — this is defence in
+ * depth against a double-click or stale-tab re-launch slipping
+ * through and creating duplicate live campaigns.
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id } = await params;
@@ -45,6 +53,9 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ ok: false, reason: "unauthenticated" }, { status: 401 });
   }
+
+  const body = (await req.json().catch(() => ({}))) as { force?: boolean } | null;
+  const force = body?.force === true;
 
   let tree;
   try {
@@ -82,6 +93,27 @@ export async function POST(
     return NextResponse.json(
       { ok: false, reason: "no_google_ads_account_linked" },
       { status: 422 },
+    );
+  }
+
+  // ── Re-push guard (defence in depth) ────────────────────────────────
+  // Per-row idempotency in the adapter is the primary defence; this
+  // guard makes a double-click / stale-tab re-launch require an
+  // explicit `force: true` so the operator confirms they meant it.
+  const guard = evaluatePushGuard(
+    { planStatus: tree.plan.status, campaigns: tree.campaigns },
+    force,
+  );
+  if (guard.refuse) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "already_pushed",
+        details: guard.message,
+        pushedCampaignCount: guard.pushedCampaignCount,
+        planStatus: tree.plan.status,
+      },
+      { status: 409 },
     );
   }
 
