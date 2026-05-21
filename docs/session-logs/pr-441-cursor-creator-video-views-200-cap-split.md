@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {to fill after `gh pr create`}
+- **Number:** 441
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/441
 - **Branch:** `cursor/creator/video-views-200-cap-split`
 
 ## Problem
