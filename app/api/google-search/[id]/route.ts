@@ -8,12 +8,16 @@ import {
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 
 /**
+ * Generous timeout for J2-scale plans (7 campaigns × 13 ad groups ×
+ * many keywords/RSAs ≈ 100+ sequential DB round-trips).
+ */
+export const maxDuration = 60;
+
+/**
  * PUT /api/google-search/[id]
  *
- * Wizard autosave. Replaces the plan tree in-place — see
- * `saveGoogleSearchPlanTree` for the nuke-and-rewrite caveat (Phase 3
- * will replace this with a diff-aware writer once pushed metadata
- * matters).
+ * Wizard autosave. Diff-aware save via `saveGoogleSearchPlanTree` —
+ * preserves `pushed_resource_name` across autosave (Phase 3.5).
  *
  * Body: `{ tree: GoogleSearchPlanTree }`. The plan.id in the body must
  * match the URL id — otherwise we return 400 to prevent cross-plan
@@ -57,9 +61,8 @@ export async function PUT(
     }
     return NextResponse.json({ ok: true, tree: refreshed }, { status: 200 });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to save plan" },
-      { status: 500 },
-    );
+    const message = err instanceof Error ? err.message : "Failed to save plan";
+    console.error("[google-search PUT] save failed", { planId: id, error: message });
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

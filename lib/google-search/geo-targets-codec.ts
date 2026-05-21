@@ -61,17 +61,38 @@ export function parseGeoTargetsColumn(raw: unknown): DecodedGeoTargetsColumn {
 /**
  * Pack the in-memory pair into the wire shape. Always emits the
  * Phase-5 wrapping object — legacy rows upgrade on the next save.
+ *
+ * Total function: never throws regardless of runtime input. Coerces
+ * undefined/null/invalid inputs to safe defaults so a stale client-side
+ * tree or a malformed PUT body cannot 500 the autosave route.
  */
 export function serializeGeoTargetsColumn(
   decoded: DecodedGeoTargetsColumn,
 ): { targets: GoogleSearchGeoTarget[]; geo_target_type: GoogleSearchGeoTargetType } {
+  // At runtime `decoded.geo_target_type` may be undefined when the
+  // client tree was loaded from a pre-Phase-5 cache. Validate it.
+  const rawType = (decoded as unknown as Record<string, unknown>)?.geo_target_type;
+  const geo_target_type: GoogleSearchGeoTargetType =
+    typeof rawType === "string" &&
+    (GEO_TARGET_TYPES as readonly string[]).includes(rawType)
+      ? (rawType as GoogleSearchGeoTargetType)
+      : DEFAULT_GEO_TARGET_TYPE;
   return {
-    targets: normaliseTargets(decoded.targets),
-    geo_target_type: decoded.geo_target_type,
+    // Cast through unknown — normaliseTargets handles null/undefined/non-array
+    // inputs defensively; the TS type says GoogleSearchGeoTarget[] but runtime
+    // may diverge on stale client state.
+    targets: normaliseTargets((decoded as unknown as Record<string, unknown>)?.targets),
+    geo_target_type,
   };
 }
 
-function normaliseTargets(raw: unknown[]): GoogleSearchGeoTarget[] {
+/**
+ * Coerce any runtime value into a `GoogleSearchGeoTarget[]`. Accepts
+ * `unknown` so the caller never has to guard against null / undefined /
+ * non-array shapes — all of which silently produce `[]`.
+ */
+function normaliseTargets(raw: unknown): GoogleSearchGeoTarget[] {
+  if (!Array.isArray(raw)) return [];
   const out: GoogleSearchGeoTarget[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;

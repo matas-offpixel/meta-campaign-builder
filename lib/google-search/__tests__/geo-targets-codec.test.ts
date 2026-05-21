@@ -92,4 +92,46 @@ describe("serializeGeoTargetsColumn", () => {
     );
     assert.equal(upgraded.geo_target_type, "PRESENCE");
   });
+
+  // ── Totality (hotfix regression tests) ────────────────────────────
+  // These cover the root-cause scenario: a stale client-side tree
+  // sent via PUT with geo_target_type or geo_targets missing at
+  // runtime (TypeScript type says non-null but JSON body can diverge).
+
+  it("does NOT throw when geo_target_type is undefined at runtime — defaults to PRESENCE", () => {
+    // Cast through unknown to simulate the stale-client-state scenario
+    // where the JavaScript value is undefined despite the TS type.
+    const decoded = { targets: [], geo_target_type: undefined } as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn;
+    let wire: { targets: unknown[]; geo_target_type: string } | undefined;
+    assert.doesNotThrow(() => { wire = serializeGeoTargetsColumn(decoded); });
+    assert.equal(wire?.geo_target_type, "PRESENCE");
+  });
+
+  it("does NOT throw when geo_target_type is an unrecognised string — defaults to PRESENCE", () => {
+    const decoded = { targets: [], geo_target_type: "UNKNOWN_VALUE" } as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn;
+    let wire: { geo_target_type: string } | undefined;
+    assert.doesNotThrow(() => { wire = serializeGeoTargetsColumn(decoded); });
+    assert.equal(wire?.geo_target_type, "PRESENCE");
+  });
+
+  it("does NOT throw when targets is undefined at runtime — returns []", () => {
+    // This is the critical regression test: normaliseTargets(undefined)
+    // previously threw TypeError: undefined is not iterable.
+    const decoded = { targets: undefined, geo_target_type: "PRESENCE" } as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn;
+    let wire: { targets: unknown[] } | undefined;
+    assert.doesNotThrow(() => { wire = serializeGeoTargetsColumn(decoded); });
+    assert.deepEqual(wire?.targets, []);
+  });
+
+  it("does NOT throw when targets is null at runtime — returns []", () => {
+    const decoded = { targets: null, geo_target_type: "PRESENCE" } as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn;
+    let wire: { targets: unknown[] } | undefined;
+    assert.doesNotThrow(() => { wire = serializeGeoTargetsColumn(decoded); });
+    assert.deepEqual(wire?.targets, []);
+  });
+
+  it("does NOT throw when the entire decoded object is null / undefined", () => {
+    assert.doesNotThrow(() => serializeGeoTargetsColumn(null as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn));
+    assert.doesNotThrow(() => serializeGeoTargetsColumn(undefined as unknown as import("../geo-targets-codec.ts").DecodedGeoTargetsColumn));
+  });
 });

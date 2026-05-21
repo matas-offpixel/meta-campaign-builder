@@ -32,6 +32,21 @@ import {
 
 const SUPABASE_LIST_PAGE_LIMIT = 1_000;
 
+// ─── UUID guard ───────────────────────────────────────────────────────
+//
+// Postgres rejects non-UUID strings as `invalid input syntax for type
+// uuid`. The wizard uses `tmp-…` prefixed IDs for newly-added rows
+// that haven't been persisted yet. Guarding every id that flows into
+// a `.in()` filter or a FK insert prevents this class of 500.
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Returns true iff `id` looks like a real Postgres UUID (not `tmp-…`). */
+export function isRealRowId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 export interface CreatePlanInput {
   user_id: string;
   name: string;
@@ -552,19 +567,33 @@ export async function saveGoogleSearchPlanTree(
     }
     campaignTmpToReal.set(c.id, (data as { id: string }).id);
   }
-  const resolveCampaignId = (treeId: string): string =>
-    existingCampaignIds.has(treeId) && !campaignPlan.deletes.includes(treeId)
-      ? treeId
-      : campaignTmpToReal.get(treeId) ?? treeId;
+  const resolveCampaignId = (treeId: string): string => {
+    if (isRealRowId(treeId) && existingCampaignIds.has(treeId) && !campaignPlan.deletes.includes(treeId)) {
+      return treeId;
+    }
+    const realId = campaignTmpToReal.get(treeId);
+    if (realId !== undefined) return realId;
+    // treeId is a tmp- id whose insert somehow didn't resolve — the insert
+    // step above would have thrown on failure, so this should be unreachable.
+    // Throw explicitly rather than leaking the tmp- string into a FK insert.
+    if (!isRealRowId(treeId)) {
+      throw new Error(
+        `[google-search save] unresolved tmp campaign id "${treeId}" — insert must have failed`,
+      );
+    }
+    return treeId; // real UUID not in existing set — let Postgres catch FK violation
+  };
 
   // ── 3. Ad groups ──────────────────────────────────────────────────
   // Load ad groups across the SURVIVING campaign ids only — the delete
   // step above already cascaded ad groups of removed campaigns, so
   // querying by the post-reconciliation set is correct.
+  // Filter to real UUIDs defensively: .in() with a tmp- string causes
+  // "invalid input syntax for type uuid" in Postgres.
   const survivingCampaignIds: string[] = [
     ...campaignPlan.updates.map((c) => c.id),
     ...campaignTmpToReal.values(),
-  ];
+  ].filter(isRealRowId);
 
   const existingAdGroupIds = new Set<string>();
   if (survivingCampaignIds.length > 0) {
@@ -641,16 +670,25 @@ export async function saveGoogleSearchPlanTree(
     }
     adGroupTmpToReal.set(ag.id, (data as { id: string }).id);
   }
-  const resolveAdGroupId = (treeId: string): string =>
-    existingAdGroupIds.has(treeId) && !adGroupPlan.deletes.includes(treeId)
-      ? treeId
-      : adGroupTmpToReal.get(treeId) ?? treeId;
+  const resolveAdGroupId = (treeId: string): string => {
+    if (isRealRowId(treeId) && existingAdGroupIds.has(treeId) && !adGroupPlan.deletes.includes(treeId)) {
+      return treeId;
+    }
+    const realId = adGroupTmpToReal.get(treeId);
+    if (realId !== undefined) return realId;
+    if (!isRealRowId(treeId)) {
+      throw new Error(
+        `[google-search save] unresolved tmp ad group id "${treeId}" — insert must have failed`,
+      );
+    }
+    return treeId;
+  };
 
   // ── 4. Keywords ───────────────────────────────────────────────────
   const survivingAdGroupIds: string[] = [
     ...adGroupPlan.updates.map((ag) => ag.id),
     ...adGroupTmpToReal.values(),
-  ];
+  ].filter(isRealRowId);
 
   const existingKeywordIds = new Set<string>();
   if (survivingAdGroupIds.length > 0) {
@@ -886,9 +924,12 @@ export interface ReconcilePlan<T extends { id: string }> {
  * + reused across the five child levels (campaigns, ad_groups,
  * keywords, rsas, negatives).
  *
- *  - Tree row whose id is in `existing` → UPDATE.
- *  - Tree row whose id is NOT in `existing` (tmp-foo, or stale UUID
- *    pointing nowhere) → INSERT.
+ *  - Tree row whose id is a real UUID present in `existing` → UPDATE.
+ *  - Tree row whose id is NOT a real UUID (tmp-…) or not in `existing`
+ *    → INSERT. Non-UUID ids (tmp-…) are *explicitly* treated as inserts
+ *    regardless of `existing`, which prevents them from leaking into
+ *    `.in()` filters or FK insert payloads and triggering Postgres's
+ *    "invalid input syntax for type uuid" error.
  *  - DB id absent from `tree` → DELETE.
  */
 export function partitionTreeRows<T extends { id: string }>(
@@ -900,7 +941,8 @@ export function partitionTreeRows<T extends { id: string }>(
   const treeIds = new Set<string>();
   for (const row of tree) {
     treeIds.add(row.id);
-    if (existing.has(row.id)) updates.push(row);
+    // Non-UUID ids (tmp-…) can never be in the DB — always INSERT.
+    if (isRealRowId(row.id) && existing.has(row.id)) updates.push(row);
     else inserts.push(row);
   }
   const deletes: string[] = [];

@@ -17,6 +17,7 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import {
+  isRealRowId,
   partitionTreeRows,
   saveGoogleSearchPlanTree,
 } from "../google-search-plans.ts";
@@ -25,6 +26,21 @@ import type {
   GoogleSearchCampaignNode,
   GoogleSearchPlanTree,
 } from "../../google-search/types.ts";
+
+// ─── UUID-format ID constants ─────────────────────────────────────────
+// Using real UUID format so isRealRowId() recognises them as existing
+// DB rows (updates), mirroring production Postgres behaviour.
+const ID = {
+  plan:  "11111111-0000-0000-0000-000000000001",
+  c1:    "c1111111-0000-0000-0000-000000000001", // pushed campaign
+  c2:    "c2222222-0000-0000-0000-000000000002", // unpushed campaign
+  ag1:   "a1111111-0000-0000-0000-000000000001", // pushed ad group
+  ag2:   "a2222222-0000-0000-0000-000000000002", // unpushed ad group
+  kw1:   "b1111111-0000-0000-0000-000000000001", // pushed keyword
+  kw2:   "b2222222-0000-0000-0000-000000000002", // unpushed keyword
+  rsa1:  "d1111111-0000-0000-0000-000000000001", // pushed RSA
+  neg1:  "e1111111-0000-0000-0000-000000000001", // pushed negative
+} as const;
 
 // ─── Fixture builders ────────────────────────────────────────────────
 
@@ -38,7 +54,7 @@ function buildSeededTree(): {
   const store = new MemorySupabase({
     google_search_plans: [
       {
-        id: "plan-1",
+        id: ID.plan,
         user_id: "user-1",
         event_id: "evt-1",
         google_ads_account_id: "acct-1",
@@ -56,8 +72,8 @@ function buildSeededTree(): {
     ],
     google_search_campaigns: [
       {
-        id: "c-1",
-        plan_id: "plan-1",
+        id: ID.c1,
+        plan_id: ID.plan,
         name: "C1 Brand",
         priority: null,
         monthly_budget: 100,
@@ -69,8 +85,8 @@ function buildSeededTree(): {
         created_at: "2026-05-21T00:00:00Z",
       },
       {
-        id: "c-2",
-        plan_id: "plan-1",
+        id: ID.c2,
+        plan_id: ID.plan,
         name: "C2 PR",
         priority: null,
         monthly_budget: 200,
@@ -84,8 +100,8 @@ function buildSeededTree(): {
     ],
     google_search_ad_groups: [
       {
-        id: "ag-1",
-        campaign_id: "c-1",
+        id: ID.ag1,
+        campaign_id: ID.c1,
         name: "Brand-Core",
         default_cpc: 0.25,
         sort_order: 0,
@@ -93,8 +109,8 @@ function buildSeededTree(): {
         created_at: "2026-05-21T00:00:00Z",
       },
       {
-        id: "ag-2",
-        campaign_id: "c-2",
+        id: ID.ag2,
+        campaign_id: ID.c2,
         name: "PR-Bookings",
         default_cpc: null,
         sort_order: 0,
@@ -104,8 +120,8 @@ function buildSeededTree(): {
     ],
     google_search_keywords: [
       {
-        id: "kw-1",
-        ad_group_id: "ag-1",
+        id: ID.kw1,
+        ad_group_id: ID.ag1,
         keyword: "junction 2 tickets",
         match_type: "EXACT",
         est_cpc_low: null,
@@ -116,8 +132,8 @@ function buildSeededTree(): {
         created_at: "2026-05-21T00:00:00Z",
       },
       {
-        id: "kw-2",
-        ad_group_id: "ag-2",
+        id: ID.kw2,
+        ad_group_id: ID.ag2,
         keyword: "junction 2 pr",
         match_type: "PHRASE",
         est_cpc_low: null,
@@ -130,8 +146,8 @@ function buildSeededTree(): {
     ],
     google_search_rsas: [
       {
-        id: "rsa-1",
-        ad_group_id: "ag-1",
+        id: ID.rsa1,
+        ad_group_id: ID.ag1,
         headlines: [{ text: "Junction 2" }, { text: "Melodic Tickets" }, { text: "Book Now" }],
         descriptions: [{ text: "Limited tickets remaining." }, { text: "Book today." }],
         final_url: "https://offpixel.com/j2",
@@ -143,8 +159,8 @@ function buildSeededTree(): {
     ],
     google_search_negatives: [
       {
-        id: "neg-1",
-        plan_id: "plan-1",
+        id: ID.neg1,
+        plan_id: ID.plan,
         campaign_id: null,
         keyword: "free tickets",
         match_type: "PHRASE",
@@ -163,26 +179,26 @@ function buildSeededTree(): {
     clone(store.row(table, id) as unknown as T);
 
   const tree: GoogleSearchPlanTree = {
-    plan: cloneRow<GoogleSearchPlanTree["plan"]>("google_search_plans", "plan-1"),
+    plan: cloneRow<GoogleSearchPlanTree["plan"]>("google_search_plans", ID.plan),
     campaigns: [
       {
-        ...cloneRow<GoogleSearchCampaignNode>("google_search_campaigns", "c-1"),
+        ...cloneRow<GoogleSearchCampaignNode>("google_search_campaigns", ID.c1),
         ad_groups: [
           {
             ...cloneRow<GoogleSearchCampaignNode["ad_groups"][number]>(
               "google_search_ad_groups",
-              "ag-1",
+              ID.ag1,
             ),
             keywords: [
               cloneRow<GoogleSearchCampaignNode["ad_groups"][number]["keywords"][number]>(
                 "google_search_keywords",
-                "kw-1",
+                ID.kw1,
               ),
             ],
             rsas: [
               cloneRow<GoogleSearchCampaignNode["ad_groups"][number]["rsas"][number]>(
                 "google_search_rsas",
-                "rsa-1",
+                ID.rsa1,
               ),
             ],
           },
@@ -190,17 +206,17 @@ function buildSeededTree(): {
         negatives: [],
       },
       {
-        ...cloneRow<GoogleSearchCampaignNode>("google_search_campaigns", "c-2"),
+        ...cloneRow<GoogleSearchCampaignNode>("google_search_campaigns", ID.c2),
         ad_groups: [
           {
             ...cloneRow<GoogleSearchCampaignNode["ad_groups"][number]>(
               "google_search_ad_groups",
-              "ag-2",
+              ID.ag2,
             ),
             keywords: [
               cloneRow<GoogleSearchCampaignNode["ad_groups"][number]["keywords"][number]>(
                 "google_search_keywords",
-                "kw-2",
+                ID.kw2,
               ),
             ],
             rsas: [],
@@ -212,7 +228,7 @@ function buildSeededTree(): {
     plan_negatives: [
       cloneRow<GoogleSearchPlanTree["plan_negatives"][number]>(
         "google_search_negatives",
-        "neg-1",
+        ID.neg1,
       ),
     ],
   };
@@ -230,29 +246,34 @@ function updatePayloadsFor(ops: RecordedOp[], table: string): Array<Record<strin
 
 describe("partitionTreeRows", () => {
   it("partitions tree rows into update / insert / delete buckets by id", () => {
-    const existing = new Set(["a", "b", "c"]);
+    const UA = "aaaaaaaa-0000-0000-0000-000000000001";
+    const UB = "bbbbbbbb-0000-0000-0000-000000000002";
+    const UC = "cccccccc-0000-0000-0000-000000000003";
+    const existing = new Set([UA, UB, UC]);
     const tree = [
-      { id: "a", name: "A" },
+      { id: UA, name: "A" },
       { id: "tmp-new", name: "D" },
-      { id: "b", name: "B" },
+      { id: UB, name: "B" },
     ];
     const plan = partitionTreeRows(existing, tree);
     assert.deepEqual(
       plan.updates.map((r) => r.id),
-      ["a", "b"],
+      [UA, UB],
     );
     assert.deepEqual(
       plan.inserts.map((r) => r.id),
       ["tmp-new"],
     );
-    assert.deepEqual(plan.deletes.sort(), ["c"]);
+    assert.deepEqual(plan.deletes.sort(), [UC]);
   });
 
   it("empty tree → all existing rows are deletes", () => {
-    const plan = partitionTreeRows(new Set(["a", "b"]), []);
+    const UA = "aaaaaaaa-0000-0000-0000-000000000001";
+    const UB = "bbbbbbbb-0000-0000-0000-000000000002";
+    const plan = partitionTreeRows(new Set([UA, UB]), []);
     assert.deepEqual(plan.updates, []);
     assert.deepEqual(plan.inserts, []);
-    assert.deepEqual(plan.deletes.sort(), ["a", "b"]);
+    assert.deepEqual(plan.deletes.sort(), [UA, UB].sort());
   });
 
   it("empty existing → all tree rows are inserts", () => {
@@ -279,9 +300,9 @@ describe("saveGoogleSearchPlanTree — preserves pushed_resource_name", () => {
 
     await saveGoogleSearchPlanTree(store.asSupabase(), tree);
 
-    const c1 = store.row("google_search_campaigns", "c-1");
+    const c1 = store.row("google_search_campaigns", ID.c1);
     assert.ok(c1, "pushed campaign must still exist after save");
-    assert.equal(c1.id, "c-1", "id MUST be preserved (idempotency key)");
+    assert.equal(c1.id, ID.c1, "id MUST be preserved (idempotency key)");
     assert.equal(
       c1.pushed_resource_name,
       "customers/123/campaigns/9001",
@@ -335,7 +356,7 @@ describe("saveGoogleSearchPlanTree — preserves pushed_resource_name", () => {
     assert.equal(payload.name, "Renamed plan");
 
     // The actual stored status MUST remain 'pushed' from the seeded fixture.
-    const plan = store.row("google_search_plans", "plan-1");
+    const plan = store.row("google_search_plans", ID.plan);
     assert.equal(plan?.status, "pushed", "stored status must not regress to draft");
   });
 });
@@ -347,7 +368,7 @@ describe("saveGoogleSearchPlanTree — add", () => {
     const { store, tree } = buildSeededTree();
     tree.campaigns.push({
       id: "tmp-campaign-newone",
-      plan_id: "plan-1",
+      plan_id: ID.plan,
       name: "C3 New",
       priority: null,
       monthly_budget: 50,
@@ -371,7 +392,7 @@ describe("saveGoogleSearchPlanTree — add", () => {
     assert.equal(newCampaign.pushed_resource_name, undefined, "new row has no push marker yet");
 
     // Pushed campaign still pushed.
-    const c1 = store.row("google_search_campaigns", "c-1");
+    const c1 = store.row("google_search_campaigns", ID.c1);
     assert.equal(c1?.pushed_resource_name, "customers/123/campaigns/9001");
   });
 
@@ -379,7 +400,7 @@ describe("saveGoogleSearchPlanTree — add", () => {
     const { store, tree } = buildSeededTree();
     tree.campaigns[0].ad_groups.push({
       id: "tmp-ag-fresh",
-      campaign_id: "c-1",
+      campaign_id: ID.c1,
       name: "Brand-Lookalike",
       default_cpc: null,
       sort_order: 1,
@@ -409,7 +430,7 @@ describe("saveGoogleSearchPlanTree — add", () => {
     const newAg = adGroups.find((ag) => ag.name === "Brand-Lookalike");
     assert.ok(newAg);
     assert.ok((newAg.id as string).startsWith("db-"));
-    assert.equal(newAg.campaign_id, "c-1", "new ad group's FK resolves to existing campaign id");
+    assert.equal(newAg.campaign_id, ID.c1, "new ad group's FK resolves to existing campaign id");
 
     const keywords = store.rows("google_search_keywords");
     const newKw = keywords.find((k) => k.keyword === "junction 2 brand");
@@ -417,9 +438,9 @@ describe("saveGoogleSearchPlanTree — add", () => {
     assert.equal(newKw.ad_group_id, newAg.id, "new keyword's FK resolves to the newly-inserted ad group");
 
     // Pushed sibling ad group + keyword still carry their resource names.
-    const pushedAg = store.row("google_search_ad_groups", "ag-1");
+    const pushedAg = store.row("google_search_ad_groups", ID.ag1);
     assert.equal(pushedAg?.pushed_resource_name, "customers/123/adGroups/7001");
-    const pushedKw = store.row("google_search_keywords", "kw-1");
+    const pushedKw = store.row("google_search_keywords", ID.kw1);
     assert.equal(pushedKw?.pushed_resource_name, "customers/123/adGroupCriteria/5001");
   });
 });
@@ -430,24 +451,24 @@ describe("saveGoogleSearchPlanTree — remove", () => {
   it("removing the unpushed campaign deletes its row + cascades children; pushed campaign keeps its markers", async () => {
     const { store, tree } = buildSeededTree();
     // Drop C2 (the unpushed one). Cascade should drop ag-2 and kw-2.
-    tree.campaigns = tree.campaigns.filter((c) => c.id !== "c-2");
+    tree.campaigns = tree.campaigns.filter((c) => c.id !== ID.c2);
 
     await saveGoogleSearchPlanTree(store.asSupabase(), tree);
 
-    assert.equal(store.row("google_search_campaigns", "c-2"), undefined);
-    assert.equal(store.row("google_search_ad_groups", "ag-2"), undefined);
-    assert.equal(store.row("google_search_keywords", "kw-2"), undefined);
+    assert.equal(store.row("google_search_campaigns", ID.c2), undefined);
+    assert.equal(store.row("google_search_ad_groups", ID.ag2), undefined);
+    assert.equal(store.row("google_search_keywords", ID.kw2), undefined);
 
     // C1 + its push markers fully intact.
-    const c1 = store.row("google_search_campaigns", "c-1");
+    const c1 = store.row("google_search_campaigns", ID.c1);
     assert.equal(c1?.pushed_resource_name, "customers/123/campaigns/9001");
-    const ag1 = store.row("google_search_ad_groups", "ag-1");
+    const ag1 = store.row("google_search_ad_groups", ID.ag1);
     assert.equal(ag1?.pushed_resource_name, "customers/123/adGroups/7001");
-    const kw1 = store.row("google_search_keywords", "kw-1");
+    const kw1 = store.row("google_search_keywords", ID.kw1);
     assert.equal(kw1?.pushed_resource_name, "customers/123/adGroupCriteria/5001");
-    const rsa1 = store.row("google_search_rsas", "rsa-1");
+    const rsa1 = store.row("google_search_rsas", ID.rsa1);
     assert.equal(rsa1?.pushed_resource_name, "customers/123/adGroupAds/3001");
-    const neg = store.row("google_search_negatives", "neg-1");
+    const neg = store.row("google_search_negatives", ID.neg1);
     assert.equal(neg?.pushed_resource_name, "customers/123/adGroupCriteria/2001");
   });
 
@@ -458,24 +479,210 @@ describe("saveGoogleSearchPlanTree — remove", () => {
 
     await saveGoogleSearchPlanTree(store.asSupabase(), tree);
 
-    assert.equal(store.row("google_search_keywords", "kw-1"), undefined);
+    assert.equal(store.row("google_search_keywords", ID.kw1), undefined);
     // Everything else intact.
     assert.equal(
-      store.row("google_search_campaigns", "c-1")?.pushed_resource_name,
+      store.row("google_search_campaigns", ID.c1)?.pushed_resource_name,
       "customers/123/campaigns/9001",
     );
     assert.equal(
-      store.row("google_search_ad_groups", "ag-1")?.pushed_resource_name,
+      store.row("google_search_ad_groups", ID.ag1)?.pushed_resource_name,
       "customers/123/adGroups/7001",
     );
     assert.equal(
-      store.row("google_search_rsas", "rsa-1")?.pushed_resource_name,
+      store.row("google_search_rsas", ID.rsa1)?.pushed_resource_name,
       "customers/123/adGroupAds/3001",
     );
   });
 });
 
-// ─── 5. Round-trip: a no-op save reads back exactly what was stored ──
+// ─── 5. isRealRowId ──────────────────────────────────────────────────
+
+describe("isRealRowId", () => {
+  it("accepts well-formed lowercase UUIDs", () => {
+    assert.ok(isRealRowId("550e8400-e29b-41d4-a716-446655440000"));
+    assert.ok(isRealRowId("00000000-0000-0000-0000-000000000000"));
+  });
+
+  it("accepts mixed-case UUIDs (Postgres output)", () => {
+    assert.ok(isRealRowId("550E8400-E29B-41D4-A716-446655440000"));
+  });
+
+  it("rejects tmp- prefixed ids", () => {
+    assert.ok(!isRealRowId("tmp-campaign-abc"));
+    assert.ok(!isRealRowId("tmp-"));
+    assert.ok(!isRealRowId("tmp-00000000-0000-0000-0000-000000000000"));
+  });
+
+  it("rejects empty string / short strings", () => {
+    assert.ok(!isRealRowId(""));
+    assert.ok(!isRealRowId("abc"));
+    assert.ok(!isRealRowId("db-1")); // MemorySupabase fake ids
+  });
+});
+
+// ─── 6. partitionTreeRows — tmp-id is always INSERT ──────────────────
+
+describe("partitionTreeRows — tmp-id guard", () => {
+  it("a tmp-id row is INSERT even if the existing set somehow contains it", () => {
+    // This shouldn't happen in practice (a tmp- id can't be a DB UUID),
+    // but partitionTreeRows is now explicitly defensive.
+    const realUuid = "00000000-1234-5678-abcd-000000000001";
+    const existing = new Set(["tmp-ghost", realUuid]);
+    const tree = [
+      { id: "tmp-ghost", name: "ghost" },
+      { id: realUuid, name: "real" },
+    ];
+    const plan = partitionTreeRows(existing, tree);
+    assert.deepEqual(plan.inserts.map((r) => r.id), ["tmp-ghost"]);
+    assert.deepEqual(plan.updates.map((r) => r.id), [realUuid]);
+    assert.deepEqual(plan.deletes, []);
+  });
+});
+
+// ─── 7. 500-hotfix regression tests ──────────────────────────────────
+
+describe("saveGoogleSearchPlanTree — 500 hotfix", () => {
+  it("save does NOT throw when plan.geo_target_type is undefined (stale client state)", async () => {
+    const { store, tree } = buildSeededTree();
+    // Simulate a stale client-side tree loaded before Phase-5 added
+    // geo_target_type — the field is undefined at runtime despite TS type.
+    (tree.plan as unknown as Record<string, unknown>).geo_target_type = undefined;
+
+    await assert.doesNotReject(
+      () => saveGoogleSearchPlanTree(store.asSupabase(), tree),
+      "save must not throw when geo_target_type is missing at runtime",
+    );
+
+    // Verify the plan row was updated (geo_targets serialised to something)
+    const planUpdates = updatePayloadsFor(store.ops, "google_search_plans");
+    assert.equal(planUpdates.length, 1, "plan update must still run");
+    const geoTargets = planUpdates[0].geo_targets as { geo_target_type?: string };
+    assert.equal(
+      geoTargets?.geo_target_type,
+      "PRESENCE",
+      "geo_target_type should default to PRESENCE when undefined",
+    );
+  });
+
+  it("save does NOT throw when plan.geo_targets is null at runtime — critical regression", async () => {
+    // THE PRIME SUSPECT for the production 500: normaliseTargets(null)
+    // threw `TypeError: null is not iterable` before the hotfix.
+    const { store, tree } = buildSeededTree();
+    (tree.plan as unknown as Record<string, unknown>).geo_targets = null;
+
+    await assert.doesNotReject(
+      () => saveGoogleSearchPlanTree(store.asSupabase(), tree),
+      "save must not throw when geo_targets is null at runtime",
+    );
+  });
+
+  it("save does NOT throw when plan.geo_targets is undefined at runtime", async () => {
+    const { store, tree } = buildSeededTree();
+    (tree.plan as unknown as Record<string, unknown>).geo_targets = undefined;
+
+    await assert.doesNotReject(
+      () => saveGoogleSearchPlanTree(store.asSupabase(), tree),
+    );
+  });
+
+  it("mixed real-UUID + tmp- tree: save succeeds, tmp rows get real ids, no tmp- id reaches SQL", async () => {
+    const { store, tree } = buildSeededTree();
+
+    // Add a new campaign with tmp- ids
+    tree.campaigns.push({
+      id: "tmp-c-new",
+      plan_id: ID.plan,
+      name: "C3 Fresh",
+      priority: null,
+      monthly_budget: 30,
+      daily_budget: 1,
+      bid_adjustments: {},
+      notes: null,
+      sort_order: 2,
+      pushed_resource_name: null,
+      created_at: new Date().toISOString(),
+      ad_groups: [
+        {
+          id: "tmp-ag-new",
+          campaign_id: "tmp-c-new",
+          name: "Fresh-Core",
+          default_cpc: 0.5,
+          sort_order: 0,
+          pushed_resource_name: null,
+          created_at: new Date().toISOString(),
+          keywords: [
+            {
+              id: "tmp-kw-new",
+              ad_group_id: "tmp-ag-new",
+              keyword: "fresh keyword",
+              match_type: "EXACT" as const,
+              est_cpc_low: null,
+              est_cpc_high: null,
+              intent: null,
+              notes: null,
+              pushed_resource_name: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+          rsas: [],
+        },
+      ],
+      negatives: [],
+    });
+
+    await saveGoogleSearchPlanTree(store.asSupabase(), tree);
+
+    // Verify no tmp- id was passed to any select/insert/update filter
+    for (const op of store.ops) {
+      const filter = op.filter;
+      if (filter?.mode === "in") {
+        const vals = filter.val as string[];
+        for (const v of vals) {
+          assert.ok(
+            !v.startsWith("tmp-"),
+            `tmp- id "${v}" reached a .in() filter on ${op.table} (op: ${op.op})`,
+          );
+        }
+      }
+    }
+
+    // Verify the new campaign got a real id
+    const campaigns = store.rows("google_search_campaigns");
+    const newCampaign = campaigns.find((c) => c.name === "C3 Fresh");
+    assert.ok(newCampaign, "new campaign must be inserted");
+    assert.ok(isRealRowId(newCampaign.id as string) || (newCampaign.id as string).startsWith("db-"), "new campaign must have a DB-assigned id");
+
+    // Verify the pushed campaign's push marker survived
+    const c1 = store.row("google_search_campaigns", ID.c1);
+    assert.equal(c1?.pushed_resource_name, "customers/123/campaigns/9001");
+  });
+
+  it("survivingCampaignIds / survivingAdGroupIds never contain tmp- strings", async () => {
+    // If all campaigns are updates (none added, none deleted), the
+    // surviving-ids arrays are just the update ids — always real UUIDs.
+    // This test verifies the .filter(isRealRowId) guard by checking that
+    // the select calls on ad_groups / keywords / rsas use only real UUIDs.
+    const { store, tree } = buildSeededTree();
+    tree.campaigns[0].monthly_budget = 999; // trigger an update
+
+    await saveGoogleSearchPlanTree(store.asSupabase(), tree);
+
+    const adGroupSelects = store.ops.filter(
+      (o) => o.op === "select" && o.table === "google_search_ad_groups",
+    );
+    for (const op of adGroupSelects) {
+      if (op.filter?.mode === "in") {
+        const vals = op.filter.val as string[];
+        for (const v of vals) {
+          assert.ok(!v.startsWith("tmp-"), `tmp- id in ad_groups select: ${v}`);
+        }
+      }
+    }
+  });
+});
+
+// ─── 9. Round-trip: a no-op save reads back exactly what was stored ──
 
 describe("saveGoogleSearchPlanTree — round-trip", () => {
   it("a save with zero edits performs zero deletes + zero inserts and keeps every push marker", async () => {
@@ -499,7 +706,7 @@ describe("saveGoogleSearchPlanTree — round-trip", () => {
     ]) {
       for (const row of store.rows(table)) {
         // Rows that originally had a push marker still do.
-        if (row.id === "c-1" || row.id === "ag-1" || row.id === "kw-1" || row.id === "rsa-1" || row.id === "neg-1") {
+        if (row.id === ID.c1 || row.id === ID.ag1 || row.id === ID.kw1 || row.id === ID.rsa1 || row.id === ID.neg1) {
           assert.ok(row.pushed_resource_name, `${table}/${row.id} lost its pushed_resource_name`);
         }
       }
