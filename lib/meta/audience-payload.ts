@@ -70,17 +70,40 @@ export function pageEngagementPageIds(
  */
 export const MAX_PAGE_ENGAGEMENT_SOURCES = 5;
 
+/**
+ * Meta hard limit: a single video-views Custom Audience accepts at most 200
+ * video IDs. Exceeding this triggers #2654 subcode 1870231:
+ * "Video engagement audience too big: contains N videos, maximum limit is 200."
+ * Larger sets must be split into multiple ≤200-video audiences (same pattern as
+ * the page-engagement 5-source cap — combined with OR at ad-set targeting time).
+ * Verified live 2026-05-21: P26-OPENAIR (Puzzle) failed with 206 videos.
+ */
+export const MAX_VIDEO_VIEWS_VIDEOS = 200;
+
+/** Split an array of IDs into ordered chunks of at most `size`. */
+function chunkIds(ids: string[], size: number): string[][] {
+  if (size < 1) throw new Error("chunk size must be >= 1");
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
 /** Split `pageIds` into ordered chunks of at most `size` (default the Meta cap). */
 export function chunkPageIds(
   pageIds: string[],
   size: number = MAX_PAGE_ENGAGEMENT_SOURCES,
 ): string[][] {
-  if (size < 1) throw new Error("chunk size must be >= 1");
-  const chunks: string[][] = [];
-  for (let i = 0; i < pageIds.length; i += size) {
-    chunks.push(pageIds.slice(i, i + size));
-  }
-  return chunks;
+  return chunkIds(pageIds, size);
+}
+
+/** Split `videoIds` into ordered chunks of at most `size` (default the Meta cap). */
+export function chunkVideoIds(
+  videoIds: string[],
+  size: number = MAX_VIDEO_VIEWS_VIDEOS,
+): string[][] {
+  return chunkIds(videoIds, size);
 }
 
 /** Trailing " (n of m)" suffix appended to a split audience's name. */
