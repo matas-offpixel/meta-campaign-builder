@@ -88,6 +88,97 @@ export async function deleteGoogleSearchPlan(
   if (error) throw new Error(`deleteGoogleSearchPlan failed: ${error.message}`);
 }
 
+// ─── Phase 3 push-back helpers ────────────────────────────────────────
+//
+// Per-row writers used by the Google Ads push adapter
+// (`lib/google-ads/campaign-writer.ts`) to stamp `pushed_resource_name`
+// onto each platform-created row. Kept tiny and per-row so partial
+// success can persist incrementally — a single failing row doesn't
+// roll back the rows that already succeeded.
+
+export async function setGoogleSearchPlanStatus(
+  supabase: SupabaseClient,
+  planId: string,
+  status: "pushed" | "partially_pushed",
+  pushedAt: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_plans")
+    .update({ status, pushed_at: pushedAt })
+    .eq("id", planId);
+  if (error) throw new Error(`setGoogleSearchPlanStatus failed: ${error.message}`);
+}
+
+export async function setGoogleSearchCampaignResource(
+  supabase: SupabaseClient,
+  campaignId: string,
+  resourceName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_campaigns")
+    .update({ pushed_resource_name: resourceName })
+    .eq("id", campaignId);
+  if (error) {
+    throw new Error(`setGoogleSearchCampaignResource failed: ${error.message}`);
+  }
+}
+
+export async function setGoogleSearchAdGroupResource(
+  supabase: SupabaseClient,
+  adGroupId: string,
+  resourceName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_ad_groups")
+    .update({ pushed_resource_name: resourceName })
+    .eq("id", adGroupId);
+  if (error) {
+    throw new Error(`setGoogleSearchAdGroupResource failed: ${error.message}`);
+  }
+}
+
+export async function setGoogleSearchKeywordResource(
+  supabase: SupabaseClient,
+  keywordId: string,
+  resourceName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_keywords")
+    .update({ pushed_resource_name: resourceName })
+    .eq("id", keywordId);
+  if (error) {
+    throw new Error(`setGoogleSearchKeywordResource failed: ${error.message}`);
+  }
+}
+
+export async function setGoogleSearchNegativeResource(
+  supabase: SupabaseClient,
+  negativeId: string,
+  resourceName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_negatives")
+    .update({ pushed_resource_name: resourceName })
+    .eq("id", negativeId);
+  if (error) {
+    throw new Error(`setGoogleSearchNegativeResource failed: ${error.message}`);
+  }
+}
+
+export async function setGoogleSearchRsaResource(
+  supabase: SupabaseClient,
+  rsaId: string,
+  resourceName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_rsas")
+    .update({ pushed_resource_name: resourceName })
+    .eq("id", rsaId);
+  if (error) {
+    throw new Error(`setGoogleSearchRsaResource failed: ${error.message}`);
+  }
+}
+
 /**
  * Single round-trip-ish load of the full nested plan tree. Five queries
  * scoped by the plan id (RLS enforces ownership on every table), then
