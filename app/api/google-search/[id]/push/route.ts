@@ -1,22 +1,37 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
-import { loadGoogleSearchPlanTree } from "@/lib/db/google-search-plans";
+import {
+  loadGoogleSearchPlanTree,
+  setGoogleSearchAdGroupResource,
+  setGoogleSearchCampaignResource,
+  setGoogleSearchKeywordResource,
+  setGoogleSearchNegativeResource,
+  setGoogleSearchPlanStatus,
+  setGoogleSearchRsaResource,
+} from "@/lib/db/google-search-plans";
 import {
   hasHardErrors,
   validateGoogleSearchPlan,
 } from "@/lib/google-search/validation";
+import {
+  pushGoogleSearchPlan,
+  type GoogleSearchPushPersister,
+} from "@/lib/google-ads/campaign-writer";
+import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
+
+// Sequential mutate chain across many campaigns can run minutes —
+// match the other ads-platform routes that talk to Google Ads.
+export const maxDuration = 300;
 
 /**
  * POST /api/google-search/[id]/push
  *
- * Phase 2 stub. Pre-flight loads the plan tree, runs the same hard
- * validation the Review step does, and refuses if any errors remain.
- * When the plan is clean it returns `{ ok: false, reason: "not_implemented" }`
- * — the wizard renders this as a friendly "Phase 3 stub" notice. Once
- * the Phase 3 adapter lands here, the response shape switches to
- * `{ ok: true, createdCampaigns, createdAdGroups, createdKeywords }`
- * and the wizard already knows how to render that.
+ * Phase 3 implementation. Loads the plan tree, validates, decrypts
+ * the Google Ads credentials for `plan.google_ads_account_id`,
+ * resolves the linked event's `event_code` for the campaign-name
+ * prefix, then runs `pushGoogleSearchPlan`. Returns a
+ * `GoogleSearchLaunchSummary` that the wizard's Push step renders.
  */
 export async function POST(
   _req: NextRequest,
@@ -44,12 +59,8 @@ export async function POST(
       { status: 500 },
     );
   }
-
   if (!tree) {
-    return NextResponse.json(
-      { ok: false, reason: "plan_not_found" },
-      { status: 404 },
-    );
+    return NextResponse.json({ ok: false, reason: "plan_not_found" }, { status: 404 });
   }
 
   const issues = validateGoogleSearchPlan(tree);
@@ -67,13 +78,92 @@ export async function POST(
     );
   }
 
-  return NextResponse.json(
-    {
-      ok: false,
-      reason: "not_implemented",
-      details:
-        "The Google Ads write adapter ships in Phase 3. Plan tree validated successfully and is ready to push as soon as the adapter is wired up.",
-    },
-    { status: 501 },
-  );
+  if (!tree.plan.google_ads_account_id) {
+    return NextResponse.json(
+      { ok: false, reason: "no_google_ads_account_linked" },
+      { status: 422 },
+    );
+  }
+
+  // Decrypt credentials for the linked account. Cast to `never` because
+  // the cookie-bound Supabase client isn't typed against the new
+  // tables — same pattern as the Phase 1 CRUD module.
+  let credentials;
+  try {
+    credentials = await getGoogleAdsCredentials(
+      supabase as never,
+      tree.plan.google_ads_account_id,
+    );
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "credentials_load_failed",
+        details: err instanceof Error ? err.message : "Failed to decrypt Google Ads credentials.",
+      },
+      { status: 500 },
+    );
+  }
+  if (!credentials) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "no_credentials_for_account",
+        details:
+          "The linked Google Ads account has no decrypted credentials. Reconnect via Settings → Connections.",
+      },
+      { status: 422 },
+    );
+  }
+
+  // Resolve event_code for the campaign-name prefix. Missing event is
+  // not fatal — the writer logs a warning instead.
+  let eventCode: string | null = null;
+  if (tree.plan.event_id) {
+    const { data: eventRow } = await supabase
+      .from("events")
+      .select("event_code")
+      .eq("id", tree.plan.event_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    eventCode = (eventRow as { event_code?: string | null } | null)?.event_code ?? null;
+  }
+
+  const persister: GoogleSearchPushPersister = {
+    setCampaignResource: (campaignId, resourceName) =>
+      setGoogleSearchCampaignResource(supabase, campaignId, resourceName),
+    setAdGroupResource: (adGroupId, resourceName) =>
+      setGoogleSearchAdGroupResource(supabase, adGroupId, resourceName),
+    setKeywordResource: (keywordId, resourceName) =>
+      setGoogleSearchKeywordResource(supabase, keywordId, resourceName),
+    setNegativeResource: (negativeId, resourceName) =>
+      setGoogleSearchNegativeResource(supabase, negativeId, resourceName),
+    setRsaResource: (rsaId, resourceName) =>
+      setGoogleSearchRsaResource(supabase, rsaId, resourceName),
+    setPlanStatus: (planId, status, pushedAt) =>
+      setGoogleSearchPlanStatus(supabase, planId, status, pushedAt),
+  };
+
+  try {
+    const summary = await pushGoogleSearchPlan({
+      tree,
+      credentials: {
+        customerId: credentials.customer_id,
+        refreshToken: credentials.refresh_token,
+        loginCustomerId: credentials.login_customer_id,
+      },
+      eventCode,
+      persister,
+    });
+    return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        reason: "writer_threw",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    );
+  }
 }
