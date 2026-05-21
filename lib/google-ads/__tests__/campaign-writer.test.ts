@@ -31,6 +31,7 @@ import {
   type GoogleAdsMutateResponse,
 } from "../client.ts";
 import {
+  buildBudgetOp,
   googleAdsCampaignDeepLink,
   prefixCampaignName,
   pushGoogleSearchPlan,
@@ -725,5 +726,44 @@ describe("prefixCampaignName + deep link helpers", () => {
       googleAdsCampaignDeepLink(`customers/${CUSTOMER_ID}/adGroups/1`, CUSTOMER_ID),
       null,
     );
+  });
+});
+
+// ─── Budget: DAILY field drives amountMicros (Phase 5 fix) ────────────
+
+describe("buildBudgetOp — daily_budget is the source of truth", () => {
+  // Bug context (PR #448): the wizard previously wrote monthly_budget,
+  // so a £1 entry pushed as £0.03/day (1/30). The wizard now writes
+  // daily_budget; these tests pin the push contract so a future regression
+  // would be caught immediately.
+
+  it("uses daily_budget * 1_000_000 for amountMicros, NOT monthly_budget", () => {
+    const c = campaign({ daily_budget: 5, monthly_budget: 99999 });
+    const op = buildBudgetOp(c, CUSTOMER_ID);
+    assert.equal(
+      op.create.amountMicros,
+      String(5_000_000),
+      "daily_budget=5 must produce amountMicros=5_000_000 regardless of monthly_budget",
+    );
+  });
+
+  it("£1/day smoke-test value produces exactly 1_000_000 micros", () => {
+    const c = campaign({ daily_budget: 1, monthly_budget: 350 });
+    const op = buildBudgetOp(c, CUSTOMER_ID);
+    assert.equal(op.create.amountMicros, String(1_000_000));
+  });
+
+  it("falls back to monthly/30 only when daily_budget is null", () => {
+    const c = campaign({ daily_budget: null, monthly_budget: 150 });
+    const op = buildBudgetOp(c, CUSTOMER_ID);
+    // 150 / 30 = 5 → 5_000_000 micros
+    assert.equal(op.create.amountMicros, String(5_000_000));
+  });
+
+  it("uses the £1/day floor when both daily and monthly are zero/null", () => {
+    const c = campaign({ daily_budget: null, monthly_budget: null });
+    const op = buildBudgetOp(c, CUSTOMER_ID);
+    // DEFAULT_DAILY_BUDGET_POUNDS = 5 → 5_000_000 micros
+    assert.equal(op.create.amountMicros, String(5_000_000));
   });
 });

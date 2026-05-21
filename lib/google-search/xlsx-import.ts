@@ -377,30 +377,140 @@ function extractPlanNameFromOverview(sheet: XLSX.WorkSheet | null): string | nul
 
 // ─── Ad Copy tab ──────────────────────────────────────────────────────
 
+/**
+ * Real-world J2 plan structure: the Ad Copy tab uses full-width SECTION
+ * HEADER banner rows (e.g. `C1 – BRAND: JUNCTION 2`) above each block
+ * of headlines / descriptions, and the same campaign appears TWICE —
+ * once over its H1..Hn block, then again over its D1..Dn block. Every
+ * H/D row leaves the Campaign column BLANK; the section header is the
+ * only signal that ties the rows to a campaign.
+ *
+ * We therefore walk the raw rows below the header and carry forward
+ * the most recent campaign matched from a section banner. We still
+ * honour an explicit Campaign cell when present so the simpler flat
+ * layout (the original test fixture) keeps working.
+ *
+ * Headlines and descriptions for the same campaign — wherever they
+ * appear — accumulate into a SINGLE RSA per campaign, which is then
+ * attached to every ad group under that campaign (the wizard can
+ * specialise per ad group later).
+ */
 function applyAdCopy(
   campaigns: GoogleSearchCampaignDraftNode[],
   sheet: XLSX.WorkSheet | null,
   warnings: GoogleSearchImportWarning[],
 ): void {
-  const rows = recordsFromRawRowsWithHeaderScan(rawRows(sheet), ["campaign", "type"]);
-  // Group by campaign → split rows into headlines (H1..Hn) / descriptions (D1..Dn).
-  const byCampaign = new Map<string, { headlines: RsaHeadline[]; descriptions: RsaDescription[] }>();
-  for (const idx of rows) {
-    const campaignName = cell(idx.campaign);
-    const typeRaw = cell(idx.type).toUpperCase();
-    const content = cell(idx.content ?? idx.text ?? idx.copy);
-    if (!campaignName || !typeRaw || !content) continue;
-    const bucket = byCampaign.get(campaignName) ?? { headlines: [], descriptions: [] };
-    if (/^H\d+$/.test(typeRaw)) {
-      const overflow = classifyCharOverflow(content, "headline");
-      if (overflow) warnings.push({ ...overflow, context: { ...overflow.context, campaign: campaignName, slot: typeRaw } });
-      bucket.headlines.push({ text: content });
-    } else if (/^D\d+$/.test(typeRaw)) {
-      const overflow = classifyCharOverflow(content, "description");
-      if (overflow) warnings.push({ ...overflow, context: { ...overflow.context, campaign: campaignName, slot: typeRaw } });
-      bucket.descriptions.push({ text: content });
+  const raw = rawRows(sheet);
+  if (raw.length === 0) return;
+
+  // Find the canonical header row (must contain `campaign` and `type`).
+  let headerIdx = -1;
+  for (let i = 0; i < raw.length; i += 1) {
+    const keys = (raw[i] ?? []).map((c) => headerKey(c));
+    if (keys.includes(headerKey("campaign")) && keys.includes(headerKey("type"))) {
+      headerIdx = i;
+      break;
     }
-    byCampaign.set(campaignName, bucket);
+  }
+  if (headerIdx < 0) return;
+
+  const headerKeys = (raw[headerIdx] ?? []).map((c) => headerKey(c));
+  const campaignCol = headerKeys.indexOf(headerKey("campaign"));
+  const typeCol = headerKeys.indexOf(headerKey("type"));
+  const contentCol =
+    headerKeys.indexOf(headerKey("content")) >= 0
+      ? headerKeys.indexOf(headerKey("content"))
+      : headerKeys.indexOf(headerKey("text")) >= 0
+        ? headerKeys.indexOf(headerKey("text"))
+        : headerKeys.indexOf(headerKey("copy"));
+
+  // Lookups for matching section-header text to a skeleton campaign.
+  // Exact (normalised) match wins; the `C\d+` prefix is the fallback so
+  // a stray casing / punctuation difference between the Keywords tab
+  // and the Ad Copy banner doesn't strand a whole block of rows.
+  const skeletonByExact = new Map<string, string>();
+  const skeletonByPrefix = new Map<string, string>();
+  for (const c of campaigns) {
+    skeletonByExact.set(normaliseCampaignKey(c.name), c.name);
+    const prefixMatch = /^c(\d+)/i.exec(c.name);
+    if (prefixMatch) skeletonByPrefix.set(prefixMatch[1], c.name);
+  }
+  const resolveCampaign = (text: string): string | null => {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const key = normaliseCampaignKey(trimmed);
+    const exact = skeletonByExact.get(key);
+    if (exact) return exact;
+    const prefixMatch = /^c(\d+)/i.exec(trimmed);
+    if (prefixMatch) {
+      const byPrefix = skeletonByPrefix.get(prefixMatch[1]);
+      if (byPrefix) return byPrefix;
+    }
+    return null;
+  };
+
+  const byCampaign = new Map<
+    string,
+    { headlines: RsaHeadline[]; descriptions: RsaDescription[] }
+  >();
+  let currentCampaign: string | null = null;
+
+  for (let i = headerIdx + 1; i < raw.length; i += 1) {
+    const row = raw[i] ?? [];
+    if (row.every((c) => c == null || c === "")) continue;
+
+    const campaignCell = campaignCol >= 0 ? cell(row[campaignCol]) : "";
+    const typeCell = typeCol >= 0 ? cell(row[typeCol]).toUpperCase() : "";
+    const contentCell = contentCol >= 0 ? cell(row[contentCol]) : "";
+    const isHeadline = /^H\d+$/.test(typeCell);
+    const isDescription = /^D\d+$/.test(typeCell);
+    const isDataRow = isHeadline || isDescription;
+
+    if (!isDataRow) {
+      // Section banner — try to resolve the first non-empty cell to a
+      // skeleton campaign and update currentCampaign. Anything that
+      // isn't recognisable is treated as a benign separator row.
+      const banner = (row.map((c) => cell(c)).find((s) => s.length > 0) ?? "");
+      const matched = resolveCampaign(banner);
+      if (matched) currentCampaign = matched;
+      continue;
+    }
+
+    // Data row — resolve the campaign: explicit Campaign cell wins,
+    // else carry-forward from the most recent section banner.
+    const explicit = campaignCell ? resolveCampaign(campaignCell) : null;
+    const resolved = explicit ?? currentCampaign;
+    if (!resolved) {
+      warnings.push({
+        code: "ad_copy_orphan",
+        message: `Ad copy row "${typeCell}: ${contentCell}" has no campaign context — skipped.`,
+        context: { type: typeCell, content: contentCell || null },
+      });
+      continue;
+    }
+    if (!contentCell) continue;
+
+    const bucket = byCampaign.get(resolved) ?? { headlines: [], descriptions: [] };
+    if (isHeadline) {
+      const overflow = classifyCharOverflow(contentCell, "headline");
+      if (overflow) {
+        warnings.push({
+          ...overflow,
+          context: { ...overflow.context, campaign: resolved, slot: typeCell },
+        });
+      }
+      bucket.headlines.push({ text: contentCell });
+    } else {
+      const overflow = classifyCharOverflow(contentCell, "description");
+      if (overflow) {
+        warnings.push({
+          ...overflow,
+          context: { ...overflow.context, campaign: resolved, slot: typeCell },
+        });
+      }
+      bucket.descriptions.push({ text: contentCell });
+    }
+    byCampaign.set(resolved, bucket);
   }
 
   for (const campaign of campaigns) {
@@ -429,6 +539,20 @@ function applyAdCopy(
   }
 }
 
+/**
+ * Normalise a campaign-name candidate for fuzzy matching: lowercase,
+ * collapse all dash variants (- – —) to `-`, collapse whitespace.
+ * Used by `applyAdCopy` to match section-banner text (`C1 – BRAND:
+ * JUNCTION 2`) to a skeleton campaign (`C1 – Brand: Junction 2`).
+ */
+export function normaliseCampaignKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ─── Negative Keywords tab ─────────────────────────────────────────────
 
 function parseNegativesTab(
@@ -439,11 +563,27 @@ function parseNegativesTab(
   // Negative tabs may use either "negative keyword" or "keyword" as the
   // text column header — scan for the row that contains either.
   const raw = rawRows(sheet);
+  if (raw.length === 0) return [];
   const rows =
     recordsFromRawRowsWithHeaderScan(raw, ["negativekeyword"]).length > 0
       ? recordsFromRawRowsWithHeaderScan(raw, ["negativekeyword"])
       : recordsFromRawRowsWithHeaderScan(raw, ["keyword"]);
-  const lowerByName = new Map(campaignNames.map((n) => [n.toLowerCase(), n]));
+  if (rows.length === 0) {
+    warnings.push({
+      code: "negatives_header_not_found",
+      message:
+        "Negative Keywords tab had no recognisable header row " +
+        "(expected `Negative Keyword` or `Keyword`). No negatives imported.",
+    });
+    return [];
+  }
+  const skeletonByExact = new Map<string, string>();
+  const skeletonByPrefix = new Map<string, string>();
+  for (const name of campaignNames) {
+    skeletonByExact.set(normaliseCampaignKey(name), name);
+    const prefixMatch = /^c(\d+)/i.exec(name);
+    if (prefixMatch) skeletonByPrefix.set(prefixMatch[1], name);
+  }
   const out: GoogleSearchNegativeDraft[] = [];
   for (const idx of rows) {
     const keyword = cell(idx.negativekeyword ?? idx.keyword);
@@ -457,22 +597,19 @@ function parseNegativesTab(
       });
       continue;
     }
-    const scopeRaw = cell(idx.scope ?? idx.campaign ?? idx.level).toLowerCase();
-    const scope: GoogleSearchNegativeDraft["scope"] =
-      scopeRaw === "" || scopeRaw === "all" || scopeRaw === "plan"
-        ? { kind: "plan" }
-        : (() => {
-            const canonical = lowerByName.get(scopeRaw);
-            if (canonical) return { kind: "campaign", campaign_name: canonical };
-            // Fall back to plan-scope if the scope string doesn't match a known
-            // campaign — better to over-share than to drop the negative entirely.
-            warnings.push({
-              code: "missing_campaign",
-              message: `Negative "${keyword}" scoped to unknown campaign "${scopeRaw}" — added as plan-scoped fallback.`,
-              context: { keyword, scope: scopeRaw },
-            });
-            return { kind: "plan" };
-          })();
+    // Real J2 sheet uses a `Campaign / Level` header — headerKey() makes
+    // that `campaignlevel`. Older / simpler sheets use `Scope`,
+    // `Campaign`, or `Level`. Read all four.
+    const scopeRaw = cell(
+      idx.scope ?? idx.campaign ?? idx.level ?? idx.campaignlevel,
+    );
+    const scope = resolveNegativeScope(
+      scopeRaw,
+      skeletonByExact,
+      skeletonByPrefix,
+      keyword,
+      warnings,
+    );
 
     out.push({
       keyword,
@@ -482,4 +619,53 @@ function parseNegativesTab(
     });
   }
   return out;
+}
+
+/**
+ * Decide whether a `scope` cell on the Negative Keywords tab means
+ * "shared / plan-scoped" or "specific campaign", with a graceful
+ * fallback to plan-scope when nothing matches (better to share than
+ * to silently drop a negative).
+ *
+ * Plan-scope signals (matched lowercased / whitespace-trimmed):
+ *   - empty
+ *   - "all", "all campaigns", "all campaign"
+ *   - "plan", "shared", "shared list"
+ *   - any text that starts with "all"
+ *
+ * Campaign-scope: exact normalised match against a skeleton campaign
+ * name, else a `C\d+` prefix match.
+ */
+export function resolveNegativeScope(
+  scopeRaw: string,
+  skeletonByExact: Map<string, string>,
+  skeletonByPrefix: Map<string, string>,
+  keyword: string,
+  warnings: GoogleSearchImportWarning[],
+): GoogleSearchNegativeDraft["scope"] {
+  const trimmed = scopeRaw.trim();
+  const lower = trimmed.toLowerCase();
+  if (
+    lower === "" ||
+    lower === "plan" ||
+    lower === "shared" ||
+    lower === "shared list" ||
+    lower.startsWith("all")
+  ) {
+    return { kind: "plan" };
+  }
+  const key = normaliseCampaignKey(trimmed);
+  const exact = skeletonByExact.get(key);
+  if (exact) return { kind: "campaign", campaign_name: exact };
+  const prefixMatch = /^c(\d+)/i.exec(trimmed);
+  if (prefixMatch) {
+    const byPrefix = skeletonByPrefix.get(prefixMatch[1]);
+    if (byPrefix) return { kind: "campaign", campaign_name: byPrefix };
+  }
+  warnings.push({
+    code: "missing_campaign",
+    message: `Negative "${keyword}" scoped to unknown campaign "${trimmed}" — added as plan-scoped fallback.`,
+    context: { keyword, scope: trimmed },
+  });
+  return { kind: "plan" };
 }
