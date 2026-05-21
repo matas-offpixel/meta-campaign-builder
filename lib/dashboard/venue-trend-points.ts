@@ -454,6 +454,104 @@ export function ticketDeltasFromCumulativeTimeline(
   return deltas;
 }
 
+/** Add `days` to a YYYY-MM-DD calendar date in UTC. */
+export function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+export interface CorroboratedDeltaOptions {
+  /**
+   * How many days the `tier_channel_sales_daily_history.snapshot_date`
+   * leads the true sale day. Measured empirically at +1: a snapshot
+   * labelled date D is captured at D−1 23:55 (end of day D−1) and its
+   * cumulative delta reflects sales completed on D−1, which the rollup
+   * records under date D−1. Verified by value-match on Brighton
+   * (hist Δ@D == rollup@D−1, exact on 42/20/8). Default 1.
+   */
+  offsetDays?: number;
+  /**
+   * Corroboration window: look for rollup activity within ± this many
+   * days of the true sale day (covers intra-day cut-time straddle).
+   * Default 1.
+   */
+  windowDays?: number;
+}
+
+/**
+ * Per-day deltas from a venue cumulative timeline, corroborated against
+ * real sales activity so non-sale cumulative jumps (manual Supabase
+ * reconciliations, backfills, tier renames adding rows) do NOT surface
+ * as phantom daily sales.
+ *
+ * For each cumulative step at `snapshot_date` D:
+ *   1. raw delta = cumulative(D) − running baseline. The baseline is
+ *      ALWAYS advanced to cumulative(D) — both up-corrections and
+ *      down-corrections re-base rather than "clamp to 0 and forget", so
+ *      the running total ends at the true cumulative and a suppressed
+ *      jump never re-appears on a later day.
+ *   2. the TRUE sale day is D − offsetDays (the snapshot leads the sale
+ *      day — see CorroboratedDeltaOptions). Deltas are emitted keyed by
+ *      the true sale day so the tracker shows the sale on the day it
+ *      actually happened (fixes the latent PR #378 "sales show up
+ *      tomorrow" off-by-one).
+ *   3. a positive delta emits as a real daily sale ONLY IF
+ *      `rollupActivityDates` has activity within ±windowDays of the true
+ *      sale day. This is a PRESENCE gate, not magnitude: the displayed
+ *      number is the history delta (the cumulative truth), the rollup is
+ *      only the yes/no "was there a real sale here". History delta and
+ *      rollup count legitimately differ on real sales (intra-day cuts),
+ *      so they are never required to be equal.
+ *   4. an uncorroborated positive delta is a correction → suppressed
+ *      (but still re-based via step 1). Down-steps emit nothing and
+ *      re-base.
+ *
+ * The FIRST row is treated as the starting baseline, not a one-day sale:
+ * `tier_channel_sales_daily_history` carries the cumulative-to-date when
+ * capture began (migration 089 backfill / first cron tick), so the first
+ * value is a historical total. Emitting it as a single day's sale would
+ * spike day 0 — and the ±windowDays corroboration would wrongly confirm
+ * it from the next day's real activity. Deltas are emitted from the second
+ * row onward.
+ *
+ * Returns Map<trueSaleDate, delta>.
+ */
+export function corroboratedDailyDeltas(
+  timeline: Array<{ date: string; cumulative: number }>,
+  rollupActivityDates: ReadonlySet<string>,
+  options?: CorroboratedDeltaOptions,
+): Map<string, number> {
+  const offset = options?.offsetDays ?? 1;
+  const window = options?.windowDays ?? 1;
+  const out = new Map<string, number>();
+  if (timeline.length === 0) return out;
+  let prev = timeline[0]!.cumulative; // first row = baseline, not a daily sale
+  for (let i = 1; i < timeline.length; i += 1) {
+    const step = timeline[i]!;
+    const delta = step.cumulative - prev;
+    prev = step.cumulative; // always re-base (up- AND down-corrections)
+    if (delta <= 0) continue;
+    const saleDate = shiftYmd(step.date, -offset);
+    if (hasActivityWithin(saleDate, rollupActivityDates, window)) {
+      out.set(saleDate, (out.get(saleDate) ?? 0) + delta);
+    }
+  }
+  return out;
+}
+
+function hasActivityWithin(
+  date: string,
+  activity: ReadonlySet<string>,
+  window: number,
+): boolean {
+  for (let off = -window; off <= window; off += 1) {
+    if (activity.has(shiftYmd(date, off))) return true;
+  }
+  return false;
+}
+
 /**
  * "Today" in Europe/London for UK clients. The whole 4theFans roster
  * lives there and the dashboard's other date-bucket helpers use the
