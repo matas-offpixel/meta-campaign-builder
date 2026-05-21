@@ -11,11 +11,22 @@ The rollup-sync pipeline (`lib/dashboard/rollup-sync-runner.ts`) MUST:
    by the connection's provider API. This keeps the full tier snapshot
    available for capacity and reporting.
 
-2. **Only upsert the provider-owned automatic channel in
+2. **Only write the provider-owned automatic channel in
    `tier_channel_sales`**. For `fourthefans`, that means the client's
-   automatic `4TF` channel. Sync code MUST NOT delete rows, null/refill an
-   event, or touch operator-owned channels (Venue, CP, SeeTickets, DS, Other).
-   Existing manual/import rows for the same event must be preserved.
+   automatic `4TF` channel. Sync code MAY delete rows **only within the
+   provider's own automatic channel** (the resolved `4TF` `channel_id`) — to
+   retire tiers a venue renamed out of the API response (e.g. "GA (Final
+   Release)" → "79 GA – Arena Stands"), which otherwise orphan and over-count
+   forever. It MUST NOT delete, null/refill, or otherwise touch operator-owned
+   channels (Venue, CP, SeeTickets, DS, Other) or any other channel. **This
+   scoping is load-bearing because operator channels hold manually-imported
+   external sales the provider API never sees** — widening the delete beyond
+   the automatic channel (or diffing against an unfiltered read) would mark
+   those real box-office rows as "absent from API" and destroy them. Both the
+   existing-row read and the delete MUST be `channel_id`-scoped to the
+   resolved automatic channel; an empty API response MUST yield zero
+   deletions (see `lib/ticketing/tier-channel-stale-delete.ts`). Existing
+   manual/import rows for the same event must be preserved.
 
 3. **Never touch `additional_ticket_entries`** — these rows capture ad-hoc
    sales (e.g. door sales, offline blocks) and are entered by operators.

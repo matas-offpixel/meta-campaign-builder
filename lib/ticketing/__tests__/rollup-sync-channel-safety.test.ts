@@ -139,10 +139,27 @@ describe("rollup-sync channel-ownership invariant", () => {
       fnBody.includes('"tier_channel_sales"'),
       "provider channel writer must upsert tier_channel_sales",
     );
-    assert.ok(
-      !fnBody.includes(".delete()"),
-      "provider channel writer must never delete/null-refill tier_channel_sales",
-    );
+    // The stale-delete (retiring tiers a venue renamed out of the API) is
+    // PERMITTED — but ONLY when scoped to the resolved automatic channel_id.
+    // An unscoped delete, or one fed by an unfiltered existing-row read, could
+    // wipe operator channels (Venue, CP, DS, …) that hold real external sales.
+    // So: if a delete exists, BOTH the delete AND the diff-read it depends on
+    // must be channel_id-scoped. This is stricter than the old "no delete at
+    // all" guard — it still catches the dangerous unscoped case.
+    if (fnBody.includes(".delete()")) {
+      assert.ok(
+        /\.delete\(\)[\s\S]*?\.eq\(\s*["']channel_id["']/.test(fnBody),
+        'any .delete() in the provider channel writer MUST be channel_id-scoped (.eq("channel_id", …))',
+      );
+      assert.ok(
+        /\.select\([\s\S]*?\.eq\(\s*["']channel_id["']/.test(fnBody),
+        "the existing-row read feeding the stale-delete MUST be channel_id-scoped, else operator-channel tiers look 'absent from API'",
+      );
+      assert.ok(
+        fnBody.includes("computeStaleTierChannelDeletions"),
+        "the stale-delete must route through the empty-guard helper computeStaleTierChannelDeletions",
+      );
+    }
     assert.ok(
       fnBody.includes('onConflict: "event_id,tier_name,channel_id"'),
       "provider channel writer must be idempotent on the natural key",
