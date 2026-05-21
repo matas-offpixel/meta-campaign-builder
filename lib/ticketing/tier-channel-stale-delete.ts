@@ -64,3 +64,38 @@ export function computeStaleTierChannelDeletions<T extends TierChannelRowRef>(
     (row) => row.channel_id === channelId && !survivors.has(row.tier_name),
   );
 }
+
+/** Tolerance for revenue float comparison (sub-cent jitter is not a change). */
+const REVENUE_EPSILON = 0.005;
+
+export interface TierChannelValueRow {
+  tickets_sold: number;
+  revenue_amount: number;
+}
+
+/**
+ * WAL/write-hygiene predicate for the fourthefans sync upsert: does an
+ * incoming tier row carry a real change versus what's already stored?
+ *
+ * The cron runs ~4×/day; without this gate every unchanged tier row is
+ * re-written each tick, churning WAL and making `updated_at` meaningless as
+ * a "last real movement" signal. Only `tickets_sold` and `revenue_amount`
+ * are sale-bearing, so only those gate the write.
+ *
+ *   - no existing row → true (a genuinely new tier must be written)
+ *   - tickets_sold changed → true
+ *   - revenue_amount changed (beyond sub-cent float jitter) → true
+ *   - otherwise → false (skip the write; leave the row — and its
+ *     timestamps — untouched)
+ *
+ * This is purely a write gate. It does NOT touch the stale-delete, the
+ * channel scoping, or the conflict key.
+ */
+export function rowHasMaterialChange(
+  existing: TierChannelValueRow | undefined,
+  incoming: TierChannelValueRow,
+): boolean {
+  if (!existing) return true;
+  if (existing.tickets_sold !== incoming.tickets_sold) return true;
+  return Math.abs(existing.revenue_amount - incoming.revenue_amount) > REVENUE_EPSILON;
+}
