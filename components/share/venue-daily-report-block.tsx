@@ -32,6 +32,7 @@ import {
   buildVenueCumulativeTicketTimeline,
   buildVenueDailyHistoryTimelines,
   buildVenueTicketSnapshotPoints,
+  corroboratedDailyDeltas,
   ticketDeltasFromCumulativeTimeline,
   type TierChannelDailyHistoryRow,
   type TierChannelSalesAnchorRow,
@@ -672,71 +673,85 @@ function mergeVenueTimeline(
     byDate.set(row.date, current);
   }
 
-  // --- Ticket deltas ---
+  // --- Per-day tickets + revenue (corroborated, one grid) ---
   //
-  // Primary: derive from `tier_channel_sales_daily_history` when rows
-  // are present.  Secondary: fall back to the snapshot-envelope
-  // cumulative (PR fix/venue-trend-tier-channel-snapshot) for any dates
-  // not covered by daily_history, which eliminates the
-  // xlsx_import → fourthefans phantom drop and reconciles with the
-  // `tier_channel_sales` SUM anchor.
-  const histTicketDeltas = ticketDeltasFromCumulativeTimeline(
-    dailyHistoryTimelines.tickets,
-  );
-  const snapshotDeltas = ticketDeltasFromCumulativeTimeline(
-    cumulativeTicketTimeline,
-  );
+  // Root-cause fix (see lib/dashboard/venue-trend-points.ts
+  // corroboratedDailyDeltas): the prior path diffed daily_history
+  // cumulative with Math.max(0, …), which turned non-sale cumulative jumps
+  // (manual Supabase reconciliations, backfills, tier renames) into phantom
+  // daily sales, AND derived tickets vs revenue from different bases on
+  // different date grids (the Eventbrite ticket/revenue row-split).
+  //
+  // Now: a positive cumulative delta counts as a real daily sale ONLY when
+  // corroborated by event_daily_rollups activity within ±1 day of the true
+  // sale day, and is displayed ON that true sale day (snapshot_date − 1 —
+  // the snapshot leads the sale day, measured empirically). Tickets AND
+  // revenue derive from the SAME source on the SAME grid.
 
-  // Merge: daily_history deltas take priority; snapshot envelope fills
-  // in for dates not covered by daily_history.
-  const effectiveTicketDeltas: Map<string, number> =
-    histTicketDeltas.size > 0
-      ? (() => {
-          const merged = new Map(snapshotDeltas);
-          for (const [date, delta] of histTicketDeltas) {
-            merged.set(date, delta);
-          }
-          return merged;
-        })()
-      : snapshotDeltas;
-
-  if (effectiveTicketDeltas.size > 0) {
-    for (const current of byDate.values()) {
-      current.tickets_sold = null;
-    }
-    for (const [date, tickets] of effectiveTicketDeltas) {
-      const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
-      current.tickets_sold = addNullable(current.tickets_sold, tickets);
-      byDate.set(date, current);
+  // Corroboration signal: rollup dates with real ticket OR revenue activity.
+  // event_daily_rollups is per-day and is NOT corrupted by cumulative
+  // corrections — the rollup is a yes/no "was there a real sale here" gate,
+  // never a magnitude (history delta and rollup count legitimately differ on
+  // real sales due to intra-day cuts).
+  const rollupActivityDates = new Set<string>();
+  for (const row of rollups) {
+    if ((row.tickets_sold ?? 0) > 0 || (row.revenue ?? 0) > 0) {
+      rollupActivityDates.add(row.date);
     }
   }
 
-  // --- Revenue deltas ---
-  //
-  // Primary: derive from daily_history `revenue_total` cumulative.
-  // Secondary: when daily_history has no revenue rows, and rollup has
-  // no revenue (e.g. provider integration not yet live), fall back to
-  // the weekly ticket_sales_snapshot revenue column.
-  const histRevenueDeltas = ticketDeltasFromCumulativeTimeline(
-    dailyHistoryTimelines.revenue,
-  );
-
-  if (histRevenueDeltas.size > 0) {
-    // Replace rollup revenue with daily_history-derived deltas.
-    // Spend column is untouched (still from event_daily_rollups).
+  const hasDailyHistory = dailyHistoryTimelines.tickets.length > 0;
+  if (hasDailyHistory) {
+    // History venues: derive BOTH tickets and revenue from the corroborated
+    // daily_history deltas, on the true-sale-day grid. Per-day rollup
+    // tickets/revenue for these venues are unreliable (the provider sync
+    // writes only today's row), so they are replaced wholesale.
+    const histTicketDeltas = corroboratedDailyDeltas(
+      dailyHistoryTimelines.tickets,
+      rollupActivityDates,
+    );
+    const histRevenueDeltas = corroboratedDailyDeltas(
+      dailyHistoryTimelines.revenue,
+      rollupActivityDates,
+    );
     for (const current of byDate.values()) {
+      current.tickets_sold = null;
       current.revenue = null;
+    }
+    for (const [date, tickets] of histTicketDeltas) {
+      const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
+      current.tickets_sold = addNullable(current.tickets_sold, tickets);
+      byDate.set(date, current);
     }
     for (const [date, revenue] of histRevenueDeltas) {
       const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
       current.revenue = addNullable(current.revenue, revenue);
       byDate.set(date, current);
     }
-  } else if (rollupRevenueTotal === 0) {
-    for (const [date, revenue] of venueSnapshotRevenueDeltas(events)) {
-      const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
-      current.revenue = addNullable(current.revenue, revenue);
-      byDate.set(date, current);
+  } else {
+    // No daily_history (Eventbrite, single-event / CL-final venues): rollup
+    // rows already carry per-day tickets AND revenue on the SAME date — keep
+    // them aligned (do NOT move tickets onto the snapshot-envelope grid; that
+    // was the Eventbrite row-split). Only when the rollup carries no ticket
+    // and no revenue at all (provider not live yet) fall back to the weekly
+    // snapshot envelope — for BOTH columns, so they stay on one grid.
+    const rollupTicketsTotal = rollups.reduce(
+      (sum, row) => sum + (row.tickets_sold ?? 0),
+      0,
+    );
+    if (rollupRevenueTotal === 0 && rollupTicketsTotal === 0) {
+      for (const [date, tickets] of ticketDeltasFromCumulativeTimeline(
+        cumulativeTicketTimeline,
+      )) {
+        const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
+        current.tickets_sold = addNullable(current.tickets_sold, tickets);
+        byDate.set(date, current);
+      }
+      for (const [date, revenue] of venueSnapshotRevenueDeltas(events)) {
+        const current = byDate.get(date) ?? emptyTimelineRow(date, "live");
+        current.revenue = addNullable(current.revenue, revenue);
+        byDate.set(date, current);
+      }
     }
   }
 
