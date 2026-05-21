@@ -3,8 +3,17 @@
  * No runtime dependencies — safe to import in tests and client components.
  */
 
-/** Maximum video IDs per bulk batch — mirrors Meta's own "enter up to 50 video IDs" UI limit. */
-export const MAX_VIDEO_IDS = 50;
+/**
+ * Maximum video IDs accepted by the video-ID input textarea.
+ *
+ * Raised from 50 (Meta's own manual-UI cap) to 200 — our tool isn't bound by
+ * Meta's UI restriction, and the write path now splits batches that exceed
+ * Meta's 200-video API limit into ≤200-video sibling audiences automatically
+ * (see audience-write.ts writeSplitVideoViews / MAX_VIDEO_VIEWS_VIDEOS).
+ * This unblocks large-library events like P26-OPENAIR (206 videos) in
+ * video-ID input mode, not just campaign-walk mode.
+ */
+export const MAX_VIDEO_IDS = 200;
 
 /**
  * Parse a freeform string of Meta video IDs.
