@@ -29,10 +29,10 @@ import {
   resolveDisplayTicketRevenue,
 } from "@/lib/dashboard/tier-channel-rollups";
 import {
+  buildCorroboratedDailyDeltas,
   buildVenueCumulativeTicketTimeline,
   buildVenueDailyHistoryTimelines,
   buildVenueTicketSnapshotPoints,
-  corroboratedDailyDeltas,
   ticketDeltasFromCumulativeTimeline,
   type TierChannelDailyHistoryRow,
   type TierChannelSalesAnchorRow,
@@ -688,32 +688,21 @@ function mergeVenueTimeline(
   // the snapshot leads the sale day, measured empirically). Tickets AND
   // revenue derive from the SAME source on the SAME grid.
 
-  // Corroboration signal: rollup dates with real ticket OR revenue activity.
-  // event_daily_rollups is per-day and is NOT corrupted by cumulative
-  // corrections — the rollup is a yes/no "was there a real sale here" gate,
-  // never a magnitude (history delta and rollup count legitimately differ on
-  // real sales due to intra-day cuts).
-  const rollupActivityDates = new Set<string>();
-  for (const row of rollups) {
-    if ((row.tickets_sold ?? 0) > 0 || (row.revenue ?? 0) > 0) {
-      rollupActivityDates.add(row.date);
-    }
-  }
-
   const hasDailyHistory = dailyHistoryTimelines.tickets.length > 0;
   if (hasDailyHistory) {
     // History venues: derive BOTH tickets and revenue from the corroborated
-    // daily_history deltas, on the true-sale-day grid. Per-day rollup
-    // tickets/revenue for these venues are unreliable (the provider sync
-    // writes only today's row), so they are replaced wholesale.
-    const histTicketDeltas = corroboratedDailyDeltas(
-      dailyHistoryTimelines.tickets,
-      rollupActivityDates,
-    );
-    const histRevenueDeltas = corroboratedDailyDeltas(
-      dailyHistoryTimelines.revenue,
-      rollupActivityDates,
-    );
+    // daily_history deltas, on the true-sale-day grid, via the canonical
+    // shared builder (the SAME function the per-event tracker now calls — so
+    // the two surfaces cannot diverge). Per-day rollup tickets/revenue for
+    // these venues are unreliable, so they are replaced wholesale. The rollup
+    // is only the yes/no "was there a real sale here" corroboration gate,
+    // never a magnitude.
+    const { tickets: histTicketDeltas, revenue: histRevenueDeltas } =
+      buildCorroboratedDailyDeltas({
+        cumulativeTickets: dailyHistoryTimelines.tickets,
+        cumulativeRevenue: dailyHistoryTimelines.revenue,
+        rollups,
+      });
     for (const current of byDate.values()) {
       current.tickets_sold = null;
       current.revenue = null;

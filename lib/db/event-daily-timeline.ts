@@ -5,6 +5,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
 import { listRollupsForEvent } from "@/lib/db/event-daily-rollups";
 import { sumTicketsInWindow } from "@/lib/db/event-daily-timeline-window";
+import { listDailyHistoryForEvents } from "@/lib/db/tier-channel-daily-history";
+import {
+  buildCorroboratedDailyDeltas,
+  buildVenueDailyHistoryTimelines,
+} from "@/lib/dashboard/venue-trend-points";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
@@ -113,15 +118,65 @@ export async function listManualEntriesForEvent(
   return (data ?? []) as unknown as ManualDailyEntry[];
 }
 
+/** Per-day tickets+revenue deltas keyed by true sale day, from the
+ *  canonical corroborated daily-history builder (shared with the venue
+ *  tracker). `null` ⇒ no daily_history for this event ⇒ keep rollup-direct
+ *  tickets/revenue (legacy / brand-campaign / no-ticketing path). */
+export type CorroboratedDailyDeltas = {
+  tickets: Map<string, number>;
+  revenue: Map<string, number>;
+} | null;
+
+function emptyLiveTimelineRow(date: string): TimelineRow {
+  return {
+    date,
+    source: "live",
+    ad_spend: null,
+    ad_spend_allocated: null,
+    link_clicks: null,
+    meta_regs: null,
+    meta_impressions: null,
+    meta_reach: null,
+    meta_video_plays_3s: null,
+    meta_video_plays_15s: null,
+    meta_video_plays_p100: null,
+    meta_engagements: null,
+    tiktok_spend: null,
+    tiktok_impressions: null,
+    tiktok_clicks: null,
+    tiktok_video_views: null,
+    tiktok_results: null,
+    google_ads_spend: null,
+    google_ads_impressions: null,
+    google_ads_clicks: null,
+    google_ads_video_views: null,
+    tickets_sold: null,
+    revenue: null,
+    notes: null,
+    freshness_at: null,
+  };
+}
+
 /**
  * Merge live rollup rows + manual entries into a single timeline,
  * applying per-date precedence (manual wins) and tagging each row
  * with the source it came from. Output is sorted DESC by date so
  * the table renders newest-first without an extra reverse.
+ *
+ * When `corroborated` is supplied (the event has
+ * `tier_channel_sales_daily_history`), per-day **tickets and revenue** are
+ * replaced with the corroborated daily-history deltas — the SAME canonical
+ * source the venue tracker uses (PR #438) — instead of the rollup's
+ * per-day `tickets_sold`/`revenue`, which the rollup writer mis-attributes
+ * (Eventbrite multi-day catch-up lumped onto one day; multi-link
+ * undercount). Spend, clicks, and Meta columns stay sourced from
+ * `event_daily_rollups`. Manual entries below still take per-date
+ * precedence.
  */
 export function mergeTimeline(
   rollups: EventDailyRollup[],
   manual: ManualDailyEntry[],
+  corroborated: CorroboratedDailyDeltas = null,
 ): TimelineRow[] {
   const byDate = new Map<string, TimelineRow>();
 
@@ -163,6 +218,28 @@ export function mergeTimeline(
       notes: r.notes ?? null,
       freshness_at: fresh > 0 ? new Date(fresh).toISOString() : null,
     });
+  }
+
+  // Canonical tickets+revenue: when daily-history corroboration is
+  // available, REPLACE the rollup-direct tickets/revenue with the
+  // corroborated deltas (keyed by true sale day) — spend/clicks/Meta
+  // columns stay from the rollup. This is the convergence with the venue
+  // tracker (#438): both surfaces now read the same corrected source.
+  if (corroborated) {
+    for (const row of byDate.values()) {
+      row.tickets_sold = null;
+      row.revenue = null;
+    }
+    for (const [date, tickets] of corroborated.tickets) {
+      const row = byDate.get(date) ?? emptyLiveTimelineRow(date);
+      row.tickets_sold = (row.tickets_sold ?? 0) + tickets;
+      byDate.set(date, row);
+    }
+    for (const [date, revenue] of corroborated.revenue) {
+      const row = byDate.get(date) ?? emptyLiveTimelineRow(date);
+      row.revenue = (row.revenue ?? 0) + revenue;
+      byDate.set(date, row);
+    }
   }
 
   for (const m of manual) {
@@ -217,12 +294,34 @@ export async function loadEventDailyTimeline(
   supabase: AnySupabaseClient,
   eventId: string,
 ): Promise<EventDailyTimeline> {
-  const [rollups, manual] = await Promise.all([
+  const [rollups, manual, dailyHistory] = await Promise.all([
     listRollupsForEvent(supabase, eventId),
     listManualEntriesForEvent(supabase, eventId),
+    // Daily-history is the corrected, smooth per-(event_id) cumulative the
+    // venue tracker reads (PR #438). One extra indexed read per event so the
+    // per-event tracker stops depending on the mis-attributed rollup
+    // tickets/revenue.
+    listDailyHistoryForEvents(supabase, [eventId]),
   ]);
+
+  // Single-event cumulative timelines (carry-forward over this one event).
+  const cumulative = buildVenueDailyHistoryTimelines(
+    dailyHistory,
+    new Set([eventId]),
+  );
+  // Only corroborate when daily_history exists. No history (brand campaigns,
+  // events with no ticketing connection) ⇒ keep the rollup-direct path.
+  const corroborated: CorroboratedDailyDeltas =
+    cumulative.tickets.length > 0
+      ? buildCorroboratedDailyDeltas({
+          cumulativeTickets: cumulative.tickets,
+          cumulativeRevenue: cumulative.revenue,
+          rollups,
+        })
+      : null;
+
   return {
-    timeline: mergeTimeline(rollups, manual),
+    timeline: mergeTimeline(rollups, manual, corroborated),
     rollups,
     manualCount: manual.length,
   };
