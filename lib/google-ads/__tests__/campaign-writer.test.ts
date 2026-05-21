@@ -154,6 +154,7 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
       total_budget: 500,
       bidding_strategy: "maximize_clicks",
       geo_targets: [],
+      geo_target_type: "PRESENCE",
       date_range: null,
       pushed_at: null,
       created_at: "2026-05-21T00:00:00Z",
@@ -765,5 +766,115 @@ describe("buildBudgetOp — daily_budget is the source of truth", () => {
     const op = buildBudgetOp(c, CUSTOMER_ID);
     // DEFAULT_DAILY_BUDGET_POUNDS = 5 → 5_000_000 micros
     assert.equal(op.create.amountMicros, String(5_000_000));
+  });
+});
+
+// ─── geoTargetTypeSetting (Phase 5b) ──────────────────────────────────
+
+describe("pushGoogleSearchPlan — geoTargetTypeSetting", () => {
+  it("defaults to PRESENCE on campaign create", async () => {
+    const { client, calls } = makeFakeClient();
+    await pushGoogleSearchPlan({
+      tree: tree(),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const campaignCreate = (calls[1].operations[0] as { create: Record<string, unknown> }).create;
+    assert.deepEqual(campaignCreate.geoTargetTypeSetting, {
+      positiveGeoTargetType: "PRESENCE",
+      negativeGeoTargetType: "PRESENCE",
+    });
+  });
+
+  it("sends PRESENCE_OR_INTEREST when the operator overrides the default", async () => {
+    const { client, calls } = makeFakeClient();
+    const t = tree();
+    t.plan.geo_target_type = "PRESENCE_OR_INTEREST";
+    await pushGoogleSearchPlan({
+      tree: t,
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const campaignCreate = (calls[1].operations[0] as { create: Record<string, unknown> }).create;
+    assert.deepEqual(campaignCreate.geoTargetTypeSetting, {
+      positiveGeoTargetType: "PRESENCE_OR_INTEREST",
+      negativeGeoTargetType: "PRESENCE",
+    });
+  });
+});
+
+// ─── RSA final URL guard (Phase 5b) ───────────────────────────────────
+
+describe("pushGoogleSearchPlan — RSA final URL guard", () => {
+  it("pushes finalUrls when the RSA has a valid URL", async () => {
+    const { client, calls } = makeFakeClient();
+    await pushGoogleSearchPlan({
+      tree: tree(),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const rsaCreate = (calls[4].operations[0] as { create: Record<string, unknown> }).create;
+    const ad = rsaCreate.ad as { finalUrls?: string[] };
+    assert.deepEqual(ad.finalUrls, ["https://offpixel.com/j2"]);
+  });
+
+  it("skips the mutate call entirely and partial-fails RSAs whose final_url is null", async () => {
+    const { client, calls } = makeFakeClient();
+    const t = tree();
+    // Strip the URL from the lone RSA in the fixture.
+    t.campaigns[0].ad_groups[0].rsas[0].final_url = null;
+
+    const summary = await pushGoogleSearchPlan({
+      tree: t,
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+
+    // The fan-out adGroupAds:mutate call should never be made — no
+    // pushable RSAs remain after the URL-block guard pre-filter.
+    assert.equal(
+      calls.some((c) => c.resource === "adGroupAds"),
+      false,
+      "adGroupAds:mutate must NOT be called when every pending RSA is URL-blocked",
+    );
+
+    assert.equal(summary.rsasFailed.length, 1);
+    assert.equal(summary.rsasFailed[0].localId, "rsa-1");
+    assert.match(summary.rsasFailed[0].error, /no final url/i);
+    assert.equal(summary.rsasCreated.length, 0);
+    assert.equal(summary.partialFailure, true);
+  });
+
+  it("partial-fails RSAs whose final_url is not http(s) and still pushes the rest", async () => {
+    const { client, calls } = makeFakeClient();
+    const t = tree();
+    // Add a second RSA with an invalid URL; the first stays valid.
+    const goodRsa = t.campaigns[0].ad_groups[0].rsas[0];
+    t.campaigns[0].ad_groups[0].rsas = [
+      goodRsa,
+      { ...goodRsa, id: "rsa-bad", final_url: "ftp://x" },
+    ];
+
+    const summary = await pushGoogleSearchPlan({
+      tree: t,
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+
+    // adGroupAds:mutate runs ONCE with only the good RSA.
+    const adGroupAdsCalls = calls.filter((c) => c.resource === "adGroupAds");
+    assert.equal(adGroupAdsCalls.length, 1);
+    assert.equal(adGroupAdsCalls[0].operations.length, 1);
+
+    assert.equal(summary.rsasCreated.length, 1);
+    assert.equal(summary.rsasCreated[0].localId, "rsa-1");
+    assert.equal(summary.rsasFailed.length, 1);
+    assert.equal(summary.rsasFailed[0].localId, "rsa-bad");
+    assert.match(summary.rsasFailed[0].error, /not a valid http\(s\) URL/i);
   });
 });

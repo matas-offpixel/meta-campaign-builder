@@ -3,12 +3,16 @@
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { updatePlan } from "@/lib/google-search/tree-mutations";
+import {
+  setPlanDefaultFinalUrl,
+  updatePlan,
+} from "@/lib/google-search/tree-mutations";
 import {
   BIDDING_STRATEGIES,
   type GoogleSearchBiddingStrategy,
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
+import { collectPlanFinalUrlState } from "@/lib/google-search/final-url-state";
 
 import type { GoogleSearchWizardContext } from "../wizard-shell";
 
@@ -124,6 +128,62 @@ export function PlanSetupStep({
           options={BIDDING_STRATEGIES.map((s) => ({ value: s, label: STRATEGY_LABELS[s] }))}
           onChange={(e) => updateField("bidding_strategy", e.target.value as GoogleSearchBiddingStrategy)}
         />
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Default final URL</CardTitle>
+          <CardDescription>
+            Landing page every RSA points to (where the ad clicks land). Google Ads rejects RSAs
+            without a final URL — set this once and every RSA picks it up. Override per RSA in the
+            Ad Copy step if needed.
+          </CardDescription>
+        </CardHeader>
+        {(() => {
+          const finalUrl = collectPlanFinalUrlState(tree);
+          const placeholder =
+            finalUrl.mixed && finalUrl.missingCount === 0
+              ? "Mixed — set here to overwrite every RSA"
+              : "https://www.seetickets.com/event/your-event/...";
+          const inputValue = finalUrl.shared ?? "";
+          return (
+            <div className="space-y-2">
+              <Input
+                id="gs-plan-default-final-url"
+                label="Landing URL"
+                type="url"
+                inputMode="url"
+                value={inputValue}
+                onChange={(e) => onChange(setPlanDefaultFinalUrl(tree, e.target.value || null))}
+                placeholder={placeholder}
+                error={
+                  finalUrl.totalRsas > 0 && finalUrl.missingCount > 0
+                    ? `${finalUrl.missingCount} of ${finalUrl.totalRsas} RSA${finalUrl.totalRsas === 1 ? "" : "s"} ${finalUrl.missingCount === 1 ? "has" : "have"} no final URL — push will be blocked until set.`
+                    : undefined
+                }
+              />
+              {finalUrl.mixed && (
+                <p className="text-xs text-muted-foreground">
+                  Some RSAs override the plan default. Typing here overwrites every RSA; leave
+                  blank to keep per-RSA overrides set in Ad Copy.
+                </p>
+              )}
+              {finalUrl.httpCount > 0 && (
+                <p className="text-xs text-amber-700">
+                  {finalUrl.httpCount} RSA{finalUrl.httpCount === 1 ? "" : "s"} use http:// —
+                  Google warns about insecure landing pages. Prefer https://.
+                </p>
+              )}
+              {finalUrl.invalidCount > 0 && (
+                <p className="text-xs text-destructive">
+                  {finalUrl.invalidCount} RSA{finalUrl.invalidCount === 1 ? "" : "s"}{" "}
+                  {finalUrl.invalidCount === 1 ? "has" : "have"} a URL that doesn&apos;t start
+                  with http(s):// — push will skip.
+                </p>
+              )}
+            </div>
+          );
+        })()}
       </Card>
 
       <Card>

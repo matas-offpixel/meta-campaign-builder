@@ -334,6 +334,58 @@ export function updatePlan(
   return { ...tree, plan: { ...tree.plan, ...patch } };
 }
 
+/**
+ * Apply a single landing URL to every RSA in the tree. Used by the
+ * Plan Setup "Default final URL" input so the operator can populate
+ * 7 campaigns' landing pages in one keystroke (J2 plan = one
+ * SeeTickets URL for every RSA). The wizard preserves per-RSA
+ * overrides set in the Ad Copy step by treating an empty string here
+ * as a `clear` (set to null on every RSA) and a non-empty value as a
+ * `set everywhere`. Use `setPlanDefaultFinalUrlIfBlank` when you only
+ * want to fill the gaps.
+ */
+export function setPlanDefaultFinalUrl(
+  tree: GoogleSearchPlanTree,
+  url: string | null,
+): GoogleSearchPlanTree {
+  const value = url && url.trim() ? url.trim() : null;
+  return {
+    ...tree,
+    campaigns: tree.campaigns.map((c) => ({
+      ...c,
+      ad_groups: c.ad_groups.map((ag) => ({
+        ...ag,
+        rsas: ag.rsas.map((r) => ({ ...r, final_url: value })),
+      })),
+    })),
+  };
+}
+
+/**
+ * Like `setPlanDefaultFinalUrl` but only writes to RSAs that don't
+ * already have a URL (used by xlsx re-import flows where some RSAs
+ * may have been edited manually).
+ */
+export function setPlanDefaultFinalUrlIfBlank(
+  tree: GoogleSearchPlanTree,
+  url: string,
+): GoogleSearchPlanTree {
+  const value = url.trim();
+  if (!value) return tree;
+  return {
+    ...tree,
+    campaigns: tree.campaigns.map((c) => ({
+      ...c,
+      ad_groups: c.ad_groups.map((ag) => ({
+        ...ag,
+        rsas: ag.rsas.map((r) =>
+          r.final_url && r.final_url.trim() ? r : { ...r, final_url: value },
+        ),
+      })),
+    })),
+  };
+}
+
 // ─── Internals ────────────────────────────────────────────────────────
 
 function updateCampaignInPlace(

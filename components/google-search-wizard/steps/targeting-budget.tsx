@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { updateCampaign, updatePlan } from "@/lib/google-search/tree-mutations";
-import type {
-  GoogleSearchGeoTarget,
-  GoogleSearchPlanTree,
+import {
+  type GoogleSearchGeoTarget,
+  type GoogleSearchGeoTargetType,
+  type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
 
 interface Props {
@@ -37,6 +38,22 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
 
   return (
     <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle>Location targeting</CardTitle>
+          <CardDescription>
+            How Google matches users to your locations. <strong>Presence</strong> only targets
+            people physically in (or regularly in) your locations — recommended for ticketed
+            events. <strong>Presence or interest</strong> also includes people who&apos;ve shown
+            interest in your locations (Google&apos;s default, wasteful for events).
+          </CardDescription>
+        </CardHeader>
+        <GeoTargetTypeToggle
+          value={tree.plan.geo_target_type}
+          onChange={(next) => onChange(updatePlan(tree, { geo_target_type: next }))}
+        />
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Geo targets</CardTitle>
@@ -184,6 +201,65 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
           </table>
         )}
       </Card>
+    </div>
+  );
+}
+
+function GeoTargetTypeToggle({
+  value,
+  onChange,
+}: {
+  value: GoogleSearchGeoTargetType;
+  onChange: (next: GoogleSearchGeoTargetType) => void;
+}) {
+  const options: Array<{
+    id: GoogleSearchGeoTargetType;
+    title: string;
+    subtitle: string;
+    badge?: string;
+  }> = [
+    {
+      id: "PRESENCE",
+      title: "Presence",
+      subtitle: "People physically in or regularly in your locations.",
+      badge: "Recommended",
+    },
+    {
+      id: "PRESENCE_OR_INTEREST",
+      title: "Presence or interest",
+      subtitle:
+        "Also includes people who've shown interest in your locations (Google's default).",
+    },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Location targeting" className="grid gap-2 sm:grid-cols-2">
+      {options.map((opt) => {
+        const active = opt.id === value;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(opt.id)}
+            className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left text-sm transition-colors ${
+              active
+                ? "border-primary bg-primary/5 text-foreground"
+                : "border-border bg-background text-muted-foreground hover:border-border-strong hover:text-foreground"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className={`font-medium ${active ? "text-foreground" : ""}`}>{opt.title}</span>
+              {opt.badge ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+                  {opt.badge}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs">{opt.subtitle}</p>
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -11,17 +11,23 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type {
-  GoogleSearchAdGroup,
-  GoogleSearchAdGroupNode,
-  GoogleSearchCampaign,
-  GoogleSearchCampaignNode,
-  GoogleSearchKeyword,
-  GoogleSearchNegative,
-  GoogleSearchPlan,
-  GoogleSearchPlanDraftTree,
-  GoogleSearchPlanTree,
-  GoogleSearchRsa,
+import {
+  parseGeoTargetsColumn,
+  serializeGeoTargetsColumn,
+} from "../google-search/geo-targets-codec.ts";
+import {
+  DEFAULT_GEO_TARGET_TYPE,
+  type GoogleSearchAdGroup,
+  type GoogleSearchAdGroupNode,
+  type GoogleSearchCampaign,
+  type GoogleSearchCampaignNode,
+  type GoogleSearchGeoTargetType,
+  type GoogleSearchKeyword,
+  type GoogleSearchNegative,
+  type GoogleSearchPlan,
+  type GoogleSearchPlanDraftTree,
+  type GoogleSearchPlanTree,
+  type GoogleSearchRsa,
 } from "../google-search/types.ts";
 
 const SUPABASE_LIST_PAGE_LIMIT = 1_000;
@@ -34,6 +40,7 @@ export interface CreatePlanInput {
   total_budget?: number | null;
   bidding_strategy?: GoogleSearchPlan["bidding_strategy"];
   geo_targets?: GoogleSearchPlan["geo_targets"];
+  geo_target_type?: GoogleSearchGeoTargetType;
   date_range?: GoogleSearchPlan["date_range"];
 }
 
@@ -50,7 +57,10 @@ export async function createGoogleSearchPlan(
       name: input.name,
       total_budget: input.total_budget ?? null,
       bidding_strategy: input.bidding_strategy ?? "maximize_clicks",
-      geo_targets: input.geo_targets ?? [],
+      geo_targets: serializeGeoTargetsColumn({
+        targets: input.geo_targets ?? [],
+        geo_target_type: input.geo_target_type ?? DEFAULT_GEO_TARGET_TYPE,
+      }),
       date_range: input.date_range ?? null,
     })
     .select("*")
@@ -58,7 +68,23 @@ export async function createGoogleSearchPlan(
   if (error || !data) {
     throw new Error(`createGoogleSearchPlan failed: ${error?.message ?? "no row"}`);
   }
-  return data as GoogleSearchPlan;
+  return hydratePlan(data as Record<string, unknown>);
+}
+
+/**
+ * Coerce a raw Supabase row into a typed `GoogleSearchPlan` with the
+ * (geo_targets, geo_target_type) pair split out of the wrapping
+ * `geo_targets` jsonb. Centralised so every read path stays
+ * forward-compatible with the legacy array shape (see
+ * `lib/google-search/geo-targets-codec.ts`).
+ */
+export function hydratePlan(raw: Record<string, unknown>): GoogleSearchPlan {
+  const decoded = parseGeoTargetsColumn(raw.geo_targets);
+  return {
+    ...(raw as Omit<GoogleSearchPlan, "geo_targets" | "geo_target_type">),
+    geo_targets: decoded.targets,
+    geo_target_type: decoded.geo_target_type,
+  } as GoogleSearchPlan;
 }
 
 export async function listGoogleSearchPlansForEvent(
@@ -74,7 +100,7 @@ export async function listGoogleSearchPlansForEvent(
   if (error) {
     throw new Error(`listGoogleSearchPlansForEvent failed: ${error.message}`);
   }
-  return (data ?? []) as GoogleSearchPlan[];
+  return (data ?? []).map((row) => hydratePlan(row as Record<string, unknown>));
 }
 
 export async function deleteGoogleSearchPlan(
@@ -197,7 +223,7 @@ export async function loadGoogleSearchPlanTree(
     .maybeSingle();
   if (planErr) throw new Error(`loadGoogleSearchPlanTree (plan) failed: ${planErr.message}`);
   if (!planRow) return null;
-  const plan = planRow as GoogleSearchPlan;
+  const plan = hydratePlan(planRow as Record<string, unknown>);
 
   const [campaignsRes, adGroupsRes, keywordsRes, rsasRes, negativesRes] =
     await Promise.all([
@@ -316,6 +342,7 @@ export async function createGoogleSearchPlanTreeFromDraft(
     total_budget: draft.plan.total_budget,
     bidding_strategy: draft.plan.bidding_strategy,
     geo_targets: draft.plan.geo_targets,
+    geo_target_type: draft.plan.geo_target_type,
     date_range: draft.plan.date_range,
   });
 
@@ -450,7 +477,10 @@ export async function saveGoogleSearchPlanTree(
       google_ads_account_id: tree.plan.google_ads_account_id,
       total_budget: tree.plan.total_budget,
       bidding_strategy: tree.plan.bidding_strategy,
-      geo_targets: tree.plan.geo_targets,
+      geo_targets: serializeGeoTargetsColumn({
+        targets: tree.plan.geo_targets,
+        geo_target_type: tree.plan.geo_target_type,
+      }),
       date_range: tree.plan.date_range,
     })
     .eq("id", tree.plan.id);

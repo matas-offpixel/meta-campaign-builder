@@ -37,6 +37,7 @@
 import * as XLSX from "xlsx";
 
 import {
+  DEFAULT_GEO_TARGET_TYPE,
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchAdGroupDraftNode,
   type GoogleSearchCampaignDraftNode,
@@ -75,12 +76,28 @@ export function parseGoogleSearchPlanXlsx(
   // Step 2: overview enriches campaign meta (priority, monthly budget, notes).
   applyOverview(skeleton.campaigns, tabs.overview);
 
-  // Step 3: ad copy attaches RSAs per campaign (one RSA per ad group; if
-  // the sheet does not split by ad group, RSAs are duplicated across all
-  // ad groups of the campaign and the wizard can prune).
-  applyAdCopy(skeleton.campaigns, tabs.adCopy, warnings);
+  // Step 3: extract the plan-level landing URL from Ad Copy metadata
+  // rows (and fall back to Overview). Applied to every RSA below; the
+  // wizard can override per RSA.
+  const finalUrl =
+    extractFinalUrlFromTab(tabs.adCopy) ?? extractFinalUrlFromTab(tabs.overview);
+  if (!finalUrl) {
+    warnings.push({
+      code: "missing_final_url",
+      message:
+        "No landing URL found in the Ad Copy / Overview metadata. " +
+        "Set a Default final URL in the wizard before push — Google " +
+        "Ads rejects RSAs without finalUrls.",
+    });
+  }
 
-  // Step 4: negatives — plan-scoped or campaign-scoped.
+  // Step 4: ad copy attaches RSAs per campaign (one RSA per ad group; if
+  // the sheet does not split by ad group, RSAs are duplicated across all
+  // ad groups of the campaign and the wizard can prune). Each RSA's
+  // final_url defaults to the plan-level URL extracted above.
+  applyAdCopy(skeleton.campaigns, tabs.adCopy, warnings, finalUrl ?? null);
+
+  // Step 5: negatives — plan-scoped or campaign-scoped.
   const negatives = parseNegativesTab(
     tabs.negativeKeywords,
     skeleton.campaigns.map((c) => c.name),
@@ -101,6 +118,7 @@ export function parseGoogleSearchPlanXlsx(
       total_budget: null,
       bidding_strategy: "maximize_clicks",
       geo_targets: [],
+      geo_target_type: DEFAULT_GEO_TARGET_TYPE,
       date_range: null,
     },
     campaigns: skeleton.campaigns,
@@ -395,10 +413,54 @@ function extractPlanNameFromOverview(sheet: XLSX.WorkSheet | null): string | nul
  * attached to every ad group under that campaign (the wizard can
  * specialise per ad group later).
  */
+/**
+ * Scan the top of a tab (above the canonical header row) for the first
+ * cell containing a URL. The real J2 Ad Copy tab has a metadata row
+ * like `Headlines: max 30 chars … · Final URL: https://www.seetickets.com/event/...`;
+ * we accept any `https?://...` anywhere in any pre-header cell.
+ *
+ * Returns the first match (trimmed, with trailing punctuation
+ * stripped) or `null`. Tabs without a recognisable header are scanned
+ * end-to-end so we still surface a URL in an oddly-structured sheet.
+ */
+export function extractFinalUrlFromTab(sheet: XLSX.WorkSheet | null): string | null {
+  if (!sheet) return null;
+  const raw = rawRows(sheet);
+  if (raw.length === 0) return null;
+  // Limit scanning to the rows before the first canonical header
+  // (campaign + type for Ad Copy, campaign + anything else otherwise);
+  // if none found, scan the first 12 rows as a fallback.
+  let scanUntil = raw.length;
+  for (let i = 0; i < raw.length; i += 1) {
+    const keys = (raw[i] ?? []).map((c) => headerKey(c));
+    if (keys.includes(headerKey("campaign")) && keys.length > 1) {
+      scanUntil = i;
+      break;
+    }
+  }
+  if (scanUntil === raw.length) scanUntil = Math.min(12, raw.length);
+
+  const urlPattern = /https?:\/\/[^\s"'<>\]\),]+/i;
+  for (let i = 0; i < scanUntil; i += 1) {
+    for (const value of raw[i] ?? []) {
+      const text = cell(value);
+      if (!text) continue;
+      const match = urlPattern.exec(text);
+      if (match) return stripTrailingPunctuation(match[0]);
+    }
+  }
+  return null;
+}
+
+function stripTrailingPunctuation(url: string): string {
+  return url.replace(/[).,;:!?]+$/u, "");
+}
+
 function applyAdCopy(
   campaigns: GoogleSearchCampaignDraftNode[],
   sheet: XLSX.WorkSheet | null,
   warnings: GoogleSearchImportWarning[],
+  planFinalUrl: string | null,
 ): void {
   const raw = rawRows(sheet);
   if (raw.length === 0) return;
@@ -526,7 +588,10 @@ function applyAdCopy(
     const draft: GoogleSearchRsaDraft = {
       headlines: rsa.headlines,
       descriptions: rsa.descriptions,
-      final_url: null,
+      // Plan-level default extracted from Ad Copy / Overview metadata.
+      // Wizard can override per RSA in Ad Copy step; Review hard-blocks
+      // on null at push time.
+      final_url: planFinalUrl,
       path1: null,
       path2: null,
     };

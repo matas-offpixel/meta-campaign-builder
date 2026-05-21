@@ -66,10 +66,15 @@ import {
   type GoogleSearchPushFailure,
   type GoogleSearchPushResult,
 } from "./campaign-writer-types.ts";
+import {
+  finalUrlBlockReason,
+  isPushableRsa,
+} from "../google-search/final-url-state.ts";
 import type {
   GoogleSearchAdGroupNode,
   GoogleSearchBiddingStrategy,
   GoogleSearchCampaignNode,
+  GoogleSearchGeoTargetType,
   GoogleSearchKeyword,
   GoogleSearchNegative,
   GoogleSearchPlanTree,
@@ -268,6 +273,7 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
     budgetResource,
     customerId: args.customerId,
     biddingStrategy: planTree.plan.bidding_strategy,
+    geoTargetType: planTree.plan.geo_target_type,
     eventCode,
   });
 
@@ -594,7 +600,26 @@ async function pushAdGroupRsas(args: PushRsasArgs): Promise<void> {
     }
   }
 
-  const pending = adGroup.rsas.filter((r) => !r.pushed_resource_name);
+  // Defence in depth: an RSA with no / invalid `final_url` cannot be
+  // pushed — Google Ads rejects `adGroupAds:mutate` without finalUrls.
+  // The Review step hard-blocks this case at the wizard level, but if
+  // a stale tab or programmatic edit slips through, partial-fail the
+  // bad RSAs here so the rest of the ad group still ships.
+  for (const rsa of adGroup.rsas) {
+    if (rsa.pushed_resource_name) continue;
+    const reason = finalUrlBlockReason(rsa);
+    if (reason) {
+      summary.rsasFailed.push({
+        localId: rsa.id,
+        error: reason,
+        scope: `${campaign.name} → ${adGroup.name}`,
+      });
+    }
+  }
+
+  const pending = adGroup.rsas.filter(
+    (r) => !r.pushed_resource_name && isPushableRsa(r),
+  );
   if (pending.length === 0) return;
 
   const operations: GoogleAdsMutateOperation[] = pending.map((rsa) =>
@@ -669,9 +694,18 @@ export function buildCampaignOp(args: {
   budgetResource: string;
   customerId: string;
   biddingStrategy: GoogleSearchBiddingStrategy;
+  /** Defaults to PRESENCE — recommended for ticketed events. */
+  geoTargetType?: GoogleSearchGeoTargetType;
   eventCode: string | null;
 }): { create: Record<string, unknown> } {
-  const { campaign, budgetResource, customerId, biddingStrategy, eventCode } = args;
+  const {
+    campaign,
+    budgetResource,
+    customerId,
+    biddingStrategy,
+    geoTargetType = "PRESENCE",
+    eventCode,
+  } = args;
   const create: Record<string, unknown> = {
     resourceName: `customers/${customerId}/campaigns/-2`,
     name: prefixCampaignName(campaign.name, eventCode),
@@ -683,6 +717,15 @@ export function buildCampaignOp(args: {
       targetSearchNetwork: true,
       targetContentNetwork: false,
       targetPartnerSearchNetwork: false,
+    },
+    // PRESENCE: only target people physically in / regularly in the
+    // location. Recommended for ticketed events — someone abroad who
+    // is merely "interested" in London can't attend. Operator toggles
+    // to PRESENCE_OR_INTEREST in the Targeting step when appropriate
+    // (brand awareness, lookalike geo).
+    geoTargetTypeSetting: {
+      positiveGeoTargetType: geoTargetType,
+      negativeGeoTargetType: "PRESENCE",
     },
     // v23 HARD REQUIREMENT — see PR #442 session log.
     containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
