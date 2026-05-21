@@ -74,12 +74,14 @@ import type {
   GoogleSearchAdGroupNode,
   GoogleSearchBiddingStrategy,
   GoogleSearchCampaignNode,
+  GoogleSearchGeoTarget,
   GoogleSearchGeoTargetType,
   GoogleSearchKeyword,
   GoogleSearchNegative,
   GoogleSearchPlanTree,
   GoogleSearchRsa,
 } from "../google-search/types.ts";
+import { resolveGeoLocations, type GeoResolution } from "./geo-suggest.ts";
 
 // ─── Defaults (verified by the Phase 0 spike) ─────────────────────────
 
@@ -143,6 +145,33 @@ export async function pushGoogleSearchPlan(
     );
   }
 
+  // Pre-resolve all geo target locations in one suggest batch (deduped) so
+  // per-campaign pushes can look up resource names from the cache without
+  // re-querying the API for the same string.
+  //
+  // Defensive: in the repush-idempotency test's helper, `reloadTreeFromStore`
+  // reads raw Supabase rows without running `parseGeoTargetsColumn`, so
+  // `geo_targets` may arrive as the serialised wrapper object
+  // `{ targets: [], geo_target_type }` instead of an array. Guard here so
+  // the push adapter never throws on either shape.
+  const rawGeoTargets = Array.isArray(tree.plan.geo_targets) ? tree.plan.geo_targets : [];
+  const geoCache = new Map<string, GeoResolution | null>();
+  const uniqueLocations = [
+    ...new Set(rawGeoTargets.map((g) => g.location).filter(Boolean)),
+  ];
+  if (uniqueLocations.length > 0) {
+    try {
+      await resolveGeoLocations(uniqueLocations, client, credentials, geoCache);
+    } catch {
+      // Non-fatal: per-campaign resolution will hit the fallback map.
+    }
+  }
+
+  // Normalised geo targets — used in pushSingleCampaign for criteria push.
+  const normalisedPlanTree = rawGeoTargets === tree.plan.geo_targets
+    ? tree
+    : { ...tree, plan: { ...tree.plan, geo_targets: rawGeoTargets } };
+
   for (const campaign of tree.campaigns) {
     try {
       await pushSingleCampaign({
@@ -150,10 +179,11 @@ export async function pushGoogleSearchPlan(
         credentials,
         customerId,
         campaign,
-        planTree: tree,
+        planTree: normalisedPlanTree,
         eventCode,
         persister,
         summary,
+        geoCache,
       });
     } catch (err) {
       // Auth / unexpected failures abort the whole plan — record the
@@ -186,7 +216,8 @@ export async function pushGoogleSearchPlan(
     summary.adGroupsFailed.length > 0 ||
     summary.keywordsFailed.length > 0 ||
     summary.negativesFailed.length > 0 ||
-    summary.rsasFailed.length > 0;
+    summary.rsasFailed.length > 0 ||
+    summary.geoTargetsFailed.length > 0;
 
   summary.partialFailure = anyFailure;
   summary.ok = !summary.aborted && anyCampaignSuccess;
@@ -222,6 +253,8 @@ interface PushSingleCampaignArgs {
   eventCode: string | null;
   persister?: GoogleSearchPushPersister;
   summary: GoogleSearchLaunchSummary;
+  /** Session-level cache of location string → geoTargetConstant. */
+  geoCache: Map<string, GeoResolution | null>;
 }
 
 async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
@@ -235,6 +268,12 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
       name: prefixCampaignName(campaign.name, eventCode),
       reused: true,
     });
+    // v1 idempotency: skip geo criteria for already-pushed campaigns. Geo
+    // criteria created on the first push remain; we avoid duplicating them on
+    // re-push. A force-re-push or geo-criteria-update path can be added later.
+    summary.warnings.push(
+      `Campaign "${campaign.name}" was already pushed — skipping geo criteria (already set from the original push).`,
+    );
     // Walk into ad groups so any half-pushed children still get attempted.
     await pushAdGroupsForCampaign({
       ...args,
@@ -312,7 +351,22 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
     }
   }
 
-  // ── Triad step 3: ad groups (per-ad-group fatal, campaign survives) ─
+  // ── Step 3: geo location criteria ────────────────────────────────
+  // Push after campaign creation (campaign resource name now known).
+  // Sequential per GOOGLE_ADS_CHUNK_CONCURRENCY=1 contract; partialFailure
+  // so one bad location string doesn't abort the rest.
+  await pushCampaignGeoCriteria({
+    client,
+    credentials,
+    customerId: args.customerId,
+    campaign,
+    campaignResource,
+    geoTargets: planTree.plan.geo_targets,
+    geoCache: args.geoCache,
+    summary,
+  });
+
+  // ── Triad step 4: ad groups (per-ad-group fatal, campaign survives) ─
   const adGroupSuccessCount = await pushAdGroupsForCampaign({
     ...args,
     campaignResourceName: campaignResource,
@@ -341,6 +395,100 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
 
 interface PushAdGroupsArgs extends PushSingleCampaignArgs {
   campaignResourceName: string;
+}
+
+// ─── Geo criteria fan-out ─────────────────────────────────────────────
+
+interface PushGeoCriteriaArgs {
+  client: GoogleAdsClient;
+  credentials: GoogleAdsCustomerCredentials;
+  customerId: string;
+  campaign: GoogleSearchCampaignNode;
+  campaignResource: string;
+  geoTargets: GoogleSearchGeoTarget[];
+  geoCache: Map<string, GeoResolution | null>;
+  summary: GoogleSearchLaunchSummary;
+}
+
+async function pushCampaignGeoCriteria(args: PushGeoCriteriaArgs): Promise<void> {
+  const { client, credentials, campaign, campaignResource, geoTargets, geoCache, summary } = args;
+
+  if (geoTargets.length === 0) return;
+
+  // Resolve any locations not yet in the cache.
+  const uncached = geoTargets.map((g) => g.location).filter((loc) => !geoCache.has(loc));
+  if (uncached.length > 0) {
+    try {
+      await resolveGeoLocations(uncached, client, credentials, geoCache);
+    } catch {
+      // Non-fatal — fallback map covers common UK locations.
+    }
+  }
+
+  const operations: GoogleAdsMutateOperation[] = [];
+  const pendingTargets: GoogleSearchGeoTarget[] = [];
+
+  for (const geo of geoTargets) {
+    const resolution = geoCache.get(geo.location) ?? null;
+    if (!resolution) {
+      summary.geoTargetsFailed.push({
+        campaignId: campaign.id,
+        location: geo.location,
+        error: `Could not resolve "${geo.location}" to a geoTargetConstant — no suggest match and not in the fallback map.`,
+      });
+      continue;
+    }
+    const op: Record<string, unknown> = {
+      campaign: campaignResource,
+      location: { geoTargetConstant: resolution.resourceName },
+    };
+    // Convert bid_modifier_pct to a multiplier: +20 → 1.20, -10 → 0.90.
+    if (geo.bid_modifier_pct != null && Number.isFinite(geo.bid_modifier_pct)) {
+      op.bidModifier = 1 + geo.bid_modifier_pct / 100;
+    }
+    operations.push({ create: op });
+    pendingTargets.push(geo);
+  }
+
+  if (operations.length === 0) return;
+
+  let res: GoogleAdsMutateResponse | null = null;
+  try {
+    res = await client.mutate(credentials, "campaignCriteria", operations, {
+      partialFailure: true,
+    });
+  } catch (err) {
+    const message = errorMessage(err);
+    for (const geo of pendingTargets) {
+      summary.geoTargetsFailed.push({
+        campaignId: campaign.id,
+        location: geo.location,
+        error: `campaignCriteria:mutate failed: ${message}`,
+      });
+    }
+    return;
+  }
+
+  const results = res.results ?? [];
+  const failureDetails = parsePartialFailureMessages(res.partialFailureError);
+
+  for (let i = 0; i < pendingTargets.length; i += 1) {
+    const geo = pendingTargets[i];
+    const result = results[i];
+    if (result?.resourceName) {
+      summary.geoTargetsCreated.push({
+        campaignId: campaign.id,
+        location: geo.location,
+        resourceName: result.resourceName,
+      });
+    } else {
+      summary.geoTargetsFailed.push({
+        campaignId: campaign.id,
+        location: geo.location,
+        error: failureDetails.get(i) ?? "partial_failure (no detail)",
+      });
+    }
+  }
 }
 
 async function pushAdGroupsForCampaign(args: PushAdGroupsArgs): Promise<number> {
@@ -673,6 +821,21 @@ async function pushAdGroupRsas(args: PushRsasArgs): Promise<void> {
 
 // ─── Payload builders (exported for unit tests) ───────────────────────
 
+export function buildGeoCriterionOp(
+  campaignResource: string,
+  geoTargetConstant: string,
+  bidModifierPct: number | null | undefined,
+): { create: Record<string, unknown> } {
+  const create: Record<string, unknown> = {
+    campaign: campaignResource,
+    location: { geoTargetConstant },
+  };
+  if (bidModifierPct != null && Number.isFinite(bidModifierPct)) {
+    create.bidModifier = 1 + bidModifierPct / 100;
+  }
+  return { create };
+}
+
 export function buildBudgetOp(
   campaign: GoogleSearchCampaignNode,
   customerId: string,
@@ -960,6 +1123,8 @@ function createEmptySummary(planId: string, customerId: string): GoogleSearchLau
     budgetsCreated: [],
     budgetsRolledBack: [],
     campaignsRolledBack: [],
+    geoTargetsCreated: [],
+    geoTargetsFailed: [],
     warnings: [],
     partialFailure: false,
     aborted: false,

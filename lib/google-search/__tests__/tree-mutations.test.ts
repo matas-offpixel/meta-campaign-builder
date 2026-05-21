@@ -17,6 +17,7 @@ import {
   updateKeyword,
   updatePlan,
 } from "../tree-mutations.ts";
+import { parseBidModifierInput } from "../bid-modifier.ts";
 import type { GoogleSearchPlanTree } from "../types.ts";
 
 function emptyTree(): GoogleSearchPlanTree {
@@ -190,4 +191,79 @@ describe("tree-mutations — plan updates", () => {
     assert.equal(next.plan.total_budget, 500);
     assert.equal(tree.plan.google_ads_account_id, null, "original untouched");
   });
+});
+
+// ─── Bug 2: daily_budget persistence via updateCampaign ──────────────
+//
+// Confirms that the Campaigns-step onChange wiring correctly writes
+// `daily_budget` into the tree state so the autosave payload includes it.
+
+describe("tree-mutations — daily_budget (Bug 2 regression)", () => {
+  it("updateCampaign with { daily_budget: 1 } sets the value on the target campaign", () => {
+    let t = emptyTree();
+    t = addCampaign(t);
+    const cid = t.campaigns[0].id;
+    assert.equal(t.campaigns[0].daily_budget, null, "starts null");
+    const next = updateCampaign(t, cid, { daily_budget: 1 });
+    assert.equal(next.campaigns[0].daily_budget, 1);
+    assert.equal(t.campaigns[0].daily_budget, null, "original untouched");
+  });
+
+  it("updateCampaign with { daily_budget: null } clears the value", () => {
+    let t = emptyTree();
+    t = addCampaign(t);
+    const cid = t.campaigns[0].id;
+    let next = updateCampaign(t, cid, { daily_budget: 5 });
+    next = updateCampaign(next, cid, { daily_budget: null });
+    assert.equal(next.campaigns[0].daily_budget, null);
+  });
+
+  it("bulk-set logic: chained updateCampaign updates all campaigns without losing earlier changes", () => {
+    let t = emptyTree();
+    t = addCampaign(t);
+    t = addCampaign(t);
+    t = addCampaign(t);
+    // Simulate the applyBulkDaily loop in the Campaigns step component.
+    let next = t;
+    for (const c of t.campaigns) {
+      next = updateCampaign(next, c.id, { daily_budget: 1 });
+    }
+    assert.equal(next.campaigns.length, 3);
+    assert.equal(next.campaigns[0].daily_budget, 1);
+    assert.equal(next.campaigns[1].daily_budget, 1);
+    assert.equal(next.campaigns[2].daily_budget, 1);
+  });
+
+  it("updateCampaign only touches the targeted campaign, not siblings", () => {
+    let t = emptyTree();
+    t = addCampaign(t);
+    t = addCampaign(t);
+    const [c0, c1] = t.campaigns;
+    const next = updateCampaign(t, c0.id, { daily_budget: 5 });
+    assert.equal(next.campaigns[0].daily_budget, 5);
+    assert.equal(next.campaigns[1].daily_budget, null, "sibling untouched");
+    assert.equal(next.campaigns[1].id, c1.id);
+  });
+});
+
+// ─── Bug 3: parseBidModifierInput ────────────────────────────────────
+//
+// Verifies that the bid-modifier text input's custom parser correctly
+// handles "+20", "20", "-10" and edge cases. This parser was introduced
+// to replace `Number(e.target.value)` on a `type="number"` input, which
+// causes browsers to silently return `""` for "+N%" values (treating "+"
+// as an invalid prefix for number inputs), leading to `null` being saved.
+
+describe("parseBidModifierInput (Bug 3 regression)", () => {
+  it('"+20" → 20', () => assert.equal(parseBidModifierInput("+20"), 20));
+  it('"20" → 20', () => assert.equal(parseBidModifierInput("20"), 20));
+  it('"-10" → -10', () => assert.equal(parseBidModifierInput("-10"), -10));
+  it('"0" → 0', () => assert.equal(parseBidModifierInput("0"), 0));
+  it('"15.5" → 15.5', () => assert.equal(parseBidModifierInput("15.5"), 15.5));
+  it('"+15.5" → 15.5', () => assert.equal(parseBidModifierInput("+15.5"), 15.5));
+  it('"" → null (empty)', () => assert.equal(parseBidModifierInput(""), null));
+  it('"+" → null (partial plus)', () => assert.equal(parseBidModifierInput("+"), null));
+  it('"-" → null (partial minus)', () => assert.equal(parseBidModifierInput("-"), null));
+  it('"abc" → null (non-numeric)', () => assert.equal(parseBidModifierInput("abc"), null));
+  it('whitespace stripped: "  +20  " → 20', () => assert.equal(parseBidModifierInput("  +20  "), 20));
 });

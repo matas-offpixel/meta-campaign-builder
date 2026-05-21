@@ -176,10 +176,17 @@ interface MutateCall {
 
 interface FakeClientOptions {
   handler?: (call: MutateCall) => GoogleAdsMutateResponse | Promise<GoogleAdsMutateResponse>;
+  /**
+   * Map of location name (lowercase) → suggest result. If omitted, suggest
+   * always returns null (forcing the fallback map) so existing tests stay
+   * unaffected with `geo_targets: []`.
+   */
+  geoSuggestMap?: Record<string, { resourceName: string; displayName: string } | null>;
 }
 
 function makeFakeClient(options: FakeClientOptions = {}) {
   const calls: MutateCall[] = [];
+  const suggestCalls: string[][] = [];
   let seq = 1000;
 
   const defaultHandler = (call: MutateCall): GoogleAdsMutateResponse => {
@@ -200,10 +207,22 @@ function makeFakeClient(options: FakeClientOptions = {}) {
       calls.push(call);
       return (options.handler ?? defaultHandler)(call);
     },
+    async suggestGeoTargetConstants(
+      _refreshToken: string,
+      names: string[],
+    ): Promise<Array<{ resourceName: string; displayName: string } | null>> {
+      suggestCalls.push(names);
+      const map = options.geoSuggestMap ?? {};
+      return names.map((n) => map[n.toLowerCase()] ?? map[n] ?? null);
+    },
   };
 
   // The writer's input type is `GoogleAdsClient` — cast at the call site.
-  return { client: client as unknown as Parameters<typeof pushGoogleSearchPlan>[0]["client"], calls };
+  return {
+    client: client as unknown as Parameters<typeof pushGoogleSearchPlan>[0]["client"],
+    calls,
+    suggestCalls,
+  };
 }
 
 // ─── 1. Full successful push ─────────────────────────────────────────
@@ -876,5 +895,165 @@ describe("pushGoogleSearchPlan — RSA final URL guard", () => {
     assert.equal(summary.rsasFailed.length, 1);
     assert.equal(summary.rsasFailed[0].localId, "rsa-bad");
     assert.match(summary.rsasFailed[0].error, /not a valid http\(s\) URL/i);
+  });
+});
+
+// ─── Geo criteria push (Phase geo-criteria) ────────────────────────────
+
+describe("pushGoogleSearchPlan — geo location criteria", () => {
+  function treeWithGeo(
+    geoTargets: Array<{ location: string; bid_modifier_pct: number | null }>,
+  ) {
+    const t = tree();
+    t.plan.geo_targets = geoTargets;
+    return t;
+  }
+
+  it("sends campaignCriteria:mutate after campaigns when geo_targets has entries", async () => {
+    const { client, calls } = makeFakeClient({
+      geoSuggestMap: {
+        london: { resourceName: "geoTargetConstants/1006886", displayName: "London" },
+      },
+    });
+    const summary = await pushGoogleSearchPlan({
+      tree: treeWithGeo([{ location: "london", bid_modifier_pct: 20 }]),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+
+    // campaignCriteria:mutate must appear between campaigns and adGroups.
+    const resources = calls.map((c) => c.resource);
+    const campIdx = resources.indexOf("campaigns");
+    const geoIdx = resources.indexOf("campaignCriteria");
+    const agIdx = resources.indexOf("adGroups");
+    assert.ok(geoIdx > campIdx, "campaignCriteria must come after campaigns");
+    assert.ok(geoIdx < agIdx, "campaignCriteria must come before adGroups");
+
+    // Criterion payload shape.
+    assert.equal(calls[geoIdx].options.partialFailure, true);
+    assert.equal(calls[geoIdx].operations.length, 1);
+    const criterionCreate = (calls[geoIdx].operations[0] as { create: Record<string, unknown> }).create;
+    assert.deepEqual(criterionCreate.location, { geoTargetConstant: "geoTargetConstants/1006886" });
+    // +20% → bidModifier 1.20
+    assert.equal(criterionCreate.bidModifier, 1.2);
+
+    assert.equal(summary.geoTargetsCreated.length, 1);
+    assert.equal(summary.geoTargetsCreated[0].location, "london");
+    assert.equal(summary.geoTargetsFailed.length, 0);
+  });
+
+  it("omits bidModifier when bid_modifier_pct is null", async () => {
+    const { client, calls } = makeFakeClient({
+      geoSuggestMap: {
+        london: { resourceName: "geoTargetConstants/1006886", displayName: "London" },
+      },
+    });
+    await pushGoogleSearchPlan({
+      tree: treeWithGeo([{ location: "london", bid_modifier_pct: null }]),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const geoIdx = calls.findIndex((c) => c.resource === "campaignCriteria");
+    const criterionCreate = (calls[geoIdx].operations[0] as { create: Record<string, unknown> }).create;
+    assert.ok(!("bidModifier" in criterionCreate), "bidModifier must not be present when pct is null");
+  });
+
+  it("falls back to the hardcoded map when suggest returns null (london → 1006886)", async () => {
+    const { client, calls } = makeFakeClient({
+      // Suggest returns nothing — force fallback map.
+      geoSuggestMap: { london: null },
+    });
+    const summary = await pushGoogleSearchPlan({
+      tree: treeWithGeo([{ location: "london", bid_modifier_pct: null }]),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const geoIdx = calls.findIndex((c) => c.resource === "campaignCriteria");
+    const criterionCreate = (calls[geoIdx].operations[0] as { create: Record<string, unknown> }).create;
+    assert.deepEqual(criterionCreate.location, { geoTargetConstant: "geoTargetConstants/1006886" });
+    assert.equal(summary.geoTargetsCreated.length, 1);
+  });
+
+  it("adds unresolvable location to geoTargetsFailed without crashing the push", async () => {
+    const { client, calls } = makeFakeClient({
+      geoSuggestMap: { atlantis: null },
+    });
+    const summary = await pushGoogleSearchPlan({
+      tree: treeWithGeo([{ location: "atlantis", bid_modifier_pct: null }]),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+
+    // campaignCriteria:mutate must NOT be called — no resolvable targets.
+    assert.ok(!calls.some((c) => c.resource === "campaignCriteria"));
+    assert.equal(summary.geoTargetsFailed.length, 1);
+    assert.equal(summary.geoTargetsFailed[0].location, "atlantis");
+    assert.match(summary.geoTargetsFailed[0].error, /could not resolve/i);
+    // partialFailure = true because geo failed.
+    assert.equal(summary.partialFailure, true);
+  });
+
+  it("skips geo criteria when campaign already has pushed_resource_name (idempotency)", async () => {
+    const { client, calls } = makeFakeClient({
+      geoSuggestMap: {
+        london: { resourceName: "geoTargetConstants/1006886", displayName: "London" },
+      },
+    });
+    // Campaign already pushed.
+    const t = treeWithGeo([{ location: "london", bid_modifier_pct: 20 }]);
+    t.campaigns[0].pushed_resource_name = "customers/7932800197/campaigns/999";
+
+    const summary = await pushGoogleSearchPlan({
+      tree: t,
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+
+    // No campaignCriteria:mutate for a re-pushed campaign.
+    assert.ok(!calls.some((c) => c.resource === "campaignCriteria"));
+    assert.equal(summary.geoTargetsCreated.length, 0);
+    // A warning should be present.
+    assert.ok(
+      summary.warnings.some((w) => /skipping geo criteria/i.test(w)),
+      "Expected a warning about skipped geo criteria",
+    );
+  });
+
+  it("pushes geo criteria for multiple locations in one campaignCriteria:mutate call", async () => {
+    const { client, calls } = makeFakeClient({
+      geoSuggestMap: {
+        london: { resourceName: "geoTargetConstants/1006886", displayName: "London" },
+        "south east": { resourceName: "geoTargetConstants/9049069", displayName: "South East England" },
+      },
+    });
+    const summary = await pushGoogleSearchPlan({
+      tree: treeWithGeo([
+        { location: "london", bid_modifier_pct: 20 },
+        { location: "south east", bid_modifier_pct: 15 },
+      ]),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const geoIdx = calls.findIndex((c) => c.resource === "campaignCriteria");
+    assert.equal(calls[geoIdx].operations.length, 2);
+    assert.equal(summary.geoTargetsCreated.length, 2);
+    assert.equal(summary.geoTargetsFailed.length, 0);
+  });
+
+  it("no geo targets → no campaignCriteria:mutate (existing test baseline)", async () => {
+    const { client, calls } = makeFakeClient();
+    await pushGoogleSearchPlan({
+      tree: tree(), // geo_targets: []
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    assert.ok(!calls.some((c) => c.resource === "campaignCriteria"));
   });
 });

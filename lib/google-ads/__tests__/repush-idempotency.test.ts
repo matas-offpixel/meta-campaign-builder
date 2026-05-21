@@ -61,7 +61,7 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
   const store = new MemorySupabase({
     google_search_plans: [
       {
-        id: "plan-1",
+        id: "00000000-0000-0000-0000-000000000001",
         user_id: "user-1",
         event_id: "evt-1",
         google_ads_account_id: "acct-1",
@@ -79,8 +79,8 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     ],
     google_search_campaigns: [
       {
-        id: "c-1",
-        plan_id: "plan-1",
+        id: "00000000-0000-0000-0000-000000000002",
+        plan_id: "00000000-0000-0000-0000-000000000001",
         name: "C1 Brand",
         priority: null,
         monthly_budget: 150,
@@ -94,8 +94,8 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     ],
     google_search_ad_groups: [
       {
-        id: "ag-1",
-        campaign_id: "c-1",
+        id: "00000000-0000-0000-0000-000000000003",
+        campaign_id: "00000000-0000-0000-0000-000000000002",
         name: "Brand",
         default_cpc: null,
         sort_order: 0,
@@ -105,8 +105,8 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     ],
     google_search_keywords: [
       {
-        id: "kw-1",
-        ad_group_id: "ag-1",
+        id: "00000000-0000-0000-0000-000000000004",
+        ad_group_id: "00000000-0000-0000-0000-000000000003",
         keyword: "junction 2 tickets",
         match_type: "EXACT",
         est_cpc_low: null,
@@ -119,8 +119,8 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     ],
     google_search_rsas: [
       {
-        id: "rsa-1",
-        ad_group_id: "ag-1",
+        id: "00000000-0000-0000-0000-000000000005",
+        ad_group_id: "00000000-0000-0000-0000-000000000003",
         headlines: [{ text: "Junction 2" }, { text: "Melodic Tickets" }, { text: "Book Now" }],
         descriptions: [{ text: "Limited tickets remaining." }, { text: "Book today." }],
         final_url: "https://offpixel.com/j2",
@@ -132,8 +132,8 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     ],
     google_search_negatives: [
       {
-        id: "neg-1",
-        plan_id: "plan-1",
+        id: "00000000-0000-0000-0000-000000000006",
+        plan_id: "00000000-0000-0000-0000-000000000001",
         campaign_id: null,
         keyword: "free tickets",
         match_type: "PHRASE",
@@ -149,26 +149,26 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     clone(store.row(table, id) as unknown as T);
 
   const tree: GoogleSearchPlanTree = {
-    plan: cloneRow<GoogleSearchPlanTree["plan"]>("google_search_plans", "plan-1"),
+    plan: cloneRow<GoogleSearchPlanTree["plan"]>("google_search_plans", "00000000-0000-0000-0000-000000000001"),
     campaigns: [
       {
-        ...cloneRow<GoogleSearchCampaignNode>("google_search_campaigns", "c-1"),
+        ...cloneRow<GoogleSearchCampaignNode>("google_search_campaigns", "00000000-0000-0000-0000-000000000002"),
         ad_groups: [
           {
             ...cloneRow<GoogleSearchCampaignNode["ad_groups"][number]>(
               "google_search_ad_groups",
-              "ag-1",
+              "00000000-0000-0000-0000-000000000003",
             ),
             keywords: [
               cloneRow<GoogleSearchCampaignNode["ad_groups"][number]["keywords"][number]>(
                 "google_search_keywords",
-                "kw-1",
+                "00000000-0000-0000-0000-000000000004",
               ),
             ],
             rsas: [
               cloneRow<GoogleSearchCampaignNode["ad_groups"][number]["rsas"][number]>(
                 "google_search_rsas",
-                "rsa-1",
+                "00000000-0000-0000-0000-000000000005",
               ),
             ],
           },
@@ -179,7 +179,7 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
     plan_negatives: [
       cloneRow<GoogleSearchPlanTree["plan_negatives"][number]>(
         "google_search_negatives",
-        "neg-1",
+        "00000000-0000-0000-0000-000000000006",
       ),
     ],
   };
@@ -280,12 +280,12 @@ describe("Phase 3.5 — re-push idempotency end-to-end", () => {
     );
 
     // The persister stamped pushed_resource_name onto every row.
-    assert.ok(store.row("google_search_campaigns", "c-1")?.pushed_resource_name);
-    assert.ok(store.row("google_search_ad_groups", "ag-1")?.pushed_resource_name);
-    assert.ok(store.row("google_search_keywords", "kw-1")?.pushed_resource_name);
-    assert.ok(store.row("google_search_rsas", "rsa-1")?.pushed_resource_name);
-    assert.ok(store.row("google_search_negatives", "neg-1")?.pushed_resource_name);
-    assert.equal(store.row("google_search_plans", "plan-1")?.status, "pushed");
+    assert.ok(store.row("google_search_campaigns", "00000000-0000-0000-0000-000000000002")?.pushed_resource_name);
+    assert.ok(store.row("google_search_ad_groups", "00000000-0000-0000-0000-000000000003")?.pushed_resource_name);
+    assert.ok(store.row("google_search_keywords", "00000000-0000-0000-0000-000000000004")?.pushed_resource_name);
+    assert.ok(store.row("google_search_rsas", "00000000-0000-0000-0000-000000000005")?.pushed_resource_name);
+    assert.ok(store.row("google_search_negatives", "00000000-0000-0000-0000-000000000006")?.pushed_resource_name);
+    assert.equal(store.row("google_search_plans", "00000000-0000-0000-0000-000000000001")?.status, "pushed");
 
     // ── Round 2: wizard autosave after the operator tweaks something ─
     const treeAfterPush = reloadTreeFromStore(store, tree);
@@ -295,27 +295,27 @@ describe("Phase 3.5 — re-push idempotency end-to-end", () => {
 
     // Markers must still be present on every row after autosave.
     assert.ok(
-      store.row("google_search_campaigns", "c-1")?.pushed_resource_name,
+      store.row("google_search_campaigns", "00000000-0000-0000-0000-000000000002")?.pushed_resource_name,
       "BUG REGRESSION: autosave nuked the campaign's pushed_resource_name",
     );
     assert.ok(
-      store.row("google_search_ad_groups", "ag-1")?.pushed_resource_name,
+      store.row("google_search_ad_groups", "00000000-0000-0000-0000-000000000003")?.pushed_resource_name,
       "BUG REGRESSION: autosave nuked the ad group's pushed_resource_name",
     );
     assert.ok(
-      store.row("google_search_keywords", "kw-1")?.pushed_resource_name,
+      store.row("google_search_keywords", "00000000-0000-0000-0000-000000000004")?.pushed_resource_name,
       "BUG REGRESSION: autosave nuked the keyword's pushed_resource_name",
     );
     assert.ok(
-      store.row("google_search_rsas", "rsa-1")?.pushed_resource_name,
+      store.row("google_search_rsas", "00000000-0000-0000-0000-000000000005")?.pushed_resource_name,
       "BUG REGRESSION: autosave nuked the RSA's pushed_resource_name",
     );
     assert.ok(
-      store.row("google_search_negatives", "neg-1")?.pushed_resource_name,
+      store.row("google_search_negatives", "00000000-0000-0000-0000-000000000006")?.pushed_resource_name,
       "BUG REGRESSION: autosave nuked the negative's pushed_resource_name",
     );
     // Status must NOT be flipped back to draft by autosave.
-    assert.equal(store.row("google_search_plans", "plan-1")?.status, "pushed");
+    assert.equal(store.row("google_search_plans", "00000000-0000-0000-0000-000000000001")?.status, "pushed");
 
     // ── Round 3: re-push (the worst-case double-click scenario) ─────
     const treeForRepush = reloadTreeFromStore(store, treeAfterPush);
@@ -363,7 +363,7 @@ describe("Phase 3.5 — re-push idempotency end-to-end", () => {
     const treeAfterPush = reloadTreeFromStore(store, tree);
     treeAfterPush.campaigns.push({
       id: "tmp-campaign-2",
-      plan_id: "plan-1",
+      plan_id: "00000000-0000-0000-0000-000000000001",
       name: "C2 Lookalike",
       priority: null,
       monthly_budget: 80,
