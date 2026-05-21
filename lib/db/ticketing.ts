@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getTicketingTokenKey } from "@/lib/ticketing/secrets";
+import { computeStaleTierChannelDeletions } from "@/lib/ticketing/tier-channel-stale-delete";
 import { ticketTierCapacity } from "@/lib/ticketing/tier-capacity";
 import type {
   EventTicketingLink,
@@ -923,6 +924,57 @@ export async function upsertProviderTierChannelSales(
       `[ticketing upsertProviderTierChannelSales upsert] ${error.message}`,
     );
   }
+
+  // Stale-delete: retire 4TF rows whose tier_name dropped out of the current
+  // API response (e.g. a venue renamed "GA (Final Release)" → "79 GA – Arena
+  // Stands"). Without this, the old-name row keeps its last-synced count
+  // forever and the venue over-counts (Villa hit 18,911 on a 7,344-cap venue).
+  //
+  // SAFETY (see lib/ticketing/CONTRACT.md): the channel scope is airtight on
+  // BOTH the read and the delete, plus the pure helper re-filters — three
+  // layers. The read is `.eq("channel_id", 4TF)` so operator channels (Venue,
+  // CP, DS, …) never enter the diff; if they did, their tier names would look
+  // "absent from API" and get falsely retired. The delete is `.eq("channel_id",
+  // 4TF)` and targets only the exact stale names. The empty-API wipe is
+  // prevented by `computeStaleTierChannelDeletions` (returns [] when the API
+  // returned zero tiers) AND the `rows.length === 0` early return above.
+  const channelId = channel.id as string;
+  const { data: existingChannelRows, error: readError } = await sb
+    .from("tier_channel_sales")
+    .select("tier_name, channel_id")
+    .eq("event_id", args.eventId)
+    .eq("channel_id", channelId);
+  if (readError) {
+    console.warn(
+      "[ticketing upsertProviderTierChannelSales stale read]",
+      readError.message,
+    );
+  } else {
+    const stale = computeStaleTierChannelDeletions(
+      (existingChannelRows ?? []) as Array<{
+        tier_name: string;
+        channel_id: string;
+      }>,
+      rows.map((row) => row.tier_name),
+      channelId,
+    );
+    if (stale.length > 0) {
+      const staleNames = stale.map((row) => row.tier_name);
+      const { error: staleError } = await sb
+        .from("tier_channel_sales")
+        .delete()
+        .eq("event_id", args.eventId)
+        .eq("channel_id", channelId)
+        .in("tier_name", staleNames);
+      if (staleError) {
+        console.warn(
+          "[ticketing upsertProviderTierChannelSales stale delete]",
+          staleError.message,
+        );
+      }
+    }
+  }
+
   return rows.length;
 }
 

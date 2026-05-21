@@ -38,10 +38,25 @@ describe("fourthefans provider channel fallback", () => {
       fnBody.includes('onConflict: "event_id,tier_name,channel_id"'),
       "helper must upsert on the natural key so existing rows are preserved",
     );
-    assert.ok(
-      !fnBody.includes(".delete()"),
-      "helper must never delete/null-refill tier_channel_sales",
-    );
+    // Stale-delete of renamed-out tiers is permitted, but ONLY when scoped to
+    // the resolved automatic channel_id on BOTH the diff-read and the delete,
+    // and routed through the empty-guard helper. This is stricter than the old
+    // "no delete at all" guard — it still rejects a dangerous unscoped delete.
+    // (See lib/ticketing/CONTRACT.md + tier-channel-stale-delete.ts.)
+    if (fnBody.includes(".delete()")) {
+      assert.ok(
+        /\.delete\(\)[\s\S]*?\.eq\(\s*["']channel_id["']/.test(fnBody),
+        'any .delete() must be channel_id-scoped (.eq("channel_id", …))',
+      );
+      assert.ok(
+        /\.select\([\s\S]*?\.eq\(\s*["']channel_id["']/.test(fnBody),
+        "the existing-row read feeding the delete must be channel_id-scoped",
+      );
+      assert.ok(
+        fnBody.includes("computeStaleTierChannelDeletions"),
+        "the stale-delete must route through the empty-guard helper",
+      );
+    }
   });
 
   it("rollup sync invokes provider channel sync after replacing ticket tiers", () => {
