@@ -55,6 +55,31 @@ interface GoogleAdsRestSearchResponse {
   results?: unknown[];
 }
 
+/**
+ * Shape of a single mutate operation. Google Ads accepts exactly one of
+ * `create`, `update`, or `remove` per operation; `update` additionally
+ * requires `update_mask`.
+ *
+ * Reference: https://developers.google.com/google-ads/api/rest/reference/rest/v23/customers.campaigns/mutate
+ */
+export type GoogleAdsMutateOperation =
+  | { create: Record<string, unknown> }
+  | { update: Record<string, unknown>; update_mask?: string }
+  | { remove: string };
+
+export interface GoogleAdsMutateResult {
+  resourceName: string;
+}
+
+export interface GoogleAdsMutateResponse<T = GoogleAdsMutateResult> {
+  results?: T[];
+  partialFailureError?: {
+    code?: number;
+    message?: string;
+    details?: unknown[];
+  } | null;
+}
+
 export class GoogleAdsClient {
   private readonly config: GoogleAdsClientConfig;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -108,6 +133,48 @@ export class GoogleAdsClient {
         return normalizeGoogleAdsRestRowKeys(res.results ?? []) as T;
       },
       gaql,
+    );
+  }
+
+  /**
+   * POSTs `{ operations: [...] }` to a mutate endpoint and returns the
+   * parsed `{ results: [{ resourceName }] }` response.
+   *
+   * `resource` is the collection path segment that comes between the
+   * customer id and the `:mutate` action — e.g. `"campaigns"`,
+   * `"campaignBudgets"`, `"adGroups"`, `"adGroupCriteria"`, `"adGroupAds"`.
+   * The full URL is built as
+   * `/customers/{cid}/{resource}:mutate`.
+   *
+   * `partialFailure` is forwarded to the API. We default to `false` so a
+   * single bad operation aborts the call cleanly — Phase 1 of the launch
+   * contract (campaign budget / campaign / ad group) should be all-or-nothing
+   * and the script layer can opt into per-resource partial failure for the
+   * keyword / RSA fan-out by setting it `true` on those calls.
+   *
+   * Caller is responsible for sequencing: per `GOOGLE_ADS_CHUNK_CONCURRENCY`
+   * we issue mutate calls one at a time.
+   */
+  async mutate<T = GoogleAdsMutateResult>(
+    credentials: GoogleAdsCustomerCredentials,
+    resource: string,
+    operations: GoogleAdsMutateOperation[],
+    options: { partialFailure?: boolean; validateOnly?: boolean } = {},
+  ): Promise<GoogleAdsMutateResponse<T>> {
+    const customerId = customerIdForGoogleAdsApi(credentials.customerId);
+    const body: Record<string, unknown> = { operations };
+    if (options.partialFailure) body.partialFailure = true;
+    if (options.validateOnly) body.validateOnly = true;
+    return this.executeWithRetry(
+      () =>
+        this.request<GoogleAdsMutateResponse<T>>({
+          refreshToken: credentials.refreshToken,
+          path: `/customers/${customerId}/${resource}:mutate`,
+          method: "POST",
+          loginCustomerId: credentials.loginCustomerId,
+          body,
+        }),
+      `${resource}:mutate`,
     );
   }
 
