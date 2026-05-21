@@ -4,7 +4,9 @@ import { describe, it } from "node:test";
 import {
   buildMetaCustomAudiencePayload,
   chunkPageIds,
+  chunkVideoIds,
   MAX_PAGE_ENGAGEMENT_SOURCES,
+  MAX_VIDEO_VIEWS_VIDEOS,
   pageEngagementPageIds,
   partAudienceName,
   sanitizeAudienceName,
@@ -100,6 +102,100 @@ describe("chunkPageIds (Meta 5-source cap)", () => {
 
   it("throws on a non-positive chunk size", () => {
     assert.throws(() => chunkPageIds(ids(3), 0), /size/);
+  });
+});
+
+describe("chunkVideoIds (Meta 200-video cap)", () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => `v${i + 1}`);
+
+  it("MAX_VIDEO_VIEWS_VIDEOS is 200", () => {
+    assert.equal(MAX_VIDEO_VIEWS_VIDEOS, 200);
+  });
+
+  it("splits 206 videos into 200 + 6 (P26-OPENAIR live failure 2026-05-21)", () => {
+    const chunks = chunkVideoIds(ids(206));
+    assert.equal(chunks.length, 2);
+    assert.equal(chunks[0]!.length, 200);
+    assert.equal(chunks[1]!.length, 6);
+    assert.equal(chunks[0]![0], "v1");
+    assert.equal(chunks[0]![199], "v200");
+    assert.equal(chunks[1]![0], "v201");
+    assert.equal(chunks[1]![5], "v206");
+  });
+
+  it("leaves ≤200 videos as a single chunk (no split, no regression)", () => {
+    assert.equal(chunkVideoIds(ids(1)).length, 1);
+    assert.equal(chunkVideoIds(ids(200)).length, 1);
+    assert.equal(chunkVideoIds(ids(199)).length, 1);
+  });
+
+  it("splits 401 videos into 200 + 200 + 1", () => {
+    assert.deepEqual(
+      chunkVideoIds(ids(401)).map((c) => c.length),
+      [200, 200, 1],
+    );
+  });
+
+  it("throws on a non-positive chunk size", () => {
+    assert.throws(() => chunkVideoIds(ids(5), 0), /size/);
+  });
+
+  it("builds the two part payloads for a 206-video audience: 200 + 6 rule entries each", () => {
+    const videoIds = ids(206);
+    const chunks = chunkVideoIds(videoIds);
+    const total = chunks.length;
+    assert.equal(total, 2);
+
+    chunks.forEach((chunk, part) => {
+      const partAudience = audience({
+        name: partAudienceName("[openair] 50% video views 30d", part, total),
+        audienceSubtype: "video_views",
+        retentionDays: 30,
+        sourceId: chunk.join(","),
+        sourceMeta: {
+          subtype: "video_views",
+          threshold: 50,
+          videoIds: chunk,
+          contextId: "page_123",
+        },
+      });
+      const payload = buildMetaCustomAudiencePayload(partAudience);
+      const ruleArray = JSON.parse(payload.rule) as VideoRuleEntry[];
+      // Each chunk has the right number of rule entries.
+      assert.equal(ruleArray.length, chunk.length);
+      assert.equal(ruleArray[0]!.event_name, "video_view_50_percent");
+      assert.equal(ruleArray[0]!.context_id, "page_123");
+      // Part suffix appears in the sanitized name.
+      assert.match(payload.name, new RegExp(`_${part + 1}_of_2`));
+    });
+
+    // First chunk: 200 entries, last video is v200.
+    const chunk0 = chunks[0]!;
+    const payload0 = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "video_views",
+        retentionDays: 30,
+        sourceId: chunk0.join(","),
+        sourceMeta: { subtype: "video_views", threshold: 50, videoIds: chunk0, contextId: "ctx" },
+      }),
+    );
+    const rule0 = JSON.parse(payload0.rule) as VideoRuleEntry[];
+    assert.equal(rule0.length, 200);
+    assert.equal(rule0[199]!.object_id, "v200");
+
+    // Second chunk: 6 entries, last video is v206.
+    const chunk1 = chunks[1]!;
+    const payload1 = buildMetaCustomAudiencePayload(
+      audience({
+        audienceSubtype: "video_views",
+        retentionDays: 30,
+        sourceId: chunk1.join(","),
+        sourceMeta: { subtype: "video_views", threshold: 50, videoIds: chunk1, contextId: "ctx" },
+      }),
+    );
+    const rule1 = JSON.parse(payload1.rule) as VideoRuleEntry[];
+    assert.equal(rule1.length, 6);
+    assert.equal(rule1[5]!.object_id, "v206");
   });
 });
 

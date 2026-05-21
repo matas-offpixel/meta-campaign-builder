@@ -16,7 +16,9 @@ import {
 import {
   buildMetaCustomAudiencePayload,
   chunkPageIds,
+  chunkVideoIds,
   MAX_PAGE_ENGAGEMENT_SOURCES,
+  MAX_VIDEO_VIEWS_VIDEOS,
   pageEngagementPageIds,
   partAudienceName,
   stripPartSuffix,
@@ -164,6 +166,22 @@ export async function createMetaCustomAudience(
         userId: options.userId,
         warning,
       });
+    }
+
+    // Oversized video-views set → split into ≤200-video audiences (Meta's
+    // hard cap, #2654 subcode 1870231). Same two-phase write as page split.
+    if (audience.audienceSubtype === "video_views") {
+      const videoIds = videoViewVideoIds(audienceForWrite);
+      if (videoIds.length > MAX_VIDEO_VIEWS_VIDEOS) {
+        return await writeSplitVideoViews({
+          supabase,
+          audience,
+          videoIds,
+          token,
+          post,
+          userId: options.userId,
+        });
+      }
     }
 
     const payload = buildMetaCustomAudiencePayload(audienceForWrite);
@@ -451,7 +469,7 @@ async function writeSplitPageEngagement(args: {
   return primary;
 }
 
-/** source_meta for a split part: narrow pageIds to the chunk + add split markers. */
+/** source_meta for a page-engagement split part: narrow pageIds + add split markers. */
 function splitPartSourceMeta(
   parentMeta: MetaCustomAudience["sourceMeta"],
   chunk: string[],
@@ -460,6 +478,19 @@ function splitPartSourceMeta(
   return {
     ...(parentMeta as Record<string, unknown>),
     pageIds: chunk,
+    ...markers,
+  };
+}
+
+/** source_meta for a video-views split part: narrow videoIds + add split markers. */
+function videoSplitPartSourceMeta(
+  parentMeta: MetaCustomAudience["sourceMeta"],
+  chunk: string[],
+  markers: { splitParentId?: string; splitPart: number; splitTotal: number },
+): Record<string, unknown> {
+  return {
+    ...(parentMeta as Record<string, unknown>),
+    videoIds: chunk,
     ...markers,
   };
 }
@@ -485,6 +516,117 @@ function splitChildInsert(
   };
 }
 
+/** Extract the videoIds array from a video_views audience's sourceMeta. */
+function videoViewVideoIds(audience: MetaCustomAudience): string[] {
+  const sm = audience.sourceMeta as { videoIds?: unknown };
+  return Array.isArray(sm.videoIds) ? sm.videoIds.map(String) : [];
+}
+
+/** Shallow clone with the videoIds narrowed to a chunk subset. */
+function withVideoIds(
+  audience: MetaCustomAudience,
+  videoIds: string[],
+): MetaCustomAudience {
+  return {
+    ...audience,
+    sourceId: videoIds.join(","),
+    sourceMeta: { ...(audience.sourceMeta as Record<string, unknown>), videoIds },
+  };
+}
+
+/**
+ * Split an oversized video-views source set into multiple ≤200-video Custom
+ * Audiences (Meta's hard cap; see {@link MAX_VIDEO_VIEWS_VIDEOS}). Each part
+ * is a valid video-views audience with the same threshold/retention/contextId
+ * but a distinct subset of videoIds; together they cover all videos at
+ * ad-set targeting when both are selected with OR.
+ *
+ * Mirrors {@link writeSplitPageEngagement} exactly:
+ *   1. Create EVERY part's Meta audience first (idempotent per part).
+ *   2. Persist sibling rows (find-or-create by splitParentId), primary last.
+ *
+ * Returns the primary (part 1) row; siblings surface in the UI on refresh.
+ */
+async function writeSplitVideoViews(args: {
+  supabase: IdempotencyClient;
+  audience: MetaCustomAudience;
+  videoIds: string[];
+  token: string;
+  post: MetaAudiencePost;
+  userId: string;
+}): Promise<MetaCustomAudience> {
+  const { supabase, audience, videoIds, token, post, userId } = args;
+  const chunks = chunkVideoIds(videoIds, MAX_VIDEO_VIEWS_VIDEOS);
+  const total = chunks.length;
+  const baseName = stripPartSuffix(audience.name);
+  console.log(
+    `[audience-write] ${audience.id}: ${videoIds.length} videos exceed Meta's ` +
+      `${MAX_VIDEO_VIEWS_VIDEOS}-video cap — splitting into ${total} audiences.`,
+  );
+
+  // Phase 1 — create all Meta audiences (idempotent per part). No row writes yet.
+  const metaIds: string[] = [];
+  for (let part = 0; part < total; part++) {
+    const partAudience = withVideoIds(
+      { ...audience, name: partAudienceName(baseName, part, total) },
+      chunks[part]!,
+    );
+    const metaId = await createOneMetaAudience({
+      payload: buildMetaCustomAudiencePayload(partAudience),
+      adAccountId: audience.metaAdAccountId,
+      token,
+      post,
+      supabase,
+      idempotencyKey: metaAudienceIdempotencyKey(audience.id, userId, part),
+      userId,
+      audienceId: audience.id,
+    });
+    metaIds.push(metaId);
+  }
+
+  // Phase 2 — persist rows. Siblings first (find-or-create), primary last.
+  const existingByPart = new Map<number, string>();
+  for (const child of await listSplitChildAudiences(audience.id)) {
+    const part = Number((child.sourceMeta as Record<string, unknown>).splitPart);
+    if (Number.isInteger(part)) existingByPart.set(part, child.id);
+  }
+
+  for (let part = 1; part < total; part++) {
+    const name = partAudienceName(baseName, part, total);
+    const sourceMeta = videoSplitPartSourceMeta(audience.sourceMeta, chunks[part]!, {
+      splitParentId: audience.id,
+      splitPart: part,
+      splitTotal: total,
+    });
+    const childId =
+      existingByPart.get(part) ??
+      (await createAudienceDraft(splitChildInsert(audience, name, chunks[part]!, sourceMeta)))
+        .id;
+    await updateAudience(childId, {
+      status: "ready",
+      metaAudienceId: metaIds[part],
+      name,
+      sourceId: chunks[part]!.join(","),
+      sourceMeta,
+      statusError: null,
+    });
+  }
+
+  const primary = await updateAudience(audience.id, {
+    status: "ready",
+    metaAudienceId: metaIds[0],
+    name: partAudienceName(baseName, 0, total),
+    sourceId: chunks[0]!.join(","),
+    sourceMeta: videoSplitPartSourceMeta(audience.sourceMeta, chunks[0]!, {
+      splitPart: 0,
+      splitTotal: total,
+    }),
+    statusError: null,
+  });
+  if (!primary) throw new Error("Audience not found after Meta write");
+  return primary;
+}
+
 export async function createMetaCustomAudienceBatch(
   audienceIds: string[],
   options: {
@@ -506,7 +648,13 @@ export async function createMetaCustomAudienceBatch(
       try {
         const updated = await createMetaCustomAudience(audienceId, options);
         if (!updated.metaAudienceId) {
-          throw new Error("Meta audience id missing after write");
+          // createMetaCustomAudience catches Meta errors internally and stores
+          // them as statusError on the failed row. Surface the stored error so
+          // callers see the real Meta message (e.g. "#2654 too big") rather
+          // than a generic "missing after write" placeholder.
+          throw new Error(
+            updated.statusError ?? "Meta audience id missing after write",
+          );
         }
         successes.push({
           audienceId,
