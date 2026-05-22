@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 452
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/452
 - **Branch:** `creator/google-search-live-geo-preview`
 
 ## Summary
