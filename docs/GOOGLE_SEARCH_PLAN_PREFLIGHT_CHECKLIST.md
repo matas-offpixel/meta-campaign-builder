@@ -95,4 +95,18 @@ The importer reads section-banner rows (`C1 – BRAND: JUNCTION 2`) to assign co
 
 ---
 
+## Sitelinks — crowd-out strategy
+
+New plans are seeded with **8 default sitelinks** (Tickets, Lineup, Venue Info, FAQ, Set Times, Travel & Parking, The Stages, How to Buy). All default to the plan's landing URL; override per-sitelink in the Ad Copy wizard step.
+
+**Why 8?** Google displays ≤6 sitelinks per ad impression and always prefers campaign-level sitelinks over account-level ones. Providing 8 campaign-level sitelinks fills every display slot, crowding out any pre-existing account-level sitelinks that point to the wrong pages (e.g. LWE's generic "What's On" / "About Us" sitelinks). The Google Ads API v23 offers no per-campaign endpoint to disable account-level sitelink inheritance — the crowd-out approach is the workaround.
+
+**Rules:**
+- Keep ≥6 campaign-level sitelinks to guarantee crowd-out (wizard soft-warns below 6).
+- Link text ≤25 chars; each description line ≤35 chars (wizard validates — hard error if exceeded).
+- After push, verify in **Ads → Assets → Sitelinks** that 8 campaign-level sitelinks appear under the campaign. If the wrong account-level sitelinks still show in preview, manually remove/pause them at the account level.
+- For existing plans with only 4 sitelinks (pre-#457), add 4 more in the wizard's Ad Copy step before re-pushing.
+
+---
+
 *Built 2026-05-21 from the J2 Melodic / Black Butter Google Search wizard launch. Update this as the wizard evolves.*

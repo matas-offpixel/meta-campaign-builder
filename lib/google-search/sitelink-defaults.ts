@@ -9,7 +9,17 @@
  *   2. POST /api/google-search/import           — xlsx import flow
  *   3. Wizard "Reset to defaults" button (TBD) — manual re-seed
  *
- * All four sitelinks default to NULL `final_url` so the push adapter
+ * 8 sitelinks are seeded by default.
+ *
+ * WHY 8: Google shows only ~4-6 sitelinks per ad impression, and
+ * campaign-level sitelinks take display precedence over account-level
+ * ones. Providing 8 campaign-level sitelinks reliably fills every
+ * available display slot, crowding out any pre-existing account-level
+ * sitelinks that point to the wrong pages (e.g. LWE's generic "What's
+ * On" / "About Us" sitelinks). Google's hard cap is 20/campaign; 8 is
+ * well within that and exceeds the maximum number ever shown at once.
+ *
+ * All sitelinks default to NULL `final_url` so the push adapter
  * inherits the plan landing URL — the operator overrides per-sitelink
  * in the wizard when needed.
  *
@@ -24,14 +34,25 @@ export interface SitelinkSeedContext {
 }
 
 /**
- * Return the canonical 4-sitelink seed set. Defaults to the LWE-style
- * "Tickets / Lineup / Venue Info / FAQ" set sized for music events; the
- * operator is expected to refine in the wizard.
+ * Return the canonical 8-sitelink seed set for a new plan.
+ *
+ * All link_text ≤25 chars, all description lines ≤35 chars (validated
+ * in `validateSitelinks`; defaults are verified in sitelinks.test.ts).
+ *
+ * The crowd-out strategy: 8 campaign-level sitelinks fill every display
+ * slot (Google shows ≤6 at a time) so account-level sitelinks never
+ * surface in the ad, without requiring any API call to exclude them
+ * (v23 has no per-campaign inheritance-override endpoint).
  */
 export function defaultSitelinkSeeds(
   context: SitelinkSeedContext = {},
 ): GoogleSearchSitelinkDraft[] {
   const venue = (context.venueName ?? "").trim();
+
+  // "The Stages" description uses venue-specific stage names when known;
+  // falls back to a generic description for events without named stages.
+  const stagesDesc1 = venue ? truncate(`${venue} stages`, 35) : "Stage info";
+  const stagesDesc2 = venue ? "Where it happens" : "Where it happens";
 
   return [
     {
@@ -63,6 +84,34 @@ export function defaultSitelinkSeeds(
       description2: "Everything you need to know",
       final_url: null,
       sort_order: 3,
+    },
+    {
+      link_text: "Set Times",
+      description1: "Stage times & schedule",
+      description2: "Plan your day",
+      final_url: null,
+      sort_order: 4,
+    },
+    {
+      link_text: "Travel & Parking",
+      description1: "How to get there",
+      description2: "Transport & parking",
+      final_url: null,
+      sort_order: 5,
+    },
+    {
+      link_text: "The Stages",
+      description1: stagesDesc1,
+      description2: stagesDesc2,
+      final_url: null,
+      sort_order: 6,
+    },
+    {
+      link_text: "How to Buy",
+      description1: "Official tickets only",
+      description2: "Buy via the box office",
+      final_url: null,
+      sort_order: 7,
     },
   ];
 }

@@ -386,6 +386,20 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
         tree.sitelinks.length === 1 ? "" : "s"
       } — Google requires at least ${GOOGLE_SEARCH_LIMITS.RECOMMENDED_MIN_SITELINKS} to show under the ad. Account-level sitelinks may show instead.`,
     });
+  } else if (tree.sitelinks.length < GOOGLE_SEARCH_LIMITS.RECOMMENDED_CROWD_OUT_SITELINKS) {
+    // Crowd-out strategy: Google shows ≤6 sitelinks per impression and prefers
+    // campaign-level over account-level. With 6+ campaign-level sitelinks every
+    // display slot is filled by ours, preventing account-level sitelinks from
+    // surfacing — no manual removal needed. Plans seeded from the wizard default
+    // to 8; this warning fires only when an operator has trimmed below the
+    // crowd-out threshold without adding the crowd-out note.
+    warnings.push({
+      severity: "warning",
+      code: "sitelinks_below_crowd_out",
+      message: `Plan has ${tree.sitelinks.length} sitelink${
+        tree.sitelinks.length === 1 ? "" : "s"
+      } — for accounts with existing account-level sitelinks, ${GOOGLE_SEARCH_LIMITS.RECOMMENDED_CROWD_OUT_SITELINKS}+ campaign-level sitelinks are recommended to crowd them out (Google shows ≤6 per impression; campaign-level takes precedence).`,
+    });
   }
 
   return warnings;

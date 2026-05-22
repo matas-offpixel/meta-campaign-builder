@@ -350,6 +350,14 @@ export const GOOGLE_SEARCH_LIMITS = {
   SITELINK_LINK_TEXT_MAX_CHARS: 25,
   /** Google Ads cap for each sitelink description line. */
   SITELINK_DESCRIPTION_MAX_CHARS: 35,
-  /** Google recommends 4+ sitelinks; min 2 to show in the ad. */
+  /** Google requires sitelinks in PAIRS effectively — minimum 2 to show in the ad. */
   RECOMMENDED_MIN_SITELINKS: 2,
+  /**
+   * Crowd-out threshold: Google shows ≤6 sitelinks per impression and prefers
+   * campaign-level over account-level. 6+ campaign-level sitelinks fill every
+   * display slot so account-level sitelinks never surface (no API removal
+   * needed). New plans default to 8 (the crowd-out default). Plans below this
+   * threshold get a soft warning.
+   */
+  RECOMMENDED_CROWD_OUT_SITELINKS: 6,
 } as const;
