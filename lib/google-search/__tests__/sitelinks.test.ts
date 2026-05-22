@@ -129,24 +129,47 @@ function treeWith(sitelinks: GoogleSearchSitelink[]): GoogleSearchPlanTree {
 // ─── defaultSitelinkSeeds ────────────────────────────────────────────
 
 describe("defaultSitelinkSeeds", () => {
-  it("seeds 4 sitelinks with sensible link_text + NULL final_url so push falls back to the plan URL", () => {
+  it("seeds 8 sitelinks (crowd-out set) with NULL final_url so push falls back to the plan URL", () => {
     const seeds = defaultSitelinkSeeds();
-    assert.equal(seeds.length, 4);
-    assert.deepEqual(
-      seeds.map((s) => s.link_text),
-      ["Tickets", "Lineup", "Venue Info", "FAQ"],
-    );
+    assert.equal(seeds.length, 8, "should seed exactly 8 sitelinks");
+    assert.deepEqual(seeds.map((s) => s.link_text), [
+      "Tickets",
+      "Lineup",
+      "Venue Info",
+      "FAQ",
+      "Set Times",
+      "Travel & Parking",
+      "The Stages",
+      "How to Buy",
+    ]);
     for (const seed of seeds) {
       assert.equal(seed.final_url, null, `${seed.link_text} should default to NULL final_url`);
-      assert.ok(seed.link_text.length <= GOOGLE_SEARCH_LIMITS.SITELINK_LINK_TEXT_MAX_CHARS);
+    }
+  });
+
+  it("all 8 default link_texts are within the 25-char limit", () => {
+    const seeds = defaultSitelinkSeeds();
+    for (const seed of seeds) {
+      assert.ok(
+        [...seed.link_text].length <= GOOGLE_SEARCH_LIMITS.SITELINK_LINK_TEXT_MAX_CHARS,
+        `"${seed.link_text}" (${[...seed.link_text].length} chars) exceeds the 25-char link_text cap`,
+      );
+    }
+  });
+
+  it("all 8 default description lines are within the 35-char limit", () => {
+    const seeds = defaultSitelinkSeeds();
+    for (const seed of seeds) {
       if (seed.description1) {
         assert.ok(
-          seed.description1.length <= GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS,
+          [...seed.description1].length <= GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS,
+          `"${seed.link_text}" description1 "${seed.description1}" (${[...seed.description1].length} chars) exceeds 35-char cap`,
         );
       }
       if (seed.description2) {
         assert.ok(
-          seed.description2.length <= GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS,
+          [...seed.description2].length <= GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS,
+          `"${seed.link_text}" description2 "${seed.description2}" (${[...seed.description2].length} chars) exceeds 35-char cap`,
         );
       }
     }
@@ -170,11 +193,11 @@ describe("defaultSitelinkSeeds", () => {
     );
   });
 
-  it("seeds in sort_order 0..3 so the wizard renders them in the expected order", () => {
+  it("seeds in sort_order 0..7 so the wizard renders them in the expected order", () => {
     const seeds = defaultSitelinkSeeds();
     assert.deepEqual(
       seeds.map((s) => s.sort_order),
-      [0, 1, 2, 3],
+      [0, 1, 2, 3, 4, 5, 6, 7],
     );
   });
 });
@@ -248,7 +271,7 @@ describe("validateGoogleSearchPlan — sitelinks", () => {
     assert.equal(warn!.severity, "warning");
   });
 
-  it("does not warn when at-or-above the recommended minimum", () => {
+  it("does not emit sitelinks_below_minimum when at-or-above the recommended minimum", () => {
     const tree = treeWith([
       sitelink({ id: "sl-1", link_text: "Tickets" }),
       sitelink({ id: "sl-2", link_text: "Lineup" }),
@@ -258,7 +281,30 @@ describe("validateGoogleSearchPlan — sitelinks", () => {
     assert.equal(warn, undefined);
   });
 
-  it("accepts the 4 auto-generated default sitelinks without error", () => {
+  it("emits sitelinks_below_crowd_out soft warning when count is ≥2 but <6", () => {
+    const tree = treeWith([
+      sitelink({ id: "sl-1", link_text: "Tickets" }),
+      sitelink({ id: "sl-2", link_text: "Lineup" }),
+      sitelink({ id: "sl-3", link_text: "Venue Info" }),
+    ]);
+    const issues = validateGoogleSearchPlan(tree);
+    const warn = issues.find((i) => i.code === "sitelinks_below_crowd_out");
+    assert.ok(warn, "should warn below crowd-out threshold");
+    assert.equal(warn!.severity, "warning");
+    const noMin = issues.find((i) => i.code === "sitelinks_below_minimum");
+    assert.equal(noMin, undefined, "should not also emit below_minimum when ≥2");
+  });
+
+  it("does not emit sitelinks_below_crowd_out when count is ≥6", () => {
+    const manyLinks = Array.from({ length: 6 }, (_, i) =>
+      sitelink({ id: `sl-${i}`, link_text: `Link ${i}` }),
+    );
+    const issues = validateGoogleSearchPlan(treeWith(manyLinks));
+    const warn = issues.find((i) => i.code === "sitelinks_below_crowd_out");
+    assert.equal(warn, undefined, "should not warn when crowd-out threshold met");
+  });
+
+  it("accepts the 8 auto-generated default sitelinks without error or crowd-out warning", () => {
     const defaults = defaultSitelinkSeeds({ venueName: "Boston Manor Park" });
     const tree = treeWith(
       defaults.map((d, i) => sitelink({ ...d, id: `sl-${i}`, plan_id: "plan-1" })),
@@ -271,5 +317,7 @@ describe("validateGoogleSearchPlan — sitelinks", () => {
       0,
       `defaults should validate cleanly; got: ${JSON.stringify(sitelinkIssues, null, 2)}`,
     );
+    const crowdOut = sitelinkIssues.find((i) => i.code === "sitelinks_below_crowd_out");
+    assert.equal(crowdOut, undefined, "8 defaults should not trigger crowd-out warning");
   });
 });

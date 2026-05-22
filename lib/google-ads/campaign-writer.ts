@@ -209,7 +209,8 @@ export async function pushGoogleSearchPlan(
   if (sitelinks.length > 0) {
     summary.warnings.push(
       "Account-level sitelinks can't be excluded per-campaign via the Google Ads API. " +
-        "If wrong-looking sitelinks still appear under the ad after launch, remove or pause them at the account level in Google Ads.",
+        "If wrong-looking sitelinks still appear under the ad after launch, either remove or pause them at the account level in Google Ads, " +
+        "or add more campaign-level sitelinks (6+) to crowd them out — campaign-level takes display precedence.",
     );
   }
 
