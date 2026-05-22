@@ -158,6 +158,13 @@ export interface CreativeTagAssignmentRow {
   source: CreativeTagAssignmentSource;
   confidence: number | null;
   model_version: string | null;
+  /**
+   * Stable content hash of the creative's thumbnail (sha256 of the image
+   * bytes). NULL for manual rows and AI rows written before migration 099.
+   * Lets the auto-tag cron reuse tags across creatives that share an image
+   * without re-calling Claude. See `hashAutoTagImage` in the auto-tagger.
+   */
+  thumbnail_hash: string | null;
   created_at: string;
   updated_at: string;
   tag?: Pick<
@@ -192,6 +199,7 @@ export interface UpsertCreativeTagAssignmentArgs {
   source: CreativeTagAssignmentSource;
   confidence?: number | null;
   modelVersion?: string | null;
+  thumbnailHash?: string | null;
 }
 
 export interface BulkUpsertCreativeTagAssignmentsResult {
@@ -224,7 +232,7 @@ export interface ImportMotionSeedTagsResult {
 const TAXONOMY_SELECT =
   "id,user_id,dimension,value_key,value_label,description,source,created_at,updated_at";
 const ASSIGNMENT_SELECT =
-  "id,user_id,event_id,creative_name,tag_id,source,confidence,created_at,updated_at,tag:creative_tags(dimension,value_key,value_label)";
+  "id,user_id,event_id,creative_name,tag_id,source,confidence,model_version,thumbnail_hash,created_at,updated_at,tag:creative_tags(dimension,value_key,value_label)";
 const SCORE_SELECT =
   "id,user_id,event_id,creative_name,axis,score,significance,fetched_at";
 
@@ -282,6 +290,7 @@ export async function upsertCreativeTagAssignment(
         source: args.source,
         confidence: args.confidence ?? null,
         ...(args.modelVersion ? { model_version: args.modelVersion } : {}),
+        ...(args.thumbnailHash ? { thumbnail_hash: args.thumbnailHash } : {}),
       },
       { onConflict: "event_id,creative_name,tag_id" },
     )
@@ -315,6 +324,7 @@ export async function bulkUpsertCreativeTagAssignments(
       source: row.source,
       confidence: row.confidence ?? null,
       ...(row.modelVersion ? { model_version: row.modelVersion } : {}),
+      ...(row.thumbnailHash ? { thumbnail_hash: row.thumbnailHash } : {}),
     }));
 
     const { error } = await supabase.from("creative_tag_assignments").upsert(
@@ -646,6 +656,7 @@ function normalizeAssignmentRow(
   return {
     ...row,
     model_version: row.model_version ?? null,
+    thumbnail_hash: row.thumbnail_hash ?? null,
     tag: tag ?? null,
   };
 }

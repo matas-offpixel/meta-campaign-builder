@@ -4,14 +4,21 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   AI_AUTOTAG_MODEL_VERSION,
-  autoTag,
-  type AutoTagInput,
+  autoTagDeduped,
+  type AutoTagResult,
+  type DedupAutoTagInput,
 } from "@/lib/intelligence/auto-tagger";
+import {
+  lastAiTagAt,
+  shouldRunDailyAutoTagPass,
+} from "@/lib/intelligence/autotag-cadence";
 import {
   bulkUpsertCreativeTagAssignments,
   listCreativeTagAssignments,
   listCreativeTags,
+  type CreativeTagAssignmentRow,
   type MotionCreativeTagRow,
+  type UpsertCreativeTagAssignmentArgs,
 } from "@/lib/db/creative-tags";
 import { warmCreativeThumbnailsForGroups } from "@/lib/meta/creative-thumbnail-warm";
 import {
@@ -111,11 +118,21 @@ interface CronResponse {
 interface AutoTagCronSummary {
   enabled: boolean;
   modelVersion: string;
+  /** onSnapshotWritten invocations seen for this event (one per preset write). */
   payloadsSeen: number;
+  /** Preset passes skipped because this event was already tagged today. */
+  passesSkippedCadence: number;
   creativesConsidered: number;
   creativesSkippedExisting: number;
   creativesSkippedNoThumbnail: number;
+  /** Creatives that had tags written (whether via a fresh call or reuse). */
   creativesTagged: number;
+  /** Creatives tagged by reusing another image's result — no extra Claude call. */
+  creativesReusedThumbnail: number;
+  /** Distinct thumbnail content hashes seen across the pass. */
+  uniqueThumbnails: number;
+  /** Actual Anthropic classification calls — the cost driver. */
+  claudeCalls: number;
   assignmentsUpserted: number;
   errors: number;
 }
@@ -139,10 +156,14 @@ function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
     enabled,
     modelVersion: AI_AUTOTAG_MODEL_VERSION,
     payloadsSeen: 0,
+    passesSkippedCadence: 0,
     creativesConsidered: 0,
     creativesSkippedExisting: 0,
     creativesSkippedNoThumbnail: 0,
     creativesTagged: 0,
+    creativesReusedThumbnail: 0,
+    uniqueThumbnails: 0,
+    claudeCalls: 0,
     assignmentsUpserted: 0,
     errors: 0,
   };
@@ -366,27 +387,14 @@ async function runAutoTagForSnapshot(args: {
   summary: AutoTagCronSummary;
 }): Promise<void> {
   args.summary.payloadsSeen += 1;
-  args.summary.creativesConsidered += args.payload.groups.length;
 
   let taxonomy: MotionCreativeTagRow[];
-  let existingAiCreatives: Set<string>;
+  let assignments: CreativeTagAssignmentRow[];
   try {
     taxonomy = (await listCreativeTags(args.supabase)).filter(
       (row) => row.user_id === args.userId,
     );
-    const assignments = await listCreativeTagAssignments(
-      args.supabase,
-      args.eventId,
-    );
-    existingAiCreatives = new Set(
-      assignments
-        .filter(
-          (row) =>
-            row.source === "ai" &&
-            row.model_version === AI_AUTOTAG_MODEL_VERSION,
-        )
-        .map((row) => row.creative_name),
-    );
+    assignments = await listCreativeTagAssignments(args.supabase, args.eventId);
   } catch (err) {
     args.summary.errors += 1;
     console.error("[cron refresh-active-creatives] ai autotag preflight failed", {
@@ -396,11 +404,35 @@ async function runAutoTagForSnapshot(args: {
     return;
   }
 
-  const taxonomyByKey = new Map(
-    taxonomy.map((row) => [`${row.dimension}\u0000${row.value_key}`, row]),
-  );
-  const candidates: Array<{ group: ConceptGroupRow; creativeName: string }> = [];
+  // Cadence gate: tagging doesn't need the snapshot's 4×/day freshness, so run
+  // at most one pass per UTC day per event. Scoped to the current model so a
+  // Sonnet→Haiku switch still triggers the one-time re-tag. The first preset of
+  // the day does the work; later presets / cron runs short-circuit here.
+  const lastTaggedAt = lastAiTagAt(assignments, AI_AUTOTAG_MODEL_VERSION);
+  if (!shouldRunDailyAutoTagPass(lastTaggedAt, new Date())) {
+    args.summary.passesSkippedCadence += 1;
+    return;
+  }
 
+  args.summary.creativesConsidered += args.payload.groups.length;
+
+  const currentModelAi = assignments.filter(
+    (row) =>
+      row.source === "ai" && row.model_version === AI_AUTOTAG_MODEL_VERSION,
+  );
+  const existingAiCreatives = new Set(
+    currentModelAi.map((row) => row.creative_name),
+  );
+  const knownTagsByHash = buildKnownTagsByHash(currentModelAi);
+  const taxonomyByKey = new Map(
+    taxonomy.map((row) => [taxonomyKey(row.dimension, row.value_key), row]),
+  );
+
+  // Candidate creatives: those not already tagged under the current model.
+  // Thumbnail-less ones are still passed through so the dedup layer reports
+  // them (and so two same-image groups collapse to a single Claude call).
+  const inputs: DedupAutoTagInput[] = [];
+  const seenNames = new Set<string>();
   for (const group of args.payload.groups) {
     const creativeName = creativeNameForGroup(group);
     if (!creativeName) continue;
@@ -408,79 +440,129 @@ async function runAutoTagForSnapshot(args: {
       args.summary.creativesSkippedExisting += 1;
       continue;
     }
-    if (!group.representative_thumbnail) {
-      args.summary.creativesSkippedNoThumbnail += 1;
-      continue;
-    }
-    existingAiCreatives.add(creativeName);
-    candidates.push({ group, creativeName });
+    if (seenNames.has(creativeName)) continue;
+    seenNames.add(creativeName);
+    inputs.push({
+      creativeName,
+      thumbnailUrl: group.representative_thumbnail,
+      headline: group.representative_headline,
+      body: group.representative_body_preview,
+    });
   }
 
-  await runWithConcurrency(candidates, AI_AUTOTAG_CONCURRENCY, async (item) => {
-    const input: AutoTagInput = {
-      thumbnailUrl: item.group.representative_thumbnail as string,
-      headline: item.group.representative_headline,
-      body: item.group.representative_body_preview,
-    };
+  if (inputs.length === 0) return;
 
-    try {
-      const tags = await autoTag(input, {
-        taxonomy,
-        anthropic: args.anthropic,
-        modelVersion: AI_AUTOTAG_MODEL_VERSION,
-      });
-      const assignments = tags
-        .map((tag) => {
-          const taxonomyRow = taxonomyByKey.get(
-            `${tag.dimension}\u0000${tag.value_key}`,
-          );
-          if (!taxonomyRow) return null;
-          return {
-            userId: args.userId,
-            eventId: args.eventId,
-            creativeName: item.creativeName,
-            tagId: taxonomyRow.id,
-            source: "ai" as const,
-            confidence: tag.confidence,
-            modelVersion: AI_AUTOTAG_MODEL_VERSION,
-          };
-        })
-        .filter((row): row is NonNullable<typeof row> => Boolean(row));
-
-      if (assignments.length === 0) return;
-      await bulkUpsertCreativeTagAssignments(args.supabase, assignments);
-      args.summary.creativesTagged += 1;
-      args.summary.assignmentsUpserted += assignments.length;
-    } catch (err) {
+  const results = await autoTagDeduped(inputs, {
+    taxonomy,
+    anthropic: args.anthropic,
+    modelVersion: AI_AUTOTAG_MODEL_VERSION,
+    knownTagsByHash,
+    concurrency: AI_AUTOTAG_CONCURRENCY,
+    onClassifyError: (creativeName, error) => {
       args.summary.errors += 1;
       console.error("[cron refresh-active-creatives] ai autotag failed", {
         eventId: args.eventId,
-        creativeName: item.creativeName,
-        error: err instanceof Error ? err.message : String(err),
+        creativeName,
+        error: error instanceof Error ? error.message : String(error),
       });
-    }
+    },
   });
+
+  const uniqueHashes = new Set<string>();
+  const toUpsert: UpsertCreativeTagAssignmentArgs[] = [];
+  for (const result of results) {
+    if (result.thumbnailHash) uniqueHashes.add(result.thumbnailHash);
+
+    if (
+      result.outcome === "no_thumbnail" ||
+      result.outcome === "fetch_failed"
+    ) {
+      args.summary.creativesSkippedNoThumbnail += 1;
+      continue;
+    }
+    if (
+      result.outcome === "tagged" ||
+      result.outcome === "empty" ||
+      result.outcome === "error"
+    ) {
+      // A fresh Anthropic call was made for this image's hash group.
+      args.summary.claudeCalls += 1;
+    } else {
+      // reused_run | reused_persisted — tags came from another creative's call.
+      args.summary.creativesReusedThumbnail += 1;
+    }
+
+    if (result.tags.length === 0) continue;
+    const rows = result.tags
+      .map((tag) => {
+        const taxonomyRow = taxonomyByKey.get(
+          taxonomyKey(tag.dimension, tag.value_key),
+        );
+        if (!taxonomyRow) return null;
+        return {
+          userId: args.userId,
+          eventId: args.eventId,
+          creativeName: result.creativeName,
+          tagId: taxonomyRow.id,
+          source: "ai" as const,
+          confidence: tag.confidence,
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          thumbnailHash: result.thumbnailHash,
+        } satisfies UpsertCreativeTagAssignmentArgs;
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    if (rows.length === 0) continue;
+    toUpsert.push(...rows);
+    args.summary.creativesTagged += 1;
+  }
+  args.summary.uniqueThumbnails += uniqueHashes.size;
+
+  if (toUpsert.length === 0) return;
+  try {
+    await bulkUpsertCreativeTagAssignments(args.supabase, toUpsert);
+    args.summary.assignmentsUpserted += toUpsert.length;
+  } catch (err) {
+    args.summary.errors += 1;
+    console.error("[cron refresh-active-creatives] ai autotag upsert failed", {
+      eventId: args.eventId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function taxonomyKey(dimension: string, valueKey: string): string {
+  return `${dimension}::${valueKey}`;
+}
+
+/**
+ * Reconstruct the tag set per thumbnail hash from existing current-model AI
+ * assignments, so the dedup layer can reuse a prior run's classification for a
+ * recurring image instead of re-calling Claude. Dedups (dimension, value_key)
+ * within a hash and carries the persisted confidence forward.
+ */
+function buildKnownTagsByHash(
+  rows: CreativeTagAssignmentRow[],
+): Map<string, AutoTagResult[]> {
+  const byHash = new Map<string, AutoTagResult[]>();
+  const seenPerHash = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (!row.thumbnail_hash || !row.tag) continue;
+    const key = taxonomyKey(row.tag.dimension, row.tag.value_key);
+    const seen = seenPerHash.get(row.thumbnail_hash) ?? new Set<string>();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    seenPerHash.set(row.thumbnail_hash, seen);
+    const tags = byHash.get(row.thumbnail_hash) ?? [];
+    tags.push({
+      dimension: row.tag.dimension,
+      value_key: row.tag.value_key,
+      confidence: row.confidence ?? 1,
+    });
+    byHash.set(row.thumbnail_hash, tags);
+  }
+  return byHash;
 }
 
 function creativeNameForGroup(group: ConceptGroupRow): string | null {
   return group.ad_names[0]?.trim() || group.display_name.trim() || null;
-}
-
-async function runWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> {
-  let index = 0;
-  const workers = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    async () => {
-      while (index < items.length) {
-        const item = items[index];
-        index += 1;
-        await worker(item);
-      }
-    },
-  );
-  await Promise.all(workers);
 }
