@@ -1,16 +1,20 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   addRsa,
+  addSitelink,
+  moveSitelink,
   removeRsa,
+  removeSitelink,
   setRsaDescriptions,
   setRsaHeadlines,
   updateRsa,
+  updateSitelink,
 } from "@/lib/google-search/tree-mutations";
 import {
   GOOGLE_SEARCH_LIMITS,
@@ -18,6 +22,7 @@ import {
   type GoogleSearchCampaignNode,
   type GoogleSearchPlanTree,
   type GoogleSearchRsa,
+  type GoogleSearchSitelink,
   type RsaDescription,
   type RsaHeadline,
 } from "@/lib/google-search/types";
@@ -33,12 +38,15 @@ const MAX_DESCRIPTIONS = 4;
 export function AdCopyStep({ tree, onChange }: Props) {
   if (tree.campaigns.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Ad copy</CardTitle>
-          <CardDescription>Add a campaign + ad group before writing ad copy.</CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Ad copy</CardTitle>
+            <CardDescription>Add a campaign + ad group before writing ad copy.</CardDescription>
+          </CardHeader>
+        </Card>
+        <SitelinksSection tree={tree} onChange={onChange} />
+      </div>
     );
   }
 
@@ -47,6 +55,7 @@ export function AdCopyStep({ tree, onChange }: Props) {
       {tree.campaigns.map((c) => (
         <CampaignSection key={c.id} campaign={c} tree={tree} onChange={onChange} />
       ))}
+      <SitelinksSection tree={tree} onChange={onChange} />
     </div>
   );
 }
@@ -277,6 +286,192 @@ function RsaEditor({
           maxLength={GOOGLE_SEARCH_LIMITS.PATH_MAX_CHARS}
           placeholder="london"
         />
+      </div>
+    </div>
+  );
+}
+
+function SitelinksSection({
+  tree,
+  onChange,
+}: {
+  tree: GoogleSearchPlanTree;
+  onChange: (next: GoogleSearchPlanTree) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle>Sitelinks</CardTitle>
+            <CardDescription>
+              Pushed to every campaign at launch. Each defaults its URL to the RSA landing
+              page — override per sitelink if needed. Google requires ≥{
+                GOOGLE_SEARCH_LIMITS.RECOMMENDED_MIN_SITELINKS
+              } to show under the ad; if you push fewer, the account-level sitelinks may
+              show instead (Account-level inheritance can&apos;t be disabled per-campaign via
+              the API).
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(addSitelink(tree))}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add sitelink
+          </Button>
+        </div>
+      </CardHeader>
+
+      {tree.sitelinks.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+          No sitelinks yet. Click &quot;Add sitelink&quot; to start.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {tree.sitelinks.map((sl, idx) => (
+            <SitelinkEditor
+              key={sl.id}
+              index={idx}
+              total={tree.sitelinks.length}
+              sitelink={sl}
+              onPatch={(patch) => onChange(updateSitelink(tree, sl.id, patch))}
+              onRemove={() => onChange(removeSitelink(tree, sl.id))}
+              onMoveUp={() => onChange(moveSitelink(tree, sl.id, -1))}
+              onMoveDown={() => onChange(moveSitelink(tree, sl.id, 1))}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SitelinkEditor({
+  index,
+  total,
+  sitelink,
+  onPatch,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: {
+  index: number;
+  total: number;
+  sitelink: GoogleSearchSitelink;
+  onPatch: (patch: Partial<GoogleSearchSitelink>) => void;
+  onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const linkTextLen = [...(sitelink.link_text ?? "")].length;
+  const desc1Len = [...(sitelink.description1 ?? "")].length;
+  const desc2Len = [...(sitelink.description2 ?? "")].length;
+  const linkOver = linkTextLen > GOOGLE_SEARCH_LIMITS.SITELINK_LINK_TEXT_MAX_CHARS;
+  const desc1Over = desc1Len > GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS;
+  const desc2Over = desc2Len > GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS;
+
+  return (
+    <div className="rounded-md border border-border bg-card p-3">
+      <header className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+          Sitelink {index + 1}
+          {sitelink.pushed_resource_name ? (
+            <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+              pushed
+            </span>
+          ) : null}
+        </p>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onMoveUp}
+            disabled={index === 0}
+            aria-label="Move sitelink up"
+          >
+            <ArrowUp className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onMoveDown}
+            disabled={index === total - 1}
+            aria-label="Move sitelink down"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove sitelink">
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </header>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Link text{" "}
+            <span
+              className={`tabular-nums ${linkOver ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              ({linkTextLen}/{GOOGLE_SEARCH_LIMITS.SITELINK_LINK_TEXT_MAX_CHARS})
+            </span>
+          </label>
+          <input
+            aria-label={`Sitelink ${index + 1} link text`}
+            value={sitelink.link_text}
+            onChange={(e) => onPatch({ link_text: e.target.value })}
+            placeholder="Tickets"
+            className={`h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring ${
+              linkOver ? "border-destructive" : "border-border-strong"
+            }`}
+          />
+        </div>
+        <Input
+          label="Final URL (optional — defaults to plan landing URL)"
+          value={sitelink.final_url ?? ""}
+          onChange={(e) => onPatch({ final_url: e.target.value || null })}
+          placeholder="https://example.com/tickets"
+        />
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Description 1{" "}
+            <span
+              className={`tabular-nums ${desc1Over ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              ({desc1Len}/{GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS})
+            </span>
+          </label>
+          <input
+            aria-label={`Sitelink ${index + 1} description 1`}
+            value={sitelink.description1 ?? ""}
+            onChange={(e) => onPatch({ description1: e.target.value || null })}
+            placeholder="Secure your place"
+            className={`h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring ${
+              desc1Over ? "border-destructive" : "border-border-strong"
+            }`}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Description 2{" "}
+            <span
+              className={`tabular-nums ${desc2Over ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              ({desc2Len}/{GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS})
+            </span>
+          </label>
+          <input
+            aria-label={`Sitelink ${index + 1} description 2`}
+            value={sitelink.description2 ?? ""}
+            onChange={(e) => onPatch({ description2: e.target.value || null })}
+            placeholder="Limited availability"
+            className={`h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring ${
+              desc2Over ? "border-destructive" : "border-border-strong"
+            }`}
+          />
+        </div>
       </div>
     </div>
   );

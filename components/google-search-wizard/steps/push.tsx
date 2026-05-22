@@ -247,7 +247,15 @@ function ResultsCard({
               {summary.keywordsCreated.length === 1 ? "" : "s"} •{" "}
               {summary.rsasCreated.length} RSA{summary.rsasCreated.length === 1 ? "" : "s"} •{" "}
               {summary.negativesCreated.length} negative
-              {summary.negativesCreated.length === 1 ? "" : "s"}.
+              {summary.negativesCreated.length === 1 ? "" : "s"} •{" "}
+              {summary.sitelinkAssetsCreated.length} sitelink
+              {summary.sitelinkAssetsCreated.length === 1 ? "" : "s"}
+              {summary.sitelinksLinkedToCampaigns.length > 0
+                ? ` (${summary.sitelinksLinkedToCampaigns.length} link${
+                    summary.sitelinksLinkedToCampaigns.length === 1 ? "" : "s"
+                  } to campaigns)`
+                : ""}
+              .
             </span>
             <span className="mt-1 block">
               All status=PAUSED on Google Ads. Toggle Active when ready.

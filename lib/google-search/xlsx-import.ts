@@ -155,6 +155,10 @@ export function parseGoogleSearchPlanXlsx(
     },
     campaigns: finalCampaigns,
     negatives: finalNegatives,
+    // Sitelinks are not extracted from xlsx in Phase 1 — the API route
+    // seeds defaults via `defaultSitelinkSeeds()` once it knows the
+    // event's venue. Empty list lets the route layer decide.
+    sitelinks: [],
     warnings,
   };
 }

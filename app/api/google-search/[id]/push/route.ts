@@ -9,6 +9,7 @@ import {
   setGoogleSearchNegativeResource,
   setGoogleSearchPlanStatus,
   setGoogleSearchRsaResource,
+  setGoogleSearchSitelinkResource,
 } from "@/lib/db/google-search-plans";
 import {
   hasHardErrors,
@@ -172,6 +173,8 @@ export async function POST(
       setGoogleSearchNegativeResource(supabase, negativeId, resourceName),
     setRsaResource: (rsaId, resourceName) =>
       setGoogleSearchRsaResource(supabase, rsaId, resourceName),
+    setSitelinkResource: (sitelinkId, resourceName) =>
+      setGoogleSearchSitelinkResource(supabase, sitelinkId, resourceName),
     setPlanStatus: (planId, status, pushedAt) =>
       setGoogleSearchPlanStatus(supabase, planId, status, pushedAt),
   };

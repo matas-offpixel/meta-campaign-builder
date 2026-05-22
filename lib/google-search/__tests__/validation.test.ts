@@ -104,6 +104,7 @@ function makeTree(overrides: Partial<GoogleSearchPlanTree["plan"]> = {}): Google
     },
     campaigns: [],
     plan_negatives: [],
+    sitelinks: [],
   };
 }
 

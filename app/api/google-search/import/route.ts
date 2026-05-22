@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { createGoogleSearchPlanTreeFromDraft } from "@/lib/db/google-search-plans";
+import { defaultSitelinkSeeds } from "@/lib/google-search/sitelink-defaults";
 import {
   STRUCTURE_MODES,
   DEFAULT_STRUCTURE_MODE,
@@ -88,6 +89,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    // Seed default sitelinks if the parser didn't produce any (xlsx Phase 1
+    // doesn't extract sitelinks — they're added in the wizard). Look up the
+    // event's venue so the Venue Info sitelink can include it.
+    let venueName: string | null = null;
+    if (eventId) {
+      const { data: evt } = await supabase
+        .from("events")
+        .select("venue_name")
+        .eq("id", eventId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      venueName = (evt as { venue_name?: string | null } | null)?.venue_name ?? null;
+    }
+    if (draft.sitelinks.length === 0) {
+      draft.sitelinks = defaultSitelinkSeeds({ venueName });
+    }
+
     const { plan_id } = await createGoogleSearchPlanTreeFromDraft(
       supabase,
       user.id,

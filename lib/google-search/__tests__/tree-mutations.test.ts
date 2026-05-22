@@ -41,6 +41,7 @@ function emptyTree(): GoogleSearchPlanTree {
     },
     campaigns: [],
     plan_negatives: [],
+    sitelinks: [],
   };
 }
 

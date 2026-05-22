@@ -163,6 +163,7 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
     },
     campaigns: [campaign({})],
     plan_negatives: [negative({})],
+    sitelinks: [],
     ...overrides,
   };
 }

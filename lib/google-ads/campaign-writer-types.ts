@@ -61,6 +61,30 @@ export interface GoogleSearchLaunchSummary {
   geoTargetsCreated: Array<{ campaignId: string; location: string; resourceName: string }>;
   /** Locations that couldn't be resolved or whose criterion mutate failed. */
   geoTargetsFailed: Array<{ campaignId: string; location: string; error: string }>;
+  /**
+   * Sitelink assets created on Google Ads via `assets:mutate`. Each
+   * entry maps to one row from `tree.sitelinks`. `reused: true` when the
+   * sitelink already carried a `pushed_resource_name` from a prior push.
+   */
+  sitelinkAssetsCreated: GoogleSearchPushResult[];
+  sitelinkAssetsFailed: GoogleSearchPushFailure[];
+  /**
+   * Per-campaign sitelink attachments via `campaignAssets:mutate` with
+   * fieldType=SITELINK. One entry per (campaign, sitelink) pair.
+   */
+  sitelinksLinkedToCampaigns: Array<{
+    campaignId: string;
+    sitelinkLocalId: string;
+    linkText: string;
+    /** `customers/.../campaignAssets/{campaign_id}~{asset_id}~SITELINK` */
+    resourceName: string;
+  }>;
+  sitelinksFailedToLink: Array<{
+    campaignId: string;
+    sitelinkLocalId: string;
+    linkText: string;
+    error: string;
+  }>;
   warnings: string[];
   /** True when at least one row failed (anywhere in the tree). */
   partialFailure: boolean;

@@ -372,6 +372,7 @@ function makeSingleCampaignTree(): GoogleSearchPlanTree {
       ],
     }],
     plan_negatives: [],
+    sitelinks: [],
   } as unknown as GoogleSearchPlanTree;
 }
 

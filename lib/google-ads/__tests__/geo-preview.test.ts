@@ -162,6 +162,7 @@ function makeMinimalTree(): GoogleSearchPlanTree {
       },
     ],
     plan_negatives: [],
+    sitelinks: [],
   } as unknown as GoogleSearchPlanTree;
 }
 

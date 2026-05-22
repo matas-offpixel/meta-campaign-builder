@@ -183,6 +183,32 @@ export interface GoogleSearchRsa {
   created_at: string;
 }
 
+/**
+ * Per-plan sitelink row (migration 098).
+ *
+ * Pushed by the Phase 3 push adapter as a campaign-level sitelink asset
+ * on every campaign in the plan. `final_url` defaults to the plan-level
+ * landing URL (first RSA's final_url) when null at push time.
+ */
+export interface GoogleSearchSitelink {
+  id: string;
+  plan_id: string;
+  /** Visible link text under the ad. Max 25 chars. */
+  link_text: string;
+  /** Optional description line 1. Max 35 chars. */
+  description1: string | null;
+  /** Optional description line 2. Max 35 chars. */
+  description2: string | null;
+  /**
+   * Per-sitelink URL override. NULL = inherit plan landing URL at push
+   * time (resolved server-side in the push adapter).
+   */
+  final_url: string | null;
+  sort_order: number;
+  pushed_resource_name: string | null;
+  created_at: string;
+}
+
 // ─── Composite tree ───────────────────────────────────────────────────
 
 export interface GoogleSearchAdGroupNode extends GoogleSearchAdGroup {
@@ -201,6 +227,8 @@ export interface GoogleSearchPlanTree {
   campaigns: GoogleSearchCampaignNode[];
   /** Plan-scoped (shared list) negatives. */
   plan_negatives: GoogleSearchNegative[];
+  /** Plan-scoped sitelinks pushed to every campaign at launch. */
+  sitelinks: GoogleSearchSitelink[];
 }
 
 // ─── Parser draft (xlsx-import output, no DB ids yet) ─────────────────
@@ -250,6 +278,11 @@ export type GoogleSearchRsaDraft = Omit<
   "id" | "ad_group_id" | "pushed_resource_name" | "created_at"
 >;
 
+export type GoogleSearchSitelinkDraft = Omit<
+  GoogleSearchSitelink,
+  "id" | "plan_id" | "pushed_resource_name" | "created_at"
+>;
+
 export interface GoogleSearchAdGroupDraftNode extends GoogleSearchAdGroupDraft {
   keywords: GoogleSearchKeywordDraft[];
   rsas: GoogleSearchRsaDraft[];
@@ -263,6 +296,8 @@ export interface GoogleSearchPlanDraftTree {
   plan: GoogleSearchPlanDraft;
   campaigns: GoogleSearchCampaignDraftNode[];
   negatives: GoogleSearchNegativeDraft[];
+  /** Plan-scoped sitelinks seeded by the parser / blank-plan flow. */
+  sitelinks: GoogleSearchSitelinkDraft[];
   /**
    * Non-fatal validation findings from the importer (e.g. headline >30 chars,
    * unknown match type). Surfaced to the wizard so the operator can fix
@@ -311,4 +346,10 @@ export const GOOGLE_SEARCH_LIMITS = {
   PATH_MAX_CHARS: 15,
   MIN_HEADLINES_PER_RSA: 3,
   MIN_DESCRIPTIONS_PER_RSA: 2,
+  /** Google Ads cap for sitelink visible text. */
+  SITELINK_LINK_TEXT_MAX_CHARS: 25,
+  /** Google Ads cap for each sitelink description line. */
+  SITELINK_DESCRIPTION_MAX_CHARS: 35,
+  /** Google recommends 4+ sitelinks; min 2 to show in the ad. */
+  RECOMMENDED_MIN_SITELINKS: 2,
 } as const;
