@@ -1,7 +1,7 @@
 # PR: feat(creator): single-campaign structure mode (C-codes as ad groups)
 
 **Branch:** `creator/google-search-single-campaign-mode`
-**PR:** pending
+**PR:** [#453](https://github.com/matas-offpixel/meta-campaign-builder/pull/453)
 **Status:** shipped
 
 ---
