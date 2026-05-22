@@ -44,28 +44,49 @@ export async function listDailyHistoryForEvents(
   options?: { fromDate?: string; toDate?: string },
 ): Promise<TierChannelDailyHistoryRow[]> {
   if (eventIds.length === 0) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let q: any = supabase
-    .from("tier_channel_sales_daily_history")
-    .select(
-      "id, event_id, snapshot_date, tickets_sold_total, revenue_total, source_kind, captured_at",
-    )
-    .in("event_id", eventIds)
-    .order("event_id", { ascending: true })
-    .order("snapshot_date", { ascending: true });
-  if (options?.fromDate) q = q.gte("snapshot_date", options.fromDate);
-  if (options?.toDate) q = q.lte("snapshot_date", options.toDate);
-  const { data, error } = await q;
-  if (error) {
-    console.warn("[tier-channel-daily-history list]", error.message);
-    return [];
+
+  // Paginate explicitly. PostgREST caps an unbounded select at 1000 rows, and
+  // a single client's daily_history easily exceeds that (4theFans: ~5.6k rows
+  // across 48 events × ~40 days, growing daily). Without pagination the result
+  // truncates at an `event_id` boundary, so venues whose events sort past the
+  // cap receive ZERO daily_history — the trend graph then falls back to the
+  // 4TF-only snapshot envelope and the all-channel today-anchor dumps the
+  // external-channel volume onto today (the venue-trend spike). Range-paging
+  // until a short page guarantees the full all-channel series is delivered.
+  const PAGE = 1000;
+  const out: TierChannelDailyHistoryRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase
+      .from("tier_channel_sales_daily_history")
+      .select(
+        "id, event_id, snapshot_date, tickets_sold_total, revenue_total, source_kind, captured_at",
+      )
+      .in("event_id", eventIds)
+      .order("event_id", { ascending: true })
+      .order("snapshot_date", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (options?.fromDate) q = q.gte("snapshot_date", options.fromDate);
+    if (options?.toDate) q = q.lte("snapshot_date", options.toDate);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[tier-channel-daily-history list]", error.message);
+      // Return what we have rather than silently dropping everything — a
+      // partial series still beats the 4TF-only envelope fallback.
+      break;
+    }
+    const page = (data ?? []) as TierChannelDailyHistoryRow[];
+    for (const r of page) {
+      out.push({
+        ...r,
+        snapshot_date: String(r.snapshot_date),
+        tickets_sold_total: Number(r.tickets_sold_total),
+        revenue_total: Number(r.revenue_total),
+      });
+    }
+    if (page.length < PAGE) break;
   }
-  return ((data ?? []) as TierChannelDailyHistoryRow[]).map((r) => ({
-    ...r,
-    snapshot_date: String(r.snapshot_date),
-    tickets_sold_total: Number(r.tickets_sold_total),
-    revenue_total: Number(r.revenue_total),
-  }));
+  return out;
 }
 
 /**

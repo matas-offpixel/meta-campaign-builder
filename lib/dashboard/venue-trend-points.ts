@@ -160,12 +160,25 @@ export function buildEventCumulativeTicketTimeline(
     }
   }
 
-  // 5. Anchor today to the tier_channel_sales SUM. This is the
-  //    cross-channel authoritative total — guaranteed >= any single-
-  //    source snapshot once the operator has seeded operator-owned
-  //    channels (Venue, etc.). Apply running max so a stale anchor
-  //    can't pull the line below the latest snapshot.
-  if (anchor && anchor.tickets != null && Number.isFinite(anchor.tickets)) {
+  // 5. Anchor today to the live tier_channel_sales SUM — but ONLY when this
+  //    event has daily_history, i.e. the line built above is ALREADY the
+  //    all-channel cumulative. Then the anchor is a small same-day
+  //    reconciliation (today's live sales beyond the end-of-yesterday
+  //    snapshot).
+  //
+  //    When daily_history is ABSENT the line is the 4TF-only snapshot
+  //    envelope; anchoring a single-channel line up to the all-channel SUM
+  //    via Math.max dumps the entire external-channel volume onto TODAY (the
+  //    venue-trend spike — e.g. Brighton +179 CP). So we do NOT anchor in
+  //    that case: the 4TF line renders smoothly and the true all-channel
+  //    total is surfaced by the topline tile (#454).
+  const hasDailyHistory = (dailyHistoryRows?.length ?? 0) > 0;
+  if (
+    hasDailyHistory &&
+    anchor &&
+    anchor.tickets != null &&
+    Number.isFinite(anchor.tickets)
+  ) {
     const anchored = Math.max(runningMax, anchor.tickets);
     const last = steps[steps.length - 1];
     if (last && last.date === todayIso) {

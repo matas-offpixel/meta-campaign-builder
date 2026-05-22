@@ -1036,10 +1036,24 @@ export function aggregateVenueWoW(
     hasAnyCumulative = true;
   }
 
-  // ── Daily rollup edges (spend/revenue cumulative + ticket fallback). ──
+  // ── Daily rollup edges (spend cumulative + ticket fallback). ──
   let currentSpend = 0;
+
+  // Revenue for the WoW ROAS comes from the canonical all-channel per-event
+  // source (tier_channel_sales preferred, via resolveDisplayTicketRevenue) —
+  // NOT event_daily_rollups.revenue, which the rollup writer over-attributes
+  // and which omits external venue channels (CP/Venue/DS). Mirrors the venue
+  // topline (#454) so the WoW ROAS chip is consistent + all-channel. Spend
+  // stays sourced from event_daily_rollups below.
   let currentRevenue = 0;
   let currentRevenueRows = 0;
+  for (const e of events) {
+    const rev = ticketRevenueForAggregatableEvent(e);
+    if (rev != null) {
+      currentRevenue += rev;
+      currentRevenueRows += 1;
+    }
+  }
 
   for (const r of dailyRollups) {
     if (!eventIds.has(r.event_id)) continue;
@@ -1052,10 +1066,6 @@ export function aggregateVenueWoW(
     if (ms <= todayMs) {
       if (spend > 0 || r.ad_spend != null || r.tiktok_spend != null) {
         currentSpend += spend;
-      }
-      if (r.revenue != null) {
-        currentRevenue += r.revenue;
-        currentRevenueRows += 1;
       }
     }
     if (ms >= currStart && ms <= todayMs) {
