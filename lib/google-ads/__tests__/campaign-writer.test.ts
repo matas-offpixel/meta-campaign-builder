@@ -210,10 +210,14 @@ function makeFakeClient(options: FakeClientOptions = {}) {
     async suggestGeoTargetConstants(
       _refreshToken: string,
       names: string[],
-    ): Promise<Array<{ resourceName: string; displayName: string } | null>> {
+    ): Promise<Array<{ resourceName: string; displayName: string; countryCode: string | null; targetType: string | null } | null>> {
       suggestCalls.push(names);
       const map = options.geoSuggestMap ?? {};
-      return names.map((n) => map[n.toLowerCase()] ?? map[n] ?? null);
+      return names.map((n) => {
+        const hit = map[n.toLowerCase()] ?? map[n] ?? null;
+        if (!hit) return null;
+        return { resourceName: hit.resourceName, displayName: hit.displayName, countryCode: null, targetType: null };
+      });
     },
   };
 

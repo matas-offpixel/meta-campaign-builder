@@ -305,6 +305,23 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
     }
   }
 
+  // Geo targets that went through the wizard preview but failed to resolve.
+  // The push adapter handles unresolved targets gracefully (skips them), but
+  // warn so the operator knows before pushing.
+  for (const geo of tree.plan.geo_targets) {
+    // A null resolved_resource_name with a non-empty location means the wizard
+    // tried to resolve and found nothing. Entries where the field is absent
+    // (undefined) are XLSX-imported targets that haven't been through the
+    // preview — don't warn those (they'll attempt live resolution at push time).
+    if (geo.resolved_resource_name === null) {
+      warnings.push({
+        severity: "warning",
+        code: "geo_target_unresolved",
+        message: `Geo target "${geo.location}" didn't resolve to a Google Ads location — it won't be targeted. Check spelling or remove it.`,
+      });
+    }
+  }
+
   return warnings;
 }
 

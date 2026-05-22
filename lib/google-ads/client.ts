@@ -61,6 +61,8 @@ interface GeoTargetSuggestion {
   geoTargetConstant?: {
     resourceName?: string;
     name?: string;
+    canonicalName?: string;
+    countryCode?: string;
     status?: string;
     targetType?: string;
   };
@@ -204,7 +206,14 @@ export class GoogleAdsClient {
     refreshToken: string,
     names: string[],
     options: { locale?: string; countryCode?: string } = {},
-  ): Promise<Array<{ resourceName: string; displayName: string } | null>> {
+  ): Promise<
+    Array<{
+      resourceName: string;
+      displayName: string;
+      countryCode: string | null;
+      targetType: string | null;
+    } | null>
+  > {
     if (names.length === 0) return [];
     const body = {
       locale: options.locale ?? "en",
@@ -235,7 +244,12 @@ export class GoogleAdsClient {
       const best = matches[0];
       return {
         resourceName: best.geoTargetConstant!.resourceName!,
-        displayName: best.geoTargetConstant!.name ?? name,
+        displayName:
+          best.geoTargetConstant!.canonicalName ??
+          best.geoTargetConstant!.name ??
+          name,
+        countryCode: best.geoTargetConstant!.countryCode ?? null,
+        targetType: best.geoTargetConstant!.targetType ?? null,
       };
     });
   }

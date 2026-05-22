@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Loader2, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +61,7 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
           <CardTitle>Geo targets</CardTitle>
           <CardDescription>
             Locations to target, with optional bid modifier (positive = boost, negative = damp).
+            Each location is resolved against Google&apos;s geo database as you type.
           </CardDescription>
         </CardHeader>
 
@@ -85,35 +87,14 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
               </thead>
               <tbody>
                 {tree.plan.geo_targets.map((g, i) => (
-                  <tr key={i} className="border-t border-border align-middle">
-                    <td className="px-2 py-1">
-                      <Input
-                        aria-label={`Geo ${i + 1} location`}
-                        value={g.location}
-                        onChange={(e) => updateGeo(i, { location: e.target.value })}
-                        placeholder="London, England, United Kingdom"
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input
-                        aria-label={`Geo ${i + 1} bid modifier`}
-                        type="text"
-                        inputMode="numeric"
-                        value={g.bid_modifier_pct ?? ""}
-                        onChange={(e) => {
-                          updateGeo(i, {
-                            bid_modifier_pct: parseBidModifierInput(e.target.value),
-                          });
-                        }}
-                        placeholder="+20"
-                      />
-                    </td>
-                    <td className="px-2 py-1 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => removeGeo(i)} aria-label="Remove geo">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </td>
-                  </tr>
+                  <GeoRow
+                    key={i}
+                    index={i}
+                    geo={g}
+                    accountId={tree.plan.google_ads_account_id ?? null}
+                    onUpdate={(patch) => updateGeo(i, patch)}
+                    onRemove={() => removeGeo(i)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -203,6 +184,192 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
     </div>
   );
 }
+
+// ─── GeoRow ───────────────────────────────────────────────────────────
+
+type ResolveStatus = "idle" | "loading" | "matched" | "no_match" | "no_account";
+
+interface ResolveState {
+  status: ResolveStatus;
+  /** Present when status === 'matched'. Canonical name from Google. */
+  canonicalName?: string;
+  /** Present when status === 'no_match'. The attempted location string. */
+  attempted?: string;
+}
+
+interface GeoRowProps {
+  index: number;
+  geo: GoogleSearchGeoTarget;
+  accountId: string | null;
+  onUpdate: (patch: Partial<GoogleSearchGeoTarget>) => void;
+  onRemove: () => void;
+}
+
+const DEBOUNCE_MS = 450;
+
+function GeoRow({ geo, accountId, onUpdate, onRemove }: GeoRowProps) {
+  const [resolveState, setResolveState] = useState<ResolveState>(() => {
+    // If the geo entry was already resolved (loaded from DB), show it.
+    if (geo.resolved_resource_name && geo.resolved_name) {
+      return { status: "matched", canonicalName: geo.resolved_name };
+    }
+    return { status: "idle" };
+  });
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const resolveLocation = useCallback(
+    async (location: string) => {
+      if (!accountId) {
+        setResolveState({ status: "no_account" });
+        return;
+      }
+      const trimmed = location.trim();
+      if (!trimmed) {
+        setResolveState({ status: "idle" });
+        return;
+      }
+
+      // Cancel any in-flight request.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setResolveState({ status: "loading" });
+
+      try {
+        const res = await fetch("/api/google-search/resolve-geo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ location: trimmed, google_ads_account_id: accountId }),
+          signal: controller.signal,
+        });
+        const json = (await res.json()) as
+          | { ok: true; matches: Array<{ canonicalName: string; resourceName: string }> }
+          | { ok: false; reason: string };
+
+        if (json.ok && json.matches.length > 0) {
+          const top = json.matches[0];
+          setResolveState({ status: "matched", canonicalName: top.canonicalName });
+          // Store the resolved IDs on the tree so the push adapter can skip re-resolution.
+          onUpdate({
+            resolved_resource_name: top.resourceName,
+            resolved_name: top.canonicalName,
+          });
+        } else {
+          setResolveState({ status: "no_match", attempted: trimmed });
+          onUpdate({ resolved_resource_name: null, resolved_name: null });
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setResolveState({ status: "no_match", attempted: trimmed });
+      }
+    },
+    [accountId, onUpdate],
+  );
+
+  // Debounce: trigger resolve 450ms after the user stops typing.
+  function handleLocationChange(value: string) {
+    onUpdate({ location: value, resolved_resource_name: null, resolved_name: null });
+    setResolveState({ status: "loading" });
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void resolveLocation(value);
+    }, DEBOUNCE_MS);
+  }
+
+  // On mount, resolve if the entry doesn't already have a pre-resolved ID.
+  useEffect(() => {
+    if (!geo.resolved_resource_name && geo.location.trim()) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        void resolveLocation(geo.location);
+      }, DEBOUNCE_MS);
+    }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+    };
+    // Run once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <tr className="border-t border-border align-top">
+      <td className="px-2 py-1">
+        <Input
+          aria-label={`Geo ${geo.location} location`}
+          value={geo.location}
+          onChange={(e) => handleLocationChange(e.target.value)}
+          placeholder="London, England, United Kingdom"
+        />
+        <GeoResolveHint state={resolveState} />
+      </td>
+      <td className="px-2 py-1">
+        <Input
+          aria-label={`Geo ${geo.location} bid modifier`}
+          type="text"
+          inputMode="numeric"
+          value={geo.bid_modifier_pct ?? ""}
+          onChange={(e) => {
+            onUpdate({ bid_modifier_pct: parseBidModifierInput(e.target.value) });
+          }}
+          placeholder="+20"
+        />
+      </td>
+      <td className="px-2 py-1 text-right">
+        <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove geo">
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+function GeoResolveHint({ state }: { state: ResolveState }) {
+  if (state.status === "idle") return null;
+
+  if (state.status === "loading") {
+    return (
+      <p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+        Resolving…
+      </p>
+    );
+  }
+
+  if (state.status === "matched") {
+    return (
+      <p className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-700">
+        <CheckCircle2 className="h-2.5 w-2.5" />
+        {state.canonicalName}
+      </p>
+    );
+  }
+
+  if (state.status === "no_match") {
+    return (
+      <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700">
+        <AlertTriangle className="h-2.5 w-2.5" />
+        No match for &ldquo;{state.attempted}&rdquo; — check spelling
+      </p>
+    );
+  }
+
+  if (state.status === "no_account") {
+    return (
+      <p className="mt-0.5 text-[10px] text-muted-foreground">
+        Link a Google Ads account to preview resolution
+      </p>
+    );
+  }
+
+  return null;
+}
+
+// ─── GeoTargetTypeToggle ──────────────────────────────────────────────
 
 function GeoTargetTypeToggle({
   value,

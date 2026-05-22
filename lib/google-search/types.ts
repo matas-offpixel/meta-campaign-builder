@@ -43,6 +43,10 @@ export const DEFAULT_GEO_TARGET_TYPE: GoogleSearchGeoTargetType = "PRESENCE";
 export interface GoogleSearchGeoTarget {
   location: string;
   bid_modifier_pct?: number | null;
+  /** Pre-resolved `geoTargetConstant` resource name set by the wizard preview. */
+  resolved_resource_name?: string | null;
+  /** Canonical display name from the Google Ads suggest API (e.g. "London, England, United Kingdom"). */
+  resolved_name?: string | null;
 }
 
 export interface GoogleSearchDateRange {

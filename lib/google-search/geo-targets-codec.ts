@@ -90,6 +90,10 @@ export function serializeGeoTargetsColumn(
  * Coerce any runtime value into a `GoogleSearchGeoTarget[]`. Accepts
  * `unknown` so the caller never has to guard against null / undefined /
  * non-array shapes — all of which silently produce `[]`.
+ *
+ * Preserves the optional `resolved_resource_name` and `resolved_name`
+ * fields added in Phase 6 (live geo preview). Legacy entries without
+ * these fields decode fine — they just omit the optional keys.
  */
 function normaliseTargets(raw: unknown): GoogleSearchGeoTarget[] {
   if (!Array.isArray(raw)) return [];
@@ -103,7 +107,13 @@ function normaliseTargets(raw: unknown): GoogleSearchGeoTarget[] {
       typeof e.bid_modifier_pct === "number" && Number.isFinite(e.bid_modifier_pct)
         ? e.bid_modifier_pct
         : null;
-    out.push({ location, bid_modifier_pct: bidModifier });
+    const resolvedResourceName =
+      typeof e.resolved_resource_name === "string" ? e.resolved_resource_name : null;
+    const resolvedName = typeof e.resolved_name === "string" ? e.resolved_name : null;
+    const target: GoogleSearchGeoTarget = { location, bid_modifier_pct: bidModifier };
+    if (resolvedResourceName !== null) target.resolved_resource_name = resolvedResourceName;
+    if (resolvedName !== null) target.resolved_name = resolvedName;
+    out.push(target);
   }
   return out;
 }
