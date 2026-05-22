@@ -17,6 +17,8 @@ import {
 } from "../google-search/geo-targets-codec.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
+  DEFAULT_STRUCTURE_MODE,
+  STRUCTURE_MODES,
   type GoogleSearchAdGroup,
   type GoogleSearchAdGroupNode,
   type GoogleSearchCampaign,
@@ -28,6 +30,7 @@ import {
   type GoogleSearchPlanDraftTree,
   type GoogleSearchPlanTree,
   type GoogleSearchRsa,
+  type GoogleSearchStructureMode,
 } from "../google-search/types.ts";
 
 const SUPABASE_LIST_PAGE_LIMIT = 1_000;
@@ -54,6 +57,7 @@ export interface CreatePlanInput {
   google_ads_account_id?: string | null;
   total_budget?: number | null;
   bidding_strategy?: GoogleSearchPlan["bidding_strategy"];
+  structure_mode?: GoogleSearchStructureMode;
   geo_targets?: GoogleSearchPlan["geo_targets"];
   geo_target_type?: GoogleSearchGeoTargetType;
   date_range?: GoogleSearchPlan["date_range"];
@@ -72,6 +76,7 @@ export async function createGoogleSearchPlan(
       name: input.name,
       total_budget: input.total_budget ?? null,
       bidding_strategy: input.bidding_strategy ?? "maximize_clicks",
+      structure_mode: input.structure_mode ?? DEFAULT_STRUCTURE_MODE,
       geo_targets: serializeGeoTargetsColumn({
         targets: input.geo_targets ?? [],
         geo_target_type: input.geo_target_type ?? DEFAULT_GEO_TARGET_TYPE,
@@ -95,10 +100,16 @@ export async function createGoogleSearchPlan(
  */
 export function hydratePlan(raw: Record<string, unknown>): GoogleSearchPlan {
   const decoded = parseGeoTargetsColumn(raw.geo_targets);
+  const rawMode = raw.structure_mode;
+  const structure_mode: GoogleSearchStructureMode =
+    typeof rawMode === "string" && (STRUCTURE_MODES as readonly string[]).includes(rawMode)
+      ? (rawMode as GoogleSearchStructureMode)
+      : DEFAULT_STRUCTURE_MODE;
   return {
-    ...(raw as Omit<GoogleSearchPlan, "geo_targets" | "geo_target_type">),
+    ...(raw as Omit<GoogleSearchPlan, "geo_targets" | "geo_target_type" | "structure_mode">),
     geo_targets: decoded.targets,
     geo_target_type: decoded.geo_target_type,
+    structure_mode,
   } as GoogleSearchPlan;
 }
 
@@ -356,6 +367,7 @@ export async function createGoogleSearchPlanTreeFromDraft(
       options.google_ads_account_id ?? draft.plan.google_ads_account_id ?? null,
     total_budget: draft.plan.total_budget,
     bidding_strategy: draft.plan.bidding_strategy,
+    structure_mode: draft.plan.structure_mode,
     geo_targets: draft.plan.geo_targets,
     geo_target_type: draft.plan.geo_target_type,
     date_range: draft.plan.date_range,
@@ -492,6 +504,7 @@ export async function saveGoogleSearchPlanTree(
       google_ads_account_id: tree.plan.google_ads_account_id,
       total_budget: tree.plan.total_budget,
       bidding_strategy: tree.plan.bidding_strategy,
+      structure_mode: tree.plan.structure_mode,
       geo_targets: serializeGeoTargetsColumn({
         targets: tree.plan.geo_targets,
         geo_target_type: tree.plan.geo_target_type,

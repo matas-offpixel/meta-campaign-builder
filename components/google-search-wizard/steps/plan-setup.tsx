@@ -9,7 +9,9 @@ import {
 } from "@/lib/google-search/tree-mutations";
 import {
   BIDDING_STRATEGIES,
+  STRUCTURE_MODES,
   type GoogleSearchBiddingStrategy,
+  type GoogleSearchStructureMode,
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
 import { collectPlanFinalUrlState } from "@/lib/google-search/final-url-state";
@@ -19,6 +21,11 @@ import type { GoogleSearchWizardContext } from "../wizard-shell";
 const STRATEGY_LABELS: Record<GoogleSearchBiddingStrategy, string> = {
   maximize_clicks: "Maximise Clicks (recommended — no conversion tracking)",
   manual_cpc: "Manual CPC",
+};
+
+const STRUCTURE_MODE_LABELS: Record<GoogleSearchStructureMode, string> = {
+  single_campaign: "Single campaign — C-codes as ad groups (recommended for single events)",
+  campaign_per_theme: "Campaign per theme — one campaign per C-code (legacy)",
 };
 
 export function PlanSetupStep({
@@ -111,6 +118,34 @@ export function PlanSetupStep({
             placeholder="e.g. 5000"
           />
         </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Structure mode</CardTitle>
+          <CardDescription>
+            How C-codes map to Google Ads campaigns. This is fixed at import time — to change it,
+            re-import the xlsx with the desired mode selected.
+          </CardDescription>
+        </CardHeader>
+        <Select
+          id="gs-plan-structure"
+          label="Mode"
+          value={plan.structure_mode}
+          options={STRUCTURE_MODES.map((s) => ({ value: s, label: STRUCTURE_MODE_LABELS[s] }))}
+          onChange={(e) => updateField("structure_mode", e.target.value as GoogleSearchStructureMode)}
+        />
+        {plan.structure_mode === "single_campaign" ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            All C-codes are ad groups inside one campaign. One budget flows to the best-performing
+            themes — optimal for single events.
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-amber-700">
+            Each C-code is a separate campaign with its own budget. More granular control, higher
+            management overhead. Original behaviour.
+          </p>
+        )}
       </Card>
 
       <Card>

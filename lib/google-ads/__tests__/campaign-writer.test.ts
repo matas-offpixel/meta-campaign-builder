@@ -153,6 +153,7 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
       status: "draft",
       total_budget: 500,
       bidding_strategy: "maximize_clicks",
+      structure_mode: "single_campaign",
       geo_targets: [],
       geo_target_type: "PRESENCE",
       date_range: null,

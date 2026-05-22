@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { createGoogleSearchPlanTreeFromDraft } from "@/lib/db/google-search-plans";
+import {
+  STRUCTURE_MODES,
+  DEFAULT_STRUCTURE_MODE,
+  type GoogleSearchStructureMode,
+} from "@/lib/google-search/types";
 import { parseGoogleSearchPlanXlsx } from "@/lib/google-search/xlsx-import";
 
 /**
@@ -47,12 +52,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const eventId = readUuid(form.get("event_id"));
   const googleAdsAccountId = readUuid(form.get("google_ads_account_id"));
   const planNameOverride = readNonEmptyString(form.get("plan_name"));
+  const rawMode = readNonEmptyString(form.get("structure_mode"));
+  const structureMode: GoogleSearchStructureMode =
+    rawMode && (STRUCTURE_MODES as readonly string[]).includes(rawMode)
+      ? (rawMode as GoogleSearchStructureMode)
+      : DEFAULT_STRUCTURE_MODE;
 
   let draft: ReturnType<typeof parseGoogleSearchPlanXlsx>;
   try {
     const buffer = new Uint8Array(await file.arrayBuffer());
     draft = parseGoogleSearchPlanXlsx(buffer, {
       fallbackPlanName: planNameOverride ?? file.name?.replace(/\.xlsx$/i, "") ?? undefined,
+      structureMode,
     });
   } catch (err) {
     return NextResponse.json(
