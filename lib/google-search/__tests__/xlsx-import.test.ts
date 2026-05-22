@@ -122,8 +122,10 @@ describe("classifyCharOverflow", () => {
 
 // ─── End-to-end parser ────────────────────────────────────────────────
 
-describe("parseGoogleSearchPlanXlsx (J2 fixture)", () => {
-  const tree = parseGoogleSearchPlanXlsx(buildJ2Workbook());
+describe("parseGoogleSearchPlanXlsx (J2 fixture — campaign_per_theme mode)", () => {
+  // Explicitly use campaign_per_theme to preserve this as a regression
+  // guard for the original multi-campaign behaviour.
+  const tree = parseGoogleSearchPlanXlsx(buildJ2Workbook(), { structureMode: "campaign_per_theme" });
 
   it("parses the plan name from the Overview tab title row", () => {
     assert.match(tree.plan.name, /Junction 2 Melodic/);
@@ -296,7 +298,7 @@ function buildJ2RealisticWorkbook(): Uint8Array {
 }
 
 describe("parseGoogleSearchPlanXlsx (J2 realistic — section banners + ALL CAMPAIGNS)", () => {
-  const tree = parseGoogleSearchPlanXlsx(buildJ2RealisticWorkbook());
+  const tree = parseGoogleSearchPlanXlsx(buildJ2RealisticWorkbook(), { structureMode: "campaign_per_theme" });
 
   it("imports three campaigns from the Keywords tab", () => {
     assert.equal(tree.campaigns.length, 3);

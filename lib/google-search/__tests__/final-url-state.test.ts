@@ -38,6 +38,7 @@ function tree(rsas: GoogleSearchRsa[]): GoogleSearchPlanTree {
       status: "draft",
       total_budget: null,
       bidding_strategy: "maximize_clicks",
+      structure_mode: "single_campaign",
       geo_targets: [],
       geo_target_type: "PRESENCE",
       date_range: null,

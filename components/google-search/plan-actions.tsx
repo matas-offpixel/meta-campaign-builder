@@ -6,6 +6,8 @@ import { Loader2, Plus, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
+type StructureMode = "single_campaign" | "campaign_per_theme";
+
 interface PlanActionsProps {
   accounts: Array<{ id: string; account_name: string | null; google_customer_id: string | null }>;
   events: Array<{ id: string; name: string; event_code: string | null }>;
@@ -30,6 +32,7 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
   const [error, setError] = useState<string | null>(null);
   const [eventId, setEventId] = useState<string>("");
   const [accountId, setAccountId] = useState<string>("");
+  const [structureMode, setStructureMode] = useState<StructureMode>("single_campaign");
 
   async function handleNewPlan() {
     setError(null);
@@ -41,6 +44,7 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
         body: JSON.stringify({
           event_id: eventId || null,
           google_ads_account_id: accountId || null,
+          structure_mode: structureMode,
         }),
       });
       const json = (await res.json().catch(() => null)) as
@@ -65,6 +69,7 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
       form.set("file", file);
       if (eventId) form.set("event_id", eventId);
       if (accountId) form.set("google_ads_account_id", accountId);
+      form.set("structure_mode", structureMode);
       const res = await fetch("/api/google-search/import", { method: "POST", body: form });
       const json = (await res.json().catch(() => null)) as
         | { ok: true; plan_id: string; summary?: { campaigns: number } }
@@ -112,6 +117,17 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
                 {a.account_name ?? "Account"} ({a.google_customer_id ?? "—"})
               </option>
             ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-xs">
+          <span className="block font-medium text-muted-foreground">Structure</span>
+          <select
+            value={structureMode}
+            onChange={(e) => setStructureMode(e.target.value as StructureMode)}
+            className="h-8 rounded-md border border-border-strong bg-background px-2 text-xs"
+          >
+            <option value="single_campaign">Single campaign ✓ (recommended)</option>
+            <option value="campaign_per_theme">Campaign per theme (legacy)</option>
           </select>
         </label>
         <div className="flex items-center gap-2">

@@ -38,6 +38,7 @@ import * as XLSX from "xlsx";
 
 import {
   DEFAULT_GEO_TARGET_TYPE,
+  DEFAULT_STRUCTURE_MODE,
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchAdGroupDraftNode,
   type GoogleSearchCampaignDraftNode,
@@ -47,6 +48,7 @@ import {
   type GoogleSearchNegativeDraft,
   type GoogleSearchPlanDraftTree,
   type GoogleSearchRsaDraft,
+  type GoogleSearchStructureMode,
   type RsaDescription,
   type RsaHeadline,
   MATCH_TYPES,
@@ -57,6 +59,16 @@ import {
 export interface ParseXlsxOptions {
   /** Plan name fallback when no Overview tab is present. */
   fallbackPlanName?: string;
+  /**
+   * Campaign structure mode for this import.
+   *
+   * - `single_campaign` (DEFAULT): all C-codes become ad groups under ONE
+   *   campaign. Recommended for single events.
+   * - `campaign_per_theme`: one campaign per C-code (legacy behaviour).
+   *
+   * Defaults to `single_campaign` — the new recommended default.
+   */
+  structureMode?: GoogleSearchStructureMode;
 }
 
 export function parseGoogleSearchPlanXlsx(
@@ -68,6 +80,8 @@ export function parseGoogleSearchPlanXlsx(
   const workbook = XLSX.read(view, { type: "array" });
   const tabs = indexTabs(workbook);
 
+  const structureMode: GoogleSearchStructureMode =
+    options.structureMode ?? DEFAULT_STRUCTURE_MODE;
   const warnings: GoogleSearchImportWarning[] = [];
 
   // Step 1: keywords build the campaign/ad-group skeleton.
@@ -109,25 +123,121 @@ export function parseGoogleSearchPlanXlsx(
     options.fallbackPlanName ??
     "Imported Google Search Plan";
 
+  // Step 6: apply structure mode.
+  // In single_campaign mode: collapse all C-code campaigns into one campaign
+  // whose ad groups are named "{C-prefix} – {original ad group name}".
+  // In campaign_per_theme mode: pass the skeleton through unchanged.
+  let finalCampaigns = skeleton.campaigns;
+  let finalNegatives = negatives;
+  if (structureMode === "single_campaign" && skeleton.campaigns.length > 0) {
+    const result = restructureAsSingleCampaign(
+      skeleton.campaigns,
+      negatives,
+      planName,
+      warnings,
+    );
+    finalCampaigns = [result.campaign];
+    finalNegatives = result.negatives;
+  }
+
   return {
     plan: {
       name: planName,
       event_id: null,
       google_ads_account_id: null,
       status: "draft",
+      structure_mode: structureMode,
       total_budget: null,
       bidding_strategy: "maximize_clicks",
       geo_targets: [],
       geo_target_type: DEFAULT_GEO_TARGET_TYPE,
       date_range: null,
     },
-    campaigns: skeleton.campaigns,
-    negatives,
+    campaigns: finalCampaigns,
+    negatives: finalNegatives,
     warnings,
   };
 }
 
 // ─── Helpers exported for tests ────────────────────────────────────────
+
+/**
+ * Collapse N campaign-per-C-code drafts into a SINGLE campaign whose ad
+ * groups are named `{C-prefix} – {original ad group name}` (e.g.
+ * "C2 – Adam Beyer Tickets"). RSAs and keywords are unchanged; they remain
+ * attached to their ad groups.
+ *
+ * Negatives:
+ *   - Plan-scoped negatives pass through unchanged.
+ *   - Campaign-scoped negatives are PROMOTED to plan-scoped, because in
+ *     single-campaign mode there is only one campaign and per-C-code
+ *     campaign isolation is meaningless. Each promoted negative emits a
+ *     `campaign_negative_promoted_to_plan` info warning so the operator
+ *     knows what happened.
+ *
+ * The merged campaign inherits no `monthly_budget` or `daily_budget` —
+ * the operator sets the daily budget in the wizard (the plan `total_budget`
+ * envelope is the reference figure). If all source campaigns had the same
+ * daily budget, that value is used as the initial daily_budget; otherwise
+ * it is left null.
+ */
+export function restructureAsSingleCampaign(
+  campaigns: GoogleSearchCampaignDraftNode[],
+  negatives: GoogleSearchNegativeDraft[],
+  planName: string,
+  warnings: GoogleSearchImportWarning[],
+): { campaign: GoogleSearchCampaignDraftNode; negatives: GoogleSearchNegativeDraft[] } {
+  const adGroups: GoogleSearchAdGroupDraftNode[] = [];
+  let adGroupSortOrder = 0;
+
+  for (const campaign of campaigns) {
+    const prefix = extractCCodePrefix(campaign.name);
+    for (const ag of campaign.ad_groups) {
+      adGroups.push({
+        ...ag,
+        name: prefix ? `${prefix} – ${ag.name}` : `${campaign.name} – ${ag.name}`,
+        sort_order: adGroupSortOrder++,
+      });
+    }
+  }
+
+  // Promote campaign-scoped negatives to plan-scoped.
+  const promotedNegatives: GoogleSearchNegativeDraft[] = negatives.map((neg) => {
+    if (neg.scope.kind === "campaign") {
+      warnings.push({
+        code: "campaign_negative_promoted_to_plan",
+        message: `Negative "${neg.keyword}" was scoped to campaign "${neg.scope.campaign_name}" — promoted to plan-scoped (single-campaign mode, all C-codes share one campaign).`,
+        context: { keyword: neg.keyword, original_campaign: neg.scope.campaign_name },
+      });
+      return { ...neg, scope: { kind: "plan" } };
+    }
+    return neg;
+  });
+
+  const campaign: GoogleSearchCampaignDraftNode = {
+    name: planName,
+    priority: null,
+    monthly_budget: null,
+    daily_budget: null,
+    bid_adjustments: {},
+    notes: null,
+    sort_order: 0,
+    ad_groups: adGroups,
+  };
+
+  return { campaign, negatives: promotedNegatives };
+}
+
+/**
+ * Extract the C-code prefix from a campaign name.
+ * "C1 Brand Defence" → "C1"
+ * "C2 – Adam Beyer" → "C2"
+ * "Brand" → null
+ */
+function extractCCodePrefix(name: string): string | null {
+  const match = /^(c\d+)/i.exec(name.trim());
+  return match ? match[1].toUpperCase() : null;
+}
 
 const MATCH_TYPE_ALIASES: Record<string, GoogleSearchMatchType> = {
   exact: "EXACT",

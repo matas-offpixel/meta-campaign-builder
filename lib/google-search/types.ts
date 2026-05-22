@@ -28,6 +28,28 @@ export const BIDDING_STRATEGIES = ["maximize_clicks", "manual_cpc"] as const;
 export type GoogleSearchBiddingStrategy = (typeof BIDDING_STRATEGIES)[number];
 
 /**
+ * Campaign structure mode — how C-codes from the xlsx are mapped to
+ * Google Ads campaigns.
+ *
+ *   `single_campaign`     — DEFAULT. All C-codes become ad groups inside one
+ *                           campaign. One budget, one set of geo/targeting
+ *                           settings, consolidated reporting. Recommended for
+ *                           single events.
+ *
+ *   `campaign_per_theme`  — Legacy behaviour. Each C-code maps to its own
+ *                           campaign with a separate budget and targeting.
+ *                           Useful when you need granular budget control per
+ *                           theme (e.g. a season-wide plan with multiple events
+ *                           sharing headliners).
+ */
+export const STRUCTURE_MODES = [
+  "single_campaign",
+  "campaign_per_theme",
+] as const;
+export type GoogleSearchStructureMode = (typeof STRUCTURE_MODES)[number];
+export const DEFAULT_STRUCTURE_MODE: GoogleSearchStructureMode = "single_campaign";
+
+/**
  * Google Ads location-targeting type:
  *   - `PRESENCE`: only people physically in / regularly in the location.
  *     Recommended for ticketed events — someone in Spain who is merely
@@ -77,6 +99,13 @@ export interface GoogleSearchPlan {
   status: GoogleSearchPlanStatus;
   total_budget: number | null;
   bidding_strategy: GoogleSearchBiddingStrategy;
+  /**
+   * Campaign structure mode. Set at import time (or at plan creation for
+   * blank plans) and informs both the wizard UI and the parser.
+   *
+   * Default: `single_campaign`.
+   */
+  structure_mode: GoogleSearchStructureMode;
   geo_targets: GoogleSearchGeoTarget[];
   /**
    * Google Ads location-targeting mode. Persists into the existing
@@ -264,7 +293,11 @@ export interface GoogleSearchImportWarning {
     /** No landing URL found in the Ad Copy / Overview metadata. RSAs
      *  will need a `Default final URL` set in the wizard before push
      *  (Google Ads rejects RSAs without `finalUrls`). */
-    | "missing_final_url";
+    | "missing_final_url"
+    /** In `single_campaign` mode, a campaign-scoped negative was promoted to
+     *  plan-scoped because all C-codes share one campaign and per-C-code
+     *  campaign-scope is meaningless. */
+    | "campaign_negative_promoted_to_plan";
   message: string;
   /** Free-form context for the wizard to display. */
   context?: Record<string, string | number | null>;

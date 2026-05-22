@@ -93,6 +93,7 @@ function makeTree(overrides: Partial<GoogleSearchPlanTree["plan"]> = {}): Google
       status: "draft",
       total_budget: 1000,
       bidding_strategy: "maximize_clicks",
+      structure_mode: "single_campaign",
       geo_targets: [],
       geo_target_type: "PRESENCE",
       date_range: null,

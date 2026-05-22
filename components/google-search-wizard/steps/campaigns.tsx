@@ -25,6 +25,118 @@ interface Props {
 }
 
 export function CampaignsStep({ tree, onChange, onJumpToKeywords }: Props) {
+  const isSingleCampaign = tree.plan.structure_mode === "single_campaign";
+  return isSingleCampaign
+    ? <SingleCampaignView tree={tree} onChange={onChange} onJumpToKeywords={onJumpToKeywords} />
+    : <MultiCampaignView tree={tree} onChange={onChange} onJumpToKeywords={onJumpToKeywords} />;
+}
+
+// ─── Single-campaign view ─────────────────────────────────────────────
+
+function SingleCampaignView({ tree, onChange, onJumpToKeywords }: Props) {
+  const campaign = tree.campaigns[0] ?? null;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Campaign</CardTitle>
+          <CardDescription>
+            In single-campaign mode all themes (C-codes) are ad groups under one campaign. One
+            budget flows to the best-performing themes — ideal for single events.
+          </CardDescription>
+        </CardHeader>
+
+        {!campaign ? (
+          <div className="rounded-md border border-dashed border-border p-6 text-center">
+            <p className="text-sm text-muted-foreground">No campaign yet.</p>
+            <div className="mt-3 flex justify-center">
+              <Button onClick={() => onChange(addCampaign(tree))}>
+                <Plus className="h-4 w-4" />
+                Add campaign
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            <Input
+              label="Campaign name"
+              aria-label="Campaign name"
+              value={campaign.name}
+              onChange={(e) => onChange(updateCampaign(tree, campaign.id, { name: e.target.value }))}
+              placeholder="e.g. [J2-MELODIC] Search"
+            />
+            <Input
+              label="Daily budget (£)"
+              aria-label="Campaign daily budget"
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min={0}
+              value={campaign.daily_budget ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const num = raw === "" ? null : Number(raw);
+                onChange(
+                  updateCampaign(tree, campaign.id, {
+                    daily_budget: Number.isFinite(num) ? (num as number | null) : null,
+                  }),
+                );
+              }}
+              placeholder="e.g. 1 for smoke test"
+            />
+          </div>
+        )}
+      </Card>
+
+      {campaign && campaign.ad_groups.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Ad groups ({campaign.ad_groups.length})</CardTitle>
+            <CardDescription>
+              Each C-code theme is an ad group. Edit keywords and RSAs in the Keywords and Ad Copy
+              steps.
+            </CardDescription>
+          </CardHeader>
+          <div className="overflow-hidden rounded-md border border-border">
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="p-3">Ad group</th>
+                  <th className="w-24 p-3 text-right">Keywords</th>
+                  <th className="w-24 p-3 text-right">RSAs</th>
+                  <th className="w-24 p-3 text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {campaign.ad_groups.map((ag) => (
+                  <tr key={ag.id} className="border-t border-border">
+                    <td className="p-3 font-medium">{ag.name}</td>
+                    <td className="p-3 text-right text-muted-foreground">{ag.keywords.length}</td>
+                    <td className="p-3 text-right text-muted-foreground">{ag.rsas.length}</td>
+                    <td className="p-3 text-right">
+                      <button
+                        type="button"
+                        onClick={onJumpToKeywords}
+                        className="rounded-md border border-border-strong bg-background px-2 py-1 text-xs hover:bg-muted"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Multi-campaign view (campaign_per_theme) ─────────────────────────
+
+function MultiCampaignView({ tree, onChange, onJumpToKeywords }: Props) {
   // Google Ads campaign budgets are DAILY (the API expects amountMicros
   // on a daily basis). The xlsx import stores the plan's monthly
   // figure on `monthly_budget` for reference, but the push uses
