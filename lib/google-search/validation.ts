@@ -242,6 +242,58 @@ function validateBudget(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue
   return issues;
 }
 
+/**
+ * Hard validation for sitelinks. Char overruns block push because Google
+ * Ads `assets:mutate` rejects them. Empty link_text also blocks (required).
+ * URL format is checked when an override is set; missing URL is fine
+ * (push falls back to plan landing URL).
+ */
+function validateSitelinks(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const issues: GoogleSearchValidationIssue[] = [];
+  for (let i = 0; i < tree.sitelinks.length; i += 1) {
+    const sl = tree.sitelinks[i];
+    const label = sl.link_text?.trim() || `Sitelink ${i + 1}`;
+    if (!sl.link_text?.trim()) {
+      issues.push({
+        severity: "error",
+        code: "sitelink_link_text_missing",
+        message: `Sitelink ${i + 1}: link text is required.`,
+        scope: label,
+      });
+    } else if ([...sl.link_text].length > GOOGLE_SEARCH_LIMITS.SITELINK_LINK_TEXT_MAX_CHARS) {
+      issues.push({
+        severity: "error",
+        code: "sitelink_link_text_too_long",
+        message: `Sitelink "${truncate(sl.link_text)}" link text is ${sl.link_text.length} chars (max ${GOOGLE_SEARCH_LIMITS.SITELINK_LINK_TEXT_MAX_CHARS}).`,
+        scope: label,
+      });
+    }
+    for (const [field, value] of [
+      ["description1", sl.description1],
+      ["description2", sl.description2],
+    ] as const) {
+      if (value && [...value].length > GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS) {
+        issues.push({
+          severity: "error",
+          code: "sitelink_description_too_long",
+          message: `Sitelink "${label}" ${field} is ${value.length} chars (max ${GOOGLE_SEARCH_LIMITS.SITELINK_DESCRIPTION_MAX_CHARS}).`,
+          scope: label,
+        });
+      }
+    }
+    const url = (sl.final_url ?? "").trim();
+    if (url && !isValidLandingUrl(url)) {
+      issues.push({
+        severity: "error",
+        code: "sitelink_final_url_invalid",
+        message: `Sitelink "${label}" override URL "${truncate(url, 48)}" must start with http:// or https://.`,
+        scope: label,
+      });
+    }
+  }
+  return issues;
+}
+
 // ─── Plan-wide hard + soft validation (Review step) ───────────────────
 
 export function validateGoogleSearchPlan(
@@ -253,6 +305,7 @@ export function validateGoogleSearchPlan(
     ...validateKeywords(tree),
     ...validateAllRsas(tree),
     ...validateBudget(tree),
+    ...validateSitelinks(tree),
     ...softWarnings(tree),
   ];
   return dedupe(issues);
@@ -320,6 +373,19 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
         message: `Geo target "${geo.location}" didn't resolve to a Google Ads location — it won't be targeted. Check spelling or remove it.`,
       });
     }
+  }
+
+  // Sitelinks: Google requires ≥2 to show in the ad slot. Warn if the operator
+  // has fewer than the recommended minimum — they'll still push but no sitelinks
+  // will appear under the ad (and the wrong account-level ones may show instead).
+  if (tree.sitelinks.length < GOOGLE_SEARCH_LIMITS.RECOMMENDED_MIN_SITELINKS) {
+    warnings.push({
+      severity: "warning",
+      code: "sitelinks_below_minimum",
+      message: `Plan has ${tree.sitelinks.length} sitelink${
+        tree.sitelinks.length === 1 ? "" : "s"
+      } — Google requires at least ${GOOGLE_SEARCH_LIMITS.RECOMMENDED_MIN_SITELINKS} to show under the ad. Account-level sitelinks may show instead.`,
+    });
   }
 
   return warnings;

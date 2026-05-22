@@ -231,6 +231,7 @@ function buildSeededTree(): {
         ID.neg1,
       ),
     ],
+    sitelinks: [],
   };
 
   return { store, tree };
@@ -713,3 +714,130 @@ describe("saveGoogleSearchPlanTree — round-trip", () => {
     }
   });
 });
+
+// ─── Sitelinks: diff-aware save (mirrors negatives table semantics) ──
+
+describe("saveGoogleSearchPlanTree — sitelinks", () => {
+  function buildTreeWithSitelinks(): {
+    store: MemorySupabase;
+    tree: GoogleSearchPlanTree;
+  } {
+    const SL_ID_PUSHED = "f1111111-0000-0000-0000-000000000001";
+    const SL_ID_DRAFT = "f2222222-0000-0000-0000-000000000002";
+    const { store, tree } = buildSeededTree();
+
+    // Seed two sitelinks: one already pushed (carries
+    // pushed_resource_name), one still draft.
+    store.tables.set("google_search_sitelinks", [
+      {
+        id: SL_ID_PUSHED,
+        plan_id: ID.plan,
+        link_text: "Tickets",
+        description1: "Secure your place",
+        description2: "Limited availability",
+        final_url: null,
+        sort_order: 0,
+        pushed_resource_name: "customers/123/assets/7001",
+        created_at: "2026-05-21T00:00:00Z",
+      },
+      {
+        id: SL_ID_DRAFT,
+        plan_id: ID.plan,
+        link_text: "Lineup",
+        description1: "See the full lineup",
+        description2: "Artists & stages",
+        final_url: null,
+        sort_order: 1,
+        pushed_resource_name: null,
+        created_at: "2026-05-21T00:00:00Z",
+      },
+    ]);
+
+    const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+    tree.sitelinks = [
+      clone(
+        store.row("google_search_sitelinks", SL_ID_PUSHED) as unknown as GoogleSearchPlanTree["sitelinks"][number],
+      ),
+      clone(
+        store.row("google_search_sitelinks", SL_ID_DRAFT) as unknown as GoogleSearchPlanTree["sitelinks"][number],
+      ),
+    ];
+
+    return { store, tree };
+  }
+
+  it("editing description on a pushed sitelink keeps pushed_resource_name + id", async () => {
+    const { store, tree } = buildTreeWithSitelinks();
+    const SL_ID_PUSHED = tree.sitelinks[0].id;
+    tree.sitelinks[0].description1 = "Edited copy";
+
+    await saveGoogleSearchPlanTree(store.asSupabase(), tree);
+
+    const sl = store.row("google_search_sitelinks", SL_ID_PUSHED);
+    assert.ok(sl, "pushed sitelink must still exist after save");
+    assert.equal(
+      sl.pushed_resource_name,
+      "customers/123/assets/7001",
+      "pushed_resource_name MUST survive autosave (idempotency)",
+    );
+    assert.equal(sl.description1, "Edited copy");
+  });
+
+  it("UPDATE payload never includes pushed_resource_name", async () => {
+    const { store, tree } = buildTreeWithSitelinks();
+    tree.sitelinks[0].description2 = "tweaked";
+
+    await saveGoogleSearchPlanTree(store.asSupabase(), tree);
+
+    const updates = updatePayloadsFor(store.ops, "google_search_sitelinks");
+    assert.ok(updates.length > 0, "expected at least one sitelink update");
+    for (const payload of updates) {
+      assert.equal(
+        "pushed_resource_name" in payload,
+        false,
+        "pushed_resource_name MUST NOT appear in sitelink update payloads",
+      );
+    }
+  });
+
+  it("removing a sitelink from the tree deletes it; the other one keeps its push marker", async () => {
+    const { store, tree } = buildTreeWithSitelinks();
+    const SL_ID_PUSHED = tree.sitelinks[0].id;
+    const SL_ID_DRAFT = tree.sitelinks[1].id;
+    tree.sitelinks = tree.sitelinks.filter((s) => s.id !== SL_ID_DRAFT);
+
+    await saveGoogleSearchPlanTree(store.asSupabase(), tree);
+
+    const remaining = store.rows("google_search_sitelinks");
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].id, SL_ID_PUSHED);
+    assert.equal(remaining[0].pushed_resource_name, "customers/123/assets/7001");
+  });
+
+  it("adding a new sitelink with a tmp- id inserts it (no FK gymnastics needed)", async () => {
+    const { store, tree } = buildTreeWithSitelinks();
+    tree.sitelinks.push({
+      id: "tmp-sl-faq",
+      plan_id: tree.plan.id,
+      link_text: "FAQ",
+      description1: null,
+      description2: null,
+      final_url: null,
+      sort_order: 2,
+      pushed_resource_name: null,
+      created_at: new Date().toISOString(),
+    });
+
+    await saveGoogleSearchPlanTree(store.asSupabase(), tree);
+
+    const all = store.rows("google_search_sitelinks");
+    assert.equal(all.length, 3);
+    const inserted = all.find((r) => r.link_text === "FAQ");
+    assert.ok(inserted);
+    // Real Postgres replaces the tmp- id with a UUID; the in-memory shim
+    // uses `db-N`. Both are "not the tmp- id" — the property the wizard
+    // relies on so the next save treats it as an update, not an insert.
+    assert.notEqual(inserted!.id, "tmp-sl-faq");
+  });
+});
+

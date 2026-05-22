@@ -182,6 +182,7 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
         "00000000-0000-0000-0000-000000000006",
       ),
     ],
+    sitelinks: [],
   };
 
   return { store, tree };
@@ -251,6 +252,10 @@ function reloadTreeFromStore(store: MemorySupabase, tree: GoogleSearchPlanTree):
     plan_negatives: tree.plan_negatives.map((n) => ({
       ...n,
       ...clone(store.row("google_search_negatives", n.id) as unknown as object),
+    })),
+    sitelinks: tree.sitelinks.map((sl) => ({
+      ...sl,
+      ...clone(store.row("google_search_sitelinks", sl.id) as unknown as object),
     })),
   };
   return updated;

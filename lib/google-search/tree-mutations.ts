@@ -20,6 +20,8 @@ import type {
   GoogleSearchNegative,
   GoogleSearchPlanTree,
   GoogleSearchRsa,
+  GoogleSearchSitelink,
+  GoogleSearchSitelinkDraft,
   RsaDescription,
   RsaHeadline,
 } from "./types.ts";
@@ -322,6 +324,70 @@ export function removeNegative(
       ...c,
       negatives: c.negatives.filter((n) => n.id !== negativeId),
     })),
+  };
+}
+
+// ─── Sitelinks ────────────────────────────────────────────────────────
+
+export function addSitelink(
+  tree: GoogleSearchPlanTree,
+  seed: Partial<GoogleSearchSitelinkDraft> = {},
+): GoogleSearchPlanTree {
+  const sortOrder = tree.sitelinks.length;
+  const row: GoogleSearchSitelink = {
+    id: tmpId("sl"),
+    plan_id: tree.plan.id,
+    link_text: seed.link_text ?? "",
+    description1: seed.description1 ?? null,
+    description2: seed.description2 ?? null,
+    final_url: seed.final_url ?? null,
+    sort_order: seed.sort_order ?? sortOrder,
+    pushed_resource_name: null,
+    created_at: NOW(),
+  };
+  return { ...tree, sitelinks: [...tree.sitelinks, row] };
+}
+
+export function updateSitelink(
+  tree: GoogleSearchPlanTree,
+  sitelinkId: string,
+  patch: Partial<GoogleSearchSitelink>,
+): GoogleSearchPlanTree {
+  return {
+    ...tree,
+    sitelinks: tree.sitelinks.map((s) =>
+      s.id === sitelinkId ? { ...s, ...patch } : s,
+    ),
+  };
+}
+
+export function removeSitelink(
+  tree: GoogleSearchPlanTree,
+  sitelinkId: string,
+): GoogleSearchPlanTree {
+  return {
+    ...tree,
+    sitelinks: tree.sitelinks
+      .filter((s) => s.id !== sitelinkId)
+      .map((s, i) => ({ ...s, sort_order: i })),
+  };
+}
+
+export function moveSitelink(
+  tree: GoogleSearchPlanTree,
+  sitelinkId: string,
+  direction: -1 | 1,
+): GoogleSearchPlanTree {
+  const idx = tree.sitelinks.findIndex((s) => s.id === sitelinkId);
+  if (idx < 0) return tree;
+  const target = idx + direction;
+  if (target < 0 || target >= tree.sitelinks.length) return tree;
+  const next = [...tree.sitelinks];
+  const [moved] = next.splice(idx, 1);
+  next.splice(target, 0, moved);
+  return {
+    ...tree,
+    sitelinks: next.map((s, i) => ({ ...s, sort_order: i })),
   };
 }
 

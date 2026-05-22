@@ -148,6 +148,7 @@ export class MemorySupabase {
     } else if (table === "google_search_plans") {
       this._delete("google_search_campaigns", { col: "plan_id", val: ids, mode: "in" });
       this._delete("google_search_negatives", { col: "plan_id", val: ids, mode: "in" });
+      this._delete("google_search_sitelinks", { col: "plan_id", val: ids, mode: "in" });
     }
   }
 }

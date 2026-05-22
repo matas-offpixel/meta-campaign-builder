@@ -76,6 +76,7 @@ function tree(rsas: GoogleSearchRsa[]): GoogleSearchPlanTree {
       },
     ],
     plan_negatives: [],
+    sitelinks: [],
   };
 }
 

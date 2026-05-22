@@ -80,7 +80,9 @@ import type {
   GoogleSearchNegative,
   GoogleSearchPlanTree,
   GoogleSearchRsa,
+  GoogleSearchSitelink,
 } from "../google-search/types.ts";
+import { collectPlanFinalUrlState } from "../google-search/final-url-state.ts";
 import { resolveGeoLocations, type GeoResolution } from "./geo-resolve.ts";
 
 // ─── Defaults (verified by the Phase 0 spike) ─────────────────────────
@@ -107,6 +109,7 @@ export interface GoogleSearchPushPersister {
   setKeywordResource(keywordId: string, resourceName: string): Promise<void>;
   setNegativeResource(negativeId: string, resourceName: string): Promise<void>;
   setRsaResource(rsaId: string, resourceName: string): Promise<void>;
+  setSitelinkResource?(sitelinkId: string, resourceName: string): Promise<void>;
   setPlanStatus(
     planId: string,
     status: "pushed" | "partially_pushed",
@@ -179,6 +182,37 @@ export async function pushGoogleSearchPlan(
     ? tree
     : { ...tree, plan: { ...tree.plan, geo_targets: rawGeoTargets } };
 
+  // Pre-create sitelink assets once per push. Each plan's sitelinks are
+  // created on Google Ads via `assets:mutate`, then attached per campaign
+  // via `campaignAssets:mutate`. final_url fallback = the plan-level
+  // shared landing URL (first RSA's final_url when consistent across RSAs);
+  // sitelinks without an override and without a plan fallback are
+  // surfaced in `sitelinkAssetsFailed`.
+  //
+  // Account-level sitelink inheritance can NOT be cleanly disabled per
+  // campaign via the Google Ads v23 API — creating campaign-level
+  // sitelinks generally causes Google to prefer them. The wizard surfaces
+  // a soft-warning when <2 sitelinks are configured; we add a launch
+  // summary warning so the operator knows account-level ones may still
+  // appear and need manual removal.
+  const planLandingUrl = collectPlanFinalUrlState(tree).shared;
+  const sitelinks = Array.isArray(tree.sitelinks) ? tree.sitelinks : [];
+  const sitelinkAssetByLocalId = await prepareSitelinkAssets({
+    client,
+    credentials,
+    customerId,
+    sitelinks,
+    fallbackUrl: planLandingUrl,
+    persister,
+    summary,
+  });
+  if (sitelinks.length > 0) {
+    summary.warnings.push(
+      "Account-level sitelinks can't be excluded per-campaign via the Google Ads API. " +
+        "If wrong-looking sitelinks still appear under the ad after launch, remove or pause them at the account level in Google Ads.",
+    );
+  }
+
   for (const campaign of tree.campaigns) {
     try {
       await pushSingleCampaign({
@@ -191,6 +225,8 @@ export async function pushGoogleSearchPlan(
         persister,
         summary,
         geoCache,
+        sitelinks,
+        sitelinkAssetByLocalId,
       });
     } catch (err) {
       // Auth / unexpected failures abort the whole plan — record the
@@ -224,7 +260,9 @@ export async function pushGoogleSearchPlan(
     summary.keywordsFailed.length > 0 ||
     summary.negativesFailed.length > 0 ||
     summary.rsasFailed.length > 0 ||
-    summary.geoTargetsFailed.length > 0;
+    summary.geoTargetsFailed.length > 0 ||
+    summary.sitelinkAssetsFailed.length > 0 ||
+    summary.sitelinksFailedToLink.length > 0;
 
   summary.partialFailure = anyFailure;
   summary.ok = !summary.aborted && anyCampaignSuccess;
@@ -262,6 +300,10 @@ interface PushSingleCampaignArgs {
   summary: GoogleSearchLaunchSummary;
   /** Session-level cache of location string → geoTargetConstant. */
   geoCache: Map<string, GeoResolution | null>;
+  /** Plan-scoped sitelinks (same instance for every campaign). */
+  sitelinks: GoogleSearchSitelink[];
+  /** Map of sitelinkLocalId → `customers/.../assets/{id}` from prepareSitelinkAssets. */
+  sitelinkAssetByLocalId: Map<string, string>;
 }
 
 async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
@@ -370,6 +412,20 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
     campaignResource,
     geoTargets: planTree.plan.geo_targets,
     geoCache: args.geoCache,
+    summary,
+  });
+
+  // ── Step 3b: sitelink attachment (campaignAssets:mutate, SITELINK) ──
+  // Only fresh campaigns; reused campaigns were linked on their original
+  // push and re-linking would 409 (Google dedupes by
+  // (campaign, asset, fieldType)).
+  await linkSitelinksToCampaign({
+    client,
+    credentials,
+    campaign,
+    campaignResource,
+    sitelinks: args.sitelinks,
+    assetByLocalId: args.sitelinkAssetByLocalId,
     summary,
   });
 
@@ -1122,6 +1178,237 @@ function safeStringify(value: unknown): string {
   }
 }
 
+// ─── Sitelink push (asset + per-campaign link) ────────────────────────
+
+interface PrepareSitelinkAssetsArgs {
+  client: GoogleAdsClient;
+  credentials: GoogleAdsCustomerCredentials;
+  customerId: string;
+  sitelinks: GoogleSearchSitelink[];
+  /** Plan-level fallback URL (shared RSA landing URL) — applied when a sitelink has no override. */
+  fallbackUrl: string | null;
+  persister?: GoogleSearchPushPersister;
+  summary: GoogleSearchLaunchSummary;
+}
+
+/**
+ * Create campaign-level sitelink assets via `assets:mutate` (once per
+ * push). Returns a map of sitelinkLocalId → asset resource name so the
+ * per-campaign linker can attach them.
+ *
+ * Skip rules (idempotency):
+ *   - Sitelink already has `pushed_resource_name` → reuse (no API call).
+ *   - Sitelink has no `final_url` AND no plan-level fallback → skip
+ *     (recorded in `sitelinkAssetsFailed`; campaign won't be linked
+ *     to it). This is conservative — Google rejects assets with no
+ *     finalUrls.
+ */
+async function prepareSitelinkAssets(
+  args: PrepareSitelinkAssetsArgs,
+): Promise<Map<string, string>> {
+  const { client, credentials, sitelinks, fallbackUrl, persister, summary } = args;
+  const assetByLocalId = new Map<string, string>();
+
+  if (sitelinks.length === 0) return assetByLocalId;
+
+  // 1. Reused sitelinks — already have pushed_resource_name.
+  const fresh: GoogleSearchSitelink[] = [];
+  for (const sl of sitelinks) {
+    if (sl.pushed_resource_name) {
+      assetByLocalId.set(sl.id, sl.pushed_resource_name);
+      summary.sitelinkAssetsCreated.push({
+        localId: sl.id,
+        resourceName: sl.pushed_resource_name,
+        name: sl.link_text,
+        reused: true,
+      });
+    } else {
+      fresh.push(sl);
+    }
+  }
+
+  if (fresh.length === 0) return assetByLocalId;
+
+  // 2. Build per-sitelink asset create ops. Sitelinks with no URL
+  //    (override empty AND no plan fallback) go straight to failed.
+  const operations: GoogleAdsMutateOperation[] = [];
+  const pendingForApi: GoogleSearchSitelink[] = [];
+
+  for (const sl of fresh) {
+    const url = (sl.final_url ?? fallbackUrl ?? "").trim();
+    if (!url) {
+      summary.sitelinkAssetsFailed.push({
+        localId: sl.id,
+        name: sl.link_text,
+        error: "no final_url override and no plan-level landing URL — skipped",
+      });
+      continue;
+    }
+    operations.push(buildSitelinkAssetOp(sl, url));
+    pendingForApi.push(sl);
+  }
+
+  if (operations.length === 0) return assetByLocalId;
+
+  let res: GoogleAdsMutateResponse | null = null;
+  try {
+    res = await client.mutate(credentials, "assets", operations, {
+      partialFailure: true,
+    });
+  } catch (err) {
+    const message = errorMessage(err);
+    for (const sl of pendingForApi) {
+      summary.sitelinkAssetsFailed.push({
+        localId: sl.id,
+        name: sl.link_text,
+        error: `assets:mutate failed: ${message}`,
+      });
+    }
+    return assetByLocalId;
+  }
+
+  const results = res.results ?? [];
+  const failureDetails = parsePartialFailureMessages(res.partialFailureError);
+
+  for (let i = 0; i < pendingForApi.length; i += 1) {
+    const sl = pendingForApi[i];
+    const result = results[i];
+    if (result?.resourceName) {
+      assetByLocalId.set(sl.id, result.resourceName);
+      summary.sitelinkAssetsCreated.push({
+        localId: sl.id,
+        resourceName: result.resourceName,
+        name: sl.link_text,
+      });
+      if (persister?.setSitelinkResource) {
+        try {
+          await persister.setSitelinkResource(sl.id, result.resourceName);
+        } catch (err) {
+          summary.warnings.push(
+            `Sitelink asset "${sl.link_text}" created on Google Ads but failed to persist locally: ${errorMessage(err)}`,
+          );
+        }
+      }
+    } else {
+      summary.sitelinkAssetsFailed.push({
+        localId: sl.id,
+        name: sl.link_text,
+        error: failureDetails.get(i) ?? "partial_failure (no detail)",
+      });
+    }
+  }
+
+  return assetByLocalId;
+}
+
+interface LinkSitelinksToCampaignArgs {
+  client: GoogleAdsClient;
+  credentials: GoogleAdsCustomerCredentials;
+  campaign: GoogleSearchCampaignNode;
+  campaignResource: string;
+  sitelinks: GoogleSearchSitelink[];
+  assetByLocalId: Map<string, string>;
+  summary: GoogleSearchLaunchSummary;
+}
+
+/**
+ * Attach prepared sitelink assets to a single campaign via
+ * `campaignAssets:mutate` with `fieldType: SITELINK`. partialFailure
+ * so one bad link doesn't kill the rest.
+ *
+ * Called once per FRESH campaign (skip reused — they were linked on
+ * initial push). Re-linking would 409 since Google dedupes the
+ * campaignAsset by (campaign, asset, fieldType).
+ */
+async function linkSitelinksToCampaign(args: LinkSitelinksToCampaignArgs): Promise<void> {
+  const { client, credentials, campaign, campaignResource, sitelinks, assetByLocalId, summary } =
+    args;
+
+  if (sitelinks.length === 0 || assetByLocalId.size === 0) return;
+
+  const operations: GoogleAdsMutateOperation[] = [];
+  const pending: GoogleSearchSitelink[] = [];
+
+  for (const sl of sitelinks) {
+    const assetResource = assetByLocalId.get(sl.id);
+    if (!assetResource) continue; // asset creation failed — already recorded.
+    operations.push({
+      create: {
+        campaign: campaignResource,
+        asset: assetResource,
+        fieldType: "SITELINK",
+      },
+    });
+    pending.push(sl);
+  }
+
+  if (operations.length === 0) return;
+
+  let res: GoogleAdsMutateResponse | null = null;
+  try {
+    res = await client.mutate(credentials, "campaignAssets", operations, {
+      partialFailure: true,
+    });
+  } catch (err) {
+    const message = errorMessage(err);
+    for (const sl of pending) {
+      summary.sitelinksFailedToLink.push({
+        campaignId: campaign.id,
+        sitelinkLocalId: sl.id,
+        linkText: sl.link_text,
+        error: `campaignAssets:mutate failed: ${message}`,
+      });
+    }
+    return;
+  }
+
+  const results = res.results ?? [];
+  const failureDetails = parsePartialFailureMessages(res.partialFailureError);
+
+  for (let i = 0; i < pending.length; i += 1) {
+    const sl = pending[i];
+    const result = results[i];
+    if (result?.resourceName) {
+      summary.sitelinksLinkedToCampaigns.push({
+        campaignId: campaign.id,
+        sitelinkLocalId: sl.id,
+        linkText: sl.link_text,
+        resourceName: result.resourceName,
+      });
+    } else {
+      summary.sitelinksFailedToLink.push({
+        campaignId: campaign.id,
+        sitelinkLocalId: sl.id,
+        linkText: sl.link_text,
+        error: failureDetails.get(i) ?? "partial_failure (no detail)",
+      });
+    }
+  }
+}
+
+export function buildSitelinkAssetOp(
+  sitelink: GoogleSearchSitelink,
+  finalUrl: string,
+): { create: Record<string, unknown> } {
+  const sitelinkAsset: Record<string, unknown> = {
+    linkText: sitelink.link_text,
+  };
+  if (sitelink.description1 && sitelink.description1.trim()) {
+    sitelinkAsset.description1 = sitelink.description1;
+  }
+  if (sitelink.description2 && sitelink.description2.trim()) {
+    sitelinkAsset.description2 = sitelink.description2;
+  }
+  return {
+    create: {
+      finalUrls: [finalUrl],
+      sitelinkAsset,
+    },
+  };
+}
+
+// ─── End sitelink helpers ─────────────────────────────────────────────
+
 function createEmptySummary(planId: string, customerId: string): GoogleSearchLaunchSummary {
   return {
     ok: false,
@@ -1142,6 +1429,10 @@ function createEmptySummary(planId: string, customerId: string): GoogleSearchLau
     campaignsRolledBack: [],
     geoTargetsCreated: [],
     geoTargetsFailed: [],
+    sitelinkAssetsCreated: [],
+    sitelinkAssetsFailed: [],
+    sitelinksLinkedToCampaigns: [],
+    sitelinksFailedToLink: [],
     warnings: [],
     partialFailure: false,
     aborted: false,

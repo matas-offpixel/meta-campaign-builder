@@ -30,6 +30,8 @@ import {
   type GoogleSearchPlanDraftTree,
   type GoogleSearchPlanTree,
   type GoogleSearchRsa,
+  type GoogleSearchSitelink,
+  type GoogleSearchSitelinkDraft,
   type GoogleSearchStructureMode,
 } from "../google-search/types.ts";
 
@@ -61,6 +63,13 @@ export interface CreatePlanInput {
   geo_targets?: GoogleSearchPlan["geo_targets"];
   geo_target_type?: GoogleSearchGeoTargetType;
   date_range?: GoogleSearchPlan["date_range"];
+  /**
+   * Optional sitelink seed list. When omitted, the caller is responsible
+   * for seeding (or not) — `createGoogleSearchPlan` does not auto-seed,
+   * letting the route layer decide based on context (e.g. blank plan vs.
+   * xlsx import).
+   */
+  sitelinks?: GoogleSearchSitelinkDraft[];
 }
 
 export async function createGoogleSearchPlan(
@@ -88,7 +97,29 @@ export async function createGoogleSearchPlan(
   if (error || !data) {
     throw new Error(`createGoogleSearchPlan failed: ${error?.message ?? "no row"}`);
   }
-  return hydratePlan(data as Record<string, unknown>);
+  const plan = hydratePlan(data as Record<string, unknown>);
+
+  if (input.sitelinks && input.sitelinks.length > 0) {
+    const rows = input.sitelinks.map((sl) => ({
+      plan_id: plan.id,
+      link_text: sl.link_text,
+      description1: sl.description1,
+      description2: sl.description2,
+      final_url: sl.final_url,
+      sort_order: sl.sort_order,
+    }));
+    const { error: slErr } = await supabase
+      .from("google_search_sitelinks")
+      .insert(rows);
+    if (slErr) {
+      // Don't fail the plan create over sitelink seed failure — the
+      // operator can add sitelinks in the wizard. Log via thrown error so
+      // the API route can surface a warning if it cares.
+      throw new Error(`createGoogleSearchPlan: sitelink seed failed: ${slErr.message}`);
+    }
+  }
+
+  return plan;
 }
 
 /**
@@ -254,6 +285,20 @@ export async function setGoogleSearchRsaResource(
   }
 }
 
+export async function setGoogleSearchSitelinkResource(
+  supabase: SupabaseClient,
+  sitelinkId: string,
+  resourceName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("google_search_sitelinks")
+    .update({ pushed_resource_name: resourceName })
+    .eq("id", sitelinkId);
+  if (error) {
+    throw new Error(`setGoogleSearchSitelinkResource failed: ${error.message}`);
+  }
+}
+
 /**
  * Single round-trip-ish load of the full nested plan tree. Five queries
  * scoped by the plan id (RLS enforces ownership on every table), then
@@ -274,7 +319,7 @@ export async function loadGoogleSearchPlanTree(
   if (!planRow) return null;
   const plan = hydratePlan(planRow as Record<string, unknown>);
 
-  const [campaignsRes, adGroupsRes, keywordsRes, rsasRes, negativesRes] =
+  const [campaignsRes, adGroupsRes, keywordsRes, rsasRes, negativesRes, sitelinksRes] =
     await Promise.all([
       supabase
         .from("google_search_campaigns")
@@ -303,6 +348,12 @@ export async function loadGoogleSearchPlanTree(
         .select("*")
         .eq("plan_id", planId)
         .limit(SUPABASE_LIST_PAGE_LIMIT),
+      supabase
+        .from("google_search_sitelinks")
+        .select("*")
+        .eq("plan_id", planId)
+        .order("sort_order", { ascending: true })
+        .limit(SUPABASE_LIST_PAGE_LIMIT),
     ]);
 
   for (const [label, res] of Object.entries({
@@ -311,6 +362,7 @@ export async function loadGoogleSearchPlanTree(
     keywords: keywordsRes,
     rsas: rsasRes,
     negatives: negativesRes,
+    sitelinks: sitelinksRes,
   })) {
     if (res.error) {
       throw new Error(`loadGoogleSearchPlanTree (${label}) failed: ${res.error.message}`);
@@ -322,6 +374,7 @@ export async function loadGoogleSearchPlanTree(
   const keywords = (keywordsRes.data ?? []) as GoogleSearchKeyword[];
   const rsas = (rsasRes.data ?? []) as GoogleSearchRsa[];
   const negatives = (negativesRes.data ?? []) as GoogleSearchNegative[];
+  const sitelinks = (sitelinksRes.data ?? []) as GoogleSearchSitelink[];
 
   const keywordsByAdGroup = new Map<string, GoogleSearchKeyword[]>();
   for (const k of keywords) {
@@ -364,7 +417,12 @@ export async function loadGoogleSearchPlanTree(
     negatives: negativesByCampaign.get(c.id) ?? [],
   }));
 
-  return { plan, campaigns: campaignNodes, plan_negatives: planNegatives };
+  return {
+    plan,
+    campaigns: campaignNodes,
+    plan_negatives: planNegatives,
+    sitelinks,
+  };
 }
 
 /**
@@ -486,6 +544,21 @@ export async function createGoogleSearchPlanTreeFromDraft(
       .from("google_search_negatives")
       .insert(negRows);
     if (negErr) throw new Error(`Insert negatives failed: ${negErr.message}`);
+  }
+
+  if (draft.sitelinks.length > 0) {
+    const sitelinkRows = draft.sitelinks.map((sl) => ({
+      plan_id: plan.id,
+      link_text: sl.link_text,
+      description1: sl.description1,
+      description2: sl.description2,
+      final_url: sl.final_url,
+      sort_order: sl.sort_order,
+    }));
+    const { error: slErr } = await supabase
+      .from("google_search_sitelinks")
+      .insert(sitelinkRows);
+    if (slErr) throw new Error(`Insert sitelinks failed: ${slErr.message}`);
   }
 
   return { plan_id: plan.id };
@@ -942,6 +1015,62 @@ export async function saveGoogleSearchPlanTree(
     const { error } = await supabase.from("google_search_negatives").insert(rows);
     if (error) {
       throw new Error(`saveGoogleSearchPlanTree (negative insert) failed: ${error.message}`);
+    }
+  }
+
+  // ── 7. Sitelinks (plan-scoped, diff-aware) ──────────────────────────
+  // Same pattern as negatives — never write `pushed_resource_name` on
+  // update so the push adapter's idempotency signal survives autosave.
+  const { data: existingSlRaw, error: existSlErr } = await supabase
+    .from("google_search_sitelinks")
+    .select("id")
+    .eq("plan_id", tree.plan.id);
+  if (existSlErr) {
+    throw new Error(`saveGoogleSearchPlanTree (load sitelinks) failed: ${existSlErr.message}`);
+  }
+  const existingSitelinkIds = new Set(
+    ((existingSlRaw ?? []) as Array<{ id: string }>).map((r) => r.id),
+  );
+  const sitelinkPlan = partitionTreeRows(existingSitelinkIds, tree.sitelinks);
+
+  if (sitelinkPlan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("google_search_sitelinks")
+      .delete()
+      .in("id", sitelinkPlan.deletes);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (sitelink delete) failed: ${error.message}`);
+    }
+  }
+  for (const sl of sitelinkPlan.updates) {
+    const { error } = await supabase
+      .from("google_search_sitelinks")
+      .update({
+        link_text: sl.link_text,
+        description1: sl.description1,
+        description2: sl.description2,
+        final_url: sl.final_url,
+        sort_order: sl.sort_order,
+      })
+      .eq("id", sl.id);
+    if (error) {
+      throw new Error(
+        `saveGoogleSearchPlanTree (sitelink update "${sl.link_text}") failed: ${error.message}`,
+      );
+    }
+  }
+  if (sitelinkPlan.inserts.length > 0) {
+    const rows = sitelinkPlan.inserts.map((sl) => ({
+      plan_id: tree.plan.id,
+      link_text: sl.link_text,
+      description1: sl.description1,
+      description2: sl.description2,
+      final_url: sl.final_url,
+      sort_order: sl.sort_order,
+    }));
+    const { error } = await supabase.from("google_search_sitelinks").insert(rows);
+    if (error) {
+      throw new Error(`saveGoogleSearchPlanTree (sitelink insert) failed: ${error.message}`);
     }
   }
 }

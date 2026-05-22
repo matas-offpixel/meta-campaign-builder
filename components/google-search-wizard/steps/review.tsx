@@ -42,6 +42,7 @@ export function ReviewStep({ tree, onGoToStep }: Props) {
           <SummaryCard label="Negatives (shared)" value={totals.planNegatives} />
           <SummaryCard label="Negatives (campaign)" value={totals.campaignNegatives} />
           <SummaryCard label="RSAs" value={totals.rsas} />
+          <SummaryCard label="Sitelinks" value={totals.sitelinks} />
         </div>
 
         <p className="mt-4 text-xs text-muted-foreground">
@@ -189,7 +190,12 @@ function jumpStep(code: string): GoogleSearchWizardStep | null {
     code === "ad_group_no_rsa" ||
     code === "rsa_final_url_missing" ||
     code === "rsa_final_url_invalid" ||
-    code === "rsa_final_url_http"
+    code === "rsa_final_url_http" ||
+    code === "sitelink_link_text_missing" ||
+    code === "sitelink_link_text_too_long" ||
+    code === "sitelink_description_too_long" ||
+    code === "sitelink_final_url_invalid" ||
+    code === "sitelinks_below_minimum"
   )
     return 4;
   if (code === "budget_over_allocated" || code === "budget_under_allocated") return 5;
@@ -221,5 +227,6 @@ function computeTotals(tree: GoogleSearchPlanTree) {
     planNegatives: tree.plan_negatives.length,
     campaignNegatives,
     allocated,
+    sitelinks: tree.sitelinks.length,
   };
 }

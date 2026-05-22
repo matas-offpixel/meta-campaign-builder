@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { createGoogleSearchPlan } from "@/lib/db/google-search-plans";
+import { defaultSitelinkSeeds } from "@/lib/google-search/sitelink-defaults";
 import {
   STRUCTURE_MODES,
   DEFAULT_STRUCTURE_MODE,
@@ -45,12 +46,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       : DEFAULT_STRUCTURE_MODE;
 
   try {
+    // If the new plan is linked to an event, look up the venue name so the
+    // default Venue Info sitelink can include it. Best-effort — failure
+    // (no event_id, RLS, etc) falls through to the generic venue copy.
+    let venueName: string | null = null;
+    if (body.event_id) {
+      const { data: evt } = await supabase
+        .from("events")
+        .select("venue_name")
+        .eq("id", body.event_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      venueName = (evt as { venue_name?: string | null } | null)?.venue_name ?? null;
+    }
+
     const plan = await createGoogleSearchPlan(supabase, {
       user_id: user.id,
       name: body.name?.trim() || "New Google Search plan",
       event_id: body.event_id ?? null,
       google_ads_account_id: body.google_ads_account_id ?? null,
       structure_mode: structureMode,
+      sitelinks: defaultSitelinkSeeds({ venueName }),
     });
     return NextResponse.json({ ok: true, plan_id: plan.id }, { status: 201 });
   } catch (err) {
