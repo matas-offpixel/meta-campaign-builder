@@ -1305,8 +1305,13 @@ describe("aggregateVenueWoW", () => {
     assert.equal(result.cpt.delta, null);
   });
 
-  it("freezes ROAS at the current edge so collapsed and expanded views align", () => {
-    const events = eventsWithCumulative(570, 0);
+  it("freezes ROAS at the current edge using CANONICAL all-channel revenue, not rollup revenue", () => {
+    // Canonical per-event revenue = 2000 (all-channel). The rollup revenue
+    // sums to 1800 (over/under-attributed) and must NOT be the ROAS source.
+    const events = [
+      ev({ id: "a", latest_snapshot: { tickets_sold: 570, revenue: 2000 } }),
+      ev({ id: "b", latest_snapshot: { tickets_sold: 0, revenue: null } }),
+    ];
     const rollups: DailyRollupRow[] = [
       rollup("a", 600, { date: "2026-04-18", revenue: 1200 }),
       rollup("a", 300, { date: "2026-04-21", tickets_sold: 2, revenue: 450 }),
@@ -1315,7 +1320,8 @@ describe("aggregateVenueWoW", () => {
 
     const result = aggregateVenueWoW(events, rollups, TODAY);
 
-    const current = 1800 / 935;
+    // canonical revenue (2000) / rollup spend (935) — NOT the 1800 rollup sum.
+    const current = 2000 / 935;
     assert.ok(result.roas.current !== null);
     assert.ok(Math.abs(result.roas.current! - current) < 1e-9);
     assert.equal(result.roas.previous, current);

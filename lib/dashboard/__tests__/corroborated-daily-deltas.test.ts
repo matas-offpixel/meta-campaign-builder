@@ -26,9 +26,12 @@ import * as path from "node:path";
 
 import {
   buildCorroboratedDailyDeltas,
+  buildEventCumulativeTicketTimeline,
   corroboratedDailyDeltas,
   shiftYmd,
 } from "../venue-trend-points.ts";
+import type { WeeklyTicketSnapshotRow } from "../../db/client-portal-server.ts";
+import type { TierChannelDailyHistoryRow } from "../../db/tier-channel-daily-history.ts";
 
 const repoRoot = path.resolve(import.meta.dirname ?? __dirname, "../../..");
 
@@ -262,5 +265,68 @@ describe("corroboratedDailyDeltas — brand_campaign (BB26-KAYODE)", () => {
       src.includes('kind === "brand_campaign"'),
       "daily-tracker.tsx must keep the brand_campaign render gate",
     );
+  });
+});
+
+describe("buildEventCumulativeTicketTimeline — no all-channel anchor leap on a single-channel line", () => {
+  const snap = (date: string, tickets: number): WeeklyTicketSnapshotRow =>
+    ({
+      event_id: "e",
+      snapshot_at: date,
+      tickets_sold: tickets,
+    }) as unknown as WeeklyTicketSnapshotRow;
+
+  it("does NOT leap to the all-channel SUM when the event has NO daily_history (4TF-only envelope)", () => {
+    // 4TF snapshots cap at 2163; live all-channel tcs SUM = 2342 (+179 CP).
+    const rows = [snap("2026-05-20", 2100), snap("2026-05-21", 2163)];
+    const steps = buildEventCumulativeTicketTimeline(
+      rows,
+      { tickets: 2342, revenue: 23590 },
+      "2026-05-22",
+      undefined, // no daily_history → must not anchor
+    );
+    const maxCum = Math.max(...steps.map((s) => s.cumulative));
+    assert.equal(maxCum, 2163, "4TF line stays at 2163 — no +179 leap to 2342");
+    assert.ok(
+      !steps.some((s) => s.cumulative === 2342),
+      "a single-channel line must never be anchored up to the all-channel SUM",
+    );
+  });
+
+  it("uses all-channel daily_history and lets the anchor reconcile today by a small delta", () => {
+    const rows = [snap("2026-05-21", 2163)]; // 4TF envelope (lower)
+    const hist: TierChannelDailyHistoryRow[] = [
+      { id: "h1", event_id: "e", snapshot_date: "2026-05-21", tickets_sold_total: 2320, revenue_total: 23000, source_kind: "cron", captured_at: "2026-05-20T23:55:00Z" },
+      { id: "h2", event_id: "e", snapshot_date: "2026-05-22", tickets_sold_total: 2340, revenue_total: 23579, source_kind: "cron", captured_at: "2026-05-21T23:55:00Z" },
+    ];
+    const steps = buildEventCumulativeTicketTimeline(
+      rows,
+      { tickets: 2342, revenue: 23590 },
+      "2026-05-22",
+      hist,
+    );
+    assert.ok(
+      steps.some((s) => s.cumulative === 2320),
+      "line runs on all-channel daily_history (2320), not the 2163 4TF envelope",
+    );
+    const last = steps[steps.length - 1]!;
+    assert.equal(last.date, "2026-05-22");
+    assert.equal(
+      last.cumulative,
+      2342,
+      "anchor reconciles today to live SUM by a small delta (2340→2342), not a leap",
+    );
+  });
+});
+
+describe("listDailyHistoryForEvents — paginated (no silent 1000-row truncation)", () => {
+  it("range-pages the select so large clients aren't truncated", () => {
+    const src = fs.readFileSync(
+      path.join(repoRoot, "lib/db/tier-channel-daily-history.ts"),
+      "utf8",
+    );
+    const fn = src.slice(src.indexOf("export async function listDailyHistoryForEvents("));
+    assert.ok(fn.includes(".range("), "must paginate via .range() (PostgREST caps unbounded selects at 1000 rows)");
+    assert.ok(/page\.length < PAGE/.test(fn), "must loop until a short page (full delivery)");
   });
 });

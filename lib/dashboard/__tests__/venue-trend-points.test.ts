@@ -321,20 +321,27 @@ describe("buildEventCumulativeTicketTimeline (envelope across sources)", () => {
     }
   });
 
-  it("tier_channel_sales anchor: today's cumulative jumps to the cross-channel SUM", () => {
+  it("anchor is NOT applied without daily_history — no single-channel→all-channel leap (#456)", () => {
     const rows = [
       snapshot("croatia-id", "2026-04-28", 274, "xlsx_import"),
       snapshot("croatia-id", "2026-05-05", 482, "fourthefans"),
     ];
-    // tier_channel_sales SUM for Croatia today = 4TF 482 + Venue 120 = 602
+    // Cross-channel SUM today = 4TF 482 + Venue 120 = 602. But with NO
+    // daily_history the line is the 4TF/snapshot envelope only — anchoring it
+    // up to 602 would dump the operator-channel volume onto today (the spike).
+    // So no leap: the line stays at the envelope max (482). The all-channel
+    // total is surfaced by the topline tile (#454), not by leaping the graph.
     const timeline = buildEventCumulativeTicketTimeline(
       rows,
       { tickets: 602, revenue: null },
       "2026-05-09",
     );
     const last = timeline.at(-1);
-    assert.equal(last?.date, "2026-05-09");
-    assert.equal(last?.cumulative, 602);
+    assert.equal(last?.cumulative, 482);
+    assert.ok(
+      !timeline.some((s) => s.cumulative === 602),
+      "must not anchor a single-channel line up to the cross-channel SUM",
+    );
   });
 
   it("anchor below envelope: keeps envelope, does not regress", () => {
@@ -354,16 +361,41 @@ describe("buildEventCumulativeTicketTimeline (envelope across sources)", () => {
     assert.ok(last.cumulative >= 950, `expected >=950, got ${last.cumulative}`);
   });
 
-  it("event with no snapshots but a tier_channel_sales anchor: emits a single today step", () => {
+  it("event with no snapshots and no daily_history: emits NO anchor step (#456)", () => {
+    // With neither snapshots nor daily_history there is no all-channel daily
+    // source, so we do NOT fabricate a today step from the cross-channel SUM
+    // (that was the single-channel leap). The all-channel total lives in the
+    // topline tile (#454).
     const timeline = buildEventCumulativeTicketTimeline(
       [],
       { tickets: 124, revenue: 850 },
       "2026-05-09",
     );
-    assert.equal(timeline.length, 1);
-    assert.equal(timeline[0]?.date, "2026-05-09");
-    assert.equal(timeline[0]?.cumulative, 124);
-    assert.equal(timeline[0]?.cumulativeRevenue, 850);
+    assert.equal(timeline.length, 0);
+  });
+
+  it("anchor IS applied (small reconciliation) when daily_history is present", () => {
+    // daily_history makes the line all-channel; the anchor then only nudges
+    // today to the live SUM by a small delta — not a leap.
+    const timeline = buildEventCumulativeTicketTimeline(
+      [],
+      { tickets: 124, revenue: 850 },
+      "2026-05-09",
+      [
+        {
+          id: "h",
+          event_id: "e",
+          snapshot_date: "2026-05-09",
+          tickets_sold_total: 120,
+          revenue_total: 820,
+          source_kind: "cron",
+          captured_at: "2026-05-08T23:55:00Z",
+        },
+      ],
+    );
+    const last = timeline.at(-1);
+    assert.equal(last?.date, "2026-05-09");
+    assert.equal(last?.cumulative, 124); // max(120 daily_history, 124 anchor)
   });
 });
 
@@ -426,10 +458,20 @@ describe("buildVenueTicketSnapshotPoints + tier_channel_sales anchors (Mancheste
     );
   });
 
-  it("today (May 9) venue cumulative = 1,362 = tier_channel_sales SUM (Event Breakdown match)", () => {
+  it("today (May 9) venue cumulative = 1,362 = all-channel total via daily_history (Event Breakdown match)", () => {
+    // Post-#456: the all-channel total reaches the line via daily_history (the
+    // canonical all-channel source), not a single-channel anchor leap. The
+    // anchor then only reconciles today (here it equals the daily_history sum).
+    const dailyHistory = [
+      { id: "dc", event_id: MANCHESTER_IDS.croatia, snapshot_date: "2026-05-09", tickets_sold_total: 602, revenue_total: 3612, source_kind: "cron" as const, captured_at: "2026-05-08T23:55:00Z" },
+      { id: "dg", event_id: MANCHESTER_IDS.ghana,   snapshot_date: "2026-05-09", tickets_sold_total: 142, revenue_total:  852, source_kind: "cron" as const, captured_at: "2026-05-08T23:55:00Z" },
+      { id: "dp", event_id: MANCHESTER_IDS.panama,  snapshot_date: "2026-05-09", tickets_sold_total: 540, revenue_total: 3240, source_kind: "cron" as const, captured_at: "2026-05-08T23:55:00Z" },
+      { id: "dl", event_id: MANCHESTER_IDS.last32,  snapshot_date: "2026-05-09", tickets_sold_total:  78, revenue_total:  468, source_kind: "cron" as const, captured_at: "2026-05-08T23:55:00Z" },
+    ];
     const points = buildVenueTicketSnapshotPoints(snaps, ALL_MANCHESTER, {
       tierChannelAnchors: anchors,
       todayIso: "2026-05-09",
+      dailyHistory,
     });
     const today = points.find((p) => p.date === "2026-05-09");
     assert.equal(today?.tickets, 1362);
@@ -511,9 +553,22 @@ describe("buildVenueCumulativeTicketTimeline", () => {
           { event_id: MANCHESTER_IDS.croatia, tickets: 602, revenue: 3612 },
         ],
         todayIso: "2026-05-09",
+        // daily_history present → the line is all-channel and the anchor is
+        // allowed to reconcile today (#456). Without it the anchor is skipped.
+        dailyHistory: [
+          {
+            id: "h-croatia",
+            event_id: MANCHESTER_IDS.croatia,
+            snapshot_date: "2026-05-09",
+            tickets_sold_total: 600,
+            revenue_total: 3600,
+            source_kind: "cron",
+            captured_at: "2026-05-08T23:55:00Z",
+          },
+        ],
       },
     );
-    // Sorted asc + monotonic + ends at the today anchor.
+    // Sorted asc + monotonic + ends at the today anchor (reconciled).
     assert.deepEqual(
       timeline.map((s) => s.date),
       ["2026-04-28", "2026-04-29", "2026-05-09"],
