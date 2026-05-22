@@ -646,7 +646,6 @@ export function aggregateVenueCampaignPerformance(
   }
 
   let paidSpent = paidMediaSpentOverride ?? null;
-  let ticketRevenue: number | null = null;
   if (paidSpent == null) {
     paidSpent = 0;
     for (const row of dailyRollups) {
@@ -655,17 +654,20 @@ export function aggregateVenueCampaignPerformance(
         ad_spend: row.ad_spend_allocated ?? row.ad_spend,
         tiktok_spend: row.tiktok_spend,
       });
-      if (row.revenue != null) {
-        ticketRevenue = (ticketRevenue ?? 0) + row.revenue;
-      }
     }
-  } else {
-    for (const row of dailyRollups) {
-      if (!eventIds.has(row.event_id)) continue;
-      if (row.revenue != null) {
-        ticketRevenue = (ticketRevenue ?? 0) + row.revenue;
-      }
-    }
+  }
+
+  // Ticket revenue = SUM of per-event canonical revenue (tier_channel_sales
+  // preferred, via resolveDisplayTicketRevenue) — the SAME source the per-event
+  // breakdown rows use — NOT event_daily_rollups.revenue, which the rollup writer
+  // over-attributes (Brighton topline showed £107,611 vs true £23,599; Manchester
+  // £16,177 vs £12,594). Mirrors `tickets` (ticketsForAggregatableEvent) above so
+  // the topline equals the sum of the event rows. ROAS below derives from this.
+  // Spend stays sourced from event_daily_rollups (unchanged).
+  let ticketRevenue: number | null = null;
+  for (const ev of events) {
+    const r = ticketRevenueForAggregatableEvent(ev);
+    if (r != null) ticketRevenue = (ticketRevenue ?? 0) + r;
   }
 
   const paidMediaBudget = aggregateSharedVenueBudget(events);

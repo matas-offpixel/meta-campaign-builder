@@ -581,6 +581,66 @@ describe("aggregateVenueCampaignPerformance", () => {
     assert.equal(t.dailyBudget, null);
   });
 
+  it("topline ticket revenue = SUM of per-event canonical revenue, NOT event_daily_rollups.revenue", () => {
+    // Brighton (4 fixtures). Canonical per-event revenue — what the breakdown
+    // rows show via resolveDisplayTicketRevenue — is 7222 + 1945 + 12818 + 1614
+    // = 23599. The rollup writer over-attributes revenue (sums to 107611). The
+    // topline must equal the per-event sum, not the rollup sum.
+    const canonical = [7222, 1945, 12818, 1614];
+    const events = canonical.map((rev, i) =>
+      ev({
+        id: `bri-${i}`,
+        event_code: "WC26-BRIGHTON",
+        event_date: "2026-06-13",
+        capacity: 5000,
+        ticket_tiers: [
+          {
+            tier_name: "GA",
+            price: 50,
+            quantity_sold: 1,
+            quantity_available: 100,
+            snapshot_at: "2026-01-01",
+            channel_breakdowns: [
+              {
+                channel_id: "4tf",
+                channel_name: "4TF",
+                display_label: "4TF",
+                is_automatic: true,
+                allocation_count: 1,
+                tickets_sold: 1,
+                revenue_amount: rev,
+                revenue_overridden: false,
+              },
+            ],
+          },
+        ],
+        tier_channel_sales_revenue: rev,
+        latest_snapshot: { tickets_sold: 1, revenue: 0 },
+      }),
+    );
+    // Over-attributed rollup revenue (sums to 107611) — must be IGNORED.
+    const rollups = [
+      rollup("bri-0", 2500, { revenue: 40000 }),
+      rollup("bri-1", 2500, { revenue: 30000 }),
+      rollup("bri-2", 2500, { revenue: 30000 }),
+      rollup("bri-3", 2500, { revenue: 7611 }),
+    ];
+
+    const t = aggregateVenueCampaignPerformance(events, [], rollups, TODAY);
+
+    assert.equal(
+      t.ticketRevenue,
+      23599,
+      "topline must equal the per-event canonical sum (23599), not the rollup sum (107611)",
+    );
+    assert.equal(t.paidMediaSpent, 10000, "spend stays sourced from rollups");
+    assert.equal(
+      t.roas,
+      23599 / 10000,
+      "ROAS must recompute from the corrected revenue",
+    );
+  });
+
   it("uses the earliest upcoming event_date for venue pacing and ignores past dates", () => {
     const events = [
       ev({
