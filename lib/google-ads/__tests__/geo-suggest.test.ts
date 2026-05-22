@@ -62,8 +62,12 @@ function makeFakeClientWithSuggest(
     async suggestGeoTargetConstants(
       _refreshToken: string,
       names: string[],
-    ): Promise<Array<{ resourceName: string; displayName: string } | null>> {
-      return names.map((n) => responses[n.toLowerCase()] ?? responses[n] ?? null);
+    ): Promise<Array<{ resourceName: string; displayName: string; countryCode: string | null; targetType: string | null } | null>> {
+      return names.map((n) => {
+        const hit = responses[n.toLowerCase()] ?? responses[n] ?? null;
+        if (!hit) return null;
+        return { resourceName: hit.resourceName, displayName: hit.displayName, countryCode: null, targetType: null };
+      });
     },
     // Satisfy GoogleAdsClient interface for the writer's usage.
     async mutate() { return { results: [] }; },

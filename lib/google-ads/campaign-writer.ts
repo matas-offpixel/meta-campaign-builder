@@ -81,7 +81,7 @@ import type {
   GoogleSearchPlanTree,
   GoogleSearchRsa,
 } from "../google-search/types.ts";
-import { resolveGeoLocations, type GeoResolution } from "./geo-suggest.ts";
+import { resolveGeoLocations, type GeoResolution } from "./geo-resolve.ts";
 
 // ─── Defaults (verified by the Phase 0 spike) ─────────────────────────
 
@@ -156,12 +156,19 @@ export async function pushGoogleSearchPlan(
   // the push adapter never throws on either shape.
   const rawGeoTargets = Array.isArray(tree.plan.geo_targets) ? tree.plan.geo_targets : [];
   const geoCache = new Map<string, GeoResolution | null>();
-  const uniqueLocations = [
-    ...new Set(rawGeoTargets.map((g) => g.location).filter(Boolean)),
+  // Only batch-resolve locations that don't already carry a wizard-stamped
+  // resolved_resource_name. Pre-resolved targets skip the suggest API entirely.
+  const uniqueLocationsNeedingResolve = [
+    ...new Set(
+      rawGeoTargets
+        .filter((g) => !g.resolved_resource_name)
+        .map((g) => g.location)
+        .filter(Boolean),
+    ),
   ];
-  if (uniqueLocations.length > 0) {
+  if (uniqueLocationsNeedingResolve.length > 0) {
     try {
-      await resolveGeoLocations(uniqueLocations, client, credentials, geoCache);
+      await resolveGeoLocations(uniqueLocationsNeedingResolve, client, credentials, geoCache);
     } catch {
       // Non-fatal: per-campaign resolution will hit the fallback map.
     }
@@ -415,11 +422,17 @@ async function pushCampaignGeoCriteria(args: PushGeoCriteriaArgs): Promise<void>
 
   if (geoTargets.length === 0) return;
 
-  // Resolve any locations not yet in the cache.
-  const uncached = geoTargets.map((g) => g.location).filter((loc) => !geoCache.has(loc));
-  if (uncached.length > 0) {
+  // For targets without a pre-resolved resource name, populate the cache
+  // via the suggest API. Targets that already carry `resolved_resource_name`
+  // (written by the wizard live-preview) skip the API call entirely, which
+  // makes push faster and guarantees the push matches what the operator saw.
+  const needsLiveResolve = geoTargets
+    .filter((g) => !g.resolved_resource_name)
+    .map((g) => g.location)
+    .filter((loc) => !geoCache.has(loc));
+  if (needsLiveResolve.length > 0) {
     try {
-      await resolveGeoLocations(uncached, client, credentials, geoCache);
+      await resolveGeoLocations(needsLiveResolve, client, credentials, geoCache);
     } catch {
       // Non-fatal — fallback map covers common UK locations.
     }
@@ -429,8 +442,12 @@ async function pushCampaignGeoCriteria(args: PushGeoCriteriaArgs): Promise<void>
   const pendingTargets: GoogleSearchGeoTarget[] = [];
 
   for (const geo of geoTargets) {
-    const resolution = geoCache.get(geo.location) ?? null;
-    if (!resolution) {
+    // Prefer the pre-resolved resource name stamped by the wizard preview.
+    // Fall back to the live-resolve cache (which covers XLSX-imported plans
+    // and any target whose wizard preview was skipped).
+    const resourceName =
+      geo.resolved_resource_name ?? geoCache.get(geo.location)?.resourceName ?? null;
+    if (!resourceName) {
       summary.geoTargetsFailed.push({
         campaignId: campaign.id,
         location: geo.location,
@@ -440,7 +457,7 @@ async function pushCampaignGeoCriteria(args: PushGeoCriteriaArgs): Promise<void>
     }
     const op: Record<string, unknown> = {
       campaign: campaignResource,
-      location: { geoTargetConstant: resolution.resourceName },
+      location: { geoTargetConstant: resourceName },
     };
     // Convert bid_modifier_pct to a multiplier: +20 → 1.20, -10 → 0.90.
     if (geo.bid_modifier_pct != null && Number.isFinite(geo.bid_modifier_pct)) {
