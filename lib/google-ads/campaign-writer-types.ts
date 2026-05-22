@@ -53,6 +53,14 @@ export interface GoogleSearchLaunchSummary {
   /** Resource names removed during best-effort cleanup. */
   budgetsRolledBack: string[];
   campaignsRolledBack: string[];
+  /**
+   * Geo location criteria pushed via `campaignCriteria:mutate`.
+   * Each entry maps to one `{ location, bid_modifier_pct }` target from
+   * the plan's `geo_targets` list.
+   */
+  geoTargetsCreated: Array<{ campaignId: string; location: string; resourceName: string }>;
+  /** Locations that couldn't be resolved or whose criterion mutate failed. */
+  geoTargetsFailed: Array<{ campaignId: string; location: string; error: string }>;
   warnings: string[];
   /** True when at least one row failed (anywhere in the tree). */
   partialFailure: boolean;

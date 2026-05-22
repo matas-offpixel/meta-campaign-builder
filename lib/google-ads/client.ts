@@ -55,6 +55,17 @@ interface GoogleAdsRestSearchResponse {
   results?: unknown[];
 }
 
+interface GeoTargetSuggestion {
+  searchTerm?: string;
+  locale?: string;
+  geoTargetConstant?: {
+    resourceName?: string;
+    name?: string;
+    status?: string;
+    targetType?: string;
+  };
+}
+
 /**
  * Shape of a single mutate operation. Google Ads accepts exactly one of
  * `create`, `update`, or `remove` per operation; `update` additionally
@@ -176,6 +187,57 @@ export class GoogleAdsClient {
         }),
       `${resource}:mutate`,
     );
+  }
+
+  /**
+   * Resolves free-text location strings to `geoTargetConstant` resource
+   * names via the Google Ads `geoTargetConstants:suggest` endpoint.
+   *
+   * This is a global (non-customer) endpoint; it requires auth (access
+   * token + developer token) but no customer id in the path.
+   *
+   * Returns an array of suggestions in the same order as `names`. Each
+   * slot is the best ENABLED match (highest relevance) for that name,
+   * or `null` if no suggestion was found.
+   */
+  async suggestGeoTargetConstants(
+    refreshToken: string,
+    names: string[],
+    options: { locale?: string; countryCode?: string } = {},
+  ): Promise<Array<{ resourceName: string; displayName: string } | null>> {
+    if (names.length === 0) return [];
+    const body = {
+      locale: options.locale ?? "en",
+      countryCode: options.countryCode ?? "GB",
+      locationNames: { names },
+    };
+    const res = await this.executeWithRetry(
+      () =>
+        this.request<{ geoTargetConstantSuggestions?: GeoTargetSuggestion[] }>({
+          refreshToken,
+          path: "/geoTargetConstants:suggest",
+          method: "POST",
+          body,
+        }),
+      "geoTargetConstants:suggest",
+    );
+    const suggestions = res.geoTargetConstantSuggestions ?? [];
+    // Build one best-match per queried name (in order).
+    return names.map((name) => {
+      const matches = suggestions.filter(
+        (s) =>
+          s.searchTerm?.toLowerCase() === name.toLowerCase() &&
+          s.geoTargetConstant?.status === "ENABLED" &&
+          s.geoTargetConstant?.resourceName,
+      );
+      if (matches.length === 0) return null;
+      // Suggestions are returned in descending relevance order.
+      const best = matches[0];
+      return {
+        resourceName: best.geoTargetConstant!.resourceName!,
+        displayName: best.geoTargetConstant!.name ?? name,
+      };
+    });
   }
 
   private async executeQueryWithRetry<T>(

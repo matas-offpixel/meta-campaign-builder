@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { parseBidModifierInput } from "@/lib/google-search/bid-modifier";
 import { updateCampaign, updatePlan } from "@/lib/google-search/tree-mutations";
 import {
   type GoogleSearchGeoTarget,
@@ -96,14 +97,12 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
                     <td className="px-2 py-1">
                       <Input
                         aria-label={`Geo ${i + 1} bid modifier`}
-                        type="number"
-                        step="1"
+                        type="text"
+                        inputMode="numeric"
                         value={g.bid_modifier_pct ?? ""}
                         onChange={(e) => {
-                          const raw = e.target.value;
-                          const num = raw === "" ? null : Number(raw);
                           updateGeo(i, {
-                            bid_modifier_pct: Number.isFinite(num) ? (num as number | null) : null,
+                            bid_modifier_pct: parseBidModifierInput(e.target.value),
                           });
                         }}
                         placeholder="+20"
