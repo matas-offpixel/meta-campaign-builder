@@ -129,6 +129,29 @@ export async function listGoogleSearchPlansForEvent(
   return (data ?? []).map((row) => hydratePlan(row as Record<string, unknown>));
 }
 
+/**
+ * Return all plans owned by `userId`, newest-first.
+ *
+ * Uses the session-bound Supabase client so that RLS (`auth.uid() = user_id`)
+ * is satisfied — the caller must pass the result of `createClient()` (server),
+ * not the service-role client.
+ */
+export async function listGoogleSearchPlansForUser(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<GoogleSearchPlan[]> {
+  const { data, error } = await supabase
+    .from("google_search_plans")
+    .select("*")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(SUPABASE_LIST_PAGE_LIMIT);
+  if (error) {
+    throw new Error(`listGoogleSearchPlansForUser failed: ${error.message}`);
+  }
+  return (data ?? []).map((row) => hydratePlan(row as Record<string, unknown>));
+}
+
 export async function deleteGoogleSearchPlan(
   supabase: SupabaseClient,
   planId: string,
