@@ -67,6 +67,7 @@ import {
   resolveCanonicalTikTokWindow,
   type CanonicalTikTokWindow,
 } from "@/lib/share/tiktok-window";
+import { aggregateTikTokRollups } from "@/lib/share/tiktok-aggregator";
 import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives-refresh-runner";
 import type { ResolvedShare } from "@/lib/db/report-shares";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -1306,9 +1307,15 @@ async function resolveTikTokHybridReport(
     cost: liveTotals.spend,
     impressions: liveTotals.impressions,
     impressions_raw: null,
-    reach: null,
-    cost_per_1000_reached: null,
-    frequency: null,
+    reach: liveTotals.reach || null,
+    cost_per_1000_reached:
+      liveTotals.reach > 0
+        ? (liveTotals.spend / liveTotals.reach) * 1000
+        : null,
+    frequency:
+      liveTotals.reach > 0
+        ? liveTotals.impressions / liveTotals.reach
+        : null,
     clicks_all: liveTotals.clicks,
     ctr_all:
       liveTotals.impressions > 0
@@ -1325,13 +1332,16 @@ async function resolveTikTokHybridReport(
       liveTotals.impressions > 0
         ? (liveTotals.clicks / liveTotals.impressions) * 100
         : null,
-    video_views_2s: null,
-    video_views_6s: null,
+    video_views_2s: liveTotals.videoViews2s || null,
+    video_views_6s: liveTotals.videoViews6s || null,
     video_views_p100: liveTotals.videoViews100p,
     video_views_p25: input.base.snapshot.campaign?.video_views_p25 ?? null,
     video_views_p50: input.base.snapshot.campaign?.video_views_p50 ?? null,
     video_views_p75: input.base.snapshot.campaign?.video_views_p75 ?? null,
-    avg_play_time_per_user: null,
+    avg_play_time_per_user:
+      liveTotals.avgPlayTimeMsRows > 0
+        ? liveTotals.avgPlayTimeMsTotal / liveTotals.avgPlayTimeMsRows
+        : null,
     avg_play_time_per_video_view:
       input.base.snapshot.campaign?.avg_play_time_per_video_view ?? null,
     interactive_addon_impressions:
@@ -1492,41 +1502,6 @@ function buildTikTokLoadingBlock(
       interests: [],
       searchTerms: [],
     },
-  };
-}
-
-function aggregateTikTokRollups(
-  rows: EventDailyRollup[],
-  window: { since: string; until: string },
-): {
-  spend: number;
-  impressions: number;
-  clicks: number;
-  videoViews100p: number;
-  fetchedAt: string | null;
-} {
-  let spend = 0;
-  let impressions = 0;
-  let clicks = 0;
-  let videoViews100p = 0;
-  let fetchedAt: string | null = null;
-  for (const row of rows) {
-    if (row.date < window.since || row.date > window.until) continue;
-    if ((row.tiktok_spend ?? 0) <= 0) continue;
-    spend += Number(row.tiktok_spend ?? 0);
-    impressions += Number(row.tiktok_impressions ?? 0);
-    clicks += Number(row.tiktok_clicks ?? 0);
-    videoViews100p += Number(row.tiktok_video_views ?? 0);
-    if (row.source_tiktok_at && (!fetchedAt || row.source_tiktok_at > fetchedAt)) {
-      fetchedAt = row.source_tiktok_at;
-    }
-  }
-  return {
-    spend: Math.round(spend * 100) / 100,
-    impressions: Math.round(impressions),
-    clicks: Math.round(clicks),
-    videoViews100p: Math.round(videoViews100p),
-    fetchedAt,
   };
 }
 
