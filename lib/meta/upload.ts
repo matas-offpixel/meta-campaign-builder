@@ -9,8 +9,8 @@ import type { AssetRatio, AssetMode } from "@/lib/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MAX_IMAGE_BYTES = 30 * 1024 * 1024;   // 30 MB (Meta's limit for /adimages)
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024;  // 200 MB (Meta's limit for /advideos)
+export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;   // 30 MB (Meta's limit for /adimages)
+export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;  // 200 MB (Meta's limit for /advideos)
 
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
 // Accept MP4 and QuickTime (.mov) — both are valid for Meta advideos

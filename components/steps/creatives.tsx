@@ -25,8 +25,8 @@ import {
   resolveExistingPostPlacements,
   validatePlacementSelection,
 } from "@/lib/meta/placements";
-import { useUploadAsset } from "@/lib/hooks/useUploadAsset";
-import { getAspectRatioSlots } from "@/lib/meta/upload";
+import { useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
+import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/meta/upload";
 import { CTA_OPTIONS } from "@/lib/mock-data";
 import {
   useFetchPages,
@@ -323,6 +323,18 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
       return;
     }
 
+    // Pre-upload size guard for bulk files
+    const maxBytes = firstMediaType === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    const maxLabel = firstMediaType === "video" ? "200 MB" : "30 MB";
+    const oversized = fileArray.filter((f) => f.size > maxBytes);
+    if (oversized.length > 0) {
+      alert(
+        `${oversized.length} file(s) exceed the ${maxLabel} limit:\n` +
+        oversized.map((f) => `• ${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`).join("\n"),
+      );
+      return;
+    }
+
     const ratios = getAspectRatioSlots(active.mediaType ?? "image", active.assetMode ?? "dual");
     const currentVarCount = (active.assetVariations ?? []).length;
 
@@ -347,25 +359,19 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
     // Upload sequentially; update each slot after its upload resolves
     for (const entry of entries) {
       try {
-        const fd = new FormData();
-        fd.append("file", entry.file);
-        fd.append("type", firstMediaType);
-        fd.append("adAccountId", adAccountId);
-        const res = await fetch("/api/meta/upload-asset", { method: "POST", body: fd });
-        const json = (await res.json()) as Record<string, unknown>;
+        const result = await uploadAssetViaStorage({
+          file: entry.file,
+          type: firstMediaType,
+          adAccountId,
+        });
 
-        const patch: Partial<Asset> = res.ok
-          ? {
-              uploadedUrl: json.url as string,
-              thumbnailUrl: (json.previewUrl ?? json.url) as string,
-              assetHash: json.hash as string | undefined,
-              videoId: json.videoId as string | undefined,
-              uploadStatus: "uploaded",
-            }
-          : {
-              uploadStatus: "error",
-              error: (json.error as string) ?? `HTTP ${res.status}`,
-            };
+        const patch: Partial<Asset> = {
+          uploadedUrl: result.url,
+          thumbnailUrl: result.previewUrl ?? result.url,
+          assetHash: result.hash,
+          videoId: result.videoId,
+          uploadStatus: "uploaded",
+        };
 
         onChange(
           creativesRef.current.map((c) => {
@@ -385,7 +391,8 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
             };
           }),
         );
-      } catch {
+      } catch (err) {
+        const errMessage = err instanceof Error ? err.message : "Upload failed";
         onChange(
           creativesRef.current.map((c) => {
             if (c.id !== active.id) return c;
@@ -398,7 +405,7 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                       ...v,
                       assets: v.assets.map((a) =>
                         a.id === entry.assetId
-                          ? { ...a, uploadStatus: "error", error: "Network error" }
+                          ? { ...a, uploadStatus: "error", error: errMessage }
                           : a,
                       ),
                     },
@@ -1576,6 +1583,17 @@ function AssetSlot({
   async function handleFile(file: File) {
     if (!adAccountId || isUploading) return;
 
+    // Pre-upload size guard — gives a clear error before touching any network.
+    const maxBytes = mediaType === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    const maxLabel = mediaType === "video" ? "200 MB" : "30 MB";
+    if (file.size > maxBytes) {
+      onUpdate({
+        uploadStatus: "error",
+        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is ${maxLabel}.`,
+      });
+      return;
+    }
+
     // For video files create a local blob preview immediately so the slot
     // renders a real video frame before (and even if) Meta returns a thumbnail.
     if (file.type.startsWith("video/")) {
@@ -1774,6 +1792,10 @@ function AssetSlot({
               Drop or click<br />
               <span className="font-medium text-foreground">
                 {isVideo ? "MP4 / MOV" : "JPEG / PNG"}
+              </span>
+              <br />
+              <span className="text-[10px] opacity-70">
+                {isVideo ? "up to 200 MB" : "up to 30 MB"}
               </span>
             </span>
           </label>
