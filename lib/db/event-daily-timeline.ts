@@ -317,6 +317,7 @@ export async function loadEventDailyTimeline(
           cumulativeTickets: cumulative.tickets,
           cumulativeRevenue: cumulative.revenue,
           rollups,
+          historyRows: dailyHistory,
         })
       : null;
 
