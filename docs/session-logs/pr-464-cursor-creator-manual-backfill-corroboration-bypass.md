@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 464
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/464
 - **Branch:** `cursor/creator/manual-backfill-corroboration-bypass`
 
 ## Summary
