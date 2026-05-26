@@ -475,6 +475,21 @@ export function shiftYmd(ymd: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/**
+ * `source_kind` values in `tier_channel_sales_daily_history` that are
+ * treated as authoritative cumulative sources and bypass the rollup
+ * corroboration gate. These are operator-entered cumulative counts
+ * (entered manually or batch-imported) for clients with no API
+ * ticketing connection. Because no live API sync produces rollup
+ * activity for these clients, requiring corroboration would suppress
+ * every real delta (the J2 Melodic chart-empty bug). `cron` and
+ * `smoothed_historical` keep corroboration so phantom correction jumps
+ * are still filtered for API-connected clients.
+ */
+export const MANUAL_SOURCE_KINDS: ReadonlySet<string> = new Set([
+  "manual_backfill",
+]);
+
 export interface CorroboratedDeltaOptions {
   /**
    * How many days the `tier_channel_sales_daily_history.snapshot_date`
@@ -491,6 +506,13 @@ export interface CorroboratedDeltaOptions {
    * Default 1.
    */
   windowDays?: number;
+  /**
+   * snapshot_dates (step.date values) for which corroboration is
+   * bypassed — the delta is emitted directly without checking rollup
+   * activity. Populated by `buildCorroboratedDailyDeltas` from history
+   * rows whose `source_kind` is in `MANUAL_SOURCE_KINDS`.
+   */
+  manualBypassDates?: ReadonlySet<string>;
 }
 
 /**
@@ -538,6 +560,7 @@ export function corroboratedDailyDeltas(
 ): Map<string, number> {
   const offset = options?.offsetDays ?? 1;
   const window = options?.windowDays ?? 1;
+  const bypassDates = options?.manualBypassDates;
   const out = new Map<string, number>();
   if (timeline.length === 0) return out;
   let prev = timeline[0]!.cumulative; // first row = baseline, not a daily sale
@@ -547,7 +570,16 @@ export function corroboratedDailyDeltas(
     prev = step.cumulative; // always re-base (up- AND down-corrections)
     if (delta <= 0) continue;
     const saleDate = shiftYmd(step.date, -offset);
-    if (hasActivityWithin(saleDate, rollupActivityDates, window)) {
+    // Manual-source rows (manual_backfill) are authoritative cumulative
+    // counts entered by operators with no API sync. No rollup activity
+    // will ever exist for these dates, so the presence gate is bypassed
+    // and the delta surfaces directly. Non-manual rows (cron,
+    // smoothed_historical) still require corroboration so phantom
+    // correction jumps remain suppressed for API-connected clients.
+    if (
+      bypassDates?.has(step.date) ||
+      hasActivityWithin(saleDate, rollupActivityDates, window)
+    ) {
       out.set(saleDate, (out.get(saleDate) ?? 0) + delta);
     }
   }
@@ -595,6 +627,17 @@ export function buildCorroboratedDailyDeltas(args: {
     tickets_sold: number | null;
     revenue: number | null;
   }>;
+  /**
+   * Raw history rows whose `source_kind` is checked against
+   * `MANUAL_SOURCE_KINDS`. Any `snapshot_date` belonging to a manual
+   * source kind bypasses the rollup corroboration gate so those deltas
+   * surface without requiring rollup activity on that date.
+   *
+   * Pass the same `TierChannelDailyHistoryRow[]` array that was used to
+   * build `cumulativeTickets` / `cumulativeRevenue`. When omitted (or
+   * empty) all rows go through the standard corroboration path.
+   */
+  historyRows?: ReadonlyArray<{ snapshot_date: string; source_kind: string }>;
   options?: CorroboratedDeltaOptions;
 }): { tickets: Map<string, number>; revenue: Map<string, number> } {
   const activity = new Set<string>();
@@ -603,16 +646,30 @@ export function buildCorroboratedDailyDeltas(args: {
       activity.add(r.date);
     }
   }
+
+  // Build the bypass set: snapshot_dates whose source_kind is manual.
+  const manualBypassDates = new Set<string>();
+  for (const hr of args.historyRows ?? []) {
+    if (MANUAL_SOURCE_KINDS.has(hr.source_kind)) {
+      manualBypassDates.add(hr.snapshot_date);
+    }
+  }
+
+  const effectiveOptions: CorroboratedDeltaOptions = {
+    ...args.options,
+    ...(manualBypassDates.size > 0 ? { manualBypassDates } : {}),
+  };
+
   return {
     tickets: corroboratedDailyDeltas(
       args.cumulativeTickets,
       activity,
-      args.options,
+      effectiveOptions,
     ),
     revenue: corroboratedDailyDeltas(
       args.cumulativeRevenue,
       activity,
-      args.options,
+      effectiveOptions,
     ),
   };
 }

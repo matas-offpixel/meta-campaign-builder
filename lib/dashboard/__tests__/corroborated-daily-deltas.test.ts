@@ -17,6 +17,7 @@
  *   - Brighton:   hist deltas 8/42/38/18/19/20/21/8, rollup non-zero → keep.
  *   - Last-32:    82→43 down-step → re-base, no corruption.
  *   - BB26-KAYODE: brand_campaign, no ticket source → empty.
+ *   - J2 Melodic:  manual_backfill, no rollup activity → bypass, deltas surface.
  */
 
 import assert from "node:assert/strict";
@@ -328,5 +329,204 @@ describe("listDailyHistoryForEvents — paginated (no silent 1000-row truncation
     const fn = src.slice(src.indexOf("export async function listDailyHistoryForEvents("));
     assert.ok(fn.includes(".range("), "must paginate via .range() (PostgREST caps unbounded selects at 1000 rows)");
     assert.ok(/page\.length < PAGE/.test(fn), "must loop until a short page (full delivery)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// J2 Melodic — manual_backfill bypass (cursor/creator/manual-backfill-
+// corroboration-bypass). Verified against real J2 Melodic data:
+//   event 42b5673a-aef4-402d-8855-9ca5339046a7, 16 weekly history rows
+//   211 → 1681 cumulative, all source_kind='manual_backfill', rollup
+//   tickets_sold=null on every row. Before the fix: chart empty.
+// ---------------------------------------------------------------------------
+
+function makeHistRow(
+  snapshotDate: string,
+  ticketsTotal: number,
+  sourceKind: TierChannelDailyHistoryRow["source_kind"],
+): TierChannelDailyHistoryRow {
+  return {
+    id: snapshotDate,
+    event_id: "j2-melodic",
+    snapshot_date: snapshotDate,
+    tickets_sold_total: ticketsTotal,
+    revenue_total: ticketsTotal * 30,
+    source_kind: sourceKind,
+    captured_at: snapshotDate + "T12:00:00Z",
+  };
+}
+
+describe("buildCorroboratedDailyDeltas — manual_backfill bypasses rollup gate (J2 Melodic)", () => {
+  // Simplified 4-row slice of J2 Melodic weekly history:
+  //   211 → 340 → 520 → 750 (weekly cumulative snapshots, no rollup activity).
+  const historyRows: TierChannelDailyHistoryRow[] = [
+    makeHistRow("2026-02-09", 211, "manual_backfill"),
+    makeHistRow("2026-02-16", 340, "manual_backfill"),
+    makeHistRow("2026-02-23", 520, "manual_backfill"),
+    makeHistRow("2026-03-02", 750, "manual_backfill"),
+  ];
+  const cumulativeTickets = historyRows.map((r) => ({
+    date: r.snapshot_date,
+    cumulative: r.tickets_sold_total,
+  }));
+  const cumulativeRevenue = historyRows.map((r) => ({
+    date: r.snapshot_date,
+    cumulative: r.revenue_total,
+  }));
+  // All rollup rows have null tickets_sold (manual-only client).
+  const rollups = [
+    { date: "2026-02-09", tickets_sold: null, revenue: null },
+    { date: "2026-02-16", tickets_sold: null, revenue: null },
+    { date: "2026-02-23", tickets_sold: null, revenue: null },
+    { date: "2026-03-02", tickets_sold: null, revenue: null },
+  ];
+
+  it("emits clean weekly deltas despite zero rollup activity", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+      historyRows,
+    });
+    // Day-0 (211) is baseline — suppressed. Deltas from rows 2–4, keyed to
+    // true sale day (snapshot_date − 1).
+    assert.deepEqual(
+      [...tickets.entries()].sort(),
+      [
+        ["2026-02-15", 129], // 340 − 211 = 129 on true day 2026-02-16 − 1
+        ["2026-02-22", 180], // 520 − 340 = 180
+        ["2026-03-01", 230], // 750 − 520 = 230
+      ],
+    );
+  });
+
+  it("revenue is derived from the same bypass path as tickets", () => {
+    const { revenue } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+      historyRows,
+    });
+    assert.deepEqual(
+      [...revenue.entries()].sort(),
+      [
+        ["2026-02-15", 129 * 30],
+        ["2026-02-22", 180 * 30],
+        ["2026-03-01", 230 * 30],
+      ],
+    );
+  });
+
+  it("WITHOUT historyRows the same sequence produces zero deltas (regression guard)", () => {
+    // Confirms the fix is additive: omitting historyRows restores the
+    // old (broken) behaviour — no deltas surface when rollup is silent.
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+      // historyRows intentionally omitted
+    });
+    assert.equal(
+      tickets.size,
+      0,
+      "without bypass, zero rollup activity means zero deltas (old broken path)",
+    );
+  });
+});
+
+describe("buildCorroboratedDailyDeltas — cron source_kind still requires rollup corroboration (4thefans regression)", () => {
+  // Dates are spread ≥ 3 days apart so the ±1 corroboration window for the
+  // phantom jump date (2026-05-15 → true day 05-14) does NOT contain the
+  // rollup activity that confirms the earlier real sale (05-03).
+  const historyRows: TierChannelDailyHistoryRow[] = [
+    makeHistRow("2026-05-01", 2146, "cron"),  // baseline
+    makeHistRow("2026-05-04", 2154, "cron"),  // +8 real sale (true day 2026-05-03)
+    makeHistRow("2026-05-15", 2788, "cron"),  // +634 reconciliation (true day 2026-05-14)
+  ];
+  const cumulativeTickets = historyRows.map((r) => ({
+    date: r.snapshot_date,
+    cumulative: r.tickets_sold_total,
+  }));
+  const cumulativeRevenue = historyRows.map((r) => ({
+    date: r.snapshot_date,
+    cumulative: r.revenue_total,
+  }));
+
+  it("suppresses a reconciliation jump (no rollup activity) even with historyRows present", () => {
+    const rollups = [
+      { date: "2026-05-03", tickets_sold: 8, revenue: 240 }, // confirms +8 on true day 05-03
+      { date: "2026-05-14", tickets_sold: 0, revenue: 0 },   // flat — no real sale on 05-14
+      // 2026-05-13 and 2026-05-15 are absent from activity → ±1 window of 05-14 is silent
+    ];
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+      historyRows,
+    });
+    // +8 delta (snapshot 05-04) → true day 05-03, corroborated ✓
+    assert.equal(tickets.get("2026-05-03"), 8);
+    // +634 delta (snapshot 05-15) → true day 05-14, ±1 window silent → suppressed ✓
+    assert.equal(tickets.has("2026-05-14"), false, "+634 reconciliation jump must be suppressed for cron source");
+  });
+
+  it("emits the real sale when rollup confirms it (no regression from bypass logic)", () => {
+    const rollups = [
+      { date: "2026-05-03", tickets_sold: 5, revenue: 150 },
+    ];
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+      historyRows,
+    });
+    assert.equal(tickets.get("2026-05-03"), 8, "real +8 sale must still surface");
+  });
+});
+
+describe("buildCorroboratedDailyDeltas — mixed source_kinds (cron + manual_backfill)", () => {
+  // Event migrates from manual_backfill → cron mid-series.
+  // Each row is evaluated against its own source_kind.
+  // Cron dates are spaced ≥ 3 days apart from each other so the ±1
+  // window for the phantom date (snapshot 2026-03-20 → true day 03-19)
+  // does NOT contain the real-sale activity date (2026-03-09).
+  const historyRows: TierChannelDailyHistoryRow[] = [
+    makeHistRow("2026-02-16", 211, "manual_backfill"),  // baseline
+    makeHistRow("2026-02-23", 340, "manual_backfill"),  // +129 manual delta
+    makeHistRow("2026-03-10", 360, "cron"),              // +20 cron, rollup confirms
+    makeHistRow("2026-03-20", 380, "cron"),              // +20 cron, rollup flat → suppress
+  ];
+  const cumulativeTickets = historyRows.map((r) => ({
+    date: r.snapshot_date,
+    cumulative: r.tickets_sold_total,
+  }));
+  const cumulativeRevenue = historyRows.map((r) => ({
+    date: r.snapshot_date,
+    cumulative: r.revenue_total,
+  }));
+  const rollups = [
+    // No rollup for the manual rows (manual-only client pre-migration)
+    { date: "2026-02-16", tickets_sold: null, revenue: null },
+    { date: "2026-02-23", tickets_sold: null, revenue: null },
+    // Cron row: rollup confirms +20 on true day 2026-03-09 (snapshot 03-10 − 1)
+    { date: "2026-03-09", tickets_sold: 20, revenue: 600 },
+    // Cron row: rollup flat on true day 2026-03-19 (snapshot 03-20 − 1) → suppress
+    // 2026-03-18 and 2026-03-20 are also absent from activity → ±1 window silent
+    { date: "2026-03-19", tickets_sold: 0, revenue: 0 },
+  ];
+
+  it("manual_backfill rows bypass; cron rows keep corroboration gate", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+      historyRows,
+    });
+    // manual_backfill: 340 − 211 = 129, true day 2026-02-22 (no rollup needed) ✓
+    assert.equal(tickets.get("2026-02-22"), 129, "manual delta must surface without rollup");
+    // cron + rollup confirmed: 360 − 340 = 20, true day 2026-03-09 ✓
+    assert.equal(tickets.get("2026-03-09"), 20, "cron delta must surface when rollup confirms");
+    // cron + rollup flat: 380 − 360 = 20, true day 2026-03-19 → suppressed ✓
+    assert.equal(tickets.has("2026-03-19"), false, "cron delta without rollup must be suppressed");
   });
 });

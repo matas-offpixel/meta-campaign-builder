@@ -214,6 +214,7 @@ export function buildVenueReportModel(
     cumulativeTicketTimeline,
     events,
     dailyHistoryTimelines,
+    options?.dailyHistory,
   );
   const generalSaleAt = earliestIso(
     events.map((event) => event.general_sale_at).filter(isString),
@@ -636,6 +637,12 @@ function mergeVenueTimeline(
     tickets: Array<{ date: string; cumulative: number }>;
     revenue: Array<{ date: string; cumulative: number }>;
   },
+  /**
+   * Raw history rows from `tier_channel_sales_daily_history`. Passed to
+   * `buildCorroboratedDailyDeltas` so rows with `source_kind` in
+   * `MANUAL_SOURCE_KINDS` bypass the rollup corroboration gate.
+   */
+  historyRows?: TierChannelDailyHistoryRow[],
 ): TimelineRow[] {
   const byDate = new Map<string, TimelineRow>();
   const rollupRevenueTotal = rollups.reduce(
@@ -702,6 +709,7 @@ function mergeVenueTimeline(
         cumulativeTickets: dailyHistoryTimelines.tickets,
         cumulativeRevenue: dailyHistoryTimelines.revenue,
         rollups,
+        historyRows,
       });
     for (const current of byDate.values()) {
       current.tickets_sold = null;
