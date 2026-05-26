@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { fmtInt } from "@/components/report/meta-insights-sections";
 import { fmtCurrencyCompact } from "@/lib/dashboard/format";
-import { paidSpendOf } from "@/lib/dashboard/paid-spend";
+import { sumLifetimePaidMediaSpend } from "@/lib/dashboard/sum-lifetime-paid-media-spend";
 import { resolveDisplayTicketCount } from "@/lib/dashboard/tier-channel-rollups";
 import { computeCanonicalEventMetrics } from "@/lib/dashboard/canonical-event-metrics";
 import { AttributionGapTile } from "@/components/dashboard/event-report/AttributionGapTile";
@@ -599,7 +599,7 @@ function computeVenuePerformance(
     latestVenueEventTickets(events) ??
     sumLifetimeTickets(rollups) ??
     latestVenueSnapshotTickets(weeklyTicketSnapshots);
-  const paidMediaSpent = sumLifetimeMetaSpend(rollups, events.length > 1);
+  const paidMediaSpent = sumLifetimePaidMediaSpend(rollups, events.length > 1);
   const sellThroughPct =
     capacity != null && capacity > 0 && tickets != null
       ? (tickets / capacity) * 100
@@ -691,20 +691,3 @@ function sumNumbers(values: Array<number | null | undefined>): number {
   return nullableSum(values) ?? 0;
 }
 
-function sumLifetimeMetaSpend(
-  rollups: DailyRollupRow[],
-  isMultiEventVenue: boolean,
-): number {
-  let total = 0;
-  for (const row of rollups) {
-    const hasAllocatedSpend =
-      row.ad_spend_allocated != null || row.ad_spend_presale != null;
-    const spend = hasAllocatedSpend
-      ? (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0)
-      : isMultiEventVenue
-        ? null
-        : row.ad_spend;
-    total += paidSpendOf({ ad_spend: spend, tiktok_spend: null });
-  }
-  return total;
-}
