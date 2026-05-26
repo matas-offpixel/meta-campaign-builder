@@ -47,8 +47,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (!storagePath) return NextResponse.json({ error: "Missing storagePath" }, { status: 400 });
     if (!adAccountId) return NextResponse.json({ error: "Missing adAccountId" }, { status: 400 });
-    if (type !== "video") {
-      return NextResponse.json({ error: "JSON body upload only supported for video" }, { status: 400 });
+    if (type !== "image" && type !== "video") {
+      return NextResponse.json({ error: `Invalid type "${type ?? ""}" — must be "image" or "video"` }, { status: 400 });
     }
 
     console.log("[upload-asset] Storage-path route:", {
@@ -56,6 +56,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       storagePath,
       adAccountId,
       fileName,
+      type,
       uploadPath: "Supabase Storage → Meta",
     });
 
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     // Step 3: validate
-    const { isValid, error: validationError } = validateAssetFile(file, "video");
+    const { isValid, error: validationError } = validateAssetFile(file, type);
     if (!isValid) {
       // Clean up storage
       await supabase.storage.from(storageBucket).remove([storagePath]).catch(() => {});
@@ -106,6 +107,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Step 4: upload to Meta
+    const cleanup = () => supabase.storage.from(storageBucket).remove([storagePath]).catch(() => {});
+
+    if (type === "image") {
+      try {
+        const { hash, url } = await uploadImageAsset(adAccountId, file, resolvedFileName, uploadToken);
+        const result: UploadAssetResult = { assetType: "image", url, hash, previewUrl: url };
+        console.log("[upload-asset] ✓ Image uploaded to Meta via storage path:", { hash, url });
+        await cleanup();
+        return NextResponse.json(result, { status: 201 });
+      } catch (err) {
+        await cleanup();
+        throw err;
+      }
+    }
+
     try {
       const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, resolvedFileName, uploadToken);
       const result: UploadAssetResult = {
@@ -115,16 +131,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         previewUrl,
       };
       console.log("[upload-asset] ✓ Video uploaded to Meta:", { videoId, previewUrl });
-
-      // Clean up storage — Meta has the file now
-      await supabase.storage.from(storageBucket).remove([storagePath]).catch((e) => {
-        console.warn("[upload-asset] Storage cleanup failed (non-fatal):", e);
-      });
-
+      await cleanup();
       return NextResponse.json(result, { status: 201 });
     } catch (err) {
-      // Clean up storage on Meta failure too
-      await supabase.storage.from(storageBucket).remove([storagePath]).catch(() => {});
+      await cleanup();
       throw err;
     }
   }
@@ -139,7 +149,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         error: "Failed to parse multipart form data",
         detail: String(parseErr),
-        hint: "Body may exceed the server size limit — for videos, use the Supabase Storage upload path instead.",
+        hint: "Body may exceed the server size limit — use the Supabase Storage upload path instead (send JSON with storagePath).",
       },
       { status: 400 },
     );
