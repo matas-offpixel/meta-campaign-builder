@@ -357,7 +357,8 @@ CREATE TABLE IF NOT EXISTS "creative_tag_assignments" (
   "confidence" numeric(4,3),
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-  "model_version" text
+  "model_version" text,
+  "thumbnail_hash" text
 );
 
 CREATE TABLE IF NOT EXISTS "creative_tags" (
@@ -1101,6 +1102,7 @@ CREATE INDEX creative_tag_assignments_event_creative_idx ON public.creative_tag_
 CREATE UNIQUE INDEX creative_tag_assignments_event_id_creative_name_tag_id_key ON public.creative_tag_assignments USING btree (event_id, creative_name, tag_id);
 CREATE UNIQUE INDEX creative_tag_assignments_pkey ON public.creative_tag_assignments USING btree (id);
 CREATE INDEX creative_tag_assignments_source_model_idx ON public.creative_tag_assignments USING btree (source, model_version);
+CREATE INDEX creative_tag_assignments_thumbnail_hash_idx ON public.creative_tag_assignments USING btree (event_id, source, model_version, thumbnail_hash) WHERE (thumbnail_hash IS NOT NULL);
 CREATE INDEX creative_tags_event_id_idx ON public.creative_tags USING btree (event_id);
 CREATE INDEX creative_tags_meta_ad_id_idx ON public.creative_tags USING btree (meta_ad_id);
 CREATE UNIQUE INDEX creative_tags_pkey ON public.creative_tags USING btree (id);

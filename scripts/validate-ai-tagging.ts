@@ -30,6 +30,29 @@ if (!supabaseUrl || !serviceRoleKey) {
 if (!userId) throw new Error("Missing SEED_USER_ID.");
 if (!anthropicApiKey) throw new Error("Missing ANTHROPIC_API_KEY.");
 
+// ── Configuration (env-driven so the script stays argument-free) ────────────
+//
+// Ground truth defaults to manually-applied tags (the original behaviour). To
+// compare a candidate model against the current Sonnet tags, set:
+//   VALIDATE_GROUND_TRUTH=ai
+//   VALIDATE_GROUND_TRUTH_MODEL=claude-sonnet-4-6   (the incumbent tags)
+//   VALIDATE_PREDICT_MODEL=<candidate-model>        (defaults to current model)
+//   VALIDATE_LIMIT=200                              (optional sample cap)
+// Then `precision` = % of candidate tags that match Sonnet, `recall` = % of
+// Sonnet tags the candidate reproduced, and `agreement` (F1) summarises the
+// two per dimension. This is the harness used to validate (and reject) the
+// Haiku 4.5 swap on PR #457.
+const groundTruthSource = (process.env.VALIDATE_GROUND_TRUTH ?? "manual") as
+  | "manual"
+  | "ai";
+const groundTruthModel =
+  process.env.VALIDATE_GROUND_TRUTH_MODEL ?? "claude-sonnet-4-6";
+const predictModel =
+  process.env.VALIDATE_PREDICT_MODEL ?? AI_AUTOTAG_MODEL_VERSION;
+const sampleLimit = process.env.VALIDATE_LIMIT
+  ? Math.max(1, Number(process.env.VALIDATE_LIMIT))
+  : null;
+
 interface ManualAssignmentRow {
   event_id: string;
   creative_name: string;
@@ -66,10 +89,13 @@ async function main() {
   );
   const tagById = new Map(taxonomy.map((row) => [row.id, row]));
 
-  const manualRows = await loadManualAssignments();
-  const manualByCreative = groupManualAssignments(manualRows, tagById);
+  const groundTruthRows = await loadGroundTruthAssignments();
+  const groundTruthByCreative = groupGroundTruthAssignments(
+    groundTruthRows,
+    tagById,
+  );
   const eventIds = [
-    ...new Set([...manualByCreative.keys()].map(splitKeyEventId)),
+    ...new Set([...groundTruthByCreative.keys()].map(splitKeyEventId)),
   ];
   const snapshotsByEvent = await loadLatestSnapshots(eventIds);
 
@@ -85,8 +111,14 @@ async function main() {
   let missingThumbnail = 0;
   let rawTagCount = 0;
   let hallucinatedTagCount = 0;
+  // Exact per-(creative × dimension) set agreement — the headline "do candidate
+  // and ground truth land on the same answer" number, complementing the
+  // tag-level F1.
+  let cellsCompared = 0;
+  let cellsExactMatch = 0;
 
-  for (const [key, manualByDimension] of manualByCreative) {
+  for (const [key, groundTruthByDimension] of groundTruthByCreative) {
+    if (sampleLimit !== null && totalCreatives >= sampleLimit) break;
     const eventId = splitKeyEventId(key);
     const creativeName = splitKeyCreativeName(key);
     const payload = snapshotsByEvent.get(eventId);
@@ -112,24 +144,30 @@ async function main() {
         headline: group.representative_headline,
         body: group.representative_body_preview,
       },
-      { taxonomy, anthropic, modelVersion: AI_AUTOTAG_MODEL_VERSION },
+      { taxonomy, anthropic, modelVersion: predictModel },
     );
     rawTagCount += predicted.rawTagCount;
     hallucinatedTagCount += predicted.hallucinatedTagCount;
     const predictedByDimension = groupPredictions(predicted.tags);
 
     for (const dimension of CREATIVE_TAG_DIMENSIONS) {
-      const manualSet = manualByDimension.get(dimension) ?? new Set<string>();
+      const truthSet = groundTruthByDimension.get(dimension) ?? new Set<string>();
       const predictedSet =
         predictedByDimension.get(dimension) ?? new Set<string>();
+      // Only score dimensions the ground truth actually labelled for this
+      // creative; an empty truth set means "no opinion", not "must be empty".
+      if (truthSet.size > 0) {
+        cellsCompared += 1;
+        if (setsEqual(truthSet, predictedSet)) cellsExactMatch += 1;
+      }
       for (const valueKey of predictedSet) {
-        if (manualSet.has(valueKey)) {
+        if (truthSet.has(valueKey)) {
           confusion[dimension].tp += 1;
         } else {
           confusion[dimension].fp += 1;
         }
       }
-      for (const valueKey of manualSet) {
+      for (const valueKey of truthSet) {
         if (!predictedSet.has(valueKey)) confusion[dimension].fn += 1;
       }
     }
@@ -143,13 +181,33 @@ async function main() {
   ) as Record<CreativeTagDimension, DimensionMetrics>;
 
   const output = {
+    config: {
+      predict_model: predictModel,
+      ground_truth_source: groundTruthSource,
+      ground_truth_model:
+        groundTruthSource === "ai" ? groundTruthModel : null,
+      sample_limit: sampleLimit,
+    },
     total_creatives: totalCreatives,
     skipped: {
       missing_snapshot: missingSnapshot,
       missing_concept_group: missingGroup,
       missing_thumbnail: missingThumbnail,
     },
+    // For an AI ground truth this is the candidate-vs-Sonnet agreement:
+    // precision = share of predicted tags that the ground truth also has,
+    // recall = share of ground-truth tags reproduced, agreement (= f1) the
+    // harmonic mean.
     by_dimension: byDimension,
+    overall_agreement: {
+      // Exact set-match rate across labelled (creative × dimension) cells.
+      cell_exact_match_rate: round(
+        cellsCompared === 0 ? 0 : cellsExactMatch / cellsCompared,
+      ),
+      cells_compared: cellsCompared,
+      // Tag-level Jaccard across all dimensions (TP / (TP+FP+FN)).
+      tag_jaccard: round(jaccardOverall(confusion)),
+    },
     hallucination: {
       raw_tags: rawTagCount,
       hallucinated_tags: hallucinatedTagCount,
@@ -169,10 +227,33 @@ async function main() {
 
   console.log(JSON.stringify(output, null, 2));
   console.error(
-    `[validate-ai-tagging] model=${AI_AUTOTAG_MODEL_VERSION} creatives=${totalCreatives} estimated_ai_cost_usd=${(
+    `[validate-ai-tagging] predict=${predictModel} ground_truth=${groundTruthSource}${
+      groundTruthSource === "ai" ? `:${groundTruthModel}` : ""
+    } creatives=${totalCreatives} estimated_ai_cost_usd=${(
       totalCreatives * ESTIMATED_USD_PER_CREATIVE
     ).toFixed(2)}`,
   );
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
+}
+
+function jaccardOverall(
+  confusion: Record<CreativeTagDimension, Confusion>,
+): number {
+  let tp = 0;
+  let fp = 0;
+  let fn = 0;
+  for (const dimension of CREATIVE_TAG_DIMENSIONS) {
+    tp += confusion[dimension].tp;
+    fp += confusion[dimension].fp;
+    fn += confusion[dimension].fn;
+  }
+  const denom = tp + fp + fn;
+  return denom === 0 ? 0 : tp / denom;
 }
 
 main().catch((err) => {
@@ -180,13 +261,17 @@ main().catch((err) => {
   process.exit(1);
 });
 
-async function loadManualAssignments(): Promise<ManualAssignmentRow[]> {
-  const { data, error } = await supabase
+async function loadGroundTruthAssignments(): Promise<ManualAssignmentRow[]> {
+  let query = supabase
     .from("creative_tag_assignments")
     .select("event_id,creative_name,tag_id")
     .eq("user_id", userId)
-    .eq("source", "manual");
+    .eq("source", groundTruthSource);
+  if (groundTruthSource === "ai") {
+    query = query.eq("model_version", groundTruthModel);
+  }
 
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return (data ?? []) as ManualAssignmentRow[];
 }
@@ -210,7 +295,7 @@ async function loadLatestSnapshots(
   return latest;
 }
 
-function groupManualAssignments(
+function groupGroundTruthAssignments(
   rows: ManualAssignmentRow[],
   tags: Map<string, MotionCreativeTagRow>,
 ): Map<string, Map<CreativeTagDimension, Set<string>>> {

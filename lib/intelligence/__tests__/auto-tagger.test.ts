@@ -5,9 +5,12 @@ import type Anthropic from "@anthropic-ai/sdk";
 import {
   AI_AUTOTAG_MODEL_VERSION,
   autoTag,
+  autoTagDeduped,
   buildAutoTagSystemPrompt,
   buildAutoTagTool,
+  hashAutoTagImage,
   type AutoTagInput,
+  type AutoTagResult,
 } from "../auto-tagger.ts";
 import {
   CREATIVE_TAG_DIMENSIONS,
@@ -148,6 +151,167 @@ describe("autoTag", () => {
       assert.match(requestJson, /"data":"AQID"/);
       assert.match(requestJson, /Final tickets/);
       assert.match(requestJson, /record_creative_tags/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// Image bytes keyed by URL. "ad-a" and "ad-b" deliberately resolve to the SAME
+// bytes (so the same content hash) under different URLs — the rename/duplicate
+// case the dedup layer must collapse. "ad-c" is a distinct image.
+const DEDUP_IMAGES: Record<string, number[]> = {
+  "https://cdn/a?sig=1": [1, 2, 3, 4],
+  "https://cdn/b?sig=2": [1, 2, 3, 4],
+  "https://cdn/c?sig=3": [9, 8, 7, 6],
+};
+
+function dedupFetchStub(): typeof fetch {
+  return (async (url: string | URL | Request) => {
+    const bytes = DEDUP_IMAGES[String(url)] ?? [0];
+    return {
+      ok: true,
+      headers: {
+        get(name: string) {
+          return name.toLowerCase() === "content-type" ? "image/png" : null;
+        },
+      },
+      async arrayBuffer() {
+        return new Uint8Array(bytes).buffer;
+      },
+    } as Response;
+  }) as typeof fetch;
+}
+
+function singleTagAnthropic(counter: { calls: number }): Anthropic {
+  return {
+    messages: {
+      create() {
+        counter.calls += 1;
+        return Promise.resolve({
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_dedup",
+              name: "record_creative_tags",
+              input: {
+                tags: [
+                  {
+                    dimension: "asset_type",
+                    value_key: "asset_type_one",
+                    confidence: 0.8,
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      },
+    },
+  } as unknown as Anthropic;
+}
+
+describe("autoTagDeduped", () => {
+  it("calls Claude once per unique thumbnail and reuses across creative names", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const counter = { calls: 0 };
+    try {
+      const results = await autoTagDeduped(
+        [
+          { creativeName: "ad-a", thumbnailUrl: "https://cdn/a?sig=1", headline: null, body: null },
+          { creativeName: "ad-b", thumbnailUrl: "https://cdn/b?sig=2", headline: null, body: null },
+          { creativeName: "ad-c", thumbnailUrl: "https://cdn/c?sig=3", headline: null, body: null },
+        ],
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          concurrency: 1,
+        },
+      );
+
+      // Two distinct images → exactly two Claude calls (ad-a/ad-b collapse).
+      assert.equal(counter.calls, 2);
+
+      const byName = new Map(results.map((r) => [r.creativeName, r]));
+      const a = byName.get("ad-a")!;
+      const b = byName.get("ad-b")!;
+      const c = byName.get("ad-c")!;
+
+      // Same image → same hash; both names carry the (identical) tags.
+      assert.equal(a.thumbnailHash, b.thumbnailHash);
+      assert.notEqual(a.thumbnailHash, c.thumbnailHash);
+      const expectedTags: AutoTagResult[] = [
+        { dimension: "asset_type", value_key: "asset_type_one", confidence: 0.8 },
+      ];
+      assert.deepEqual(a.tags, expectedTags);
+      assert.deepEqual(b.tags, expectedTags);
+      assert.deepEqual(c.tags, expectedTags);
+
+      // First occurrence of a hash is the one that was sent to Claude.
+      assert.equal(a.outcome, "tagged");
+      assert.equal(b.outcome, "reused_run");
+      assert.equal(c.outcome, "tagged");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("reuses persisted tags for a known hash without calling Claude", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const counter = { calls: 0 };
+    const knownHash = hashAutoTagImage(
+      Buffer.from(new Uint8Array([1, 2, 3, 4])).toString("base64"),
+    );
+    const persisted: AutoTagResult[] = [
+      { dimension: "hook_tactic", value_key: "hook_tactic_two", confidence: 0.5 },
+    ];
+    try {
+      const results = await autoTagDeduped(
+        [
+          { creativeName: "ad-a", thumbnailUrl: "https://cdn/a?sig=1", headline: null, body: null },
+          { creativeName: "ad-b", thumbnailUrl: "https://cdn/b?sig=2", headline: null, body: null },
+        ],
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          concurrency: 2,
+          knownTagsByHash: new Map([[knownHash, persisted]]),
+        },
+      );
+
+      // The hash is already known → no Claude calls at all.
+      assert.equal(counter.calls, 0);
+      for (const result of results) {
+        assert.equal(result.outcome, "reused_persisted");
+        assert.deepEqual(result.tags, persisted);
+        assert.equal(result.thumbnailHash, knownHash);
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("reports thumbnail-less inputs without a Claude call", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const counter = { calls: 0 };
+    try {
+      const results = await autoTagDeduped(
+        [{ creativeName: "ad-x", thumbnailUrl: null, headline: null, body: null }],
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+        },
+      );
+      assert.equal(counter.calls, 0);
+      assert.equal(results[0].outcome, "no_thumbnail");
+      assert.equal(results[0].thumbnailHash, null);
+      assert.deepEqual(results[0].tags, []);
     } finally {
       globalThis.fetch = originalFetch;
     }
