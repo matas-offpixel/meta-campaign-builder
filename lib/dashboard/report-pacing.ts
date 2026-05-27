@@ -31,6 +31,23 @@ export interface SellOutPacingInput {
   metaSpendCached: number | null | undefined;
   timeline: TimelineRow[];
   additionalSpendEntries: ReadonlyArray<{ date: string; amount: number }>;
+  /**
+   * Canonical lifetime cumulative tickets (e.g.
+   * `tier_channel_sales.tickets_sold` for manual-cadence events).
+   * When supplied, replaces the per-day-delta sum that pacing would
+   * otherwise derive from `timeline.tickets_sold`. The corroborated
+   * timeline (`buildCorroboratedDailyDeltas`) sums to
+   * `lastCumulative − firstHistoryCumulative`, which baseline-
+   * suppresses events that started selling pre-tool-adoption
+   * (Innervisions opens at 489). Pacing needs the true running
+   * cumulative for `toGo = capacity − ticketsAll` to be correct.
+   *
+   * Plumbed in from `resolveCanonicalLifetimeTickets`. `null` /
+   * `undefined` ⇒ fall back to the timeline sum (preserves existing
+   * behaviour for API-cadence events where the corroborated sum and
+   * the rollup sum agree).
+   */
+  ticketsLifetimeOverride?: number | null;
 }
 
 /**
@@ -52,6 +69,13 @@ export function computeSellOutPacing(
     }
     if (r.tiktok_spend != null) tiktokSpendAll += Number(r.tiktok_spend);
     if (r.tickets_sold != null) ticketsAll += Number(r.tickets_sold);
+  }
+
+  if (
+    input.ticketsLifetimeOverride != null &&
+    Number.isFinite(input.ticketsLifetimeOverride)
+  ) {
+    ticketsAll = input.ticketsLifetimeOverride;
   }
 
   const prereg =

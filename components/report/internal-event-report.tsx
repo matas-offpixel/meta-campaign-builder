@@ -102,6 +102,9 @@ export function InternalEventReport({
     readonly { date: string; amount: number }[]
   >([]);
   const [rollupTimeline, setRollupTimeline] = useState<TimelineRow[]>([]);
+  const [canonicalTicketsLifetime, setCanonicalTicketsLifetime] = useState<
+    number | null
+  >(null);
 
   const loadRollupTimeline = useCallback(async () => {
     try {
@@ -112,12 +115,19 @@ export function InternalEventReport({
       const json = (await res.json()) as {
         ok?: boolean;
         timeline?: TimelineRow[];
+        canonicalTicketsLifetime?: number | null;
       };
       if (res.ok && json.ok && Array.isArray(json.timeline)) {
         setRollupTimeline(json.timeline);
+        setCanonicalTicketsLifetime(
+          typeof json.canonicalTicketsLifetime === "number"
+            ? json.canonicalTicketsLifetime
+            : null,
+        );
       }
     } catch {
       setRollupTimeline([]);
+      setCanonicalTicketsLifetime(null);
     }
   }, [eventId]);
 
@@ -243,6 +253,7 @@ export function InternalEventReport({
         metaSpendCached: event.metaSpendCached ?? null,
         timeline: rollupTimeline,
         additionalSpendEntries,
+        ticketsLifetimeOverride: canonicalTicketsLifetime,
       }),
     [
       event.capacity,
@@ -251,6 +262,7 @@ export function InternalEventReport({
       event.metaSpendCached,
       rollupTimeline,
       additionalSpendEntries,
+      canonicalTicketsLifetime,
     ],
   );
 
