@@ -73,6 +73,12 @@ export function AudienceListActions({
         Lookalike audiences
       </Link>
       <Link
+        href={`/audiences/${clientId}/clone-saved`}
+        className="inline-flex h-9 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium hover:bg-card"
+      >
+        Clone Saved Audiences
+      </Link>
+      <Link
         href={`/audiences/${clientId}/new`}
         className="inline-flex h-9 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium hover:bg-card"
       >
