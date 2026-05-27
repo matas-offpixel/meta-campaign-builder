@@ -11,6 +11,7 @@ import {
   type PresaleBucket as TimelinePresaleBucket,
   type TimelineRow,
 } from "@/lib/db/event-daily-timeline";
+import { resolveCanonicalLifetimeTickets } from "@/lib/db/canonical-tickets-resolver";
 
 /**
  * GET  /api/ticketing/rollup?eventId=X
@@ -65,6 +66,16 @@ interface GetResponse {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
   generalSaleAt: string | null;
+  /**
+   * Canonical lifetime cumulative tickets — `tier_channel_sales.tickets_sold`
+   * for manual-cadence events (J2, Innervisions), else the rollup sum
+   * via `pickCanonicalLifetimeTickets`. Sell-out pacing and the
+   * Performance Summary table's lifetime override read this so a
+   * pre-tool-adoption baseline (Innervisions opens at 489) isn't
+   * suppressed by the corroborated-deltas sum. `null` means neither
+   * source has data — caller keeps existing fallback behaviour.
+   */
+  canonicalTicketsLifetime: number | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -114,8 +125,21 @@ export async function GET(req: NextRequest) {
   // Single round-trip pulls both legs (live rollups + manual entries)
   // and merges them into the unified timeline. `rollups` from the
   // result is reused for the presale bucket math so we don't query
-  // event_daily_rollups twice.
-  const { timeline, rollups } = await loadEventDailyTimeline(supabase, eventId);
+  // event_daily_rollups twice. `resolveCanonicalLifetimeTickets`
+  // shares the same rollup + history reads but routes through the
+  // canonical picker — it's a separate call rather than reusing
+  // `rollups` directly because the picker also needs daily-history
+  // and tier_channel_sales rows.
+  const [{ timeline, rollups }, canonicalTicketsLifetime] = await Promise.all([
+    loadEventDailyTimeline(supabase, eventId),
+    resolveCanonicalLifetimeTickets(supabase, eventId).catch((err) => {
+      console.warn(
+        "[ticketing/rollup] resolveCanonicalLifetimeTickets failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }),
+  ]);
   const generalSaleAt = (event.general_sale_at as string | null) ?? null;
   const presale = computePresaleBucket(rollups, generalSaleAt);
 
@@ -125,6 +149,7 @@ export async function GET(req: NextRequest) {
     timeline,
     presale,
     generalSaleAt,
+    canonicalTicketsLifetime,
   };
   return NextResponse.json(body, { status: 200 });
 }

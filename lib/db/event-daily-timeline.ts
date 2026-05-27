@@ -4,13 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
 import { listRollupsForEvent } from "@/lib/db/event-daily-rollups";
-import { sumTicketsInWindow } from "@/lib/db/event-daily-timeline-window";
+import { resolveCanonicalTicketsSoldInWindow } from "@/lib/db/canonical-tickets-resolver";
 import { listDailyHistoryForEvents } from "@/lib/db/tier-channel-daily-history";
 import {
   buildCorroboratedDailyDeltas,
   buildVenueDailyHistoryTimelines,
 } from "@/lib/dashboard/venue-trend-points";
-import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
 /**
@@ -417,10 +416,11 @@ function round2(n: number): number {
  * mount-time `events.tickets_sold` snapshot, which made CPT lie
  * across timeframes — see PR #56 #3).
  *
- * Thin wrapper over `sumTicketsInWindow` + `listRollupsForEvent`.
- * Pure read — no side effects, no caching. The route layer is
- * already inside a 5-minute revalidate so adding another cache
- * tier here would just confuse invalidation.
+ * Delegates to `resolveCanonicalTicketsSoldInWindow` so manual-cadence
+ * events (J2, Innervisions, KOC) read from `tier_channel_sales`
+ * rather than the always-zero rollup column. The function name is
+ * preserved so existing callers in the insights routes don't have to
+ * change — the canonical routing is opt-in by construction.
  */
 export async function sumTicketsSoldInWindow(
   supabase: AnySupabaseClient,
@@ -428,9 +428,10 @@ export async function sumTicketsSoldInWindow(
   datePreset: DatePreset,
   customRange?: CustomDateRange,
 ): Promise<number | null> {
-  const rollups = await listRollupsForEvent(supabase, eventId);
-  return sumTicketsInWindow(
-    rollups,
-    resolvePresetToDays(datePreset, customRange),
+  return resolveCanonicalTicketsSoldInWindow(
+    supabase,
+    eventId,
+    datePreset,
+    customRange,
   );
 }

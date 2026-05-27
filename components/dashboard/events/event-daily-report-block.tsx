@@ -74,6 +74,7 @@ interface RollupResponse {
   timeline?: TimelineRow[];
   presale?: PresaleBucketShape | null;
   generalSaleAt?: string | null;
+  canonicalTicketsLifetime?: number | null;
   error?: string;
 }
 
@@ -196,6 +197,11 @@ interface ShareProps {
   /** Required on share: the public page server-loads everything. */
   initialTimeline: TimelineRow[];
   initialPresale: PresaleBucketShape | null;
+  /** Server-resolved canonical lifetime cumulative tickets — feeds
+   *  the Performance Summary lifetime override so manual-cadence
+   *  events (J2) show the tier_channel_sales total, not the corroborated-
+   *  deltas sum. `null` falls back to the timeline-derived lifetime. */
+  canonicalTicketsLifetime?: number | null;
   /** Share renders are never editable — accepted on the prop type
    *  for shape uniformity but ignored. */
   isEditable?: false;
@@ -222,6 +228,18 @@ export function EventDailyReportBlock(props: Props) {
   );
   const [presale, setPresale] = useState<PresaleBucketShape | null>(
     () => props.initialPresale ?? null,
+  );
+  // Canonical lifetime cumulative tickets (`tier_channel_sales.tickets_sold`
+  // for manual-cadence events, else the rollup sum). On share mode the
+  // server resolves this and threads it in via `props.canonicalTicketsLifetime`;
+  // on dashboard mode it arrives in the `/api/ticketing/rollup` response
+  // alongside the timeline so a single fetch covers both.
+  const [canonicalTicketsLifetime, setCanonicalTicketsLifetime] = useState<
+    number | null
+  >(() =>
+    props.mode === "share"
+      ? (props.canonicalTicketsLifetime ?? null)
+      : null,
   );
   // Loading is true on the dashboard if no initial data; share always
   // arrives with data, so loading starts false there.
@@ -282,6 +300,11 @@ export function EventDailyReportBlock(props: Props) {
     }
     setTimeline(json.timeline ?? []);
     setPresale(json.presale ?? null);
+    setCanonicalTicketsLifetime(
+      typeof json.canonicalTicketsLifetime === "number"
+        ? json.canonicalTicketsLifetime
+        : null,
+    );
     await loadAdditionalSpend();
   }, [event.id, isShare, loadAdditionalSpend]);
 
@@ -561,6 +584,7 @@ export function EventDailyReportBlock(props: Props) {
         timeline={timeline}
         timeframe={performanceSummary}
         additionalSpendEntries={additionalSpendRows}
+        tierLifetimeTickets={canonicalTicketsLifetime}
       />
       <EventTrendChart
         timeline={chartTimeline}

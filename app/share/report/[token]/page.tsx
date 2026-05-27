@@ -46,6 +46,7 @@ import {
   sumTicketsSoldInWindow,
   type TimelineRow,
 } from "@/lib/db/event-daily-timeline";
+import { resolveCanonicalLifetimeTickets } from "@/lib/db/canonical-tickets-resolver";
 import { EventDailyReportBlock } from "@/components/dashboard/events/event-daily-report-block";
 import { ShareAdditionalSpendSection } from "@/components/report/share-additional-spend-section";
 import { listAdditionalSpendForEvent } from "@/lib/db/additional-spend";
@@ -473,7 +474,12 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // Defensive catches keep a missing migration / dropped row from
   // 500-ing the whole report; the block degrades gracefully when its
   // initial timeline is empty.
-  const [eventDailyData, eventLinks, additionalSpendList] = await Promise.all([
+  const [
+    eventDailyData,
+    eventLinks,
+    additionalSpendList,
+    canonicalTicketsLifetime,
+  ] = await Promise.all([
     loadEventDailyTimeline(admin, event_id).catch((err) => {
       console.warn(
         `[share/report] event-daily-timeline failed for token=${token}: ${
@@ -484,6 +490,14 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     }),
     listLinksForEvent(admin, event_id).catch(() => []),
     listAdditionalSpendForEvent(admin, event_id).catch(() => []),
+    resolveCanonicalLifetimeTickets(admin, event_id).catch((err) => {
+      console.warn(
+        `[share/report] canonical-tickets-lifetime failed for token=${token}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }),
   ]);
   const additionalSpendEntries = additionalSpendList.map((r) => ({
     date: r.date,
@@ -497,6 +511,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     metaSpendCached: event.metaSpendCached,
     timeline: eventDailyData.timeline,
     additionalSpendEntries,
+    ticketsLifetimeOverride: canonicalTicketsLifetime,
   });
   const presale = computePresaleBucket(
     eventDailyData.rollups,
@@ -573,6 +588,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       hasEventbriteLink={eventLinks.length > 0}
       initialTimeline={eventDailyData.timeline}
       initialPresale={presale}
+      canonicalTicketsLifetime={canonicalTicketsLifetime}
     />
   );
 

@@ -1,26 +1,28 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { sumTicketsInWindow } from "@/lib/db/event-daily-timeline-window";
-import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+import { resolveCanonicalVenueTicketsSoldInWindow } from "@/lib/db/canonical-tickets-resolver";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 
+/**
+ * Venue (multi-event) "tickets sold in window" stat used by the
+ * `<VenueLiveReportInsights>` panel + the public venue share page.
+ *
+ * Delegates to `resolveCanonicalVenueTicketsSoldInWindow` so manual-
+ * cadence venues (KOC and future) surface
+ * `tier_channel_sales.tickets_sold` as authoritative; API venues
+ * (Brighton) keep the rollup-sum behaviour because no manual_backfill
+ * rows are present.
+ */
 export async function sumVenueTicketsSoldInWindow(
   supabase: SupabaseClient,
   eventIds: string[],
   datePreset: DatePreset,
   customRange?: CustomDateRange,
 ): Promise<number | null> {
-  if (eventIds.length === 0) return null;
-  const { data, error } = await supabase
-    .from("event_daily_rollups")
-    .select("date, tickets_sold")
-    .in("event_id", eventIds);
-  if (error) throw error;
-  return sumTicketsInWindow(
-    (data ?? []).map((row) => ({
-      date: row.date as string,
-      tickets_sold: (row.tickets_sold as number | null) ?? null,
-    })),
-    resolvePresetToDays(datePreset, customRange),
+  return resolveCanonicalVenueTicketsSoldInWindow(
+    supabase,
+    eventIds,
+    datePreset,
+    customRange,
   );
 }
