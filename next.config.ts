@@ -11,6 +11,12 @@ const nextConfig: NextConfig = {
     // multipart uploads are not truncated before reaching Route Handlers.
     proxyClientMaxBodySize: "250mb",
   },
+  turbopack: {
+    // Pin the workspace root so Next.js doesn't walk up to the parent
+    // directory (which contains another package-lock.json) when this
+    // project is checked out as a git worktree.
+    root: __dirname,
+  },
 };
 
 export default nextConfig;
