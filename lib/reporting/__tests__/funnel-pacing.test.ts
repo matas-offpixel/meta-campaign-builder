@@ -97,6 +97,94 @@ describe("splitEventCodeLpvByClickShare", () => {
     for (const v of out.values()) total += v;
     assert.equal(total, 7);
   });
+
+  test(
+    "post-PR-A.5 owner-only clicks → equal-split (Edinburgh 3-fixture degenerate)",
+    () => {
+      // After issue #471 PR-A.5, the rollup writer NULLs out
+      // engagement metrics (including link_clicks) on non-owner
+      // siblings. clicksByEvent collapses to {owner: 854, b: 0, c: 0}
+      // because reads of NULL accumulate as 0. The proportional
+      // weighter would dump 100% of LPV on the owner; equal-split is
+      // the correct fallback (matches the "spend stays split equally"
+      // principle locked in #471).
+      const out = splitEventCodeLpvByClickShare(
+        ["edin-owner", "edin-b", "edin-c"],
+        600,
+        new Map([
+          ["edin-owner", 854],
+          ["edin-b", 0],
+          ["edin-c", 0],
+        ]),
+      );
+      let total = 0;
+      for (const v of out.values()) total += v;
+      assert.equal(total, 600, "scope sum preserved under equal-split");
+      // Each fixture gets a third (200/200/200), not all on the owner.
+      assert.ok(
+        (out.get("edin-owner") ?? 0) <
+          400 &&
+          (out.get("edin-b") ?? 0) > 0 &&
+          (out.get("edin-c") ?? 0) > 0,
+        "non-owner siblings must receive an equal-split share post-R2a",
+      );
+    },
+  );
+
+  test(
+    "post-PR-A.5 owner-only clicks → equal-split (Brighton 4-fixture degenerate)",
+    () => {
+      const out = splitEventCodeLpvByClickShare(
+        ["br-owner", "br-b", "br-c", "br-d"],
+        400,
+        new Map([
+          ["br-owner", 1200],
+          ["br-b", 0],
+          ["br-c", 0],
+          ["br-d", 0],
+        ]),
+      );
+      let total = 0;
+      for (const v of out.values()) total += v;
+      assert.equal(total, 400, "scope sum preserved");
+      // Each fixture gets 100 LPV (no rounding remainder at 400/4).
+      assert.deepEqual(
+        [...out.values()].sort((x, y) => x - y),
+        [100, 100, 100, 100],
+        "equal-split must distribute fairly across 4 fixtures",
+      );
+    },
+  );
+
+  test(
+    "post-allocator distinct per-fixture clicks → keep proportional split",
+    () => {
+      // Manchester-shape (4 fixtures) AFTER the venue allocator has
+      // re-written link_clicks per fixture (135 / 143 / 67 / 1090).
+      // Every sibling has positive clicks — the proportional weighter
+      // still applies, and the degenerate-split guard must NOT fire.
+      const clicksByEvent = new Map([
+        ["m-a", 135],
+        ["m-b", 143],
+        ["m-c", 67],
+        ["m-d", 1090],
+      ]);
+      const out = splitEventCodeLpvByClickShare(
+        ["m-a", "m-b", "m-c", "m-d"],
+        1000,
+        clicksByEvent,
+      );
+      let total = 0;
+      for (const v of out.values()) total += v;
+      assert.equal(total, 1000, "proportional split preserves scope total");
+      // m-d should dominate (1090 of ~1435 total clicks ≈ 76%).
+      const mD = out.get("m-d") ?? 0;
+      assert.ok(
+        mD > (out.get("m-a") ?? 0) + (out.get("m-b") ?? 0) + (out.get("m-c") ?? 0),
+        "click-dominant sibling must dominate allocation when ≥ 2 siblings have positive clicks",
+      );
+    },
+  );
 });
 
 describe("LPV vs link_clicks scope invariant", () => {

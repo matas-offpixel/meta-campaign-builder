@@ -254,34 +254,84 @@ export async function upsertRollupManualEntry(
  *   vice versa. Each call only writes the columns it owns, so they
  *   compose cleanly on the same `(event_id, date)` key.
  */
+/**
+ * Per-day Meta payload written by the rollup-sync runner.
+ *
+ * Column groupings (issue #471 PR-A.5 — engagement fanout fix):
+ *
+ *   1. **Per-fixture** (always written by every sibling): `ad_spend`,
+ *      `ad_spend_presale`. Spend is split equally across fixtures by
+ *      the venue allocator after the Meta leg writes the raw total —
+ *      keeping per-fixture rows here means the allocator has a
+ *      consistent (event_id, date) key to upsert against.
+ *
+ *   2. **Engagement-owner-only** (written by ONE sibling per
+ *      `event_code` per day; non-owner siblings pass `null`):
+ *      `link_clicks`, `landing_page_views`, `meta_impressions`,
+ *      `meta_reach`, `meta_video_plays_3s/15s/p100`,
+ *      `meta_engagements`. These are Meta-attributed at the campaign
+ *      level — Meta's substring-on-campaign-name filter returns the
+ *      same number for every sibling, so writing it to every sibling
+ *      row causes a SUM-across-siblings to triple-count. Writing
+ *      NULL on non-owners gives readers the freedom to `SUM` and get
+ *      the correct event-code total (the owner row holds the value,
+ *      the rest contribute zero).
+ *
+ *   3. **Attribution-owner-only** (same null-on-non-owner rule):
+ *      `meta_regs`, `meta_purchases`, `meta_leads`. These follow
+ *      Meta's conversion attribution windows and are also reported
+ *      at the campaign level, so the same fanout argument applies.
+ *
+ * Owner selection: `min(events.id)` per `event_code` (see
+ * `lib/db/event-code-primary-sibling.ts`).
+ *
+ * Backfill SQL for pre-PR-A.5 rows lives in
+ * `app/api/admin/rollup-engagement-fanout-collapse/route.ts`.
+ */
 export interface MetaUpsertRow {
   date: string;
   ad_spend: number;
   /** Presale-phase Meta spend (migration 048); allocator may overwrite. */
   ad_spend_presale: number;
-  link_clicks: number;
+  /**
+   * Engagement-owner-only column. Pass `null` from non-owner
+   * sibling syncs so a `SUM(link_clicks)` across siblings collapses
+   * to the single event-code total (issue #471 PR-A.5). The
+   * allocator may overwrite this later with a per-fixture split for
+   * multi-event venues (see `lib/dashboard/venue-rollup-dedup.ts`'s
+   * `POST_ALLOCATOR_PER_EVENT_META_COLUMNS`).
+   */
+  link_clicks: number | null;
   /**
    * Landing Page Views — resolved via the omni > pixel > raw priority
-   * chain in `lib/insights/lpv-priority-chain.ts`. Optional so pre-099
-   * callers (admin backfills) keep compiling; rollup-sync supplies it.
-   * Defaults to NULL on insert via the column nullability.
+   * chain in `lib/insights/lpv-priority-chain.ts`. Engagement-owner-
+   * only post-PR-A.5; non-owner siblings pass `null`. Optional so
+   * pre-099 callers (admin backfills) keep compiling.
    */
-  landing_page_views?: number;
-  meta_regs: number;
+  landing_page_views?: number | null;
   /**
-   * Purchase-only conversion count (migration 093). Optional so
-   * pre-093 callers continue to compile; the cron path always
-   * supplies it. Defaults to 0 on insert via the column default.
+   * Per-day Meta `complete_registration` actions. Engagement-owner-
+   * only post-PR-A.5 (issue #471) — Meta attributes conversions at
+   * the campaign level so the same fanout rule applies.
    */
-  meta_purchases?: number;
-  /** Lead/registration-only conversion count (migration 093). */
-  meta_leads?: number;
-  meta_impressions?: number;
-  meta_reach?: number;
-  meta_video_plays_3s?: number;
-  meta_video_plays_15s?: number;
-  meta_video_plays_p100?: number;
-  meta_engagements?: number;
+  meta_regs: number | null;
+  /**
+   * Purchase-only conversion count (migration 093). Engagement-owner-
+   * only post-PR-A.5. Optional so pre-093 callers continue to
+   * compile; the cron path always supplies it.
+   */
+  meta_purchases?: number | null;
+  /**
+   * Lead/registration-only conversion count (migration 093).
+   * Engagement-owner-only post-PR-A.5.
+   */
+  meta_leads?: number | null;
+  meta_impressions?: number | null;
+  meta_reach?: number | null;
+  meta_video_plays_3s?: number | null;
+  meta_video_plays_15s?: number | null;
+  meta_video_plays_p100?: number | null;
+  meta_engagements?: number | null;
 }
 
 function metaDataMatch(
@@ -344,12 +394,14 @@ export async function upsertMetaRollups(
       // every other nullable Meta column on the row.
       landing_page_views: r.landing_page_views ?? null,
       meta_regs: r.meta_regs,
-      // Migration 093 columns. The DB defaults to 0 so an undefined
-      // here writes 0; we surface the explicit value when the Meta
-      // fetch reports it so existing rollup-sync paths upgrade
-      // automatically.
-      meta_purchases: r.meta_purchases ?? 0,
-      meta_leads: r.meta_leads ?? 0,
+      // Migration 093 columns. Post-PR-A.5 (issue #471) non-owner
+      // siblings pass explicit `null` to leave the engagement+
+      // attribution columns NULL — but legacy / backfill callers
+      // that simply don't supply the field still default to 0 (the
+      // pre-R2a semantic). Distinguish via `=== undefined` so an
+      // explicit null survives.
+      meta_purchases: r.meta_purchases === undefined ? 0 : r.meta_purchases,
+      meta_leads: r.meta_leads === undefined ? 0 : r.meta_leads,
       meta_impressions: r.meta_impressions ?? null,
       meta_reach: r.meta_reach ?? null,
       meta_video_plays_3s: r.meta_video_plays_3s ?? null,

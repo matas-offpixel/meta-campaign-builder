@@ -80,6 +80,12 @@ export function isPublicPath(
   // event-code-lifetime-meta-backfill above — without this carve-out the
   // proxy redirects bearer-only curls to /login before the handler runs.
   if (pathname === "/api/admin/rollup-canonical-clicks-lpv-backfill") return true;
+  // `/api/admin/rollup-engagement-fanout-collapse` — one-shot PR-A.5 backfill
+  // (issue #471). Reshapes per-fixture rollup rows so engagement columns
+  // collapse to one row per (event_code, date) instead of N× fanout. Bearer
+  // CRON_SECRET only; same lesson from PR #470 — without this carve-out the
+  // proxy 307s the bearer-only curl to /login before isCronAuthorized runs.
+  if (pathname === "/api/admin/rollup-engagement-fanout-collapse") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`

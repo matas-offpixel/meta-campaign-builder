@@ -251,6 +251,18 @@ async function processClient(
     .eq("date", yesterday);
   const rollByEventDate = new Map<string, { spend: number; regs: number }>();
   for (const r of rollupRows ?? []) {
+    // Post-PR-A.5 (issue #471) `meta_regs` is engagement-owner-only —
+    // non-owner siblings hold NULL on this column so a SUM across
+    // siblings collapses to the event-code total instead of fanning
+    // out. Skip the row entirely when NULL so non-owner fixtures
+    // don't (a) fire false-positive "campaign_stalled" alerts (spend
+    // > 0 + regs = 0) and (b) get a misleading regs/spend ratio.
+    // Owner siblings still fire alerts as before — slightly noisier
+    // because their per-fixture spend pairs with venue-aggregate
+    // regs, but that's no worse than the pre-PR-A.5 behaviour where
+    // every sibling fired the same alert with the same regs and
+    // 1/N-th of the spend.
+    if (r.meta_regs === null || r.meta_regs === undefined) continue;
     rollByEventDate.set(`${r.event_id as string}\0${r.date as string}`, {
       spend: Number(r.ad_spend ?? 0),
       regs: Number(r.meta_regs ?? 0),

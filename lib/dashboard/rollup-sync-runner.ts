@@ -30,6 +30,7 @@ import {
   upsertMetaRollups,
   upsertTikTokRollups,
 } from "@/lib/db/event-daily-rollups";
+import { isEngagementOwnerForCode } from "@/lib/db/event-code-primary-sibling";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import { fetchDailyOrdersForEvent } from "@/lib/ticketing/eventbrite/orders";
 import { getProvider } from "@/lib/ticketing/registry";
@@ -218,6 +219,16 @@ export interface SyncDiagnostics {
   eventbriteTodayPadded: boolean;
   /** Calendar days in the sync window that received Meta zero-padding. */
   metaWindowDaysPadded: number;
+  /**
+   * Engagement-fanout owner status (issue #471 PR-A.5). `true` when
+   * this `eventId` is the engagement-owning sibling for `eventCode`
+   * (lex-min `events.id` per code), so it wrote the Meta engagement
+   * + attribution columns. `false` means a sibling owns those
+   * columns and this event's rollup rows hold NULL on them. `null`
+   * before the Meta leg ran (no event_code, no ad account, fetch
+   * failed before the ownership check).
+   */
+  metaIsEngagementOwner: boolean | null;
   /** Calendar days in the sync window that received Eventbrite zero-padding. */
   eventbriteWindowDaysPadded: number;
   /**
@@ -409,6 +420,7 @@ export async function runRollupSyncForEvent(
     eventbriteTodayInWindow: false,
     eventbriteTodayPadded: false,
     metaWindowDaysPadded: 0,
+    metaIsEngagementOwner: null,
     eventbriteWindowDaysPadded: 0,
     todayRowAfterSync: null,
     allocatorResult: null,
@@ -667,23 +679,47 @@ export async function runRollupSyncForEvent(
           }
         }
         diagnostics.metaWindowDaysPadded = metaPadded;
+        // Engagement-fanout fix (issue #471 PR-A.5): one sibling per
+        // event_code is the "engagement owner" and writes Meta-
+        // attributed engagement + conversion columns. The other
+        // siblings write NULL so a SUM across siblings collapses to
+        // the single event-code total instead of fanning out to N×.
+        //
+        // Spend (`ad_spend`, `ad_spend_presale`) stays per-fixture —
+        // the venue allocator splits it equally across fixtures
+        // (locked decision from issue #471). Ticket fields stay per-
+        // fixture (sourced from `tier_channel_sales`, unaffected by
+        // this leg).
+        //
+        // Failure mode: `isEngagementOwnerForCode` fails OPEN — a DB
+        // blip preserves pre-PR-A.5 behaviour (write the values) so
+        // we don't blank out engagement data for non-owner fixtures
+        // across an entire sync window. Readers retain the venue-
+        // rollup dedup helper as a read-time backstop.
+        const isOwner = await isEngagementOwnerForCode(supabase, {
+          eventCode,
+          eventId,
+        });
+        diagnostics.metaIsEngagementOwner = isOwner;
+        const ownedOrNull = <T>(value: T): T | null =>
+          isOwner ? value : null;
         const metaRows = Array.from(metaByDate.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([date, v]) => ({
             date,
             ad_spend: v.ad_spend,
             ad_spend_presale: v.ad_spend_presale,
-            link_clicks: v.link_clicks,
-            landing_page_views: v.landing_page_views,
-            meta_regs: v.meta_regs,
-            meta_purchases: v.meta_purchases,
-            meta_leads: v.meta_leads,
-            meta_impressions: v.meta_impressions,
-            meta_reach: v.meta_reach,
-            meta_video_plays_3s: v.meta_video_plays_3s,
-            meta_video_plays_15s: v.meta_video_plays_15s,
-            meta_video_plays_p100: v.meta_video_plays_p100,
-            meta_engagements: v.meta_engagements,
+            link_clicks: ownedOrNull(v.link_clicks),
+            landing_page_views: ownedOrNull(v.landing_page_views),
+            meta_regs: ownedOrNull(v.meta_regs),
+            meta_purchases: ownedOrNull(v.meta_purchases),
+            meta_leads: ownedOrNull(v.meta_leads),
+            meta_impressions: ownedOrNull(v.meta_impressions),
+            meta_reach: ownedOrNull(v.meta_reach),
+            meta_video_plays_3s: ownedOrNull(v.meta_video_plays_3s),
+            meta_video_plays_15s: ownedOrNull(v.meta_video_plays_15s),
+            meta_video_plays_p100: ownedOrNull(v.meta_video_plays_p100),
+            meta_engagements: ownedOrNull(v.meta_engagements),
           }));
         diagnostics.metaRowsAttempted = metaRows.length;
         console.log(
@@ -700,7 +736,7 @@ export async function runRollupSyncForEvent(
           metaResult.rowsWritten = metaUpserted;
           metaResult.skipped_noop = metaSkipped;
           console.log(
-            `[rollup-sync] meta upsert ok rows_written=${metaUpserted} skipped_noop=${metaSkipped} today_in_window=${hasToday} today_from_snapshot=${diagnostics.metaTodayFromSnapshot} today_padded=${diagnostics.metaTodayPadded}`,
+            `[rollup-sync] meta upsert ok rows_written=${metaUpserted} skipped_noop=${metaSkipped} today_in_window=${hasToday} today_from_snapshot=${diagnostics.metaTodayFromSnapshot} today_padded=${diagnostics.metaTodayPadded} engagement_owner=${isOwner}`,
           );
         } catch (err) {
           metaResult.error =
