@@ -27,6 +27,7 @@ function cache(
     meta_reach: null,
     meta_impressions: null,
     meta_link_clicks: null,
+    meta_landing_page_views: null,
     meta_regs: null,
     meta_video_plays_3s: null,
     meta_video_plays_15s: null,

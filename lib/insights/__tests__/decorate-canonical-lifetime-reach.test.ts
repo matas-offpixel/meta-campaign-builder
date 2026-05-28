@@ -31,6 +31,7 @@ const MANCHESTER_CACHE: EventCodeLifetimeMetaCacheRow = {
   meta_reach: 805_473,
   meta_impressions: 1_500_000,
   meta_link_clicks: 12_500,
+  meta_landing_page_views: 6_250,
   meta_regs: 311,
   meta_video_plays_3s: 95_000,
   meta_video_plays_15s: 14_000,

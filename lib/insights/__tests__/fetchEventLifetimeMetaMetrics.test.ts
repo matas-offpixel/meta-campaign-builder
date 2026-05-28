@@ -156,6 +156,9 @@ describe("aggregatePass1Pages", () => {
   });
 
   it("sums additive metrics across campaigns and pages", () => {
+    // PR-A (issue #467): Pass-1 reads engagement-clicks via the `clicks`
+    // field, not `inline_link_clicks`. LPV is resolved via the shared
+    // priority chain (omni > pixel > raw).
     const result = aggregatePass1Pages(
       [
         {
@@ -165,9 +168,11 @@ describe("aggregatePass1Pages", () => {
               campaign_name: "[WC26-BRISTOL] BOFU",
               impressions: "1000",
               reach: "100",
-              inline_link_clicks: "20",
+              clicks: "20",
               actions: [
                 { action_type: "complete_registration", value: "5" },
+                { action_type: "omni_landing_page_view", value: "11" },
+                { action_type: "landing_page_view", value: "11" },
                 { action_type: "video_view", value: "100" },
                 { action_type: "video_15_sec_watched_actions", value: "30" },
                 { action_type: "video_p100_watched_actions", value: "5" },
@@ -183,12 +188,16 @@ describe("aggregatePass1Pages", () => {
               campaign_name: "[WC26-BRISTOL] Presale",
               impressions: "2000",
               reach: "200",
-              inline_link_clicks: "40",
+              clicks: "40",
               actions: [
                 {
                   action_type:
                     "offsite_conversion.fb_pixel_complete_registration",
                   value: "7",
+                },
+                {
+                  action_type: "offsite_conversion.fb_pixel_landing_page_view",
+                  value: "23",
                 },
                 { action_type: "video_view", value: "300" },
                 { action_type: "post_engagement", value: "90" },
@@ -202,6 +211,9 @@ describe("aggregatePass1Pages", () => {
 
     assert.equal(result.impressions, 3000);
     assert.equal(result.linkClicks, 60);
+    // c1 picks omni (11); c2 has no omni so falls to pixel (23).
+    // Total 34 — confirms priority chain doesn't double-count omni + raw.
+    assert.equal(result.landingPageViews, 34);
     assert.equal(result.metaRegs, 12);
     assert.equal(result.videoPlays3s, 400);
     assert.equal(result.videoPlays15s, 30);

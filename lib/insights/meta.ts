@@ -22,6 +22,7 @@ import {
   type AccountLevelLifetimeRow as Pass2Row,
   type PerCampaignLifetimeRow as Pass1Row,
 } from "@/lib/insights/event-code-lifetime-two-pass";
+import { resolveLpvFromActions } from "@/lib/insights/lpv-priority-chain";
 import { ISO_COUNTRY_CODES } from "@/lib/share/country-codes";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
@@ -1999,6 +2000,14 @@ export async function fetchEventDailyMetaMetrics(
     const totalsVideo15s = new Map<string, number>();
     const totalsVideoP100 = new Map<string, number>();
     const totalsEngagements = new Map<string, number>();
+    // PR-A (issue #467 rollup writer convergence): LPV moved into the
+    // rollup writer so funnel-pacing + Performance tab read LPV from
+    // event_daily_rollups instead of active_creatives_snapshots.
+    // Priority chain (omni > pixel > raw) lives in
+    // `lib/insights/lpv-priority-chain.ts` and is re-used by the
+    // active-creatives panel — keep the call site identical so per-
+    // creative LPV and per-day rollup LPV stay numerically consistent.
+    const totalsLandingPageViews = new Map<string, number>();
     // Track which distinct campaigns survived the case-sensitive
     // post-filter — surfaced in the result for diagnostic logging
     // (rollup-sync prints these so we can confirm at a glance the
@@ -2031,8 +2040,12 @@ export async function fetchEventDailyMetaMetrics(
       const params: Record<string, string> = {
         // campaign_name comes back so we can re-filter case-sensitively
         // before aggregating (Meta's CONTAIN is case-INsensitive).
+        // PR-A (issue #467): swapped `inline_link_clicks` → `clicks`
+        // (engagement-clicks, "Clicks (all)"). The Pass-1 lifetime
+        // helper landed the matching swap in the same PR — keep them
+        // atomic.
         fields:
-          "spend,impressions,reach,inline_link_clicks,date_start,campaign_name,actions,action_values",
+          "spend,impressions,reach,clicks,date_start,campaign_name,actions,action_values",
         level: "campaign",
         time_increment: "1",
         time_range: timeRange,
@@ -2047,7 +2060,7 @@ export async function fetchEventDailyMetaMetrics(
           spend?: string;
           impressions?: string;
           reach?: string;
-          inline_link_clicks?: string;
+          clicks?: string;
           date_start?: string;
           campaign_name?: string;
           actions?: ActionRow[];
@@ -2079,13 +2092,20 @@ export async function fetchEventDailyMetaMetrics(
         );
         totalsClicks.set(
           day,
-          (totalsClicks.get(day) ?? 0) + parseNum(row.inline_link_clicks),
+          (totalsClicks.get(day) ?? 0) + parseNum(row.clicks),
         );
         totalsImpressions.set(
           day,
           (totalsImpressions.get(day) ?? 0) + parseNum(row.impressions),
         );
         totalsReach.set(day, (totalsReach.get(day) ?? 0) + parseNum(row.reach));
+        const lpv = resolveLpvFromActions(row.actions);
+        if (lpv > 0) {
+          totalsLandingPageViews.set(
+            day,
+            (totalsLandingPageViews.get(day) ?? 0) + lpv,
+          );
+        }
         const regs = sumActions(row.actions, regActionTypes);
         if (regs > 0) {
           totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
@@ -2134,8 +2154,10 @@ export async function fetchEventDailyMetaMetrics(
       after = undefined;
       for (let page = 0; page < 20; page += 1) {
         const params: Record<string, string> = {
+          // PR-A (issue #467): `inline_link_clicks` → `clicks`. See note
+          // on the matching primary loop above.
           fields:
-            "spend,impressions,reach,inline_link_clicks,date_start,campaign_name,actions,action_values",
+            "spend,impressions,reach,clicks,date_start,campaign_name,actions,action_values",
           level: "campaign",
           time_increment: "1",
           time_range: timeRange,
@@ -2150,7 +2172,7 @@ export async function fetchEventDailyMetaMetrics(
             spend?: string;
             impressions?: string;
             reach?: string;
-            inline_link_clicks?: string;
+            clicks?: string;
             date_start?: string;
             campaign_name?: string;
             actions?: ActionRow[];
@@ -2183,7 +2205,7 @@ export async function fetchEventDailyMetaMetrics(
           );
           totalsClicks.set(
             day,
-            (totalsClicks.get(day) ?? 0) + parseNum(row.inline_link_clicks),
+            (totalsClicks.get(day) ?? 0) + parseNum(row.clicks),
           );
           totalsImpressions.set(
             day,
@@ -2193,6 +2215,13 @@ export async function fetchEventDailyMetaMetrics(
             day,
             (totalsReach.get(day) ?? 0) + parseNum(row.reach),
           );
+          const lpv = resolveLpvFromActions(row.actions);
+          if (lpv > 0) {
+            totalsLandingPageViews.set(
+              day,
+              (totalsLandingPageViews.get(day) ?? 0) + lpv,
+            );
+          }
           const regs = sumActions(row.actions, regActionTypes);
           if (regs > 0) {
             totalsRegs.set(day, (totalsRegs.get(day) ?? 0) + regs);
@@ -2239,6 +2268,7 @@ export async function fetchEventDailyMetaMetrics(
       ...totalsSpend.keys(),
       ...totalsPresaleSpend.keys(),
       ...totalsClicks.keys(),
+      ...totalsLandingPageViews.keys(),
       ...totalsRegs.keys(),
       ...totalsPurchases.keys(),
       ...totalsLeads.keys(),
@@ -2256,6 +2286,7 @@ export async function fetchEventDailyMetaMetrics(
         spend: totalsSpend.get(day) ?? 0,
         presaleSpend: totalsPresaleSpend.get(day) ?? 0,
         linkClicks: totalsClicks.get(day) ?? 0,
+        landingPageViews: totalsLandingPageViews.get(day) ?? 0,
         metaRegs: totalsRegs.get(day) ?? 0,
         metaPurchases: totalsPurchases.get(day) ?? 0,
         metaLeads: totalsLeads.get(day) ?? 0,
@@ -2355,6 +2386,7 @@ export async function fetchEventTodayMetaSnapshot(
     let totalSpend = 0;
     let totalPresaleSpend = 0;
     let totalClicks = 0;
+    let totalLpv = 0;
     let totalRegs = 0;
     let totalPurchases = 0;
     let totalLeads = 0;
@@ -2387,8 +2419,9 @@ export async function fetchEventTodayMetaSnapshot(
       const params: Record<string, string> = {
         // campaign_name comes back so we can re-filter case-sensitively
         // before aggregating (Meta's CONTAIN is case-INsensitive).
+        // PR-A (issue #467): `inline_link_clicks` → `clicks`.
         fields:
-          "spend,impressions,reach,inline_link_clicks,campaign_name,actions,action_values",
+          "spend,impressions,reach,clicks,campaign_name,actions,action_values",
         level: "campaign",
         date_preset: "today",
         filtering,
@@ -2402,7 +2435,7 @@ export async function fetchEventTodayMetaSnapshot(
           spend?: string;
           impressions?: string;
           reach?: string;
-          inline_link_clicks?: string;
+          clicks?: string;
           campaign_name?: string;
           actions?: ActionRow[];
         }>
@@ -2418,7 +2451,8 @@ export async function fetchEventTodayMetaSnapshot(
         );
         totalSpend += regular;
         totalPresaleSpend += presale;
-        totalClicks += parseNum(row.inline_link_clicks);
+        totalClicks += parseNum(row.clicks);
+        totalLpv += resolveLpvFromActions(row.actions);
         totalRegs += sumActions(row.actions, regActionTypes);
         totalPurchases += sumActions(row.actions, purchaseActionTypes);
         totalLeads += sumActions(row.actions, leadActionTypes);
@@ -2449,8 +2483,9 @@ export async function fetchEventTodayMetaSnapshot(
       after = undefined;
       for (let page = 0; page < 20; page += 1) {
         const params: Record<string, string> = {
+          // PR-A (issue #467): `inline_link_clicks` → `clicks`.
           fields:
-            "spend,impressions,reach,inline_link_clicks,campaign_name,actions,action_values",
+            "spend,impressions,reach,clicks,campaign_name,actions,action_values",
           level: "campaign",
           date_preset: "today",
           filtering: umbrellaFiltering,
@@ -2464,7 +2499,7 @@ export async function fetchEventTodayMetaSnapshot(
             spend?: string;
             impressions?: string;
             reach?: string;
-            inline_link_clicks?: string;
+            clicks?: string;
             campaign_name?: string;
             actions?: ActionRow[];
           }>
@@ -2486,7 +2521,8 @@ export async function fetchEventTodayMetaSnapshot(
           );
           totalSpend += regular;
           totalPresaleSpend += presale;
-          totalClicks += parseNum(row.inline_link_clicks);
+          totalClicks += parseNum(row.clicks);
+          totalLpv += resolveLpvFromActions(row.actions);
           totalRegs += sumActions(row.actions, regActionTypes);
           totalPurchases += sumActions(row.actions, purchaseActionTypes);
           totalLeads += sumActions(row.actions, leadActionTypes);
@@ -2515,6 +2551,7 @@ export async function fetchEventTodayMetaSnapshot(
           spend: totalSpend,
           presaleSpend: totalPresaleSpend,
           linkClicks: totalClicks,
+          landingPageViews: totalLpv,
           metaRegs: totalRegs,
           metaPurchases: totalPurchases,
           metaLeads: totalLeads,
@@ -2556,12 +2593,23 @@ export interface LifetimeMetaMetricsTotals {
   /** Lifetime impressions (additive across days, summed across campaigns). */
   impressions: number;
   /**
-   * Lifetime inline link clicks. Meta dedupes within a campaign for the
-   * attribution window, so summing across campaigns slightly overcounts
-   * users who clicked in multiple campaigns — same caveat as `reach`,
-   * still within the ±5% acceptance band.
+   * Lifetime "Clicks (all)" — engagement-clicks. Meta dedupes within a
+   * campaign for the attribution window, so summing across campaigns
+   * slightly overcounts users who clicked in multiple campaigns — same
+   * caveat as `reach`, still within the ±5% acceptance band.
+   *
+   * PR-A (issue #467) swapped the source field from `inline_link_clicks`
+   * to `clicks`. Field name kept for downstream-consumer compatibility
+   * (see `DailyMetaMetricsRow.linkClicks` for rationale).
    */
   linkClicks: number;
+  /**
+   * Lifetime Landing Page Views — summed priority-chain LPV across all
+   * matched campaigns. Persisted into
+   * `event_code_lifetime_meta_cache.meta_landing_page_views`
+   * (migration 099, PR-A).
+   */
+  landingPageViews: number;
   /**
    * Lifetime registrations from the standard pixel/CR action types
    * (matches the daily helper's `regActionTypes`).
@@ -2694,8 +2742,11 @@ export async function fetchEventLifetimeMetaMetricsWithFetcher(
         // PR #418 added `campaign_id` so Pass 2 can filter by exact
         // matched campaign IDs. Without it, Pass 2 has nothing to
         // restrict to and Meta would return account-wide reach.
+        // PR-A (issue #467): `inline_link_clicks` → `clicks`. The
+        // Pass-1 aggregator in event-code-lifetime-two-pass.ts reads
+        // `row.clicks` now — keep the wire field in lock-step.
         fields:
-          "impressions,reach,inline_link_clicks,campaign_id,campaign_name,actions,action_values",
+          "impressions,reach,clicks,campaign_id,campaign_name,actions,action_values",
         level: "campaign",
         date_preset: "maximum",
         filtering: namedFiltering,
@@ -2789,6 +2840,7 @@ export async function fetchEventLifetimeMetaMetricsWithFetcher(
         reach: totalReach,
         impressions: pass1.impressions,
         linkClicks: pass1.linkClicks,
+        landingPageViews: pass1.landingPageViews,
         metaRegs: pass1.metaRegs,
         videoPlays3s: pass1.videoPlays3s,
         videoPlays15s: pass1.videoPlays15s,

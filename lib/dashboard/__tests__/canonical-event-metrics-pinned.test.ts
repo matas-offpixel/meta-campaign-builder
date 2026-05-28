@@ -65,6 +65,7 @@ function cacheRow(
     meta_reach: reach,
     meta_impressions: reach * 5, // realistic ratio for the helper sums
     meta_link_clicks: Math.round(reach * 0.02),
+    meta_landing_page_views: Math.round(reach * 0.01),
     meta_regs: Math.round(reach * 0.0005),
     meta_video_plays_3s: Math.round(reach * 0.1),
     meta_video_plays_15s: Math.round(reach * 0.02),
@@ -303,6 +304,7 @@ describe("PR #419 — Manchester funnel-pacing pin (Bug 1)", () => {
       meta_reach: reach,
       meta_impressions: reach * 5,
       meta_link_clicks: Math.round(reach * 0.02),
+      meta_landing_page_views: Math.round(reach * 0.01),
       meta_regs: Math.round(reach * 0.0005),
       meta_video_plays_3s: Math.round(reach * 0.1),
       meta_video_plays_15s: Math.round(reach * 0.02),

@@ -467,6 +467,15 @@ function aggregateRollupsWithCanonical(
     meta_reach: number | null;
     meta_impressions: number | null;
     meta_link_clicks: number | null;
+    /**
+     * Migration 099 (PR-A of issue #467) added LPV to the cache. Kept
+     * in this structural shape so this helper stays compatible with the
+     * `EventCodeLifetimeMetaCacheRow` produced by
+     * `lib/db/event-code-lifetime-meta-cache.ts`. The funnel-pacing
+     * surface itself doesn't consume LPV until PR-B; this declaration is
+     * the type-only echo that keeps the read seam typed.
+     */
+    meta_landing_page_views: number | null;
     meta_regs: number | null;
     meta_video_plays_3s: number | null;
     meta_video_plays_15s: number | null;

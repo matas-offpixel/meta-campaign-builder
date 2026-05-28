@@ -8,23 +8,41 @@
  * the `@/` alias graph that meta.ts imports (Supabase client, server-
  * only auth, classifyCampaignFunnelStage, etc.). The test runner
  * `node --experimental-strip-types --test` doesn't process tsconfig
- * paths; this module imports only from `./meta-event-code-match`
- * (also alias-free).
+ * paths; this module imports only from `./meta-event-code-match` and
+ * `./lpv-priority-chain` (both alias-free).
  *
  * The orchestration (`fetchEventLifetimeMetaMetricsWithFetcher`)
  * lives in `meta.ts`. The arithmetic + filter + ID-collection logic
  * live here and are pinned by
  * `lib/insights/__tests__/fetchEventLifetimeMetaMetrics.test.ts`.
+ *
+ * PR-A (issue #467, rollup writer convergence) swapped the click
+ * source from `inline_link_clicks` (the narrow outbound-link variant)
+ * to `clicks` (engagement-clicks / "Clicks (all)"). The Meta field
+ * name on the wire changed; the in-memory accumulator name
+ * (`linkClicks` on Pass1Totals) was kept to avoid renaming every
+ * downstream consumer. The semantic is now engagement-clicks. The
+ * matching swap on the daily-window helper landed in the same PR.
  */
 
 import { campaignMatchesBracketedEventCode } from "./meta-event-code-match.ts";
+import { resolveLpvFromActions } from "./lpv-priority-chain.ts";
 
 export interface PerCampaignLifetimeRow {
   campaign_id?: string;
   campaign_name?: string;
   impressions?: string;
   reach?: string;
-  inline_link_clicks?: string;
+  /**
+   * PR-A (issue #467): swapped from `inline_link_clicks` to `clicks`.
+   * Meta's `clicks` field returns "Clicks (all)" — every click on the
+   * ad including post-engagement, profile, comments. `inline_link_clicks`
+   * (the pre-swap field) was the strict subset that only counted clicks
+   * to the destination URL. Verified on WC26-EDINBURGH (May 2026):
+   *   TRAFFIC campaign  → clicks 6510, inline_link_clicks 5518 (+18%)
+   *   CONVERSION camp.  → clicks 286,  inline_link_clicks 145  (+97%)
+   */
+  clicks?: string;
   actions?: ActionRow[];
 }
 
@@ -47,6 +65,13 @@ export interface Pass1Totals {
   perCampaignReachSum: number;
   impressions: number;
   linkClicks: number;
+  /**
+   * Landing Page Views — resolved via the omni > pixel > raw priority
+   * chain in `lib/insights/lpv-priority-chain.ts`. Added in PR-A
+   * (issue #467) so the lifetime cache exposes LPV without falling
+   * back to per-creative active_creatives_snapshots.payload.
+   */
+  landingPageViews: number;
   metaRegs: number;
   videoPlays3s: number;
   videoPlays15s: number;
@@ -67,7 +92,8 @@ const REG_ACTION_TYPES = [
  * the case-sensitive bracket post-filter, and accumulate:
  *   1. Matched campaign IDs (drives Pass 2's `IN` filter).
  *   2. Per-campaign reach SUM (Pass-2 fallback only).
- *   3. Additive metrics (impressions, clicks, regs, video, engagements).
+ *   3. Additive metrics (impressions, clicks, LPV, regs, video,
+ *      engagements).
  *
  * Pure: no I/O. Caller is responsible for pagination.
  */
@@ -78,6 +104,7 @@ export function aggregatePass1Pages(
   let perCampaignReachSum = 0;
   let impressions = 0;
   let linkClicks = 0;
+  let landingPageViews = 0;
   let metaRegs = 0;
   let videoPlays3s = 0;
   let videoPlays15s = 0;
@@ -99,7 +126,8 @@ export function aggregatePass1Pages(
       matchedNames.add(name);
       perCampaignReachSum += parseNum(row.reach);
       impressions += parseNum(row.impressions);
-      linkClicks += parseNum(row.inline_link_clicks);
+      linkClicks += parseNum(row.clicks);
+      landingPageViews += resolveLpvFromActions(row.actions);
       metaRegs += sumActions(row.actions, REG_ACTION_TYPES);
       videoPlays3s += sumActions(row.actions, ["video_view"]);
       videoPlays15s += sumActions(row.actions, [
@@ -116,6 +144,7 @@ export function aggregatePass1Pages(
     perCampaignReachSum,
     impressions,
     linkClicks,
+    landingPageViews,
     metaRegs,
     videoPlays3s,
     videoPlays15s,

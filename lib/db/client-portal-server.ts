@@ -220,6 +220,14 @@ export interface DailyRollupRow {
   revenue: number | null;
   /** Meta link clicks for this event/day. */
   link_clicks: number | null;
+  /**
+   * Meta Landing Page Views (migration 099, PR-A of issue #467).
+   * Optional on the slim portal payload — same precedent as the
+   * `meta_*` awareness columns below; pre-PR rows are NULL until the
+   * canonical-clicks-lpv backfill rewrites them. PR-B (the funnel-
+   * pacing surface rebuild) reads this directly.
+   */
+  landing_page_views?: number | null;
   /** Meta complete_registration actions for this event/day. */
   meta_regs: number | null;
   /** TikTok clicks for this event/day. */
