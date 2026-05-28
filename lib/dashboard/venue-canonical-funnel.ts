@@ -25,10 +25,11 @@
  *               late writer can't drift the two surfaces)
  *   - LPV     → `event_code_lifetime_meta_cache.meta_landing_page_views`
  *               (migration 099, PR-A of #467)
- *   - Purchases → SUM(`tier_channel_sales.tickets_sold`) across the
- *               venue's events. Canonical truth — NOT
- *               `event_daily_rollups.meta_purchases` (which is Meta's
- *               attribution claim, not the ticketing fact).
+ *   - Purchases → SUM(`events.tickets_sold`) across the venue's events.
+ *               Matches Performance Summary's headline count. NOT
+ *               `tier_channel_sales` (tier-breakdown SUM, diverges by ~9%
+ *               on Edinburgh) and NOT `event_daily_rollups.meta_purchases`
+ *               (Meta attribution claim, not ticketing fact).
  *   - Spend   → SUM(`event_daily_rollups.ad_spend_allocated` ??
  *               `event_daily_rollups.ad_spend`, +`ad_spend_presale`).
  *               Per-fixture allocator handles the venue split.
@@ -104,6 +105,7 @@ export type MetricSource =
   | "lifetime_cache"
   | "cache_miss"
   | "tier_channel_sales"
+  | "events_table"
   | "rollups";
 
 export interface VenueCanonicalFunnelStage {
@@ -170,20 +172,29 @@ export interface VenueCanonicalFunnelBackwardRead {
  *   - `"no_event_date"` → "—" (no eventDate supplied)
  */
 export interface VenueSpendReconciliation {
-  /** SUM of spend from rollups — same as `metrics.spend`. */
+  /**
+   * Allocated-only spend: `SUM(ad_spend_allocated ?? 0) + SUM(ad_spend_presale ?? 0)`.
+   * No COALESCE fallback to raw `ad_spend` — matches Performance Summary's
+   * "Paid media spent" tile. Unallocated dates (allocator stall) contribute £0.
+   */
   spent: number;
-  /** SUM of `events[].budget_marketing`. `null` when none set. */
+  /** SUM of `events[].budget_marketing` via `aggregateSharedVenueBudget`. `null` when none set. */
   allocated: number | null;
   /** `allocated - spent`. `null` when `allocated` is null. */
   remaining: number | null;
-  /** Earliest rollup date where spend > 0. `null` when no spend yet. */
+  /** Earliest rollup date where allocated spend > 0. `null` when no spend yet. */
   firstSpendDate: string | null;
   /** Days from `firstSpendDate` to today. `null` when no spend yet. */
   daysSinceFirstSpend: number | null;
   /** `spent / daysSinceFirstSpend`. `null` when no spend. */
   spentPerDay: number | null;
   /**
-   * `(ticketsRemaining × liveCpt) / daysToEvent`.
+   * Live CPT = `spent / ticketsSold` (where ticketsSold = `events.tickets_sold` SUM,
+   * matching Performance Summary). `null` when no tickets sold yet.
+   */
+  liveCostPerTicket: number | null;
+  /**
+   * `(ticketsRemaining × liveCostPerTicket) / daysToEvent`.
    * `null` in all suppressed states (see `requiredPerDayState`).
    */
   requiredPerDay: number | null;
@@ -204,6 +215,12 @@ export interface VenueSpendReconciliation {
    * `"pace_covered"` when remaining budget covers the required spend.
    */
   warning: "additional_needed" | "pace_covered" | null;
+  /**
+   * Amount by which required spend exceeds remaining budget.
+   * `null` when warning ≠ "additional_needed" or required total unknown.
+   * Positive means over budget; used for the "additional budget needed by £X" copy.
+   */
+  warningAmount: number | null;
 }
 
 export interface VenueCanonicalFunnel {
@@ -242,7 +259,12 @@ export interface VenueCanonicalFunnel {
 export interface VenueCanonicalFunnelInput {
   /** SUM of `events.capacity` across the venue's fixtures. */
   capacity: number;
-  /** SUM of `tier_channel_sales.tickets_sold` across the venue's events. */
+  /**
+   * SUM of `events.tickets_sold` across the venue's events.
+   * Matches Performance Summary's headline ticket count so CPT and
+   * Required-per-day agree between the two surfaces.
+   * (Not `tier_channel_sales`, which diverges ~9% on Edinburgh.)
+   */
   ticketsSold: number;
   /**
    * Lifetime cache row for this `(client_id, event_code)`. `null` when
@@ -388,9 +410,9 @@ export function buildVenueCanonicalFunnel(
   const spendReconciliation = computeSpendReconciliation({
     dailyRollups: input.dailyRollups,
     allocatedBudget: input.allocatedBudget ?? null,
+    ticketsSold: purchases,
     ticketsRemaining: backwardRead.ticketsRemaining,
     daysToEvent: backwardRead.daysToEvent,
-    liveCpt,
     today,
   });
 
@@ -412,7 +434,7 @@ export function buildVenueCanonicalFunnel(
       clicks: cache && clicks != null ? "lifetime_cache" : "cache_miss",
       landingPageViews:
         cache && lpv != null ? "lifetime_cache" : "cache_miss",
-      purchases: "tier_channel_sales",
+      purchases: "events_table",
       spend: "rollups",
     },
   };
@@ -421,16 +443,21 @@ export function buildVenueCanonicalFunnel(
 function computeSpendReconciliation({
   dailyRollups,
   allocatedBudget,
+  ticketsSold,
   ticketsRemaining,
   daysToEvent,
-  liveCpt,
   today,
 }: {
   dailyRollups: ReadonlyArray<DailyRollupRow>;
   allocatedBudget: number | null;
+  /**
+   * `events.tickets_sold` SUM — same source as Performance Summary's
+   * headline ticket count. Used to compute live CPT so the two surfaces
+   * agree on cost-per-ticket.
+   */
+  ticketsSold: number;
   ticketsRemaining: number;
   daysToEvent: number | null;
-  liveCpt: number | null;
   today: Date;
 }): VenueSpendReconciliation {
   const todayYmd = today.toISOString().slice(0, 10);
@@ -440,7 +467,7 @@ function computeSpendReconciliation({
   // fallback to raw ad_spend — raw is fanned-out across fixtures and
   // over-counts on unallocated dates (allocator stall). Matches Performance
   // Summary's "Paid media spent" tile exactly (source-of-truth contract,
-  // PR #474).
+  // PR #474 / #476).
   let spent = 0;
   let firstSpendDate: string | null = null;
   for (const row of dailyRollups) {
@@ -464,6 +491,13 @@ function computeSpendReconciliation({
     }
   }
 
+  // Live CPT uses the same spend basis (allocated-only) and same ticket
+  // source (events.tickets_sold) as Performance Summary. Deriving it here
+  // keeps the two figures consistent without relying on the caller to pass
+  // a coherent pair.
+  const liveCostPerTicket =
+    ticketsSold > 0 && spent > 0 ? spent / ticketsSold : null;
+
   const allocated = allocatedBudget;
   const remaining = allocated != null ? allocated - spent : null;
 
@@ -478,20 +512,26 @@ function computeSpendReconciliation({
     requiredPerDayState = "event_passed";
   } else if (ticketsRemaining <= 0) {
     requiredPerDayState = "sold_out";
-  } else if (liveCpt == null) {
+  } else if (liveCostPerTicket == null) {
     requiredPerDayState = "no_tickets_yet";
   } else {
-    requiredPerDay = (ticketsRemaining * liveCpt) / daysToEvent;
+    requiredPerDay = (ticketsRemaining * liveCostPerTicket) / daysToEvent;
     requiredPerDayState = "ok";
   }
 
   const suggestedDaily = requiredPerDay;
 
-  // Budget sufficiency warning.
+  // Budget sufficiency warning + overage amount.
   let warning: VenueSpendReconciliation["warning"] = null;
+  let warningAmount: number | null = null;
   if (allocated != null && remaining != null && requiredPerDay != null && daysToEvent != null && daysToEvent > 0) {
     const totalRequired = requiredPerDay * daysToEvent;
-    warning = totalRequired > remaining ? "additional_needed" : "pace_covered";
+    if (totalRequired > remaining) {
+      warning = "additional_needed";
+      warningAmount = totalRequired - remaining;
+    } else {
+      warning = "pace_covered";
+    }
   }
 
   return {
@@ -501,10 +541,12 @@ function computeSpendReconciliation({
     firstSpendDate,
     daysSinceFirstSpend,
     spentPerDay,
+    liveCostPerTicket,
     requiredPerDay,
     suggestedDaily,
     requiredPerDayState,
     warning,
+    warningAmount,
   };
 }
 

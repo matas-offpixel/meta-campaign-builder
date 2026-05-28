@@ -141,7 +141,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     0,
   );
   const venueTicketsSold = result.events.reduce(
-    (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
+    (sum, e) => sum + (e.tickets_sold ?? 0),
     0,
   );
   const venueAllocatedBudget = aggregateSharedVenueBudget(result.events);
@@ -241,6 +241,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             isShared
             venueCanonical={venueCanonical}
             venueLabel={venueTitle}
+            venueEventCode={result.event_code}
           />
         )}
       </div>

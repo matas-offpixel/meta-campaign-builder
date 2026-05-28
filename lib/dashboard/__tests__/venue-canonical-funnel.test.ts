@@ -154,7 +154,7 @@ describe("buildVenueCanonicalFunnel — Edinburgh acceptance", () => {
     assert.equal(result.sources.reach, "lifetime_cache");
     assert.equal(result.sources.clicks, "lifetime_cache");
     assert.equal(result.sources.landingPageViews, "lifetime_cache");
-    assert.equal(result.sources.purchases, "tier_channel_sales");
+    assert.equal(result.sources.purchases, "events_table");
     assert.equal(result.sources.spend, "rollups");
   });
 });
@@ -402,16 +402,17 @@ describe("buildVenueCanonicalFunnel — OFF_TRACK scenarios", () => {
 // ─── spendReconciliation tests (PR-C) ─────────────────────────────────────
 
 /**
- * Deterministic Edinburgh-shaped fixture.
- * Pinned numbers derived from live data (2026-05-28):
- *   - 3 fixtures × £3,000 spend = £9,000 total
- *   - 3 fixtures × £9,000 allocated = £27,000 total
+ * Deterministic Edinburgh-shaped fixture (PR-D aligned, events.tickets_sold source).
+ * Pinned numbers:
+ *   - spend = £9,000 (allocated-only, from ad_spend_allocated rows)
+ *   - allocated = £27,000 (3 fixtures × £9,000 per the test fixture)
  *   - first_spend_date = 2026-01-28 → 120 days back from today
- *   - tickets_sold = 3,000, capacity = 5,000 (ticketsRemaining = 2,000)
+ *   - ticketsSold = 3,000 (events.tickets_sold SUM)
+ *   - capacity = 5,000, ticketsRemaining = 2,000
  *   - daysToEvent = 16 (event_date = 2026-06-13, today = 2026-05-28)
- *   - liveCpt = 9000 / 3000 = £3
+ *   - liveCostPerTicket = 9000 / 3000 = £3 (allocated spend / events.tickets_sold)
  *   - requiredPerDay = (2000 × 3) / 16 = 375
- *   - required total = 6000; remaining = 27000 - 9000 = 18000 → pace_covered
+ *   - required total = 6000; remaining = 18000 → pace_covered, warningAmount null
  */
 describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
   const TODAY = new Date("2026-05-28T12:00:00Z");
@@ -467,6 +468,11 @@ describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
       Math.abs((sr.spentPerDay ?? 0) - 75) < 0.01,
       `spentPerDay expected ~75, got ${sr.spentPerDay}`,
     );
+    // liveCostPerTicket = 9000 / 3000 = 3
+    assert.ok(
+      sr.liveCostPerTicket != null && Math.abs(sr.liveCostPerTicket - 3) < 0.01,
+      `liveCostPerTicket expected ~3, got ${sr.liveCostPerTicket}`,
+    );
     // requiredPerDay = (2000 × 3) / 16 = 375
     assert.equal(sr.requiredPerDayState, "ok");
     assert.ok(
@@ -474,11 +480,12 @@ describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
       `requiredPerDay expected ~375, got ${sr.requiredPerDay}`,
     );
     assert.equal(sr.suggestedDaily, sr.requiredPerDay);
-    // required total = 6000 < remaining 18000 → pace_covered
+    // required total = 6000 < remaining 18000 → pace_covered, no overage
     assert.equal(sr.warning, "pace_covered");
+    assert.equal(sr.warningAmount, null);
   });
 
-  it("warning=additional_needed when required total > remaining", () => {
+  it("warning=additional_needed when required total > remaining, warningAmount is overage", () => {
     const result = buildVenueCanonicalFunnel({
       capacity: 5_000,
       ticketsSold: 3_000,
@@ -489,12 +496,18 @@ describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
         firstDate: "2026-01-28",
       }),
       eventDate: "2026-06-13",
-      // remaining = 9800 - 9000 = 800 < required 6000
+      // remaining = 9800 - 9000 = 800; required total = 2000 × 3 = 6000 > 800
       allocatedBudget: 9_800,
       today: TODAY,
     });
 
-    assert.equal(result.spendReconciliation.warning, "additional_needed");
+    const sr = result.spendReconciliation;
+    assert.equal(sr.warning, "additional_needed");
+    // warningAmount = required_total - remaining = 6000 - 800 = 5200
+    assert.ok(
+      sr.warningAmount != null && Math.abs(sr.warningAmount - 5_200) < 0.01,
+      `warningAmount expected ~5200, got ${sr.warningAmount}`,
+    );
   });
 
   it("sold-out: requiredPerDay suppressed", () => {
@@ -533,10 +546,10 @@ describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
     assert.equal(sr.warning, null);
   });
 
-  it("null CPT (no tickets yet): requiredPerDay suppressed", () => {
+  it("null CPT (no tickets yet): liveCostPerTicket null, requiredPerDay suppressed", () => {
     const result = buildVenueCanonicalFunnel({
       capacity: 5_000,
-      ticketsSold: 0, // no purchases → liveCpt = null
+      ticketsSold: 0, // no purchases → liveCostPerTicket = null
       lifetimeCacheRow: null,
       dailyRollups: makeSpendRollups({ spent: 500 }),
       eventDate: "2026-06-13",
@@ -545,9 +558,11 @@ describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
     });
 
     const sr = result.spendReconciliation;
+    assert.equal(sr.liveCostPerTicket, null);
     assert.equal(sr.requiredPerDayState, "no_tickets_yet");
     assert.equal(sr.requiredPerDay, null);
     assert.equal(sr.warning, null);
+    assert.equal(sr.warningAmount, null);
   });
 
   it("null allocated budget: allocated/remaining/warning all null", () => {

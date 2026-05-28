@@ -1,11 +1,11 @@
-import { AlertTriangle, CheckCircle2, Info, Settings } from "lucide-react";
+import { Info, Settings } from "lucide-react";
 
 import type {
   StageStatus,
   VenueCanonicalFunnel,
   VenueCanonicalFunnelStage,
-  VenueSpendReconciliation,
 } from "@/lib/dashboard/venue-canonical-funnel";
+import { SpendReconciliationCard } from "./spend-reconciliation-card";
 
 const NUM = new Intl.NumberFormat("en-GB");
 const PCT_1DP = new Intl.NumberFormat("en-GB", {
@@ -42,15 +42,25 @@ const GBP = new Intl.NumberFormat("en-GB", {
 export function FunnelPacingVenueView({
   pacing,
   venueLabel,
+  clientId,
+  eventCode,
 }: {
   pacing: VenueCanonicalFunnel;
   venueLabel: string;
+  /** Used by SpendReconciliationCard to read the live Meta daily budget. */
+  clientId: string;
+  eventCode: string;
 }) {
   return (
     <section className="space-y-5">
       <Header venueLabel={venueLabel} />
       <FunnelHealthStrip stages={pacing.stages} />
-      <SpendReconciliationCard reconciliation={pacing.spendReconciliation} />
+      <SpendReconciliationCard
+        reconciliation={pacing.spendReconciliation}
+        daysToEvent={pacing.backwardRead.daysToEvent}
+        clientId={clientId}
+        eventCode={eventCode}
+      />
       <div className="space-y-4">
         {pacing.stages.map((stage) => (
           <FunnelStageCardCanonical key={stage.key} stage={stage} />
@@ -174,144 +184,6 @@ function HealthBadge({
     <span className="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-medium text-red-800">
       🔴 OFF TRACK
     </span>
-  );
-}
-
-// ─── Spend Reconciliation Card (PR-C B) ─────────────────────────────────────
-
-function SpendReconciliationCard({
-  reconciliation: r,
-}: {
-  reconciliation: VenueSpendReconciliation;
-}) {
-  return (
-    <article
-      className="rounded-lg border border-border bg-card p-5 shadow-sm"
-      data-testid="funnel-pacing-spend-reconciliation"
-    >
-      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-        Spend vs Budget
-      </p>
-      <div className="mt-4 grid gap-x-8 gap-y-2 sm:grid-cols-2">
-        <SpendRow label="Spent" value={GBP.format(r.spent)} />
-
-        {r.allocated != null ? (
-          <SpendRow
-            label="Allocated"
-            value={GBP.format(r.allocated)}
-            sub={
-              r.remaining != null
-                ? `${GBP.format(r.remaining)} remaining`
-                : undefined
-            }
-          />
-        ) : null}
-
-        <SpendRow
-          label="Spent per day"
-          value={
-            r.spentPerDay == null
-              ? "—"
-              : `${GBP.format(r.spentPerDay)}`
-          }
-          sub={
-            r.daysSinceFirstSpend != null
-              ? `over ${NUM.format(r.daysSinceFirstSpend)} days`
-              : undefined
-          }
-        />
-
-        <RequiredPerDayRow reconciliation={r} />
-      </div>
-
-      {r.warning != null && r.allocated != null && (
-        <WarningBanner warning={r.warning} />
-      )}
-    </article>
-  );
-}
-
-function RequiredPerDayRow({
-  reconciliation: r,
-}: {
-  reconciliation: VenueSpendReconciliation;
-}) {
-  if (r.requiredPerDayState === "event_passed") {
-    return <SpendRow label="Required per day" value="Event passed" />;
-  }
-  if (r.requiredPerDayState === "sold_out") {
-    return (
-      <SpendRow
-        label="Required per day"
-        value="Sold out"
-        sub="No further spend required"
-      />
-    );
-  }
-  if (
-    r.requiredPerDayState === "no_tickets_yet" ||
-    r.requiredPerDayState === "no_event_date"
-  ) {
-    return <SpendRow label="Required per day" value="—" />;
-  }
-  // "ok"
-  return (
-    <SpendRow
-      label="Required per day"
-      value={r.requiredPerDay == null ? "—" : GBP.format(r.requiredPerDay)}
-      sub={
-        r.requiredPerDay != null && r.suggestedDaily != null
-          ? `Suggested: ${GBP.format(r.suggestedDaily)}/day to sell out`
-          : undefined
-      }
-    />
-  );
-}
-
-function WarningBanner({
-  warning,
-}: {
-  warning: "additional_needed" | "pace_covered";
-}) {
-  if (warning === "additional_needed") {
-    return (
-      <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-        <span>
-          Required spend exceeds remaining budget — additional budget needed.
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div className="mt-4 flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-800">
-      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-      <span>Remaining budget covers required pace to sell out.</span>
-    </div>
-  );
-}
-
-function SpendRow({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="flex flex-col py-1">
-      <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      <span className="font-heading text-base tabular-nums">{value}</span>
-      {sub ? (
-        <span className="text-[11px] text-muted-foreground tabular-nums">
-          {sub}
-        </span>
-      ) : null}
-    </div>
   );
 }
 

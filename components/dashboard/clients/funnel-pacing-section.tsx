@@ -28,6 +28,7 @@ export async function FunnelPacingSection({
   isShared = false,
   venueCanonical,
   venueLabel,
+  venueEventCode,
 }: {
   clientId: string;
   regionFilter?: CreativePatternRegionFilter;
@@ -40,12 +41,16 @@ export async function FunnelPacingSection({
   venueCanonical?: VenueCanonicalFunnel;
   /** Display label for the venue (used as the header on the new view). */
   venueLabel?: string;
+  /** Event code for the venue — used to look up the live Meta daily budget. */
+  venueEventCode?: string;
 }) {
   if (venueCanonical) {
     return (
       <FunnelPacingVenueView
         pacing={venueCanonical}
         venueLabel={venueLabel ?? "Venue"}
+        clientId={clientId}
+        eventCode={venueEventCode ?? ""}
       />
     );
   }

@@ -210,8 +210,10 @@ export default async function ClientVenueReportPage({
     (sum, e) => sum + (e.capacity ?? 0),
     0,
   );
+  // events.tickets_sold — matches Performance Summary's headline count
+  // (tier_channel_sales diverges ~9% on multi-fixture venues like Edinburgh).
   const venueTicketsSold = venueEvents.reduce(
-    (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
+    (sum, e) => sum + (e.tickets_sold ?? 0),
     0,
   );
   // MAX per event_code — budget_marketing is stored redundantly on every
@@ -319,6 +321,7 @@ export default async function ClientVenueReportPage({
             regionFilter={{ type: "venue_code", value: eventCode }}
             venueCanonical={venueCanonical}
             venueLabel={venueTitle}
+            venueEventCode={eventCode}
           />
         </Suspense>
       )}
