@@ -57,22 +57,31 @@ shape and an optional `allocatedBudget` input (SUM of
 
 ## Edinburgh live verification (2026-05-28)
 
-| Field            | Value      |
-|------------------|-----------|
-| Spent            | £9,410     |
-| Allocated        | £29,745    |
-| Remaining        | £20,335    |
-| First spend date | 2026-01-28 |
-| Days of spend    | 120        |
-| Spent per day    | £78.42     |
-| Live CPT         | £2.69      |
-| Days to event    | 16         |
-| Tickets remaining | 1,977     |
-| Required per day | ~£332      |
-| Warning          | `pace_covered` |
+`allocatedBudget` sourced via `aggregateSharedVenueBudget` (MAX per event_code = £9,915,
+matches Performance Summary "Paid media allocated" tile).
+
+| Field             | Value               |
+|-------------------|---------------------|
+| Spent             | £9,410              |
+| Allocated         | £9,915              |
+| Remaining         | £505                |
+| First spend date  | 2026-01-28          |
+| Days of spend     | 120                 |
+| Spent per day     | £78.42              |
+| Live CPT          | £2.69               |
+| Days to event     | 16                  |
+| Tickets remaining | 1,977               |
+| Required per day  | £332                |
+| Warning           | `additional_needed` |
 
 ## Notes
 
+- **Allocated source fix (post-initial-commit):** original implementation
+  used `SUM(events[].budget_marketing)`, which inflated by fixture count on
+  multi-fixture venues (Edinburgh: 3 × £9,915 = £29,745). Fixed in follow-up
+  commit to use `aggregateSharedVenueBudget(venueEvents)` (MAX per event_code
+  = £9,915) — the same helper Performance Summary uses. Same anti-pattern as
+  the click-fanout fix in #472.
 - PR-D will follow with the predictive projection chart (out of scope here).
 - The spend allocator stall investigation is a separate Claude Code Opus
   diagnostic (not this branch).
