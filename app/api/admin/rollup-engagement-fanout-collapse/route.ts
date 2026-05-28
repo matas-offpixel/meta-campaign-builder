@@ -85,17 +85,15 @@ function isCronAuthorized(req: NextRequest): boolean {
 }
 
 /**
- * Columns that are engagement-owner-only post-PR-A.5. Every column
- * here is event-code-level (Meta returns the same number for every
- * sibling because of the substring-on-campaign-name filter), so
- * non-owner siblings hold NULL.
+ * Columns Meta returns at campaign granularity. Sibling events
+ * sharing one bracketed `event_code` always carry the IDENTICAL
+ * value for each calendar day, REGARDLESS of allocator state — the
+ * venue allocator never rewrites these.
  *
- * Keep this list in sync with the `ownedOrNull` block in
- * `lib/dashboard/rollup-sync-runner.ts` — adding a column to one
- * place but not the other re-introduces the fanout.
+ * Mirrors `ALWAYS_CAMPAIGN_WIDE_META_COLUMNS` in
+ * `lib/dashboard/venue-rollup-dedup.ts`; keep them in sync.
  */
-const ENGAGEMENT_COLUMNS = [
-  "link_clicks",
+const ALWAYS_CAMPAIGN_WIDE_COLUMNS = [
   "landing_page_views",
   "meta_regs",
   "meta_purchases",
@@ -107,6 +105,36 @@ const ENGAGEMENT_COLUMNS = [
   "meta_video_plays_p100",
   "meta_engagements",
 ] as const;
+
+/**
+ * `link_clicks` is the only engagement/attribution column the venue
+ * spend allocator may rewrite per-fixture. When it has (Brighton,
+ * Manchester), siblings in the group hold DISTINCT positive values
+ * that SUM to the campaign total and MUST NOT be NULLed. When it
+ * hasn't (Edinburgh, SWG3), every sibling holds the IDENTICAL
+ * event-code total and must be collapsed.
+ *
+ * Detection used here: per-group `distinct(link_clicks) > 1`. This
+ * is strictly stronger than the dedup helper's
+ * `ad_spend_allocated != null` heuristic — Edinburgh's rows have
+ * `ad_spend_presale = 0` (non-null) but `link_clicks` is still
+ * fanned out (the allocator wrote spend allocation but not a
+ * per-fixture click split). Using the column's own distinct-value
+ * count avoids that false-positive.
+ *
+ * Verification of why this matters (issue #471 audit dry-run on
+ * prod data, 2026-05-28):
+ *
+ *   - Brighton  (4 fixtures, distinct link_clicks > 1):
+ *       SUM(link_clicks) = 64,132 = lifetime cache (already correct)
+ *   - Manchester (4 fixtures, distinct link_clicks > 1):
+ *       SUM(link_clicks) = 67,844 = lifetime cache (already correct)
+ *   - Edinburgh (3 fixtures, distinct link_clicks = 1):
+ *       SUM(link_clicks) = 316,689 = 3 × 105,563 (the fanout bug)
+ *   - SWG3      (3 fixtures, distinct link_clicks = 1):
+ *       SUM(link_clicks) = 74,615 ≠ 3,503 cache (also fanned out)
+ */
+const PER_FIXTURE_CANDIDATE_COLUMNS = ["link_clicks"] as const;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!isCronAuthorized(req)) {
@@ -156,26 +184,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Step 1: enumerate (event_code, date) groups + their siblings ──
   //
-  // We pull JUST the keys + the canonical engagement column
-  // (`meta_impressions`) to decide:
-  //   - Which sibling is the owner (lex-min event_id) — keep its row.
-  //   - Is the group byte-identical fanout, or race-jitter divergent?
-  //     Divergence detected by `distinct(meta_impressions) > 1`.
-  //
-  // Pulling only one column keeps the payload small even at 10k rows;
-  // we do not need the actual values because the live writer/runner
-  // will re-converge them on the next sync.
+  // We pull keys + `meta_impressions` (jitter detection) +
+  // `link_clicks` (per-column fanout detection — see the comment on
+  // `PER_FIXTURE_CANDIDATE_COLUMNS`). All other engagement columns
+  // are unconditionally campaign-wide so we don't need their values
+  // here — the update will blank them on every non-owner sibling in
+  // every group.
   //
   // The query joins events for `event_code` and filters to multi-
-  // sibling groups via a subquery.
+  // sibling groups in JS (PostgREST's filtering on joins is limited).
   //
-  // NB: we don't paginate. The aggregate row count is ~10k; well under
-  // the default 50k limit.
+  // NB: we don't paginate. The aggregate row count is ~10k; well
+  // under the default 50k limit.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: siblingRows, error: enumErr } = await (supabase as any)
     .from("event_daily_rollups")
     .select(
-      "event_id,date,meta_impressions,events!inner(id,event_code)",
+      "event_id,date,meta_impressions,link_clicks,events!inner(id,event_code)",
     )
     .not("events.event_code", "is", null);
 
@@ -189,15 +214,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     event_id: string;
     date: string;
     meta_impressions: number | null;
-    events: { id: string; event_code: string } | Array<{ id: string; event_code: string }>;
+    link_clicks: number | null;
+    events:
+      | { id: string; event_code: string }
+      | Array<{ id: string; event_code: string }>;
   };
   const rows = (siblingRows ?? []) as SiblingRow[];
 
-  // Group by (event_code, date) → list of {event_id, impressions}.
-  const groups = new Map<
-    string,
-    Array<{ event_id: string; impressions: number | null }>
-  >();
+  interface GroupMember {
+    event_id: string;
+    impressions: number | null;
+    link_clicks: number | null;
+  }
+  const groups = new Map<string, GroupMember[]>();
   const codeByGroupKey = new Map<string, string>();
   const dateByGroupKey = new Map<string, string>();
 
@@ -212,6 +241,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     bucket.push({
       event_id: row.event_id,
       impressions: row.meta_impressions,
+      link_clicks: row.link_clicks,
     });
     groups.set(key, bucket);
     codeByGroupKey.set(key, ec);
@@ -225,14 +255,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //     (or all NULL); keep min(event_id) row, NULL the rest.
   //   - Race-jitter: distinct impressions across siblings; keep the
   //     row with MAX impressions (most recent / fullest snapshot per
-  //     the same rationale as `dedupVenueRollupsByEventCode`), NULL
-  //     the rest.
+  //     the same rationale as `dedupVenueRollupsByEventCode`).
   //
-  // We accumulate "rows to NULL" into two id lists so we can run two
-  // bulk UPDATEs at the end.
+  // PER-COLUMN fanout decision for `link_clicks`:
+  //   The allocator may rewrite link_clicks per-fixture (Brighton,
+  //   Manchester). Detect that by counting distinct non-null values
+  //   in the group. > 1 → leave alone (already per-fixture). <= 1 →
+  //   NULL on non-owners along with the always-campaign-wide set.
+  //
+  // We tag each NULL target with the column subset so the UPDATE
+  // pass writes the correct columns.
 
-  const idsToNullFanout: Array<{ event_id: string; date: string }> = [];
-  const idsToNullJitter: Array<{ event_id: string; date: string }> = [];
+  type ColumnSet = "always" | "full";
+  interface NullTarget {
+    event_id: string;
+    date: string;
+    columnSet: ColumnSet;
+  }
+  const fanoutTargets: NullTarget[] = [];
+  const jitterTargets: NullTarget[] = [];
 
   for (const [key, members] of groups.entries()) {
     if (members.length < 2) continue;
@@ -243,10 +284,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       distinctImpressions.add(m.impressions === null ? "null" : m.impressions);
     }
     const isJitter = distinctImpressions.size > 1;
-    let keeperEventId: string;
 
+    // Per-column decision for link_clicks: count distinct positive
+    // values across siblings. > 1 means at least 2 fixtures hold
+    // different positive clicks → allocator-split, leave alone.
+    const distinctPositiveLinkClicks = new Set<number>();
+    for (const m of members) {
+      if (typeof m.link_clicks === "number" && m.link_clicks > 0) {
+        distinctPositiveLinkClicks.add(m.link_clicks);
+      }
+    }
+    const linkClicksIsPerFixture = distinctPositiveLinkClicks.size > 1;
+    const columnSet: ColumnSet = linkClicksIsPerFixture ? "always" : "full";
+
+    let keeperEventId: string;
     if (isJitter) {
-      // MAX-pick tie-break: highest impressions wins. NULLs lose.
       let best = members[0]!;
       for (const m of members) {
         const cur = m.impressions ?? -1;
@@ -270,59 +322,66 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const date = dateByGroupKey.get(key)!;
     for (const m of members) {
       if (m.event_id === keeperEventId) continue;
-      const target = { event_id: m.event_id, date };
-      if (isJitter) idsToNullJitter.push(target);
-      else idsToNullFanout.push(target);
+      const target: NullTarget = { event_id: m.event_id, date, columnSet };
+      if (isJitter) jitterTargets.push(target);
+      else fanoutTargets.push(target);
     }
   }
 
   if (dryRun) {
-    summary.fanout_rows_nulled = idsToNullFanout.length;
-    summary.jitter_rows_resolved = idsToNullJitter.length;
+    summary.fanout_rows_nulled = fanoutTargets.length;
+    summary.jitter_rows_resolved = jitterTargets.length;
     return NextResponse.json(summary);
   }
 
   // ── Step 3: apply NULL updates in bulk batches ─────────────────────
   //
-  // Supabase doesn't support a single multi-key UPDATE through the
-  // PostgREST surface, so we chunk by date. Per date, a single
-  // `UPDATE … WHERE event_id IN (...) AND date = $date` blanks every
-  // affected row in one round-trip.
-  const nullPayload: Record<string, null> = {};
-  for (const col of ENGAGEMENT_COLUMNS) nullPayload[col] = null;
+  // We chunk by (date, columnSet) and emit one UPDATE per chunk so
+  // PostgREST writes only the columns we want. Groups whose
+  // link_clicks is per-fixture (Brighton, Manchester) skip the
+  // `PER_FIXTURE_CANDIDATE_COLUMNS` set so the allocator's split
+  // survives.
+  const alwaysPayload: Record<string, null> = {};
+  for (const col of ALWAYS_CAMPAIGN_WIDE_COLUMNS) alwaysPayload[col] = null;
+  const fullPayload: Record<string, null> = { ...alwaysPayload };
+  for (const col of PER_FIXTURE_CANDIDATE_COLUMNS) {
+    fullPayload[col] = null;
+  }
 
-  async function applyNullsBatch(
-    targets: Array<{ event_id: string; date: string }>,
-  ): Promise<number> {
+  async function applyNullsBatch(targets: NullTarget[]): Promise<number> {
     if (targets.length === 0) return 0;
-    const byDate = new Map<string, string[]>();
+    const byBucket = new Map<string, { columnSet: ColumnSet; ids: string[] }>();
     for (const t of targets) {
-      const list = byDate.get(t.date) ?? [];
-      list.push(t.event_id);
-      byDate.set(t.date, list);
+      const k = `${t.columnSet}\u0000${t.date}`;
+      const bucket = byBucket.get(k) ?? { columnSet: t.columnSet, ids: [] };
+      bucket.ids.push(t.event_id);
+      byBucket.set(k, bucket);
     }
     let updated = 0;
-    for (const [date, eventIds] of byDate.entries()) {
+    for (const [k, bucket] of byBucket.entries()) {
+      const date = k.slice(k.indexOf("\u0000") + 1);
+      const payload =
+        bucket.columnSet === "full" ? fullPayload : alwaysPayload;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error, count } = await (supabase as any)
         .from("event_daily_rollups")
-        .update(nullPayload, { count: "exact" })
+        .update(payload, { count: "exact" })
         .eq("date", date)
-        .in("event_id", eventIds);
+        .in("event_id", bucket.ids);
       if (error) {
         summary.errors.push(
-          `update date=${date} ids=${eventIds.length}: ${error.message as string}`,
+          `update date=${date} columnSet=${bucket.columnSet} ids=${bucket.ids.length}: ${error.message as string}`,
         );
         summary.ok = false;
         continue;
       }
-      updated += (count as number | null) ?? eventIds.length;
+      updated += (count as number | null) ?? bucket.ids.length;
     }
     return updated;
   }
 
-  summary.fanout_rows_nulled = await applyNullsBatch(idsToNullFanout);
-  summary.jitter_rows_resolved = await applyNullsBatch(idsToNullJitter);
+  summary.fanout_rows_nulled = await applyNullsBatch(fanoutTargets);
+  summary.jitter_rows_resolved = await applyNullsBatch(jitterTargets);
 
   return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
 }
