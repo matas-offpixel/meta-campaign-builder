@@ -43,6 +43,15 @@ export function sumLandingPageViewsFromSharePayload(
  *   - Last sibling absorbs rounding remainder so the scope-level sum
  *     stays exactly `codeLpv` (no drift from repeated rounding).
  *   - Zero total clicks → split evenly (no rollup signal to weight by).
+ *   - **Degenerate "owner-only" share → split evenly** (issue #471
+ *     PR-A.5). Post-PR-A.5 the rollup writer NULLs out engagement
+ *     metrics on non-owner siblings, so `link_clicks` on a 3-fixture
+ *     venue collapses to `{owner: 854, b: 0, c: 0}`. The proportional
+ *     weighter would assign 100 % of the LPV to the owner and 0 % to
+ *     the others — wrong. When the click-share signal collapses to
+ *     ≤ 1 non-zero sibling we equal-split instead, matching the
+ *     "spend stays equally split" principle (locked decision from
+ *     issue #471).
  *   - Single sibling → assign the full LPV (degenerate split).
  *
  * Returns a new map containing one entry per `eventIds` item.
@@ -60,9 +69,22 @@ export function splitEventCodeLpvByClickShare(
   }
 
   let totalClicks = 0;
-  for (const id of eventIds) totalClicks += clicksByEvent.get(id) ?? 0;
+  let positiveClickSiblings = 0;
+  for (const id of eventIds) {
+    const c = clicksByEvent.get(id) ?? 0;
+    totalClicks += c;
+    if (c > 0) positiveClickSiblings += 1;
+  }
 
-  if (totalClicks <= 0) {
+  // Equal-split when the click signal is uninformative — either no
+  // sibling has any clicks yet, or (post-PR-A.5 fanout fix) only the
+  // engagement-owning sibling has clicks and the others are NULLed.
+  // The latter case is detected by `positiveClickSiblings <= 1` for a
+  // multi-sibling venue; proportional weighting would dump 100 % of
+  // the LPV on the owner, which doesn't reflect any genuine per-
+  // fixture signal. Equal-split mirrors the "spend stays split
+  // equally" rule (locked in #471).
+  if (totalClicks <= 0 || positiveClickSiblings <= 1) {
     const per = Math.floor(codeLpv / eventIds.length);
     let remaining = codeLpv;
     for (let i = 0; i < eventIds.length; i++) {
