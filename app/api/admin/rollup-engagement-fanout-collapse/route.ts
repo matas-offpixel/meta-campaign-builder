@@ -194,22 +194,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The query joins events for `event_code` and filters to multi-
   // sibling groups in JS (PostgREST's filtering on joins is limited).
   //
-  // NB: we don't paginate. The aggregate row count is ~10k; well
-  // under the default 50k limit.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: siblingRows, error: enumErr } = await (supabase as any)
-    .from("event_daily_rollups")
-    .select(
-      "event_id,date,meta_impressions,link_clicks,events!inner(id,event_code)",
-    )
-    .not("events.event_code", "is", null);
-
-  if (enumErr) {
-    summary.ok = false;
-    summary.errors.push(`enumerate: ${enumErr.message as string}`);
-    return NextResponse.json(summary, { status: 500 });
-  }
-
+  // Pagination is REQUIRED. PostgREST silently caps any unbounded
+  // SELECT at 1,000 rows; prod `event_daily_rollups` with non-null
+  // `event_code` is ~11k rows, so the first ship of this route only
+  // saw the first 1,000 and updated 128 of ~6,000 expected rows
+  // (Edinburgh barely touched). Same class-of-bug fixed in PR #459
+  // for `listDailyHistoryForEvents` — range-page until a short page
+  // returns. Order by `(event_id, date)` to make the page boundary
+  // deterministic across runs. On any page error: log a warning,
+  // break, and return what we have rather than silently dropping
+  // every group already accumulated.
   type SiblingRow = {
     event_id: string;
     date: string;
@@ -219,7 +213,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       | { id: string; event_code: string }
       | Array<{ id: string; event_code: string }>;
   };
-  const rows = (siblingRows ?? []) as SiblingRow[];
+  const PAGE = 1000;
+  const rows: SiblingRow[] = [];
+  let pagesRead = 0;
+  for (let from = 0; ; from += PAGE) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: pageData, error: enumErr } = await (supabase as any)
+      .from("event_daily_rollups")
+      .select(
+        "event_id,date,meta_impressions,link_clicks,events!inner(id,event_code)",
+      )
+      .not("events.event_code", "is", null)
+      .order("event_id", { ascending: true })
+      .order("date", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (enumErr) {
+      summary.errors.push(
+        `enumerate page from=${from}: ${enumErr.message as string}`,
+      );
+      console.warn(
+        `[rollup-engagement-fanout-collapse] enumerate page from=${from}: ${enumErr.message as string}`,
+      );
+      break;
+    }
+    const page = (pageData ?? []) as SiblingRow[];
+    pagesRead += 1;
+    for (const r of page) rows.push(r);
+    if (page.length < PAGE) break;
+  }
+  console.log(
+    `[rollup-engagement-fanout-collapse] paginated read: ${pagesRead} pages, ${rows.length} total rows`,
+  );
 
   interface GroupMember {
     event_id: string;
