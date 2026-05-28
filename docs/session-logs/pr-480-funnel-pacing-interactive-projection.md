@@ -3,7 +3,7 @@
 ## PR
 
 - **Number:** pending
-- **URL:** (to be filled after `gh pr create`)
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/480
 - **Branch:** `cursor/funnel-pacing-interactive-projection`
 
 ## Summary
