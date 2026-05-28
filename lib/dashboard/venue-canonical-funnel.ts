@@ -29,9 +29,16 @@
  *               venue's events. Canonical truth — NOT
  *               `event_daily_rollups.meta_purchases` (which is Meta's
  *               attribution claim, not the ticketing fact).
- *   - Spend   → SUM(`event_daily_rollups.ad_spend_allocated` ??
- *               `event_daily_rollups.ad_spend`, +`ad_spend_presale`).
- *               Per-fixture allocator handles the venue split.
+ *   - Spend   → SUM(`event_daily_rollups.ad_spend_allocated`) +
+ *               SUM(`event_daily_rollups.ad_spend_presale`).
+ *               Per-fixture allocator handles the venue split. The
+ *               raw `ad_spend` column is fanned ×fixture-count across
+ *               sibling rows for the same event_code, so it MUST NOT
+ *               be summed at venue scope — the same contract
+ *               Performance Summary uses (locked in PR #474). On days
+ *               the allocator hasn't run, those rows simply don't
+ *               contribute; both surfaces under-report identically
+ *               until the allocator catches up.
  *   - Capacity → SUM(`events.capacity`) across the venue's events.
  *
  * **Targets (capacity-derived per 14/50/5 benchmarks):**
@@ -439,13 +446,16 @@ function computeSpendReconciliation({
   const todayYmd = today.toISOString().slice(0, 10);
   const todayMs = Date.parse(`${todayYmd}T00:00:00Z`);
 
-  // Earliest date with non-zero spend.
+  // Earliest date with non-zero spend. Uses the same source-of-truth
+  // shape as `sumVenueSpend` (allocated + presale only) so the
+  // firstSpendDate / daysSinceFirstSpend / spentPerDay triple stays
+  // arithmetically consistent with the `spent` numerator — see the
+  // PR #475 hotfix note on `sumVenueSpend`.
   let firstSpendDate: string | null = null;
   for (const row of dailyRollups) {
     if (!row.date) continue;
     const rowSpend =
-      (row.ad_spend_allocated ?? row.ad_spend ?? 0) +
-      (row.ad_spend_presale ?? 0);
+      (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
     if (rowSpend <= 0) continue;
     if (firstSpendDate == null || row.date < firstSpendDate) {
       firstSpendDate = row.date;
@@ -508,18 +518,23 @@ function computeSpendReconciliation({
 }
 
 function sumVenueSpend(rows: ReadonlyArray<DailyRollupRow>): number {
+  // PR #475 hotfix — source-of-truth alignment with Performance Summary.
+  //
+  // The Performance Summary's Spent number is `SUM(ad_spend_allocated) +
+  // SUM(ad_spend_presale)` (PR #474's locked contract). Funnel Pacing
+  // must match. The previous COALESCE fallback to raw `ad_spend` on
+  // unallocated days over-counted by the fixture count for multi-fixture
+  // venues whenever the allocator stalled (Edinburgh: raw ad_spend is
+  // fanned ×3 across siblings → £9,410 vs the £6,986 Performance Summary
+  // shows for the same dates). The two surfaces are now arithmetically
+  // identical; on stalled days both under-report by the same amount
+  // until the allocator catches up (the durable fix is the separate
+  // allocator-stall investigation).
   let total = 0;
   for (const row of rows) {
-    const allocated =
-      row.ad_spend_allocated != null ? row.ad_spend_allocated : null;
+    const allocated = row.ad_spend_allocated ?? 0;
     const presale = row.ad_spend_presale ?? 0;
-    if (allocated != null) {
-      total += allocated + presale;
-    } else if (row.ad_spend != null) {
-      total += row.ad_spend + presale;
-    } else if (presale > 0) {
-      total += presale;
-    }
+    total += allocated + presale;
   }
   return total;
 }

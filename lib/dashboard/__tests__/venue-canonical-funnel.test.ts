@@ -171,7 +171,7 @@ describe("buildVenueCanonicalFunnel — sliding scale", () => {
       }),
       // £17_490 spend ⇒ £5.00 CPT
       dailyRollups: [
-        makeRollupRow({ ad_spend: 17_490, tickets_sold: 0 }),
+        makeRollupRow({ ad_spend_allocated: 17_490, tickets_sold: 0 }),
       ],
       eventDate: null,
     });
@@ -331,21 +331,30 @@ describe("buildVenueCanonicalFunnel — cache miss + spend allocator", () => {
     }
   });
 
-  it("prefers allocator output over raw ad_spend and adds presale", () => {
+  it("sums ad_spend_allocated + ad_spend_presale only; ignores raw ad_spend (PR #475 source-of-truth)", () => {
+    // Raw `ad_spend` is fanned ×fixture-count across sibling rows for the
+    // same event_code, so it MUST NOT contribute to the venue SUM — same
+    // contract Performance Summary uses (PR #474). On rows where the
+    // allocator hasn't run (`ad_spend_allocated == null`), only the
+    // `ad_spend_presale` portion (if any) contributes; the raw fan-out
+    // is intentionally dropped.
     const result = buildVenueCanonicalFunnel({
       capacity: 5_000,
       ticketsSold: 0,
       lifetimeCacheRow: null,
       dailyRollups: [
+        // allocator ran: 50 allocated + 10 presale = 60 (raw 100 ignored)
         makeRollupRow({ ad_spend: 100, ad_spend_allocated: 50, ad_spend_presale: 10 }),
+        // allocator didn't run, no presale: contributes 0 (raw 200 ignored)
         makeRollupRow({ ad_spend: 200, ad_spend_allocated: null, ad_spend_presale: 0 }),
+        // allocator didn't run, presale only: contributes 30
         makeRollupRow({ ad_spend: null, ad_spend_allocated: null, ad_spend_presale: 30 }),
       ],
       eventDate: null,
     });
 
-    // (50+10) + (200+0) + (30) = 290
-    assert.equal(result.metrics.spend, 290);
+    // 60 + 0 + 30 = 90
+    assert.equal(result.metrics.spend, 90);
   });
 });
 
