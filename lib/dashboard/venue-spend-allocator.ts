@@ -1041,17 +1041,39 @@ function toLifetime(
   }));
 }
 
+/**
+ * Cap how far back `resolveAllocatorSince` will extend the live cron's
+ * ad-level Meta fetch. PR #158 (2026-04-29) originally extended the
+ * window to the earliest historical presale row to backfill allocator-
+ * owned fields like link_clicks. For high-volume venues that grew the
+ * window without bound — Edinburgh hit 180 days (back to 2025-11-30) —
+ * and crossed Meta's 20-page × 500-row pagination ceiling on the ad-
+ * level Insights fetch, silently dropping the newest dates and stalling
+ * `ad_spend_allocated` writes for 23–28 May. See PR #479 DIAGNOSIS.md.
+ *
+ * Historical backfill is the job of an admin route, not the live cron;
+ * a 60-day cap matches the parent runner's `windowDays = 60` and keeps
+ * every current venue's ad-level fetch comfortably under the page cap.
+ */
+const MAX_ALLOCATOR_BACKFILL_DAYS = 60;
+
 async function resolveAllocatorSince(
   client: SupabaseClient,
   eventIds: string[],
   requestedSince: string,
 ): Promise<string> {
   if (eventIds.length === 0) return requestedSince;
+  const minSinceDate = new Date(`${requestedSince}T00:00:00Z`);
+  minSinceDate.setUTCDate(
+    minSinceDate.getUTCDate() - MAX_ALLOCATOR_BACKFILL_DAYS,
+  );
+  const minSince = minSinceDate.toISOString().slice(0, 10);
   const { data, error } = await (client as SupabaseClient)
     .from("event_daily_rollups")
     .select("date, ad_spend_allocated, ad_spend_presale")
     .in("event_id", eventIds)
     .lt("date", requestedSince)
+    .gte("date", minSince)
     .order("date", { ascending: true })
     .limit(1000);
   if (error) {

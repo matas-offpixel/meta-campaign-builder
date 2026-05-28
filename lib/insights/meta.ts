@@ -3096,6 +3096,15 @@ async function fetchVenueDailyAdMetricsForBracket(
     const adClicksByCampaignDay = new Map<string, number>();
 
     let after: string | undefined;
+    // PR #479 / #480 — track whether the 20-page cap fires without
+    // exhausting the paging cursor. Meta returns time-incremented rows
+    // in date-ascending order, so a silent cap-hit drops the NEWEST
+    // dates — exactly the WC26-EDINBURGH 23–28 May allocator stall.
+    // The warn below makes a recurrence visible in <5 min instead of
+    // the 5+ days it took to spot this one. Same class-of-bug as the
+    // Supabase 1k-cap pattern in feedback_supabase_postgrest_1k_cap.md.
+    let adLevelApiRowsFetched = 0;
+    let adLevelPageCapHit = true;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
         // level=ad returns one row per (ad, day). ad_id + ad_name
@@ -3127,6 +3136,7 @@ async function fetchVenueDailyAdMetricsForBracket(
         }>
       >(`/${account}/insights`, params, token);
 
+      adLevelApiRowsFetched += (res.data ?? []).length;
       for (const row of res.data ?? []) {
         const day = row.date_start;
         if (!day) continue;
@@ -3171,7 +3181,20 @@ async function fetchVenueDailyAdMetricsForBracket(
       }
 
       after = res.paging?.cursors?.after;
-      if (!res.paging?.next || !after) break;
+      if (!res.paging?.next || !after) {
+        adLevelPageCapHit = false;
+        break;
+      }
+    }
+    if (adLevelPageCapHit) {
+      console.warn("[fetchVenueDailyAdMetricsForBracket] page cap hit", {
+        eventCode: bracket.matchCode,
+        sinceDate: since,
+        rowsFetched: adLevelApiRowsFetched,
+        pageCap: 20,
+        level: "ad",
+        hint: "newest dates may be silently dropped — extend page cap or narrow window",
+      });
     }
 
     const campaignDiagnostics = new Map<
@@ -3179,6 +3202,8 @@ async function fetchVenueDailyAdMetricsForBracket(
       VenueDailyAdCampaignDiagnostics
     >();
     after = undefined;
+    let campaignLevelApiRowsFetched = 0;
+    let campaignLevelPageCapHit = true;
     for (let page = 0; page < 20; page += 1) {
       const params: Record<string, string> = {
         fields: "spend,inline_link_clicks,date_start,campaign_id,campaign_name",
@@ -3201,6 +3226,7 @@ async function fetchVenueDailyAdMetricsForBracket(
         }>
       >(`/${account}/insights`, params, token);
 
+      campaignLevelApiRowsFetched += (res.data ?? []).length;
       for (const row of res.data ?? []) {
         const day = row.date_start;
         if (!day) continue;
@@ -3261,7 +3287,20 @@ async function fetchVenueDailyAdMetricsForBracket(
       }
 
       after = res.paging?.cursors?.after;
-      if (!res.paging?.next || !after) break;
+      if (!res.paging?.next || !after) {
+        campaignLevelPageCapHit = false;
+        break;
+      }
+    }
+    if (campaignLevelPageCapHit) {
+      console.warn("[fetchVenueDailyAdMetricsForBracket] page cap hit", {
+        eventCode: bracket.matchCode,
+        sinceDate: since,
+        rowsFetched: campaignLevelApiRowsFetched,
+        pageCap: 20,
+        level: "campaign",
+        hint: "newest dates may be silently dropped — extend page cap or narrow window",
+      });
     }
 
     return {
