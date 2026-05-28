@@ -154,6 +154,58 @@ export interface VenueCanonicalFunnelBackwardRead {
   underPacing: boolean;
 }
 
+/**
+ * Spend vs budget reconciliation (PR-C of issue #467).
+ *
+ * All inputs flow through `VenueCanonicalFunnelInput.allocatedBudget`
+ * (SUM of `events[].budget_marketing`) and the existing `dailyRollups`
+ * and backward-read fields — no new DB queries.
+ *
+ * `requiredPerDayState` drives display copy on the `requiredPerDay`
+ * field instead of making the component switch on multiple nulls:
+ *   - `"ok"`           → render `requiredPerDay`
+ *   - `"event_passed"` → "Event passed"
+ *   - `"sold_out"`     → "Sold out"
+ *   - `"no_tickets_yet"` → "—" (awaiting first purchase / no live CPT)
+ *   - `"no_event_date"` → "—" (no eventDate supplied)
+ */
+export interface VenueSpendReconciliation {
+  /** SUM of spend from rollups — same as `metrics.spend`. */
+  spent: number;
+  /** SUM of `events[].budget_marketing`. `null` when none set. */
+  allocated: number | null;
+  /** `allocated - spent`. `null` when `allocated` is null. */
+  remaining: number | null;
+  /** Earliest rollup date where spend > 0. `null` when no spend yet. */
+  firstSpendDate: string | null;
+  /** Days from `firstSpendDate` to today. `null` when no spend yet. */
+  daysSinceFirstSpend: number | null;
+  /** `spent / daysSinceFirstSpend`. `null` when no spend. */
+  spentPerDay: number | null;
+  /**
+   * `(ticketsRemaining × liveCpt) / daysToEvent`.
+   * `null` in all suppressed states (see `requiredPerDayState`).
+   */
+  requiredPerDay: number | null;
+  /** Same value as `requiredPerDay`. Semantic alias — Matas locked single figure. */
+  suggestedDaily: number | null;
+  /** Why `requiredPerDay` is null (or "ok" when it is a number). */
+  requiredPerDayState:
+    | "ok"
+    | "event_passed"
+    | "sold_out"
+    | "no_tickets_yet"
+    | "no_event_date";
+  /**
+   * Budget sufficiency signal. `null` when `allocated` is null or
+   * `requiredPerDay` is null (suppressed states).
+   *
+   * `"additional_needed"` when `requiredPerDay × daysToEvent > remaining`.
+   * `"pace_covered"` when remaining budget covers the required spend.
+   */
+  warning: "additional_needed" | "pace_covered" | null;
+}
+
 export interface VenueCanonicalFunnel {
   metrics: {
     reach: number | null;
@@ -171,6 +223,8 @@ export interface VenueCanonicalFunnel {
   stages: VenueCanonicalFunnelStage[];
   slidingScale: VenueCanonicalFunnelSlidingScale;
   backwardRead: VenueCanonicalFunnelBackwardRead;
+  /** Spend vs allocated budget reconciliation. */
+  spendReconciliation: VenueSpendReconciliation;
   /**
    * Provenance — which source each numerator was drawn from. Surfaces
    * use this for tooltips and for the "cache_miss" hard-fail state on
@@ -211,6 +265,12 @@ export interface VenueCanonicalFunnelInput {
    * fields when missing.
    */
   eventDate: string | null;
+  /**
+   * SUM of `events[].budget_marketing` across the venue's fixtures.
+   * `null` when no budget has been set — spend reconciliation renders
+   * in spend-only mode (allocated / remaining / warning suppressed).
+   */
+  allocatedBudget?: number | null;
   /**
    * Override for the rolling pace window. Defaults to 14 days.
    * Tests pin to specific windows.
@@ -325,6 +385,16 @@ export function buildVenueCanonicalFunnel(
       liveCpt != null ? extraTickets * liveCpt : null,
   };
 
+  const spendReconciliation = computeSpendReconciliation({
+    dailyRollups: input.dailyRollups,
+    spent: spend,
+    allocatedBudget: input.allocatedBudget ?? null,
+    ticketsRemaining: backwardRead.ticketsRemaining,
+    daysToEvent: backwardRead.daysToEvent,
+    liveCpt,
+    today,
+  });
+
   return {
     metrics: {
       reach,
@@ -337,6 +407,7 @@ export function buildVenueCanonicalFunnel(
     stages,
     slidingScale,
     backwardRead,
+    spendReconciliation,
     sources: {
       reach: cache && reach != null ? "lifetime_cache" : "cache_miss",
       clicks: cache && clicks != null ? "lifetime_cache" : "cache_miss",
@@ -345,6 +416,94 @@ export function buildVenueCanonicalFunnel(
       purchases: "tier_channel_sales",
       spend: "rollups",
     },
+  };
+}
+
+function computeSpendReconciliation({
+  dailyRollups,
+  spent,
+  allocatedBudget,
+  ticketsRemaining,
+  daysToEvent,
+  liveCpt,
+  today,
+}: {
+  dailyRollups: ReadonlyArray<DailyRollupRow>;
+  spent: number;
+  allocatedBudget: number | null;
+  ticketsRemaining: number;
+  daysToEvent: number | null;
+  liveCpt: number | null;
+  today: Date;
+}): VenueSpendReconciliation {
+  const todayYmd = today.toISOString().slice(0, 10);
+  const todayMs = Date.parse(`${todayYmd}T00:00:00Z`);
+
+  // Earliest date with non-zero spend.
+  let firstSpendDate: string | null = null;
+  for (const row of dailyRollups) {
+    if (!row.date) continue;
+    const rowSpend =
+      (row.ad_spend_allocated ?? row.ad_spend ?? 0) +
+      (row.ad_spend_presale ?? 0);
+    if (rowSpend <= 0) continue;
+    if (firstSpendDate == null || row.date < firstSpendDate) {
+      firstSpendDate = row.date;
+    }
+  }
+
+  let daysSinceFirstSpend: number | null = null;
+  let spentPerDay: number | null = null;
+  if (firstSpendDate != null) {
+    const firstMs = Date.parse(`${firstSpendDate}T00:00:00Z`);
+    if (Number.isFinite(firstMs)) {
+      const diff = Math.max(1, Math.round((todayMs - firstMs) / 86_400_000));
+      daysSinceFirstSpend = diff;
+      spentPerDay = spent / diff;
+    }
+  }
+
+  const allocated = allocatedBudget;
+  const remaining = allocated != null ? allocated - spent : null;
+
+  // Determine requiredPerDay and its display-state.
+  let requiredPerDay: number | null = null;
+  let requiredPerDayState: VenueSpendReconciliation["requiredPerDayState"] =
+    "ok";
+
+  if (daysToEvent == null) {
+    requiredPerDayState = "no_event_date";
+  } else if (daysToEvent <= 0) {
+    requiredPerDayState = "event_passed";
+  } else if (ticketsRemaining <= 0) {
+    requiredPerDayState = "sold_out";
+  } else if (liveCpt == null) {
+    requiredPerDayState = "no_tickets_yet";
+  } else {
+    requiredPerDay = (ticketsRemaining * liveCpt) / daysToEvent;
+    requiredPerDayState = "ok";
+  }
+
+  const suggestedDaily = requiredPerDay;
+
+  // Budget sufficiency warning.
+  let warning: VenueSpendReconciliation["warning"] = null;
+  if (allocated != null && remaining != null && requiredPerDay != null && daysToEvent != null && daysToEvent > 0) {
+    const totalRequired = requiredPerDay * daysToEvent;
+    warning = totalRequired > remaining ? "additional_needed" : "pace_covered";
+  }
+
+  return {
+    spent,
+    allocated,
+    remaining,
+    firstSpendDate,
+    daysSinceFirstSpend,
+    spentPerDay,
+    requiredPerDay,
+    suggestedDaily,
+    requiredPerDayState,
+    warning,
   };
 }
 

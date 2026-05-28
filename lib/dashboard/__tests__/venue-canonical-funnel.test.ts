@@ -398,3 +398,193 @@ describe("buildVenueCanonicalFunnel — OFF_TRACK scenarios", () => {
     assert.equal(lpv.status, "off_track");
   });
 });
+
+// ─── spendReconciliation tests (PR-C) ─────────────────────────────────────
+
+/**
+ * Deterministic Edinburgh-shaped fixture.
+ * Pinned numbers derived from live data (2026-05-28):
+ *   - 3 fixtures × £3,000 spend = £9,000 total
+ *   - 3 fixtures × £9,000 allocated = £27,000 total
+ *   - first_spend_date = 2026-01-28 → 120 days back from today
+ *   - tickets_sold = 3,000, capacity = 5,000 (ticketsRemaining = 2,000)
+ *   - daysToEvent = 16 (event_date = 2026-06-13, today = 2026-05-28)
+ *   - liveCpt = 9000 / 3000 = £3
+ *   - requiredPerDay = (2000 × 3) / 16 = 375
+ *   - required total = 6000; remaining = 27000 - 9000 = 18000 → pace_covered
+ */
+describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
+  const TODAY = new Date("2026-05-28T12:00:00Z");
+
+  function makeSpendRollups({
+    spent = 9_000,
+    numDays = 120,
+    firstDate = "2026-01-28",
+  }: {
+    spent?: number;
+    numDays?: number;
+    firstDate?: string;
+  } = {}): DailyRollupRow[] {
+    const perDay = spent / numDays;
+    const rows: DailyRollupRow[] = [];
+    const base = new Date(`${firstDate}T00:00:00Z`);
+    for (let i = 0; i < numDays; i++) {
+      const d = new Date(base.getTime() + i * 86_400_000);
+      rows.push(
+        makeRollupRow({
+          event_id: "ev-1",
+          date: d.toISOString().slice(0, 10),
+          ad_spend_allocated: perDay,
+        }),
+      );
+    }
+    return rows;
+  }
+
+  it("Edinburgh shape: computed values within rounding of expected", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 5_000,
+      ticketsSold: 3_000,
+      lifetimeCacheRow: null,
+      dailyRollups: makeSpendRollups({
+        spent: 9_000,
+        numDays: 120,
+        firstDate: "2026-01-28",
+      }),
+      eventDate: "2026-06-13",
+      allocatedBudget: 27_000,
+      today: TODAY,
+    });
+
+    const sr = result.spendReconciliation;
+    assert.equal(sr.spent, 9_000);
+    assert.equal(sr.allocated, 27_000);
+    assert.equal(sr.remaining, 18_000);
+    assert.equal(sr.firstSpendDate, "2026-01-28");
+    assert.equal(sr.daysSinceFirstSpend, 120);
+    // spentPerDay = 9000 / 120 = 75
+    assert.ok(
+      Math.abs((sr.spentPerDay ?? 0) - 75) < 0.01,
+      `spentPerDay expected ~75, got ${sr.spentPerDay}`,
+    );
+    // requiredPerDay = (2000 × 3) / 16 = 375
+    assert.equal(sr.requiredPerDayState, "ok");
+    assert.ok(
+      sr.requiredPerDay != null && Math.abs(sr.requiredPerDay - 375) < 0.01,
+      `requiredPerDay expected ~375, got ${sr.requiredPerDay}`,
+    );
+    assert.equal(sr.suggestedDaily, sr.requiredPerDay);
+    // required total = 6000 < remaining 18000 → pace_covered
+    assert.equal(sr.warning, "pace_covered");
+  });
+
+  it("warning=additional_needed when required total > remaining", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 5_000,
+      ticketsSold: 3_000,
+      lifetimeCacheRow: null,
+      dailyRollups: makeSpendRollups({
+        spent: 9_000,
+        numDays: 120,
+        firstDate: "2026-01-28",
+      }),
+      eventDate: "2026-06-13",
+      // remaining = 9800 - 9000 = 800 < required 6000
+      allocatedBudget: 9_800,
+      today: TODAY,
+    });
+
+    assert.equal(result.spendReconciliation.warning, "additional_needed");
+  });
+
+  it("sold-out: requiredPerDay suppressed", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 3_000,
+      ticketsSold: 3_000, // sold out — ticketsRemaining = 0
+      lifetimeCacheRow: null,
+      dailyRollups: makeSpendRollups({ spent: 6_000 }),
+      eventDate: "2026-06-13",
+      allocatedBudget: 10_000,
+      today: TODAY,
+    });
+
+    const sr = result.spendReconciliation;
+    assert.equal(sr.requiredPerDayState, "sold_out");
+    assert.equal(sr.requiredPerDay, null);
+    assert.equal(sr.suggestedDaily, null);
+    assert.equal(sr.warning, null);
+  });
+
+  it("event passed: requiredPerDay suppressed", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 5_000,
+      ticketsSold: 3_000,
+      lifetimeCacheRow: null,
+      dailyRollups: makeSpendRollups({ spent: 9_000 }),
+      // event in the past
+      eventDate: "2025-01-01",
+      allocatedBudget: 20_000,
+      today: TODAY,
+    });
+
+    const sr = result.spendReconciliation;
+    assert.equal(sr.requiredPerDayState, "event_passed");
+    assert.equal(sr.requiredPerDay, null);
+    assert.equal(sr.warning, null);
+  });
+
+  it("null CPT (no tickets yet): requiredPerDay suppressed", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 5_000,
+      ticketsSold: 0, // no purchases → liveCpt = null
+      lifetimeCacheRow: null,
+      dailyRollups: makeSpendRollups({ spent: 500 }),
+      eventDate: "2026-06-13",
+      allocatedBudget: 10_000,
+      today: TODAY,
+    });
+
+    const sr = result.spendReconciliation;
+    assert.equal(sr.requiredPerDayState, "no_tickets_yet");
+    assert.equal(sr.requiredPerDay, null);
+    assert.equal(sr.warning, null);
+  });
+
+  it("null allocated budget: allocated/remaining/warning all null", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 5_000,
+      ticketsSold: 3_000,
+      lifetimeCacheRow: null,
+      dailyRollups: makeSpendRollups({ spent: 9_000 }),
+      eventDate: "2026-06-13",
+      allocatedBudget: null,
+      today: TODAY,
+    });
+
+    const sr = result.spendReconciliation;
+    assert.equal(sr.allocated, null);
+    assert.equal(sr.remaining, null);
+    assert.equal(sr.warning, null);
+    // spent and spentPerDay still computed
+    assert.equal(sr.spent, 9_000);
+    assert.ok(sr.spentPerDay != null);
+  });
+
+  it("no spend yet: firstSpendDate/daysSinceFirstSpend/spentPerDay all null", () => {
+    const result = buildVenueCanonicalFunnel({
+      capacity: 5_000,
+      ticketsSold: 0,
+      lifetimeCacheRow: null,
+      dailyRollups: [],
+      eventDate: "2026-06-13",
+      allocatedBudget: 10_000,
+      today: TODAY,
+    });
+
+    const sr = result.spendReconciliation;
+    assert.equal(sr.spent, 0);
+    assert.equal(sr.firstSpendDate, null);
+    assert.equal(sr.daysSinceFirstSpend, null);
+    assert.equal(sr.spentPerDay, null);
+  });
+});

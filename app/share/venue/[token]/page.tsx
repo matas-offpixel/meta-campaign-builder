@@ -143,12 +143,17 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
     0,
   );
+  const venueAllocatedBudget = result.events.reduce(
+    (sum, e) => sum + (e.budget_marketing ?? 0),
+    0,
+  );
   const venueCanonical = buildVenueCanonicalFunnel({
     capacity: venueCapacity,
     ticketsSold: venueTicketsSold,
     lifetimeCacheRow: venueLifetimeCacheRow,
     dailyRollups: result.dailyRollups,
     eventDate: displayEventDate,
+    allocatedBudget: venueAllocatedBudget > 0 ? venueAllocatedBudget : null,
   });
 
   const subTabs = buildShareSubTabs(token, {

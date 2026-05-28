@@ -213,12 +213,17 @@ export default async function ClientVenueReportPage({
     (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
     0,
   );
+  const venueAllocatedBudget = venueEvents.reduce(
+    (sum, e) => sum + (e.budget_marketing ?? 0),
+    0,
+  );
   const venueCanonical = buildVenueCanonicalFunnel({
     capacity: venueCapacity,
     ticketsSold: venueTicketsSold,
     lifetimeCacheRow: venueLifetimeCacheRow,
     dailyRollups: venueDailyRollups,
     eventDate: displayEventDate,
+    allocatedBudget: venueAllocatedBudget > 0 ? venueAllocatedBudget : null,
   });
 
   const subTabs = buildSubTabs(id, eventCode, {
