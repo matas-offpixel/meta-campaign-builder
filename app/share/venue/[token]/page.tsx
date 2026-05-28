@@ -5,6 +5,7 @@ import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
+import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import {
   isLegacyAttributionTileEnabled,
   isRealAttributionEnabled,
@@ -143,12 +144,14 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
     0,
   );
+  const venueAllocatedBudget = aggregateSharedVenueBudget(result.events);
   const venueCanonical = buildVenueCanonicalFunnel({
     capacity: venueCapacity,
     ticketsSold: venueTicketsSold,
     lifetimeCacheRow: venueLifetimeCacheRow,
     dailyRollups: result.dailyRollups,
     eventDate: displayEventDate,
+    allocatedBudget: venueAllocatedBudget,
   });
 
   const subTabs = buildShareSubTabs(token, {
