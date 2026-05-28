@@ -107,8 +107,12 @@ async function fourthefansForceBackfill(): Promise<NextResponse> {
     rows_upserted?: number;
     error?: string;
   }> = [];
+  const venueAllocatorCompletedKeys = new Set<string>();
+  let lastEvent: { id: string; event_code: string | null } | null = null;
 
+  try {
   for (const event of events) {
+    lastEvent = { id: event.id, event_code: event.event_code };
     const clientRel = event.client;
     const client = Array.isArray(clientRel) ? clientRel[0] : clientRel;
     const clientTikTokAccountId = client?.tiktok_account_id ?? null;
@@ -128,6 +132,7 @@ async function fourthefansForceBackfill(): Promise<NextResponse> {
         eventGoogleAdsAccountId: event.google_ads_account_id,
         clientGoogleAdsAccountId,
         rollupWindowDays: 90,
+        venueAllocatorCompletedKeys,
       });
       results.push({
         event_id: event.id,
@@ -135,6 +140,15 @@ async function fourthefansForceBackfill(): Promise<NextResponse> {
         rows_upserted: run.summary.rowsUpserted,
       });
     } catch (err) {
+      console.error(
+        "[backfill] event threw",
+        {
+          event_id: event.id,
+          event_code: event.event_code ?? null,
+          message: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        },
+      );
       results.push({
         event_id: event.id,
         ok: false,
@@ -166,11 +180,34 @@ async function fourthefansForceBackfill(): Promise<NextResponse> {
       mode: "fourthefans_force_backfill",
       rollup_window_days: 90,
       events_processed: results.length,
+      venue_allocator_codes_ran: venueAllocatorCompletedKeys.size,
       results,
       wc26_london_split: londonSplitResult,
     },
     { status: ok ? 200 : 207 },
   );
+  } catch (err) {
+    console.error("[backfill] fourthefansForceBackfill fatal", {
+      last_event_id: lastEvent?.id ?? null,
+      last_event_code: lastEvent?.event_code ?? null,
+      venue_allocator_codes_ran: venueAllocatorCompletedKeys.size,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        mode: "fourthefans_force_backfill",
+        error: err instanceof Error ? err.message : "Unknown error",
+        last_event_id: lastEvent?.id ?? null,
+        last_event_code: lastEvent?.event_code ?? null,
+        events_processed: results.length,
+        venue_allocator_codes_ran: venueAllocatorCompletedKeys.size,
+        results,
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {

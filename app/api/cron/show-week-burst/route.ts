@@ -211,6 +211,7 @@ export async function GET(req: NextRequest) {
   const results: BurstEventResult[] = [];
   let totalRowsUpserted = 0;
   let totalPresetsRefreshed = 0;
+  const venueAllocatorCompletedKeys = new Set<string>();
 
   for (const event of events) {
     const t0 = Date.now();
@@ -237,6 +238,7 @@ export async function GET(req: NextRequest) {
         clientTikTokAccountId: tiktokAccountId,
         eventGoogleAdsAccountId: event.google_ads_account_id,
         clientGoogleAdsAccountId: googleAdsAccountId,
+        venueAllocatorCompletedKeys,
       });
       rollupOk = rollup.summary.synced;
       rollupRowsUpserted = rollup.summary.rowsUpserted;

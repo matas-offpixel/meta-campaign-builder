@@ -59,6 +59,11 @@ import {
   type GoogleAdsRollupDeps,
 } from "@/lib/dashboard/google-ads-rollup-leg";
 import { shouldInvokeVenueAllocator } from "@/lib/dashboard/venue-allocator-trigger";
+import {
+  markVenueAllocatorBatchComplete,
+  shouldSkipVenueAllocatorBatch,
+  VENUE_ALLOCATOR_ALREADY_RAN,
+} from "@/lib/dashboard/venue-allocator-batch-dedupe";
 import { isSuspiciousTicketingZeroFetch } from "@/lib/dashboard/ticketing-zero-fetch-guard";
 
 /**
@@ -142,6 +147,13 @@ export interface RollupSyncInput {
    * Default 60 (cron + dashboard “Sync now”).
    */
   rollupWindowDays?: number;
+  /**
+   * When batch callers (cron, force backfill) iterate every fixture row,
+   * pass a shared Set so the venue allocator runs once per
+   * `(client_id, event_code)`. The allocator already writes all sibling
+   * fixtures in one pass. Omit for single-event dashboard sync.
+   */
+  venueAllocatorCompletedKeys?: Set<string>;
 }
 
 export interface SyncLegResult {
@@ -379,6 +391,7 @@ export async function runRollupSyncForEvent(
     tiktokDeps,
     googleAdsDeps,
     rollupWindowDays,
+    venueAllocatorCompletedKeys,
   } = input;
 
   const windowDays = rollupWindowDays ?? 60;
@@ -855,6 +868,17 @@ export async function runRollupSyncForEvent(
       clientId,
     })
   ) {
+    if (
+      shouldSkipVenueAllocatorBatch(
+        clientId,
+        eventCode,
+        venueAllocatorCompletedKeys,
+      )
+    ) {
+      console.info(
+        `[rollup-sync] allocator skip reason=${VENUE_ALLOCATOR_ALREADY_RAN} event_code=${eventCode} client_id=${clientId ?? "<null>"} event_id=${eventId}`,
+      );
+    } else {
     try {
       const allocatorClientId = clientId as string;
       const allocatorEventCode = eventCode as string;
@@ -875,6 +899,12 @@ export async function runRollupSyncForEvent(
         until: untilStr,
       });
       diagnostics.allocatorResult = allocator;
+      markVenueAllocatorBatchComplete(
+        clientId,
+        eventCode,
+        venueAllocatorCompletedKeys,
+        allocator.ok,
+      );
       if (allocator.ok) {
         const lifetime = allocator.perEventLifetime
           .map(
@@ -901,10 +931,12 @@ export async function runRollupSyncForEvent(
       // reporting layer falls back to it when the allocation
       // columns are null. See the leg's docstring above.
       console.error(
-        `[rollup-sync] allocator threw: ${
+        `[rollup-sync] allocator threw event_id=${eventId} event_code=${eventCode ?? "<null>"}: ${
           err instanceof Error ? err.message : "Unknown error"
         }`,
+        err instanceof Error ? err.stack : err,
       );
+    }
     }
   } else if (metaResult.ok) {
     console.log(

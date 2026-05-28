@@ -181,6 +181,7 @@ export async function GET(req: NextRequest) {
 
   const results: EventSyncResult[] = [];
   let totalRowsUpserted = 0;
+  const venueAllocatorCompletedKeys = new Set<string>();
 
   for (const event of events) {
     const t0 = Date.now();
@@ -223,6 +224,7 @@ export async function GET(req: NextRequest) {
         clientTikTokAccountId,
         eventGoogleAdsAccountId: event.google_ads_account_id,
         clientGoogleAdsAccountId,
+        venueAllocatorCompletedKeys,
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;
