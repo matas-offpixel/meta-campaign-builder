@@ -115,12 +115,32 @@ describe("rollup-sync-runner: lifetime cache leg", () => {
 });
 
 describe("VenueStatsGrid wire-up: lifetime cache → Reach cell", () => {
-  it("declares lifetimeMeta prop with reach + impressions only", () => {
+  it("declares lifetimeMeta prop with reach + impressions + clicks + lpv", () => {
+    // PR-B of issue #467: lifetimeMeta now carries `meta_link_clicks`
+    // and `meta_landing_page_views` too, so the Stats Grid Clicks +
+    // LPV tiles can read the same canonical cache values the Funnel
+    // Pacing tab consumes. The shape is still gated to the lifetime
+    // fields (no rollup-window data leaking through this prop).
     const src = readFileSync("components/share/venue-stats-grid.tsx", "utf8");
     assert.match(
       src,
-      /lifetimeMeta\?:\s*\{\s*meta_reach: number \| null;\s*meta_impressions: number \| null;\s*\}\s*\|\s*null/,
-      "VenueStatsGrid Props must accept the lifetimeMeta object",
+      /lifetimeMeta\?:\s*\{[\s\S]*?meta_reach: number \| null;/,
+      "VenueStatsGrid Props must include meta_reach",
+    );
+    assert.match(
+      src,
+      /lifetimeMeta\?:\s*\{[\s\S]*?meta_impressions: number \| null;/,
+      "VenueStatsGrid Props must include meta_impressions",
+    );
+    assert.match(
+      src,
+      /lifetimeMeta\?:\s*\{[\s\S]*?meta_link_clicks: number \| null;/,
+      "VenueStatsGrid Props must include meta_link_clicks (PR-B)",
+    );
+    assert.match(
+      src,
+      /lifetimeMeta\?:\s*\{[\s\S]*?meta_landing_page_views: number \| null;/,
+      "VenueStatsGrid Props must include meta_landing_page_views (PR-B)",
     );
   });
 

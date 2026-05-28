@@ -1,22 +1,55 @@
 import { Settings } from "lucide-react";
 
 import { FunnelCreativePacing } from "@/components/dashboard/clients/funnel-creative-pacing";
+import { FunnelPacingVenueView } from "@/components/dashboard/clients/funnel-pacing-venue-view";
 import { FunnelStageCard } from "@/components/dashboard/clients/funnel-stage-card";
 import {
   buildClientFunnelPacing,
   type FunnelPacingResult,
 } from "@/lib/reporting/funnel-pacing";
+import type { VenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
 import type { CreativePatternRegionFilter } from "@/lib/reporting/creative-patterns-cross-event";
 
+/**
+ * Funnel Pacing tab entry point.
+ *
+ * When `venueCanonical` is supplied the section renders the new
+ * canonical view (PR-B of issue #467). The page-level computes the
+ * struct once from portal data and the Performance tab consumes the
+ * SAME engagement numbers via the lifetime cache fields — shared
+ * input + pure helper = surfaces cannot drift.
+ *
+ * For client-region scope (dashboard tabs, cross-venue rollups) the
+ * legacy `buildClientFunnelPacing` flow is preserved.
+ */
 export async function FunnelPacingSection({
   clientId,
   regionFilter,
   isShared = false,
+  venueCanonical,
+  venueLabel,
 }: {
   clientId: string;
   regionFilter?: CreativePatternRegionFilter;
   isShared?: boolean;
+  /**
+   * Pre-built canonical struct for venue-scope (the venue page passes
+   * this; share/venue page does the same). When present the legacy
+   * `buildClientFunnelPacing` path is bypassed.
+   */
+  venueCanonical?: VenueCanonicalFunnel;
+  /** Display label for the venue (used as the header on the new view). */
+  venueLabel?: string;
 }) {
+  if (venueCanonical) {
+    return (
+      <FunnelPacingVenueView
+        pacing={venueCanonical}
+        venueLabel={venueLabel ?? "Venue"}
+      />
+    );
+  }
+
   const pacing = await buildClientFunnelPacing(clientId, {
     regionFilter,
     sinceDays: 90,

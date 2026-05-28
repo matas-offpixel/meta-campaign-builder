@@ -24,9 +24,15 @@ import type { DailyRollupRow } from "@/lib/db/client-portal-server";
  *
  * Black-Butter style topline campaign stats grid.
  *
- * 10 cells per platform: Spend / Impressions / Reach (sum) / Clicks
- * (with CPC subline) / CTR / CPM / Video Plays / Engagements / Cost
- * per Video Play / Cost per Engagement.
+ * 11 cells per platform: Spend / Impressions / Reach / Clicks
+ * (with CPC subline) / LPV / CTR / CPM / Video Plays / Engagements /
+ * Cost per Video Play / Cost per Engagement.
+ *
+ * In lifetime + Meta scope, Reach / Clicks / LPV all read from the
+ * `event_code_lifetime_meta_cache` row (the single canonical source
+ * the Funnel Pacing tab also consumes). In windowed or non-Meta
+ * scope, Reach falls back to the sum aggregator and LPV is omitted
+ * (the cache only holds lifetime totals).
  *
  * Reads from the global Platform tab in the sticky header (passed in
  * via the `platform` prop). When the selected platform has no data
@@ -98,6 +104,24 @@ interface Props {
   lifetimeMeta?: {
     meta_reach: number | null;
     meta_impressions: number | null;
+    /**
+     * Lifetime link clicks (cache-backed). When present in lifetime +
+     * Meta scope the Clicks cell prefers this value over the windowed
+     * sum aggregator — both are correct post-#472 but the cache value
+     * is what the Funnel Pacing tab uses, so reading from the same
+     * source makes the two surfaces literally consistent.
+     *
+     * PR-B of issue #467 — see `lib/dashboard/venue-canonical-funnel.ts`.
+     */
+    meta_link_clicks: number | null;
+    /**
+     * Lifetime Landing Page Views (cache-backed, migration 099). When
+     * present in lifetime + Meta scope the LPV cell renders this
+     * value. NULL on cache miss shows "—" with the awaiting-sync
+     * tooltip the same way Reach does. Funnel Pacing's BOFU bar reads
+     * the identical value.
+     */
+    meta_landing_page_views: number | null;
   } | null;
 }
 
@@ -153,6 +177,34 @@ export function VenueStatsGrid({
   const reachValue = showLifetimeReach
     ? (lifetimeMeta as { meta_reach: number }).meta_reach
     : cells.reach;
+
+  // PR-B of issue #467 — Clicks and LPV are routed through the
+  // lifetime cache in lifetime + Meta scope so they read the same
+  // numbers the Funnel Pacing tab uses. The aggregator (`cells.clicks`)
+  // remains correct post-#472, but reading from the cache is the
+  // single-source contract: change here propagates to Funnel Pacing
+  // automatically.
+  const lifetimeClicks =
+    isLifetimeMetaScope &&
+    lifetimeMeta != null &&
+    typeof lifetimeMeta.meta_link_clicks === "number" &&
+    lifetimeMeta.meta_link_clicks > 0
+      ? lifetimeMeta.meta_link_clicks
+      : null;
+  const lifetimeLpv =
+    isLifetimeMetaScope &&
+    lifetimeMeta != null &&
+    typeof lifetimeMeta.meta_landing_page_views === "number" &&
+    lifetimeMeta.meta_landing_page_views > 0
+      ? lifetimeMeta.meta_landing_page_views
+      : null;
+  const clicksValue = lifetimeClicks ?? cells.clicks;
+  const cpcValue =
+    lifetimeClicks != null && cells.spend > 0
+      ? cells.spend / lifetimeClicks
+      : cells.costPerClick;
+  const showLpvTile = isLifetimeMetaScope;
+  const showLpvCacheMiss = isLifetimeMetaScope && lifetimeLpv == null;
 
   // Empty-state cards: only when the user has selected TikTok or
   // Google Ads AND there's no data AND the venue isn't connected.
@@ -273,15 +325,69 @@ export function VenueStatsGrid({
           testid="venue-stats-cell-reach"
         />
         <Cell
-          label="Clicks"
-          value={fmtIntOrDash(cells.clicks)}
+          label={
+            lifetimeClicks != null ? (
+              <span className="inline-flex items-center gap-1">
+                Clicks
+                <button
+                  type="button"
+                  className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="Lifetime engagement clicks from Meta — reads the same canonical value Funnel Pacing uses for the MOFU bar."
+                  aria-label="About Clicks"
+                  data-testid="venue-stats-cell-clicks-tooltip-lifetime"
+                >
+                  <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+                </button>
+              </span>
+            ) : (
+              "Clicks"
+            )
+          }
+          value={fmtIntOrDash(clicksValue)}
           sub={
-            cells.costPerClick != null
-              ? `${fmtCurrency(cells.costPerClick)} per click`
+            cpcValue != null
+              ? `${fmtCurrency(cpcValue)} per click`
               : null
           }
           testid="venue-stats-cell-clicks"
         />
+        {showLpvTile ? (
+          <Cell
+            label={
+              showLpvCacheMiss ? (
+                <span className="inline-flex items-center gap-1">
+                  LPV
+                  <button
+                    type="button"
+                    className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    title="Awaiting Meta sync. LPV is populated by the lifetime cache cron — same source the Funnel Pacing BOFU bar uses."
+                    aria-label="About LPV (awaiting Meta sync)"
+                    data-testid="venue-stats-cell-lpv-tooltip-cache-miss"
+                  >
+                    <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+                  </button>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  LPV
+                  <button
+                    type="button"
+                    className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    title="Lifetime landing-page views from Meta — reads the same canonical value Funnel Pacing uses for the BOFU bar."
+                    aria-label="About LPV"
+                    data-testid="venue-stats-cell-lpv-tooltip-lifetime"
+                  >
+                    <Info className="h-3 w-3 shrink-0" strokeWidth={2} />
+                  </button>
+                </span>
+              )
+            }
+            value={
+              showLpvCacheMiss ? "—" : fmtIntOrDash(lifetimeLpv as number)
+            }
+            testid="venue-stats-cell-lpv"
+          />
+        ) : null}
         <Cell
           label="CTR"
           value={fmtPctOrDash(cells.ctr)}

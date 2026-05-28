@@ -45,14 +45,17 @@
  *        through the canonical struct so every surface has one place
  *        to read from.
  *
- *   4. **Per-event-code, rollup-backed (deferred)**
- *      - lpv (BOFU landing page views)
- *      - Currently sourced from `splitEventCodeLpvByClickShare` in
- *        `lib/reporting/funnel-pacing-payload.ts`. Kept out of the
- *        canonical struct for v1 — the per-event split logic is
- *        pacing-specific and surfaces other than funnel-pacing don't
- *        consume LPV. Audit Section 5 row 5.7 flags this as a
- *        follow-up.
+ *   4. **Per-event-code, lifetime cache-backed (PR-B of issue #467)**
+ *      - landingPageViews (BOFU LPV)
+ *      - Lifetime LPV is now populated on `event_code_lifetime_meta_cache`
+ *        from migration 099 (`meta_landing_page_views`). The funnel-
+ *        pacing surface and the venue Stats Grid both read from this
+ *        canonical struct so they cannot disagree on LPV either —
+ *        identical input → identical output through this pure helper.
+ *      - The legacy `splitEventCodeLpvByClickShare` snapshot-driven
+ *        path stays available in `funnel-pacing-payload.ts` for the
+ *        client-region scope (which still uses the per-event-code-
+ *        union snapshot route); venue-scope reads cache directly.
  */
 
 import {
@@ -91,6 +94,17 @@ export interface CanonicalEventMetrics {
   impressions: number | null;
   /** Lifetime inline link clicks. `null` on cache miss. */
   linkClicks: number | null;
+  /**
+   * Lifetime Landing Page Views — populated on the cache from
+   * migration 099. `null` on cache miss OR when the cache row pre-
+   * dates the LPV backfill. Surfaces should treat `null` as "—" the
+   * same way they do for `reach` / `linkClicks`.
+   *
+   * PR-B of issue #467 — see file header §4. Both Stats Grid and
+   * Funnel Pacing's BOFU bar consume this single value so they
+   * cannot disagree.
+   */
+  landingPageViews: number | null;
   /** Lifetime registrations from the standard pixel/CR action types. `null` on cache miss. */
   metaRegs: number | null;
   /** Lifetime post engagements. `null` on cache miss. */
@@ -452,6 +466,7 @@ export function computeCanonicalEventMetrics(
     reach: cache?.meta_reach ?? null,
     impressions: cache?.meta_impressions ?? null,
     linkClicks: cache?.meta_link_clicks ?? null,
+    landingPageViews: cache?.meta_landing_page_views ?? null,
     metaRegs: cache?.meta_regs ?? null,
     engagements: cache?.meta_engagements ?? null,
     videoPlays3s: cache?.meta_video_plays_3s ?? null,
@@ -561,6 +576,7 @@ export function sumCanonicalEventMetrics(
       reach: null,
       impressions: null,
       linkClicks: null,
+      landingPageViews: null,
       metaRegs: null,
       engagements: null,
       videoPlays3s: null,
@@ -646,6 +662,7 @@ export function sumCanonicalEventMetrics(
     reach: sumNullable("reach"),
     impressions: sumNullable("impressions"),
     linkClicks: sumNullable("linkClicks"),
+    landingPageViews: sumNullable("landingPageViews"),
     metaRegs: totalMetaRegs,
     engagements: sumNullable("engagements"),
     videoPlays3s: sumNullable("videoPlays3s"),

@@ -9,6 +9,7 @@ import {
 import { loadVenuePortalByCode } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
+import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
 import {
   isLegacyAttributionTileEnabled,
   isRealAttributionEnabled,
@@ -179,6 +180,47 @@ export default async function ClientVenueReportPage({
   const displayEventDate = displayVenueEventDate(venueEvents);
   const daysUntil = computeDaysUntil(displayEventDate);
 
+  // ── Source-of-truth contract for engagement metrics ─────────────
+  //
+  // PR-B of issue #467. The Performance tab (Reach / Clicks / LPV
+  // tiles inside `<VenueStatsGrid>`) and the Funnel Pacing tab (the
+  // four bar numerators) MUST read the same canonical engagement
+  // numbers. We honour that here by building the canonical struct
+  // ONCE from portal data, then:
+  //
+  //   - Performance tab consumes the lifetime cache fields on
+  //     `portal.lifetimeMetaByEventCode` directly (Reach / Clicks /
+  //     LPV — same row this canonical helper reads from).
+  //   - Funnel Pacing tab consumes `venueCanonical` (built right
+  //     below) — which is computed from the same lifetime cache row.
+  //
+  // Both paths terminate at the same DB row. A future change to how
+  // we resolve Reach/Clicks/LPV must update the cache or this
+  // helper, and both surfaces inherit automatically. There is no
+  // second wiring decision. See
+  // `lib/dashboard/venue-canonical-funnel.ts` file header.
+  const venueLifetimeCacheRow =
+    venueDailyRollups.length >= 0
+      ? portal.lifetimeMetaByEventCode.find(
+          (row) => row.event_code === eventCode,
+        ) ?? null
+      : null;
+  const venueCapacity = venueEvents.reduce(
+    (sum, e) => sum + (e.capacity ?? 0),
+    0,
+  );
+  const venueTicketsSold = venueEvents.reduce(
+    (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
+    0,
+  );
+  const venueCanonical = buildVenueCanonicalFunnel({
+    capacity: venueCapacity,
+    ticketsSold: venueTicketsSold,
+    lifetimeCacheRow: venueLifetimeCacheRow,
+    dailyRollups: venueDailyRollups,
+    eventDate: displayEventDate,
+  });
+
   const subTabs = buildSubTabs(id, eventCode, {
     phase: patternsPhase,
     funnel: patternsFunnel,
@@ -269,6 +311,8 @@ export default async function ClientVenueReportPage({
           <FunnelPacingSection
             clientId={id}
             regionFilter={{ type: "venue_code", value: eventCode }}
+            venueCanonical={venueCanonical}
+            venueLabel={venueTitle}
           />
         </Suspense>
       )}
