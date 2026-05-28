@@ -60,6 +60,10 @@ describe("isPublicPath — event-code lifetime meta backfill carve-out", () => {
     );
   });
 
+  it("admits the event rollup backfill route (force=true CRON bearer)", () => {
+    assert.equal(isPublicPath("/api/admin/event-rollup-backfill"), true);
+  });
+
   it("does not admit other /api/admin/ routes by default", () => {
     assert.equal(isPublicPath("/api/admin/some-other-admin-route"), false);
   });
