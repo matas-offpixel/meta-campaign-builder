@@ -6,6 +6,7 @@ import type {
   VenueCanonicalFunnelStage,
 } from "@/lib/dashboard/venue-canonical-funnel";
 import { SpendReconciliationCard } from "./spend-reconciliation-card";
+import { FunnelProjectionChart } from "./funnel-projection-chart";
 
 const NUM = new Intl.NumberFormat("en-GB");
 const PCT_1DP = new Intl.NumberFormat("en-GB", {
@@ -44,12 +45,19 @@ export function FunnelPacingVenueView({
   venueLabel,
   clientId,
   eventCode,
+  eventDate,
 }: {
   pacing: VenueCanonicalFunnel;
   venueLabel: string;
   /** Used by SpendReconciliationCard to read the live Meta daily budget. */
   clientId: string;
   eventCode: string;
+  /**
+   * Resolved venue event date (the same value the page passed into
+   * `buildVenueCanonicalFunnel`). Drives the projection chart's date
+   * labels and x-axis window. `null` when no upcoming fixture date.
+   */
+  eventDate: string | null;
 }) {
   return (
     <section className="space-y-5">
@@ -67,6 +75,21 @@ export function FunnelPacingVenueView({
         ))}
       </div>
       <SlidingScaleCard slidingScale={pacing.slidingScale} />
+      <FunnelProjectionChart
+        capacity={pacing.metrics.capacity}
+        ticketsSold={pacing.metrics.purchases}
+        spent={pacing.spendReconciliation.spent}
+        allocated={pacing.spendReconciliation.allocated}
+        spentPerDay={pacing.spendReconciliation.spentPerDay}
+        liveCostPerTicket={pacing.spendReconciliation.liveCostPerTicket}
+        benchmarkCostPerTicket={pacing.slidingScale.benchmarkCostPerTicket}
+        daysToEvent={pacing.backwardRead.daysToEvent}
+        daysSinceFirstSpend={pacing.spendReconciliation.daysSinceFirstSpend}
+        eventDate={eventDate}
+        warning={pacing.spendReconciliation.warning}
+        warningAmount={pacing.spendReconciliation.warningAmount}
+        eventCode={eventCode}
+      />
       <BackwardReadCard backward={pacing.backwardRead} />
     </section>
   );

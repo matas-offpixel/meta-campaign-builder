@@ -29,6 +29,7 @@ export async function FunnelPacingSection({
   venueCanonical,
   venueLabel,
   venueEventCode,
+  venueEventDate,
 }: {
   clientId: string;
   regionFilter?: CreativePatternRegionFilter;
@@ -43,6 +44,12 @@ export async function FunnelPacingSection({
   venueLabel?: string;
   /** Event code for the venue — used to look up the live Meta daily budget. */
   venueEventCode?: string;
+  /**
+   * Resolved venue event date — the same value passed into
+   * `buildVenueCanonicalFunnel`. Threaded to the projection chart for
+   * date labels. No new query: the page already has this.
+   */
+  venueEventDate?: string | null;
 }) {
   if (venueCanonical) {
     return (
@@ -51,6 +58,7 @@ export async function FunnelPacingSection({
         venueLabel={venueLabel ?? "Venue"}
         clientId={clientId}
         eventCode={venueEventCode ?? ""}
+        eventDate={venueEventDate ?? null}
       />
     );
   }
