@@ -387,7 +387,6 @@ export function buildVenueCanonicalFunnel(
 
   const spendReconciliation = computeSpendReconciliation({
     dailyRollups: input.dailyRollups,
-    spent: spend,
     allocatedBudget: input.allocatedBudget ?? null,
     ticketsRemaining: backwardRead.ticketsRemaining,
     daysToEvent: backwardRead.daysToEvent,
@@ -421,7 +420,6 @@ export function buildVenueCanonicalFunnel(
 
 function computeSpendReconciliation({
   dailyRollups,
-  spent,
   allocatedBudget,
   ticketsRemaining,
   daysToEvent,
@@ -429,7 +427,6 @@ function computeSpendReconciliation({
   today,
 }: {
   dailyRollups: ReadonlyArray<DailyRollupRow>;
-  spent: number;
   allocatedBudget: number | null;
   ticketsRemaining: number;
   daysToEvent: number | null;
@@ -439,14 +436,18 @@ function computeSpendReconciliation({
   const todayYmd = today.toISOString().slice(0, 10);
   const todayMs = Date.parse(`${todayYmd}T00:00:00Z`);
 
-  // Earliest date with non-zero spend.
+  // Spent = SUM(ad_spend_allocated) + SUM(ad_spend_presale). No COALESCE
+  // fallback to raw ad_spend — raw is fanned-out across fixtures and
+  // over-counts on unallocated dates (allocator stall). Matches Performance
+  // Summary's "Paid media spent" tile exactly (source-of-truth contract,
+  // PR #474).
+  let spent = 0;
   let firstSpendDate: string | null = null;
   for (const row of dailyRollups) {
-    if (!row.date) continue;
     const rowSpend =
-      (row.ad_spend_allocated ?? row.ad_spend ?? 0) +
-      (row.ad_spend_presale ?? 0);
-    if (rowSpend <= 0) continue;
+      (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
+    spent += rowSpend;
+    if (!row.date || rowSpend <= 0) continue;
     if (firstSpendDate == null || row.date < firstSpendDate) {
       firstSpendDate = row.date;
     }
