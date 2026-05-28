@@ -75,6 +75,11 @@ export function isPublicPath(
   // middleware so a bearer-only curl reaches the handler (same pattern as
   // PR #407 + PR #411).
   if (pathname === "/api/admin/event-code-lifetime-meta-backfill") return true;
+  // `/api/admin/rollup-canonical-clicks-lpv-backfill` — one-shot PR-A backfill;
+  // Bearer CRON_SECRET only (route's own isCronAuthorized). Same pattern as
+  // event-code-lifetime-meta-backfill above — without this carve-out the
+  // proxy redirects bearer-only curls to /login before the handler runs.
+  if (pathname === "/api/admin/rollup-canonical-clicks-lpv-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`

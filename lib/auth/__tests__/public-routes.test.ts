@@ -53,6 +53,13 @@ describe("isPublicPath — event-code lifetime meta backfill carve-out", () => {
     );
   });
 
+  it("admits the rollup canonical clicks+LPV backfill route", () => {
+    assert.equal(
+      isPublicPath("/api/admin/rollup-canonical-clicks-lpv-backfill"),
+      true,
+    );
+  });
+
   it("does not admit other /api/admin/ routes by default", () => {
     assert.equal(isPublicPath("/api/admin/some-other-admin-route"), false);
   });
