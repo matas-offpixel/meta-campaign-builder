@@ -223,6 +223,16 @@ export interface VenueSpendReconciliation {
   warningAmount: number | null;
 }
 
+/**
+ * One calendar day of allocated spend, for the Daily Spend Tracker.
+ */
+export interface DailySpendPoint {
+  /** Calendar day `YYYY-MM-DD` (UTC). */
+  date: string;
+  /** `ad_spend_allocated + ad_spend_presale` summed across the venue's events for the day. */
+  spent: number;
+}
+
 export interface VenueCanonicalFunnel {
   metrics: {
     reach: number | null;
@@ -242,6 +252,16 @@ export interface VenueCanonicalFunnel {
   backwardRead: VenueCanonicalFunnelBackwardRead;
   /** Spend vs allocated budget reconciliation. */
   spendReconciliation: VenueSpendReconciliation;
+  /**
+   * Per-day allocated spend over the trailing window (default 14 days,
+   * ascending by date), derived from the same `dailyRollups` already
+   * passed in — `ad_spend_allocated + ad_spend_presale` per calendar
+   * day. Powers the Daily Spend Tracker mini-bar chart on the Funnel
+   * Pacing tab. This is the ONE new derived field added by the visual
+   * overhaul PR; it introduces no new query (the rollups are already
+   * fetched for the spend SUM).
+   */
+  dailySpendSeries: DailySpendPoint[];
   /**
    * Provenance — which source each numerator was drawn from. Surfaces
    * use this for tooltips and for the "cache_miss" hard-fail state on
@@ -416,6 +436,12 @@ export function buildVenueCanonicalFunnel(
     today,
   });
 
+  const dailySpendSeries = computeDailySpendSeries(
+    input.dailyRollups,
+    today,
+    input.paceWindowDays ?? 14,
+  );
+
   return {
     metrics: {
       reach,
@@ -429,6 +455,7 @@ export function buildVenueCanonicalFunnel(
     slidingScale,
     backwardRead,
     spendReconciliation,
+    dailySpendSeries,
     sources: {
       reach: cache && reach != null ? "lifetime_cache" : "cache_miss",
       clicks: cache && clicks != null ? "lifetime_cache" : "cache_miss",
@@ -548,6 +575,40 @@ function computeSpendReconciliation({
     warning,
     warningAmount,
   };
+}
+
+/**
+ * Trailing per-day allocated spend window for the Daily Spend Tracker.
+ *
+ * Sums `ad_spend_allocated + ad_spend_presale` per calendar day across
+ * the venue's events (multi-fixture venues have one rollup row per
+ * event per day — they collapse onto the same date here), then returns
+ * the last `windowDays` days ending today, ascending. Days with no
+ * rollup row are omitted (the chart renders only days with data); the
+ * caller pads the axis if a fixed N-bar width is wanted.
+ */
+function computeDailySpendSeries(
+  rows: ReadonlyArray<DailyRollupRow>,
+  today: Date,
+  windowDays: number,
+): DailySpendPoint[] {
+  const byDate = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.date) continue;
+    const spent = (row.ad_spend_allocated ?? 0) + (row.ad_spend_presale ?? 0);
+    byDate.set(row.date, (byDate.get(row.date) ?? 0) + spent);
+  }
+  const todayYmd = today.toISOString().slice(0, 10);
+  const cutoffMs =
+    Date.parse(`${todayYmd}T00:00:00Z`) - (windowDays - 1) * 86_400_000;
+  const series: DailySpendPoint[] = [];
+  for (const [date, spent] of byDate) {
+    const ms = Date.parse(`${date}T00:00:00Z`);
+    if (Number.isNaN(ms) || ms < cutoffMs) continue;
+    series.push({ date, spent });
+  }
+  series.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return series;
 }
 
 function sumVenueSpend(rows: ReadonlyArray<DailyRollupRow>): number {

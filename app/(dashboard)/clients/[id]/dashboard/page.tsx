@@ -143,6 +143,7 @@ export default async function ClientDashboardPage({ params, searchParams }: Prop
         weeklyTicketSnapshots={result.weeklyTicketSnapshots}
         trendTicketSnapshots={result.trendTicketSnapshots}
         trendDailyHistory={result.trendDailyHistory}
+        lifetimeMetaByEventCode={result.lifetimeMetaByEventCode}
         showCreativeInsights={true}
         showFunnelPacing={true}
         isShared={false}
