@@ -24,6 +24,14 @@ export interface EventDailyRollup {
   date: string;
   ad_spend: number | null;
   link_clicks: number | null;
+  /**
+   * Daily Landing Page Views, source = Meta Insights `actions[]` via
+   * the `lib/insights/lpv-priority-chain.ts` resolver (migration 099,
+   * PR-A of issue #467 — funnel-pacing convergence). Nullable: pre-PR
+   * rows are NULL until the canonical-clicks-lpv backfill rewrites
+   * them.
+   */
+  landing_page_views: number | null;
   tickets_sold: number | null;
   revenue: number | null;
   /** Per-day Meta complete_registration actions (rollup-sync). */
@@ -252,6 +260,13 @@ export interface MetaUpsertRow {
   /** Presale-phase Meta spend (migration 048); allocator may overwrite. */
   ad_spend_presale: number;
   link_clicks: number;
+  /**
+   * Landing Page Views — resolved via the omni > pixel > raw priority
+   * chain in `lib/insights/lpv-priority-chain.ts`. Optional so pre-099
+   * callers (admin backfills) keep compiling; rollup-sync supplies it.
+   * Defaults to NULL on insert via the column nullability.
+   */
+  landing_page_views?: number;
   meta_regs: number;
   /**
    * Purchase-only conversion count (migration 093). Optional so
@@ -278,6 +293,7 @@ function metaDataMatch(
     numEq(r.ad_spend, ex.ad_spend, MONEY_TOL) &&
     numEq(r.ad_spend_presale, ex.ad_spend_presale, MONEY_TOL) &&
     numEq(r.link_clicks, ex.link_clicks) &&
+    numEq(r.landing_page_views, ex.landing_page_views) &&
     numEq(r.meta_regs, ex.meta_regs) &&
     numEq(r.meta_purchases, ex.meta_purchases) &&
     numEq(r.meta_leads, ex.meta_leads) &&
@@ -301,7 +317,7 @@ export async function upsertMetaRollups(
   const { data: existing } = await asAny(supabase)
     .from("event_daily_rollups")
     .select(
-      "date,ad_spend,ad_spend_presale,link_clicks,meta_regs,meta_purchases,meta_leads,meta_impressions,meta_reach,meta_video_plays_3s,meta_video_plays_15s,meta_video_plays_p100,meta_engagements",
+      "date,ad_spend,ad_spend_presale,link_clicks,landing_page_views,meta_regs,meta_purchases,meta_leads,meta_impressions,meta_reach,meta_video_plays_3s,meta_video_plays_15s,meta_video_plays_p100,meta_engagements",
     )
     .eq("event_id", args.eventId)
     .in("date", dates);
@@ -321,6 +337,12 @@ export async function upsertMetaRollups(
       ad_spend: r.ad_spend,
       ad_spend_presale: r.ad_spend_presale,
       link_clicks: r.link_clicks,
+      // Migration 099 column. Nullable (pre-PR rows have no LPV value);
+      // the backfill admin route + live cron will populate it via the
+      // shared LPV priority-chain resolver. Older callers that haven't
+      // adopted the new field write NULL on insert — same shape as
+      // every other nullable Meta column on the row.
+      landing_page_views: r.landing_page_views ?? null,
       meta_regs: r.meta_regs,
       // Migration 093 columns. The DB defaults to 0 so an undefined
       // here writes 0; we surface the explicit value when the Meta

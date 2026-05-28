@@ -528,6 +528,14 @@ export async function runRollupSyncForEvent(
             ad_spend: number;
             ad_spend_presale: number;
             link_clicks: number;
+            // Migration 099 (PR-A of issue #467): canonical LPV column
+            // — populated from the LPV priority-chain resolver in
+            // `lib/insights/lpv-priority-chain.ts`. Read by the
+            // funnel-pacing surface rebuild in PR-B; all surfaces that
+            // previously aggregated LPV from
+            // `active_creatives_snapshots.payload` should migrate to
+            // reading this column.
+            landing_page_views: number;
             meta_regs: number;
             meta_purchases: number;
             meta_leads: number;
@@ -544,6 +552,7 @@ export async function runRollupSyncForEvent(
             ad_spend: d.spend,
             ad_spend_presale: d.presaleSpend ?? 0,
             link_clicks: d.linkClicks,
+            landing_page_views: d.landingPageViews,
             meta_regs: d.metaRegs,
             // Migration 093 — Purchase / Lead split. Defaults to 0
             // so pre-093 fixtures continue to compile.
@@ -563,6 +572,7 @@ export async function runRollupSyncForEvent(
           let snapshotSpend = 0;
           let snapshotPresaleSpend = 0;
           let snapshotClicks = 0;
+          let snapshotLpv = 0;
           let snapshotRegs = 0;
           let snapshotPurchases = 0;
           let snapshotLeads = 0;
@@ -584,6 +594,7 @@ export async function runRollupSyncForEvent(
               snapshotSpend = snap.days[0]?.spend ?? 0;
               snapshotPresaleSpend = snap.days[0]?.presaleSpend ?? 0;
               snapshotClicks = snap.days[0]?.linkClicks ?? 0;
+              snapshotLpv = snap.days[0]?.landingPageViews ?? 0;
               snapshotRegs = snap.days[0]?.metaRegs ?? 0;
               snapshotPurchases = snap.days[0]?.metaPurchases ?? 0;
               snapshotLeads = snap.days[0]?.metaLeads ?? 0;
@@ -620,6 +631,7 @@ export async function runRollupSyncForEvent(
             ad_spend: snapshotSpend,
             ad_spend_presale: snapshotPresaleSpend,
             link_clicks: snapshotClicks,
+            landing_page_views: snapshotLpv,
             meta_regs: snapshotRegs,
             meta_purchases: snapshotPurchases,
             meta_leads: snapshotLeads,
@@ -640,6 +652,7 @@ export async function runRollupSyncForEvent(
               ad_spend: 0,
               ad_spend_presale: 0,
               link_clicks: 0,
+              landing_page_views: 0,
               meta_regs: 0,
               meta_purchases: 0,
               meta_leads: 0,
@@ -661,6 +674,7 @@ export async function runRollupSyncForEvent(
             ad_spend: v.ad_spend,
             ad_spend_presale: v.ad_spend_presale,
             link_clicks: v.link_clicks,
+            landing_page_views: v.landing_page_views,
             meta_regs: v.meta_regs,
             meta_purchases: v.meta_purchases,
             meta_leads: v.meta_leads,
@@ -750,6 +764,9 @@ export async function runRollupSyncForEvent(
             meta_reach: nullIfZero(lifetime.totals.reach),
             meta_impressions: nullIfZero(lifetime.totals.impressions),
             meta_link_clicks: nullIfZero(lifetime.totals.linkClicks),
+            meta_landing_page_views: nullIfZero(
+              lifetime.totals.landingPageViews,
+            ),
             meta_regs: nullIfZero(lifetime.totals.metaRegs),
             meta_video_plays_3s: nullIfZero(lifetime.totals.videoPlays3s),
             meta_video_plays_15s: nullIfZero(lifetime.totals.videoPlays15s),

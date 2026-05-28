@@ -42,9 +42,18 @@ import type { PlatformKey } from "@/components/dashboard/events/event-trend-char
  * the right, plus a click-to-edit notes field per row.
  *
  * Column order matches the xlsx so cross-checking is paste-friendly:
- *   Date | Day spend | Tickets | Revenue | CPT | ROAS | Link clicks
- *   | CPL | Running spend | Running tickets | Running avg CPT
+ *   Date | Day spend | Tickets | Revenue | CPT | ROAS | Clicks
+ *   | CPC | Running spend | Running tickets | Running avg CPT
  *   | Running revenue | Running ROAS | Notes
+ *
+ * Post-PR #467/PR-A the "Clicks" column is engagement-clicks ("Clicks
+ * (all)" in Ads Manager), not outbound link-clicks. The underlying
+ * column name `link_clicks` was kept for backwards-compat (column
+ * rename would touch ~80 files). CPC re-baselines accordingly —
+ * historically the divisor was outbound link-clicks (smaller); post-PR
+ * it's engagement-clicks (larger), so CPC drops and CTR rises. Tooltips
+ * on the column headers surface this for anyone cross-referencing
+ * pre-PR exports.
  *
  * Two render modes:
  *   - Uncontrolled (default): the component owns its own data
@@ -723,8 +732,20 @@ export function DailyTracker({
               {isBrandCampaign ? <Th>Clicks (all)</Th> : <Th>Revenue</Th>}
               {isBrandCampaign ? <Th>Video views</Th> : <Th>CPT</Th>}
               {isBrandCampaign ? <Th>CPM</Th> : <Th>ROAS</Th>}
-              {!isBrandCampaign ? <Th>Link clicks</Th> : null}
-              {!isBrandCampaign ? <Th>CPL</Th> : null}
+              {!isBrandCampaign ? (
+                <Th
+                  title={`"Clicks (all)" — engagement-clicks from Meta's \`clicks\` field. Post-PR #467/PR-A the rollup writer sources this from \`clicks\` (engagement basis) instead of \`inline_link_clicks\` (outbound-link basis). Same column, broader signal.`}
+                >
+                  Clicks
+                </Th>
+              ) : null}
+              {!isBrandCampaign ? (
+                <Th
+                  title={`CPC — spend / clicks. Post-PR #467/PR-A the basis shifted from outbound-link to engagement-clicks. Historical reports from before the merge date retain the outbound-link basis.`}
+                >
+                  CPC
+                </Th>
+              ) : null}
               {!isBrandCampaign ? <Th>Regs</Th> : null}
               {!isBrandCampaign ? <Th>CPR</Th> : null}
               <Th>Running spend</Th>

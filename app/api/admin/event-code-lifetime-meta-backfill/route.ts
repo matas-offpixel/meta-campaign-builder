@@ -227,6 +227,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           lifetime.totals.linkClicks > 0
             ? Math.round(lifetime.totals.linkClicks)
             : null,
+        meta_landing_page_views:
+          lifetime.totals.landingPageViews > 0
+            ? Math.round(lifetime.totals.landingPageViews)
+            : null,
         meta_regs:
           lifetime.totals.metaRegs > 0
             ? Math.round(lifetime.totals.metaRegs)

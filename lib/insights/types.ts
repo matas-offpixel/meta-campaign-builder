@@ -459,8 +459,29 @@ export interface DailyMetaMetricsRow {
    * allocated on-sale spend).
    */
   presaleSpend: number;
-  /** Inline link-clicks (the funnel-aligned click metric, not `clicks`). */
+  /**
+   * "Clicks (all)" — engagement-clicks from Meta's `clicks` field.
+   *
+   * Field name kept as `linkClicks` for backwards compatibility with the
+   * ~18 downstream consumers (column rename would touch 80+ files in one
+   * commit — see issue #467 PR-A rationale). The wire field swapped from
+   * `inline_link_clicks` to `clicks` in PR-A so the rollup writer matches
+   * the lifetime cache and the active-creatives panel on the same basis.
+   * Post-PR every reader gets engagement-clicks; CPC/CTR re-baseline
+   * accordingly (CPC drops, CTR rises).
+   */
   linkClicks: number;
+  /**
+   * Landing Page Views — resolved via the priority chain in
+   * `lib/insights/lpv-priority-chain.ts`:
+   *   omni_landing_page_view → offsite_conversion.fb_pixel_landing_page_view
+   *   → landing_page_view
+   *
+   * Persisted into `event_daily_rollups.landing_page_views` (migration
+   * 099). Mirrors the same resolver used by the active-creatives panel
+   * so per-event-day LPV matches per-creative LPV at scope level.
+   */
+  landingPageViews: number;
   /**
    * Sum of Meta `complete_registration` + `offsite_conversion.fb_pixel_complete_registration`
    * actions for the day (Daily Tracker REGS column).

@@ -37,6 +37,13 @@ export interface EventCodeLifetimeMetaCacheRow {
   meta_reach: number | null;
   meta_impressions: number | null;
   meta_link_clicks: number | null;
+  /**
+   * Lifetime Landing Page Views, summed from the priority-chain LPV
+   * across every matched campaign (migration 099, PR-A of issue #467).
+   * NULL until the canonical-clicks-lpv backfill or the next live cron
+   * tick writes it.
+   */
+  meta_landing_page_views: number | null;
   meta_regs: number | null;
   meta_video_plays_3s: number | null;
   meta_video_plays_15s: number | null;
@@ -62,6 +69,13 @@ export interface EventCodeLifetimeMetaCacheUpsert {
   meta_reach: number | null;
   meta_impressions: number | null;
   meta_link_clicks: number | null;
+  /**
+   * Lifetime LPV total (migration 099). Optional so pre-PR callers
+   * (any admin route that pre-dates the canonical-clicks-lpv backfill)
+   * keep compiling; the rollup-sync runner + new backfill route
+   * always supply it.
+   */
+  meta_landing_page_views?: number | null;
   meta_regs: number | null;
   meta_video_plays_3s: number | null;
   meta_video_plays_15s: number | null;
@@ -83,7 +97,7 @@ export async function loadEventCodeLifetimeMetaCache(
   const { data, error } = await asAny(supabase)
     .from("event_code_lifetime_meta_cache")
     .select(
-      "client_id, event_code, meta_reach, meta_impressions, meta_link_clicks, meta_regs, meta_video_plays_3s, meta_video_plays_15s, meta_video_plays_p100, meta_engagements, campaign_names, fetched_at, created_at, updated_at",
+      "client_id, event_code, meta_reach, meta_impressions, meta_link_clicks, meta_landing_page_views, meta_regs, meta_video_plays_3s, meta_video_plays_15s, meta_video_plays_p100, meta_engagements, campaign_names, fetched_at, created_at, updated_at",
     )
     .eq("client_id", args.clientId)
     .eq("event_code", args.eventCode)
@@ -111,7 +125,7 @@ export async function loadEventCodeLifetimeMetaCacheForClient(
   const { data, error } = await asAny(supabase)
     .from("event_code_lifetime_meta_cache")
     .select(
-      "client_id, event_code, meta_reach, meta_impressions, meta_link_clicks, meta_regs, meta_video_plays_3s, meta_video_plays_15s, meta_video_plays_p100, meta_engagements, campaign_names, fetched_at, created_at, updated_at",
+      "client_id, event_code, meta_reach, meta_impressions, meta_link_clicks, meta_landing_page_views, meta_regs, meta_video_plays_3s, meta_video_plays_15s, meta_video_plays_p100, meta_engagements, campaign_names, fetched_at, created_at, updated_at",
     )
     .eq("client_id", clientId);
 
@@ -147,6 +161,13 @@ export async function upsertEventCodeLifetimeMetaCache(
         meta_reach: args.meta_reach,
         meta_impressions: args.meta_impressions,
         meta_link_clicks: args.meta_link_clicks,
+        // Migration 099 column. `?? null` keeps the upsert idempotent
+        // for pre-PR callers that don't pass the field — they leave it
+        // NULL on insert and don't blank an existing value (Supabase
+        // upsert overwrites every column in the payload, including the
+        // ones that resolve to NULL — which is what we want here since
+        // a missing-from-callsite value should round-trip to NULL).
+        meta_landing_page_views: args.meta_landing_page_views ?? null,
         meta_regs: args.meta_regs,
         meta_video_plays_3s: args.meta_video_plays_3s,
         meta_video_plays_15s: args.meta_video_plays_15s,
@@ -212,6 +233,7 @@ function normaliseRow(raw: unknown): EventCodeLifetimeMetaCacheRow {
     meta_reach: numericOrNull(r.meta_reach),
     meta_impressions: numericOrNull(r.meta_impressions),
     meta_link_clicks: numericOrNull(r.meta_link_clicks),
+    meta_landing_page_views: numericOrNull(r.meta_landing_page_views),
     meta_regs: numericOrNull(r.meta_regs),
     meta_video_plays_3s: numericOrNull(r.meta_video_plays_3s),
     meta_video_plays_15s: numericOrNull(r.meta_video_plays_15s),

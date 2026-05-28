@@ -252,6 +252,7 @@ export async function POST(req: NextRequest) {
       ad_spend: d.spend,
       ad_spend_presale: d.presaleSpend ?? 0,
       link_clicks: d.linkClicks,
+      landing_page_views: d.landingPageViews,
       meta_regs: d.metaRegs,
       meta_purchases: d.metaPurchases,
       meta_leads: d.metaLeads,

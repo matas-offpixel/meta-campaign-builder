@@ -28,6 +28,7 @@ import {
 import type { ActiveCreativeThumbnailSource } from "@/lib/reporting/active-creatives-group";
 import { extractVideoIdsFromCreative } from "@/lib/audiences/extract-video-ids-from-creative";
 import { extractPageIdsFromCreative } from "@/lib/audiences/extract-page-ids-from-creative";
+import { LPV_ACTION_PRIORITY } from "@/lib/insights/lpv-priority-chain";
 
 /**
  * lib/reporting/active-creatives-fetch.ts
@@ -293,11 +294,14 @@ function num(v: string | number | undefined): number {
 // Meta variants. Kept inline rather than imported from the grouper
 // to keep this module's import surface tight (the grouper itself
 // only handles AdInput rows; orphans never get that far).
-const ORPHAN_LPV_PRIORITY = [
-  "omni_landing_page_view",
-  "offsite_conversion.fb_pixel_landing_page_view",
-  "landing_page_view",
-] as const;
+//
+// LPV chain is the shared helper in `lib/insights/lpv-priority-chain.ts`
+// since PR-A (issue #467). The rollup writer + lifetime-cache writer
+// now share the same chain so per-event-day LPV stays numerically
+// consistent with per-creative LPV. Regs / Purchase chains remain
+// orphan-specific because the rollup writer doesn't aggregate them at
+// the creative scope.
+const ORPHAN_LPV_PRIORITY = LPV_ACTION_PRIORITY;
 
 const ORPHAN_REG_PRIORITY = [
   "onsite_conversion.lead_grouped",
