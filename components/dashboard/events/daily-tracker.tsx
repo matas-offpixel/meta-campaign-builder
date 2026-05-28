@@ -1109,13 +1109,17 @@ function NotesCell({
 function Th({
   children,
   align,
+  title,
 }: {
   children: React.ReactNode;
   align?: "left" | "right";
+  /** Native tooltip on the column header (e.g. metric-basis notes). */
+  title?: string;
 }) {
   return (
     <th
       scope="col"
+      title={title}
       className={`whitespace-nowrap px-3 py-2 ${
         align === "left" ? "text-left" : "text-right"
       }`}

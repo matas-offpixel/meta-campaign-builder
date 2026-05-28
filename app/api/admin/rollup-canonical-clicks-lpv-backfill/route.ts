@@ -4,6 +4,7 @@ import {
   fetchEventDailyMetaMetrics,
   fetchEventLifetimeMetaMetrics,
 } from "@/lib/insights/meta";
+import type { DailyMetaMetricsRow } from "@/lib/insights/types";
 import { eachInclusiveYmd } from "@/lib/dashboard/rollup-date-range";
 import {
   upsertMetaRollups,
@@ -401,11 +402,7 @@ function nullIfZero(value: number): number | null {
 // isn't exported). PR-B (the funnel-pacing surface rebuild) is a good
 // time to extract the shared helper into `lib/dashboard/`.
 function zeroPadMetaRows(
-  rows: Awaited<
-    ReturnType<typeof fetchEventDailyMetaMetrics>
-  > extends { ok: true; days: infer D }
-    ? D
-    : never,
+  rows: DailyMetaMetricsRow[],
   windowArg: { since: string; until: string },
 ): MetaUpsertRow[] {
   const byDate = new Map<string, MetaUpsertRow>();
