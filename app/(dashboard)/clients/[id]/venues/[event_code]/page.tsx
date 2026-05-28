@@ -10,6 +10,7 @@ import { loadVenuePortalByCode } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
+import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import {
   isLegacyAttributionTileEnabled,
   isRealAttributionEnabled,
@@ -213,17 +214,17 @@ export default async function ClientVenueReportPage({
     (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
     0,
   );
-  const venueAllocatedBudget = venueEvents.reduce(
-    (sum, e) => sum + (e.budget_marketing ?? 0),
-    0,
-  );
+  // MAX per event_code — budget_marketing is stored redundantly on every
+  // fixture but represents a shared venue-wide cap. SUM would inflate by
+  // fixture count (same anti-pattern as the click-fanout fix in #472).
+  const venueAllocatedBudget = aggregateSharedVenueBudget(venueEvents);
   const venueCanonical = buildVenueCanonicalFunnel({
     capacity: venueCapacity,
     ticketsSold: venueTicketsSold,
     lifetimeCacheRow: venueLifetimeCacheRow,
     dailyRollups: venueDailyRollups,
     eventDate: displayEventDate,
-    allocatedBudget: venueAllocatedBudget > 0 ? venueAllocatedBudget : null,
+    allocatedBudget: venueAllocatedBudget,
   });
 
   const subTabs = buildSubTabs(id, eventCode, {
