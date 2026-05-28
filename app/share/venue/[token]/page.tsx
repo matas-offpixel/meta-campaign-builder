@@ -242,6 +242,7 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             venueCanonical={venueCanonical}
             venueLabel={venueTitle}
             venueEventCode={result.event_code}
+            venueEventDate={displayEventDate}
           />
         )}
       </div>

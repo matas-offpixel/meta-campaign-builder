@@ -322,6 +322,7 @@ export default async function ClientVenueReportPage({
             venueCanonical={venueCanonical}
             venueLabel={venueTitle}
             venueEventCode={eventCode}
+            venueEventDate={displayEventDate}
           />
         </Suspense>
       )}
