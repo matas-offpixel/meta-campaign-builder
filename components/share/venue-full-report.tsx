@@ -221,9 +221,14 @@ export function VenueFullReport({
       (row) => row.event_code === eventCode,
     );
     if (!match) return null;
+    // PR-B of issue #467: thread Clicks + LPV through the same prop
+    // so the Stats Grid reads the canonical lifetime cache values the
+    // Funnel Pacing tab consumes — single-source contract.
     return {
       meta_reach: match.meta_reach,
       meta_impressions: match.meta_impressions,
+      meta_link_clicks: match.meta_link_clicks,
+      meta_landing_page_views: match.meta_landing_page_views,
     };
   }, [lifetimeMetaByEventCode, eventCode]);
 

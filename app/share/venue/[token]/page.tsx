@@ -4,6 +4,7 @@ import { loadVenuePortalByToken } from "@/lib/db/client-portal-server";
 import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
+import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
 import {
   isLegacyAttributionTileEnabled,
   isRealAttributionEnabled,
@@ -122,6 +123,34 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
   const lastSyncedAt = computeLastSyncedAt(result.dailyRollups);
   const displayEventDate = displayVenueEventDate(result.events);
   const daysUntil = computeDaysUntil(displayEventDate);
+
+  // ── Source-of-truth contract for engagement metrics ─────────────
+  //
+  // Mirrors the internal venue page: build the canonical funnel
+  // struct once and pass to the Funnel Pacing tab. The Performance
+  // tab reads the same lifetime cache row directly for its Reach /
+  // Clicks / LPV tiles. Single source — surfaces cannot drift.
+  // See `lib/dashboard/venue-canonical-funnel.ts`.
+  const venueLifetimeCacheRow =
+    result.lifetimeMetaByEventCode.find(
+      (row) => row.event_code === result.event_code,
+    ) ?? null;
+  const venueCapacity = result.events.reduce(
+    (sum, e) => sum + (e.capacity ?? 0),
+    0,
+  );
+  const venueTicketsSold = result.events.reduce(
+    (sum, e) => sum + (e.tier_channel_sales_tickets ?? 0),
+    0,
+  );
+  const venueCanonical = buildVenueCanonicalFunnel({
+    capacity: venueCapacity,
+    ticketsSold: venueTicketsSold,
+    lifetimeCacheRow: venueLifetimeCacheRow,
+    dailyRollups: result.dailyRollups,
+    eventDate: displayEventDate,
+  });
+
   const subTabs = buildShareSubTabs(token, {
     phase: patternsPhase,
     funnel: patternsFunnel,
@@ -207,6 +236,8 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
             clientId={result.client_id}
             regionFilter={{ type: "venue_code", value: result.event_code }}
             isShared
+            venueCanonical={venueCanonical}
+            venueLabel={venueTitle}
           />
         )}
       </div>
