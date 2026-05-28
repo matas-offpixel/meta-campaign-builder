@@ -86,6 +86,11 @@ export function isPublicPath(
   // CRON_SECRET only; same lesson from PR #470 — without this carve-out the
   // proxy 307s the bearer-only curl to /login before isCronAuthorized runs.
   if (pathname === "/api/admin/rollup-engagement-fanout-collapse") return true;
+  // `/api/admin/event-rollup-backfill` — per-event owner-session backfill plus
+  // `?force=true` 4theFans-wide sync (Bearer CRON_SECRET). Same carve-out
+  // pattern as rollup-pre-pr395-backfill; without it force=true curls 307 to
+  // /login before fourthefansForceBackfill / isCronAuthorized runs.
+  if (pathname === "/api/admin/event-rollup-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`
