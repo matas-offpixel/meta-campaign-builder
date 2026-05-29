@@ -91,6 +91,12 @@ export function isPublicPath(
   // pattern as rollup-pre-pr395-backfill; without it force=true curls 307 to
   // /login before fourthefansForceBackfill / isCronAuthorized runs.
   if (pathname === "/api/admin/event-rollup-backfill") return true;
+  // `/api/admin/event-legacy-spend-backfill` — one-shot historical backfill for
+  // paused legacy campaigns whose spend pre-dates the 60-day live-cron window.
+  // event_id mode validates a user session inside the route; client_id mode
+  // requires Bearer CRON_SECRET. Without this carve-out the proxy 307s
+  // bearer-only curls to /login before isCronAuthorized runs (PR #479 lesson).
+  if (pathname === "/api/admin/event-legacy-spend-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`
