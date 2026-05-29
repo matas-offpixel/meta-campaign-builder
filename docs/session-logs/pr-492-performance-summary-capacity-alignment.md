@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 492
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/492
 - **Branch:** `cursor/performance-summary-capacity-alignment`
 
 ## Summary
