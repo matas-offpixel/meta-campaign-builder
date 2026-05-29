@@ -11,7 +11,10 @@ import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
 import { venueCampaignEndDate } from "@/lib/dashboard/venue-campaign-end-date";
-import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
+import {
+  aggregateSharedVenueBudget,
+  aggregateSharedVenueCapacity,
+} from "@/lib/db/client-dashboard-aggregations";
 import {
   isLegacyAttributionTileEnabled,
   isRealAttributionEnabled,
@@ -208,10 +211,12 @@ export default async function ClientVenueReportPage({
           (row) => row.event_code === eventCode,
         ) ?? null
       : null;
-  const venueCapacity = venueEvents.reduce(
-    (sum, e) => sum + (e.capacity ?? 0),
-    0,
-  );
+  // aggregateSharedVenueCapacity — prefers events.target_capacity (the
+  // venue-total strategic target, replicated across fixtures) and falls
+  // back to SUM(capacity) when no target is set. Per-fixture allocated
+  // capacities don't reliably sum to the venue total (WC26 reconciliation
+  // migration 100). Returns null → coerce to 0 for the builder.
+  const venueCapacity = aggregateSharedVenueCapacity(venueEvents) ?? 0;
   // resolveVenueTicketsSold — aligned to the same MAX-across-sources
   // resolution used by the Performance tab. Takes the highest of
   // snapshot / events.tickets_sold / tier_channel_sales per event,

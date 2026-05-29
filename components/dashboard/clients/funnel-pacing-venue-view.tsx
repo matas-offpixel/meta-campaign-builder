@@ -28,6 +28,7 @@ import type { VenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funne
 import { buildVenuePacingRow } from "@/lib/dashboard/venue-pacing-summary";
 import { SpendVsBudgetBar } from "./spend-vs-budget-bar";
 import { FunnelPacingInteractive } from "./funnel-pacing-interactive";
+import { RunRateForecast } from "./run-rate-forecast";
 import { DailySpendTracker } from "./daily-spend-tracker";
 import { HeroStatusBar } from "../pacing/hero-status-bar";
 import { PacingVerdictCard } from "./pacing-verdict-card";
@@ -77,6 +78,16 @@ export function FunnelPacingVenueView({
         eventCode={eventCode}
       />
 
+      {/* Run Rate Forecast sits ABOVE the Forward Projection chart
+          (inside FunnelPacingInteractive) — sales-rate projection is
+          operationally more meaningful than the spend-based one, so it
+          reads first. Workstream C of the WC26 reconciliation. */}
+      <RunRateForecast
+        runRate={pacing.runRate}
+        capacity={pacing.metrics.capacity}
+        currentSold={pacing.metrics.purchases}
+      />
+
       <FunnelPacingInteractive
         pacing={pacing}
         eventCode={eventCode}
@@ -86,6 +97,7 @@ export function FunnelPacingVenueView({
       <SpendVsBudgetBar
         reconciliation={pacing.spendReconciliation}
         daysToEvent={pacing.backwardRead.daysToEvent}
+        cptProjection={pacing.cptProjection}
       />
 
       <PacingVerdictCard funnel={pacing} row={row} />

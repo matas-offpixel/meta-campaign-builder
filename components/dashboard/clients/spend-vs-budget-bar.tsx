@@ -11,11 +11,15 @@
  * Reads only `VenueSpendReconciliation` (canonical) — no new data.
  */
 
-import type { VenueSpendReconciliation } from "@/lib/dashboard/venue-canonical-funnel";
+import type {
+  VenueCptProjection,
+  VenueSpendReconciliation,
+} from "@/lib/dashboard/venue-canonical-funnel";
 import { getFunnelBenchmarks } from "@/lib/dashboard/benchmarks";
 import {
   deltaFraction,
   inverseTone,
+  toneColors,
 } from "@/lib/dashboard/pacing-presentation";
 import { BenchmarkChip, TargetChip } from "../pacing/benchmark-chip";
 
@@ -35,9 +39,16 @@ const NUM = new Intl.NumberFormat("en-GB");
 export function SpendVsBudgetBar({
   reconciliation: r,
   daysToEvent,
+  cptProjection,
 }: {
   reconciliation: VenueSpendReconciliation;
   daysToEvent: number | null;
+  /**
+   * CPT-at-sellout + budget-anchor stats (Workstream D). Optional so
+   * legacy callers compile; the projection block only renders when a
+   * current CPT is known.
+   */
+  cptProjection?: VenueCptProjection | null;
 }) {
   const bench = getFunnelBenchmarks();
   const requiredTotal =
@@ -192,7 +203,75 @@ export function SpendVsBudgetBar({
           chip={null}
         />
       </div>
+
+      {cptProjection && cptProjection.currentCostPerTicket != null ? (
+        <CptProjectionPanel projection={cptProjection} />
+      ) : null}
     </article>
+  );
+}
+
+/**
+ * CPT-at-sellout + budget-anchor surfacing (Workstream D of the WC26
+ * reconciliation). Three derived read-outs framing whether the venue's
+ * current efficiency fits its implicit £/ticket budget anchor. All
+ * values come from the canonical funnel — no new data.
+ */
+function CptProjectionPanel({ projection: p }: { projection: VenueCptProjection }) {
+  const headroom = p.budgetHeadroomPerTicket;
+  const headroomTotal = p.budgetHeadroomTotal;
+  const tone = p.headroomTone ?? "neutral";
+  const c = toneColors(tone);
+
+  const headroomCopy = (() => {
+    if (headroom == null || headroomTotal == null) return null;
+    if (headroom >= 0) {
+      return `Under budget by ${GBP2.format(headroom)}/ticket · ${GBP0.format(
+        Math.round(headroomTotal),
+      )} total headroom available`;
+    }
+    return `Over budget by ${GBP2.format(Math.abs(headroom))}/ticket · need to drop CPT by ${GBP0.format(
+      Math.round(Math.abs(headroomTotal)),
+    )} to fit`;
+  })();
+
+  return (
+    <div className="mt-5 border-t border-border pt-4">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        CPT projection
+      </p>
+      <dl className="mt-2 space-y-1.5 text-sm">
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-muted-foreground">
+            CPT at sellout
+            <span className="ml-1 text-[11px] text-muted-foreground/70">
+              (at current efficiency)
+            </span>
+          </dt>
+          <dd className="font-heading tabular-nums">
+            {p.costPerTicketAtSellout == null
+              ? "—"
+              : GBP2.format(p.costPerTicketAtSellout)}
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-muted-foreground">Budget anchor</dt>
+          <dd className="font-heading tabular-nums">
+            {p.budgetAnchorCostPerTicket == null
+              ? "—"
+              : `${GBP2.format(p.budgetAnchorCostPerTicket)} / ticket`}
+          </dd>
+        </div>
+      </dl>
+      {headroomCopy ? (
+        <p
+          className={`mt-3 rounded-lg px-3 py-2 text-[13px] font-medium ${c.chipBg} ${c.chipText}`}
+          role="status"
+        >
+          {headroomCopy}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

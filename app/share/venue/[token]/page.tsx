@@ -6,7 +6,10 @@ import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
 import { venueCampaignEndDate } from "@/lib/dashboard/venue-campaign-end-date";
-import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
+import {
+  aggregateSharedVenueBudget,
+  aggregateSharedVenueCapacity,
+} from "@/lib/db/client-dashboard-aggregations";
 import {
   isLegacyAttributionTileEnabled,
   isRealAttributionEnabled,
@@ -138,10 +141,10 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     result.lifetimeMetaByEventCode.find(
       (row) => row.event_code === result.event_code,
     ) ?? null;
-  const venueCapacity = result.events.reduce(
-    (sum, e) => sum + (e.capacity ?? 0),
-    0,
-  );
+  // aggregateSharedVenueCapacity — prefers venue-total target_capacity,
+  // falls back to SUM(capacity). Mirrors the internal venue page (WC26
+  // reconciliation migration 100).
+  const venueCapacity = aggregateSharedVenueCapacity(result.events) ?? 0;
   // resolveVenueTicketsSold — mirrors the internal venue page (#489).
   // MAX(snapshot, events.tickets_sold, tier_channel_sales) per event.
   const venueTicketsSold = resolveVenueTicketsSold(result.events);
