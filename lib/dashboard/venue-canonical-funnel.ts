@@ -144,7 +144,7 @@ export interface VenueCanonicalFunnelSlidingScale {
 }
 
 export interface VenueCanonicalFunnelBackwardRead {
-  /** Days from `today` (UTC) to `eventDate`. `null` when no event_date or event passed. */
+  /** Days from `today` (UTC) to the venue campaign end date. `null` when no date or passed. */
   daysToEvent: number | null;
   /** `max(capacity - ticketsSold, 0)`. */
   ticketsRemaining: number;
@@ -301,10 +301,11 @@ export interface VenueCanonicalFunnelInput {
    */
   dailyRollups: ReadonlyArray<DailyRollupRow>;
   /**
-   * Earliest upcoming `event_date` (or latest past one when all
-   * fixtures are past). Drives `daysToEvent` in the backward read.
-   * `null` permitted — backward read reports `null` for derived
-   * fields when missing.
+   * Venue campaign end date — MAX(`event_date`) across all fixtures
+   * sharing this event_code (see `venueCampaignEndDate`). This is the
+   * date by which all tickets must be sold and spend deployed; drives
+   * `daysToEvent` and all downstream spend-rate calculations. `null`
+   * when no fixture dates are available.
    */
   eventDate: string | null;
   /**
