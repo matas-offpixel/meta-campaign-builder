@@ -25,6 +25,7 @@ import {
   type PlatformId,
 } from "@/lib/dashboard/platform-colors";
 import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
+import { resolveVenueTicketsSold } from "@/lib/dashboard/venue-tickets-sold";
 import {
   parseCreativePatternPhase,
   parseCreativePatternFunnel,
@@ -141,10 +142,9 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     (sum, e) => sum + (e.capacity ?? 0),
     0,
   );
-  const venueTicketsSold = result.events.reduce(
-    (sum, e) => sum + (e.tickets_sold ?? 0),
-    0,
-  );
+  // resolveVenueTicketsSold — mirrors the internal venue page (#489).
+  // MAX(snapshot, events.tickets_sold, tier_channel_sales) per event.
+  const venueTicketsSold = resolveVenueTicketsSold(result.events);
   const venueAllocatedBudget = aggregateSharedVenueBudget(result.events);
   const venueCanonical = buildVenueCanonicalFunnel({
     capacity: venueCapacity,

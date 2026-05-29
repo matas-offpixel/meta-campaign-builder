@@ -38,6 +38,7 @@ import {
   type PlatformId,
 } from "@/lib/dashboard/platform-colors";
 import { getSeriesDisplayLabel } from "@/lib/dashboard/series-display-labels";
+import { resolveVenueTicketsSold } from "@/lib/dashboard/venue-tickets-sold";
 
 /**
  * /clients/[id]/venues/[event_code]
@@ -211,12 +212,13 @@ export default async function ClientVenueReportPage({
     (sum, e) => sum + (e.capacity ?? 0),
     0,
   );
-  // events.tickets_sold — matches Performance Summary's headline count
-  // (tier_channel_sales diverges ~9% on multi-fixture venues like Edinburgh).
-  const venueTicketsSold = venueEvents.reduce(
-    (sum, e) => sum + (e.tickets_sold ?? 0),
-    0,
-  );
+  // resolveVenueTicketsSold — aligned to the same MAX-across-sources
+  // resolution used by the Performance tab. Takes the highest of
+  // snapshot / events.tickets_sold / tier_channel_sales per event,
+  // so multi-channel venues (e.g. Manchester WC26 with 4TF + Venue
+  // direct rows) surface their full count. See #489 and
+  // lib/dashboard/venue-tickets-sold.ts for the impact table.
+  const venueTicketsSold = resolveVenueTicketsSold(venueEvents);
   // MAX per event_code — budget_marketing is stored redundantly on every
   // fixture but represents a shared venue-wide cap. SUM would inflate by
   // fixture count (same anti-pattern as the click-fanout fix in #472).
