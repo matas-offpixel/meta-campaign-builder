@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 493
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/493
 - **Branch:** `cursor/glasgow-adset-split`
 
 ## Summary
