@@ -681,17 +681,11 @@ export function aggregateVenueCampaignPerformance(
   );
 
   let tickets = 0;
-  let capacity = 0;
-  let hasCapacity = false;
   let earliestEventDate: string | null = null;
   let hasAnyEventDate = false;
 
   for (const ev of events) {
     tickets += ticketsForAggregatableEvent(ev);
-    if (ev.capacity != null) {
-      capacity += ev.capacity;
-      hasCapacity = true;
-    }
     const eventDate = normalizeEventDate(ev.event_date);
     if (eventDate) hasAnyEventDate = true;
     const eventIsUpcoming = eventDate
@@ -755,7 +749,11 @@ export function aggregateVenueCampaignPerformance(
     paidMediaBudget != null && paidMediaBudget > 0
       ? (paidSpent / paidMediaBudget) * 100
       : null;
-  const capacityOut = hasCapacity ? capacity : null;
+  // aggregateSharedVenueCapacity — prefers MAX(target_capacity) per
+  // event_code, falls back to SUM(events.capacity). Aligns Performance
+  // Summary with Funnel Pacing's canonical builder (WC26 reconciliation,
+  // PR companion to #491).
+  const capacityOut = aggregateSharedVenueCapacity(events);
   const sellThroughPct =
     capacityOut != null && capacityOut > 0 ? (tickets / capacityOut) * 100 : null;
   const costPerTicket = tickets > 0 && paidSpent > 0 ? paidSpent / tickets : null;
@@ -832,17 +830,11 @@ export function aggregateVenueGroupTotals(
 
   let prereg = 0;
   let ticketsSold = 0;
-  let capacity = 0;
-  let capacityAnyNonNull = false;
   let revenue = 0;
   let hasRevenue = false;
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
     ticketsSold += ticketsForAggregatableEvent(ev);
-    if (ev.capacity != null) {
-      capacity += ev.capacity;
-      capacityAnyNonNull = true;
-    }
     const r = ticketRevenueForAggregatableEvent(ev);
     if (r != null) {
       hasRevenue = true;
@@ -855,7 +847,11 @@ export function aggregateVenueGroupTotals(
   const roas =
     ticketRevenue != null && adSpend > 0 ? ticketRevenue / adSpend : null;
   const cpt = ticketsSold > 0 && totalSpend > 0 ? totalSpend / ticketsSold : null;
-  const capacityOut = capacityAnyNonNull ? capacity : null;
+  // aggregateSharedVenueCapacity — prefers MAX(target_capacity) per
+  // event_code, falls back to SUM(events.capacity). Mirrors the same
+  // alignment done to aggregateVenueCampaignPerformance in the companion
+  // PR to #491.
+  const capacityOut = aggregateSharedVenueCapacity(events);
   const sellThroughPct =
     capacityOut != null && capacityOut > 0
       ? (ticketsSold / capacityOut) * 100

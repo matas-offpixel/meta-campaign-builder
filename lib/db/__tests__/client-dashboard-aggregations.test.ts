@@ -1759,3 +1759,112 @@ describe("aggregateClientWideTotals — multi-event-code unallocated spend dedup
     assert.equal(totals.adSpend, 300, "single-event-code: full spend counted");
   });
 });
+
+// ── Regression: Performance Summary ↔ Funnel Pacing capacity alignment ──────
+//
+// Companion to PR #491 (WC26 reconciliation). Asserts that
+// aggregateVenueCampaignPerformance (Performance Summary) and
+// aggregateSharedVenueCapacity (Funnel Pacing / canonical builder) return
+// the same capacity for each event_code when target_capacity is set.
+//
+// The critical invariant: after this companion PR merges,
+// "Manchester capacity on Performance Summary" must equal "Manchester capacity
+// on Funnel Pacing" (8,200, not the per-fixture SUM of 13,538).
+
+import {
+  aggregateSharedVenueCapacity,
+} from "../client-dashboard-aggregations.ts";
+
+describe("Performance Summary ↔ Funnel Pacing capacity alignment (PR companion to #491)", () => {
+  const TODAY = "2026-05-29";
+
+  /** Four Manchester fixtures with per-fixture capacities that SUM to 13,538
+   *  but share a target_capacity of 8,200 — the Excel venue-total. */
+  function manchesterEvents(): AggregatableEvent[] {
+    return [
+      ev({ id: "m1", event_code: "WC26-MANCHESTER", capacity: 5052, target_capacity: 8200 }),
+      ev({ id: "m2", event_code: "WC26-MANCHESTER", capacity: 3246, target_capacity: 8200 }),
+      ev({ id: "m3", event_code: "WC26-MANCHESTER", capacity: 2770, target_capacity: 8200 }),
+      ev({ id: "m4", event_code: "WC26-MANCHESTER", capacity: 2470, target_capacity: 8200 }),
+    ];
+  }
+
+  it("Manchester: Performance Summary capacity is 8,200 (target), not 13,538 (SUM)", () => {
+    const perf = aggregateVenueCampaignPerformance(
+      manchesterEvents(),
+      [],
+      [],
+      TODAY,
+    );
+    assert.equal(perf.capacity, 8200, "Performance Summary must use target_capacity");
+  });
+
+  it("Performance Summary capacity matches Funnel Pacing canonical capacity for Manchester", () => {
+    const events = manchesterEvents();
+    const perfCapacity = aggregateVenueCampaignPerformance(events, [], [], TODAY).capacity;
+    const funnelCapacity = aggregateSharedVenueCapacity(events);
+    assert.equal(
+      perfCapacity,
+      funnelCapacity,
+      "Performance Summary and Funnel Pacing must agree on capacity",
+    );
+  });
+
+  it("Edinburgh: both surfaces return 5,478 (target > SUM of 5,474)", () => {
+    const events = [
+      ev({ id: "e1", event_code: "WC26-EDINBURGH", capacity: 2140, target_capacity: 5478 }),
+      ev({ id: "e2", event_code: "WC26-EDINBURGH", capacity: 2115, target_capacity: 5478 }),
+      ev({ id: "e3", event_code: "WC26-EDINBURGH", capacity: 1219, target_capacity: 5478 }),
+    ];
+    const perfCapacity = aggregateVenueCampaignPerformance(events, [], [], TODAY).capacity;
+    const funnelCapacity = aggregateSharedVenueCapacity(events);
+    assert.equal(perfCapacity, 5478);
+    assert.equal(funnelCapacity, 5478);
+    assert.equal(perfCapacity, funnelCapacity);
+  });
+
+  it("Brighton: both surfaces return 10,250 (target > SUM of 8,950)", () => {
+    const events = [
+      ev({ id: "b1", event_code: "WC26-BRIGHTON", capacity: 3082, target_capacity: 10250 }),
+      ev({ id: "b2", event_code: "WC26-BRIGHTON", capacity: 2296, target_capacity: 10250 }),
+      ev({ id: "b3", event_code: "WC26-BRIGHTON", capacity: 2261, target_capacity: 10250 }),
+      ev({ id: "b4", event_code: "WC26-BRIGHTON", capacity: 1311, target_capacity: 10250 }),
+    ];
+    const perfCapacity = aggregateVenueCampaignPerformance(events, [], [], TODAY).capacity;
+    const funnelCapacity = aggregateSharedVenueCapacity(events);
+    assert.equal(perfCapacity, 10250);
+    assert.equal(perfCapacity, funnelCapacity);
+  });
+
+  it("Glasgow O2: both surfaces return 6,750 (target >> SUM of 1,672)", () => {
+    const events = [
+      ev({ id: "g1", event_code: "WC26-GLASGOW-O2", capacity: 693, target_capacity: 6750 }),
+      ev({ id: "g2", event_code: "WC26-GLASGOW-O2", capacity: 529, target_capacity: 6750 }),
+      ev({ id: "g3", event_code: "WC26-GLASGOW-O2", capacity: 450, target_capacity: 6750 }),
+    ];
+    const perfCapacity = aggregateVenueCampaignPerformance(events, [], [], TODAY).capacity;
+    const funnelCapacity = aggregateSharedVenueCapacity(events);
+    assert.equal(perfCapacity, 6750);
+    assert.equal(perfCapacity, funnelCapacity);
+  });
+
+  it("no target_capacity set → SUM fallback is identical on both surfaces", () => {
+    // Non-WC26 / KOC venues have no target_capacity. Both surfaces should
+    // still agree, and neither regresses to 0 or null.
+    const events = [
+      ev({ id: "k1", event_code: "WC26-KOC-SOHO", capacity: 1300 }),
+      ev({ id: "k2", event_code: "WC26-KOC-SOHO", capacity: 1300 }),
+      ev({ id: "k3", event_code: "WC26-KOC-SOHO", capacity: 1300 }),
+    ];
+    const perfCapacity = aggregateVenueCampaignPerformance(events, [], [], TODAY).capacity;
+    const funnelCapacity = aggregateSharedVenueCapacity(events);
+    assert.equal(perfCapacity, 3900); // SUM fallback
+    assert.equal(perfCapacity, funnelCapacity);
+  });
+
+  it("aggregateVenueGroupTotals also uses target_capacity (consistency with Performance Summary)", () => {
+    const events = manchesterEvents();
+    const totals = aggregateVenueGroupTotals(events, [], [], TODAY);
+    assert.equal(totals.capacity, 8200);
+  });
+});
