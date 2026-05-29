@@ -197,26 +197,9 @@ export function FunnelPacingInteractive({
         </p>
       </div>
 
-      {/* Stage bars */}
-      <div className="space-y-3" data-testid="funnel-stage-bar-list">
-        {projection.stages.map((stage, i) => {
-          const canonical = pacing.stages.find((s) => s.key === stage.key)!;
-          const next = projection.stages[i + 1];
-          return (
-            <StageBar
-              key={stage.key}
-              stage={stage}
-              conversionRate={canonical.conversionRate}
-              conversionBenchmark={canonical.conversionBenchmark}
-              showConnector={next != null}
-            />
-          );
-        })}
-      </div>
-
-      {/* Scrubber */}
+      {/* Scrubber — sits above the stage bars so spend context comes first */}
       {interactive ? (
-        <div className="mt-6 border-t border-border pt-5" data-testid="funnel-pacing-scrubber">
+        <div className="mb-6 border-b border-border pb-5" data-testid="funnel-pacing-scrubber">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-sm">
               At{" "}
@@ -274,6 +257,23 @@ export function FunnelPacingInteractive({
           </p>
         </div>
       ) : null}
+
+      {/* Stage bars — below the scrubber so dragging shows impact immediately */}
+      <div className="space-y-3" data-testid="funnel-stage-bar-list">
+        {projection.stages.map((stage, i) => {
+          const canonical = pacing.stages.find((s) => s.key === stage.key)!;
+          const next = projection.stages[i + 1];
+          return (
+            <StageBar
+              key={stage.key}
+              stage={stage}
+              conversionRate={canonical.conversionRate}
+              conversionBenchmark={canonical.conversionBenchmark}
+              showConnector={next != null}
+            />
+          );
+        })}
+      </div>
 
       {/* Forward projection chart (shares the scrubber position) */}
       <div className="mt-6">
@@ -450,7 +450,8 @@ function ScrubberTrack({
           aria-label="Projected daily spend"
           className="w-full cursor-pointer accent-foreground"
         />
-        {/* clickable position markers (snap to pace) */}
+        {/* clickable position markers (snap to pace) — bg-card/90 backdrop
+            prevents the vertical guide line from making labels unreadable */}
         <div className="relative mt-1 h-4">
           {presets.map((p) =>
             p.value != null && p.value <= max ? (
@@ -458,7 +459,7 @@ function ScrubberTrack({
                 key={p.label}
                 type="button"
                 onClick={() => onChange(Math.round(p.value!))}
-                className="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                className="absolute -translate-x-1/2 rounded bg-card/90 px-0.5 text-[9px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
                 style={{ left: `${(p.value / max) * 100}%` }}
                 title={`Snap to ${p.label} pace`}
               >
@@ -468,7 +469,7 @@ function ScrubberTrack({
           )}
           {ceilingPct != null && (
             <span
-              className="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-red-500/80"
+              className="absolute -translate-x-1/2 rounded bg-card/90 px-0.5 text-[9px] uppercase tracking-wide text-red-500/80"
               style={{ left: `${ceilingPct}%` }}
             >
               Budget

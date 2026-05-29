@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DailySpendPoint } from "@/lib/dashboard/venue-canonical-funnel";
 import {
   DAILY_BUDGET_UPDATED_EVENT,
+  fetchVenueDailyBudgetDetail,
   getDailyBudgetUpdate,
   type DailyBudgetUpdateDetail,
 } from "@/lib/share/venue-daily-budget-fetch";
@@ -82,6 +83,19 @@ export function DailySpendTracker({
     return () => window.removeEventListener(DAILY_BUDGET_UPDATED_EVENT, onUpdate);
   }, [clientId, eventCode]);
 
+  // Trigger a fresh fetch when the cache is cold (e.g. landing directly on
+  // the Funnel Pacing tab without having visited the Performance tab first).
+  // fetchVenueDailyBudgetDetail dispatches DAILY_BUDGET_UPDATED_EVENT on
+  // completion, so HeroDailyBudgetReadout automatically receives the value.
+  useEffect(() => {
+    if (getDailyBudgetUpdate(clientId, eventCode) != null) return;
+    void fetchVenueDailyBudgetDetail({ clientId, eventCode }).catch(() => {
+      // Error state is dispatched on the event bus by the fetch helper.
+    });
+    // Intentionally runs once on mount; clientId/eventCode don't change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const dailyBudget = budgetDetail?.dailyBudget ?? null;
 
   const { maxVal, avg } = useMemo(() => {
@@ -132,11 +146,16 @@ export function DailySpendTracker({
             <ReferenceLine
               fraction={requiredPerDay / maxVal}
               variant="dotted"
+              label={GBP0.format(Math.round(requiredPerDay))}
             />
           )}
           {/* daily budget reference (dashed) */}
           {dailyBudget != null && dailyBudget <= maxVal && (
-            <ReferenceLine fraction={dailyBudget / maxVal} variant="dashed" />
+            <ReferenceLine
+              fraction={dailyBudget / maxVal}
+              variant="dashed"
+              label={GBP0.format(Math.round(dailyBudget))}
+            />
           )}
 
           {series.map((d, i) => {
@@ -212,16 +231,25 @@ export function DailySpendTracker({
 function ReferenceLine({
   fraction,
   variant,
+  label,
 }: {
   fraction: number;
   variant: "dashed" | "dotted";
+  /** Optional £ value label shown at the right edge of the line. */
+  label?: string;
 }) {
   return (
     <div
       className={`pointer-events-none absolute inset-x-0 z-10 border-t-2 border-foreground/50 ${variant === "dashed" ? "border-dashed" : "border-dotted"}`}
       style={{ bottom: `${Math.min(100, fraction * 100)}%` }}
       aria-hidden
-    />
+    >
+      {label && (
+        <span className="absolute right-0 -translate-y-full rounded-sm bg-card/80 px-1 text-[9px] font-medium tabular-nums text-muted-foreground">
+          {label}
+        </span>
+      )}
+    </div>
   );
 }
 
