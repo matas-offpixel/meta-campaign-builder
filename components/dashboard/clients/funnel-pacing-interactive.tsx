@@ -178,6 +178,12 @@ export function FunnelPacingInteractive({
   const overAllocated = allocated != null && totalAtPace > allocated;
   const overBy = allocated != null ? totalAtPace - allocated : 0;
 
+  // Required-to-sellout total (fixed target; daysToEvent cancels so it equals ticketsRemaining × CPT).
+  const requiredTotal =
+    sr.requiredPerDay != null && days > 0
+      ? sr.spent + sr.requiredPerDay * days
+      : null;
+
   return (
     <article
       className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
@@ -197,9 +203,40 @@ export function FunnelPacingInteractive({
         </p>
       </div>
 
-      {/* Scrubber — sits above the stage bars so spend context comes first */}
+      {/* Budget Progress Bar — live updates with the scrubber */}
+      {allocated != null && (
+        <div className="mb-5 border-b border-border pb-5" data-testid="funnel-pacing-budget-bar">
+          <BudgetProgressBar
+            spent={sr.spent}
+            allocated={allocated}
+            requiredTotal={requiredTotal}
+            projectedTotal={totalAtPace}
+            projectedDaily={clampedDaily}
+            daysRemaining={days}
+          />
+        </div>
+      )}
+
+      {/* Stage bars */}
+      <div className="space-y-3" data-testid="funnel-stage-bar-list">
+        {projection.stages.map((stage, i) => {
+          const canonical = pacing.stages.find((s) => s.key === stage.key)!;
+          const next = projection.stages[i + 1];
+          return (
+            <StageBar
+              key={stage.key}
+              stage={stage}
+              conversionRate={canonical.conversionRate}
+              conversionBenchmark={canonical.conversionBenchmark}
+              showConnector={next != null}
+            />
+          );
+        })}
+      </div>
+
+      {/* Scrubber — below the stage bars; drives the budget bar + stage bars above */}
       {interactive ? (
-        <div className="mb-6 border-b border-border pb-5" data-testid="funnel-pacing-scrubber">
+        <div className="mt-6 border-t border-border pt-5" data-testid="funnel-pacing-scrubber">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-sm">
               At{" "}
@@ -258,23 +295,6 @@ export function FunnelPacingInteractive({
         </div>
       ) : null}
 
-      {/* Stage bars — below the scrubber so dragging shows impact immediately */}
-      <div className="space-y-3" data-testid="funnel-stage-bar-list">
-        {projection.stages.map((stage, i) => {
-          const canonical = pacing.stages.find((s) => s.key === stage.key)!;
-          const next = projection.stages[i + 1];
-          return (
-            <StageBar
-              key={stage.key}
-              stage={stage}
-              conversionRate={canonical.conversionRate}
-              conversionBenchmark={canonical.conversionBenchmark}
-              showConnector={next != null}
-            />
-          );
-        })}
-      </div>
-
       {/* Forward projection chart (shares the scrubber position) */}
       <div className="mt-6">
         <FunnelProjectionChart
@@ -295,6 +315,151 @@ export function FunnelPacingInteractive({
         />
       </div>
     </article>
+  );
+}
+
+// ── Budget Progress Bar ───────────────────────────────────────────────────────
+
+/**
+ * Horizontal bar showing the budget story at a glance, and updating live
+ * as the operator drags the scrubber.
+ *
+ *  ┌─ SPEND £10,391 ─────────────────────────────── ALLOCATED £20,500 ─┐
+ *  │ ██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│ ┊                  │
+ *  └───────────────────────────────────────────────┘ ┊                  ┘
+ *              spent (solid)  projected (lighter)    ┊
+ *                                                  required total (dotted tick)
+ *
+ * If projected total > allocated, the bar extends into a red overage zone.
+ * The required-total tick is fixed (does not move with the scrubber) so the
+ * operator can see whether their chosen pace brings them within budget.
+ */
+function BudgetProgressBar({
+  spent,
+  allocated,
+  requiredTotal,
+  projectedTotal,
+  projectedDaily,
+  daysRemaining,
+}: {
+  spent: number;
+  allocated: number;
+  /** Total spend needed to hit sellout (ticketsRemaining × CPT + spent). Null when CPT unknown. */
+  requiredTotal: number | null;
+  /** Live: spent + scrubber daily × days remaining. */
+  projectedTotal: number;
+  projectedDaily: number;
+  daysRemaining: number;
+}) {
+  const domain = Math.max(allocated, requiredTotal ?? 0, projectedTotal, spent, 1);
+  const spentPct = Math.min(100, (spent / domain) * 100);
+  const projectedPct = Math.min(100, (projectedTotal / domain) * 100);
+  const allocatedPct = Math.min(100, (allocated / domain) * 100);
+  const requiredPct =
+    requiredTotal != null ? Math.min(100, (requiredTotal / domain) * 100) : null;
+  const overAllocated = projectedTotal > allocated;
+  const overBy = projectedTotal - allocated;
+  const warningAmount =
+    requiredTotal != null && requiredTotal > allocated
+      ? requiredTotal - allocated
+      : null;
+
+  const tooltipText = [
+    `At ${GBP0.format(Math.round(projectedDaily))}/day for ${daysRemaining} day${daysRemaining === 1 ? "" : "s"} remaining`,
+    `Projected total spend = ${GBP0.format(Math.round(projectedTotal))}`,
+    overAllocated
+      ? `+${GBP0.format(Math.round(overBy))} over allocated budget`
+      : `within ${GBP0.format(Math.round(allocated))} allocated`,
+  ].join(" · ");
+
+  return (
+    <div data-testid="funnel-pacing-budget-progress-bar">
+      {/* Chips row */}
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
+        {requiredTotal != null && (
+          <span className="rounded-full border border-border bg-surface/60 px-2 py-0.5 font-medium tabular-nums text-muted-foreground">
+            Required to sell out: {GBP0.format(Math.round(requiredTotal))}
+          </span>
+        )}
+        {warningAmount != null && (
+          <span className="rounded-full border border-red-300 bg-red-50 px-2 py-0.5 font-medium tabular-nums text-red-700 dark:border-red-700 dark:bg-red-950/40 dark:text-red-400">
+            +{GBP0.format(Math.round(warningAmount))} additional needed
+          </span>
+        )}
+      </div>
+
+      {/* Bar track */}
+      <div
+        className="relative h-5 w-full overflow-hidden rounded-lg bg-muted"
+        title={tooltipText}
+        aria-label={`Budget: spent ${GBP0.format(Math.round(spent))}, projected ${GBP0.format(Math.round(projectedTotal))}, allocated ${GBP0.format(Math.round(allocated))}`}
+      >
+        {/* current spent (solid) */}
+        <div
+          className="absolute left-0 top-0 h-full bg-foreground/80"
+          style={{ width: `${spentPct}%` }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-white/15 to-transparent" />
+          {spentPct > 18 && (
+            <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-medium tabular-nums text-background">
+              {GBP0.format(Math.round(spent))}
+            </span>
+          )}
+        </div>
+
+        {/* projected additional spend (lighter, live with scrubber) */}
+        {projectedPct > spentPct && !overAllocated && (
+          <div
+            className="absolute top-0 h-full bg-foreground/25 transition-[width] duration-200 ease-out"
+            style={{ left: `${spentPct}%`, width: `${projectedPct - spentPct}%` }}
+          />
+        )}
+
+        {/* overage segment when projected > allocated */}
+        {overAllocated && (
+          <div
+            className="absolute top-0 h-full bg-foreground/25 transition-[width] duration-200 ease-out"
+            style={{ left: `${spentPct}%`, width: `${allocatedPct - spentPct}%` }}
+          />
+        )}
+        {overAllocated && (
+          <div
+            className="absolute top-0 h-full bg-red-500/60 transition-[width] duration-200 ease-out"
+            style={{
+              left: `${allocatedPct}%`,
+              width: `${Math.min(100, projectedPct) - allocatedPct}%`,
+            }}
+          />
+        )}
+
+        {/* allocated end marker (solid vertical line) */}
+        <div
+          className="absolute top-0 z-10 h-full w-0.5 -translate-x-1/2 bg-foreground/70"
+          style={{ left: `${allocatedPct}%` }}
+          title={`Allocated ${GBP0.format(Math.round(allocated))}`}
+        />
+
+        {/* required-to-sellout tick (dotted, fixed) */}
+        {requiredPct != null && (
+          <div
+            className="absolute top-0 z-10 h-full w-0.5 -translate-x-1/2 border-l-2 border-dotted border-foreground/80 bg-transparent"
+            style={{ left: `${requiredPct}%` }}
+            title={`Required to sell out: ${GBP0.format(Math.round(requiredTotal!))}`}
+          />
+        )}
+      </div>
+
+      {/* Axis labels */}
+      <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+        <span className="font-medium">
+          SPEND {GBP0.format(Math.round(spent))}
+        </span>
+        <span>
+          ALLOCATED {GBP0.format(Math.round(allocated))}
+          {requiredTotal != null ? " · ┊ required to sell out" : ""}
+        </span>
+      </div>
+    </div>
   );
 }
 
