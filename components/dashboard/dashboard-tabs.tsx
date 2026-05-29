@@ -108,20 +108,22 @@ export function DashboardTabs({
     ? CLIENT_REGION_LABELS[selectedRegion]
     : client.name;
 
-  // Per-venue pacing rows for the internal Pacing / Performance-vs-
-  // Allocation toggle. Built from the same canonical funnel as the venue
-  // pages (no new query) and scoped to the selected region's active
-  // venues. Shared surface skips this (internal-only feature).
-  const venuePacingRows = !isShared
-    ? buildClientVenuePacingRows({
-        events: scopedEvents,
-        dailyRollups,
-        lifetimeMetaByEventCode,
-        hrefForVenue: (code) =>
+  // Per-venue pacing rows for the Pacing / Performance-vs-Allocation
+  // toggle, built from the same canonical funnel as the venue pages
+  // (no new query), scoped to the selected region's active venues.
+  // Now built for both internal and share surfaces (#490).
+  // Share rows use href="" (non-navigable — the client share token
+  // doesn't resolve to per-venue internal routes).
+  const venuePacingRows = buildClientVenuePacingRows({
+    events: scopedEvents,
+    dailyRollups,
+    lifetimeMetaByEventCode,
+    hrefForVenue: isShared
+      ? () => ""
+      : (code) =>
           `/clients/${clientId}/venues/${encodeURIComponent(code)}?tab=pacing`,
-        activeOnly: true,
-      })
-    : [];
+    activeOnly: true,
+  });
   const tabs = [
     {
       id: "events",
@@ -242,16 +244,21 @@ export function DashboardTabs({
               initialCancelledExpanded={initialCancelledExpanded}
             />
           );
-          // Internal dashboard wraps the topline view in the 3-state
-          // toggle (Stats / Pacing / Performance vs Allocation). Shared
-          // surface renders the topline directly.
-          return isShared ? (
-            statsView
-          ) : (
+          // Both internal and share surfaces render the 3-state toggle
+          // (Stats / Pacing / Performance vs Allocation) since #490.
+          // Storage key is scoped to the surface: token for share,
+          // clientId for internal. Today alerts stay internal-only.
+          return (
             <ClientStatsViewToggle
-              clientId={clientId}
+              storageKey={
+                isShared
+                  ? `share-dashboard-toggle-${token}`
+                  : `client-dashboard-toggle-${clientId}`
+              }
               rows={venuePacingRows}
               statsView={statsView}
+              tonality={isShared ? "client" : "internal"}
+              isShare={isShared}
             />
           );
         })()
