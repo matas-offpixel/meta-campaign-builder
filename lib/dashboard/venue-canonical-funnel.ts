@@ -403,6 +403,15 @@ export interface VenueCanonicalFunnelInput {
   paceWindowDays?: number;
   /** Override "today" for deterministic tests. Defaults to `new Date()`. */
   today?: Date;
+  /**
+   * GBP spend adjustment to apply on top of the rollup-backed spend sum.
+   * Negative for venues that over-attribute spend from a shared campaign
+   * (e.g. WC26-GLASGOW-O2 loses SWG3's share); positive for venues that
+   * receive attributed spend back (WC26-GLASGOW-SWG3 gains its share).
+   * Computed by `getSpendAdjustmentGbp` in `event-code-adset-splits.ts`.
+   * Defaults to 0 (no adjustment) for all non-Glasgow venues.
+   */
+  spendAdjustmentGbp?: number;
 }
 
 /** Build the canonical funnel struct from already-loaded inputs. */
@@ -417,7 +426,7 @@ export function buildVenueCanonicalFunnel(
   const purchases = Math.max(0, Math.floor(input.ticketsSold));
   const capacity = Math.max(0, Math.floor(input.capacity));
 
-  const spend = sumVenueSpend(input.dailyRollups);
+  const spend = sumVenueSpend(input.dailyRollups) + (input.spendAdjustmentGbp ?? 0);
 
   const reachTarget = Math.round(capacity * REACH_PER_TICKET_BENCHMARK);
   const clicksTarget = Math.round(capacity * CLICKS_PER_TICKET_BENCHMARK);
@@ -517,6 +526,7 @@ export function buildVenueCanonicalFunnel(
     ticketsRemaining: backwardRead.ticketsRemaining,
     daysToEvent: backwardRead.daysToEvent,
     today,
+    spendAdjustmentGbp: input.spendAdjustmentGbp ?? 0,
   });
 
   const dailySpendSeries = computeDailySpendSeries(
@@ -575,6 +585,7 @@ function computeSpendReconciliation({
   ticketsRemaining,
   daysToEvent,
   today,
+  spendAdjustmentGbp = 0,
 }: {
   dailyRollups: ReadonlyArray<DailyRollupRow>;
   allocatedBudget: number | null;
@@ -587,6 +598,8 @@ function computeSpendReconciliation({
   ticketsRemaining: number;
   daysToEvent: number | null;
   today: Date;
+  /** GBP adjustment from ad-set split (see `event-code-adset-splits.ts`). */
+  spendAdjustmentGbp?: number;
 }): VenueSpendReconciliation {
   const todayYmd = today.toISOString().slice(0, 10);
   const todayMs = Date.parse(`${todayYmd}T00:00:00Z`);
@@ -596,7 +609,7 @@ function computeSpendReconciliation({
   // over-counts on unallocated dates (allocator stall). Matches Performance
   // Summary's "Paid media spent" tile exactly (source-of-truth contract,
   // PR #474 / #476).
-  let spent = 0;
+  let spent = spendAdjustmentGbp; // seed with the ad-set split adjustment
   let firstSpendDate: string | null = null;
   for (const row of dailyRollups) {
     const rowSpend =
