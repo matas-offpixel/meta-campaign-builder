@@ -37,7 +37,7 @@
 /** Minimal shape required from a portal event object. */
 export interface VenueEventTicketInput {
   tickets_sold: number | null;
-  latest_snapshot?: { tickets_sold: number } | null;
+  latest_snapshot?: { tickets_sold: number | null } | null;
   tier_channel_sales_tickets: number | null;
 }
 
