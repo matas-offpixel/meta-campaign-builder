@@ -98,15 +98,12 @@ async function fetchCampaignMetadata(args: {
   const { adAccountId, eventCode, token } = args;
   const account = withActPrefix(adAccountId);
   const filterPrefix = metaCampaignFilterPrefix(eventCode);
+  // Campaigns edge uses field "name", not "campaign.name" (that prefix is for
+  // insights-level filtering only). See listCampaignsForEvent in meta.ts.
   const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
+    { field: "name", operator: "CONTAIN", value: filterPrefix },
   ]);
-  const effectiveStatus = JSON.stringify([
-    "ACTIVE",
-    "PAUSED",
-    "ARCHIVED",
-    "DELETED",
-  ]);
+  const effectiveStatus = JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED"]);
 
   const matched: CampaignMeta[] = [];
   let after: string | undefined;
