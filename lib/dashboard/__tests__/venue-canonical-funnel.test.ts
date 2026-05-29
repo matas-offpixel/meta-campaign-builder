@@ -510,6 +510,38 @@ describe("buildVenueCanonicalFunnel — spendReconciliation (PR-C)", () => {
     );
   });
 
+  it("warningAmount is immune to daysToEvent — daysToEvent cancels in the derivation", () => {
+    // requiredPerDay = (ticketsRemaining × CPT) / daysToEvent
+    // warningAmount  = requiredPerDay × daysToEvent − remaining
+    //                = ticketsRemaining × CPT − remaining   ← daysToEvent cancels
+    //
+    // This confirms that PR #486 (days-to-event fix: MIN → MAX) cannot alter
+    // warningAmount. The verdict-card headline "£X over the next N days" is
+    // correct both before and after the days-to-event fix; only the "N" changes.
+    const shared = {
+      capacity: 5_000,
+      ticketsSold: 3_000,
+      lifetimeCacheRow: null as null,
+      dailyRollups: makeSpendRollups({ spent: 9_000, numDays: 120, firstDate: "2026-01-28" }),
+      allocatedBudget: 9_800,
+      today: TODAY,
+    };
+    // daysToEvent = 16 (pre-#486, MIN fixture date)
+    const funnelShort = buildVenueCanonicalFunnel({ ...shared, eventDate: "2026-06-13" });
+    // daysToEvent = 27 (post-#486, MAX fixture date — campaign end)
+    const funnelLong = buildVenueCanonicalFunnel({ ...shared, eventDate: "2026-06-24" });
+
+    assert.equal(funnelShort.spendReconciliation.warning, "additional_needed");
+    assert.equal(funnelLong.spendReconciliation.warning, "additional_needed");
+
+    const shortAmount = funnelShort.spendReconciliation.warningAmount!;
+    const longAmount = funnelLong.spendReconciliation.warningAmount!;
+    assert.ok(
+      Math.abs(shortAmount - longAmount) < 0.01,
+      `warningAmount must be identical regardless of daysToEvent: ${shortAmount} vs ${longAmount}`,
+    );
+  });
+
   it("sold-out: requiredPerDay suppressed", () => {
     const result = buildVenueCanonicalFunnel({
       capacity: 3_000,

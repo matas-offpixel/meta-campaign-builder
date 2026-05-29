@@ -65,7 +65,13 @@ export function HeroDailyBudgetReadout({
     <dl className="mt-1.5 space-y-0.5 text-xs tabular-nums">
       <GapRow
         label="Budget"
-        value={dailyBudget == null ? "—" : `${GBP0.format(Math.round(dailyBudget))}/day`}
+        value={
+          detail == null
+            ? "—"
+            : dailyBudget == null
+              ? "No active spend"
+              : `${GBP0.format(Math.round(dailyBudget))}/day`
+        }
       />
       <GapRow
         label="Required"
