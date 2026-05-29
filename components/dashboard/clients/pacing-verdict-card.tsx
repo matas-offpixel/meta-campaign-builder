@@ -20,6 +20,12 @@ const GBP0 = new Intl.NumberFormat("en-GB", {
   currency: "GBP",
   maximumFractionDigits: 0,
 });
+const GBP2 = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 function eventDateLabel(daysToEvent: number | null): string {
   if (daysToEvent == null) return "the event date";
@@ -53,6 +59,58 @@ function headline(row: VenuePacingRow, funnel: VenueCanonicalFunnel): string {
   return "Not enough data to compute a pacing verdict yet.";
 }
 
+/**
+ * Explicit derivation lines for the "Why this number?" disclosure. Returns
+ * `null` when no meaningful breakdown applies (so the caret is hidden).
+ */
+function mathLines(
+  row: VenuePacingRow,
+  funnel: VenueCanonicalFunnel,
+): { expr: string; result: string }[] | null {
+  const sr = funnel.spendReconciliation;
+  const ticketsRemaining = funnel.backwardRead.ticketsRemaining;
+  const cpt = sr.liveCostPerTicket;
+
+  if (
+    (row.verdict === "under_pacing" || row.verdict === "over_pacing") &&
+    cpt != null &&
+    ticketsRemaining > 0
+  ) {
+    const requiredTotal = cpt * ticketsRemaining;
+    const lines: { expr: string; result: string }[] = [
+      {
+        expr: `Live CPT × tickets remaining = ${GBP2.format(cpt)} × ${NUM.format(ticketsRemaining)}`,
+        result: `${GBP0.format(Math.round(requiredTotal))} required spend`,
+      },
+    ];
+    if (sr.allocated != null) {
+      lines.push({
+        expr: `Allocated budget remaining = ${GBP0.format(Math.round(sr.allocated))} − ${GBP0.format(Math.round(sr.spent))}`,
+        result: `${GBP0.format(Math.round(sr.remaining ?? sr.allocated - sr.spent))} left`,
+      });
+      const additional = requiredTotal - (sr.remaining ?? sr.allocated - sr.spent);
+      lines.push({
+        expr:
+          additional >= 0
+            ? `Additional needed = ${GBP0.format(Math.round(requiredTotal))} − ${GBP0.format(Math.round(sr.remaining ?? 0))}`
+            : `Headroom = ${GBP0.format(Math.round(sr.remaining ?? 0))} − ${GBP0.format(Math.round(requiredTotal))}`,
+        result:
+          additional >= 0
+            ? `add ${GBP0.format(Math.round(additional))}`
+            : `${GBP0.format(Math.round(-additional))} spare`,
+      });
+    }
+    if (sr.requiredPerDay != null && sr.spentPerDay != null) {
+      lines.push({
+        expr: "Required pace vs current pace",
+        result: `${GBP0.format(Math.round(sr.requiredPerDay))}/day vs ${GBP0.format(Math.round(sr.spentPerDay))}/day`,
+      });
+    }
+    return lines;
+  }
+  return null;
+}
+
 export function PacingVerdictCard({
   funnel,
   row,
@@ -63,6 +121,8 @@ export function PacingVerdictCard({
   const v = verdictPresentation(row.verdict);
   const c = toneColors(v.tone);
   const achieved = funnel.backwardRead.achievedDailyPace;
+  const lines = mathLines(row, funnel);
+  const remaining = funnel.spendReconciliation.remaining;
 
   return (
     <article
@@ -80,10 +140,32 @@ export function PacingVerdictCard({
           <p className="mt-1 text-lg font-medium leading-snug">
             {headline(row, funnel)}
           </p>
+
+          {lines != null && (
+            <details className="group mt-2" data-testid="funnel-pacing-verdict-math">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+                <span className="transition-transform group-open:rotate-90" aria-hidden>
+                  ›
+                </span>
+                Why this number?
+              </summary>
+              <dl className="mt-2 space-y-1 rounded-lg border border-border bg-card/60 p-3 text-xs tabular-nums">
+                {lines.map((l, i) => (
+                  <div
+                    key={i}
+                    className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5"
+                  >
+                    <dt className="text-muted-foreground">{l.expr}</dt>
+                    <dd className="font-medium">{l.result}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-5 grid grid-cols-3 gap-3">
         <VerdictStat
           label="Days to event"
           value={
@@ -95,19 +177,13 @@ export function PacingVerdictCard({
           }
         />
         <VerdictStat
-          label="Tickets remaining"
-          value={NUM.format(funnel.backwardRead.ticketsRemaining)}
-        />
-        <VerdictStat
-          label="Required / day"
-          value={
-            row.requiredPerDay == null
-              ? "—"
-              : GBP0.format(Math.round(row.requiredPerDay))
-          }
+          label="Budget remaining"
+          value={remaining == null ? "—" : GBP0.format(Math.round(remaining))}
           chip={
-            row.requiredPerDay != null ? (
-              <TargetChip tone={v.tone} label="to sell out" />
+            funnel.spendReconciliation.warning === "pace_covered" ? (
+              <TargetChip tone="above" label="covers pace" />
+            ) : funnel.spendReconciliation.warning === "additional_needed" ? (
+              <TargetChip tone="below" label="short of pace" />
             ) : null
           }
         />
