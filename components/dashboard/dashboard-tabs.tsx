@@ -6,6 +6,8 @@ import { ClientPortal } from "@/components/share/client-portal";
 import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
+import { ClientStatsViewToggle } from "@/components/dashboard/clients/client-stats-view-toggle";
+import { buildClientVenuePacingRows } from "@/lib/dashboard/client-venue-pacing-rows";
 import { InsightsPanelSkeleton } from "@/components/dashboard/skeletons/insights-panel-skeleton";
 import { PacingSectionSkeleton } from "@/components/dashboard/skeletons/pacing-section-skeleton";
 import type {
@@ -16,6 +18,7 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
+import type { EventCodeLifetimeMetaCacheRow } from "@/lib/db/event-code-lifetime-meta-cache";
 import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
 import {
   CLIENT_REGION_LABELS,
@@ -43,6 +46,12 @@ interface Props {
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[];
   trendTicketSnapshots: WeeklyTicketSnapshotRow[];
   trendDailyHistory?: TierChannelDailyHistoryRow[];
+  /**
+   * Lifetime Meta cache rows per event_code — threaded so the internal
+   * dashboard's Pacing / Performance-vs-Allocation toggle can build the
+   * canonical funnel per venue. Optional (shared surface omits it).
+   */
+  lifetimeMetaByEventCode?: EventCodeLifetimeMetaCacheRow[];
   showCreativeInsights: boolean;
   showFunnelPacing: boolean;
   isShared: boolean;
@@ -69,6 +78,7 @@ export function DashboardTabs({
   weeklyTicketSnapshots,
   trendTicketSnapshots,
   trendDailyHistory,
+  lifetimeMetaByEventCode = [],
   showCreativeInsights,
   showFunnelPacing,
   isShared,
@@ -97,6 +107,21 @@ export function DashboardTabs({
   const scopeLabel = selectedRegion
     ? CLIENT_REGION_LABELS[selectedRegion]
     : client.name;
+
+  // Per-venue pacing rows for the internal Pacing / Performance-vs-
+  // Allocation toggle. Built from the same canonical funnel as the venue
+  // pages (no new query) and scoped to the selected region's active
+  // venues. Shared surface skips this (internal-only feature).
+  const venuePacingRows = !isShared
+    ? buildClientVenuePacingRows({
+        events: scopedEvents,
+        dailyRollups,
+        lifetimeMetaByEventCode,
+        hrefForVenue: (code) =>
+          `/clients/${clientId}/venues/${encodeURIComponent(code)}?tab=pacing`,
+        activeOnly: true,
+      })
+    : [];
   const tabs = [
     {
       id: "events",
@@ -196,24 +221,40 @@ export function DashboardTabs({
       </div>
 
       {selectedTab === "events" ? (
-        <ClientPortal
-          token={token}
-          client={client}
-          events={scopedEvents}
-          londonOnsaleSpend={londonOnsaleSpend}
-          londonPresaleSpend={londonPresaleSpend}
-          dailyEntries={dailyEntries}
-          dailyRollups={dailyRollups}
-          additionalSpend={additionalSpend}
-          weeklyTicketSnapshots={weeklyTicketSnapshots}
-          trendTicketSnapshots={trendTicketSnapshots}
-          trendDailyHistory={trendDailyHistory}
-          isInternal={!isShared}
-          hideChrome={isShared}
-          showRefreshDailyBudgets={false}
-          initialPastExpanded={initialPastExpanded}
-          initialCancelledExpanded={initialCancelledExpanded}
-        />
+        (() => {
+          const statsView = (
+            <ClientPortal
+              token={token}
+              client={client}
+              events={scopedEvents}
+              londonOnsaleSpend={londonOnsaleSpend}
+              londonPresaleSpend={londonPresaleSpend}
+              dailyEntries={dailyEntries}
+              dailyRollups={dailyRollups}
+              additionalSpend={additionalSpend}
+              weeklyTicketSnapshots={weeklyTicketSnapshots}
+              trendTicketSnapshots={trendTicketSnapshots}
+              trendDailyHistory={trendDailyHistory}
+              isInternal={!isShared}
+              hideChrome={isShared}
+              showRefreshDailyBudgets={false}
+              initialPastExpanded={initialPastExpanded}
+              initialCancelledExpanded={initialCancelledExpanded}
+            />
+          );
+          // Internal dashboard wraps the topline view in the 3-state
+          // toggle (Stats / Pacing / Performance vs Allocation). Shared
+          // surface renders the topline directly.
+          return isShared ? (
+            statsView
+          ) : (
+            <ClientStatsViewToggle
+              clientId={clientId}
+              rows={venuePacingRows}
+              statsView={statsView}
+            />
+          );
+        })()
       ) : (
         <main className="mx-auto max-w-7xl px-6 py-8">
           {selectedTab === "insights" && selectedRegion ? (

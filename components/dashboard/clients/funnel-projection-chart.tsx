@@ -3,23 +3,17 @@
 /**
  * components/dashboard/clients/funnel-projection-chart.tsx
  *
- * Interactive predictive projection for the Funnel Pacing tab (PR-D of
- * issue #467). Sits below the sliding scale. Pure presentation over the
- * canonical-funnel data already on the page — NO new Supabase queries,
- * NO new Meta API calls, NO source-of-truth re-derivation. All numbers
- * come from `buildFunnelProjection`, which itself only reshapes fields
- * the canonical funnel already exposes.
+ * Interactive forward-projection chart for the Funnel Pacing tab.
+ * Originally PR-D of issue #467; upgraded in the visual-overhaul PR with
+ * gradient area fills, a taller plot (≥320px desktop), status-coloured
+ * current-pace line, more prominent sellout / event markers, and an
+ * optional scrubber override that redraws the current-pace line live.
  *
- * Visual language matches the venue Daily Trend chart
- * (`components/dashboard/events/event-trend-chart.tsx`): a hand-rolled
- * inline SVG (viewBox 600×150, `preserveAspectRatio="none"`,
- * `vectorEffect="non-scaling-stroke"`), pill toggles, a hairline +
- * HTML tooltip on hover. No charting library is introduced.
- *
- * The x-axis toggle re-lenses the same three projections:
- *   - "Time"  → x = days from today to event date
- *   - "Spend" → x = cumulative £ spent
- * The last choice persists in localStorage per event code.
+ * Pure presentation over the canonical-funnel data already on the page —
+ * NO new Supabase queries, NO new Meta API calls. All numbers come from
+ * `buildFunnelProjection`, which only reshapes canonical fields. No
+ * charting library is introduced; the SVG is hand-rolled to match the
+ * venue Daily Trend chart's visual language.
  */
 
 import {
@@ -38,6 +32,7 @@ import {
   type ProjectionLineKey,
   type ProjectionXAxis,
 } from "@/lib/dashboard/funnel-projection";
+import { toneColors } from "@/lib/dashboard/pacing-presentation";
 
 const NUM = new Intl.NumberFormat("en-GB");
 const GBP = new Intl.NumberFormat("en-GB", {
@@ -52,19 +47,26 @@ const GBP_2DP = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 2,
 });
 
-const LINE_STYLE: Record<
-  ProjectionLineKey,
-  { colour: string; dash?: string; swatchDash: string }
-> = {
-  current: { colour: "#2563eb", swatchDash: "" },
-  required: { colour: "#71717a", dash: "6 3", swatchDash: "6 3" },
-  suggested: { colour: "#10b981", dash: "2 3", swatchDash: "2 3" },
-};
+interface LineStyle {
+  colour: string;
+  dash?: string;
+  swatchDash: string;
+}
+
+/**
+ * Line styles. `current` colour is resolved at render time from the
+ * projection's warning state (emerald when on/ahead of pace, red when
+ * short). Required = neutral dashed, Suggested = blue dotted accent.
+ */
+function lineStyles(currentColour: string): Record<ProjectionLineKey, LineStyle> {
+  return {
+    current: { colour: currentColour, swatchDash: "" },
+    required: { colour: "#71717a", dash: "6 3", swatchDash: "6 3" },
+    suggested: { colour: "#2563eb", dash: "2 3", swatchDash: "2 3" },
+  };
+}
 
 // ── localStorage-backed x-axis preference ─────────────────────────────────
-// A tiny external store read via useSyncExternalStore: SSR-safe (server
-// snapshot is always "time", so no hydration mismatch warning), and the
-// toggle updates synchronously without a setState-in-effect.
 const axisCache = new Map<string, ProjectionXAxis>();
 const axisListeners = new Map<string, Set<() => void>>();
 
@@ -103,11 +105,11 @@ function subscribeAxis(key: string, cb: () => void) {
 }
 
 const VB_W = 600;
-const VB_H = 150;
-const PAD_T = 10;
-const PAD_R = 10;
-const PAD_B = 10;
-const PAD_L = 10;
+const VB_H = 300;
+const PAD_T = 16;
+const PAD_R = 12;
+const PAD_B = 16;
+const PAD_L = 12;
 const PLOT_W = VB_W - PAD_L - PAD_R;
 const PLOT_H = VB_H - PAD_T - PAD_B;
 
@@ -126,9 +128,20 @@ export interface FunnelProjectionChartProps {
   warningAmount: number | null;
   /** localStorage key suffix — usually the venue event code. */
   eventCode: string;
+  /**
+   * When the spend scrubber is engaged, this overrides the daily spend
+   * used for the Current-pace line so it redraws live as the operator
+   * drags. `null`/undefined → use the live `spentPerDay`.
+   */
+  projectedDailyOverride?: number | null;
 }
 
 export function FunnelProjectionChart(props: FunnelProjectionChartProps) {
+  const overrideActive =
+    props.projectedDailyOverride != null &&
+    props.spentPerDay != null &&
+    Math.abs(props.projectedDailyOverride - props.spentPerDay) > 0.5;
+
   const projection = useMemo(
     () =>
       buildFunnelProjection({
@@ -136,7 +149,10 @@ export function FunnelProjectionChart(props: FunnelProjectionChartProps) {
         ticketsSold: props.ticketsSold,
         spent: props.spent,
         allocated: props.allocated,
-        spentPerDay: props.spentPerDay,
+        spentPerDay:
+          props.projectedDailyOverride != null
+            ? props.projectedDailyOverride
+            : props.spentPerDay,
         liveCostPerTicket: props.liveCostPerTicket,
         benchmarkCostPerTicket: props.benchmarkCostPerTicket,
         daysToEvent: props.daysToEvent,
@@ -157,9 +173,16 @@ export function FunnelProjectionChart(props: FunnelProjectionChartProps) {
   const chooseAxis = (next: ProjectionXAxis) =>
     setAxisPreference(storageKey, next);
 
+  // Current-pace line colour: red when short of sellout, emerald otherwise.
+  const currentColour =
+    projection.warning === "additional_needed"
+      ? toneColors("below").hex
+      : toneColors("above").hex;
+  const styles = lineStyles(currentColour);
+
   return (
     <article
-      className="rounded-lg border border-border bg-card p-5 shadow-sm"
+      className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
       data-testid="funnel-pacing-projection"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -174,6 +197,7 @@ export function FunnelProjectionChart(props: FunnelProjectionChartProps) {
             Where current spend takes you by event date, versus the pace
             needed to sell out — at this event&apos;s live efficiency and at
             benchmark efficiency.
+            {overrideActive ? " Current line reflects the scrubber position." : ""}
           </p>
         </div>
         {projection.available ? (
@@ -184,8 +208,12 @@ export function FunnelProjectionChart(props: FunnelProjectionChartProps) {
       {projection.available ? (
         <>
           <ProjectionBanner projection={projection} />
-          <ProjectionPlot projection={projection} xAxis={xAxis} />
-          <Legend projection={projection} />
+          <ProjectionPlot
+            projection={projection}
+            xAxis={xAxis}
+            styles={styles}
+          />
+          <Legend projection={projection} styles={styles} />
         </>
       ) : (
         <UnavailableState projection={projection} />
@@ -265,8 +293,8 @@ function ProjectionBanner({ projection }: { projection: FunnelProjection }) {
   }
   if (projection.warning === "pace_covered") {
     return (
-      <div className="mt-4 flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-800">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+      <div className="mt-4 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
         <span>Current pace is sufficient to sell out by event date.</span>
       </div>
     );
@@ -289,7 +317,6 @@ function UnavailableState({ projection }: { projection: FunnelProjection }) {
 }
 
 interface HoverState {
-  /** Fraction along the primary line's sample points [0..1]. */
   index: number;
   chartWidth: number;
 }
@@ -297,22 +324,22 @@ interface HoverState {
 function ProjectionPlot({
   projection,
   xAxis,
+  styles,
 }: {
   projection: FunnelProjection;
   xAxis: ProjectionXAxis;
+  styles: Record<ProjectionLineKey, LineStyle>;
 }) {
   const captionId = useId();
+  const gradId = useId();
   const plotRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
 
-  // The "primary" line drives hover read-out: Current pace when live,
-  // else the first available (benchmark) line.
   const primary =
     projection.lines.find((l) => l.key === "current") ??
     projection.lines[0] ??
     null;
 
-  // ── Scales ───────────────────────────────────────────────────────────
   const yMax = useMemo(() => {
     const endpoints = projection.lines.map((l) => l.endpointTickets);
     return Math.max(projection.capacity, ...endpoints, 1) * 1.06;
@@ -343,7 +370,6 @@ function ProjectionPlot({
   const yScale = (tickets: number): number =>
     PAD_T + PLOT_H - (tickets / yMax) * PLOT_H;
 
-  // ── Markers ──────────────────────────────────────────────────────────
   const capacityYVB = yScale(projection.capacity);
   const eventMarkerX =
     xAxis === "time"
@@ -360,7 +386,6 @@ function ProjectionPlot({
           : null
       : null;
 
-  // ── Hover handling ───────────────────────────────────────────────────
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!primary) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -384,8 +409,6 @@ function ProjectionPlot({
 
   const toPercent = (xVB: number) => `${(xVB / VB_W) * 100}%`;
 
-  // Date for a given day offset, derived from the resolved eventDate so
-  // it never drifts from the server's "today".
   const dateForDay = (day: number): string => {
     if (!projection.eventDate) return "";
     const eventMs = Date.parse(`${projection.eventDate}T00:00:00Z`);
@@ -398,15 +421,31 @@ function ProjectionPlot({
     });
   };
 
+  // Build a closed area path (line points → down to baseline → back) so
+  // each line gets a subtle gradient fill underneath for depth.
+  const areaPath = (line: ProjectionLine): string => {
+    const pts = line.points.map(
+      (_, i) => `${xScale(line, i)},${yScale(line.points[i]!.tickets)}`,
+    );
+    if (pts.length === 0) return "";
+    const firstX = xScale(line, 0);
+    const lastX = xScale(line, line.points.length - 1);
+    const baseY = PAD_T + PLOT_H;
+    return `M ${firstX},${baseY} L ${pts.join(" L ")} L ${lastX},${baseY} Z`;
+  };
+
   return (
     <figure className="mt-4">
       <div className="flex">
-        <div className="relative h-[150px] w-12 flex-shrink-0" aria-hidden>
+        <div
+          className="relative h-[260px] w-12 flex-shrink-0 sm:h-[320px]"
+          aria-hidden
+        >
           {[1, 0.66, 0.33, 0].map((fraction) => (
             <span
               key={fraction}
               className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
-              style={{ top: `${PAD_T + PLOT_H - fraction * PLOT_H}px` }}
+              style={{ top: `${(PAD_T + PLOT_H - fraction * PLOT_H) / VB_H * 100}%` }}
             >
               {NUM.format(Math.round(yMax * fraction))}
             </span>
@@ -415,7 +454,7 @@ function ProjectionPlot({
         <div className="min-w-0 flex-1">
           <div
             ref={plotRef}
-            className="relative h-[150px]"
+            className="relative h-[260px] sm:h-[320px]"
             onMouseMove={handleMouseMove}
             onMouseLeave={() => setHover(null)}
           >
@@ -423,11 +462,38 @@ function ProjectionPlot({
               viewBox={`0 0 ${VB_W} ${VB_H}`}
               preserveAspectRatio="none"
               width="100%"
-              height={150}
+              height="100%"
               role="img"
               aria-labelledby={captionId}
               className="overflow-visible"
             >
+              <defs>
+                {projection.lines.map((line) => {
+                  const style = styles[line.key];
+                  return (
+                    <linearGradient
+                      key={line.key}
+                      id={`${gradId}-${line.key}`}
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor={style.colour}
+                        stopOpacity={line.key === "current" ? 0.22 : 0.08}
+                      />
+                      <stop
+                        offset="100%"
+                        stopColor={style.colour}
+                        stopOpacity={0}
+                      />
+                    </linearGradient>
+                  );
+                })}
+              </defs>
+
               {/* baseline */}
               <line
                 x1={PAD_L}
@@ -438,6 +504,17 @@ function ProjectionPlot({
                 strokeOpacity={0.15}
                 vectorEffect="non-scaling-stroke"
               />
+
+              {/* gradient area fills (drawn behind lines) */}
+              {projection.lines.map((line) => (
+                <path
+                  key={`area-${line.key}`}
+                  d={areaPath(line)}
+                  fill={`url(#${gradId}-${line.key})`}
+                  stroke="none"
+                />
+              ))}
+
               {/* capacity / sellout horizontal */}
               <line
                 x1={PAD_L}
@@ -445,23 +522,25 @@ function ProjectionPlot({
                 y1={capacityYVB}
                 y2={capacityYVB}
                 stroke="#a1a1aa"
-                strokeWidth={1}
-                strokeDasharray="4 3"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
                 vectorEffect="non-scaling-stroke"
               />
-              {/* event-date vertical */}
+
+              {/* event-date vertical (bold) */}
               {eventMarkerX != null && (
                 <line
                   x1={eventMarkerX}
                   x2={eventMarkerX}
                   y1={PAD_T}
                   y2={PAD_T + PLOT_H}
-                  stroke="#a1a1aa"
-                  strokeWidth={1}
-                  strokeDasharray="4 3"
+                  stroke="#52525b"
+                  strokeWidth={1.5}
+                  strokeDasharray="2 2"
                   vectorEffect="non-scaling-stroke"
                 />
               )}
+
               {/* sellout drop-line (current pace crossing) */}
               {selloutX != null && (
                 <line
@@ -469,17 +548,21 @@ function ProjectionPlot({
                   x2={selloutX}
                   y1={capacityYVB}
                   y2={PAD_T + PLOT_H}
-                  stroke={LINE_STYLE.current.colour}
-                  strokeWidth={1}
-                  strokeDasharray="2 2"
+                  stroke={styles.current.colour}
+                  strokeWidth={1.5}
+                  strokeDasharray="3 2"
                   vectorEffect="non-scaling-stroke"
                 />
               )}
+
               {/* projection lines */}
               {projection.lines.map((line) => {
-                const style = LINE_STYLE[line.key];
+                const style = styles[line.key];
                 const pts = line.points
-                  .map((_, i) => `${xScale(line, i)},${yScale(line.points[i]!.tickets)}`)
+                  .map(
+                    (_, i) =>
+                      `${xScale(line, i)},${yScale(line.points[i]!.tickets)}`,
+                  )
                   .join(" ");
                 return (
                   <polyline
@@ -487,7 +570,7 @@ function ProjectionPlot({
                     points={pts}
                     fill="none"
                     stroke={style.colour}
-                    strokeWidth={2}
+                    strokeWidth={2.5}
                     strokeDasharray={style.dash}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -495,13 +578,27 @@ function ProjectionPlot({
                   />
                 );
               })}
+
+              {/* sellout crossing marker dot */}
+              {selloutX != null && (
+                <circle
+                  cx={selloutX}
+                  cy={capacityYVB}
+                  r={4}
+                  fill={styles.current.colour}
+                  stroke="var(--background, #ffffff)"
+                  strokeWidth={1.5}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+
               {/* hover marker on primary line */}
               {hovered && (
                 <circle
                   cx={xScale(primary!, hover!.index)}
                   cy={yScale(hovered.tickets)}
-                  r={3}
-                  fill={LINE_STYLE[primary!.key].colour}
+                  r={3.5}
+                  fill={styles[primary!.key].colour}
                   stroke="var(--background, #ffffff)"
                   strokeWidth={1.5}
                   vectorEffect="non-scaling-stroke"
@@ -512,7 +609,7 @@ function ProjectionPlot({
             {/* capacity label */}
             <span
               className="pointer-events-none absolute right-0 -translate-y-1/2 rounded bg-muted px-1 text-[9px] font-medium tabular-nums text-muted-foreground"
-              style={{ top: `${capacityYVB}px` }}
+              style={{ top: `${(capacityYVB / VB_H) * 100}%` }}
             >
               Capacity {NUM.format(projection.capacity)}
             </span>
@@ -520,7 +617,7 @@ function ProjectionPlot({
             {/* event-date label */}
             {eventMarkerX != null && (
               <span
-                className="pointer-events-none absolute top-0 -translate-x-1/2 whitespace-nowrap rounded bg-muted px-1 text-[9px] font-medium text-muted-foreground"
+                className="pointer-events-none absolute top-0 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-1 text-[9px] font-medium text-background"
                 style={{ left: toPercent(eventMarkerX) }}
               >
                 {xAxis === "time"
@@ -535,8 +632,9 @@ function ProjectionPlot({
                 className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded px-1 text-[9px] font-medium"
                 style={{
                   left: toPercent(selloutX),
-                  top: `${capacityYVB - 14}px`,
-                  color: LINE_STYLE.current.colour,
+                  top: `${(capacityYVB / VB_H) * 100}%`,
+                  transform: "translate(-50%, -160%)",
+                  color: styles.current.colour,
                 }}
               >
                 {xAxis === "time"
@@ -563,6 +661,10 @@ function ProjectionPlot({
                     : null;
                 const impliedCpt =
                   hovered.tickets > 0 ? hovered.spend / hovered.tickets : null;
+                const pctCapacity =
+                  projection.capacity > 0
+                    ? hovered.tickets / projection.capacity
+                    : null;
                 return (
                   <>
                     <div
@@ -571,7 +673,7 @@ function ProjectionPlot({
                       aria-hidden
                     />
                     <div
-                      className="pointer-events-none absolute z-20 min-w-[180px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-card-foreground shadow-lg"
+                      className="pointer-events-none absolute z-20 min-w-[190px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-card-foreground shadow-lg"
                       style={
                         flipLeft
                           ? { right: `${hover.chartWidth - pixelX + 8}px`, top: 4 }
@@ -587,6 +689,14 @@ function ProjectionPlot({
                         <TooltipRow
                           label="Projected tickets"
                           value={NUM.format(Math.round(hovered.tickets))}
+                        />
+                        <TooltipRow
+                          label="% of capacity"
+                          value={
+                            pctCapacity == null
+                              ? "—"
+                              : `${Math.round(pctCapacity * 100)}%`
+                          }
                         />
                         <TooltipRow
                           label="Remaining"
@@ -649,11 +759,17 @@ function TooltipRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Legend({ projection }: { projection: FunnelProjection }) {
+function Legend({
+  projection,
+  styles,
+}: {
+  projection: FunnelProjection;
+  styles: Record<ProjectionLineKey, LineStyle>;
+}) {
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
       {projection.lines.map((line) => {
-        const style = LINE_STYLE[line.key];
+        const style = styles[line.key];
         return (
           <span
             key={line.key}
@@ -666,7 +782,7 @@ function Legend({ projection }: { projection: FunnelProjection }) {
                 x2="18"
                 y2="3"
                 stroke={style.colour}
-                strokeWidth={2}
+                strokeWidth={2.5}
                 strokeDasharray={style.swatchDash || undefined}
               />
             </svg>
