@@ -10,6 +10,7 @@ import { loadVenuePortalByCode } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
+import { venueCampaignEndDate } from "@/lib/dashboard/venue-campaign-end-date";
 import { aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import {
   isLegacyAttributionTileEnabled,
@@ -178,7 +179,7 @@ export default async function ClientVenueReportPage({
     venueEvents[0]?.venue_name ??
     eventCode;
   const lastSyncedAt = computeLastSyncedAt(venueDailyRollups);
-  const displayEventDate = displayVenueEventDate(venueEvents);
+  const displayEventDate = venueCampaignEndDate(venueEvents);
   const daysUntil = computeDaysUntil(displayEventDate);
 
   // ── Source-of-truth contract for engagement metrics ─────────────
@@ -393,24 +394,6 @@ function parseCustomRange(
   if (preset !== "custom") return undefined;
   if (!from || !to) return undefined;
   return { since: from, until: to };
-}
-
-function displayVenueEventDate(
-  events: { event_date: string | null }[],
-): string | null {
-  const today = new Date().toISOString().slice(0, 10);
-  const upcoming = events
-    .map((event) => event.event_date)
-    .filter((date): date is string => !!date && date >= today)
-    .sort();
-  if (upcoming.length > 0) return upcoming[0];
-  return (
-    events
-      .map((event) => event.event_date)
-      .filter((date): date is string => !!date)
-      .sort()
-      .at(-1) ?? null
-  );
 }
 
 function computeDaysUntil(iso: string | null): number | null {
