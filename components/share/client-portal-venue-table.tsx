@@ -57,6 +57,7 @@ import {
   venueSpend,
   type GroupSpend,
 } from "@/lib/dashboard/venue-spend-model";
+import { getSpendAdjustmentGbp } from "@/lib/dashboard/event-code-adset-splits";
 import { computePortalEventSpendRowMetrics } from "@/lib/dashboard/portal-event-spend-row";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/additional-ticket-entries-card";
@@ -1738,10 +1739,17 @@ function VenueSection({
   const router = useRouter();
   const [editMode, setEditMode] = useState(false);
   const totals = useMemo(() => sumVenue(group, spend), [group, spend]);
-  const venueDisplaySpend = useMemo(
+  const rawVenueDisplaySpend = useMemo(
     () => displayVenueSpend(group, spend, totals),
     [group, spend, totals],
   );
+  // Apply ad-set-level split adjustment for Glasgow O2 / SWG3 (PR #493).
+  // Non-Glasgow venues return adjustment 0 — no-op.
+  const venueDisplaySpend = useMemo(() => {
+    const adj = getSpendAdjustmentGbp(group.eventCode ?? "");
+    if (adj === 0 || rawVenueDisplaySpend == null) return rawVenueDisplaySpend;
+    return rawVenueDisplaySpend + adj;
+  }, [group.eventCode, rawVenueDisplaySpend]);
   const campaignPerformance = useMemo(
     () =>
       aggregateVenueCampaignPerformance(
