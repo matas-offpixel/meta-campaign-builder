@@ -19,6 +19,7 @@ import {
 import { getFunnelBenchmarks } from "@/lib/dashboard/benchmarks";
 import type { VenuePacingRow } from "@/lib/dashboard/venue-pacing-summary";
 import { BenchmarkChip, TargetChip } from "./benchmark-chip";
+import { HeroDailyBudgetReadout } from "./hero-daily-budget-readout";
 
 const NUM = new Intl.NumberFormat("en-GB");
 const GBP0 = new Intl.NumberFormat("en-GB", {
@@ -40,12 +41,18 @@ const PCT0 = new Intl.NumberFormat("en-GB", {
 export function HeroStatusBar({
   venueLabel,
   row,
+  clientId,
+  eventCode,
 }: {
   venueLabel: string;
   row: VenuePacingRow;
+  /** For the live Meta daily-budget readout in the Days-to-event segment. */
+  clientId: string;
+  eventCode: string;
 }) {
   const bench = getFunnelBenchmarks();
   const verdict = verdictPresentation(row.verdict);
+  const ticketsRemaining = Math.max(0, row.capacity - row.ticketsSold);
 
   return (
     <section
@@ -72,7 +79,7 @@ export function HeroStatusBar({
         <HeroSegment
           label="Tickets sold"
           hero={NUM.format(row.ticketsSold)}
-          sub={`of ${NUM.format(row.capacity)}`}
+          sub={`${NUM.format(ticketsRemaining)} remaining of ${NUM.format(row.capacity)}`}
           fill={row.soldFraction}
           tone={
             row.verdict === "under_pacing"
@@ -127,9 +134,11 @@ export function HeroStatusBar({
                 : NUM.format(row.daysToEvent)
           }
           sub={
-            row.requiredPerDay != null
-              ? `${GBP0.format(Math.round(row.requiredPerDay))}/day required`
-              : "countdown"
+            <HeroDailyBudgetReadout
+              clientId={clientId}
+              eventCode={eventCode}
+              requiredPerDay={row.requiredPerDay}
+            />
           }
           fill={0}
           tone="neutral"
@@ -186,7 +195,7 @@ function HeroSegment({
   label: string;
   hero: string;
   heroClassName?: string;
-  sub: string;
+  sub: React.ReactNode;
   fill: number;
   tone: PacingTone;
   chip: React.ReactNode;
@@ -215,7 +224,13 @@ function HeroSegment({
         >
           {hero}
         </p>
-        <p className="mt-1 text-xs text-muted-foreground tabular-nums">{sub}</p>
+        {typeof sub === "string" ? (
+          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+            {sub}
+          </p>
+        ) : (
+          sub
+        )}
       </div>
     </div>
   );

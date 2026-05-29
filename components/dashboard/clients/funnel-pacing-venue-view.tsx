@@ -61,7 +61,12 @@ export function FunnelPacingVenueView({
 
   return (
     <section className="space-y-5">
-      <HeroStatusBar venueLabel={venueLabel} row={row} />
+      <HeroStatusBar
+        venueLabel={venueLabel}
+        row={row}
+        clientId={clientId}
+        eventCode={eventCode}
+      />
 
       <DailySpendTracker
         series={pacing.dailySpendSeries}

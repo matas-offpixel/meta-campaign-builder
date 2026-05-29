@@ -165,6 +165,19 @@ export function FunnelPacingInteractive({
       ? Math.round(days - selloutAtScrubber)
       : null;
 
+  // Budget context for the scrubber (Task 3): total spend at the chosen pace
+  // and where the allocated budget sits on the £/day axis. The daily rate
+  // that exactly exhausts the remaining budget over the remaining days is the
+  // ceiling beyond which the projected total overshoots allocated.
+  const allocated = sr.allocated;
+  const totalAtPace = clampedDaily * days + sr.spent;
+  const budgetCeilingDaily =
+    allocated != null && sr.remaining != null && days > 0
+      ? Math.max(0, sr.remaining / days)
+      : null;
+  const overAllocated = allocated != null && totalAtPace > allocated;
+  const overBy = allocated != null ? totalAtPace - allocated : 0;
+
   return (
     <article
       className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"
@@ -222,6 +235,21 @@ export function FunnelPacingInteractive({
             </p>
           </div>
 
+          <p
+            className={`mt-1 text-xs tabular-nums ${overAllocated ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground"}`}
+          >
+            Total spend at this pace:{" "}
+            <span className="font-semibold">
+              {GBP0.format(Math.round(totalAtPace))}
+            </span>{" "}
+            over {NUM.format(days)} day{days === 1 ? "" : "s"} remaining
+            {overAllocated
+              ? ` — +${GBP0.format(Math.round(overBy))} over allocated budget`
+              : allocated != null
+                ? ` (within ${GBP0.format(Math.round(allocated))} allocated)`
+                : ""}
+          </p>
+
           <ScrubberTrack
             value={clampedDaily}
             max={maxSensible}
@@ -229,6 +257,7 @@ export function FunnelPacingInteractive({
             currentDaily={currentDaily}
             requiredDaily={requiredDaily}
             suggestedDaily={suggestedDaily}
+            budgetCeilingDaily={budgetCeilingDaily}
           />
 
           <p className="mt-2 text-xs text-muted-foreground tabular-nums">
@@ -375,6 +404,7 @@ function ScrubberTrack({
   currentDaily,
   requiredDaily,
   suggestedDaily,
+  budgetCeilingDaily,
 }: {
   value: number;
   max: number;
@@ -382,15 +412,34 @@ function ScrubberTrack({
   currentDaily: number;
   requiredDaily: number | null;
   suggestedDaily: number | null;
+  /** Daily rate at which projected total spend hits the allocated budget. */
+  budgetCeilingDaily: number | null;
 }) {
+  // Clickable position markers replace the old preset chips: the marker's
+  // position is the single source of the value, so the redundant "£X/day"
+  // chip is gone (the required-per-day figure lives on the Spend vs Budget
+  // card). Clicking a label snaps the scrubber to that pace.
   const presets: { label: string; value: number | null }[] = [
     { label: "Current", value: currentDaily > 0 ? currentDaily : null },
     { label: "Required", value: requiredDaily },
     { label: "Suggested", value: suggestedDaily },
   ];
+  const ceilingPct =
+    budgetCeilingDaily != null && budgetCeilingDaily <= max
+      ? (budgetCeilingDaily / max) * 100
+      : null;
   return (
     <div className="mt-3">
       <div className="relative">
+        {/* allocated-budget ceiling marker (Task 3) */}
+        {ceilingPct != null && (
+          <div
+            className="pointer-events-none absolute -top-1 bottom-0 z-10 w-0.5 -translate-x-1/2 border-l-2 border-dashed border-red-500/70"
+            style={{ left: `${ceilingPct}%` }}
+            aria-hidden
+            title={`Allocated budget ceiling ≈ ${GBP0.format(Math.round(budgetCeilingDaily!))}/day at this horizon`}
+          />
+        )}
         <input
           type="range"
           min={0}
@@ -401,34 +450,31 @@ function ScrubberTrack({
           aria-label="Projected daily spend"
           className="w-full cursor-pointer accent-foreground"
         />
-        {/* preset markers */}
-        <div className="pointer-events-none relative mt-1 h-3">
+        {/* clickable position markers (snap to pace) */}
+        <div className="relative mt-1 h-4">
           {presets.map((p) =>
             p.value != null && p.value <= max ? (
-              <span
+              <button
                 key={p.label}
-                className="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-muted-foreground"
+                type="button"
+                onClick={() => onChange(Math.round(p.value!))}
+                className="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
                 style={{ left: `${(p.value / max) * 100}%` }}
+                title={`Snap to ${p.label} pace`}
               >
                 {p.label}
-              </span>
+              </button>
             ) : null,
           )}
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {presets.map((p) =>
-          p.value != null ? (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => onChange(Math.round(p.value!))}
-              className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          {ceilingPct != null && (
+            <span
+              className="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-red-500/80"
+              style={{ left: `${ceilingPct}%` }}
             >
-              {p.label} {GBP0.format(Math.round(p.value))}/day
-            </button>
-          ) : null,
-        )}
+              Budget
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
