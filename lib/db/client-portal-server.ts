@@ -56,6 +56,13 @@ export interface PortalEvent {
   venue_city: string | null;
   venue_country: string | null;
   capacity: number | null;
+  /**
+   * Venue-total strategic capacity target (events.target_capacity,
+   * migration 100). Replicated across all fixtures of an event_code;
+   * null until set. Funnel-pacing capacity prefers this via
+   * `aggregateSharedVenueCapacity`, falling back to SUM(capacity).
+   */
+  target_capacity: number | null;
   event_date: string | null;
   general_sale_at: string | null;
   report_cadence: "daily" | "weekly";
@@ -677,7 +684,7 @@ async function loadPortalForClientId(
   const eventsQueryBase = admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status",
     )
     .eq("client_id", clientId);
   const eventsQuery = options?.eventCode
@@ -1108,6 +1115,9 @@ async function loadPortalForClientId(
         venue_city: e.venue_city,
         venue_country: e.venue_country,
         capacity: e.capacity,
+        target_capacity:
+          (e as unknown as { target_capacity?: number | null })
+            .target_capacity ?? null,
         event_date: e.event_date,
         general_sale_at: e.general_sale_at,
         report_cadence:

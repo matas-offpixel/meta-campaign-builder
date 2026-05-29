@@ -14,7 +14,10 @@
  * the canonical `buildVenueCanonicalFunnel` per venue.
  */
 
-import { aggregateSharedVenueBudget } from "../db/client-dashboard-aggregations.ts";
+import {
+  aggregateSharedVenueBudget,
+  aggregateSharedVenueCapacity,
+} from "../db/client-dashboard-aggregations.ts";
 import type {
   DailyRollupRow,
   PortalEvent,
@@ -99,7 +102,7 @@ export function buildClientVenuePacingRows(
       }
     }
 
-    const capacity = venueEvents.reduce((s, e) => s + (e.capacity ?? 0), 0);
+    const capacity = aggregateSharedVenueCapacity(venueEvents) ?? 0;
     const ticketsSold = venueEvents.reduce(
       (s, e) => s + (e.tickets_sold ?? 0),
       0,

@@ -233,6 +233,78 @@ export interface DailySpendPoint {
   spent: number;
 }
 
+/** One run-rate surge scenario (capacity-uplift model from the Excel). */
+export interface RunRateSurgeScenario {
+  /** Uplift fraction applied to capacity, e.g. 0.15 for +15%. */
+  uplift: number;
+  /** `min(baselineProjected + capacity × uplift, capacity)`. */
+  projected: number;
+  /** `projected - baselineProjected` — extra tickets vs the baseline. */
+  deltaVsBaseline: number;
+  /** `projected / capacity` in `[0, 1]`. `null` when capacity is 0. */
+  sellThroughFraction: number | null;
+}
+
+/**
+ * Run Rate Forecast (Workstream C of the WC26 reconciliation).
+ *
+ * Sales-rate projection mirroring the Excel cross-reference: an average
+ * daily sales rate to date, a straight-line baseline projection to the
+ * event date (capped at capacity), and four capacity-uplift surge
+ * scenarios. Derived entirely from the rollups + capacity already passed
+ * to the builder — no new query.
+ */
+export interface VenueRunRateForecast {
+  /** Earliest rollup date with `tickets_sold > 0`. `null` when no sales yet. */
+  firstSaleDate: string | null;
+  /** Days from `firstSaleDate` to today, inclusive (min 1). `null` when no sales. */
+  daysElapsed: number | null;
+  /** `ticketsSold / daysElapsed`. `null` when no sales recorded yet. */
+  avgDailySalesToDate: number | null;
+  /** Days remaining to the event (== `daysToEvent` when > 0, else 0). `null` when no event date. */
+  daysRemaining: number | null;
+  /**
+   * `min(ticketsSold + avgDailySalesToDate × daysRemaining, capacity)`.
+   * `null` when `avgDailySalesToDate` or `daysRemaining` is unknown.
+   */
+  baselineProjected: number | null;
+  /** `baselineProjected / capacity` in `[0, 1]`. `null` when unknown. */
+  baselineSellThroughFraction: number | null;
+  /** Surge scenarios for +15% / +25% / +35% / +50% of capacity, capped at capacity. */
+  surge: RunRateSurgeScenario[];
+}
+
+/**
+ * CPT projection + budget-anchor stats (Workstream D of the WC26
+ * reconciliation). All derived from existing canonical fields — no new
+ * query, no new ticket/spend math beyond the framing the Excel uses.
+ */
+export interface VenueCptProjection {
+  /** Live CPT (`spent / ticketsSold`). Mirror of `spendReconciliation.liveCostPerTicket`. */
+  currentCostPerTicket: number | null;
+  /**
+   * `(spent + ticketsRemaining × currentCPT) / capacity`. Projecting the
+   * remaining sell-out at the current efficiency, this reduces to the
+   * current CPT for every venue — surfaced as an explicit confirmation,
+   * not new math. `null` when `currentCPT` is null or capacity is 0.
+   */
+  costPerTicketAtSellout: number | null;
+  /** `allocatedBudget / capacity` — the implicit £/ticket budget anchor. `null` when no budget or capacity. */
+  budgetAnchorCostPerTicket: number | null;
+  /** `budgetAnchorCPT − currentCPT`. Positive = under budget. `null` when either is null. */
+  budgetHeadroomPerTicket: number | null;
+  /** `budgetHeadroomPerTicket × capacity` — total £ headroom (+) or overage (−). `null` when headroom null. */
+  budgetHeadroomTotal: number | null;
+  /**
+   * Tone for the headroom chip:
+   *   - `"above"`  (emerald) → under budget, headroom > +10% of anchor
+   *   - `"below"`  (red)     → over budget, headroom < −10% of anchor
+   *   - `"within"` (amber)   → within ±10% of the anchor CPT
+   * `null` when headroom is null.
+   */
+  headroomTone: "above" | "below" | "within" | null;
+}
+
 export interface VenueCanonicalFunnel {
   metrics: {
     reach: number | null;
@@ -262,6 +334,16 @@ export interface VenueCanonicalFunnel {
    * fetched for the spend SUM).
    */
   dailySpendSeries: DailySpendPoint[];
+  /**
+   * Run Rate Forecast (Workstream C). Sales-rate projection + surge
+   * scenarios. Derived from the same rollups + capacity — no new query.
+   */
+  runRate: VenueRunRateForecast;
+  /**
+   * CPT-at-sellout + budget-anchor stats (Workstream D). Derived from
+   * existing spend / capacity / budget fields — no new query.
+   */
+  cptProjection: VenueCptProjection;
   /**
    * Provenance — which source each numerator was drawn from. Surfaces
    * use this for tooltips and for the "cache_miss" hard-fail state on
@@ -443,6 +525,22 @@ export function buildVenueCanonicalFunnel(
     input.paceWindowDays ?? 14,
   );
 
+  const runRate = computeRunRate({
+    dailyRollups: input.dailyRollups,
+    today,
+    ticketsSold: purchases,
+    capacity,
+    daysToEvent: backwardRead.daysToEvent,
+  });
+
+  const cptProjection = computeCptProjection({
+    spent: spendReconciliation.spent,
+    liveCostPerTicket: spendReconciliation.liveCostPerTicket,
+    ticketsRemaining: backwardRead.ticketsRemaining,
+    capacity,
+    allocatedBudget: input.allocatedBudget ?? null,
+  });
+
   return {
     metrics: {
       reach,
@@ -457,6 +555,8 @@ export function buildVenueCanonicalFunnel(
     backwardRead,
     spendReconciliation,
     dailySpendSeries,
+    runRate,
+    cptProjection,
     sources: {
       reach: cache && reach != null ? "lifetime_cache" : "cache_miss",
       clicks: cache && clicks != null ? "lifetime_cache" : "cache_miss",
@@ -610,6 +710,180 @@ function computeDailySpendSeries(
   }
   series.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   return series;
+}
+
+/** Capacity-uplift surge fractions for the Run Rate Forecast (Excel model). */
+const RUN_RATE_SURGE_UPLIFTS = [0.15, 0.25, 0.35, 0.5] as const;
+
+/**
+ * Run Rate Forecast (Workstream C).
+ *
+ * - `avgDailySalesToDate = ticketsSold / daysElapsed`, where
+ *   `daysElapsed = today − MIN(rollup date with tickets_sold > 0) + 1`
+ *   (inclusive, min 1).
+ * - `baselineProjected = min(ticketsSold + avgDaily × daysRemaining, capacity)`.
+ * - Each surge scenario = `min(baseline + capacity × uplift, capacity)`.
+ *
+ * Returns null-ish fields (rather than throwing) for the no-sales,
+ * no-event-date, and zero-capacity edge cases so the UI can degrade
+ * gracefully.
+ */
+function computeRunRate({
+  dailyRollups,
+  today,
+  ticketsSold,
+  capacity,
+  daysToEvent,
+}: {
+  dailyRollups: ReadonlyArray<DailyRollupRow>;
+  today: Date;
+  ticketsSold: number;
+  capacity: number;
+  daysToEvent: number | null;
+}): VenueRunRateForecast {
+  const todayYmd = today.toISOString().slice(0, 10);
+  const todayMs = Date.parse(`${todayYmd}T00:00:00Z`);
+
+  let firstSaleDate: string | null = null;
+  for (const row of dailyRollups) {
+    if (!row.date) continue;
+    if ((row.tickets_sold ?? 0) <= 0) continue;
+    if (firstSaleDate == null || row.date < firstSaleDate) {
+      firstSaleDate = row.date;
+    }
+  }
+
+  let daysElapsed: number | null = null;
+  let avgDailySalesToDate: number | null = null;
+  if (firstSaleDate != null && ticketsSold > 0) {
+    const firstMs = Date.parse(`${firstSaleDate}T00:00:00Z`);
+    if (Number.isFinite(firstMs)) {
+      // Inclusive day count, min 1 (first sale on the same day → 1 day).
+      daysElapsed = Math.max(
+        1,
+        Math.round((todayMs - firstMs) / 86_400_000) + 1,
+      );
+      avgDailySalesToDate = ticketsSold / daysElapsed;
+    }
+  }
+
+  // daysRemaining clamps daysToEvent to ≥ 0; null when no event date.
+  const daysRemaining =
+    daysToEvent == null ? null : Math.max(0, daysToEvent);
+
+  let baselineProjected: number | null = null;
+  if (avgDailySalesToDate != null && daysRemaining != null && capacity > 0) {
+    baselineProjected = Math.min(
+      capacity,
+      Math.round(ticketsSold + avgDailySalesToDate * daysRemaining),
+    );
+  }
+
+  const baselineSellThroughFraction =
+    baselineProjected != null && capacity > 0
+      ? baselineProjected / capacity
+      : null;
+
+  const surge: RunRateSurgeScenario[] = RUN_RATE_SURGE_UPLIFTS.map(
+    (uplift) => {
+      if (baselineProjected == null || capacity <= 0) {
+        return {
+          uplift,
+          projected: baselineProjected ?? 0,
+          deltaVsBaseline: 0,
+          sellThroughFraction: null,
+        };
+      }
+      const projected = Math.min(
+        capacity,
+        Math.round(baselineProjected + capacity * uplift),
+      );
+      return {
+        uplift,
+        projected,
+        deltaVsBaseline: projected - baselineProjected,
+        sellThroughFraction: projected / capacity,
+      };
+    },
+  );
+
+  return {
+    firstSaleDate,
+    daysElapsed,
+    avgDailySalesToDate,
+    daysRemaining,
+    baselineProjected,
+    baselineSellThroughFraction,
+    surge,
+  };
+}
+
+/**
+ * CPT-at-sellout + budget-anchor stats (Workstream D). Pure arithmetic
+ * over already-derived canonical fields.
+ */
+function computeCptProjection({
+  spent,
+  liveCostPerTicket,
+  ticketsRemaining,
+  capacity,
+  allocatedBudget,
+}: {
+  spent: number;
+  liveCostPerTicket: number | null;
+  ticketsRemaining: number;
+  capacity: number;
+  allocatedBudget: number | null;
+}): VenueCptProjection {
+  const currentCostPerTicket = liveCostPerTicket;
+
+  // Projecting the remaining sell-out at the current efficiency:
+  // (spent + remaining × currentCPT) / capacity. Algebraically equals
+  // currentCPT (since spent = sold × currentCPT and sold + remaining =
+  // capacity), surfaced as an explicit confirmation line.
+  const costPerTicketAtSellout =
+    currentCostPerTicket != null && capacity > 0
+      ? (spent + ticketsRemaining * currentCostPerTicket) / capacity
+      : null;
+
+  const budgetAnchorCostPerTicket =
+    allocatedBudget != null && allocatedBudget > 0 && capacity > 0
+      ? allocatedBudget / capacity
+      : null;
+
+  const budgetHeadroomPerTicket =
+    budgetAnchorCostPerTicket != null && currentCostPerTicket != null
+      ? budgetAnchorCostPerTicket - currentCostPerTicket
+      : null;
+
+  const budgetHeadroomTotal =
+    budgetHeadroomPerTicket != null
+      ? budgetHeadroomPerTicket * capacity
+      : null;
+
+  let headroomTone: VenueCptProjection["headroomTone"] = null;
+  if (budgetHeadroomPerTicket != null && budgetAnchorCostPerTicket != null) {
+    const ratio =
+      budgetAnchorCostPerTicket > 0
+        ? budgetHeadroomPerTicket / budgetAnchorCostPerTicket
+        : 0;
+    if (Math.abs(ratio) <= 0.1) {
+      headroomTone = "within";
+    } else if (budgetHeadroomPerTicket > 0) {
+      headroomTone = "above";
+    } else {
+      headroomTone = "below";
+    }
+  }
+
+  return {
+    currentCostPerTicket,
+    costPerTicketAtSellout,
+    budgetAnchorCostPerTicket,
+    budgetHeadroomPerTicket,
+    budgetHeadroomTotal,
+    headroomTone,
+  };
 }
 
 function sumVenueSpend(rows: ReadonlyArray<DailyRollupRow>): number {

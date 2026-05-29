@@ -63,6 +63,14 @@ export interface AggregatableEvent {
    */
   status?: string | null;
   capacity: number | null;
+  /**
+   * Venue-total strategic capacity target (events.target_capacity,
+   * migration 100). Replicated across every fixture of an event_code.
+   * Optional so legacy callers compile; `aggregateSharedVenueCapacity`
+   * prefers MAX(target_capacity) and falls back to SUM(capacity) when
+   * absent/null.
+   */
+  target_capacity?: number | null;
   prereg_spend: number | null;
   tickets_sold: number | null;
   /**
@@ -590,6 +598,72 @@ export function aggregateSharedVenueBudget(
   if (byVenue.size === 0) return null;
   let total = 0;
   for (const budget of byVenue.values()) total += budget;
+  return total;
+}
+
+/**
+ * Venue capacity for funnel-pacing / sell-through math.
+ *
+ * Workstream A of the WC26 reconciliation (migration 100). Prefers the
+ * venue-total strategic target `events.target_capacity` (replicated
+ * across siblings, so MAX per event_code IS the venue total) and falls
+ * back to SUM(events.capacity) — the pre-existing behaviour — when no
+ * sibling of an event_code has a target set.
+ *
+ * Why MAX for target but SUM for fallback:
+ *   - `target_capacity` is the same venue-total value written on every
+ *     fixture row, so MAX (== any non-null sibling) recovers it without
+ *     fanning out by fixture count.
+ *   - `capacity` is per-fixture allocated capacity from the ticketing
+ *     API; the canonical funnel has always SUMmed it. Falling back to
+ *     SUM (not MAX) preserves behaviour for venues without a target
+ *     (KOC-* brackets, non-WC26 clients), avoiding a silent regression.
+ *
+ * Grouping mirrors `aggregateSharedVenueBudget`: one value per
+ * `event_code`, with solo/no-code events falling back to their own id.
+ *
+ * Returns null when no event has either a target or a capacity.
+ */
+export function aggregateSharedVenueCapacity(
+  events: AggregatableEvent[],
+): number | null {
+  // Per-venue target (MAX of the replicated target_capacity) and the
+  // per-venue SUM of per-fixture capacity, tracked separately so each
+  // venue independently picks target-or-fallback.
+  const targetByVenue = new Map<string, number>();
+  const sumCapByVenue = new Map<string, number>();
+  let anyCapacity = false;
+
+  for (const ev of events) {
+    const key = ev.event_code ? `code:${ev.event_code}` : `event:${ev.id}`;
+    if (ev.target_capacity != null) {
+      targetByVenue.set(
+        key,
+        Math.max(targetByVenue.get(key) ?? 0, ev.target_capacity),
+      );
+      anyCapacity = true;
+    }
+    if (ev.capacity != null) {
+      sumCapByVenue.set(key, (sumCapByVenue.get(key) ?? 0) + ev.capacity);
+      anyCapacity = true;
+    }
+  }
+
+  if (!anyCapacity) return null;
+
+  const venueKeys = new Set<string>([
+    ...targetByVenue.keys(),
+    ...sumCapByVenue.keys(),
+  ]);
+  let total = 0;
+  for (const key of venueKeys) {
+    const target = targetByVenue.get(key);
+    if (target != null) {
+      total += target;
+    } else {
+      total += sumCapByVenue.get(key) ?? 0;
+    }
+  }
   return total;
 }
 
