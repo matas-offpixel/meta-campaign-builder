@@ -47,7 +47,29 @@ const VERDICT_RANK: Record<string, number> = {
   no_data: 5,
 };
 
-export function ClientPacingView({ rows }: { rows: VenuePacingRow[] }) {
+/** Controls copy tone in verdict chips and required-per-day labels. */
+export type PacingTonality = "internal" | "client";
+
+/**
+ * Client-facing overrides for verdict chip text (Workstream B, #490).
+ * Colours stay the same; only the displayed label changes.
+ */
+const CLIENT_VERDICT_LABEL: Partial<Record<string, string>> = {
+  under_pacing: "Behind target",
+  on_track: "On pace",
+  over_pacing: "Outpacing target",
+};
+
+export function ClientPacingView({
+  rows,
+  tonality = "internal",
+  isShare = false,
+}: {
+  rows: VenuePacingRow[];
+  tonality?: PacingTonality;
+  /** When true, rows render as non-linked display cards (share surface). */
+  isShare?: boolean;
+}) {
   const sorted = useMemo(
     () =>
       [...rows].sort(
@@ -72,78 +94,126 @@ export function ClientPacingView({ rows }: { rows: VenuePacingRow[] }) {
         </p>
       </div>
       {sorted.map((row) => (
-        <PacingRow key={row.eventCode} row={row} />
+        <PacingRow
+          key={row.eventCode}
+          row={row}
+          tonality={tonality}
+          isShare={isShare}
+        />
       ))}
     </section>
   );
 }
 
-function PacingRow({ row }: { row: VenuePacingRow }) {
+function PacingRow({
+  row,
+  tonality = "internal",
+  isShare = false,
+}: {
+  row: VenuePacingRow;
+  tonality?: PacingTonality;
+  isShare?: boolean;
+}) {
   const [hover, setHover] = useState(false);
   const v = verdictPresentation(row.verdict);
   const vc = toneColors(v.tone);
 
+  const verdictLabel =
+    tonality === "client"
+      ? (CLIENT_VERDICT_LABEL[row.verdict] ?? v.short.toLowerCase())
+      : v.short.toLowerCase();
+
+  const paceLabel =
+    row.requiredPerDay != null
+      ? tonality === "client"
+        ? `Recommended pace: ${GBP0.format(Math.round(row.requiredPerDay))}/day`
+        : `${GBP0.format(Math.round(row.requiredPerDay))}/day required`
+      : row.verdict === "sold_out"
+        ? "sold out"
+        : "—";
+
+  const cardClass =
+    "block rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <span aria-hidden>{v.emoji}</span>
+        <span className="font-medium">{row.label}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${vc.chipBg} ${vc.chipText}`}
+        >
+          {verdictLabel}
+        </span>
+      </div>
+      <span className="text-xs tabular-nums text-muted-foreground">
+        {paceLabel}
+      </span>
+    </div>
+  );
+
+  /** Segmented funnel bar — identical markup for both link and non-link variants. */
+  const barContent = (
+    <>
+      {/* segmented funnel bar */}
+      <div className="mt-3 flex h-7 w-full gap-0.5 overflow-hidden rounded-lg">
+        {row.segments.map((seg) => {
+          const c = toneColors(seg.tone);
+          const widthPct = 100 / row.segments.length;
+          return (
+            <div
+              key={seg.key}
+              className="relative h-full bg-muted"
+              style={{ width: `${widthPct}%` }}
+              title={`${seg.label}`}
+            >
+              <div
+                className={`absolute inset-y-0 left-0 ${c.bar}`}
+                style={{ width: `${seg.fillFraction * 100}%` }}
+              />
+              <span className="absolute inset-0 flex items-center justify-center text-[10px] font-medium tabular-nums text-foreground/80">
+                {seg.benchmarkRate != null && seg.actualRate != null
+                  ? PCT0.format(seg.actualRate)
+                  : seg.key === "purchases" && seg.actualRate != null
+                    ? PCT0.format(seg.actualRate)
+                    : "—"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] uppercase tracking-wide text-muted-foreground">
+        <span>Reach</span>
+        <span>Click</span>
+        <span>LPV</span>
+        <span>Ticket</span>
+      </div>
+    </>
+  );
+
   return (
     <div className="relative">
-      <Link
-        href={row.href}
-        className="block rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span aria-hidden>{v.emoji}</span>
-            <span className="font-medium">{row.label}</span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${vc.chipBg} ${vc.chipText}`}
-            >
-              {v.short.toLowerCase()}
-            </span>
-          </div>
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {row.requiredPerDay != null
-              ? `${GBP0.format(Math.round(row.requiredPerDay))}/day required`
-              : row.verdict === "sold_out"
-                ? "sold out"
-                : "—"}
-          </span>
+      {isShare ? (
+        // Share surface: non-linked display card (no internal route accessible)
+        <div
+          className={cardClass}
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+        >
+          {header}
+          {barContent}
         </div>
-
-        {/* segmented funnel bar */}
-        <div className="mt-3 flex h-7 w-full gap-0.5 overflow-hidden rounded-lg">
-          {row.segments.map((seg) => {
-            const c = toneColors(seg.tone);
-            const widthPct = 100 / row.segments.length;
-            return (
-              <div
-                key={seg.key}
-                className="relative h-full bg-muted"
-                style={{ width: `${widthPct}%` }}
-                title={`${seg.label}`}
-              >
-                <div
-                  className={`absolute inset-y-0 left-0 ${c.bar}`}
-                  style={{ width: `${seg.fillFraction * 100}%` }}
-                />
-                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-medium tabular-nums text-foreground/80">
-                  {seg.benchmarkRate != null && seg.actualRate != null
-                    ? PCT0.format(seg.actualRate)
-                    : seg.key === "purchases" && seg.actualRate != null
-                      ? PCT0.format(seg.actualRate)
-                      : "—"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-1 flex justify-between text-[9px] uppercase tracking-wide text-muted-foreground">
-          <span>Reach</span>
-          <span>Click</span>
-          <span>LPV</span>
-          <span>Ticket</span>
-        </div>
-      </Link>
+      ) : (
+        <Link
+          href={row.href}
+          className={cardClass}
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+        >
+          {header}
+          {barContent}
+        </Link>
+      )}
 
       {hover ? <RowTooltip row={row} /> : null}
     </div>

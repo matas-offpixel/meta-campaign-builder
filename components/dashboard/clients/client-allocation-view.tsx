@@ -34,7 +34,14 @@ const GBP0 = new Intl.NumberFormat("en-GB", {
 
 type SortKey = "efficiency" | "sales" | "spend";
 
-export function ClientAllocationView({ rows }: { rows: VenuePacingRow[] }) {
+export function ClientAllocationView({
+  rows,
+  isShare = false,
+}: {
+  rows: VenuePacingRow[];
+  /** When true, rows render as non-linked display cards (share surface). */
+  isShare?: boolean;
+}) {
   const [sort, setSort] = useState<SortKey>("efficiency");
 
   const sorted = useMemo(() => {
@@ -105,13 +112,19 @@ export function ClientAllocationView({ rows }: { rows: VenuePacingRow[] }) {
       </div>
 
       {sorted.map((row) => (
-        <AllocationRow key={row.eventCode} row={row} />
+        <AllocationRow key={row.eventCode} row={row} isShare={isShare} />
       ))}
     </section>
   );
 }
 
-function AllocationRow({ row }: { row: VenuePacingRow }) {
+function AllocationRow({
+  row,
+  isShare = false,
+}: {
+  row: VenuePacingRow;
+  isShare?: boolean;
+}) {
   const effC = toneColors(row.efficiencyTone);
   const chipLabel =
     row.efficiency == null
@@ -122,12 +135,12 @@ function AllocationRow({ row }: { row: VenuePacingRow }) {
           ? `${formatDeltaPct(row.efficiency)} behind`
           : "balanced";
 
-  return (
-    <Link
-      href={row.href}
-      className="block rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={`${row.label} · ${row.liveCostPerTicket != null ? GBP0.format(Math.round(row.liveCostPerTicket)) + " CPT" : "CPT —"} · ${row.daysToEvent ?? "—"} days to event`}
-    >
+  const cardClass =
+    "block rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const titleAttr = `${row.label} · ${row.liveCostPerTicket != null ? GBP0.format(Math.round(row.liveCostPerTicket)) + " CPT" : "CPT —"} · ${row.daysToEvent ?? "—"} days to event`;
+
+  const cardBody = (
+    <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <span className="font-medium">{row.label}</span>
@@ -156,6 +169,21 @@ function AllocationRow({ row }: { row: VenuePacingRow }) {
           }
         />
       </div>
+    </>
+  );
+
+  // Share surface: non-linked display card (no internal route accessible)
+  if (isShare) {
+    return (
+      <div className={cardClass} title={titleAttr}>
+        {cardBody}
+      </div>
+    );
+  }
+
+  return (
+    <Link href={row.href} className={cardClass} title={titleAttr}>
+      {cardBody}
     </Link>
   );
 }

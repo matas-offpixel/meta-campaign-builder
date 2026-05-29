@@ -19,6 +19,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { VenuePacingRow } from "@/lib/dashboard/venue-pacing-summary";
+import type { PacingTonality } from "./client-pacing-view";
 import { ClientPacingView } from "./client-pacing-view";
 import { ClientAllocationView } from "./client-allocation-view";
 
@@ -72,16 +73,26 @@ const OPTIONS: { value: ViewMode; label: string }[] = [
 ];
 
 export function ClientStatsViewToggle({
-  clientId,
+  storageKey,
   rows,
   statsView,
+  tonality = "internal",
+  isShare = false,
 }: {
-  clientId: string;
+  /**
+   * localStorage key for persisting the active tab.
+   * Internal: `client-dashboard-toggle-{clientId}`
+   * Share:    `share-dashboard-toggle-{token}`
+   */
+  storageKey: string;
   rows: VenuePacingRow[];
   /** Server-rendered existing topline view (ClientPortal). */
   statsView: React.ReactNode;
+  /** Controls copy tone in the Pacing view. Default: "internal". */
+  tonality?: PacingTonality;
+  /** When true pacing rows render as non-linked cards (share surface). */
+  isShare?: boolean;
 }) {
-  const storageKey = `client-dashboard-toggle-${clientId}`;
   const mode = useSyncExternalStore(
     (cb) => subscribe(storageKey, cb),
     () => read(storageKey),
@@ -123,12 +134,12 @@ export function ClientStatsViewToggle({
       <div className={mode === "stats" ? "" : "hidden"}>{statsView}</div>
       {mode === "pacing" ? (
         <main className="mx-auto max-w-7xl px-6 py-8">
-          <ClientPacingView rows={rows} />
+          <ClientPacingView rows={rows} tonality={tonality} isShare={isShare} />
         </main>
       ) : null}
       {mode === "allocation" ? (
         <main className="mx-auto max-w-7xl px-6 py-8">
-          <ClientAllocationView rows={rows} />
+          <ClientAllocationView rows={rows} isShare={isShare} />
         </main>
       ) : null}
     </div>
