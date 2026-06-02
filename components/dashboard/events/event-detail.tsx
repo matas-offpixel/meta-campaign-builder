@@ -759,6 +759,7 @@ export function EventDetail({
                 initialTikTokAccountId={event.tiktok_account_id ?? null}
                 hasEventCode={Boolean(event.event_code)}
                 initialGoogleAdsPlanId={initialGoogleAdsPlanId}
+                eventKind={event.kind ?? null}
                 metaPanel={
                   <div className="space-y-6">
                     <section className="rounded-md border border-border bg-card p-5">
