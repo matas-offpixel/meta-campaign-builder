@@ -189,8 +189,9 @@ comment on table mailchimp_audience_snapshots is
 
 -- Unique constraint: one row per (event, calendar day) so the cron can
 -- ON CONFLICT DO UPDATE idempotently.
+-- snapshot_at::date is mutable (depends on session TZ); wrap via UTC for IMMUTABLE.
 create unique index if not exists mailchimp_audience_snapshots_event_day_uq
-  on mailchimp_audience_snapshots (event_id, (snapshot_at::date))
+  on mailchimp_audience_snapshots (event_id, (timezone('UTC', snapshot_at)::date))
   where event_id is not null;
 
 -- Fast lookups on the share report / cron path.
@@ -237,7 +238,7 @@ insert into mailchimp_audience_snapshots (
   '2026-06-02 00:00:00+00',
   '{"source":"manual_baseline","note":"Launch baseline from Mailchimp UI screenshot"}'::jsonb
 )
-on conflict (event_id, (snapshot_at::date))
+on conflict (event_id, (timezone('UTC', snapshot_at)::date))
   where event_id is not null
   do nothing;
 
