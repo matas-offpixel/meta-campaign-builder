@@ -21,6 +21,8 @@ interface Props {
    * CTA and the placeholder stat grid.
    */
   initialGoogleAdsPlanId: string | null;
+  /** event.kind — used to hide legacy XLSX import UI for brand_campaign events. */
+  eventKind?: string | null;
 }
 
 /**
@@ -40,6 +42,7 @@ export function EventReportingTabs({
   initialTikTokAccountId,
   hasEventCode,
   initialGoogleAdsPlanId,
+  eventKind,
 }: Props) {
   const [active, setActive] = useState<ReportChannel>("meta");
 
@@ -62,6 +65,7 @@ export function EventReportingTabs({
           eventId={eventId}
           clientId={clientId}
           initialTikTokAccountId={initialTikTokAccountId}
+          isBrandCampaign={eventKind === "brand_campaign"}
         />
       </TabPanel>
 

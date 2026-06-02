@@ -35,6 +35,14 @@ interface Props {
    * event still renders the import dropzone and any existing snapshot.
    */
   initialTikTokAccountId: string | null;
+  /**
+   * When true the XLSX import surfaces (header dropzone card, ImportDropzone,
+   * and EmptyReportState) are hidden because the TikTok API auto-populates
+   * event_daily_rollups.tiktok_* for brand_campaign events. The
+   * AccountLinkerCard stays but shows the updated "Data auto-syncs daily
+   * via API." caption.
+   */
+  isBrandCampaign?: boolean;
 }
 
 type LatestReport = TikTokReportBlockData;
@@ -47,6 +55,7 @@ export function TikTokReportTab({
   eventId,
   clientId,
   initialTikTokAccountId,
+  isBrandCampaign = false,
 }: Props) {
   const [accountId, setAccountId] = useState<string | null>(
     initialTikTokAccountId,
@@ -116,31 +125,35 @@ export function TikTokReportTab({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-md border border-border bg-card p-5">
-        <div className="flex items-start gap-3">
-          <Music2
-            className="mt-0.5 h-4 w-4"
-            style={{ color: TIKTOK_PINK }}
-          />
-          <div className="min-w-0">
-            <h2 className="font-heading text-base tracking-wide">TikTok</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Drop your weekly TikTok Ads Manager exports below — the
-              parser auto-detects each sheet&apos;s shape and keys the
-              snapshot off this event.
-            </p>
+      {!isBrandCampaign && (
+        <section className="rounded-md border border-border bg-card p-5">
+          <div className="flex items-start gap-3">
+            <Music2
+              className="mt-0.5 h-4 w-4"
+              style={{ color: TIKTOK_PINK }}
+            />
+            <div className="min-w-0">
+              <h2 className="font-heading text-base tracking-wide">TikTok</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Drop your weekly TikTok Ads Manager exports below — the
+                parser auto-detects each sheet&apos;s shape and keys the
+                snapshot off this event.
+              </p>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <ImportDropzone
-        eventId={eventId}
-        clientId={clientId}
-        defaultCampaignName={report?.campaign_name ?? ""}
-        defaultStart={report?.date_range_start ?? ""}
-        defaultEnd={report?.date_range_end ?? ""}
-        onImported={() => void fetchReport()}
-      />
+      {!isBrandCampaign && (
+        <ImportDropzone
+          eventId={eventId}
+          clientId={clientId}
+          defaultCampaignName={report?.campaign_name ?? ""}
+          defaultStart={report?.date_range_start ?? ""}
+          defaultEnd={report?.date_range_end ?? ""}
+          onImported={() => void fetchReport()}
+        />
+      )}
 
       <AccountLinkerCard
         eventId={eventId}
@@ -148,6 +161,7 @@ export function TikTokReportTab({
         accountsLoading={accountsLoading}
         linkedAccount={linkedAccount}
         linkingPending={linkingPending}
+        isBrandCampaign={isBrandCampaign}
         onLink={handleLink}
         onUnlink={() => setAccountId(null)}
       />
@@ -159,9 +173,9 @@ export function TikTokReportTab({
         </section>
       ) : report ? (
         <ReportView report={report} />
-      ) : (
+      ) : !isBrandCampaign ? (
         <EmptyReportState />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -176,6 +190,7 @@ interface AccountLinkerProps {
   accountsLoading: boolean;
   linkedAccount: TikTokAccount | null;
   linkingPending: boolean;
+  isBrandCampaign: boolean;
   onLink: (id: string) => void;
   onUnlink: () => void;
 }
@@ -186,6 +201,7 @@ function AccountLinkerCard({
   accountsLoading,
   linkedAccount,
   linkingPending,
+  isBrandCampaign,
   onLink,
   onUnlink,
 }: AccountLinkerProps) {
@@ -203,11 +219,14 @@ function AccountLinkerCard({
                 <span className="font-medium text-foreground">
                   {linkedAccount.account_name}
                 </span>
-                . Reports import either way — this is metadata for future
-                API integration.
+                {isBrandCampaign
+                  ? ". Data auto-syncs daily via API."
+                  : ". Reports import either way — this is metadata for future API integration."}
               </>
             ) : (
-              "Optional. The manual report import works regardless; linking helps once OAuth lands."
+              isBrandCampaign
+                ? "Link a TikTok account to enable daily data sync via API."
+                : "Optional. The manual report import works regardless; linking helps once OAuth lands."
             )}
           </p>
         </div>
