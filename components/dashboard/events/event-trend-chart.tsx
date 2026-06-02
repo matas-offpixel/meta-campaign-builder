@@ -18,6 +18,7 @@ import {
   type TrendSummary,
 } from "@/lib/dashboard/trend-chart-data";
 import {
+  aggregateBrandCampaignTrendChartPoints,
   buildBrandCampaignTrendPoints,
   type BrandRollupRow,
 } from "@/lib/dashboard/brand-campaign-trend-points";
@@ -608,10 +609,7 @@ function BrandCampaignTrendChart({
   );
 
   const aggregatedDays = useMemo(
-    () =>
-      aggregateTrendChartPoints(canonicalPoints, granularity, {
-        leadingAnchor: "spend_or_registrations",
-      }),
+    () => aggregateBrandCampaignTrendChartPoints(canonicalPoints, granularity),
     [canonicalPoints, granularity],
   );
 

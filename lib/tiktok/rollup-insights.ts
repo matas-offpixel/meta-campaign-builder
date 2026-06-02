@@ -145,6 +145,10 @@ export async function fetchTikTokDailyRollupInsights(
 
   const metrics = buildRollupReportMetrics(campaignGoals);
 
+  console.log(
+    `[rollup-sync-tiktok] start event=${input.eventId ?? "(none)"} advertiser=${input.advertiserId} window=${input.since}..${input.until}`,
+  );
+
   for (const window of buildDateWindows(input.since, input.until)) {
     for (let page = 1; page <= MAX_PAGES; page += 1) {
       const res = await request<TikTokIntegratedResponse>(
