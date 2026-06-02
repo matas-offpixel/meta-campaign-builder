@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 511
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/511
 - **Branch:** `cursor/tiktok-per-campaign-metrics`
 
 ## Summary
