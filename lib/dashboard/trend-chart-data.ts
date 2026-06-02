@@ -1,5 +1,8 @@
 export type TrendGranularity = "daily" | "weekly";
 
+/** Controls which metric anchors the leading edge of the trimmed chart range. */
+export type TrendChartLeadingAnchor = "spend_only" | "spend_or_registrations";
+
 export interface TrendChartPoint {
   date: string;
   spend: number | null;
@@ -86,6 +89,7 @@ function deriveMetrics(date: string, v: PointAccumulator): TrendChartDay {
 function hasRangeAnchorMetric(
   day: TrendChartDay,
   hasCumulativeTickets: boolean,
+  leadingAnchor: TrendChartLeadingAnchor,
 ): boolean {
   // Zero is treated as "no signal" — backfill rows for newly-onboarded events
   // carry numeric 0 for all metrics (not null), which would push the X-axis
@@ -93,26 +97,26 @@ function hasRangeAnchorMetric(
   // anchor the trim range.
   //
   // Cumulative-snapshot mode (BUG-4 fix):
-  //   Only positive spend anchors the leading edge.
+  //   Only positive spend anchors the leading edge by default (`spend_only`).
   //
-  //   - `linkClicks > 0` alone is NOT an anchor in cumulative mode. Awareness
-  //     campaigns that run before the main ticket-sale campaign produce
-  //     link_clicks weeks/months before any spend or sales start. Including
-  //     linkClicks as an anchor would push the X-axis back to the first
-  //     awareness impression — exactly the CL Final Dec 25 bug.
-  //   - `revenue > 0` follows the same reasoning (can appear from non-Meta
-  //     sources before the main campaign).
-  //   - `tickets > 0` from cumulative snapshots is intentionally excluded:
-  //     ticket tracking (e.g. 4TF weekly cron) may predate the Meta campaign
-  //     by months. A snapshot row from Jan with tickets=517 would otherwise
-  //     pull the X-axis back to Jan even when the campaign only launched in
-  //     Apr. The "synthetic snapshot doesn't anchor" guard from PR #339 is
-  //     preserved here.
+  //   Brand_campaign charts pass `spend_or_registrations` so the Mailchimp
+  //   curve is visible from the first subscriber day even before paid spend
+  //   launches — matching how pre-sale ticket activity would appear on a
+  //   venue trend chart.
+  //
+  //   - `linkClicks > 0` alone is NOT an anchor in cumulative mode.
+  //   - `revenue > 0` follows the same reasoning.
   //
   // Additive (non-cumulative) mode retains the full original set of anchors
   // — all four metrics, any positive value.
   if (hasCumulativeTickets) {
-    return (day.spend !== null && day.spend > 0);
+    if (leadingAnchor === "spend_or_registrations") {
+      return (
+        (day.spend !== null && day.spend > 0) ||
+        (day.tickets !== null && day.tickets > 0)
+      );
+    }
+    return day.spend !== null && day.spend > 0;
   }
   return (
     (day.spend !== null && day.spend > 0) ||
@@ -125,25 +129,17 @@ function hasRangeAnchorMetric(
 function trimEmptyRange(
   days: TrendChartDay[],
   hasCumulativeTickets: boolean,
+  leadingAnchor: TrendChartLeadingAnchor,
 ): TrendChartDay[] {
-  // Leading edge: cumulative_snapshot alone never anchors the start
-  // (synthetic/backfill snapshots from months before active campaigns
-  // would otherwise stretch the chart unnaturally).
   const first = days.findIndex((day) =>
-    hasRangeAnchorMetric(day, hasCumulativeTickets),
+    hasRangeAnchorMetric(day, hasCumulativeTickets, leadingAnchor),
   );
   if (first === -1) return [];
 
-  // Trailing edge: keep a day if it has positive spend/revenue/clicks
-  // OR — in cumulative mode — if it carries a fresh cumulative ticket
-  // value (day.tickets !== null pre-carry-forward means a real
-  // cumulative_snapshot point landed on this date). This preserves
-  // the "today anchor" — the tier_channel_sales sum stamped on
-  // today even when today's spend hasn't been ingested yet.
   let last = days.length - 1;
   while (
     last > first &&
-    !hasRangeAnchorMetric(days[last]!, hasCumulativeTickets) &&
+    !hasRangeAnchorMetric(days[last]!, hasCumulativeTickets, leadingAnchor) &&
     !(hasCumulativeTickets && days[last]!.tickets !== null)
   ) {
     last -= 1;
@@ -158,7 +154,9 @@ export function hasCumulativeTicketPoints(points: TrendChartPoint[]): boolean {
 export function aggregateTrendChartPoints(
   points: TrendChartPoint[],
   granularity: TrendGranularity,
+  options?: { leadingAnchor?: TrendChartLeadingAnchor },
 ): TrendChartDay[] {
+  const leadingAnchor = options?.leadingAnchor ?? "spend_only";
   const hasCumulativeTickets = hasCumulativeTicketPoints(points);
   const map = new Map<string, PointAccumulator>();
   for (const point of points) {
@@ -184,7 +182,7 @@ export function aggregateTrendChartPoints(
   const daily = [...map.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([date, v]) => deriveMetrics(date, v));
-  const dailyRange = trimEmptyRange(daily, hasCumulativeTickets);
+  const dailyRange = trimEmptyRange(daily, hasCumulativeTickets, leadingAnchor);
 
   if (hasCumulativeTickets) {
     // Cumulative-mode tooltip semantics (PR fix/venue-trend-tier-channel-snapshot):

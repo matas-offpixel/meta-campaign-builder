@@ -179,8 +179,15 @@ export function resolveRollupCountsFromMetrics(
     const conversionKey = goalInfo.rollupConversionKey ?? "conversion";
     const registration = numberMetric(metrics.complete_registration);
     const conversion = numberMetric(metrics[conversionKey]);
+    const realtime = numberMetric(metrics.real_time_conversion);
+    const conversionResults =
+      registration > 0
+        ? registration
+        : conversion > 0
+          ? conversion
+          : realtime;
     return {
-      conversionResults: registration > 0 ? registration : conversion,
+      conversionResults,
       engagementResults: numberMetric(metrics[goalInfo.rollupEngagementKey]),
     };
   }

@@ -76,16 +76,21 @@ describe("Ironworks brand_campaign chart fixture (22 May → 2 Jun)", () => {
     assert.equal(pts[11]!.tickets, 3006);
   });
 
-  it("aggregator starts at first spend day (canonical: cumulative_snapshot alone doesn't anchor leading edge)", () => {
+  it("aggregator starts at first Mailchimp day when spend_or_registrations anchor is used", () => {
+    const pts = buildBrandCampaignTrendPoints(IRONWORKS_ROLLUPS, IRONWORKS_SNAPSHOTS);
+    const days = aggregateTrendChartPoints(pts, "daily", {
+      leadingAnchor: "spend_or_registrations",
+    });
+    const dates = days.map((d) => d.date).sort();
+    assert.equal(dates[0], "2026-05-22", "Chart should start at 22 May (first subscriber day)");
+    assert.equal(dates[dates.length - 1], "2026-06-02", "Chart should end at 2 Jun");
+  });
+
+  it("default aggregator still starts at first spend day (venue-style trim)", () => {
     const pts = buildBrandCampaignTrendPoints(IRONWORKS_ROLLUPS, IRONWORKS_SNAPSHOTS);
     const days = aggregateTrendChartPoints(pts, "daily");
-    // Should have entries from 25 May (first spend day) to 2 Jun = 9 days
-    assert.ok(days.length >= 9, `Expected at least 9 days, got ${days.length}`);
-    // First date should be the first spend day (22-24 May have no spend, so they are trimmed)
-    const dates = days.map(d => d.date).sort();
-    assert.equal(dates[0], "2026-05-25", "Chart should start at 25 May (first spend day)");
-    // Last date should be 2 Jun
-    assert.equal(dates[dates.length - 1], "2026-06-02", "Chart should end at 2 Jun");
+    const dates = days.map((d) => d.date).sort();
+    assert.equal(dates[0], "2026-05-25", "Default trim anchors on spend only");
   });
 
   it("registrations carry forward across days without a snapshot", () => {
@@ -112,7 +117,9 @@ describe("Ironworks brand_campaign chart fixture (22 May → 2 Jun)", () => {
 
   it("spend is per-day (not cumulative) on each spend point", () => {
     const pts = buildBrandCampaignTrendPoints(IRONWORKS_ROLLUPS, IRONWORKS_SNAPSHOTS);
-    const days = aggregateTrendChartPoints(pts, "daily");
+    const days = aggregateTrendChartPoints(pts, "daily", {
+      leadingAnchor: "spend_or_registrations",
+    });
 
     // 22–24 May have no rollup rows — those days should have null spend
     const may22 = days.find(d => d.date === "2026-05-22");
@@ -135,7 +142,9 @@ describe("Ironworks brand_campaign chart fixture (22 May → 2 Jun)", () => {
 
   it("lifetime CPR on last day = total cumulative spend / total subscribers", () => {
     const pts = buildBrandCampaignTrendPoints(IRONWORKS_ROLLUPS, IRONWORKS_SNAPSHOTS);
-    const days = aggregateTrendChartPoints(pts, "daily");
+    const days = aggregateTrendChartPoints(pts, "daily", {
+      leadingAnchor: "spend_or_registrations",
+    });
 
     const lastDay = [...days].sort((a, b) => b.date.localeCompare(a.date))[0];
     assert.ok(lastDay, "There should be a last day");
@@ -153,7 +162,9 @@ describe("Ironworks brand_campaign chart fixture (22 May → 2 Jun)", () => {
 
   it("CPR on 25 May (first spend day) uses cumulative spend / subscribers that day", () => {
     const pts = buildBrandCampaignTrendPoints(IRONWORKS_ROLLUPS, IRONWORKS_SNAPSHOTS);
-    const days = aggregateTrendChartPoints(pts, "daily");
+    const days = aggregateTrendChartPoints(pts, "daily", {
+      leadingAnchor: "spend_or_registrations",
+    });
 
     const may25 = days.find(d => d.date === "2026-05-25");
     if (may25 && may25.tickets && may25.cpt != null) {
