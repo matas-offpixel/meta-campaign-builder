@@ -5,12 +5,12 @@
  * /v1.3/campaign/get/) to:
  *
  *   - `metricKey` — the field name in the integrated-report metrics
- *     payload that represents "results" for that objective.
- *   - `label`     — the human-readable string shown in the
- *     "Optimising for: X" badge beneath each campaign name.
- *   - `resultKind` — whether the metric is a conversion-style result
- *     (shown as "Conversions") or engagement-style (shown with a
- *     goal-specific label like "View Content events").
+ *     payload that represents the campaign's optimization event.
+ *   - `rollupConversionKey` — field written to `tiktok_results` when
+ *     the goal optimises for a soft event (VIEW_CONTENT) but still
+ *     reports pixel conversions separately (e.g. sign-ups).
+ *   - `rollupEngagementKey` — field written to `tiktok_engagement_results`.
+ *   - `label` — human-readable "Optimising for: X" badge text.
  *
  * Reference: https://business-api.tiktok.com/portal/docs?id=1738864915188737
  */
@@ -18,16 +18,27 @@
 export type TikTokResultKind = "conversion" | "engagement" | "none";
 
 export interface TikTokGoalInfo {
-  /** Field name in the TikTok integrated-report metrics payload. */
+  /** Primary optimization metric in the TikTok report payload. */
   metricKey: string;
+  /**
+   * When set with `rollupEngagementKey`, the campaign optimises for an
+   * engagement event but also reports conversions via a separate field.
+   */
+  rollupConversionKey?: string;
+  rollupEngagementKey?: string;
   /** Human-readable label: shown as "Optimising for: <label>". */
   label: string;
-  /** Drives whether the stats card uses "Conversions" wording. */
+  /** Drives whether the stats card uses pure conversion wording. */
   resultKind: TikTokResultKind;
   /** Primary metric label on the TikTok stats card. */
   resultsLabel: string;
   /** Cost-per label on the TikTok stats card subline. */
   costPerLabel: string;
+}
+
+export interface RollupMetricCounts {
+  conversionResults: number;
+  engagementResults: number;
 }
 
 function conversionGoal(
@@ -59,6 +70,28 @@ function engagementGoal(
   };
 }
 
+/**
+ * Campaigns optimised for VIEW_CONTENT (or similar soft goals) still report
+ * pixel conversions via `conversion` / `complete_registration`. Those go to
+ * `tiktok_results`; the optimisation event (`view_content`) goes to
+ * `tiktok_engagement_results`.
+ */
+function dualOptimizationGoal(
+  optimizationMetricKey: string,
+  label: string,
+  rollupConversionKey: string,
+): TikTokGoalInfo {
+  return {
+    metricKey: optimizationMetricKey,
+    rollupConversionKey,
+    rollupEngagementKey: optimizationMetricKey,
+    label,
+    resultKind: "engagement",
+    resultsLabel: "Conversions",
+    costPerLabel: "Cost per conversion",
+  };
+}
+
 const GOAL_MAP: Record<string, TikTokGoalInfo> = {
   COMPLETE_REGISTRATION: conversionGoal(
     "complete_registration",
@@ -80,18 +113,8 @@ const GOAL_MAP: Record<string, TikTokGoalInfo> = {
   LEAD: conversionGoal("conversion", "Lead", "Leads"),
   CONVERT: conversionGoal("conversion", "Conversion", "Conversions"),
   LEAD_GENERATION: conversionGoal("conversion", "Lead", "Leads"),
-  VIEW_CONTENT: engagementGoal(
-    "view_content",
-    "View Content",
-    "View Content events",
-    "Cost per View Content",
-  ),
-  VIDEO_VIEW: engagementGoal(
-    "view_content",
-    "Video View",
-    "Video views",
-    "Cost per video view",
-  ),
+  VIEW_CONTENT: dualOptimizationGoal("view_content", "View Content", "conversion"),
+  VIDEO_VIEW: dualOptimizationGoal("view_content", "Video View", "conversion"),
   REACH: engagementGoal(
     "view_content",
     "Reach",
@@ -107,11 +130,10 @@ const GOAL_MAP: Record<string, TikTokGoalInfo> = {
 };
 
 /** Fallback for unrecognised or missing optimization goals. */
-export const FALLBACK_GOAL_INFO: TikTokGoalInfo = engagementGoal(
+export const FALLBACK_GOAL_INFO: TikTokGoalInfo = dualOptimizationGoal(
   "view_content",
   "View Content",
-  "View Content events",
-  "Cost per View Content",
+  "conversion",
 );
 
 /**
@@ -134,4 +156,64 @@ export function isEngagementStyleGoal(
   optimizationGoal: string | null | undefined,
 ): boolean {
   return resolveGoalInfo(optimizationGoal).resultKind === "engagement";
+}
+
+function numberMetric(value: string | number | null | undefined): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+  const parsed = Number.parseFloat(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Split a TikTok integrated-report metrics row into rollup columns.
+ * Pure — safe to unit-test without I/O.
+ */
+export function resolveRollupCountsFromMetrics(
+  optimizationGoal: string | null | undefined,
+  metrics: Record<string, string | number | null | undefined>,
+): RollupMetricCounts {
+  const goalInfo = resolveGoalInfo(optimizationGoal);
+
+  if (goalInfo.rollupEngagementKey) {
+    const conversionKey = goalInfo.rollupConversionKey ?? "conversion";
+    const registration = numberMetric(metrics.complete_registration);
+    const conversion = numberMetric(metrics[conversionKey]);
+    return {
+      conversionResults: registration > 0 ? registration : conversion,
+      engagementResults: numberMetric(metrics[goalInfo.rollupEngagementKey]),
+    };
+  }
+
+  if (goalInfo.resultKind === "conversion") {
+    return {
+      conversionResults: numberMetric(metrics[goalInfo.metricKey]),
+      engagementResults: 0,
+    };
+  }
+
+  return {
+    conversionResults: 0,
+    engagementResults: numberMetric(metrics[goalInfo.metricKey]),
+  };
+}
+
+/**
+ * Campaign-level results count for the reporting UI (same semantics as rollup
+ * conversion column, but from pre-aggregated per-campaign totals).
+ */
+export function resolveCampaignResultsCount(
+  optimizationGoal: string | null | undefined,
+  totals: Partial<Record<string, number>>,
+): number {
+  const goalInfo = resolveGoalInfo(optimizationGoal);
+
+  if (goalInfo.rollupEngagementKey) {
+    const conversionKey = goalInfo.rollupConversionKey ?? "conversion";
+    const registration = totals.complete_registration ?? 0;
+    const conversion = totals[conversionKey] ?? 0;
+    return registration > 0 ? registration : conversion;
+  }
+
+  return totals[goalInfo.metricKey] ?? 0;
 }

@@ -83,11 +83,12 @@ describe("resolveGoalInfo", () => {
     assert.deepEqual(resolveGoalInfo(undefined), FALLBACK_GOAL_INFO);
   });
 
-  it("maps VIEW_CONTENT as engagement-style with correct labels", () => {
+  it("maps VIEW_CONTENT with dual rollup keys (conversion + view_content)", () => {
     const info = resolveGoalInfo("VIEW_CONTENT");
     assert.equal(info.resultKind, "engagement");
-    assert.equal(info.resultsLabel, "View Content events");
-    assert.equal(info.costPerLabel, "Cost per View Content");
+    assert.equal(info.rollupConversionKey, "conversion");
+    assert.equal(info.rollupEngagementKey, "view_content");
+    assert.equal(info.resultsLabel, "Conversions");
   });
 
   it("maps CONVERT as conversion-style", () => {

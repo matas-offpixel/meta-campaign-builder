@@ -13,7 +13,10 @@ import {
 
 export interface TikTokCampaignGoalRow {
   optimizationGoal: string | null | undefined;
+  /** Conversion-style count (tiktok_results semantics). */
   results: number;
+  /** Engagement count when optimising for VIEW_CONTENT etc. */
+  engagementResults?: number;
   spend: number;
 }
 
@@ -48,7 +51,10 @@ export function buildTikTokRollupTotalsDisplay(
       const goalInfo = resolveGoalInfo(c.optimizationGoal);
       goals.add(goalInfo.label);
       if (!primaryGoal) primaryGoal = goalInfo;
-      if (isConversionStyleGoal(c.optimizationGoal)) {
+      if (goalInfo.rollupEngagementKey) {
+        conversionResults += c.results;
+        engagementEvents += c.engagementResults ?? 0;
+      } else if (isConversionStyleGoal(c.optimizationGoal)) {
         conversionResults += c.results;
       } else if (isEngagementStyleGoal(c.optimizationGoal)) {
         engagementEvents += c.results;
@@ -76,7 +82,10 @@ export function buildTikTokRollupTotalsDisplay(
         campaigns[0]?.optimizationGoal,
       ),
       showEngagementRow: engagementEvents > 0,
-      showConversionRow: conversionResults > 0 || isConversionStyleGoal(campaigns[0]?.optimizationGoal),
+      showConversionRow:
+        conversionResults > 0 ||
+        isConversionStyleGoal(campaigns[0]?.optimizationGoal) ||
+        Boolean(resolveGoalInfo(campaigns[0]?.optimizationGoal).rollupEngagementKey),
     };
   }
 

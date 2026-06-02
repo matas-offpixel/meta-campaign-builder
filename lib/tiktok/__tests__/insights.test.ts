@@ -138,6 +138,43 @@ describe("fetchTikTokEventCampaignInsights", () => {
     );
   });
 
+  it("VIEW_CONTENT: Results = conversion count, not view_content total", async () => {
+    const request: MockRequest = async <T>(path: string): Promise<T> => {
+      if (path === "/report/integrated/get/") {
+        return {
+          list: [
+            reportRow("campaign-vc", {
+              spend: "496.95",
+              impressions: "264058",
+              clicks: "0",
+              complete_registration: "108",
+              view_content: "278105",
+              conversion: "108",
+            }),
+          ],
+          page_info: { page: 1, total_page: 1 },
+        } as T;
+      }
+      if (path === "/campaign/get/") {
+        return {
+          list: [
+            campaignRow(
+              "campaign-vc",
+              "[BB26-RIANBRAZIL] VENUE SIGNUP",
+              "VIEW_CONTENT",
+            ),
+          ],
+        } as T;
+      }
+      throw new Error(`Unexpected path ${path}`);
+    };
+
+    const rows = await fetchTikTokEventCampaignInsights(baseInput(request));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.results, 108);
+    assert.equal(rows[0]!.optimization_goal_label, "View Content");
+  });
+
   it("falls back to view_content for a REACH campaign → results = 0, CPR = null", async () => {
     const request: MockRequest = async <T>(
       path: string,

@@ -1,7 +1,7 @@
 import type { CampaignInsightsRow } from "../reporting/event-insights";
 import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
 import { campaignNameMatchesEventCode } from "./matching.ts";
-import { resolveGoalInfo } from "./optimization-goal-map.ts";
+import { resolveCampaignResultsCount, resolveGoalInfo } from "./optimization-goal-map.ts";
 
 interface TikTokIntegratedRow {
   dimensions?: Record<string, string | undefined>;
@@ -99,6 +99,14 @@ const GOAL_EXTRA_METRICS: Record<string, readonly string[]> = {
   ADD_TO_CART: ["add_to_cart", "cost_per_add_to_cart"],
   INITIATE_CHECKOUT: ["initiate_checkout", "cost_per_initiate_checkout"],
   ADD_TO_WISHLIST: ["add_to_wishlist", "cost_per_add_to_wishlist"],
+  VIEW_CONTENT: [
+    "complete_registration",
+    "cost_per_complete_registration",
+  ],
+  VIDEO_VIEW: [
+    "complete_registration",
+    "cost_per_complete_registration",
+  ],
 };
 
 /**
@@ -292,7 +300,15 @@ export async function fetchTikTokEventCampaignInsights(
       return [];
     }
     const goalInfo = resolveGoalInfo(campaignGoals.get(a.id));
-    const results = a[goalInfo.metricKey as ConversionKey] ?? 0;
+    const results = resolveCampaignResultsCount(campaignGoals.get(a.id), {
+      complete_registration: a.complete_registration,
+      complete_payment: a.complete_payment,
+      add_to_cart: a.add_to_cart,
+      initiate_checkout: a.initiate_checkout,
+      add_to_wishlist: a.add_to_wishlist,
+      view_content: a.view_content,
+      conversion: a.conversion,
+    });
     const ctr = a.impressions > 0 ? (a.clicks / a.impressions) * 100 : null;
     const cpm = a.impressions > 0 ? (a.spend / a.impressions) * 1000 : null;
     const cpr = results > 0 ? a.spend / results : null;
