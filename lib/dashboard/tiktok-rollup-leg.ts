@@ -50,6 +50,9 @@ export interface RunTikTokRollupLegInput {
 export async function runTikTokRollupLeg(
   args: RunTikTokRollupLegInput,
 ): Promise<TikTokRollupLegResult> {
+  console.log(
+    `[rollup-sync][tiktok] enter event_id=${args.eventId} event_code=${args.eventCode ?? "<null>"} tiktok_account_id=${args.tiktokAccountId ?? "<null>"}`,
+  );
   const result: TikTokRollupLegResult = { ok: false };
   if (!args.eventCode) {
     result.reason = "no_event_code";

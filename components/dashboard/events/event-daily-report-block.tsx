@@ -661,11 +661,10 @@ export function EventDailyReportBlock(props: Props) {
       <EventTrendChart
         timeline={chartTimeline}
         kind={event.kind}
+        defaultGranularity={event.report_cadence ?? "daily"}
         awarenessPlatform={awarenessPlatform}
         onAwarenessPlatformChange={setAwarenessPlatform}
-        mailchimpSnapshots={
-          props.mode === "share" ? props.mailchimpSnapshots : undefined
-        }
+        mailchimpSnapshots={shareMailchimpSnapshots}
       />
       <DailyTracker
         eventId={event.id}

@@ -32,6 +32,10 @@ import type {
   TimelineSource,
 } from "@/lib/db/event-daily-timeline";
 import type { PlatformKey } from "@/components/dashboard/events/event-trend-chart";
+import {
+  netNewMailchimpRegistrationsForDay,
+  netNewMailchimpRegistrationsForWeek,
+} from "@/lib/mailchimp/tracker-registrations";
 
 /**
  * components/dashboard/events/daily-tracker.tsx
@@ -221,7 +225,7 @@ interface Props {
     /**
      * Mailchimp audience snapshots for brand_campaign events. When provided,
      * a "Registrations" column is inserted between Video views and CPM showing
-     * the total email subscribers for each calendar day.
+     * net-new email subscribers for each day or week bucket.
      */
     mailchimpSnapshots?: ReadonlyArray<{
       email_subscribers: number | null;
@@ -270,7 +274,7 @@ interface DisplayRow {
   running_clicks: number;
   running_tickets: number;
   running_revenue: number;
-  /** Total email subscribers on this day (brand_campaign only). */
+  /** Net-new email subscribers for this day/week (brand_campaign only). */
   email_subscribers: number | null;
 }
 
@@ -562,6 +566,7 @@ export function DailyTracker({
             otherSpendBreakdownByDate: otherBreakdownMap,
             isBrandCampaign,
             platform: controlled?.awarenessPlatform ?? "all",
+            mailchimpSnapshots: controlled?.mailchimpSnapshots,
           })
         : buildDisplayRows({
             timeline: trackerDisplayTimeline,
@@ -1222,15 +1227,13 @@ function buildDisplayRows({
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
-  // Build a date → email_subscribers lookup from Mailchimp snapshots.
-  // Use the most-recent snapshot on or before each date.
-  const mcByDate = new Map<string, number | null>();
-  if (mailchimpSnapshots && mailchimpSnapshots.length > 0) {
-    for (const s of mailchimpSnapshots) {
-      const d = s.snapshot_at.slice(0, 10);
-      mcByDate.set(d, s.email_subscribers ?? null);
-    }
-  }
+  // Build Mailchimp net-new registrations when snapshots are provided.
+  const mailchimpSnapshotsSorted =
+    mailchimpSnapshots && mailchimpSnapshots.length > 0
+      ? [...mailchimpSnapshots].sort((a, b) =>
+          a.snapshot_at.localeCompare(b.snapshot_at),
+        )
+      : null;
 
   // Working shape — same fields as the upstream timeline row plus a
   // synthetic flag for the empty "today" placeholder.
@@ -1345,7 +1348,13 @@ function buildDisplayRows({
       running_clicks: runClicks,
       running_tickets: runTickets,
       running_revenue: round2(runRevenue),
-      email_subscribers: mcByDate.has(r.date) ? (mcByDate.get(r.date) ?? null) : null,
+      email_subscribers:
+        isBrandCampaign && mailchimpSnapshotsSorted
+          ? netNewMailchimpRegistrationsForDay(
+              mailchimpSnapshotsSorted,
+              r.date,
+            )
+          : null,
     };
   });
 
@@ -1484,6 +1493,7 @@ function buildWeeklyDisplayRows({
   otherSpendBreakdownByDate,
   isBrandCampaign,
   platform,
+  mailchimpSnapshots,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
@@ -1491,8 +1501,18 @@ function buildWeeklyDisplayRows({
   otherSpendBreakdownByDate?: ReadonlyMap<string, SpendCategoryLine[]>;
   isBrandCampaign: boolean;
   platform: PlatformKey;
+  mailchimpSnapshots?: ReadonlyArray<{
+    email_subscribers: number | null;
+    snapshot_at: string;
+  }>;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
+  const mailchimpSnapshotsSorted =
+    mailchimpSnapshots && mailchimpSnapshots.length > 0
+      ? [...mailchimpSnapshots].sort((a, b) =>
+          a.snapshot_at.localeCompare(b.snapshot_at),
+        )
+      : null;
 
   // Daily rows post-cutoff (or all rows when there's no cutoff).
   // Sort ascending so we can fold into weeks in order.
@@ -1664,7 +1684,10 @@ function buildWeeklyDisplayRows({
       running_clicks: runClicks,
       running_tickets: runTickets,
       running_revenue: round2(runRevenue),
-      email_subscribers: null,
+      email_subscribers:
+        isBrandCampaign && mailchimpSnapshotsSorted
+          ? netNewMailchimpRegistrationsForWeek(mailchimpSnapshotsSorted, wk)
+          : null,
     } satisfies DisplayRow;
   });
 

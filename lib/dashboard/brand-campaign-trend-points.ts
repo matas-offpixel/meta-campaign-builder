@@ -14,8 +14,13 @@
  * lives in `lib/dashboard/trend-chart-data.ts`.
  */
 
-import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
-import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
+import {
+  aggregateTrendChartPoints,
+  type TrendChartDay,
+  type TrendChartPoint,
+  type TrendGranularity,
+} from "./trend-chart-data.ts";
+import type { MailchimpSnapshotRow } from "../mailchimp/compute-registrations.ts";
 import { buildMailchimpRegistrationSnapshotPoints } from "./venue-trend-points.ts";
 
 /**
@@ -95,4 +100,30 @@ export function buildBrandCampaignTrendPoints(
   const snapshotPoints = buildMailchimpRegistrationSnapshotPoints(mailchimpSnapshots);
 
   return [...spendPoints, ...snapshotPoints];
+}
+
+/**
+ * Brand_campaign charts always anchor on the earliest spend OR Mailchimp
+ * registration day — shared by internal dashboard and public share report.
+ */
+export function aggregateBrandCampaignTrendChartPoints(
+  points: TrendChartPoint[],
+  granularity: TrendGranularity,
+): TrendChartDay[] {
+  return aggregateTrendChartPoints(points, granularity, {
+    leadingAnchor: "spend_or_registrations",
+  });
+}
+
+/** Build + aggregate brand_campaign trend days in one call. */
+export function buildBrandCampaignTrendDays(
+  rollups: BrandRollupRow[],
+  mailchimpSnapshots: MailchimpSnapshotRow[],
+  granularity: TrendGranularity,
+  platform: "all" | "meta" | "tiktok" | "google" = "all",
+): TrendChartDay[] {
+  return aggregateBrandCampaignTrendChartPoints(
+    buildBrandCampaignTrendPoints(rollups, mailchimpSnapshots, platform),
+    granularity,
+  );
 }
