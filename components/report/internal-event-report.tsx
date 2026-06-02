@@ -151,6 +151,25 @@ export function InternalEventReport({
     }
   }, [eventId]);
 
+  const handleRefreshMailchimp = useCallback(async () => {
+    // POST to mailchimp refresh, then reload registrations data.
+    const res = await fetch(
+      `/api/events/${encodeURIComponent(eventId)}/mailchimp/refresh`,
+      { method: "POST", cache: "no-store" },
+    );
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`;
+      try {
+        const body = (await res.json()) as { error?: string };
+        if (body?.error) message = body.error;
+      } catch {
+        // Non-JSON body.
+      }
+      throw new Error(message);
+    }
+    await loadRegistrationsData();
+  }, [eventId, loadRegistrationsData]);
+
   // Reset to "loading" synchronously when any of (eventId, datePreset,
   // customRange) changes, then let the effect kick off the fetch.
   // Using the React 19 "adjust state in render" pattern instead of an
@@ -486,6 +505,7 @@ export function InternalEventReport({
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={additionalSpendSlot}
       registrationsData={registrationsData}
+      onRefreshRegistrations={handleRefreshMailchimp}
     />
     </>
   );
