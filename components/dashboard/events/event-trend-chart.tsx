@@ -7,19 +7,20 @@ import {
   paidSpendOf,
 } from "@/lib/dashboard/paid-spend";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
-import {
-  computeMailchimpTrendPoints,
-  type MailchimpTrendPoint,
-} from "@/lib/mailchimp/trend-data";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 import {
   aggregateTrendChartPoints,
   hasCumulativeTicketPoints,
   summarizeTrendChartPoints,
+  type TrendChartDay,
   type TrendChartPoint,
   type TrendGranularity,
   type TrendSummary,
 } from "@/lib/dashboard/trend-chart-data";
+import {
+  buildBrandCampaignTrendPoints,
+  type BrandRollupRow,
+} from "@/lib/dashboard/brand-campaign-trend-points";
 
 /**
  * components/dashboard/events/event-trend-chart.tsx
@@ -521,8 +522,7 @@ type BrandMetricKey =
   | "registrations"
   | "cpr"
   | "clicks"
-  | "cpc"
-  | "impressions";
+  | "cpc";
 
 interface BrandMetricDef {
   key: BrandMetricKey;
@@ -537,7 +537,6 @@ const BRAND_METRICS: BrandMetricDef[] = [
   { key: "cpr", label: "CPR", colour: "#f59e0b", format: (n) => GBP2.format(n) },
   { key: "clicks", label: "Clicks", colour: "#0ea5e9", format: (n) => NUM.format(n) },
   { key: "cpc", label: "CPC", colour: "#f43f5e", format: (n) => GBP2.format(n) },
-  { key: "impressions", label: "Impressions", colour: "#2563eb", format: (n) => NUM.format(n) },
 ];
 
 interface BrandDayRow {
@@ -547,114 +546,18 @@ interface BrandDayRow {
   cpr: number | null;
   clicks: number | null;
   cpc: number | null;
-  impressions: number | null;
 }
 
-/** Aggregate per-day brand_campaign metrics, filtered to one platform if set. */
-function buildBrandRows(
-  timeline: TimelineRow[],
-  mailchimpPoints: MailchimpTrendPoint[],
-  platform: PlatformKey,
-  granularity: TrendGranularity,
-): BrandDayRow[] {
-  const mcByDate = new Map<string, MailchimpTrendPoint>();
-  for (const p of mailchimpPoints) mcByDate.set(p.date, p);
-
-  // Collect all unique dates from both sources so Mailchimp-only
-  // dates (before the first rollup row) are included in the chart.
-  const allDates = new Set<string>();
-  for (const r of timeline) allDates.add(r.date);
-  for (const p of mailchimpPoints) allDates.add(p.date);
-
-  const timelineByDate = new Map<string, TimelineRow>();
-  for (const r of timeline) timelineByDate.set(r.date, r);
-
-  const dailyRows: BrandDayRow[] = [...allDates]
-    .sort()
-    .map((date) => {
-      const r = timelineByDate.get(date);
-      let spend = 0;
-      let clicks = 0;
-      let impressions = 0;
-
-      if (r) {
-        if (platform === "all" || platform === "meta") {
-          const metaS =
-            r.ad_spend_allocated != null
-              ? Number(r.ad_spend_allocated ?? 0)
-              : Number(r.ad_spend ?? 0);
-          spend += Number.isFinite(metaS) ? metaS : 0;
-          clicks += Number(r.link_clicks ?? 0);
-          impressions += Number(r.meta_impressions ?? 0);
-        }
-        if (platform === "all" || platform === "tiktok") {
-          spend += Number(r.tiktok_spend ?? 0);
-          clicks += Number(r.tiktok_clicks ?? 0);
-          impressions += Number(r.tiktok_impressions ?? 0);
-        }
-        if (platform === "all" || platform === "google") {
-          spend += Number(r.google_ads_spend ?? 0);
-          clicks += Number(r.google_ads_clicks ?? 0);
-          impressions += Number(r.google_ads_impressions ?? 0);
-        }
-      }
-
-      const mc = mcByDate.get(date);
-      return {
-        date,
-        spend: spend > 0 ? spend : null,
-        registrations: mc ? mc.newRegs : null,
-        cpr: mc ? mc.cpr : null,
-        clicks: clicks > 0 ? clicks : null,
-        cpc: clicks > 0 && spend > 0 ? spend / clicks : null,
-        impressions: impressions > 0 ? impressions : null,
-      };
-    });
-
-  if (granularity === "daily") return dailyRows;
-
-  // Weekly aggregation
-  const byWeek = new Map<string, BrandDayRow & { regCount: number }>();
-  for (const row of dailyRows) {
-    const week = weekStart(row.date);
-    const cur = byWeek.get(week) ?? {
-      date: week,
-      spend: null,
-      registrations: null,
-      cpr: null,
-      clicks: null,
-      cpc: null,
-      impressions: null,
-      regCount: 0,
-    };
-    if (row.spend != null) cur.spend = (cur.spend ?? 0) + row.spend;
-    if (row.clicks != null) cur.clicks = (cur.clicks ?? 0) + row.clicks;
-    if (row.impressions != null)
-      cur.impressions = (cur.impressions ?? 0) + row.impressions;
-    // For registrations/cpr in weekly view, take the MAX (end of week value)
-    if (row.registrations != null && (cur.registrations ?? -Infinity) < row.registrations) {
-      cur.registrations = row.registrations;
-    }
-    byWeek.set(week, { ...cur, regCount: cur.regCount });
-  }
-
-  return [...byWeek.values()]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map((r) => ({
-      date: r.date,
-      spend: r.spend,
-      registrations: r.registrations,
-      cpr:
-        r.registrations != null && r.registrations > 0 && r.spend != null
-          ? r.spend / r.registrations
-          : null,
-      clicks: r.clicks,
-      cpc:
-        r.clicks != null && r.clicks > 0 && r.spend != null
-          ? r.spend / r.clicks
-          : null,
-      impressions: r.impressions,
-    }));
+/** Map a canonical TrendChartDay to the brand-campaign presentation shape. */
+function trendDayToBrandRow(d: TrendChartDay): BrandDayRow {
+  return {
+    date: d.date,
+    spend: d.spend,
+    registrations: d.tickets,   // tickets = cumulative email_subscribers
+    cpr: d.cpt,                 // cpt = runningSpend / cumulativeSubscribers
+    clicks: d.linkClicks,
+    cpc: d.cpc,
+  };
 }
 
 /**
@@ -694,17 +597,24 @@ function BrandCampaignTrendChart({
 
   const activePlatform = controlledPlatform ?? internalPlatform;
 
-  const mailchimpPoints = useMemo(
+  const canonicalPoints = useMemo(
     () =>
-      mailchimpSnapshots && mailchimpSnapshots.length > 0
-        ? computeMailchimpTrendPoints(mailchimpSnapshots, timeline)
-        : [],
-    [mailchimpSnapshots, timeline],
+      buildBrandCampaignTrendPoints(
+        timeline as BrandRollupRow[],
+        mailchimpSnapshots ?? [],
+        activePlatform,
+      ),
+    [timeline, mailchimpSnapshots, activePlatform],
   );
 
-  const days = useMemo(
-    () => buildBrandRows(timeline, mailchimpPoints, activePlatform, granularity),
-    [timeline, mailchimpPoints, activePlatform, granularity],
+  const aggregatedDays = useMemo(
+    () => aggregateTrendChartPoints(canonicalPoints, granularity),
+    [canonicalPoints, granularity],
+  );
+
+  const days: BrandDayRow[] = useMemo(
+    () => aggregatedDays.map(trendDayToBrandRow),
+    [aggregatedDays],
   );
 
   // Auto-detect which platforms have data to show only relevant pills.
@@ -903,7 +813,7 @@ function BrandCampaignTrendChart({
           {BRAND_METRICS.filter(
             (m) =>
               (m.key === "registrations" || m.key === "cpr")
-                ? mailchimpSnapshots != null && mailchimpSnapshots.length > 0
+                ? (mailchimpSnapshots?.length ?? 0) > 0
                 : true,
           ).map((m) => {
             const isActive = active.has(m.key);
