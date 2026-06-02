@@ -41,6 +41,7 @@
 import type { WeeklyTicketSnapshotRow } from "@/lib/db/client-portal-server";
 import type { TierChannelDailyHistoryRow } from "@/lib/db/tier-channel-daily-history";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
 /**
  * Per-event SUM of `tier_channel_sales.tickets_sold` (and revenue).
@@ -208,7 +209,36 @@ export function buildEventCumulativeTicketTimeline(
 }
 
 /**
- * Convert a venue's per-event cumulative timelines into TrendChartPoint
+ * Convert Mailchimp audience snapshots into TrendChartPoint records tagged as
+ * `ticketsKind: "cumulative_snapshot"`.
+ *
+ * Brand-campaign sibling of `buildVenueTicketSnapshotPoints`. Feeding the
+ * output into `aggregateTrendChartPoints` (see `lib/dashboard/trend-chart-data.ts`)
+ * activates the canonical carry-forward + lifetime-spend / lifetime-subscribers
+ * CPR computation — the exact same arithmetic the venue trend chart uses for
+ * ticket CPT. No custom CPR math is needed in the caller.
+ *
+ * `tickets` carries the absolute subscriber count on each snapshot day. The
+ * aggregator's carry-forward pass fills calendar gaps between snapshot dates
+ * with the last known cumulative total (subscriber counts don't drop to zero on
+ * days without a Mailchimp snapshot).
+ */
+export function buildMailchimpRegistrationSnapshotPoints(
+  snapshots: MailchimpSnapshotRow[],
+): TrendChartPoint[] {
+  return snapshots
+    .filter((s) => s.email_subscribers != null)
+    .map((s) => ({
+      date: s.snapshot_at.slice(0, 10),
+      spend: null,
+      tickets: s.email_subscribers as number,
+      revenue: null,
+      linkClicks: null,
+      ticketsKind: "cumulative_snapshot" as const,
+    }));
+}
+
+/**
  * records tagged as `ticketsKind: "cumulative_snapshot"`.
  *
  * The aggregator's carry-forward pass (see
