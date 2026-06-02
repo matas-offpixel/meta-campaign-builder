@@ -248,6 +248,12 @@ export function EventDailyReportBlock(props: Props) {
       ? (props.canonicalTicketsLifetime ?? null)
       : null,
   );
+  // Mailchimp snapshots for the Daily Tracker Registrations column.
+  // Only relevant for brand_campaign events on the share page.
+  const shareMailchimpSnapshots =
+    props.mode === "share" && event.kind === "brand_campaign"
+      ? (props.mailchimpSnapshots ?? undefined)
+      : undefined;
   // Loading is true on the dashboard if no initial data; share always
   // arrives with data, so loading starts false there.
   const [loading, setLoading] = useState(
@@ -481,14 +487,18 @@ export function EventDailyReportBlock(props: Props) {
     [additionalSpendRows],
   );
 
-  /** Same trim as Daily Tracker — chart x-axis starts at first activity. */
+  // For brand_campaign, use the full timeline — no pre-sale / activity trim.
+  // Awareness campaigns don't have a general-sale cutoff and we want all
+  // historical rollup rows visible in the trend chart from day one.
   const chartTimeline = useMemo(
     () =>
-      trimTimelineForTrackerDisplay(timeline, {
-        generalSaleCutoff: presale?.cutoffDate ?? null,
-        otherSpendByDate,
-      }),
-    [timeline, presale?.cutoffDate, otherSpendByDate],
+      event.kind === "brand_campaign"
+        ? timeline
+        : trimTimelineForTrackerDisplay(timeline, {
+            generalSaleCutoff: presale?.cutoffDate ?? null,
+            otherSpendByDate,
+          }),
+    [event.kind, timeline, presale?.cutoffDate, otherSpendByDate],
   );
 
   const controlled = useMemo(
@@ -510,6 +520,9 @@ export function EventDailyReportBlock(props: Props) {
       otherSpendByDate,
       otherSpendBreakdownByDate,
       awarenessPlatform,
+      // Mailchimp snapshots flow into the Daily Tracker Registrations
+      // column for brand_campaign events on the share page.
+      mailchimpSnapshots: shareMailchimpSnapshots,
     }),
     [
       timeline,
@@ -525,6 +538,7 @@ export function EventDailyReportBlock(props: Props) {
       otherSpendByDate,
       otherSpendBreakdownByDate,
       awarenessPlatform,
+      shareMailchimpSnapshots,
     ],
   );
 
@@ -586,13 +600,17 @@ export function EventDailyReportBlock(props: Props) {
         />
       ) : null}
 
-      <EventSummaryHeader
-        event={event}
-        timeline={timeline}
-        timeframe={performanceSummary}
-        additionalSpendEntries={additionalSpendRows}
-        tierLifetimeTickets={canonicalTicketsLifetime}
-      />
+      {/* Performance Summary is redundant for brand_campaign — every metric
+          already appears in the top-of-report Campaign Performance strip. */}
+      {event.kind !== "brand_campaign" ? (
+        <EventSummaryHeader
+          event={event}
+          timeline={timeline}
+          timeframe={performanceSummary}
+          additionalSpendEntries={additionalSpendRows}
+          tierLifetimeTickets={canonicalTicketsLifetime}
+        />
+      ) : null}
       <EventTrendChart
         timeline={chartTimeline}
         kind={event.kind}
