@@ -141,6 +141,13 @@ describe("buildMetricsForCampaign", () => {
       "LEAD metrics should equal base metrics only");
   });
 
+  it("VIEW_CONTENT: includes complete_registration for signup rollup", () => {
+    const metrics = buildMetricsForCampaign("VIEW_CONTENT");
+    assertContains(metrics, "complete_registration");
+    assertContains(metrics, "view_content");
+    assertContains(metrics, "conversion");
+  });
+
   it("REACH goal: only BASE_METRICS (awareness — uses view_content fallback)", () => {
     const metrics = buildMetricsForCampaign("REACH");
     assertContains(metrics, "view_content");

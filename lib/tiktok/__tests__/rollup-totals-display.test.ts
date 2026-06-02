@@ -55,23 +55,34 @@ describe("buildTikTokRollupTotalsDisplay — VIEW_CONTENT / Ironworks", () => {
     assert.equal(display.showEngagementRow, false);
   });
 
-  it("VIEW_CONTENT per-campaign rows label engagement only", () => {
+  it("VIEW_CONTENT per-campaign rows show conversions and engagement", () => {
     const display = buildTikTokRollupTotalsDisplay(
       {
         spend: 1084.7,
         impressions: 536_995,
         clicks: 2_704,
         videoViews: 310_000,
-        rollupResults: 0,
+        rollupResults: 173,
         rollupEngagementResults: 480_926,
       },
       [
-        { optimizationGoal: "VIEW_CONTENT", results: 480_926, spend: 1084.7 },
+        {
+          optimizationGoal: "VIEW_CONTENT",
+          results: 108,
+          engagementResults: 278_105,
+          spend: 500,
+        },
+        {
+          optimizationGoal: "VIEW_CONTENT",
+          results: 65,
+          engagementResults: 208_311,
+          spend: 400,
+        },
       ],
     );
-    assert.equal(display.conversions, 0);
-    assert.equal(display.engagementEvents, 480_926);
-    assert.equal(display.resultsLabel, "View Content events");
-    assert.equal(display.showConversionRow, false);
+    assert.equal(display.conversions, 173);
+    assert.equal(display.engagementEvents, 486_416);
+    assert.equal(display.showConversionRow, true);
+    assert.equal(display.showEngagementRow, true);
   });
 });

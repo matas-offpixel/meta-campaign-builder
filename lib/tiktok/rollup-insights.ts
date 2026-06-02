@@ -1,11 +1,7 @@
 import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
 import { campaignNameMatchesEventCode } from "./matching.ts";
 import { buildMetricsForCampaign } from "./insights.ts";
-import {
-  isConversionStyleGoal,
-  isEngagementStyleGoal,
-  resolveGoalInfo,
-} from "./optimization-goal-map.ts";
+import { resolveGoalInfo, resolveRollupCountsFromMetrics } from "./optimization-goal-map.ts";
 
 interface TikTokIntegratedRow {
   dimensions?: Record<string, string | undefined>;
@@ -99,9 +95,9 @@ function buildRollupMetricsForGoal(goal: string): string[] {
  * campaign insights, enrich campaign names through `/campaign/get/`,
  * apply the reporting-layer event_code matcher, then aggregate by day.
  *
- * Uses per-optimization-goal metric lists (same as campaign insights)
- * so VIEW_CONTENT campaigns write view_content to engagement results,
- * not video_play_actions mislabelled as conversions.
+ * Uses per-optimization-goal metric lists (same as campaign insights).
+ * VIEW_CONTENT campaigns write pixel conversions to tiktok_results and
+ * view_content events to tiktok_engagement_results.
  */
 export async function fetchTikTokDailyRollupInsights(
   input: FetchTikTokDailyRollupInsightsInput,
@@ -173,13 +169,13 @@ export async function fetchTikTokDailyRollupInsights(
           if (!campaignId || !date) continue;
           if (campaignIds.size > 0 && !campaignIds.has(campaignId)) continue;
 
-          const goalInfo = resolveGoalInfo(campaignGoals.get(campaignId) ?? goal);
+          const optimizationGoal = campaignGoals.get(campaignId) ?? goal;
           const m = row.metrics ?? {};
-          const goalValue = numberMetric(m[goalInfo.metricKey]);
+          const counts = resolveRollupCountsFromMetrics(optimizationGoal, m);
           rawRows.push({
             campaignId,
             date: date.slice(0, 10),
-            optimizationGoal: campaignGoals.get(campaignId) ?? goal,
+            optimizationGoal,
             spend: numberMetric(m.spend),
             impressions: numberMetric(m.impressions),
             reach: numberMetric(m.reach),
@@ -193,12 +189,8 @@ export async function fetchTikTokDailyRollupInsights(
               numberMetric(m.likes) +
               numberMetric(m.shares) +
               numberMetric(m.follows),
-            conversionResults: isConversionStyleGoal(campaignGoals.get(campaignId) ?? goal)
-              ? goalValue
-              : 0,
-            engagementResults: isEngagementStyleGoal(campaignGoals.get(campaignId) ?? goal)
-              ? goalValue
-              : 0,
+            conversionResults: counts.conversionResults,
+            engagementResults: counts.engagementResults,
           });
         }
 
