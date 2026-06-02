@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeRegistrationsData,
   type MailchimpRegistrationsData,
-  type SnapshotRow,
+  type MailchimpSnapshotRow,
 } from "./compute-registrations";
 
 export type { MailchimpRegistrationsData };
@@ -66,7 +66,7 @@ export async function loadEventRegistrations(
     if (snapError) return null;
 
     return computeRegistrationsData(
-      (rows ?? []) as SnapshotRow[],
+      (rows ?? []) as MailchimpSnapshotRow[],
       hasAudience,
     );
   } catch {
