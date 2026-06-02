@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test 'lib/**/__tests__/*.test.ts'",
+    "test": "node --conditions react-server --experimental-strip-types --test 'lib/**/__tests__/*.test.ts'",
     "bundle-remotion": "node --experimental-strip-types scripts/bundle-remotion.ts",
     "prebuild": "npm run bundle-remotion"
   },
@@ -38,6 +38,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "server-only": "0.0.1",
     "sharp": "0.34.5",
     "tailwindcss": "^4",
     "tsx": "4.22.4",

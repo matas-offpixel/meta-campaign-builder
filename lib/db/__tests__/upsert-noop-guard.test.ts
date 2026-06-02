@@ -193,6 +193,58 @@ describe("upsertMetaRollups – skip-noop guard", () => {
     assert.equal(upserts.length, 0);
   });
 
+  it("non-owner null presale omits column from upsert payload (preserves allocator share)", async () => {
+    const row: MetaUpsertRow = {
+      ...BASE_ROW,
+      ad_spend_presale: null,
+      link_clicks: null,
+      meta_regs: null,
+      meta_impressions: null,
+      meta_reach: null,
+      meta_video_plays_3s: null,
+      meta_video_plays_15s: null,
+      meta_video_plays_p100: null,
+      meta_engagements: null,
+    };
+    const existing = {
+      date: row.date,
+      ad_spend: row.ad_spend,
+      ad_spend_presale: 48.41,
+      link_clicks: null,
+      meta_regs: null,
+      meta_impressions: null,
+      meta_reach: null,
+      meta_video_plays_3s: null,
+      meta_video_plays_15s: null,
+      meta_video_plays_p100: null,
+      meta_engagements: null,
+    };
+    const { client, upserts } = makeSelectThenUpsertStub([existing]);
+    const result = await upsertMetaRollups(client, {
+      userId: "u1",
+      eventId: "e1",
+      rows: [row],
+    });
+    assert.equal(result.skipped_noop, 1, "presale must not force a rewrite");
+    assert.equal(upserts.length, 0);
+  });
+
+  it("owner presale value is included in upsert payload", async () => {
+    const row: MetaUpsertRow = {
+      ...BASE_ROW,
+      ad_spend_presale: 145.23,
+    };
+    const { client, upserts } = makeSelectThenUpsertStub([]);
+    await upsertMetaRollups(client, {
+      userId: "u1",
+      eventId: "e1",
+      rows: [row],
+    });
+    assert.equal(upserts.length, 1);
+    const payload = upserts[0] as Array<Record<string, unknown>>;
+    assert.equal(payload[0]?.ad_spend_presale, 145.23);
+  });
+
   it("MONEY_TOL — sub-penny difference is treated as identical", async () => {
     const existing = {
       date: BASE_ROW.date,

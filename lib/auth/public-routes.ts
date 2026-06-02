@@ -106,6 +106,14 @@ export function isPublicPath(
   // requires Bearer CRON_SECRET. Without this carve-out the proxy 307s
   // bearer-only curls to /login before isCronAuthorized runs (PR #479 lesson).
   if (pathname === "/api/admin/event-legacy-spend-backfill") return true;
+  // `/api/admin/event-presale-backfill` — one-shot historical presale rebalance
+  // (PR #499 Stage B). Re-runs the venue allocator with an explicit historical
+  // `since` to reach the Jan–Apr 2026 presale windows the 60-day live cron
+  // cannot. Bearer CRON_SECRET only (route's own isCronAuthorized). Without this
+  // carve-out the proxy 307s the bearer-only curl to /login (PR #479 lesson).
+  // NOTE: the route itself shipped to main early via PR #578; this carve-out is
+  // what actually makes it reachable.
+  if (pathname === "/api/admin/event-presale-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`

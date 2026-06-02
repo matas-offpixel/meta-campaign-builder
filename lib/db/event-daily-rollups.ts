@@ -260,16 +260,15 @@ export async function upsertRollupManualEntry(
  *
  * Column groupings (issue #471 PR-A.5 — engagement fanout fix):
  *
- *   1. **Per-fixture** (always written by every sibling): `ad_spend`,
- *      `ad_spend_presale`. Spend is split equally across fixtures by
- *      the venue allocator after the Meta leg writes the raw total —
- *      keeping per-fixture rows here means the allocator has a
- *      consistent (event_id, date) key to upsert against.
+ *   1. **Per-fixture** (always written by every sibling): `ad_spend`
+ *      only. The raw venue-total `ad_spend` fans out to every sibling
+ *      row so the allocator has a consistent (event_id, date) key to
+ *      upsert against.
  *
  *   2. **Engagement-owner-only** (written by ONE sibling per
  *      `event_code` per day; non-owner siblings pass `null`):
- *      `link_clicks`, `landing_page_views`, `meta_impressions`,
- *      `meta_reach`, `meta_video_plays_3s/15s/p100`,
+ *      `ad_spend_presale`, `link_clicks`, `landing_page_views`,
+ *      `meta_impressions`, `meta_reach`, `meta_video_plays_3s/15s/p100`,
  *      `meta_engagements`. These are Meta-attributed at the campaign
  *      level — Meta's substring-on-campaign-name filter returns the
  *      same number for every sibling, so writing it to every sibling
@@ -277,6 +276,13 @@ export async function upsertRollupManualEntry(
  *      NULL on non-owners gives readers the freedom to `SUM` and get
  *      the correct event-code total (the owner row holds the value,
  *      the rest contribute zero).
+ *
+ *      Special case for `ad_spend_presale`: the owner sibling writes
+ *      the venue total; non-owners pass `null` and `upsertMetaRollups`
+ *      **omits** the column (does not write NULL) so the venue
+ *      allocator's per-fixture divided share on siblings 2..N is
+ *      preserved. The allocator then overwrites every sibling with
+ *      presaleShare = ownerDayTotal / siblingCount.
  *
  *   3. **Attribution-owner-only** (same null-on-non-owner rule):
  *      `meta_regs`, `meta_purchases`, `meta_leads`. These follow
@@ -292,8 +298,17 @@ export async function upsertRollupManualEntry(
 export interface MetaUpsertRow {
   date: string;
   ad_spend: number;
-  /** Presale-phase Meta spend (migration 048); allocator may overwrite. */
-  ad_spend_presale: number;
+  /**
+   * Presale-phase Meta spend (migration 048). Engagement-owner-only:
+   * pass `d.presaleSpend` from the owner sibling and `null` from
+   * non-owner siblings. The venue allocator subsequently overwrites
+   * the owner row's value with a per-fixture divided share and
+   * writes the same share to every sibling. Writing the full venue
+   * total on every sibling (the pre-fix shape) clobbered the
+   * allocator's divided value on siblings 2..N because the allocator
+   * is batch-deduped per (client_id, event_code).
+   */
+  ad_spend_presale?: number | null;
   /**
    * Engagement-owner-only column. Pass `null` from non-owner
    * sibling syncs so a `SUM(link_clicks)` across siblings collapses
@@ -335,6 +350,19 @@ export interface MetaUpsertRow {
   meta_engagements?: number | null;
 }
 
+/** Non-owner Meta rows pass `ad_spend_presale: null` — omit from upsert. */
+function metaPresaleMatches(
+  r: MetaUpsertRow,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ex: Record<string, any>,
+): boolean {
+  if (r.ad_spend_presale === null) return true;
+  if (r.ad_spend_presale === undefined) {
+    return numEq(0, ex.ad_spend_presale, MONEY_TOL);
+  }
+  return numEq(r.ad_spend_presale, ex.ad_spend_presale, MONEY_TOL);
+}
+
 function metaDataMatch(
   r: MetaUpsertRow,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -342,7 +370,7 @@ function metaDataMatch(
 ): boolean {
   return (
     numEq(r.ad_spend, ex.ad_spend, MONEY_TOL) &&
-    numEq(r.ad_spend_presale, ex.ad_spend_presale, MONEY_TOL) &&
+    metaPresaleMatches(r, ex) &&
     numEq(r.link_clicks, ex.link_clicks) &&
     numEq(r.landing_page_views, ex.landing_page_views) &&
     numEq(r.meta_regs, ex.meta_regs) &&
@@ -381,36 +409,37 @@ export async function upsertMetaRollups(
       const ex = existingMap.get(r.date);
       return !ex || !metaDataMatch(r, ex);
     })
-    .map((r) => ({
-      user_id: args.userId,
-      event_id: args.eventId,
-      date: r.date,
-      ad_spend: r.ad_spend,
-      ad_spend_presale: r.ad_spend_presale,
-      link_clicks: r.link_clicks,
-      // Migration 099 column. Nullable (pre-PR rows have no LPV value);
-      // the backfill admin route + live cron will populate it via the
-      // shared LPV priority-chain resolver. Older callers that haven't
-      // adopted the new field write NULL on insert — same shape as
-      // every other nullable Meta column on the row.
-      landing_page_views: r.landing_page_views ?? null,
-      meta_regs: r.meta_regs,
-      // Migration 093 columns. Post-PR-A.5 (issue #471) non-owner
-      // siblings pass explicit `null` to leave the engagement+
-      // attribution columns NULL — but legacy / backfill callers
-      // that simply don't supply the field still default to 0 (the
-      // pre-R2a semantic). Distinguish via `=== undefined` so an
-      // explicit null survives.
-      meta_purchases: r.meta_purchases === undefined ? 0 : r.meta_purchases,
-      meta_leads: r.meta_leads === undefined ? 0 : r.meta_leads,
-      meta_impressions: r.meta_impressions ?? null,
-      meta_reach: r.meta_reach ?? null,
-      meta_video_plays_3s: r.meta_video_plays_3s ?? null,
-      meta_video_plays_15s: r.meta_video_plays_15s ?? null,
-      meta_video_plays_p100: r.meta_video_plays_p100 ?? null,
-      meta_engagements: r.meta_engagements ?? null,
-      source_meta_at: now,
-    }));
+    .map((r) => {
+      const row: Record<string, unknown> = {
+        user_id: args.userId,
+        event_id: args.eventId,
+        date: r.date,
+        ad_spend: r.ad_spend,
+        link_clicks: r.link_clicks,
+        landing_page_views: r.landing_page_views ?? null,
+        meta_regs: r.meta_regs,
+        meta_purchases: r.meta_purchases === undefined ? 0 : r.meta_purchases,
+        meta_leads: r.meta_leads === undefined ? 0 : r.meta_leads,
+        meta_impressions: r.meta_impressions ?? null,
+        meta_reach: r.meta_reach ?? null,
+        meta_video_plays_3s: r.meta_video_plays_3s ?? null,
+        meta_video_plays_15s: r.meta_video_plays_15s ?? null,
+        meta_video_plays_p100: r.meta_video_plays_p100 ?? null,
+        meta_engagements: r.meta_engagements ?? null,
+        source_meta_at: now,
+      };
+      // Engagement-owner-only: owner writes venue total; non-owner
+      // passes `null` and we omit the column so allocator shares on
+      // siblings 2..N are not reset. Legacy callers omit the field → 0.
+      if (r.ad_spend_presale === null) {
+        // omit — preserve allocator-written per-fixture presale
+      } else if (r.ad_spend_presale === undefined) {
+        row.ad_spend_presale = 0;
+      } else {
+        row.ad_spend_presale = r.ad_spend_presale;
+      }
+      return row;
+    });
 
   const skipped_noop = args.rows.length - payload.length;
   if (payload.length === 0) return { upserted: 0, skipped_noop };
