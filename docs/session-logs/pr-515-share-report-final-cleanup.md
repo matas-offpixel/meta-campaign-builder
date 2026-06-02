@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 515
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/515
 - **Branch:** `cursor/share-report-final-cleanup`
 
 ## Summary
