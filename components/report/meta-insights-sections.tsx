@@ -228,12 +228,13 @@ export function MetaCampaignBreakdownSection({
   meta: EventInsightsPayload;
   kind?: "event" | "brand_campaign";
 }) {
-  const campaigns = sortCampaignsByStatusThenSpend(meta.campaigns);
+  const rawCampaigns = meta.campaigns ?? [];
+  const campaigns = sortCampaignsByStatusThenSpend(rawCampaigns);
   const isBrandCampaign = kind === "brand_campaign";
 
   return (
     <Section title="Meta campaign breakdown">
-      {meta.campaigns.length === 0 ? (
+      {rawCampaigns.length === 0 ? (
         <EmptyHint>No matched Meta campaigns yet.</EmptyHint>
       ) : (
         <div className="overflow-x-auto rounded-md border border-border">
@@ -304,13 +305,13 @@ export function MetaDemographicsSection({ meta }: { meta: EventInsightsPayload }
   return (
     <>
       <BreakdownSection title="Top regions" defaultOpen>
-        <DemographicTable rows={demographics.regions} emptyLabel="No Meta region rows available yet." />
+        <DemographicTable rows={demographics.regions ?? []} emptyLabel="No Meta region rows available yet." />
       </BreakdownSection>
       <BreakdownSection title="Demographics — Age" defaultOpen>
-        <DemographicTable rows={demographics.ageRanges} emptyLabel="No Meta age rows available yet." />
+        <DemographicTable rows={demographics.ageRanges ?? []} emptyLabel="No Meta age rows available yet." />
       </BreakdownSection>
       <BreakdownSection title="Demographics — Gender" defaultOpen>
-        <DemographicTable rows={demographics.genders} emptyLabel="No Meta gender rows available yet." />
+        <DemographicTable rows={demographics.genders ?? []} emptyLabel="No Meta gender rows available yet." />
       </BreakdownSection>
     </>
   );
@@ -395,13 +396,14 @@ function DemographicTable({
   rows,
   emptyLabel,
 }: {
-  rows: MetaDemographicRow[];
+  rows: MetaDemographicRow[] | undefined;
   emptyLabel: string;
 }) {
-  if (rows.length === 0) {
+  const safeRows = rows ?? [];
+  if (safeRows.length === 0) {
     return <p className="text-xs text-muted-foreground">{emptyLabel}</p>;
   }
-  const top = rows.slice(0, 10);
+  const top = safeRows.slice(0, 10);
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">

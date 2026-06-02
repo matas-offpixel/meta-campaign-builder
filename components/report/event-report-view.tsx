@@ -720,7 +720,7 @@ interface MetaReportBlockProps {
    * re-denominate registrations to one platform's spend (registrations
    * aren't attributable per-platform yet).
    */
-  totalCrossPlatformSpent: number;
+  totalCrossPlatformSpent?: number;
   /**
    * TikTok rollup totals for the TIKTOK CAMPAIGN STATS block.
    * When provided and the active pill is "tiktok" (or "all"), renders
@@ -765,7 +765,7 @@ function MetaReportBlock({
   registrationsData,
   onRefreshRegistrations,
   platformFilter = "all",
-  totalCrossPlatformSpent,
+  totalCrossPlatformSpent = 0,
   tiktokStats,
   showCrossPlatformCaption = false,
 }: MetaReportBlockProps) {
