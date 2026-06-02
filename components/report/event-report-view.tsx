@@ -255,6 +255,17 @@ interface Props {
    * should POST to /api/events/:id/mailchimp/refresh and re-load data.
    */
   onRefreshRegistrations?: () => Promise<void>;
+  /**
+   * Pre-computed per-platform spend totals from `event_daily_rollups`
+   * (server-side, brand_campaign only). When present these values
+   * override the API-derived `meta.totals.spend` / `tiktok.snapshot.*`
+   * for the PAID MEDIA card, % used, daily budget, and platform pills —
+   * so all sections of the page read from the same canonical source.
+   *
+   * Omit for regular `event`-kind events: they continue to use the
+   * Meta API window-scoped payload.
+   */
+  brandRollupSpend?: { meta: number; tiktok: number; google: number } | null;
 }
 
 export function EventReportView({
@@ -278,6 +289,7 @@ export function EventReportView({
   mailchimpSlot,
   registrationsData,
   onRefreshRegistrations,
+  brandRollupSpend,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -299,9 +311,9 @@ export function EventReportView({
     additionalSpendEntries,
     windowDaySet,
   );
-  const metaSpend = meta?.totals.spend ?? 0;
-  const googleAdsSpend = googleAds?.totals.spend ?? 0;
-  const tiktokSpend = tiktok?.snapshot.campaign?.cost ?? 0;
+  const metaSpend = brandRollupSpend?.meta ?? (meta?.totals.spend ?? 0);
+  const googleAdsSpend = brandRollupSpend?.google ?? (googleAds?.totals.spend ?? 0);
+  const tiktokSpend = brandRollupSpend?.tiktok ?? (tiktok?.snapshot.campaign?.cost ?? 0);
   const platformSpend = metaSpend + googleAdsSpend + tiktokSpend;
   const spentTotalAll =
     meta != null ? platformSpend + otherSpendWindow : platformSpend;
@@ -575,6 +587,7 @@ export function EventReportView({
             registrationsData={registrationsData}
             onRefreshRegistrations={onRefreshRegistrations}
             platformFilter={isBrandCampaign ? platformFilter : "all"}
+            showCrossPlatformCaption={isBrandCampaign && !!brandRollupSpend}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -688,6 +701,12 @@ interface MetaReportBlockProps {
    * registration attribution per-platform is out of scope for this PR.
    */
   platformFilter?: "all" | "meta" | "google" | "tiktok";
+  /**
+   * When true, the PAID MEDIA spend caption reads "Cross-platform spend"
+   * instead of "Meta spend (this window)". Set for brand_campaign events
+   * when brandRollupSpend is provided.
+   */
+  showCrossPlatformCaption?: boolean;
 }
 
 function MetaReportBlock({
@@ -718,6 +737,7 @@ function MetaReportBlock({
   registrationsData,
   onRefreshRegistrations,
   platformFilter = "all",
+  showCrossPlatformCaption = false,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -796,7 +816,9 @@ function MetaReportBlock({
               </p>
               {metaSpend > 0 ? (
                 <p className="text-[11px] text-muted-foreground tabular-nums">
-                  Meta spend (this window)
+                  {showCrossPlatformCaption
+                    ? "Cross-platform spend"
+                    : "Meta spend (this window)"}
                 </p>
               ) : null}
               <p className="font-heading text-xl tracking-wide tabular-nums">

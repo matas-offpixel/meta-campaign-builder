@@ -109,6 +109,13 @@ interface Props {
    * REGISTRATIONS card (brand_campaign events only).
    */
   registrationsData?: MailchimpRegistrationsData | null;
+  /**
+   * Pre-computed per-platform spend totals from `event_daily_rollups`
+   * (server-side, brand_campaign only). Passed through to EventReportView
+   * so the top PAID MEDIA card, platform pills, and REGISTRATIONS CPR all
+   * use the same canonical source as the bottom Daily Tracker / Trend chart.
+   */
+  brandRollupSpend?: { meta: number; tiktok: number; google: number } | null;
 }
 
 /*
@@ -154,6 +161,7 @@ export function PublicReport({
   additionalSpendSlot,
   mailchimpSlot,
   registrationsData,
+  brandRollupSpend,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -355,6 +363,7 @@ export function PublicReport({
       additionalSpendSlot={additionalSpendSlot}
       mailchimpSlot={mailchimpSlot}
       registrationsData={registrationsData}
+      brandRollupSpend={brandRollupSpend}
     />
   );
 }

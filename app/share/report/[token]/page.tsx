@@ -703,18 +703,45 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     );
   }
 
+  // For brand_campaign events, compute per-platform spend totals from
+  // event_daily_rollups so the top PAID MEDIA card, platform pills, and
+  // REGISTRATIONS CPR all use the same canonical source as the Daily
+  // Tracker and Daily Trend chart (instead of the API-window-scoped
+  // metaPayload.totals.spend which only covers one platform).
+  const brandRollupSpend =
+    event.kind === "brand_campaign"
+      ? {
+          meta: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.ad_spend ?? 0),
+            0,
+          ),
+          tiktok: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_spend ?? 0),
+            0,
+          ),
+          google: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.google_ads_spend ?? 0),
+            0,
+          ),
+        }
+      : null;
+  const brandRollupTotal = brandRollupSpend
+    ? brandRollupSpend.meta + brandRollupSpend.tiktok + brandRollupSpend.google
+    : 0;
+
   // Compute total cross-platform spend for Mailchimp CPR.
+  // For brand_campaign, use the same rollup source as the Daily Tracker.
   const totalSpendForCpr: number | null =
     mailchimpSnapshots.length > 0
       ? (() => {
-          const metaSpend = metaPayload?.totals.spend ?? 0;
-          const tiktokSpend =
-            eventDailyData.rollups.reduce(
-              (sum, r) => sum + Number(r.tiktok_spend ?? 0),
-              0,
-            );
-          const googleSpend = googleAdsBlock?.totals.spend ?? 0;
-          const total = metaSpend + tiktokSpend + googleSpend;
+          const total = brandRollupSpend
+            ? brandRollupTotal
+            : (metaPayload?.totals.spend ?? 0) +
+              eventDailyData.rollups.reduce(
+                (sum, r) => sum + Number(r.tiktok_spend ?? 0),
+                0,
+              ) +
+              (googleAdsBlock?.totals.spend ?? 0);
           return total > 0 ? total : null;
         })()
       : null;
@@ -772,6 +799,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         ) : null
       }
       registrationsData={registrationsData}
+      brandRollupSpend={brandRollupSpend}
     />
   );
 }
