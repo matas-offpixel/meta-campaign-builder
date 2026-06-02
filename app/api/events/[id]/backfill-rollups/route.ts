@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import { syncMailchimpAudienceDailyHistory } from "@/lib/mailchimp/sync";
 
 /**
  * POST /api/events/[id]/backfill-rollups
@@ -52,7 +53,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+      "id, user_id, kind, event_code, event_timezone, event_date, client_id, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -78,15 +79,17 @@ export async function POST(
   const eventCode = (event.event_code as string | null) ?? null;
   const eventTimezone = (event.event_timezone as string | null) ?? null;
   const eventDate = (event.event_date as string | null) ?? null;
+  const eventKind = (event.kind as string | null) ?? null;
   const clientId = (event.client_id as string | null) ?? null;
+  const eventMailchimpAudienceId = (event.mailchimp_audience_id as string | null) ?? null;
   const eventTikTokAccountId =
     (event.tiktok_account_id as string | null) ?? null;
   const eventGoogleAdsAccountId =
     (event.google_ads_account_id as string | null) ?? null;
 
   const clientRel = event.client as
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_account_id: string | null; mailchimp_audience_id: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_account_id: string | null; mailchimp_audience_id: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
@@ -97,6 +100,12 @@ export async function POST(
   const clientGoogleAdsAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.google_ads_account_id ?? null)
     : (clientRel?.google_ads_account_id ?? null);
+  const clientMailchimpAccountId = Array.isArray(clientRel)
+    ? (clientRel[0]?.mailchimp_account_id ?? null)
+    : (clientRel?.mailchimp_account_id ?? null);
+  const clientMailchimpAudienceId = Array.isArray(clientRel)
+    ? (clientRel[0]?.mailchimp_audience_id ?? null)
+    : (clientRel?.mailchimp_audience_id ?? null);
 
   console.info(
     `[backfill-rollups] start event_id=${eventId} event_code=${eventCode ?? "<null>"} window=${windowDays}d ad_account=${adAccountId ?? "<null>"}`,
@@ -118,12 +127,45 @@ export async function POST(
     rollupWindowDays: windowDays,
   });
 
+  // For brand_campaign events, also sync Mailchimp daily history.
+  let mailchimpOk = true;
+  let mailchimpError: string | null = null;
+  let mailchimpRowsWritten = 0;
+  if (eventKind === "brand_campaign") {
+    try {
+      const mailchimpResult = await syncMailchimpAudienceDailyHistory(
+        supabase,
+        {
+          id: eventId,
+          user_id: user.id,
+          kind: eventKind,
+          mailchimp_audience_id: eventMailchimpAudienceId,
+          client_id: clientId,
+          client: clientMailchimpAccountId != null || clientMailchimpAudienceId != null
+            ? { mailchimp_account_id: clientMailchimpAccountId, mailchimp_audience_id: clientMailchimpAudienceId }
+            : null,
+        },
+        Math.min(windowDays, 180),
+      );
+      mailchimpOk = mailchimpResult.ok;
+      mailchimpError = mailchimpResult.error ?? null;
+      mailchimpRowsWritten = mailchimpResult.rowsWritten;
+      console.info(
+        `[backfill-rollups] mailchimp event_id=${eventId} ok=${mailchimpOk} rows=${mailchimpRowsWritten}${mailchimpError ? ` error=${mailchimpError}` : ""}`,
+      );
+    } catch (err) {
+      mailchimpOk = false;
+      mailchimpError = err instanceof Error ? err.message : String(err);
+      console.error(`[backfill-rollups] mailchimp event_id=${eventId} threw: ${mailchimpError}`);
+    }
+  }
+
   console.info(
     `[backfill-rollups] done event_id=${eventId} ok=${result.ok} rows=${result.summary.rowsUpserted}`,
   );
 
   return NextResponse.json({
-    ok: result.ok,
+    ok: result.ok && mailchimpOk,
     rowsUpserted: result.summary.rowsUpserted,
     windowDays,
     summary: {
@@ -133,6 +175,9 @@ export async function POST(
       tiktokError: result.summary.tiktokError,
       googleAdsOk: result.summary.googleAdsOk,
       googleAdsError: result.summary.googleAdsError,
+      mailchimpOk,
+      mailchimpError,
+      mailchimpRowsWritten,
     },
   });
 }
