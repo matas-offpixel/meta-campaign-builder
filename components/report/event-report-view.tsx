@@ -988,30 +988,39 @@ function MetaReportBlock({
         </Section>
       ) : null}
 
-      {/* Creative section. When TikTok pill is active for brand_campaign,
-          show the TikTok creative empty state instead of the Meta slot.
-          The share page swaps in a server-rendered "Active creatives"
-          component via `creativesSlot` for Meta. */}
+      {/* Creative section.
+          - TikTok pill + brand_campaign: show TikTok "coming soon" placeholder only.
+          - All pill + brand_campaign: show Meta creatives + TikTok placeholder below.
+          - All other cases: Meta creative performance. */}
       {isBrandCampaign && platformFilter === "tiktok" ? (
         <Section title="Active creatives">
           <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-            TikTok creative-level data syncing — check back in 24h.
+            TikTok creative + demographic breakdowns coming soon.
           </p>
         </Section>
       ) : (
-        creativesSlot ?? (
-          <Section title="Creative performance">
-            <CreativePerformanceLazy
-              source={creativesSource}
-              datePreset={datePreset}
-              customRange={customRange}
-            />
-          </Section>
-        )
+        <>
+          {creativesSlot ?? (
+            <Section title="Creative performance">
+              <CreativePerformanceLazy
+                source={creativesSource}
+                datePreset={datePreset}
+                customRange={customRange}
+              />
+            </Section>
+          )}
+          {isBrandCampaign && platformFilter === "all" ? (
+            <Section title="TikTok active creatives">
+              <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+                TikTok creative + demographic breakdowns coming soon.
+              </p>
+            </Section>
+          ) : null}
+        </>
       )}
 
-      {/* TikTok demographics empty state (platform data syncing). */}
-      {isBrandCampaign && platformFilter === "tiktok" ? (
+      {/* TikTok audience placeholder — visible on All and TikTok pills for brand_campaign. */}
+      {isBrandCampaign && (platformFilter === "tiktok" || platformFilter === "all") ? (
         <Section title="TikTok audience">
           <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
             TikTok audience breakdown syncing — check back in 24h.

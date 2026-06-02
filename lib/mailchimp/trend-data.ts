@@ -61,9 +61,12 @@ function dailySpend(row: SpendRow): number {
  * This is the total subscriber base (not a delta from baseline) so
  * the chart series trends upward as audience grows.
  *
- * CPR = cumulative_spend_to_date / total_subscribers. Matches the
- * MAILCHIMP AUDIENCE card math and trends down as the audience grows
- * faster than spend.
+ * CPR = LIFETIME total spend ÷ LATEST total subscribers.
+ * This is a constant reference line across every data point so the
+ * CPR on the chart always matches the MAILCHIMP AUDIENCE card header
+ * figure, regardless of which day you're hovering. The declining
+ * story is told by the Spend and Registrations curves; CPR is the
+ * fixed benchmark the agency quotes to the client.
  */
 export function computeMailchimpTrendPoints(
   snapshots: MailchimpSnapshotRow[],
@@ -74,6 +77,23 @@ export function computeMailchimpTrendPoints(
   const sortedSnaps = [...snapshots].sort((a, b) =>
     a.snapshot_at.localeCompare(b.snapshot_at),
   );
+
+  // Lifetime total spend — sum across every rollup day, all platforms.
+  const lifetimeTotalSpend = timeline.reduce(
+    (sum, row) => sum + dailySpend(row),
+    0,
+  );
+
+  // Latest known subscriber count drives the CPR denominator.
+  const latestSubs =
+    sortedSnaps[sortedSnaps.length - 1]?.email_subscribers ?? 0;
+
+  // Flat CPR reference line: same value for every data point.
+  // Matches the MAILCHIMP AUDIENCE card on the same report page.
+  const lifetimeCPR =
+    latestSubs > 0 && lifetimeTotalSpend > 0
+      ? lifetimeTotalSpend / latestSubs
+      : null;
 
   // Index snapshots by YYYY-MM-DD so we can do O(1) lookups per day.
   const snapByDay = new Map<string, number | null>();
@@ -86,7 +106,6 @@ export function computeMailchimpTrendPoints(
   );
 
   let lastKnownSubs: number | null = null;
-  let cumulativeSpend = 0;
   const result: MailchimpTrendPoint[] = [];
 
   for (const row of sortedDays) {
@@ -95,21 +114,12 @@ export function computeMailchimpTrendPoints(
       lastKnownSubs = v !== undefined ? v : lastKnownSubs;
     }
 
-    cumulativeSpend += dailySpend(row);
-
     if (lastKnownSubs === null) {
       result.push({ date: row.date, newRegs: null, cpr: null });
       continue;
     }
 
-    // CPR uses total subscriber base (not delta from baseline) so it
-    // matches the MAILCHIMP AUDIENCE card on the same report page.
-    const cpr =
-      lastKnownSubs > 0 && cumulativeSpend > 0
-        ? cumulativeSpend / lastKnownSubs
-        : null;
-
-    result.push({ date: row.date, newRegs: lastKnownSubs, cpr });
+    result.push({ date: row.date, newRegs: lastKnownSubs, cpr: lifetimeCPR });
   }
 
   return result;
