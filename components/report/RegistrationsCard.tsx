@@ -6,6 +6,11 @@ import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-l
 interface Props extends MailchimpRegistrationsData {
   /** Total paid media spent (same window as PAID MEDIA card). Used for CPR. */
   paidMediaSpent: number;
+  /**
+   * When true (a specific platform is active in the global filter), show
+   * a small "All sources" footnote since registrations are not per-platform.
+   */
+  allSourcesCaption?: boolean;
 }
 
 function fmtPlus(n: number): string {
@@ -47,6 +52,7 @@ export function RegistrationsCard({
   paidMediaSpent,
   lastSyncedAt,
   hasAudience,
+  allSourcesCaption = false,
 }: Props) {
   // Stable mount-time clock — avoids `Date.now()` in render (impure).
   const [nowMs] = useState(() => Date.now());
@@ -120,6 +126,9 @@ export function RegistrationsCard({
           <p className="text-[11px] text-amber-500 dark:text-amber-400">
             Last synced {relSync}
           </p>
+        ) : null}
+        {allSourcesCaption && hasAudience ? (
+          <p className="text-[11px] text-muted-foreground">All sources</p>
         ) : null}
       </div>
     </div>

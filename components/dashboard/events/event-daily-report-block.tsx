@@ -27,6 +27,7 @@ import {
   type PlatformKey,
 } from "@/components/dashboard/events/event-trend-chart";
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
 /**
  * components/dashboard/events/event-daily-report-block.tsx
@@ -205,6 +206,12 @@ interface ShareProps {
   /** Share renders are never editable — accepted on the prop type
    *  for shape uniformity but ignored. */
   isEditable?: false;
+  /**
+   * Per-day Mailchimp audience snapshots ordered oldest → newest.
+   * When provided, the brand_campaign Daily Trend chart gains
+   * Registrations and CPR metric series.
+   */
+  mailchimpSnapshots?: MailchimpSnapshotRow[];
 }
 
 type Props = DashboardProps | ShareProps;
@@ -591,6 +598,9 @@ export function EventDailyReportBlock(props: Props) {
         kind={event.kind}
         awarenessPlatform={awarenessPlatform}
         onAwarenessPlatformChange={setAwarenessPlatform}
+        mailchimpSnapshots={
+          props.mode === "share" ? props.mailchimpSnapshots : undefined
+        }
       />
       <DailyTracker
         eventId={event.id}

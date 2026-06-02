@@ -5,6 +5,12 @@
  * imported by both the server-side data loader and unit tests.
  */
 
+/** Minimal snapshot row shape shared across loaders and chart data. */
+export interface MailchimpSnapshotRow {
+  email_subscribers: number | null;
+  snapshot_at: string;
+}
+
 export interface MailchimpRegistrationsData {
   /** `latest.email_subscribers - baseline.email_subscribers`. Null when no snapshots. */
   newSinceBaseline: number | null;
@@ -22,11 +28,6 @@ export interface MailchimpRegistrationsData {
   hasAudience: boolean;
 }
 
-export interface SnapshotRow {
-  email_subscribers: number | null;
-  snapshot_at: string;
-}
-
 /**
  * Computes `MailchimpRegistrationsData` from pre-fetched snapshot rows.
  *
@@ -36,7 +37,7 @@ export interface SnapshotRow {
  * @param hasAudience Whether the event has a resolved audience id.
  */
 export function computeRegistrationsData(
-  snapshots: SnapshotRow[],
+  snapshots: MailchimpSnapshotRow[],
   hasAudience: boolean,
 ): MailchimpRegistrationsData {
   if (snapshots.length === 0) {

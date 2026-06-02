@@ -8,6 +8,11 @@ import {
 } from "@/lib/dashboard/paid-spend";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import {
+  computeMailchimpTrendPoints,
+  type MailchimpTrendPoint,
+} from "@/lib/mailchimp/trend-data";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
+import {
   aggregateTrendChartPoints,
   hasCumulativeTicketPoints,
   summarizeTrendChartPoints,
@@ -72,6 +77,8 @@ interface Props {
   showGranularityToggle?: boolean;
   awarenessPlatform?: PlatformKey;
   onAwarenessPlatformChange?: (platform: PlatformKey) => void;
+  /** Per-day Mailchimp snapshots for brand_campaign Registrations + CPR series. */
+  mailchimpSnapshots?: MailchimpSnapshotRow[];
 }
 
 function timelineToPoints(timeline: TimelineRow[]): TrendChartPoint[] {
@@ -118,7 +125,7 @@ function pillMetricValue(summary: TrendSummary, key: MetricKey): number | null {
 export function EventTrendChart(props: Props) {
   if (props.kind === "brand_campaign" && props.timeline) {
     return (
-      <AwarenessTrendChart
+      <BrandCampaignTrendChart
         timeline={props.timeline}
         className={props.className}
         title={props.title}
@@ -126,6 +133,7 @@ export function EventTrendChart(props: Props) {
         showGranularityToggle={props.showGranularityToggle ?? true}
         platform={props.awarenessPlatform}
         onPlatformChange={props.onAwarenessPlatformChange}
+        mailchimpSnapshots={props.mailchimpSnapshots}
       />
     );
   }
@@ -500,6 +508,559 @@ function LegacyTrendChart({
 type AwarenessMetricKey = "spend" | "impressions" | "clicks" | "videoViews";
 export type PlatformKey = "all" | "meta" | "google" | "tiktok";
 
+const PLATFORM_META: Record<Exclude<PlatformKey, "all">, { label: string; colour: string }> = {
+  meta: { label: "Meta", colour: "#2563eb" },
+  google: { label: "Google Ads", colour: "#ea4335" },
+  tiktok: { label: "TikTok", colour: "#111827" },
+};
+
+// ─── Brand-campaign-specific metric chart ─────────────────────────────────
+
+type BrandMetricKey =
+  | "spend"
+  | "registrations"
+  | "cpr"
+  | "clicks"
+  | "cpc"
+  | "impressions";
+
+interface BrandMetricDef {
+  key: BrandMetricKey;
+  label: string;
+  colour: string;
+  format: (n: number) => string;
+}
+
+const BRAND_METRICS: BrandMetricDef[] = [
+  { key: "spend", label: "Spend", colour: "#27272a", format: (n) => GBP2.format(n) },
+  { key: "registrations", label: "Registrations", colour: "#10b981", format: (n) => NUM.format(n) },
+  { key: "cpr", label: "CPR", colour: "#f59e0b", format: (n) => GBP2.format(n) },
+  { key: "clicks", label: "Clicks", colour: "#0ea5e9", format: (n) => NUM.format(n) },
+  { key: "cpc", label: "CPC", colour: "#f43f5e", format: (n) => GBP2.format(n) },
+  { key: "impressions", label: "Impressions", colour: "#2563eb", format: (n) => NUM.format(n) },
+];
+
+interface BrandDayRow {
+  date: string;
+  spend: number | null;
+  registrations: number | null;
+  cpr: number | null;
+  clicks: number | null;
+  cpc: number | null;
+  impressions: number | null;
+}
+
+/** Aggregate per-day brand_campaign metrics, filtered to one platform if set. */
+function buildBrandRows(
+  timeline: TimelineRow[],
+  mailchimpPoints: MailchimpTrendPoint[],
+  platform: PlatformKey,
+  granularity: TrendGranularity,
+): BrandDayRow[] {
+  const mcByDate = new Map<string, MailchimpTrendPoint>();
+  for (const p of mailchimpPoints) mcByDate.set(p.date, p);
+
+  const dailyRows: BrandDayRow[] = timeline
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((r) => {
+      let spend = 0;
+      let clicks = 0;
+      let impressions = 0;
+
+      if (platform === "all" || platform === "meta") {
+        const metaS =
+          r.ad_spend_allocated != null
+            ? Number(r.ad_spend_allocated ?? 0)
+            : Number(r.ad_spend ?? 0);
+        spend += Number.isFinite(metaS) ? metaS : 0;
+        clicks += Number(r.link_clicks ?? 0);
+        impressions += Number(r.meta_impressions ?? 0);
+      }
+      if (platform === "all" || platform === "tiktok") {
+        spend += Number(r.tiktok_spend ?? 0);
+        clicks += Number(r.tiktok_clicks ?? 0);
+        impressions += Number(r.tiktok_impressions ?? 0);
+      }
+      if (platform === "all" || platform === "google") {
+        spend += Number(r.google_ads_spend ?? 0);
+        clicks += Number(r.google_ads_clicks ?? 0);
+        impressions += Number(r.google_ads_impressions ?? 0);
+      }
+
+      const mc = mcByDate.get(r.date);
+      return {
+        date: r.date,
+        spend: spend > 0 ? spend : null,
+        registrations: mc ? mc.newRegs : null,
+        cpr: mc ? mc.cpr : null,
+        clicks: clicks > 0 ? clicks : null,
+        cpc: clicks > 0 && spend > 0 ? spend / clicks : null,
+        impressions: impressions > 0 ? impressions : null,
+      };
+    });
+
+  if (granularity === "daily") return dailyRows;
+
+  // Weekly aggregation
+  const byWeek = new Map<string, BrandDayRow & { regCount: number }>();
+  for (const row of dailyRows) {
+    const week = weekStart(row.date);
+    const cur = byWeek.get(week) ?? {
+      date: week,
+      spend: null,
+      registrations: null,
+      cpr: null,
+      clicks: null,
+      cpc: null,
+      impressions: null,
+      regCount: 0,
+    };
+    if (row.spend != null) cur.spend = (cur.spend ?? 0) + row.spend;
+    if (row.clicks != null) cur.clicks = (cur.clicks ?? 0) + row.clicks;
+    if (row.impressions != null)
+      cur.impressions = (cur.impressions ?? 0) + row.impressions;
+    // For registrations/cpr in weekly view, take the MAX (end of week value)
+    if (row.registrations != null && (cur.registrations ?? -Infinity) < row.registrations) {
+      cur.registrations = row.registrations;
+    }
+    byWeek.set(week, { ...cur, regCount: cur.regCount });
+  }
+
+  return [...byWeek.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((r) => ({
+      date: r.date,
+      spend: r.spend,
+      registrations: r.registrations,
+      cpr:
+        r.registrations != null && r.registrations > 0 && r.spend != null
+          ? r.spend / r.registrations
+          : null,
+      clicks: r.clicks,
+      cpc:
+        r.clicks != null && r.clicks > 0 && r.spend != null
+          ? r.spend / r.clicks
+          : null,
+      impressions: r.impressions,
+    }));
+}
+
+/**
+ * Daily Trend chart for brand_campaign events.
+ * Shows metric pills (Spend / Registrations / CPR / Clicks / CPC / Impressions)
+ * with platform filter support. Registrations + CPR derive from Mailchimp data.
+ */
+function BrandCampaignTrendChart({
+  timeline,
+  mailchimpSnapshots,
+  className,
+  title,
+  defaultGranularity,
+  showGranularityToggle,
+  platform: controlledPlatform,
+  onPlatformChange,
+}: {
+  timeline: TimelineRow[];
+  mailchimpSnapshots?: MailchimpSnapshotRow[];
+  className?: string;
+  title?: string;
+  defaultGranularity: TrendGranularity;
+  showGranularityToggle: boolean;
+  platform?: PlatformKey;
+  onPlatformChange?: (platform: PlatformKey) => void;
+}) {
+  const [granularity, setGranularity] =
+    useState<TrendGranularity>(defaultGranularity);
+  const [internalPlatform, setInternalPlatform] = useState<PlatformKey>("all");
+  const [active, setActive] = useState<Set<BrandMetricKey>>(
+    () => new Set<BrandMetricKey>(["spend", "registrations", "cpr"]),
+  );
+  const [hover, setHover] = useState<{
+    index: number;
+    chartWidth: number;
+  } | null>(null);
+
+  const activePlatform = controlledPlatform ?? internalPlatform;
+
+  const mailchimpPoints = useMemo(
+    () =>
+      mailchimpSnapshots && mailchimpSnapshots.length > 0
+        ? computeMailchimpTrendPoints(mailchimpSnapshots, timeline)
+        : [],
+    [mailchimpSnapshots, timeline],
+  );
+
+  const days = useMemo(
+    () => buildBrandRows(timeline, mailchimpPoints, activePlatform, granularity),
+    [timeline, mailchimpPoints, activePlatform, granularity],
+  );
+
+  // Auto-detect which platforms have data to show only relevant pills.
+  const presentPlatforms = useMemo(() => {
+    const has = (field: (r: TimelineRow) => boolean) =>
+      timeline.some(field);
+    const result: Exclude<PlatformKey, "all">[] = [];
+    if (has((r) => Number(r.ad_spend ?? 0) > 0 || Number(r.link_clicks ?? 0) > 0))
+      result.push("meta");
+    if (has((r) => Number(r.google_ads_spend ?? 0) > 0))
+      result.push("google");
+    if (has((r) => Number(r.tiktok_spend ?? 0) > 0))
+      result.push("tiktok");
+    return result;
+  }, [timeline]);
+
+  const platformOptions: PlatformKey[] =
+    presentPlatforms.length > 1 ? ["all", ...presentPlatforms] : [];
+
+  const toggle = (key: BrandMetricKey) => {
+    setActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        if (next.size === 1) return prev;
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  if (days.length < 2) return null;
+
+  const titleLabel = title ?? `${granularity === "weekly" ? "Weekly" : "Daily"} trend`;
+
+  const VB_W = 600;
+  const VB_H = 150;
+  const PAD_T = 8;
+  const PAD_R = 8;
+  const PAD_B = 8;
+  const PAD_L = 8;
+  const plotW = VB_W - PAD_L - PAD_R;
+  const plotH = VB_H - PAD_T - PAD_B;
+
+  const xAt = (i: number): number =>
+    days.length === 1
+      ? PAD_L + plotW / 2
+      : PAD_L + (i / (days.length - 1)) * plotW;
+
+  type SeriesPoint = { x: number; y: number; v: number };
+  type BrandSeries = {
+    metric: BrandMetricDef;
+    metricMax: number;
+    yMax: number;
+    segments: SeriesPoint[][];
+    points: SeriesPoint[];
+  };
+
+  const series: BrandSeries[] = BRAND_METRICS.filter((m) =>
+    active.has(m.key),
+  ).map((m) => {
+    const raw = days.map((d) => d[m.key]);
+    const nonNull = raw.filter(
+      (v): v is number => v !== null && Number.isFinite(v),
+    );
+    const metricMax = nonNull.length > 0 ? Math.max(...nonNull) : 0;
+    const yMax = metricMax > 0 ? metricMax * 1.1 : 1;
+    const segments: SeriesPoint[][] = [];
+    const points: SeriesPoint[] = [];
+    let cur: SeriesPoint[] = [];
+    raw.forEach((v, i) => {
+      if (v === null || !Number.isFinite(v)) {
+        if (cur.length > 0) {
+          segments.push(cur);
+          cur = [];
+        }
+        return;
+      }
+      const y = PAD_T + plotH - (v / yMax) * plotH;
+      const point: SeriesPoint = { x: xAt(i), y, v };
+      cur.push(point);
+      points.push(point);
+    });
+    if (cur.length > 0) segments.push(cur);
+    return { metric: m, metricMax, yMax, segments, points };
+  });
+
+  const Y_TICK_COUNT = 4;
+  const primary = series[0];
+  const yTicks = primary
+    ? Array.from({ length: Y_TICK_COUNT }, (_, i) => {
+        const fraction = (Y_TICK_COUNT - 1 - i) / (Y_TICK_COUNT - 1);
+        const value = primary.metricMax * fraction;
+        const yPx = PAD_T + plotH - (value / primary.yMax) * plotH;
+        return { value, yPx };
+      })
+    : [];
+
+  const labelEvery = Math.max(1, Math.ceil(days.length / 6));
+  const labelDays = days.filter(
+    (_, i) => i === 0 || i === days.length - 1 || i % labelEvery === 0,
+  );
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || days.length === 0) return;
+    const vbX = ((e.clientX - rect.left) / rect.width) * VB_W;
+    let nearest = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < days.length; i++) {
+      const dist = Math.abs(xAt(i) - vbX);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = i;
+      }
+    }
+    setHover({ index: nearest, chartWidth: rect.width });
+  };
+
+  return (
+    <div className={`rounded-md border border-border bg-card ${className ?? ""}`}>
+      <div className="border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="font-heading text-sm tracking-wide">{titleLabel}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] text-muted-foreground">
+              {days.length} {granularity === "weekly" ? "week" : "day"}
+              {days.length === 1 ? "" : "s"} · click pills to toggle
+            </p>
+            {showGranularityToggle && (
+              <div className="flex gap-1 border-l border-border pl-2">
+                {(["daily", "weekly"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setGranularity(value)}
+                    aria-pressed={granularity === value}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize transition-colors ${
+                      granularity === value
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+                    }`}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Platform pills — only shown when multiple platforms have data */}
+        {platformOptions.length > 1 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {platformOptions.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => {
+                  if (controlledPlatform === undefined)
+                    setInternalPlatform(p);
+                  onPlatformChange?.(p);
+                }}
+                aria-pressed={activePlatform === p}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  activePlatform === p
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+                }`}
+              >
+                {p !== "all" && (
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: PLATFORM_META[p].colour }}
+                    aria-hidden="true"
+                  />
+                )}
+                {p === "all" ? "All" : PLATFORM_META[p].label}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Metric pills */}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {BRAND_METRICS.filter(
+            (m) =>
+              (m.key === "registrations" || m.key === "cpr")
+                ? mailchimpSnapshots != null && mailchimpSnapshots.length > 0
+                : true,
+          ).map((m) => {
+            const isActive = active.has(m.key);
+            const latestDay = days.at(-1);
+            const latest = latestDay ? latestDay[m.key] : null;
+            return (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => toggle(m.key)}
+                aria-pressed={isActive}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  isActive
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: m.colour }}
+                  aria-hidden="true"
+                />
+                {m.label}
+                {latest !== null && latest !== undefined && Number.isFinite(latest) && (
+                  <span
+                    className={`tabular-nums ${
+                      isActive ? "opacity-70" : "text-muted-foreground"
+                    }`}
+                  >
+                    {m.format(latest)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex p-4">
+        <div
+          className="relative h-[150px] w-12 flex-shrink-0"
+          aria-hidden={primary ? undefined : true}
+        >
+          {primary &&
+            yTicks.map((t) => (
+              <span
+                key={t.value}
+                className="absolute right-1.5 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
+                style={{ top: `${t.yPx}px` }}
+              >
+                {primary.metric.format(t.value)}
+              </span>
+            ))}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div
+            className="relative h-[150px]"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setHover(null)}
+          >
+            <svg
+              viewBox={`0 0 ${VB_W} ${VB_H}`}
+              preserveAspectRatio="none"
+              width="100%"
+              height={150}
+              role="img"
+              aria-label={`${titleLabel} metric trend chart`}
+              className="overflow-visible"
+            >
+              <line
+                x1={PAD_L}
+                x2={VB_W - PAD_R}
+                y1={PAD_T + plotH}
+                y2={PAD_T + plotH}
+                stroke="currentColor"
+                strokeOpacity={0.15}
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+              />
+              {series.map((s) =>
+                s.segments.map((seg, i) => (
+                  <polyline
+                    key={`${s.metric.key}-${i}`}
+                    points={seg.map((p) => `${p.x},${p.y}`).join(" ")}
+                    fill="none"
+                    stroke={s.metric.colour}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )),
+              )}
+              {series.map((s) =>
+                s.points.map((p, i) => (
+                  <circle
+                    key={`${s.metric.key}-pt-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={2.5}
+                    fill={s.metric.colour}
+                    stroke="var(--background, #ffffff)"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )),
+              )}
+            </svg>
+            {hover &&
+              (() => {
+                const idx = hover.index;
+                const day = days[idx];
+                if (!day) return null;
+                const vbX = xAt(idx);
+                const pixelX = (vbX / VB_W) * hover.chartWidth;
+                const flipLeft = pixelX > hover.chartWidth * 0.6;
+                return (
+                  <>
+                    <div
+                      className="pointer-events-none absolute bottom-0 top-0 w-px bg-foreground/30"
+                      style={{ left: `${pixelX}px` }}
+                      aria-hidden="true"
+                    />
+                    <div
+                      className="pointer-events-none absolute z-20 min-w-[160px] rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-card-foreground shadow-lg"
+                      style={
+                        flipLeft
+                          ? {
+                              right: `${hover.chartWidth - pixelX + 8}px`,
+                              top: 4,
+                            }
+                          : { left: `${pixelX + 8}px`, top: 4 }
+                      }
+                    >
+                      <p className="mb-1 font-medium">
+                        {chartTooltipDate(day.date, granularity)}
+                      </p>
+                      <ul className="space-y-0.5">
+                        {series.map((s) => {
+                          const v = day[s.metric.key];
+                          return (
+                            <li
+                              key={s.metric.key}
+                              className="flex items-center gap-2"
+                            >
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: s.metric.colour }}
+                                aria-hidden="true"
+                              />
+                              <span className="text-muted-foreground">
+                                {s.metric.label}
+                              </span>
+                              <span className="ml-auto tabular-nums">
+                                {v !== null && v !== undefined && Number.isFinite(v)
+                                  ? s.metric.format(v)
+                                  : "—"}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </>
+                );
+              })()}
+          </div>
+          <div className="pointer-events-none mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+            {labelDays.map((d) => (
+              <span key={d.date}>{chartShortDate(d.date, granularity)}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Awareness platform-breakdown chart (kept for historical comparison) ──
+
 const AWARENESS_METRICS: {
   key: AwarenessMetricKey;
   label: string;
@@ -512,12 +1073,6 @@ const AWARENESS_METRICS: {
   { key: "videoViews", label: "Video Views", colour: "#8b5cf6", format: (n) => NUM.format(n) },
 ];
 
-const PLATFORM_META: Record<Exclude<PlatformKey, "all">, { label: string; colour: string }> = {
-  meta: { label: "Meta", colour: "#2563eb" },
-  google: { label: "Google Ads", colour: "#ea4335" },
-  tiktok: { label: "TikTok", colour: "#111827" },
-};
-
 function AwarenessTrendChart({
   timeline,
   className,
@@ -526,6 +1081,7 @@ function AwarenessTrendChart({
   showGranularityToggle,
   platform: controlledPlatform,
   onPlatformChange,
+  mailchimpSnapshots,
 }: {
   timeline: TimelineRow[];
   className?: string;
@@ -534,6 +1090,7 @@ function AwarenessTrendChart({
   showGranularityToggle: boolean;
   platform?: PlatformKey;
   onPlatformChange?: (platform: PlatformKey) => void;
+  mailchimpSnapshots?: MailchimpSnapshotRow[];
 }) {
   const [granularity, setGranularity] =
     useState<TrendGranularity>(defaultGranularity);
