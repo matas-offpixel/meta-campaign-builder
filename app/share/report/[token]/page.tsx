@@ -79,6 +79,10 @@ import {
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
 import { listCreativeTagAssignments } from "@/lib/db/creative-tags";
+import {
+  MailchimpRegistrationsCard,
+  type MailchimpAudienceSnapshotSummary,
+} from "@/components/report/mailchimp-registrations-card";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -269,7 +273,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -303,8 +307,8 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   }
 
   const clientRel = eventRow.data.client as
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
-    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_audience_id?: string | null }
+    | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_audience_id?: string | null }[]
     | null;
   const adAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.meta_ad_account_id ?? null)
@@ -548,6 +552,36 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     token,
   });
 
+  // Mailchimp audience snapshots — brand-awareness events only.
+  // Soft-fail: a missing audience or no rows simply omits the card.
+  const mailchimpAudienceId =
+    (eventRow.data.mailchimp_audience_id as string | null) ??
+    (() => {
+      const c = eventRow.data.client as
+        | { mailchimp_audience_id?: string | null }
+        | { mailchimp_audience_id?: string | null }[]
+        | null;
+      const first = Array.isArray(c) ? c[0] : c;
+      return first?.mailchimp_audience_id ?? null;
+    })();
+  const mailchimpSnapshots: MailchimpAudienceSnapshotSummary[] =
+    mailchimpAudienceId && event.kind === "brand_campaign"
+      ? await (async () => {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data } = await (admin as unknown as any)
+              .from("mailchimp_audience_snapshots")
+              .select("email_subscribers, snapshot_at")
+              .eq("event_id", event_id)
+              .eq("mailchimp_audience_id", mailchimpAudienceId)
+              .order("snapshot_at", { ascending: true });
+            return (data ?? []) as MailchimpAudienceSnapshotSummary[];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+
   // Final fatal branch: only when there is genuinely nothing to
   // render — no Meta payload, no TikTok live/manual block, and no
   // usable creatives.
@@ -645,6 +679,22 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     );
   }
 
+  // Compute total cross-platform spend for Mailchimp CPR.
+  const totalSpendForCpr: number | null =
+    mailchimpSnapshots.length > 0
+      ? (() => {
+          const metaSpend = metaPayload?.totals.spend ?? 0;
+          const tiktokSpend =
+            eventDailyData.rollups.reduce(
+              (sum, r) => sum + Number(r.tiktok_spend ?? 0),
+              0,
+            );
+          const googleSpend = googleAdsBlock?.totals.spend ?? 0;
+          const total = metaSpend + tiktokSpend + googleSpend;
+          return total > 0 ? total : null;
+        })()
+      : null;
+
   return (
     <PublicReport
       event={{
@@ -678,6 +728,15 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           eventId={event_id}
           readOnly={!shareCanEdit}
         />
+      }
+      mailchimpSlot={
+        mailchimpSnapshots.length > 0 && mailchimpAudienceId ? (
+          <MailchimpRegistrationsCard
+            snapshots={mailchimpSnapshots}
+            totalSpendGbp={totalSpendForCpr}
+            audienceId={mailchimpAudienceId}
+          />
+        ) : null
       }
     />
   );

@@ -25,6 +25,8 @@ import type { TablesUpdate } from "@/lib/db/database.types";
 const ALLOWED_FIELDS = [
   "tiktok_account_id",
   "google_ads_account_id",
+  "mailchimp_account_id",
+  "mailchimp_audience_id",
   "meta_business_id",
   "meta_ad_account_id",
   "meta_pixel_id",
@@ -66,9 +68,15 @@ function buildPatch(body: Record<string, unknown>): TablesUpdate<"clients"> {
     // <Select> ships "" when the user picks the placeholder option,
     // but the FK columns reject empty strings (uuid type).
     if (
-      (key === "tiktok_account_id" || key === "google_ads_account_id") &&
+      (key === "tiktok_account_id" || key === "google_ads_account_id" || key === "mailchimp_account_id") &&
       value === ""
     ) {
+      patch[key] = null;
+      continue;
+    }
+
+    // mailchimp_audience_id is text, not uuid, but empty string → null for consistency.
+    if (key === "mailchimp_audience_id" && value === "") {
       patch[key] = null;
       continue;
     }

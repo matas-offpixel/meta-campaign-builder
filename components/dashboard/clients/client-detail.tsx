@@ -530,6 +530,7 @@ export function ClientDetail({
             clientId={client.id}
             initialTikTokAccountId={client.tiktok_account_id ?? null}
             initialGoogleAdsAccountId={client.google_ads_account_id ?? null}
+            initialMailchimpAudienceId={(client as { mailchimp_audience_id?: string | null }).mailchimp_audience_id ?? null}
             metaBusinessId={client.meta_business_id ?? null}
             metaAdAccountId={client.meta_ad_account_id ?? null}
             metaPixelId={client.meta_pixel_id ?? null}
