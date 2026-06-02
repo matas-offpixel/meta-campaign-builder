@@ -5,6 +5,7 @@ import {
   fetchTikTokEventCampaignInsights,
   type FetchTikTokEventCampaignInsightsInput,
 } from "../insights.ts";
+import { BASE_METRICS } from "../insights.ts";
 
 type MockRequest = NonNullable<FetchTikTokEventCampaignInsightsInput["request"]>;
 
@@ -343,5 +344,150 @@ describe("fetchTikTokEventCampaignInsights", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.id, "campaign-1");
     assert.equal(rows[0]?.name, "(unnamed)");
+  });
+
+  // ── Per-goal metric routing ────────────────────────────────────────────────
+
+  it("passes goal-specific metrics to /report/integrated/get/ for COMPLETE_REGISTRATION campaigns", async () => {
+    const reportCalls: Array<{ metrics: string[] }> = [];
+    const request: MockRequest = async <T>(
+      path: string,
+      params: Record<string, unknown>,
+    ): Promise<T> => {
+      if (path === "/campaign/get/") {
+        // Return campaign goal before the report call (new architecture)
+        return {
+          list: [
+            campaignRow("camp-r", "[BB26-RIANBRAZIL] Signup", "COMPLETE_REGISTRATION"),
+          ],
+        } as T;
+      }
+      if (path === "/report/integrated/get/") {
+        reportCalls.push({ metrics: params.metrics as string[] });
+        return {
+          list: [
+            reportRow("camp-r", {
+              spend: "100",
+              impressions: "5000",
+              clicks: "50",
+              complete_registration: "10",
+              conversion: "10",
+            }),
+          ],
+          page_info: { page: 1, total_page: 1 },
+        } as T;
+      }
+      throw new Error(`Unexpected path ${path}`);
+    };
+
+    await fetchTikTokEventCampaignInsights(baseInput(request));
+
+    assert.equal(reportCalls.length, 1, "should make exactly one report call");
+    const metrics = reportCalls[0]!.metrics;
+    // Must include the goal-specific extras
+    assert.ok(metrics.includes("complete_registration"), "should include complete_registration");
+    assert.ok(metrics.includes("cost_per_complete_registration"), "should include cost_per_complete_registration");
+    // Must include all base metrics
+    for (const base of BASE_METRICS) {
+      assert.ok(metrics.includes(base), `should include base metric '${base}'`);
+    }
+    // Must NOT include wrong-goal metrics
+    assert.ok(!metrics.includes("video_play"), "must NOT include deprecated video_play");
+    assert.ok(!metrics.includes("add_to_cart"), "must NOT include add_to_cart for non-CART goal");
+  });
+
+  it("does NOT include pixel-event metrics in the report call for LEAD campaigns (Ironworks scenario)", async () => {
+    const reportCalls: Array<{ metrics: string[] }> = [];
+    const request: MockRequest = async <T>(
+      path: string,
+      params: Record<string, unknown>,
+    ): Promise<T> => {
+      if (path === "/campaign/get/") {
+        return {
+          list: [
+            campaignRow("camp-lead-1", "[BB26-RIANBRAZIL] Awareness", "LEAD"),
+            campaignRow("camp-lead-2", "[BB26-RIANBRAZIL] Retargeting", "LEAD"),
+          ],
+        } as T;
+      }
+      if (path === "/report/integrated/get/") {
+        reportCalls.push({ metrics: params.metrics as string[] });
+        return {
+          list: [
+            reportRow("camp-lead-1", { spend: "500", impressions: "10000", clicks: "200", conversion: "20" }),
+            reportRow("camp-lead-2", { spend: "300", impressions: "6000", clicks: "90", conversion: "8" }),
+          ],
+          page_info: { page: 1, total_page: 1 },
+        } as T;
+      }
+      throw new Error(`Unexpected path ${path}`);
+    };
+
+    const rows = await fetchTikTokEventCampaignInsights(baseInput(request));
+
+    assert.equal(reportCalls.length, 1, "should make exactly one report call (both LEAD campaigns in same group)");
+    const metrics = reportCalls[0]!.metrics;
+    // LEAD uses 'conversion' from BASE_METRICS — no pixel extras needed
+    assert.ok(!metrics.includes("video_play"), "must NOT include deprecated video_play");
+    assert.ok(!metrics.includes("add_to_cart"), "must NOT include add_to_cart");
+    assert.ok(!metrics.includes("complete_registration"), "must NOT include complete_registration");
+    assert.ok(!metrics.includes("cost_per_complete_registration"), "must NOT include cost_per_complete_registration");
+    assert.ok(metrics.includes("video_play_actions"), "must include correct video_play_actions");
+    assert.ok(metrics.includes("conversion"), "must include generic conversion");
+
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]!.results + rows[1]!.results, 28); // 20 + 8
+  });
+
+  it("makes separate report calls for campaigns with different optimization goals", async () => {
+    const reportCalls: Array<{ metrics: string[] }> = [];
+    const request: MockRequest = async <T>(
+      path: string,
+      params: Record<string, unknown>,
+    ): Promise<T> => {
+      if (path === "/campaign/get/") {
+        return {
+          list: [
+            campaignRow("camp-reg", "[BB26-RIANBRAZIL] Signup", "COMPLETE_REGISTRATION"),
+            campaignRow("camp-pay", "[BB26-RIANBRAZIL] Purchase", "COMPLETE_PAYMENT"),
+          ],
+        } as T;
+      }
+      if (path === "/report/integrated/get/") {
+        reportCalls.push({ metrics: params.metrics as string[] });
+        // Return the campaign that matches the goal group being fetched
+        const metrics = params.metrics as string[];
+        const isRegCall = metrics.includes("complete_registration");
+        const isPayCall = metrics.includes("complete_payment");
+        const list = [];
+        if (isRegCall) {
+          list.push(reportRow("camp-reg", { spend: "100", impressions: "5000", clicks: "20", complete_registration: "7", conversion: "7" }));
+        }
+        if (isPayCall) {
+          list.push(reportRow("camp-pay", { spend: "800", impressions: "40000", clicks: "300", complete_payment: "3", conversion: "3" }));
+        }
+        return { list, page_info: { page: 1, total_page: 1 } } as T;
+      }
+      throw new Error(`Unexpected path ${path}`);
+    };
+
+    const rows = await fetchTikTokEventCampaignInsights(baseInput(request));
+
+    assert.equal(reportCalls.length, 2, "should make 2 report calls — one per goal group");
+    // Each call should include only its own goal's metrics
+    const regCall = reportCalls.find((c) => c.metrics.includes("complete_registration"));
+    const payCall = reportCalls.find((c) => c.metrics.includes("complete_payment"));
+    assert.ok(regCall, "should have a COMPLETE_REGISTRATION call");
+    assert.ok(payCall, "should have a COMPLETE_PAYMENT call");
+    assert.ok(!regCall!.metrics.includes("complete_payment"), "registration call must not include payment metric");
+    assert.ok(!payCall!.metrics.includes("complete_registration"), "payment call must not include registration metric");
+    assert.ok(!regCall!.metrics.includes("video_play"), "registration call must not include deprecated video_play");
+    assert.ok(!payCall!.metrics.includes("video_play"), "payment call must not include deprecated video_play");
+
+    assert.equal(rows.length, 2);
+    const regRow = rows.find((r) => r.id === "camp-reg");
+    const payRow = rows.find((r) => r.id === "camp-pay");
+    assert.equal(regRow?.results, 7);
+    assert.equal(payRow?.results, 3);
   });
 });
