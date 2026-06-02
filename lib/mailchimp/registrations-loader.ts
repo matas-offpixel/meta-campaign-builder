@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeRegistrationsData,
   type MailchimpRegistrationsData,
+  type SnapshotRow,
 } from "./compute-registrations";
 
 export type { MailchimpRegistrationsData };
