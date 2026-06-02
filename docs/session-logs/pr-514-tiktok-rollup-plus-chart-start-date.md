@@ -1,11 +1,11 @@
 # Session log template
 
-Copy to `docs/session-logs/pr-{number}-{branch-slug}.md` (use `pr-pending-{branch-slug}.md` until the PR exists).
+Copy to `docs/session-logs/pr-{number}-{branch-slug}.md`.
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 514
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/514
 - **Branch:** `cursor/tiktok-rollup-plus-chart-start-date`
 
 ## Summary
