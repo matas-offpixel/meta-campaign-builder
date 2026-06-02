@@ -122,19 +122,19 @@ export function TikTokReportBlock({ data }: { data: TikTokReportBlockData }) {
       </div>
 
       <BreakdownSection title="Ads" defaultOpen>
-        <AdsTable rows={snapshot.ads} currency={currency} />
+        <AdsTable rows={snapshot.ads ?? []} currency={currency} />
       </BreakdownSection>
 
       <BreakdownSection title="Top regions" defaultOpen>
-        <GeoTable rows={snapshot.geo} currency={currency} />
+        <GeoTable rows={snapshot.geo ?? []} currency={currency} />
       </BreakdownSection>
 
       <BreakdownSection title="Demographics" defaultOpen>
-        <DemographicTable rows={snapshot.demographics} currency={currency} />
+        <DemographicTable rows={snapshot.demographics ?? []} currency={currency} />
       </BreakdownSection>
 
       <BreakdownSection title="Cross contextual interests" defaultOpen>
-        <InterestRankedTable rows={snapshot.interests} />
+        <InterestRankedTable rows={snapshot.interests ?? []} />
       </BreakdownSection>
     </div>
   );
