@@ -1,11 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Music2, Search } from "lucide-react";
+import { CheckCircle2, Loader2, Mail, Music2, Search } from "lucide-react";
 
 import { Select } from "@/components/ui/select";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { GoogleAdsAccount } from "@/lib/types/google-ads";
+
+interface MailchimpAudience {
+  id: string;
+  name: string;
+  memberCount: number;
+}
 
 interface Props {
   /** Client UUID — required to PATCH /api/clients/[id]. */
@@ -17,6 +23,7 @@ interface Props {
    */
   initialTikTokAccountId: string | null;
   initialGoogleAdsAccountId: string | null;
+  initialMailchimpAudienceId: string | null;
   /** Existing flat-text channel IDs already present on the client row. */
   metaBusinessId: string | null;
   metaAdAccountId: string | null;
@@ -33,6 +40,7 @@ export function PlatformAccountsCard({
   clientId,
   initialTikTokAccountId,
   initialGoogleAdsAccountId,
+  initialMailchimpAudienceId,
   metaBusinessId,
   metaAdAccountId,
   metaPixelId,
@@ -41,14 +49,26 @@ export function PlatformAccountsCard({
   const [googleAdsAccounts, setGoogleAdsAccounts] = useState<
     GoogleAdsAccount[]
   >([]);
+  const [mailchimpAudiences, setMailchimpAudiences] = useState<
+    MailchimpAudience[]
+  >([]);
+  const [mailchimpAccountId, setMailchimpAccountId] = useState<string | null>(
+    null,
+  );
   const [tiktokId, setTiktokId] = useState<string | null>(
     initialTikTokAccountId,
   );
   const [googleAdsId, setGoogleAdsId] = useState<string | null>(
     initialGoogleAdsAccountId,
   );
+  const [mailchimpAudienceId, setMailchimpAudienceId] = useState<string | null>(
+    initialMailchimpAudienceId,
+  );
   const [tiktokSave, setTiktokSave] = useState<SaveStatus>({ kind: "idle" });
   const [googleAdsSave, setGoogleAdsSave] = useState<SaveStatus>({
+    kind: "idle",
+  });
+  const [mailchimpSave, setMailchimpSave] = useState<SaveStatus>({
     kind: "idle",
   });
 
@@ -65,12 +85,21 @@ export function PlatformAccountsCard({
         if (j?.ok) setGoogleAdsAccounts(j.accounts as GoogleAdsAccount[]);
       })
       .catch(() => undefined);
+    fetch("/api/integrations/mailchimp/audiences")
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; accountId?: string; audiences?: MailchimpAudience[] }) => {
+        if (j?.ok && j.audiences) {
+          setMailchimpAudiences(j.audiences);
+          setMailchimpAccountId(j.accountId ?? null);
+        }
+      })
+      .catch(() => undefined);
   }, []);
 
   // Optimistic patch helper — flips the field locally first, then
   // PATCHes; reverts on failure with the previous value.
   const patchClient = async (
-    field: "tiktok_account_id" | "google_ads_account_id",
+    field: "tiktok_account_id" | "google_ads_account_id" | "mailchimp_account_id" | "mailchimp_audience_id",
     nextValue: string | null,
     setLocal: (v: string | null) => void,
     prev: string | null,
@@ -116,7 +145,7 @@ export function PlatformAccountsCard({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <PlatformRow
           icon={
             <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#1877F2] text-[10px] font-bold text-white">
@@ -213,6 +242,63 @@ export function PlatformAccountsCard({
             )
           }
           saveStatus={googleAdsSave}
+        />
+        <PlatformRow
+          icon={<Mail className="h-4 w-4" style={{ color: "#FFE01B" }} />}
+          label="Mailchimp"
+          status={mailchimpAudienceId ? "connected" : "missing"}
+          details={
+            mailchimpAudienceId
+              ? mailchimpAudiences.find((a) => a.id === mailchimpAudienceId)
+                  ?.name ?? `Audience ${mailchimpAudienceId}`
+              : mailchimpAudiences.length === 0 && !mailchimpAccountId
+                ? "Connect Mailchimp in Settings first."
+                : mailchimpAudiences.length === 0
+                  ? "No audiences found."
+                  : "Pick an audience below."
+          }
+          picker={
+            mailchimpAudiences.length > 0 ? (
+              <Select
+                id="client-mailchimp-audience-id"
+                value={mailchimpAudienceId ?? ""}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  // Patch both audience id AND account id together.
+                  void patchClient(
+                    "mailchimp_audience_id",
+                    next,
+                    setMailchimpAudienceId,
+                    mailchimpAudienceId,
+                    setMailchimpSave,
+                  );
+                  if (next && mailchimpAccountId) {
+                    void patchClient(
+                      "mailchimp_account_id",
+                      mailchimpAccountId,
+                      () => undefined,
+                      null,
+                      () => undefined,
+                    );
+                  }
+                }}
+                placeholder="Not linked"
+                options={mailchimpAudiences.map((a) => ({
+                  value: a.id,
+                  label: `${a.name} (${a.memberCount.toLocaleString()})`,
+                }))}
+                disabled={mailchimpSave.kind === "saving"}
+              />
+            ) : !mailchimpAccountId ? (
+              <a
+                href="/settings/mailchimp"
+                className="inline-flex items-center justify-center rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                Connect Mailchimp
+              </a>
+            ) : null
+          }
+          saveStatus={mailchimpSave}
         />
       </div>
     </section>

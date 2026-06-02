@@ -233,6 +233,13 @@ interface Props {
    * public share page for token-scoped additional spend CRUD.
    */
   additionalSpendSlot?: ReactNode;
+  /**
+   * Optional server-rendered slot for the Mailchimp registrations card.
+   * Renders on brand-awareness event share pages when the event has a
+   * resolved Mailchimp audience and at least one snapshot row.
+   * Positioned below the event daily block.
+   */
+  mailchimpSlot?: ReactNode;
 }
 
 export function EventReportView({
@@ -253,6 +260,7 @@ export function EventReportView({
   additionalSpendEntries = NO_ADDITIONAL_SPEND,
   sellOutPacing = null,
   additionalSpendSlot,
+  mailchimpSlot,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -505,6 +513,12 @@ export function EventReportView({
             page with no extra client fetch. The slot owns its own
             section heading + summary/chart/table. */}
         {eventDailySlot ?? null}
+
+        {/* ─── Mailchimp registrations card ─────────────────────── */
+         /* Server-rendered. Only present on brand-awareness share
+            pages with a resolved Mailchimp audience and ≥1 snapshot
+            row. Slot is composed by the share RSC. */}
+        {mailchimpSlot ?? null}
       </div>
 
       {/* PR #63 — the "Last updated …" + manual Refresh button now

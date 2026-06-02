@@ -27,7 +27,7 @@ export interface ConnectionAccount {
 }
 
 export interface PlatformConnectionStatus {
-  id: "facebook" | "tiktok" | "google_ads" | "ticketing";
+  id: "facebook" | "tiktok" | "google_ads" | "ticketing" | "mailchimp";
   title: string;
   description: string;
   status: ConnectionBadgeStatus;
@@ -65,6 +65,15 @@ interface GoogleAdsAccountRow {
   updated_at: string;
   credentials_encrypted?: string | null;
   login_customer_id?: string | null;
+}
+
+interface MailchimpAccountRow {
+  id: string;
+  account_name: string | null;
+  mailchimp_dc: string | null;
+  mailchimp_login_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface TicketingConnectionRow {
@@ -137,6 +146,7 @@ export async function getPlatformConnectionStatuses(
     tiktokResult,
     googleResult,
     ticketingResult,
+    mailchimpResult,
   ] = await Promise.all([
     sb
       .from("user_facebook_tokens")
@@ -164,6 +174,11 @@ export async function getPlatformConnectionStatuses(
       .select("id, provider, status, external_account_id, created_at, updated_at, last_synced_at, last_error")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false }),
+    sb
+      .from("mailchimp_accounts")
+      .select("id, account_name, mailchimp_dc, mailchimp_login_id, created_at, updated_at")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false }),
   ]);
 
   const facebookToken = (facebookResult.data ?? null) as FacebookTokenRow | null;
@@ -171,6 +186,7 @@ export async function getPlatformConnectionStatuses(
   const tiktokAccounts = (tiktokResult.data ?? []) as TikTokAccountRow[];
   const googleAccounts = (googleResult.data ?? []) as GoogleAdsAccountRow[];
   const ticketingConnections = (ticketingResult.data ?? []) as TicketingConnectionRow[];
+  const mailchimpAccounts = (mailchimpResult.data ?? []) as MailchimpAccountRow[];
 
   const uniqueMetaAccounts = new Map<string, ConnectionAccount>();
   for (const client of clientMetaAccounts) {
@@ -285,6 +301,25 @@ export async function getPlatformConnectionStatuses(
         ticketingResult.error?.message ??
         connectedTicketing.find((row) => row.last_error)?.last_error ??
         undefined,
+    },
+    {
+      id: "mailchimp",
+      title: "Mailchimp",
+      description: "Audience sync for registration tracking on brand-awareness reports.",
+      status: mailchimpAccounts.length > 0 ? "connected" : "disconnected",
+      connectedAs: mailchimpAccounts[0]?.account_name ?? null,
+      connectedAt: mailchimpAccounts[0]?.created_at ?? null,
+      tokenExpiresAt: null,
+      scopes: ["lists read", "audience stats read"],
+      accounts: mailchimpAccounts.map((account) => ({
+        id: account.id,
+        name: account.account_name ?? "Mailchimp Account",
+        meta: account.mailchimp_dc ? `dc: ${account.mailchimp_dc}` : undefined,
+      })),
+      reconnectHref: "/settings/mailchimp",
+      detailsHref: null,
+      disconnectEnabled: mailchimpAccounts.length > 0,
+      statusNote: mailchimpResult.error?.message,
     },
   ];
 }

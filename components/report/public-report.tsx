@@ -96,6 +96,13 @@ interface Props {
   sellOutPacing?: SellOutPacingResult | null;
   /** Token-scoped additional spend editor (share page only). */
   additionalSpendSlot?: ReactNode;
+  /**
+   * Server-rendered Mailchimp registrations card (brand-awareness share
+   * pages only). Passed as a ReactNode slot so the RSC can compose it
+   * with the pre-fetched snapshot data without threading props through
+   * this client wrapper.
+   */
+  mailchimpSlot?: ReactNode;
 }
 
 /*
@@ -139,6 +146,7 @@ export function PublicReport({
   additionalSpendEntries,
   sellOutPacing = null,
   additionalSpendSlot,
+  mailchimpSlot,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -338,6 +346,7 @@ export function PublicReport({
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={additionalSpendSlot}
+      mailchimpSlot={mailchimpSlot}
     />
   );
 }
