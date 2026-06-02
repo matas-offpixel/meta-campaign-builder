@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 512
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/512
 - **Branch:** `cursor/brand-campaign-full-tidy-up`
 
 ## Summary
