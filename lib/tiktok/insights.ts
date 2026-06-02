@@ -26,6 +26,9 @@ interface TikTokCampaignGetRow {
 
 interface TikTokCampaignGetResponse {
   list?: TikTokCampaignGetRow[];
+  page_info?: {
+    total_page?: number;
+  };
 }
 
 type TikTokGet = typeof tiktokGet;
@@ -40,47 +43,82 @@ export interface FetchTikTokEventCampaignInsightsInput {
 }
 
 /**
- * Full metric bundle requested from the integrated report.
+ * Universal metrics valid across every TikTok campaign objective.
  *
- * We request all conversion-event metrics in one call so the resolver
- * can pick the right field per campaign after we learn each campaign's
- * `optimization_goal` from `/campaign/get/`. Requesting more fields
- * than needed has no cost impact — TikTok returns null/0 for metrics
- * that don't apply to a given campaign objective.
+ * These are safe to include in any /report/integrated/get/ call regardless
+ * of the advertiser's campaign types or optimization goals.
+ *
+ * NOTE: `video_play_actions` is the correct field name (not `video_play` —
+ * `video_play` was removed by TikTok and causes "invalid metric fields" errors).
  */
-const METRICS = [
+export const BASE_METRICS = [
   "spend",
   "impressions",
   "reach",
   "clicks",
   "ctr",
   "cpm",
-  // Generic conversion aggregate (used for LEAD / CONVERT objectives)
+  // Generic conversion metrics — valid for all objectives
   "conversion",
   "cost_per_conversion",
   "conversion_rate",
-  // Specific pixel-event metrics
-  "complete_payment",
-  "cost_per_complete_payment",
-  "complete_payment_roas",
-  "complete_registration",
-  "cost_per_complete_registration",
-  "add_to_cart",
-  "cost_per_add_to_cart",
-  "initiate_checkout",
-  "cost_per_initiate_checkout",
-  "add_to_wishlist",
-  "cost_per_add_to_wishlist",
-  "view_content",
-  "cost_per_view_content",
-  // Video engagement (retained for reference; no longer used as "results")
-  "video_play",
+  "real_time_conversion",
+  "real_time_cost_per_conversion",
+  "real_time_conversion_rate",
+  // Video metrics — correct field names
+  "video_play_actions",     // was incorrectly "video_play" — causes API rejection
   "video_views_p25",
   "video_views_p50",
   "video_views_p75",
   "video_views_p100",
-  "average_video_play",
-];
+  // view_content is the fallback metric for awareness/unknown goals
+  "view_content",
+] as const;
+
+/**
+ * Per-optimization-goal metrics added ON TOP of BASE_METRICS.
+ *
+ * TikTok's /report/integrated/get/ validates that requested metrics are
+ * compatible with the campaign objectives in the advertiser account. Requesting
+ * a metric like `add_to_cart` when the account has no ADD_TO_CART campaigns
+ * causes the entire API call to fail with "Invalid metric fields".
+ *
+ * Each entry is only included when we are fetching data for campaigns that
+ * actually use that optimization goal.
+ */
+const GOAL_EXTRA_METRICS: Record<string, readonly string[]> = {
+  COMPLETE_PAYMENT: [
+    "complete_payment",
+    "cost_per_complete_payment",
+    "complete_payment_roas",
+  ],
+  COMPLETE_REGISTRATION: [
+    "complete_registration",
+    "cost_per_complete_registration",
+  ],
+  ADD_TO_CART: ["add_to_cart", "cost_per_add_to_cart"],
+  INITIATE_CHECKOUT: ["initiate_checkout", "cost_per_initiate_checkout"],
+  ADD_TO_WISHLIST: ["add_to_wishlist", "cost_per_add_to_wishlist"],
+};
+
+/**
+ * Build the metric list for a /report/integrated/get/ call for campaigns
+ * with the given optimization goal.
+ *
+ * BASE_METRICS are always included. Goal-specific conversion metrics are
+ * appended only when the goal is known — avoiding "invalid metric fields"
+ * errors when the advertiser does not run campaigns with those objectives.
+ *
+ * Exported for testability.
+ */
+export function buildMetricsForCampaign(
+  optimizationGoal: string | null | undefined,
+): string[] {
+  const base: string[] = [...BASE_METRICS];
+  const goal = (optimizationGoal ?? "").toUpperCase();
+  const extras = GOAL_EXTRA_METRICS[goal] ?? [];
+  return [...base, ...extras];
+}
 
 /** All conversion-related metric keys tracked in the per-campaign aggregate. */
 const CONVERSION_KEYS = [
@@ -110,11 +148,24 @@ const MAX_PAGES = 20;
  * Fetch TikTok campaign-day insights, aggregate by campaign, and return
  * the same row contract as the Meta reporting layer.
  *
- * "Results" and CPR are resolved per campaign based on the campaign's
- * `optimization_goal` (fetched from /campaign/get/), so signup campaigns
- * show `complete_registration` counts, purchase campaigns show
- * `complete_payment` counts, and awareness-only campaigns fall back to
- * `view_content` (resulting in a — CPR).
+ * Architecture (post PR fix/tiktok-per-campaign-metrics):
+ *
+ *   1. Call /campaign/get/ FIRST (before the report) to learn each
+ *      campaign's name and optimization_goal.
+ *   2. Filter to event-code matching campaigns.
+ *   3. Group matching campaigns by optimization_goal — campaigns with the
+ *      same goal share one /report/integrated/get/ call (one call per
+ *      distinct metric set rather than N calls per campaign).
+ *   4. For each goal group, call /report/integrated/get/ with BASE_METRICS
+ *      plus the goal-specific extra metrics. Filter aggregated rows to only
+ *      the campaigns in that group.
+ *   5. Return results for all matched campaigns.
+ *
+ * Why this order? TikTok rejects a /report/integrated/get/ call if ANY
+ * metric in the list is invalid for the advertiser's account (e.g.
+ * requesting `add_to_cart` for an account that only runs LEAD_GENERATION
+ * campaigns). Fetching campaign goals first lets us build a metric list
+ * that only includes fields valid for the actual campaigns in each call.
  */
 export async function fetchTikTokEventCampaignInsights(
   input: FetchTikTokEventCampaignInsightsInput,
@@ -125,69 +176,119 @@ export async function fetchTikTokEventCampaignInsights(
     throw new Error("TikTok insight chunks must run serially.");
   }
 
-  const aggregates = new Map<string, Aggregate>();
   const request = input.request ?? tiktokGet;
 
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const res = await request<TikTokIntegratedResponse>(
-      "/report/integrated/get/",
-      {
-        advertiser_id: input.advertiserId,
-        report_type: "BASIC",
-        data_level: "AUCTION_CAMPAIGN",
-        dimensions: DIMENSIONS,
-        metrics: METRICS,
-        start_date: input.window.since,
-        end_date: input.window.until,
-        page,
-        page_size: PAGE_SIZE,
-      },
-      input.token,
-    );
-
-    for (const row of res.list ?? []) {
-      const dims = row.dimensions ?? {};
-      const m = row.metrics ?? {};
-      const id = dims.campaign_id;
-      if (!id) continue;
-      const existing: Aggregate = aggregates.get(id) ?? {
-        id,
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        complete_registration: 0,
-        complete_payment: 0,
-        add_to_cart: 0,
-        initiate_checkout: 0,
-        add_to_wishlist: 0,
-        view_content: 0,
-        conversion: 0,
-      };
-      existing.spend += numberMetric(m.spend);
-      existing.impressions += numberMetric(m.impressions);
-      existing.clicks += numberMetric(m.clicks);
-      for (const key of CONVERSION_KEYS) {
-        existing[key] += numberMetric(m[key]);
-      }
-      aggregates.set(id, existing);
-    }
-
-    const pageInfo = res.page_info;
-    if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
-  }
-
+  // ── Step 1: Fetch ALL campaigns (names + goals) up-front ──────────────────
+  // Previously this was called AFTER the integrated report using only the
+  // campaign IDs found in the report. Now we call it first so we can build
+  // the correct per-goal metric lists before hitting /report/integrated/get/.
   const { names: campaignNames, goals: campaignGoals } =
-    await fetchTikTokCampaignMeta({
+    await fetchAllTikTokCampaignMeta({
       advertiserId: input.advertiserId,
       token: input.token,
-      campaignIds: [...aggregates.keys()],
       request,
     });
 
-  const hasEnrichedNames = campaignNames.size > 0;
+  const hasNames = campaignNames.size > 0;
+
+  // ── Step 2: Identify event-code matching campaigns ────────────────────────
+  const matchingIds = hasNames
+    ? [...campaignNames.keys()].filter((id) =>
+        campaignNameMatchesEventCode(campaignNames.get(id)!, input.eventCode),
+      )
+    : [];
+
+  // ── Step 3: Build goal groups ─────────────────────────────────────────────
+  // Each goal group gets one /report/integrated/get/ call with the metric set
+  // for that goal. An empty-string goal key uses only BASE_METRICS (safe
+  // fallback for unrecognised or missing objectives).
+  //
+  // Special case: if /campaign/get/ returned nothing (hasNames false), we
+  // fall back to a single bulk call with BASE_METRICS, include all campaigns
+  // in the response (filterIds = false), and return them as "(unnamed)".
+  interface GoalGroup {
+    ids: Set<string>;
+    filterIds: boolean;
+  }
+  const goalGroups = new Map<string, GoalGroup>();
+
+  if (!hasNames) {
+    // Fallback: no campaign meta available, use universal metrics, no filtering.
+    goalGroups.set("", { ids: new Set(), filterIds: false });
+  } else if (matchingIds.length === 0) {
+    // Has names but no campaigns match this event code — nothing to fetch.
+    return [];
+  } else {
+    for (const id of matchingIds) {
+      const goal = (campaignGoals.get(id) ?? "").toUpperCase();
+      const existing = goalGroups.get(goal) ?? { ids: new Set(), filterIds: true };
+      existing.ids.add(id);
+      goalGroups.set(goal, existing);
+    }
+  }
+
+  // ── Step 4: Per-goal-group report calls ───────────────────────────────────
+  const aggregates = new Map<string, Aggregate>();
+
+  for (const [goal, { ids: campaignIdSet, filterIds }] of goalGroups) {
+    const metrics = buildMetricsForCampaign(goal);
+
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const res = await request<TikTokIntegratedResponse>(
+        "/report/integrated/get/",
+        {
+          advertiser_id: input.advertiserId,
+          report_type: "BASIC",
+          data_level: "AUCTION_CAMPAIGN",
+          dimensions: DIMENSIONS,
+          metrics,
+          start_date: input.window.since,
+          end_date: input.window.until,
+          page,
+          page_size: PAGE_SIZE,
+        },
+        input.token,
+      );
+
+      for (const row of res.list ?? []) {
+        const dims = row.dimensions ?? {};
+        const m = row.metrics ?? {};
+        const id = dims.campaign_id;
+        if (!id) continue;
+        // Skip campaigns outside this goal group when we have filtered targeting.
+        if (filterIds && !campaignIdSet.has(id)) continue;
+
+        const existing: Aggregate = aggregates.get(id) ?? {
+          id,
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          complete_registration: 0,
+          complete_payment: 0,
+          add_to_cart: 0,
+          initiate_checkout: 0,
+          add_to_wishlist: 0,
+          view_content: 0,
+          conversion: 0,
+        };
+        existing.spend += numberMetric(m.spend);
+        existing.impressions += numberMetric(m.impressions);
+        existing.clicks += numberMetric(m.clicks);
+        for (const key of CONVERSION_KEYS) {
+          existing[key] += numberMetric(m[key]);
+        }
+        aggregates.set(id, existing);
+      }
+
+      const pageInfo = res.page_info;
+      if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
+    }
+  }
+
+  // ── Step 5: Build output rows ─────────────────────────────────────────────
   return [...aggregates.values()].flatMap((a) => {
     const name = campaignNames.get(a.id) ?? "(unnamed)";
-    if (hasEnrichedNames && !campaignNameMatchesEventCode(name, input.eventCode)) {
+    if (hasNames && !campaignNameMatchesEventCode(name, input.eventCode)) {
       return [];
     }
     const goalInfo = resolveGoalInfo(campaignGoals.get(a.id));
@@ -215,39 +316,44 @@ export async function fetchTikTokEventCampaignInsights(
 }
 
 /**
- * Fetch campaign names AND optimization goals in one /campaign/get/ call.
- * Returns two maps keyed by campaign_id.
+ * Fetch ALL campaigns for an advertiser (names + optimization_goals), paginated.
+ *
+ * Unlike the previous `fetchTikTokCampaignMeta` which was called AFTER the
+ * integrated report with specific campaign IDs, this is called FIRST without
+ * a campaign_ids filter so we can build per-goal metric lists upfront.
  */
-async function fetchTikTokCampaignMeta(input: {
+async function fetchAllTikTokCampaignMeta(input: {
   advertiserId: string;
   token: string;
-  campaignIds: string[];
   request: TikTokGet;
 }): Promise<{
   names: Map<string, string>;
   goals: Map<string, string>;
 }> {
-  if (input.campaignIds.length === 0) {
-    return { names: new Map(), goals: new Map() };
-  }
-  const res = await input.request<TikTokCampaignGetResponse>(
-    "/campaign/get/",
-    {
-      advertiser_id: input.advertiserId,
-      campaign_ids: input.campaignIds,
-      fields: ["campaign_id", "campaign_name", "optimization_goal"],
-      page_size: PAGE_SIZE,
-    },
-    input.token,
-  );
   const names = new Map<string, string>();
   const goals = new Map<string, string>();
-  for (const row of res.list ?? []) {
-    if (row.campaign_id) {
-      if (row.campaign_name) names.set(row.campaign_id, row.campaign_name);
-      if (row.optimization_goal) goals.set(row.campaign_id, row.optimization_goal);
+
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const res = await input.request<TikTokCampaignGetResponse>(
+      "/campaign/get/",
+      {
+        advertiser_id: input.advertiserId,
+        fields: ["campaign_id", "campaign_name", "optimization_goal"],
+        page_size: PAGE_SIZE,
+        page,
+      },
+      input.token,
+    );
+    for (const row of res.list ?? []) {
+      if (row.campaign_id) {
+        if (row.campaign_name) names.set(row.campaign_id, row.campaign_name);
+        if (row.optimization_goal) goals.set(row.campaign_id, row.optimization_goal);
+      }
     }
+    const pageInfo = res.page_info;
+    if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
   }
+
   return { names, goals };
 }
 
