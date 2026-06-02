@@ -218,6 +218,15 @@ interface Props {
      * (global Sync now lives in the header).
      */
     reportEmbed?: boolean;
+    /**
+     * Mailchimp audience snapshots for brand_campaign events. When provided,
+     * a "Registrations" column is inserted between Video views and CPM showing
+     * the total email subscribers for each calendar day.
+     */
+    mailchimpSnapshots?: ReadonlyArray<{
+      email_subscribers: number | null;
+      snapshot_at: string;
+    }>;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -261,6 +270,8 @@ interface DisplayRow {
   running_clicks: number;
   running_tickets: number;
   running_revenue: number;
+  /** Total email subscribers on this day (brand_campaign only). */
+  email_subscribers: number | null;
 }
 
 export function DailyTracker({
@@ -560,6 +571,7 @@ export function DailyTracker({
             suppressSyntheticToday,
             isBrandCampaign,
             platform: controlled?.awarenessPlatform ?? "all",
+            mailchimpSnapshots: controlled?.mailchimpSnapshots,
           }),
     [
       trackerDisplayTimeline,
@@ -570,6 +582,7 @@ export function DailyTracker({
       suppressSyntheticToday,
       isBrandCampaign,
       controlled?.awarenessPlatform,
+      controlled?.mailchimpSnapshots,
     ],
   );
 
@@ -621,7 +634,7 @@ export function DailyTracker({
   const WEEKLY_WINDOW_LABEL_WEEKS = Math.ceil(60 / 7); // = 9
   const dateColLabel =
     effectiveCadence === "weekly" ? "Week (W/C)" : "Date";
-  const colSpan = isEditable ? (isBrandCampaign ? 9 : 18) : isBrandCampaign ? 8 : 17;
+  const colSpan = isEditable ? (isBrandCampaign ? 10 : 18) : isBrandCampaign ? 9 : 17;
   const windowLabel = reportEmbed
     ? "Header timeframe"
     : effectiveCadence === "weekly"
@@ -731,6 +744,7 @@ export function DailyTracker({
               {isBrandCampaign ? <Th>Impressions</Th> : <Th>Tickets</Th>}
               {isBrandCampaign ? <Th>Clicks (all)</Th> : <Th>Revenue</Th>}
               {isBrandCampaign ? <Th>Video views</Th> : <Th>CPT</Th>}
+              {isBrandCampaign ? <Th>Registrations</Th> : null}
               {isBrandCampaign ? <Th>CPM</Th> : <Th>ROAS</Th>}
               {!isBrandCampaign ? (
                 <Th
@@ -935,6 +949,9 @@ function RowEl({
       {isBrandCampaign ? <Td>{fmtInt(row.impressions)}</Td> : <Td>{fmtInt(row.tickets_sold)}</Td>}
       {isBrandCampaign ? <Td>{fmtInt(row.link_clicks)}</Td> : <Td>{fmtMoney(row.revenue)}</Td>}
       {isBrandCampaign ? <Td>{fmtInt(row.video_views)}</Td> : <Td>{fmtMoney(cpt)}</Td>}
+      {isBrandCampaign ? (
+        <Td>{row.email_subscribers != null ? fmtInt(row.email_subscribers) : "—"}</Td>
+      ) : null}
       {isBrandCampaign ? <Td>{fmtMoney(cpm)}</Td> : <Td>{fmtRoas(roas)}</Td>}
       {!isBrandCampaign ? <Td>{fmtInt(row.link_clicks)}</Td> : null}
       {!isBrandCampaign ? <Td>{fmtMoney(cpl)}</Td> : null}
@@ -1188,6 +1205,7 @@ function buildDisplayRows({
   suppressSyntheticToday = false,
   isBrandCampaign,
   platform,
+  mailchimpSnapshots,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
@@ -1196,9 +1214,23 @@ function buildDisplayRows({
   suppressSyntheticToday?: boolean;
   isBrandCampaign: boolean;
   platform: PlatformKey;
+  mailchimpSnapshots?: ReadonlyArray<{
+    email_subscribers: number | null;
+    snapshot_at: string;
+  }>;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
+
+  // Build a date → email_subscribers lookup from Mailchimp snapshots.
+  // Use the most-recent snapshot on or before each date.
+  const mcByDate = new Map<string, number | null>();
+  if (mailchimpSnapshots && mailchimpSnapshots.length > 0) {
+    for (const s of mailchimpSnapshots) {
+      const d = s.snapshot_at.slice(0, 10);
+      mcByDate.set(d, s.email_subscribers ?? null);
+    }
+  }
 
   // Working shape — same fields as the upstream timeline row plus a
   // synthetic flag for the empty "today" placeholder.
@@ -1313,6 +1345,7 @@ function buildDisplayRows({
       running_clicks: runClicks,
       running_tickets: runTickets,
       running_revenue: round2(runRevenue),
+      email_subscribers: mcByDate.has(r.date) ? (mcByDate.get(r.date) ?? null) : null,
     };
   });
 
@@ -1353,6 +1386,7 @@ function buildDisplayRows({
       running_clicks: paidLinkClicksOf(presale),
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
+      email_subscribers: null,
     };
     // Presale is the chronologically earliest activity in the
     // dataset (everything strictly before `general_sale_at`). With
@@ -1630,6 +1664,7 @@ function buildWeeklyDisplayRows({
       running_clicks: runClicks,
       running_tickets: runTickets,
       running_revenue: round2(runRevenue),
+      email_subscribers: null,
     } satisfies DisplayRow;
   });
 
@@ -1665,6 +1700,7 @@ function buildWeeklyDisplayRows({
       running_clicks: paidLinkClicksOf(presale),
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
+      email_subscribers: null,
     };
     return [...weeklyDisplay, presaleRow];
   }

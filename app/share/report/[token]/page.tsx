@@ -531,13 +531,25 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         campaign_end_at: (eventRow.data.campaign_end_at as string | null) ?? null,
       })
     : null;
+  // If the event_id query missed (e.g. the manual import was done before the
+  // event was linked), fall back to the most-recent report by tiktok_account_id.
+  const tiktokManualRow: TikTokReportBlockData | null =
+    tiktokRow ??
+    (event.tiktokAccountId
+      ? await fetchLatestTikTokSnapshotByAccount(
+          admin,
+          event.tiktokAccountId,
+          token,
+        ).catch(() => null)
+      : null);
+
   const tiktokRowResolved = await resolveTikTokReportBlock({
     admin,
     token,
     eventId: event_id,
     eventCode: event.eventCode,
     eventName: event.name,
-    manual: tiktokRow,
+    manual: tiktokManualRow,
     rollups: eventDailyData.rollups,
     window: canonicalTikTokWindow,
     hasTikTokAccount: Boolean(event.tiktokAccountId),
@@ -1762,6 +1774,44 @@ async function fetchLatestTikTokSnapshot(
   if (error) {
     console.warn(
       `[share/report] tiktok lookup failed for token=${token}: ${error.message}`,
+    );
+    return null;
+  }
+  if (!data) return null;
+
+  return {
+    id: data.id as string,
+    campaign_name: data.campaign_name as string,
+    date_range_start: data.date_range_start as string,
+    date_range_end: data.date_range_end as string,
+    imported_at: data.imported_at as string,
+    snapshot: data.snapshot_json as unknown as TikTokManualReportSnapshot,
+  };
+}
+
+/**
+ * Fallback: look up the most-recent TikTok manual report by `tiktok_account_id`
+ * when the `event_id`-based query returns null (e.g. the XLSX import happened
+ * before the event was linked, so the row has a NULL event_id).
+ */
+async function fetchLatestTikTokSnapshotByAccount(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  tiktokAccountId: string,
+  token: string,
+): Promise<TikTokReportBlockData | null> {
+  const { data, error } = await admin
+    .from("tiktok_manual_reports")
+    .select(
+      "id, campaign_name, date_range_start, date_range_end, imported_at, snapshot_json",
+    )
+    .eq("tiktok_account_id", tiktokAccountId)
+    .order("imported_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      `[share/report] tiktok account fallback failed for token=${token}: ${error.message}`,
     );
     return null;
   }

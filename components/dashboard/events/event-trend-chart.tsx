@@ -560,37 +560,48 @@ function buildBrandRows(
   const mcByDate = new Map<string, MailchimpTrendPoint>();
   for (const p of mailchimpPoints) mcByDate.set(p.date, p);
 
-  const dailyRows: BrandDayRow[] = timeline
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map((r) => {
+  // Collect all unique dates from both sources so Mailchimp-only
+  // dates (before the first rollup row) are included in the chart.
+  const allDates = new Set<string>();
+  for (const r of timeline) allDates.add(r.date);
+  for (const p of mailchimpPoints) allDates.add(p.date);
+
+  const timelineByDate = new Map<string, TimelineRow>();
+  for (const r of timeline) timelineByDate.set(r.date, r);
+
+  const dailyRows: BrandDayRow[] = [...allDates]
+    .sort()
+    .map((date) => {
+      const r = timelineByDate.get(date);
       let spend = 0;
       let clicks = 0;
       let impressions = 0;
 
-      if (platform === "all" || platform === "meta") {
-        const metaS =
-          r.ad_spend_allocated != null
-            ? Number(r.ad_spend_allocated ?? 0)
-            : Number(r.ad_spend ?? 0);
-        spend += Number.isFinite(metaS) ? metaS : 0;
-        clicks += Number(r.link_clicks ?? 0);
-        impressions += Number(r.meta_impressions ?? 0);
-      }
-      if (platform === "all" || platform === "tiktok") {
-        spend += Number(r.tiktok_spend ?? 0);
-        clicks += Number(r.tiktok_clicks ?? 0);
-        impressions += Number(r.tiktok_impressions ?? 0);
-      }
-      if (platform === "all" || platform === "google") {
-        spend += Number(r.google_ads_spend ?? 0);
-        clicks += Number(r.google_ads_clicks ?? 0);
-        impressions += Number(r.google_ads_impressions ?? 0);
+      if (r) {
+        if (platform === "all" || platform === "meta") {
+          const metaS =
+            r.ad_spend_allocated != null
+              ? Number(r.ad_spend_allocated ?? 0)
+              : Number(r.ad_spend ?? 0);
+          spend += Number.isFinite(metaS) ? metaS : 0;
+          clicks += Number(r.link_clicks ?? 0);
+          impressions += Number(r.meta_impressions ?? 0);
+        }
+        if (platform === "all" || platform === "tiktok") {
+          spend += Number(r.tiktok_spend ?? 0);
+          clicks += Number(r.tiktok_clicks ?? 0);
+          impressions += Number(r.tiktok_impressions ?? 0);
+        }
+        if (platform === "all" || platform === "google") {
+          spend += Number(r.google_ads_spend ?? 0);
+          clicks += Number(r.google_ads_clicks ?? 0);
+          impressions += Number(r.google_ads_impressions ?? 0);
+        }
       }
 
-      const mc = mcByDate.get(r.date);
+      const mc = mcByDate.get(date);
       return {
-        date: r.date,
+        date,
         spend: spend > 0 ? spend : null,
         registrations: mc ? mc.newRegs : null,
         cpr: mc ? mc.cpr : null,
@@ -726,7 +737,7 @@ function BrandCampaignTrendChart({
     });
   };
 
-  if (days.length < 2) {
+  if (days.length < 1) {
     return (
       <div className="rounded-md border border-border bg-card p-6">
         <p className="text-sm font-medium text-foreground">

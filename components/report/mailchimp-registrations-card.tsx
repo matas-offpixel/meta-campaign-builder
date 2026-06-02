@@ -5,15 +5,17 @@
  * Mailchimp audience and at least one snapshot row.
  *
  * Three metrics:
- *   Total Registrations  — latest email_subscribers
- *   New Registrations    — latest.email_subscribers - first_snapshot.email_subscribers
- *   Cost per Registration — total_spend / new_registrations (GBP, 2dp)
+ *   Total Subscribers   — latest email_subscribers
+ *   Daily Growth        — delta between two most-recent snapshots ("vs yesterday")
+ *   Cost / Registration — total_cross_platform_spend / total_subscribers (GBP, 2dp)
  *
  * Visual style matches the brand-awareness metrics row pattern in this
  * codebase (compact stat cells with an uppercase tracking label).
  *
  * Server component — receives pre-fetched data props; no client fetch.
  */
+
+import { computeDailyGrowth } from "@/lib/mailchimp/daily-growth";
 
 export interface MailchimpAudienceSnapshotSummary {
   email_subscribers: number | null;
@@ -55,25 +57,25 @@ export function MailchimpRegistrationsCard({
   const latest = snapshots.at(-1)!;
   const first = snapshots[0]!;
 
-  const totalRegistrations = latest.email_subscribers ?? null;
-  const newRegistrations =
-    latest.email_subscribers != null && first.email_subscribers != null
-      ? latest.email_subscribers - first.email_subscribers
-      : null;
+  const totalSubscribers = latest.email_subscribers ?? null;
 
-  const costPerRegistration: string =
-    newRegistrations != null &&
-    newRegistrations > 0 &&
-    totalSpendGbp != null &&
-    totalSpendGbp > 0
-      ? fmtGbp(totalSpendGbp / newRegistrations)
+  // Daily growth: delta between the two most-recent snapshots (today vs yesterday).
+  const { dailyNew, compareToDate } = computeDailyGrowth(snapshots);
+
+  const dailyNewDisplay =
+    dailyNew != null
+      ? dailyNew >= 0
+        ? `+${fmtInt(dailyNew)}`
+        : fmtInt(dailyNew)
       : "—";
 
-  const newRegDisplay =
-    newRegistrations != null
-      ? newRegistrations >= 0
-        ? `+${fmtInt(newRegistrations)}`
-        : fmtInt(newRegistrations)
+  // CPR uses total subscriber base, not just daily new.
+  const costPerRegistration: string =
+    totalSubscribers != null &&
+    totalSubscribers > 0 &&
+    totalSpendGbp != null &&
+    totalSpendGbp > 0
+      ? fmtGbp(totalSpendGbp / totalSubscribers)
       : "—";
 
   return (
@@ -105,19 +107,25 @@ export function MailchimpRegistrationsCard({
       <div className="grid grid-cols-3 gap-4 border-t border-border pt-4">
         <RegistrationMetric
           label="Total Subscribers"
-          value={totalRegistrations != null ? fmtInt(totalRegistrations) : "—"}
+          value={totalSubscribers != null ? fmtInt(totalSubscribers) : "—"}
           sub={`As of ${formatDate(latest.snapshot_at)}`}
         />
         <RegistrationMetric
-          label="New since baseline"
-          value={newRegDisplay}
-          sub={`vs ${formatDate(first.snapshot_at)}`}
-          highlight={newRegistrations != null && newRegistrations > 0}
+          label="New Subscribers"
+          value={dailyNewDisplay}
+          sub={
+            compareToDate != null
+              ? `vs ${formatDate(compareToDate)}`
+              : snapshots.length < 2
+                ? "Awaiting second snapshot"
+                : "—"
+          }
+          highlight={dailyNew != null && dailyNew > 0}
         />
         <RegistrationMetric
           label="Cost / Registration"
           value={costPerRegistration}
-          sub={costPerRegistration !== "—" ? "Cross-platform spend" : "Awaiting growth"}
+          sub={costPerRegistration !== "—" ? "Total subscribers basis" : "Awaiting data"}
         />
       </div>
     </section>
