@@ -22,7 +22,7 @@ export interface MailchimpRegistrationsData {
   hasAudience: boolean;
 }
 
-interface SnapshotRow {
+export interface SnapshotRow {
   email_subscribers: number | null;
   snapshot_at: string;
 }
