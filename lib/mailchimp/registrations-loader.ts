@@ -30,7 +30,7 @@ export async function loadEventRegistrations(
     const { data: eventRow, error: eventError } = await supabase
       .from("events")
       .select(
-        "mailchimp_audience_id, client:clients ( mailchimp_audience_id )",
+        "mailchimp_audience_id, client:clients ( mailchimp_audience_id, mailchimp_account_id )",
       )
       .eq("id", eventId)
       .maybeSingle();
@@ -40,8 +40,8 @@ export async function loadEventRegistrations(
     const ev = eventRow as {
       mailchimp_audience_id: string | null;
       client:
-        | { mailchimp_audience_id: string | null }
-        | { mailchimp_audience_id: string | null }[]
+        | { mailchimp_audience_id: string | null; mailchimp_account_id: string | null }
+        | { mailchimp_audience_id: string | null; mailchimp_account_id: string | null }[]
         | null;
     };
 
@@ -51,9 +51,10 @@ export async function loadEventRegistrations(
       clientRow?.mailchimp_audience_id ??
       null;
     const hasAudience = audienceId != null;
+    const mailchimpAccountConnected = !!(clientRow?.mailchimp_account_id);
 
     if (!hasAudience) {
-      return computeRegistrationsData([], false);
+      return computeRegistrationsData([], false, mailchimpAccountConnected);
     }
 
     const { data: rows, error: snapError } = await supabase
@@ -68,6 +69,7 @@ export async function loadEventRegistrations(
     return computeRegistrationsData(
       (rows ?? []) as MailchimpSnapshotRow[],
       hasAudience,
+      mailchimpAccountConnected,
     );
   } catch {
     return null;

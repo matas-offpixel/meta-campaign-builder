@@ -726,7 +726,18 @@ function BrandCampaignTrendChart({
     });
   };
 
-  if (days.length < 2) return null;
+  if (days.length < 2) {
+    return (
+      <div className="rounded-md border border-border bg-card p-6">
+        <p className="text-sm font-medium text-foreground">
+          {title ?? "Daily trend"}
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Chart will populate once daily snapshots accumulate.
+        </p>
+      </div>
+    );
+  }
 
   const titleLabel = title ?? `${granularity === "weekly" ? "Weekly" : "Daily"} trend`;
 

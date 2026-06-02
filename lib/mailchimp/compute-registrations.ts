@@ -26,6 +26,13 @@ export interface MailchimpRegistrationsData {
    * the "Mailchimp not linked" empty state.
    */
   hasAudience: boolean;
+  /**
+   * Whether a Mailchimp account credential row exists for this client
+   * (`clients.mailchimp_account_id` is non-null). When false the manual
+   * Refresh button on the internal dashboard is disabled with a tooltip
+   * directing the user to /settings/mailchimp.
+   */
+  mailchimpAccountConnected: boolean;
 }
 
 /**
@@ -35,10 +42,12 @@ export interface MailchimpRegistrationsData {
  *
  * @param snapshots Array of rows ordered oldest → newest. May be empty.
  * @param hasAudience Whether the event has a resolved audience id.
+ * @param mailchimpAccountConnected Whether the client has a connected Mailchimp account.
  */
 export function computeRegistrationsData(
   snapshots: MailchimpSnapshotRow[],
   hasAudience: boolean,
+  mailchimpAccountConnected = false,
 ): MailchimpRegistrationsData {
   if (snapshots.length === 0) {
     return {
@@ -47,6 +56,7 @@ export function computeRegistrationsData(
       baselineSubscribers: null,
       lastSyncedAt: null,
       hasAudience,
+      mailchimpAccountConnected,
     };
   }
 
@@ -66,5 +76,6 @@ export function computeRegistrationsData(
     baselineSubscribers,
     lastSyncedAt: latest.snapshot_at,
     hasAudience,
+    mailchimpAccountConnected,
   };
 }

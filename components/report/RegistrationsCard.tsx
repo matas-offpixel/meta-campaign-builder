@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { RefreshCw } from "lucide-react";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 
 interface Props extends MailchimpRegistrationsData {
@@ -11,6 +12,11 @@ interface Props extends MailchimpRegistrationsData {
    * a small "All sources" footnote since registrations are not per-platform.
    */
   allSourcesCaption?: boolean;
+  /**
+   * When provided, a Refresh button is rendered (internal dashboard only).
+   * Calling this triggers a re-sync of the Mailchimp audience data.
+   */
+  onRefreshRegistrations?: () => Promise<void>;
 }
 
 function fmtPlus(n: number): string {
@@ -52,7 +58,9 @@ export function RegistrationsCard({
   paidMediaSpent,
   lastSyncedAt,
   hasAudience,
+  mailchimpAccountConnected,
   allSourcesCaption = false,
+  onRefreshRegistrations,
 }: Props) {
   // Stable mount-time clock — avoids `Date.now()` in render (impure).
   const [nowMs] = useState(() => Date.now());
@@ -61,6 +69,8 @@ export function RegistrationsCard({
   // mount so server and client renders stay in sync.
   const [isStale, setIsStale] = useState(false);
   const [relSync, setRelSync] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!lastSyncedAt) return;
@@ -69,6 +79,19 @@ export function RegistrationsCard({
     setRelSync(relativeTime(lastSyncedAt, nowMs));
   }, [lastSyncedAt, nowMs]);
 
+  const handleRefresh = useCallback(async () => {
+    if (!onRefreshRegistrations || isRefreshing) return;
+    setIsRefreshing(true);
+    setRefreshError(null);
+    try {
+      await onRefreshRegistrations();
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : "Refresh failed");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [onRefreshRegistrations, isRefreshing]);
+
   const hasGrowth =
     newSinceBaseline != null && newSinceBaseline > 0;
 
@@ -76,11 +99,34 @@ export function RegistrationsCard({
     ? fmtCpr(paidMediaSpent, newSinceBaseline!)
     : null;
 
+  const refreshDisabled = !mailchimpAccountConnected;
+  const refreshTooltip = refreshDisabled
+    ? "Connect Mailchimp at /settings/mailchimp to enable refresh"
+    : isRefreshing
+      ? "Refreshing…"
+      : "Refresh Mailchimp data";
+
   return (
     <div className="rounded-md border border-border bg-card p-4">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        Registrations
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Registrations
+        </p>
+        {onRefreshRegistrations != null ? (
+          <button
+            type="button"
+            onClick={() => void handleRefresh()}
+            disabled={refreshDisabled || isRefreshing}
+            title={refreshTooltip}
+            aria-label={refreshTooltip}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <RefreshCw
+              className={`h-3 w-3 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+          </button>
+        ) : null}
+      </div>
       <div
         className="mt-3 space-y-2 text-foreground"
         title="New Mailchimp subscribers since launch baseline. Cost per registration = paid media spent ÷ new registrations."
@@ -126,6 +172,9 @@ export function RegistrationsCard({
           <p className="text-[11px] text-amber-500 dark:text-amber-400">
             Last synced {relSync}
           </p>
+        ) : null}
+        {refreshError ? (
+          <p className="text-[11px] text-red-500">{refreshError}</p>
         ) : null}
         {allSourcesCaption && hasAudience ? (
           <p className="text-[11px] text-muted-foreground">All sources</p>

@@ -583,6 +583,12 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         })()
       : [];
 
+  // Diagnostic: log each platform loader's resolution so production
+  // logs surface silent null returns immediately.
+  console.log(
+    `[share/report] token=${token} meta=${metaPayload ? "ok" : metaErrorReason ?? "null"} tiktok=${tiktokRowResolved ? tiktokRowResolved.id : "null"} googleAds=${googleAdsBlock ? "ok" : "null"} creatives=${creativesHaveContent ? "ok" : "null"}`,
+  );
+
   // Final fatal branch: only when there is genuinely nothing to
   // render — no Meta payload, no TikTok live/manual block, and no
   // usable creatives.
@@ -1489,6 +1495,93 @@ function buildEmptyTikTokBlockData(input: {
   };
 }
 
+/**
+ * Builds a lightweight `TikTokReportBlockData` from `event_daily_rollups`
+ * rows when no canonical TikTok campaign window exists (e.g. brand_campaign
+ * events that were never given an event_code). Surfaces spend + impressions +
+ * clicks so the TikTok block and platform pills render even without a live or
+ * manual import.
+ */
+function buildTikTokRollupFallback(
+  eventName: string,
+  rollups: EventDailyRollup[],
+): TikTokReportBlockData | null {
+  const rows = rollups.filter((r) => Number(r.tiktok_spend ?? 0) > 0);
+  if (rows.length === 0) return null;
+
+  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  const spend = rows.reduce((s, r) => s + Number(r.tiktok_spend ?? 0), 0);
+  const impressions = rows.reduce(
+    (s, r) => s + Number(r.tiktok_impressions ?? 0),
+    0,
+  );
+  const clicks = rows.reduce((s, r) => s + Number(r.tiktok_clicks ?? 0), 0);
+  const videoViews100p = rows.reduce(
+    (s, r) => s + Number(r.tiktok_video_views ?? 0),
+    0,
+  );
+
+  const spendRounded = Math.round(spend * 100) / 100;
+  const fetchedAt =
+    sorted[sorted.length - 1]?.source_tiktok_at ?? new Date().toISOString();
+
+  const campaign: TikTokCampaignTotals = {
+    campaign_name: `${eventName} TikTok`,
+    primary_status: "UNKNOWN",
+    currency: "GBP",
+    cost: spendRounded,
+    impressions: impressions > 0 ? Math.round(impressions) : null,
+    impressions_raw: null,
+    cpm:
+      impressions > 0 ? Math.round((spend / impressions) * 1000 * 100) / 100 : null,
+    clicks_destination: clicks > 0 ? Math.round(clicks) : null,
+    cpc_destination: clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : null,
+    ctr_destination:
+      impressions > 0 && clicks > 0
+        ? Math.round((clicks / impressions) * 10000) / 100
+        : null,
+    clicks_all: clicks > 0 ? Math.round(clicks) : null,
+    ctr_all:
+      impressions > 0 && clicks > 0
+        ? Math.round((clicks / impressions) * 10000) / 100
+        : null,
+    video_views_p100: videoViews100p > 0 ? Math.round(videoViews100p) : null,
+    reach: null,
+    cost_per_1000_reached: null,
+    frequency: null,
+    video_views_2s: null,
+    video_views_6s: null,
+    video_views_p25: null,
+    video_views_p50: null,
+    video_views_p75: null,
+    avg_play_time_per_user: null,
+    avg_play_time_per_video_view: null,
+    interactive_addon_impressions: null,
+    interactive_addon_destination_clicks: null,
+  };
+
+  return {
+    id: "rollup-no-window",
+    campaign_name: `${eventName} TikTok`,
+    date_range_start: sorted[0]!.date,
+    date_range_end: sorted[sorted.length - 1]!.date,
+    imported_at: fetchedAt,
+    source_label: "rollup",
+    snapshot: {
+      v: 1,
+      fetchedAt,
+      date_range_start: sorted[0]!.date,
+      date_range_end: sorted[sorted.length - 1]!.date,
+      campaign,
+      ads: [],
+      geo: [],
+      demographics: [],
+      interests: [],
+      searchTerms: [],
+    },
+  };
+}
+
 async function resolveTikTokReportBlock(input: {
   admin: ReturnType<typeof createServiceRoleClient>;
   token: string;
@@ -1510,7 +1603,11 @@ async function resolveTikTokReportBlock(input: {
       }),
     };
   }
-  if (!input.eventCode || !input.window) return null;
+  if (!input.eventCode || !input.window) {
+    // No canonical event window (typical for brand_campaign events).
+    // Fall back to rollup data so spend is still surfaced.
+    return buildTikTokRollupFallback(input.eventName, input.rollups);
+  }
   if (input.window.source === "computed") {
     const base = buildEmptyTikTokBlockData({
       eventName: input.eventName,

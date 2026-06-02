@@ -249,6 +249,12 @@ interface Props {
    * linked") so the column is never silently dropped.
    */
   registrationsData?: MailchimpRegistrationsData | null;
+  /**
+   * When provided, a Refresh button is shown on the REGISTRATIONS card
+   * (internal dashboard only). Calls the parent's refresh handler which
+   * should POST to /api/events/:id/mailchimp/refresh and re-load data.
+   */
+  onRefreshRegistrations?: () => Promise<void>;
 }
 
 export function EventReportView({
@@ -271,6 +277,7 @@ export function EventReportView({
   additionalSpendSlot,
   mailchimpSlot,
   registrationsData,
+  onRefreshRegistrations,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -466,7 +473,7 @@ export function EventReportView({
         {/* Platform filter pills — brand_campaign only; shown when multiple
             platforms have data. Above the timeframe pills so they communicate
             "this selector gates what the report below shows". */}
-        {isBrandCampaign && platformsWithSignal.length > 2 ? (
+        {isBrandCampaign && platformsWithSignal.length > 1 ? (
           <div className="flex flex-wrap gap-1.5">
             {platformsWithSignal.map((p) => {
               const PLATFORM_LABELS: Record<PlatformFilter, string> = {
@@ -566,6 +573,7 @@ export function EventReportView({
             onManualRefresh={onManualRefresh}
             additionalSpendSlot={additionalSpendSlot}
             registrationsData={registrationsData}
+            onRefreshRegistrations={onRefreshRegistrations}
             platformFilter={isBrandCampaign ? platformFilter : "all"}
           />
         ) : creativesSlot ? (
@@ -668,6 +676,12 @@ interface MetaReportBlockProps {
   /** Mailchimp registration metrics — rendered as the REGISTRATIONS card for brand_campaign events. */
   registrationsData?: MailchimpRegistrationsData | null;
   /**
+   * When provided, a Refresh button is shown on the REGISTRATIONS card
+   * (internal dashboard only). Calls POST /api/events/:id/mailchimp/refresh
+   * and reloads the registrations data.
+   */
+  onRefreshRegistrations?: () => Promise<void>;
+  /**
    * Active platform filter for brand_campaign performance summary.
    * When not "all", the spend number shown is for that platform only
    * and the Registrations card shows an "All sources" footnote since
@@ -702,6 +716,7 @@ function MetaReportBlock({
   onManualRefresh,
   additionalSpendSlot,
   registrationsData,
+  onRefreshRegistrations,
   platformFilter = "all",
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
@@ -819,13 +834,19 @@ function MetaReportBlock({
           </div>
 
           {isBrandCampaign ? (
-            registrationsData != null ? (
-              <RegistrationsCard
-                {...registrationsData}
-                paidMediaSpent={paidSpentDisplay}
-                allSourcesCaption={platformFilter !== "all"}
-              />
-            ) : null
+            <RegistrationsCard
+              {...(registrationsData ?? {
+                newSinceBaseline: null,
+                totalSubscribers: null,
+                baselineSubscribers: null,
+                lastSyncedAt: null,
+                hasAudience: false,
+                mailchimpAccountConnected: false,
+              })}
+              paidMediaSpent={paidSpentDisplay}
+              allSourcesCaption={platformFilter !== "all"}
+              onRefreshRegistrations={onRefreshRegistrations}
+            />
           ) : (
             <div className="rounded-md border border-border bg-card p-4">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
