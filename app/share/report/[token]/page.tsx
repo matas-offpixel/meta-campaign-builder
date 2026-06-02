@@ -729,6 +729,31 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     ? brandRollupSpend.meta + brandRollupSpend.tiktok + brandRollupSpend.google
     : 0;
 
+  // Compute TikTok rollup totals for the TIKTOK CAMPAIGN STATS block.
+  // Sourced from event_daily_rollups.tiktok_* columns (migration 056).
+  const tiktokRollupTotals =
+    event.kind === "brand_campaign" && brandRollupSpend && brandRollupSpend.tiktok > 0
+      ? {
+          spend: brandRollupSpend.tiktok,
+          impressions: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_impressions ?? 0),
+            0,
+          ),
+          clicks: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_clicks ?? 0),
+            0,
+          ),
+          videoViews: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_video_views ?? 0),
+            0,
+          ),
+          conversions: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_results ?? 0),
+            0,
+          ),
+        }
+      : null;
+
   // Compute total cross-platform spend for Mailchimp CPR.
   // For brand_campaign, use the same rollup source as the Daily Tracker.
   const totalSpendForCpr: number | null =
@@ -800,6 +825,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       }
       registrationsData={registrationsData}
       brandRollupSpend={brandRollupSpend}
+      tiktokRollupTotals={tiktokRollupTotals}
     />
   );
 }

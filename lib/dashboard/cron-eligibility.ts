@@ -18,6 +18,7 @@ export interface CronEligibilityResult {
   saleDateIds: string[];
   googleAdsIds: string[];
   codeMatchIds: string[];
+  brandCampaignIds: string[];
   sinceISO: string;
   untilISO: string;
   codeMatchSinceDate: string;
@@ -46,12 +47,14 @@ export function mergeRollupSyncEligibilityIds(input: {
   saleDateIds: Iterable<string>;
   googleAdsIds: Iterable<string>;
   codeMatchIds: Iterable<string>;
+  brandCampaignIds: Iterable<string>;
 }): string[] {
   return uniqueIds([
     ...input.ticketingIds,
     ...input.saleDateIds,
     ...input.googleAdsIds,
     ...input.codeMatchIds,
+    ...input.brandCampaignIds,
   ]);
 }
 
@@ -79,6 +82,7 @@ export async function loadActiveCreativesCronEligibility(
 ): Promise<CronEligibilityResult> {
   const sets = await loadEligibilitySets(supabase, now, {
     includeGoogleAds: false,
+    includeBrandCampaigns: false,
   });
   return {
     ...sets,
@@ -92,6 +96,7 @@ export async function loadRollupSyncCronEligibility(
 ): Promise<CronEligibilityResult> {
   const sets = await loadEligibilitySets(supabase, now, {
     includeGoogleAds: true,
+    includeBrandCampaigns: true,
   });
   return {
     ...sets,
@@ -102,7 +107,7 @@ export async function loadRollupSyncCronEligibility(
 async function loadEligibilitySets(
   supabase: DbClient,
   now: Date,
-  options: { includeGoogleAds: boolean },
+  options: { includeGoogleAds: boolean; includeBrandCampaigns: boolean },
 ): Promise<Omit<CronEligibilityResult, "eligibleIds">> {
   const sinceMs = now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000;
   const untilMs = now.getTime() + WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -113,12 +118,13 @@ async function loadEligibilitySets(
     CODE_MATCH_EVENT_DATE_LOOKBACK_DAYS,
   );
 
-  const [ticketingIds, saleDateIds, codeMatchIds, googleAdsIds] =
+  const [ticketingIds, saleDateIds, codeMatchIds, googleAdsIds, brandCampaignIds] =
     await Promise.all([
       loadTicketingIds(supabase),
       loadSaleDateIds(supabase, sinceISO, untilISO),
       loadCodeMatchIds(supabase, now),
       options.includeGoogleAds ? loadGoogleAdsIds(supabase) : Promise.resolve([]),
+      options.includeBrandCampaigns ? loadBrandCampaignIds(supabase) : Promise.resolve([]),
     ]);
 
   const ticketingSet = new Set(ticketingIds);
@@ -133,6 +139,7 @@ async function loadEligibilitySets(
     saleDateIds,
     googleAdsIds,
     codeMatchIds,
+    brandCampaignIds,
     sinceISO,
     untilISO,
     codeMatchSinceDate,
@@ -174,6 +181,20 @@ async function loadGoogleAdsIds(supabase: DbClient): Promise<string[]> {
     .from("events")
     .select("id")
     .not("google_ads_account_id", "is", null);
+  if (error) throw new Error(error.message);
+  return uniqueIds(
+    (data ?? [])
+      .map((row) => (row as { id: string | null }).id)
+      .filter(isNonEmptyString),
+  );
+}
+
+async function loadBrandCampaignIds(supabase: DbClient): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("id")
+    .eq("kind", "brand_campaign")
+    .in("status", [...CODE_MATCH_STATUSES]);
   if (error) throw new Error(error.message);
   return uniqueIds(
     (data ?? [])
