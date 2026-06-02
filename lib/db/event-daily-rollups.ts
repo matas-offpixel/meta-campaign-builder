@@ -66,6 +66,7 @@ export interface EventDailyRollup {
   tiktok_avg_play_time_ms: number | null;
   tiktok_post_engagement: number | null;
   tiktok_results: number | null;
+  tiktok_engagement_results: number | null;
   meta_impressions: number | null;
   meta_reach: number | null;
   meta_video_plays_3s: number | null;
@@ -517,6 +518,7 @@ export interface TikTokUpsertRow {
   tiktok_avg_play_time_ms?: number | null;
   tiktok_post_engagement?: number | null;
   tiktok_results: number;
+  tiktok_engagement_results?: number;
 }
 
 /**
@@ -545,7 +547,8 @@ function tiktokDataMatch(
     numEq(derived100p, ex.tiktok_video_views_100p) &&
     numEq(r.tiktok_avg_play_time_ms, ex.tiktok_avg_play_time_ms) &&
     numEq(r.tiktok_post_engagement, ex.tiktok_post_engagement) &&
-    numEq(r.tiktok_results, ex.tiktok_results)
+    numEq(r.tiktok_results, ex.tiktok_results) &&
+    numEq(r.tiktok_engagement_results, ex.tiktok_engagement_results)
   );
 }
 
@@ -560,7 +563,7 @@ export async function upsertTikTokRollups(
   const { data: existing } = await asAny(supabase)
     .from("event_daily_rollups")
     .select(
-      "date,tiktok_spend,tiktok_impressions,tiktok_reach,tiktok_clicks,tiktok_video_views,tiktok_video_views_2s,tiktok_video_views_6s,tiktok_video_views_100p,tiktok_avg_play_time_ms,tiktok_post_engagement,tiktok_results",
+      "date,tiktok_spend,tiktok_impressions,tiktok_reach,tiktok_clicks,tiktok_video_views,tiktok_video_views_2s,tiktok_video_views_6s,tiktok_video_views_100p,tiktok_avg_play_time_ms,tiktok_post_engagement,tiktok_results,tiktok_engagement_results",
     )
     .eq("event_id", args.eventId)
     .in("date", dates);
@@ -590,6 +593,7 @@ export async function upsertTikTokRollups(
       tiktok_avg_play_time_ms: r.tiktok_avg_play_time_ms ?? null,
       tiktok_post_engagement: r.tiktok_post_engagement ?? null,
       tiktok_results: r.tiktok_results,
+      tiktok_engagement_results: r.tiktok_engagement_results ?? 0,
       source_tiktok_at: now,
     }));
 

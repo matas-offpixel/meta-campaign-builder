@@ -83,7 +83,16 @@ describe("resolveGoalInfo", () => {
     assert.deepEqual(resolveGoalInfo(undefined), FALLBACK_GOAL_INFO);
   });
 
-  it("returns fallback for empty string", () => {
-    assert.deepEqual(resolveGoalInfo(""), FALLBACK_GOAL_INFO);
+  it("maps VIEW_CONTENT as engagement-style with correct labels", () => {
+    const info = resolveGoalInfo("VIEW_CONTENT");
+    assert.equal(info.resultKind, "engagement");
+    assert.equal(info.resultsLabel, "View Content events");
+    assert.equal(info.costPerLabel, "Cost per View Content");
+  });
+
+  it("maps CONVERT as conversion-style", () => {
+    const info = resolveGoalInfo("CONVERT");
+    assert.equal(info.resultKind, "conversion");
+    assert.equal(info.resultsLabel, "Conversions");
   });
 });

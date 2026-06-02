@@ -21,8 +21,17 @@ export interface TikTokRollupTotals {
   impressions: number;
   clicks: number;
   videoViews: number;
+  /** Conversion-style results (LEAD, COMPLETE_REGISTRATION, etc.) */
   conversions: number;
+  /** Engagement-style results (VIEW_CONTENT, etc.) */
+  engagementEvents?: number;
   reach?: number | null;
+  /** Primary results metric label for the stats card. */
+  resultsLabel?: string;
+  costPerLabel?: string;
+  isConversionStyle?: boolean;
+  showEngagementRow?: boolean;
+  showConversionRow?: boolean;
 }
 
 /**
@@ -329,11 +338,26 @@ export function TikTokCampaignStatsSection({
 }: {
   totals: TikTokRollupTotals;
 }) {
-  const { spend, impressions, clicks, videoViews, conversions, reach } = totals;
+  const {
+    spend,
+    impressions,
+    clicks,
+    videoViews,
+    conversions,
+    engagementEvents = 0,
+    reach,
+    resultsLabel = "Conversions",
+    costPerLabel = "Cost per conversion",
+    showEngagementRow = false,
+    showConversionRow = true,
+  } = totals;
   const cpm = impressions > 0 ? (spend / impressions) * 1000 : null;
   const ctr = impressions > 0 ? (clicks / impressions) * 100 : null;
   const cpc = clicks > 0 ? spend / clicks : null;
-  const cpa = conversions > 0 ? spend / conversions : null;
+  const costPerConversion = conversions > 0 ? spend / conversions : null;
+  const costPerEngagement =
+    engagementEvents > 0 ? spend / engagementEvents : null;
+
   return (
     <Section title="TikTok campaign stats">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -353,11 +377,28 @@ export function TikTokCampaignStatsSection({
         />
         <Metric label="CPM" value={cpm != null ? fmtCurrency(cpm) : "—"} />
         <Metric label="Video Views" value={fmtInt(videoViews)} />
-        <Metric
-          label="Conversions"
-          value={fmtInt(conversions)}
-          sub={cpa != null ? `${fmtCurrency(cpa)} / conversion` : null}
-        />
+        {showConversionRow ? (
+          <Metric
+            label={resultsLabel === "Conversions" ? "Conversions" : resultsLabel}
+            value={fmtInt(conversions)}
+            sub={
+              costPerConversion != null
+                ? `${fmtCurrency(costPerConversion)} ${costPerLabel.replace(/^Cost per /i, "/ ")}`
+                : null
+            }
+          />
+        ) : null}
+        {showEngagementRow ? (
+          <Metric
+            label={resultsLabel.includes("View Content") ? resultsLabel : "View Content events"}
+            value={fmtInt(engagementEvents)}
+            sub={
+              costPerEngagement != null
+                ? `${fmtCurrency(costPerEngagement)} ${costPerLabel.replace(/^Cost per /i, "/ ")}`
+                : null
+            }
+          />
+        ) : null}
       </div>
     </Section>
   );

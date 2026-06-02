@@ -159,12 +159,18 @@ export async function syncMailchimpAudienceDailyHistory(
 ): Promise<SyncMailchimpDailyHistoryResult> {
   const audienceId = resolveMailchimpAudienceId(event);
   if (!audienceId) {
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} failed: no_audience_id`,
+    );
     return { ok: false, rowsWritten: 0, error: "no_audience_id" };
   }
 
   const client = Array.isArray(event.client) ? event.client[0] : event.client;
   const accountId = client?.mailchimp_account_id ?? null;
   if (!accountId) {
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} failed: no_account_id (connect at /settings/mailchimp)`,
+    );
     return { ok: false, rowsWritten: 0, error: "no_account_id" };
   }
 
@@ -172,13 +178,20 @@ export async function syncMailchimpAudienceDailyHistory(
   try {
     credentials = await getMailchimpCredentials(supabase, accountId);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} credentials error: ${message}`,
+    );
     return {
       ok: false,
       rowsWritten: 0,
-      error: `credentials: ${err instanceof Error ? err.message : String(err)}`,
+      error: `credentials: ${message}`,
     };
   }
   if (!credentials) {
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} failed: no_credentials (mailchimp_accounts.credentials_encrypted empty or decrypt returned null)`,
+    );
     return { ok: false, rowsWritten: 0, error: "no_credentials" };
   }
 
@@ -187,10 +200,15 @@ export async function syncMailchimpAudienceDailyHistory(
   try {
     audience = await getAudience(credentials.dc, audienceId, credentials.apiKey);
   } catch (err) {
+    const message =
+      err instanceof MailchimpApiError ? err.message : String(err);
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} api_audience error: ${message}`,
+    );
     return {
       ok: false,
       rowsWritten: 0,
-      error: `api_audience: ${err instanceof MailchimpApiError ? err.message : String(err)}`,
+      error: `api_audience: ${message}`,
     };
   }
 
@@ -210,14 +228,22 @@ export async function syncMailchimpAudienceDailyHistory(
       Math.min(windowDays, 180),
     );
   } catch (err) {
+    const message =
+      err instanceof MailchimpApiError ? err.message : String(err);
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} api_activity error: ${message}`,
+    );
     return {
       ok: false,
       rowsWritten: 0,
-      error: `api_activity: ${err instanceof MailchimpApiError ? err.message : String(err)}`,
+      error: `api_activity: ${message}`,
     };
   }
 
   if (activityRows.length === 0) {
+    console.warn(
+      `[mailchimp-daily-sync] event=${event.id} ok but zero activity rows from Mailchimp API`,
+    );
     return { ok: true, rowsWritten: 0 };
   }
 
@@ -255,6 +281,9 @@ export async function syncMailchimpAudienceDailyHistory(
     .lte("snapshot_at", `${lastDate}T23:59:59Z`);
 
   if (deleteError) {
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} delete error: ${deleteError.message}`,
+    );
     return { ok: false, rowsWritten: 0, error: `delete: ${deleteError.message}` };
   }
 
@@ -263,8 +292,14 @@ export async function syncMailchimpAudienceDailyHistory(
     .insert(rows);
 
   if (insertError) {
+    console.error(
+      `[mailchimp-daily-sync] event=${event.id} insert error: ${insertError.message}`,
+    );
     return { ok: false, rowsWritten: 0, error: `insert: ${insertError.message}` };
   }
 
+  console.log(
+    `[mailchimp-daily-sync] event=${event.id} wrote ${rows.length} rows ${firstDate}..${lastDate}`,
+  );
   return { ok: true, rowsWritten: rows.length, firstDate, lastDate };
 }

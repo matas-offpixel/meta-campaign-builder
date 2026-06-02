@@ -1,5 +1,11 @@
 import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
 import { campaignNameMatchesEventCode } from "./matching.ts";
+import { buildMetricsForCampaign } from "./insights.ts";
+import {
+  isConversionStyleGoal,
+  isEngagementStyleGoal,
+  resolveGoalInfo,
+} from "./optimization-goal-map.ts";
 
 interface TikTokIntegratedRow {
   dimensions?: Record<string, string | undefined>;
@@ -17,10 +23,14 @@ interface TikTokIntegratedResponse {
 interface TikTokCampaignGetRow {
   campaign_id?: string;
   campaign_name?: string;
+  optimization_goal?: string;
 }
 
 interface TikTokCampaignGetResponse {
   list?: TikTokCampaignGetRow[];
+  page_info?: {
+    total_page?: number;
+  };
 }
 
 type TikTokGet = typeof tiktokGet;
@@ -37,7 +47,10 @@ export interface TikTokDailyInsightRow {
   tiktok_video_views_100p: number;
   tiktok_avg_play_time_ms: number | null;
   tiktok_post_engagement: number;
+  /** Conversion-style goal results only (LEAD, COMPLETE_REGISTRATION, etc.) */
   tiktok_results: number;
+  /** Engagement-style goal results (VIEW_CONTENT, etc.) */
+  tiktok_engagement_results: number;
 }
 
 export interface FetchTikTokDailyRollupInsightsInput {
@@ -50,23 +63,21 @@ export interface FetchTikTokDailyRollupInsightsInput {
   request?: TikTokGet;
 }
 
-export const TIKTOK_ROLLUP_METRICS = [
-  "spend",
-  "impressions",
-  "reach",
-  "clicks",
+/** Extra rollup metrics appended to every goal-specific fetch. */
+const ROLLUP_EXTRA_METRICS = [
   "comments",
   "likes",
   "shares",
   "follows",
-  "video_play_actions",
   "video_watched_2s",
   "video_watched_6s",
-  "video_views_p25",
-  "video_views_p50",
-  "video_views_p75",
   "video_views_p100",
   "average_video_play",
+] as const;
+
+export const TIKTOK_ROLLUP_METRICS = [
+  ...buildMetricsForCampaign(""),
+  ...ROLLUP_EXTRA_METRICS,
 ];
 
 const DIMENSIONS = ["campaign_id", "stat_time_day"];
@@ -74,10 +85,23 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
 const MAX_WINDOW_DAYS = 30;
 
+function buildRollupMetricsForGoal(goal: string): string[] {
+  const base = buildMetricsForCampaign(goal);
+  const seen = new Set(base);
+  for (const m of ROLLUP_EXTRA_METRICS) {
+    if (!seen.has(m)) base.push(m);
+  }
+  return base;
+}
+
 /**
  * TikTok analogue of Meta's `fetchEventDailyMetaMetrics`: read daily
- * campaign insights, enrich campaign names through `/campaign/get/`, apply the
- * reporting-layer event_code matcher to those names, then aggregate by day.
+ * campaign insights, enrich campaign names through `/campaign/get/`,
+ * apply the reporting-layer event_code matcher, then aggregate by day.
+ *
+ * Uses per-optimization-goal metric lists (same as campaign insights)
+ * so VIEW_CONTENT campaigns write view_content to engagement results,
+ * not video_play_actions mislabelled as conversions.
  */
 export async function fetchTikTokDailyRollupInsights(
   input: FetchTikTokDailyRollupInsightsInput,
@@ -90,6 +114,7 @@ export async function fetchTikTokDailyRollupInsights(
   const rawRows: Array<{
     campaignId: string;
     date: string;
+    optimizationGoal: string;
     spend: number;
     impressions: number;
     clicks: number;
@@ -99,57 +124,87 @@ export async function fetchTikTokDailyRollupInsights(
     videoViews100p: number;
     avgPlayTimeMs: number | null;
     postEngagement: number;
-    results: number;
+    conversionResults: number;
+    engagementResults: number;
   }> = [];
-  const campaignIds = new Set<string>();
 
-  for (const window of buildDateWindows(input.since, input.until)) {
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
-      const res = await request<TikTokIntegratedResponse>(
-        "/report/integrated/get/",
-        {
-          advertiser_id: input.advertiserId,
-          report_type: "BASIC",
-          data_level: "AUCTION_CAMPAIGN",
-          dimensions: DIMENSIONS,
-          metrics: TIKTOK_ROLLUP_METRICS,
-          start_date: window.since,
-          end_date: window.until,
-          page,
-          page_size: PAGE_SIZE,
-        },
-        input.token,
-      );
+  const campaignGoals = await fetchAllCampaignGoals({
+    advertiserId: input.advertiserId,
+    token: input.token,
+    request,
+  });
 
-      for (const row of res.list ?? []) {
-        const dims = row.dimensions ?? {};
-        const campaignId = dims.campaign_id;
-        const date = dims.stat_time_day;
-        if (!campaignId || !date) continue;
-        campaignIds.add(campaignId);
-        const metrics = row.metrics ?? {};
-        rawRows.push({
-          campaignId,
-          date: date.slice(0, 10),
-          spend: numberMetric(metrics.spend),
-          impressions: numberMetric(metrics.impressions),
-          reach: numberMetric(metrics.reach),
-          clicks: numberMetric(metrics.clicks),
-          videoViews2s: numberMetric(metrics.video_watched_2s),
-          videoViews6s: numberMetric(metrics.video_watched_6s),
-          videoViews100p: numberMetric(metrics.video_views_p100),
-          avgPlayTimeMs: nullableNumberMetric(metrics.average_video_play),
-          postEngagement:
-            numberMetric(metrics.comments) +
-            numberMetric(metrics.likes) +
-            numberMetric(metrics.shares) +
-            numberMetric(metrics.follows),
-          results: numberMetric(metrics.video_play_actions),
-        });
+  const goalGroups = new Map<string, Set<string>>();
+  if (campaignGoals.size === 0) {
+    goalGroups.set("", new Set());
+  } else {
+    for (const [id, goal] of campaignGoals) {
+      const key = goal.toUpperCase();
+      const set = goalGroups.get(key) ?? new Set();
+      set.add(id);
+      goalGroups.set(key, set);
+    }
+  }
+
+  for (const [goal, campaignIds] of goalGroups) {
+    const metrics = buildRollupMetricsForGoal(goal);
+    for (const window of buildDateWindows(input.since, input.until)) {
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const res = await request<TikTokIntegratedResponse>(
+          "/report/integrated/get/",
+          {
+            advertiser_id: input.advertiserId,
+            report_type: "BASIC",
+            data_level: "AUCTION_CAMPAIGN",
+            dimensions: DIMENSIONS,
+            metrics,
+            start_date: window.since,
+            end_date: window.until,
+            page,
+            page_size: PAGE_SIZE,
+          },
+          input.token,
+        );
+
+        for (const row of res.list ?? []) {
+          const dims = row.dimensions ?? {};
+          const campaignId = dims.campaign_id;
+          const date = dims.stat_time_day;
+          if (!campaignId || !date) continue;
+          if (campaignIds.size > 0 && !campaignIds.has(campaignId)) continue;
+
+          const goalInfo = resolveGoalInfo(campaignGoals.get(campaignId) ?? goal);
+          const m = row.metrics ?? {};
+          const goalValue = numberMetric(m[goalInfo.metricKey]);
+          rawRows.push({
+            campaignId,
+            date: date.slice(0, 10),
+            optimizationGoal: campaignGoals.get(campaignId) ?? goal,
+            spend: numberMetric(m.spend),
+            impressions: numberMetric(m.impressions),
+            reach: numberMetric(m.reach),
+            clicks: numberMetric(m.clicks),
+            videoViews2s: numberMetric(m.video_watched_2s),
+            videoViews6s: numberMetric(m.video_watched_6s),
+            videoViews100p: numberMetric(m.video_views_p100),
+            avgPlayTimeMs: nullableNumberMetric(m.average_video_play),
+            postEngagement:
+              numberMetric(m.comments) +
+              numberMetric(m.likes) +
+              numberMetric(m.shares) +
+              numberMetric(m.follows),
+            conversionResults: isConversionStyleGoal(campaignGoals.get(campaignId) ?? goal)
+              ? goalValue
+              : 0,
+            engagementResults: isEngagementStyleGoal(campaignGoals.get(campaignId) ?? goal)
+              ? goalValue
+              : 0,
+          });
+        }
+
+        const pageInfo = res.page_info;
+        if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
       }
-
-      const pageInfo = res.page_info;
-      if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
     }
   }
 
@@ -158,7 +213,7 @@ export async function fetchTikTokDailyRollupInsights(
   const names = await fetchTikTokCampaignNames({
     advertiserId: input.advertiserId,
     token: input.token,
-    campaignIds: [...campaignIds],
+    campaignIds: [...new Set(rawRows.map((r) => r.campaignId))],
     request,
   });
   const hasEnrichedNames = names.size > 0;
@@ -182,6 +237,7 @@ export async function fetchTikTokDailyRollupInsights(
       tiktok_avg_play_time_ms: null,
       tiktok_post_engagement: 0,
       tiktok_results: 0,
+      tiktok_engagement_results: 0,
     };
     existing.tiktok_spend += row.spend;
     existing.tiktok_impressions += row.impressions;
@@ -198,7 +254,8 @@ export async function fetchTikTokDailyRollupInsights(
       row.impressions,
     );
     existing.tiktok_post_engagement += row.postEngagement;
-    existing.tiktok_results += row.results;
+    existing.tiktok_results += row.conversionResults;
+    existing.tiktok_engagement_results += row.engagementResults;
     byDate.set(row.date, existing);
   }
 
@@ -219,8 +276,37 @@ export async function fetchTikTokDailyRollupInsights(
           : Math.round(row.tiktok_avg_play_time_ms),
       tiktok_post_engagement: Math.round(row.tiktok_post_engagement),
       tiktok_results: Math.round(row.tiktok_results),
+      tiktok_engagement_results: Math.round(row.tiktok_engagement_results),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function fetchAllCampaignGoals(input: {
+  advertiserId: string;
+  token: string;
+  request: TikTokGet;
+}): Promise<Map<string, string>> {
+  const goals = new Map<string, string>();
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const res = await input.request<TikTokCampaignGetResponse>(
+      "/campaign/get/",
+      {
+        advertiser_id: input.advertiserId,
+        fields: ["campaign_id", "campaign_name", "optimization_goal"],
+        page_size: PAGE_SIZE,
+        page,
+      },
+      input.token,
+    );
+    for (const row of res.list ?? []) {
+      if (row.campaign_id && row.optimization_goal) {
+        goals.set(row.campaign_id, row.optimization_goal);
+      }
+    }
+    const pageInfo = res.page_info;
+    if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
+  }
+  return goals;
 }
 
 async function fetchTikTokCampaignNames(input: {

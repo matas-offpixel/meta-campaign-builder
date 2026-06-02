@@ -57,6 +57,7 @@ import {
   type ShareSnapshotPayload,
 } from "@/lib/db/share-snapshots";
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
+import { buildTikTokRollupTotalsDisplay } from "@/lib/tiktok/rollup-totals-display";
 import type { TikTokShareAdRow } from "@/lib/tiktok/share-render";
 import { readActiveTikTokCreativesSnapshot } from "@/lib/tiktok/snapshots";
 import {
@@ -733,7 +734,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // Sourced from event_daily_rollups.tiktok_* columns (migration 056).
   const tiktokRollupTotals =
     event.kind === "brand_campaign" && brandRollupSpend && brandRollupSpend.tiktok > 0
-      ? {
+      ? buildTikTokRollupTotalsDisplay({
           spend: brandRollupSpend.tiktok,
           impressions: eventDailyData.rollups.reduce(
             (s, r) => s + Number(r.tiktok_impressions ?? 0),
@@ -747,11 +748,19 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
             (s, r) => s + Number(r.tiktok_video_views ?? 0),
             0,
           ),
-          conversions: eventDailyData.rollups.reduce(
+          rollupResults: eventDailyData.rollups.reduce(
             (s, r) => s + Number(r.tiktok_results ?? 0),
             0,
           ),
-        }
+          rollupEngagementResults: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_engagement_results ?? 0),
+            0,
+          ),
+          reach: eventDailyData.rollups.reduce(
+            (s, r) => s + Number(r.tiktok_reach ?? 0),
+            0,
+          ) || null,
+        })
       : null;
 
   // Compute total cross-platform spend for Mailchimp CPR.
@@ -815,7 +824,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         />
       }
       mailchimpSlot={
-        mailchimpSnapshots.length > 0 && mailchimpAudienceId ? (
+        mailchimpAudienceId ? (
           <MailchimpRegistrationsCard
             snapshots={mailchimpSnapshots}
             totalSpendGbp={totalSpendForCpr}

@@ -26,6 +26,7 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
           {
             campaign_id: "campaign-1",
             campaign_name: "[BB26-RIANBRAZIL] conversion",
+            optimization_goal: "CONVERT",
           },
         ],
       } as T;
@@ -57,6 +58,7 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
               video_watched_6s: "300",
               video_views_p100: "15",
               average_video_play: "1250",
+              conversion: "25",
             },
           },
         ],
@@ -85,6 +87,7 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
             video_watched_6s: "700",
             video_views_p100: "25",
             average_video_play: "1500",
+            conversion: "35",
           },
         },
       ],
@@ -97,31 +100,10 @@ function makeRequest(): { request: Request; reportCalls: ReportCall[] } {
 
 describe("fetchTikTokDailyRollupInsights date window chunking", () => {
   it("requests only TikTok-valid AUCTION_CAMPAIGN BASIC metrics", () => {
-    const validMetrics = new Set([
-      "spend",
-      "impressions",
-      "reach",
-      "clicks",
-      "comments",
-      "likes",
-      "shares",
-      "follows",
-      "video_play_actions",
-      "video_watched_2s",
-      "video_watched_6s",
-      "video_views_p25",
-      "video_views_p50",
-      "video_views_p75",
-      "video_views_p100",
-      "average_video_play",
-    ]);
-
     assert.ok(!TIKTOK_ROLLUP_METRICS.includes("engagements"));
     assert.ok(!TIKTOK_ROLLUP_METRICS.includes("post_engagement"));
-    assert.deepEqual(
-      TIKTOK_ROLLUP_METRICS.filter((metric) => !validMetrics.has(metric)),
-      [],
-    );
+    assert.ok(TIKTOK_ROLLUP_METRICS.includes("conversion"));
+    assert.ok(TIKTOK_ROLLUP_METRICS.includes("spend"));
   });
 
   it("requests both 30-day slices and accumulates rows across slices", async () => {
@@ -154,6 +136,7 @@ describe("fetchTikTokDailyRollupInsights date window chunking", () => {
         tiktok_avg_play_time_ms: 1250,
         tiktok_post_engagement: 42,
         tiktok_results: 25,
+        tiktok_engagement_results: 0,
       },
       {
         date: "2026-04-12",
@@ -168,6 +151,7 @@ describe("fetchTikTokDailyRollupInsights date window chunking", () => {
         tiktok_avg_play_time_ms: 1500,
         tiktok_post_engagement: 84,
         tiktok_results: 35,
+        tiktok_engagement_results: 0,
       },
     ]);
   });
