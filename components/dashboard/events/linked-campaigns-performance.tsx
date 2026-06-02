@@ -50,6 +50,8 @@ interface CampaignRow {
   cpr: number | null;
   results: number;
   ad_account_id: string;
+  /** TikTok only — human-readable label for the campaign's conversion objective. */
+  optimization_goal_label?: string;
 }
 
 interface Benchmarks {
@@ -405,6 +407,11 @@ function CampaignTable({
                       <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/60" />
                     ) : null}
                   </div>
+                  {c.optimization_goal_label ? (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      Optimising for: {c.optimization_goal_label}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums">
                   {formatCurrency(c.spend)}

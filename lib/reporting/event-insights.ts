@@ -56,6 +56,12 @@ export interface CampaignInsightsRow {
   video_quartile_p50_rate?: number | null;
   video_quartile_p75_rate?: number | null;
   video_quartile_p100_rate?: number | null;
+  /**
+   * Human-readable label for the campaign's conversion objective.
+   * Populated by the TikTok insights layer only.
+   * e.g. "Registration", "Purchase", "Add to Cart".
+   */
+  optimization_goal_label?: string;
 }
 
 interface InsightsRow {
