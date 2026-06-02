@@ -24,6 +24,7 @@ import {
   EventReportView,
   type EventReportViewEvent,
 } from "./event-report-view";
+import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 import {
   InternalActiveCreativesSection,
   type InternalActiveCreativesHandle,
@@ -105,6 +106,8 @@ export function InternalEventReport({
   const [canonicalTicketsLifetime, setCanonicalTicketsLifetime] = useState<
     number | null
   >(null);
+  const [registrationsData, setRegistrationsData] =
+    useState<MailchimpRegistrationsData | null>(null);
 
   const loadRollupTimeline = useCallback(async () => {
     try {
@@ -128,6 +131,23 @@ export function InternalEventReport({
     } catch {
       setRollupTimeline([]);
       setCanonicalTicketsLifetime(null);
+    }
+  }, [eventId]);
+
+  const loadRegistrationsData = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(eventId)}/mailchimp/snapshots`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        ok?: boolean;
+        data?: MailchimpRegistrationsData;
+      };
+      if (json.ok && json.data) setRegistrationsData(json.data);
+    } catch {
+      // Non-fatal — card will render with null (hidden).
     }
   }, [eventId]);
 
@@ -243,6 +263,12 @@ export function InternalEventReport({
       void loadRollupTimeline();
     });
   }, [loadRollupTimeline]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadRegistrationsData();
+    });
+  }, [loadRegistrationsData]);
 
   const sellOutPacing = useMemo(
     () =>
@@ -459,6 +485,7 @@ export function InternalEventReport({
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={additionalSpendSlot}
+      registrationsData={registrationsData}
     />
     </>
   );
