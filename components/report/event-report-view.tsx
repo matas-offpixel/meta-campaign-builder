@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { sumAdditionalSpendAmounts } from "@/lib/db/additional-spend-sum";
 import {
@@ -8,6 +8,7 @@ import {
   fmtCurrencyCompact,
   fmtDate,
 } from "@/lib/dashboard/format";
+import { computeCrossPlatformRateMetrics } from "@/lib/dashboard/brand-campaign-cross-platform-stats";
 import {
   fullDaysUntilEventUtc,
   type SellOutPacingResult,
@@ -340,16 +341,6 @@ export function EventReportView({
   if (googleAdsSpend > 0) platformsWithSignal.push("google");
   if (tiktokSpend > 0) platformsWithSignal.push("tiktok");
 
-  const filteredPaidMediaSpent =
-    isBrandCampaign
-      ? platformFilter === "meta"
-        ? metaSpend
-        : platformFilter === "tiktok"
-          ? tiktokSpend
-          : platformFilter === "google"
-            ? googleAdsSpend
-            : platformSpend
-      : platformSpend;
   const remainingPaidMedia = Math.max(0, paidMediaCap - paidMediaSpent);
   const paidMediaBudgetUsedPct =
     paidMediaCap > 0 && meta
@@ -574,7 +565,7 @@ export function EventReportView({
             event={event}
             paidMediaCap={paidMediaCap}
             metaSpend={metaSpend}
-            paidMediaSpent={filteredPaidMediaSpent}
+            paidMediaSpent={paidMediaSpent}
             remainingPaidMedia={remainingPaidMedia}
             paidMediaBudgetUsedPct={paidMediaBudgetUsedPct}
             totalMarketingAllocated={totalMarketingAllocated}
@@ -598,6 +589,7 @@ export function EventReportView({
             onRefreshRegistrations={onRefreshRegistrations}
             platformFilter={isBrandCampaign ? platformFilter : "all"}
             totalCrossPlatformSpent={paidMediaSpent}
+            brandRollupSpend={brandRollupSpend}
             tiktokStats={tiktokRollupTotals}
             showCrossPlatformCaption={isBrandCampaign && !!brandRollupSpend}
           />
@@ -721,6 +713,8 @@ interface MetaReportBlockProps {
    * aren't attributable per-platform yet).
    */
   totalCrossPlatformSpent?: number;
+  /** Per-platform spend from event_daily_rollups (brand_campaign). */
+  brandRollupSpend?: { meta: number; tiktok: number; google: number } | null;
   /**
    * TikTok rollup totals for the TIKTOK CAMPAIGN STATS block.
    * When provided and the active pill is "tiktok" (or "all"), renders
@@ -766,6 +760,7 @@ function MetaReportBlock({
   onRefreshRegistrations,
   platformFilter = "all",
   totalCrossPlatformSpent = 0,
+  brandRollupSpend = null,
   tiktokStats,
   showCrossPlatformCaption = false,
 }: MetaReportBlockProps) {
@@ -778,6 +773,42 @@ function MetaReportBlock({
       : null;
 
   const paidSpentDisplay = paidMediaSpent;
+
+  const displayMeta = useMemo(() => {
+    if (
+      !isBrandCampaign ||
+      platformFilter !== "all" ||
+      !brandRollupSpend ||
+      !tiktokStats
+    ) {
+      return meta;
+    }
+    const combined = computeCrossPlatformRateMetrics(
+      {
+        metaSpend: brandRollupSpend.meta,
+        tiktokSpend: brandRollupSpend.tiktok,
+        googleSpend: brandRollupSpend.google,
+      },
+      {
+        metaImpressions: meta.totals.impressions,
+        tiktokImpressions: tiktokStats.impressions,
+        googleImpressions: 0,
+        metaClicks: meta.totals.clicks,
+        tiktokClicks: tiktokStats.clicks,
+        googleClicks: 0,
+      },
+    );
+    return {
+      ...meta,
+      totals: {
+        ...meta.totals,
+        spend: combined.spend,
+        impressions: combined.impressions,
+        clicks: combined.clicks,
+        cpm: combined.cpm ?? meta.totals.cpm,
+      },
+    };
+  }, [meta, isBrandCampaign, platformFilter, brandRollupSpend, tiktokStats]);
 
   return (
     <>
@@ -844,11 +875,13 @@ function MetaReportBlock({
                   <span className="text-muted-foreground">—</span>
                 )}
               </p>
-              {metaSpend > 0 ? (
+              {showCrossPlatformCaption && paidSpentDisplay > 0 ? (
                 <p className="text-[11px] text-muted-foreground tabular-nums">
-                  {showCrossPlatformCaption
-                    ? "Cross-platform spend"
-                    : "Meta spend (this window)"}
+                  Cross-platform spend
+                </p>
+              ) : metaSpend > 0 ? (
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  Meta spend (this window)
                 </p>
               ) : null}
               <p className="font-heading text-xl tracking-wide tabular-nums">
@@ -967,7 +1000,7 @@ function MetaReportBlock({
       {(!isBrandCampaign || platformFilter !== "tiktok") ? (
         <>
           <MetaCampaignStatsSection
-            meta={meta}
+            meta={displayMeta}
             isRefreshing={isRefreshing}
             kind={isBrandCampaign ? "brand_campaign" : "event"}
           />

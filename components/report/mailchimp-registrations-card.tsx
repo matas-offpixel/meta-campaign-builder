@@ -52,7 +52,24 @@ export function MailchimpRegistrationsCard({
   totalSpendGbp,
   audienceId,
 }: MailchimpRegistrationsCardProps) {
-  if (snapshots.length === 0) return null;
+  if (snapshots.length === 0) {
+    return (
+      <section className="rounded-md border border-dashed border-border bg-card p-5 space-y-2">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+          Email Registrations
+        </p>
+        <h2 className="font-heading text-base tracking-wide text-foreground">
+          Mailchimp Audience
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Audience{" "}
+          <span className="font-mono text-[11px]">{audienceId}</span>
+          {" · "}
+          Mailchimp not synced yet — subscriber history will appear after the daily cron runs or you trigger Backfill history.
+        </p>
+      </section>
+    );
+  }
 
   const latest = snapshots.at(-1)!;
   const first = snapshots[0]!;

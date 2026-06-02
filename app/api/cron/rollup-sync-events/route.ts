@@ -81,6 +81,8 @@ interface EventSyncResult {
   googleAdsError: string | null;
   mailchimpOk: boolean;
   mailchimpError: string | null;
+  mailchimpReachable: boolean;
+  mailchimpRowsWritten: number;
   rowsUpserted: number;
   durationMs: number;
 }
@@ -239,6 +241,8 @@ export async function GET(req: NextRequest) {
       // For brand_campaign events, sync Mailchimp audience daily history.
       let mailchimpOk = true;
       let mailchimpError: string | null = null;
+      let mailchimpReachable = true;
+      let mailchimpRowsWritten = 0;
       if (event.kind === "brand_campaign") {
         try {
           const mailchimpResult = await syncMailchimpAudienceDailyHistory(
@@ -253,10 +257,13 @@ export async function GET(req: NextRequest) {
             },
             180,
           );
+          mailchimpRowsWritten = mailchimpResult.rowsWritten;
+          mailchimpReachable = mailchimpResult.ok;
           if (!mailchimpResult.ok) {
             mailchimpOk = false;
             mailchimpError = mailchimpResult.error ?? "unknown";
-            console.warn(
+            mailchimpReachable = false;
+            console.error(
               `[cron rollup-sync-events] mailchimp event=${event.id} error=${mailchimpError}`,
             );
           } else {
@@ -266,6 +273,7 @@ export async function GET(req: NextRequest) {
           }
         } catch (err) {
           mailchimpOk = false;
+          mailchimpReachable = false;
           mailchimpError = err instanceof Error ? err.message : String(err);
           console.error(
             `[cron rollup-sync-events] mailchimp event=${event.id} threw: ${mailchimpError}`,
@@ -290,6 +298,8 @@ export async function GET(req: NextRequest) {
         googleAdsError: result.summary.googleAdsError,
         mailchimpOk,
         mailchimpError,
+        mailchimpReachable,
+        mailchimpRowsWritten,
         rowsUpserted: result.summary.rowsUpserted,
         durationMs: Date.now() - t0,
       });
@@ -313,6 +323,8 @@ export async function GET(req: NextRequest) {
         googleAdsError: message,
         mailchimpOk: false,
         mailchimpError: message,
+        mailchimpReachable: false,
+        mailchimpRowsWritten: 0,
         rowsUpserted: 0,
         durationMs: Date.now() - t0,
       });

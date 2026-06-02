@@ -140,6 +140,15 @@ export function RegistrationsCard({
               Mailchimp not linked
             </p>
           </>
+        ) : !hasTotal && totalSubscribers == null ? (
+          <>
+            <p className="font-heading text-xl tracking-wide text-muted-foreground">
+              —
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Mailchimp not synced yet — run Backfill history or wait for the daily cron
+            </p>
+          </>
         ) : (
           <>
             <p className="font-heading text-xl tracking-wide tabular-nums">

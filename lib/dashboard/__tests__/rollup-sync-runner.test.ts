@@ -236,6 +236,7 @@ describe("runRollupSyncForEvent TikTok leg", () => {
         tiktok_avg_play_time_ms: 4200,
         tiktok_post_engagement: 9000,
         tiktok_results: 9000,
+        tiktok_engagement_results: 0,
       },
     ];
     const { input, upserted } = baseInput({
