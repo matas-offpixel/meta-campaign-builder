@@ -624,6 +624,11 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       initialTimeline={eventDailyData.timeline}
       initialPresale={presale}
       canonicalTicketsLifetime={canonicalTicketsLifetime}
+      mailchimpSnapshots={
+        event.kind === "brand_campaign" && mailchimpSnapshots.length > 0
+          ? (mailchimpSnapshots as { email_subscribers: number | null; snapshot_at: string }[])
+          : undefined
+      }
     />
   );
 

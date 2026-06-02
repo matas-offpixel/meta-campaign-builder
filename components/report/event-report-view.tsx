@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { sumAdditionalSpendAmounts } from "@/lib/db/additional-spend-sum";
 import {
@@ -300,6 +300,27 @@ export function EventReportView({
     meta != null ? platformSpend + otherSpendWindow : platformSpend;
   /** Burn against paid media budget across every surfaced paid platform. */
   const paidMediaSpent = platformSpend;
+
+  // ─── Global platform filter (brand_campaign only) ───────────────────────
+  type PlatformFilter = "all" | "meta" | "google" | "tiktok";
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
+
+  // Determine which platforms have any signal so we only show populated pills.
+  const platformsWithSignal: PlatformFilter[] = ["all"];
+  if (metaSpend > 0) platformsWithSignal.push("meta");
+  if (googleAdsSpend > 0) platformsWithSignal.push("google");
+  if (tiktokSpend > 0) platformsWithSignal.push("tiktok");
+
+  const filteredPaidMediaSpent =
+    isBrandCampaign
+      ? platformFilter === "meta"
+        ? metaSpend
+        : platformFilter === "tiktok"
+          ? tiktokSpend
+          : platformFilter === "google"
+            ? googleAdsSpend
+            : platformSpend
+      : platformSpend;
   const remainingPaidMedia = Math.max(0, paidMediaCap - paidMediaSpent);
   const paidMediaBudgetUsedPct =
     paidMediaCap > 0 && meta
@@ -442,6 +463,50 @@ export function EventReportView({
           ) : null}
         </section>
 
+        {/* Platform filter pills — brand_campaign only; shown when multiple
+            platforms have data. Above the timeframe pills so they communicate
+            "this selector gates what the report below shows". */}
+        {isBrandCampaign && platformsWithSignal.length > 2 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {platformsWithSignal.map((p) => {
+              const PLATFORM_LABELS: Record<PlatformFilter, string> = {
+                all: "All",
+                meta: "Meta",
+                google: "Google Ads",
+                tiktok: "TikTok",
+              };
+              const PLATFORM_COLOURS: Record<Exclude<PlatformFilter, "all">, string> = {
+                meta: "#2563eb",
+                google: "#ea4335",
+                tiktok: "#111827",
+              };
+              const isActive = platformFilter === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPlatformFilter(p)}
+                  aria-pressed={isActive}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    isActive
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+                  }`}
+                >
+                  {p !== "all" && (
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: PLATFORM_COLOURS[p] }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  {PLATFORM_LABELS[p]}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         {/* Timeframe selector — Meta-only (drives Meta insights window).
             Hidden on TikTok-only renders since the manual TikTok snapshot
             already carries its own date range and re-imports replace it.
@@ -480,7 +545,7 @@ export function EventReportView({
             event={event}
             paidMediaCap={paidMediaCap}
             metaSpend={metaSpend}
-            paidMediaSpent={paidMediaSpent}
+            paidMediaSpent={filteredPaidMediaSpent}
             remainingPaidMedia={remainingPaidMedia}
             paidMediaBudgetUsedPct={paidMediaBudgetUsedPct}
             totalMarketingAllocated={totalMarketingAllocated}
@@ -501,6 +566,7 @@ export function EventReportView({
             onManualRefresh={onManualRefresh}
             additionalSpendSlot={additionalSpendSlot}
             registrationsData={registrationsData}
+            platformFilter={isBrandCampaign ? platformFilter : "all"}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -601,6 +667,13 @@ interface MetaReportBlockProps {
   additionalSpendSlot?: React.ReactNode;
   /** Mailchimp registration metrics — rendered as the REGISTRATIONS card for brand_campaign events. */
   registrationsData?: MailchimpRegistrationsData | null;
+  /**
+   * Active platform filter for brand_campaign performance summary.
+   * When not "all", the spend number shown is for that platform only
+   * and the Registrations card shows an "All sources" footnote since
+   * registration attribution per-platform is out of scope for this PR.
+   */
+  platformFilter?: "all" | "meta" | "google" | "tiktok";
 }
 
 function MetaReportBlock({
@@ -629,6 +702,7 @@ function MetaReportBlock({
   onManualRefresh,
   additionalSpendSlot,
   registrationsData,
+  platformFilter = "all",
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -749,6 +823,7 @@ function MetaReportBlock({
               <RegistrationsCard
                 {...registrationsData}
                 paidMediaSpent={paidSpentDisplay}
+                allSourcesCaption={platformFilter !== "all"}
               />
             ) : null
           ) : (
