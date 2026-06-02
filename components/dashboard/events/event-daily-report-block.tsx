@@ -270,6 +270,8 @@ export function EventDailyReportBlock(props: Props) {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [awarenessPlatform, setAwarenessPlatform] =
     useState<PlatformKey>("all");
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<string | null>(null);
 
   const loadAdditionalSpend = useCallback(async () => {
     if (isShare) return;
@@ -404,6 +406,30 @@ export function EventDailyReportBlock(props: Props) {
       );
     } finally {
       setSyncing(false);
+    }
+  }, [event.id, refresh, isShare]);
+
+  const backfillHistorical = useCallback(async () => {
+    if (isShare) return;
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(event.id)}/backfill-rollups`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ windowDays: 365 }) },
+      );
+      const json = await res.json() as { ok?: boolean; rowsUpserted?: number; error?: string };
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setBackfillResult(
+        `Backfill complete — ${json.rowsUpserted ?? 0} row(s) written.`,
+      );
+      await refresh();
+    } catch (err) {
+      setBackfillResult(
+        `Backfill failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    } finally {
+      setBackfilling(false);
     }
   }, [event.id, refresh, isShare]);
 
@@ -582,6 +608,22 @@ export function EventDailyReportBlock(props: Props) {
             Sync now
           </Button>
         )}
+        {!isShare && event.kind === "brand_campaign" && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void backfillHistorical()}
+            disabled={backfilling || syncing || loading}
+            title="Pull historical day-by-day data from Meta + TikTok (up to 1 year back) and upsert into event_daily_rollups."
+          >
+            {backfilling ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Backfill history
+          </Button>
+        )}
       </div>
 
       {/* Sync status panel — renders the result of the last sync
@@ -598,6 +640,11 @@ export function EventDailyReportBlock(props: Props) {
           showDiagnostics={showDiagnostics}
           onToggleDiagnostics={() => setShowDiagnostics((v) => !v)}
         />
+      ) : null}
+      {backfillResult ? (
+        <p className="rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+          {backfillResult}
+        </p>
       ) : null}
 
       {/* Performance Summary is redundant for brand_campaign — every metric

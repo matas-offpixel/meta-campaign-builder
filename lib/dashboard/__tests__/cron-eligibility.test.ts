@@ -19,13 +19,14 @@ describe("cron eligibility merging", () => {
     );
   });
 
-  it("keeps rollup-sync loose across ticketing, sale-date, google, and code-match legs", () => {
+  it("keeps rollup-sync loose across ticketing, sale-date, google, code-match, and brand-campaign legs", () => {
     assert.deepEqual(
       mergeRollupSyncEligibilityIds({
         ticketingIds: ["ticketing-only", "union-dup"],
         saleDateIds: ["sale-date-only", "union-dup"],
         googleAdsIds: ["google-ads-only"],
         codeMatchIds: ["code-match-only"],
+        brandCampaignIds: ["brand-campaign-only"],
       }),
       [
         "ticketing-only",
@@ -33,6 +34,7 @@ describe("cron eligibility merging", () => {
         "sale-date-only",
         "google-ads-only",
         "code-match-only",
+        "brand-campaign-only",
       ],
     );
   });

@@ -24,6 +24,8 @@ import {
   MetaCampaignBreakdownSection,
   MetaDemographicsSection,
   MetaCampaignStatsSection,
+  TikTokCampaignStatsSection,
+  type TikTokRollupTotals,
   Section,
   Metric,
   fmtInt,
@@ -266,6 +268,13 @@ interface Props {
    * Meta API window-scoped payload.
    */
   brandRollupSpend?: { meta: number; tiktok: number; google: number } | null;
+  /**
+   * TikTok per-platform rollup totals (impressions, clicks, video views,
+   * conversions) computed server-side from event_daily_rollups.
+   * When provided, enables the TIKTOK CAMPAIGN STATS block for
+   * brand_campaign events. Omit for regular events.
+   */
+  tiktokRollupTotals?: TikTokRollupTotals | null;
 }
 
 export function EventReportView({
@@ -290,6 +299,7 @@ export function EventReportView({
   registrationsData,
   onRefreshRegistrations,
   brandRollupSpend,
+  tiktokRollupTotals,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -587,6 +597,8 @@ export function EventReportView({
             registrationsData={registrationsData}
             onRefreshRegistrations={onRefreshRegistrations}
             platformFilter={isBrandCampaign ? platformFilter : "all"}
+            totalCrossPlatformSpent={paidMediaSpent}
+            tiktokStats={tiktokRollupTotals}
             showCrossPlatformCaption={isBrandCampaign && !!brandRollupSpend}
           />
         ) : creativesSlot ? (
@@ -702,6 +714,22 @@ interface MetaReportBlockProps {
    */
   platformFilter?: "all" | "meta" | "google" | "tiktok";
   /**
+   * Cross-platform total spend (all platforms, unfiltered). Always
+   * £Meta + £TikTok + £Google regardless of the active pill. Used for
+   * the REGISTRATIONS card CPR so toggling a platform pill doesn't
+   * re-denominate registrations to one platform's spend (registrations
+   * aren't attributable per-platform yet).
+   */
+  totalCrossPlatformSpent: number;
+  /**
+   * TikTok rollup totals for the TIKTOK CAMPAIGN STATS block.
+   * When provided and the active pill is "tiktok" (or "all"), renders
+   * the TikTok stats alongside / instead of the Meta stats block.
+   * Sourced from event_daily_rollups.tiktok_* columns on the share page;
+   * null for regular event-kind events and when no TikTok data exists.
+   */
+  tiktokStats?: TikTokRollupTotals | null;
+  /**
    * When true, the PAID MEDIA spend caption reads "Cross-platform spend"
    * instead of "Meta spend (this window)". Set for brand_campaign events
    * when brandRollupSpend is provided.
@@ -737,6 +765,8 @@ function MetaReportBlock({
   registrationsData,
   onRefreshRegistrations,
   platformFilter = "all",
+  totalCrossPlatformSpent,
+  tiktokStats,
   showCrossPlatformCaption = false,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
@@ -865,7 +895,7 @@ function MetaReportBlock({
                 hasAudience: false,
                 mailchimpAccountConnected: false,
               })}
-              paidMediaSpent={paidSpentDisplay}
+              paidMediaSpent={totalCrossPlatformSpent}
               allSourcesCaption={platformFilter !== "all"}
               onRefreshRegistrations={onRefreshRegistrations}
             />
@@ -931,32 +961,63 @@ function MetaReportBlock({
         ) : null}
       </Section>
 
-      <MetaCampaignStatsSection
-        meta={meta}
-        isRefreshing={isRefreshing}
-        kind={isBrandCampaign ? "brand_campaign" : "event"}
-      />
-      <MetaCampaignBreakdownSection
-        meta={meta}
-        kind={isBrandCampaign ? "brand_campaign" : "event"}
-      />
-      <MetaDemographicsSection meta={meta} />
-
-      {/* Creative section. The share page swaps in a server-rendered
-          "Active creatives" component via `creativesSlot` so the
-          client-facing report doesn't need a "Load creative previews"
-          click. The internal Reporting tab leaves the slot undefined
-          and keeps the existing lazy section, which still serves the
-          deeper per-creative_id breakdown for power-user inspection. */}
-      {creativesSlot ?? (
-        <Section title="Creative performance">
-          <CreativePerformanceLazy
-            source={creativesSource}
-            datePreset={datePreset}
-            customRange={customRange}
+      {/* Platform-responsive stats blocks for brand_campaign.
+          Meta pill: show only Meta.  TikTok pill: show only TikTok.
+          All (or regular event): show Meta (+ TikTok when data exists). */}
+      {(!isBrandCampaign || platformFilter !== "tiktok") ? (
+        <>
+          <MetaCampaignStatsSection
+            meta={meta}
+            isRefreshing={isRefreshing}
+            kind={isBrandCampaign ? "brand_campaign" : "event"}
           />
+          <MetaCampaignBreakdownSection
+            meta={meta}
+            kind={isBrandCampaign ? "brand_campaign" : "event"}
+          />
+          <MetaDemographicsSection meta={meta} />
+        </>
+      ) : null}
+      {isBrandCampaign && (platformFilter === "tiktok" || platformFilter === "all") && tiktokStats ? (
+        <TikTokCampaignStatsSection totals={tiktokStats} />
+      ) : isBrandCampaign && platformFilter === "tiktok" ? (
+        <Section title="TikTok campaign stats">
+          <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+            TikTok rollup data not yet available for this event.
+          </p>
         </Section>
+      ) : null}
+
+      {/* Creative section. When TikTok pill is active for brand_campaign,
+          show the TikTok creative empty state instead of the Meta slot.
+          The share page swaps in a server-rendered "Active creatives"
+          component via `creativesSlot` for Meta. */}
+      {isBrandCampaign && platformFilter === "tiktok" ? (
+        <Section title="Active creatives">
+          <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+            TikTok creative-level data syncing — check back in 24h.
+          </p>
+        </Section>
+      ) : (
+        creativesSlot ?? (
+          <Section title="Creative performance">
+            <CreativePerformanceLazy
+              source={creativesSource}
+              datePreset={datePreset}
+              customRange={customRange}
+            />
+          </Section>
+        )
       )}
+
+      {/* TikTok demographics empty state (platform data syncing). */}
+      {isBrandCampaign && platformFilter === "tiktok" ? (
+        <Section title="TikTok audience">
+          <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+            TikTok audience breakdown syncing — check back in 24h.
+          </p>
+        </Section>
+      ) : null}
 
       {/* "Last updated …" + manual Refresh button (PR #63 — moved up
           from the page-level footer so the share page's button sits

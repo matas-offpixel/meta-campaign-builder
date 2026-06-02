@@ -14,6 +14,17 @@ import type { CampaignStatusReason } from "@/lib/insights/campaign-status";
 import type { EventInsightsPayload } from "@/lib/insights/types";
 import type { MetaDemographicRow } from "@/lib/insights/types";
 
+// ─── TikTok stats ────────────────────────────────────────────────────────────
+
+export interface TikTokRollupTotals {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  videoViews: number;
+  conversions: number;
+  reach?: number | null;
+}
+
 /**
  * PR #419 (audit follow-up — Bug 2): the venue insights routes now
  * decorate `totals.reach` / `totals.reachSource` from
@@ -302,6 +313,52 @@ export function MetaDemographicsSection({ meta }: { meta: EventInsightsPayload }
         <DemographicTable rows={demographics.genders} emptyLabel="No Meta gender rows available yet." />
       </BreakdownSection>
     </>
+  );
+}
+
+// ─── TikTok campaign stats section ──────────────────────────────────────────
+
+/**
+ * Mirrors `MetaCampaignStatsSection` for TikTok platform data.
+ * Sources from `event_daily_rollups.tiktok_*` columns via the
+ * `TikTokRollupTotals` shape computed server-side on the share page.
+ */
+export function TikTokCampaignStatsSection({
+  totals,
+}: {
+  totals: TikTokRollupTotals;
+}) {
+  const { spend, impressions, clicks, videoViews, conversions, reach } = totals;
+  const cpm = impressions > 0 ? (spend / impressions) * 1000 : null;
+  const ctr = impressions > 0 ? (clicks / impressions) * 100 : null;
+  const cpc = clicks > 0 ? spend / clicks : null;
+  const cpa = conversions > 0 ? spend / conversions : null;
+  return (
+    <Section title="TikTok campaign stats">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <Metric label="Spend" value={fmtCurrency(spend)} />
+        <Metric label="Impressions" value={fmtInt(impressions)} />
+        {reach != null ? (
+          <Metric label="Reach" value={fmtInt(reach)} />
+        ) : null}
+        <Metric
+          label="Clicks"
+          value={fmtInt(clicks)}
+          sub={cpc != null ? `${fmtCurrency(cpc)} per click` : null}
+        />
+        <Metric
+          label="CTR"
+          value={ctr != null ? `${ctr.toFixed(2)}%` : "—"}
+        />
+        <Metric label="CPM" value={cpm != null ? fmtCurrency(cpm) : "—"} />
+        <Metric label="Video Views" value={fmtInt(videoViews)} />
+        <Metric
+          label="Conversions"
+          value={fmtInt(conversions)}
+          sub={cpa != null ? `${fmtCurrency(cpa)} / conversion` : null}
+        />
+      </div>
+    </Section>
   );
 }
 

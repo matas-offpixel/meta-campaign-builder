@@ -22,6 +22,7 @@ import {
   type EventReportViewEvent,
 } from "./event-report-view";
 import type { TikTokReportBlockData } from "./tiktok-report-block";
+import type { TikTokRollupTotals } from "./meta-insights-sections";
 import type { GoogleAdsReportBlockData } from "./google-ads-report-block";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 
@@ -116,6 +117,11 @@ interface Props {
    * use the same canonical source as the bottom Daily Tracker / Trend chart.
    */
   brandRollupSpend?: { meta: number; tiktok: number; google: number } | null;
+  /**
+   * TikTok rollup totals (spend + impressions + clicks + video views + conversions)
+   * for the TIKTOK CAMPAIGN STATS block. brand_campaign share pages only.
+   */
+  tiktokRollupTotals?: TikTokRollupTotals | null;
 }
 
 /*
@@ -162,6 +168,7 @@ export function PublicReport({
   mailchimpSlot,
   registrationsData,
   brandRollupSpend,
+  tiktokRollupTotals,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -364,6 +371,7 @@ export function PublicReport({
       mailchimpSlot={mailchimpSlot}
       registrationsData={registrationsData}
       brandRollupSpend={brandRollupSpend}
+      tiktokRollupTotals={tiktokRollupTotals}
     />
   );
 }
