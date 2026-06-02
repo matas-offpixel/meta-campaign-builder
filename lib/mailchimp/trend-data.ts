@@ -10,14 +10,15 @@ export interface MailchimpTrendPoint {
   /** YYYY-MM-DD — matches TimelineRow.date. */
   date: string;
   /**
-   * Cumulative new subscribers since the launch baseline up to this day.
-   * Carries the last-known snapshot value forward between snapshots.
-   * Null before any snapshot has been captured.
+   * Total email subscribers as of this snapshot day (absolute count,
+   * not delta from baseline). Carries the last-known value forward
+   * between snapshot days. Null before the first snapshot.
    */
   newRegs: number | null;
   /**
    * Cumulative paid spend (all platforms) up to this day divided by
-   * cumulative new registrations.  Null when newRegs <= 0 or spend is zero.
+   * total subscribers on this day.  Null when totalSubscribers <= 0
+   * or spend is zero.
    */
   cpr: number | null;
 }
@@ -55,11 +56,14 @@ function dailySpend(row: SpendRow): number {
  * Builds a per-day array of Registrations and CPR values by joining
  * Mailchimp snapshots with the event's spend rollup timeline.
  *
- * Registrations = cumulative `email_subscribers - baseline` at each day,
- * carrying the last-known snapshot value forward.
+ * Registrations = absolute `email_subscribers` count at each day,
+ * carrying the last-known snapshot value forward between snapshots.
+ * This is the total subscriber base (not a delta from baseline) so
+ * the chart series trends upward as audience grows.
  *
- * CPR = cumulative_spend_to_date / cumulative_new_regs. Null when
- * newRegs <= 0 or when there is no snapshot data yet for a day.
+ * CPR = cumulative_spend_to_date / total_subscribers. Matches the
+ * MAILCHIMP AUDIENCE card math and trends down as the audience grows
+ * faster than spend.
  */
 export function computeMailchimpTrendPoints(
   snapshots: MailchimpSnapshotRow[],
@@ -70,7 +74,6 @@ export function computeMailchimpTrendPoints(
   const sortedSnaps = [...snapshots].sort((a, b) =>
     a.snapshot_at.localeCompare(b.snapshot_at),
   );
-  const baseline = sortedSnaps[0]!.email_subscribers ?? 0;
 
   // Index snapshots by YYYY-MM-DD so we can do O(1) lookups per day.
   const snapByDay = new Map<string, number | null>();
@@ -99,13 +102,14 @@ export function computeMailchimpTrendPoints(
       continue;
     }
 
-    const newRegs = lastKnownSubs - baseline;
+    // CPR uses total subscriber base (not delta from baseline) so it
+    // matches the MAILCHIMP AUDIENCE card on the same report page.
     const cpr =
-      newRegs > 0 && cumulativeSpend > 0
-        ? cumulativeSpend / newRegs
+      lastKnownSubs > 0 && cumulativeSpend > 0
+        ? cumulativeSpend / lastKnownSubs
         : null;
 
-    result.push({ date: row.date, newRegs, cpr });
+    result.push({ date: row.date, newRegs: lastKnownSubs, cpr });
   }
 
   return result;
