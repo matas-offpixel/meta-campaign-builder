@@ -212,6 +212,54 @@ export async function listAudiences(
   );
 }
 
+/**
+ * One entry from the Mailchimp per-day audience activity endpoint.
+ * `subs` / `unsubs` / `other_adds` / `other_removes` are daily DELTAS.
+ * The cumulative total must be reconstructed by anchoring to the live
+ * `member_count` from `getAudience()` and walking backwards.
+ */
+export interface MailchimpActivityRow {
+  day: string;           // YYYY-MM-DD
+  emails_sent: number;
+  unique_opens: number;
+  recipient_clicks: number;
+  hard_bounce: number;
+  soft_bounce: number;
+  subs: number;          // new subscriptions that day
+  unsubs: number;        // unsubscribes that day
+  other_adds: number;    // admin-added or imported
+  other_removes: number; // admin-removed or cleaned
+}
+
+export interface MailchimpListActivityResponse {
+  activity: MailchimpActivityRow[];
+  list_id: string;
+  total_items: number;
+}
+
+/**
+ * Fetches per-day subscriber activity for an audience.
+ * Returns up to `count` days of activity (Mailchimp max is 180).
+ *
+ * IMPORTANT: each row contains DAILY DELTAS (subs, unsubs), not
+ * cumulative totals. Call `getAudience()` for the live total and walk
+ * backwards through the activity array to reconstruct daily cumulatives.
+ */
+export async function getAudienceListActivity(
+  apiKey: string,
+  dc: string,
+  listId: string,
+  count: number,
+): Promise<MailchimpActivityRow[]> {
+  const res = await mailchimpGet<MailchimpListActivityResponse>(
+    dc,
+    `/lists/${listId}/activity`,
+    { count: String(Math.min(count, 180)) },
+    apiKey,
+  );
+  return res.activity ?? [];
+}
+
 /** Returns the account info (used to derive loginId at connect time). */
 export async function getAccountInfo(
   dc: string,

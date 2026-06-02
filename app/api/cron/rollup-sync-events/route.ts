@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import { warnMetaReconcileDriftForTopRollupEvents } from "@/lib/dashboard/rollup-meta-reconcile-log";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import { syncMailchimpAudienceDailyHistory } from "@/lib/mailchimp/sync";
 
 /**
  * GET /api/cron/rollup-sync-events
@@ -50,16 +51,20 @@ interface EventToSync {
   id: string;
   user_id: string;
   client_id: string | null;
+  kind: string | null;
   event_code: string | null;
   event_timezone: string | null;
   event_date: string | null;
   general_sale_at: string | null;
+  mailchimp_audience_id: string | null;
   tiktok_account_id: string | null;
   google_ads_account_id: string | null;
   client: {
     meta_ad_account_id: string | null;
     tiktok_account_id: string | null;
     google_ads_account_id: string | null;
+    mailchimp_account_id: string | null;
+    mailchimp_audience_id: string | null;
   } | null;
 }
 
@@ -74,6 +79,8 @@ interface EventSyncResult {
   tiktokError: string | null;
   googleAdsOk: boolean;
   googleAdsError: string | null;
+  mailchimpOk: boolean;
+  mailchimpError: string | null;
   rowsUpserted: number;
   durationMs: number;
 }
@@ -164,7 +171,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, client_id, event_code, event_timezone, event_date, general_sale_at, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+      "id, user_id, client_id, kind, event_code, event_timezone, event_date, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .in("id", eligibility.eligibleIds);
   if (eventErr) {
@@ -228,9 +235,48 @@ export async function GET(req: NextRequest) {
       });
 
       totalRowsUpserted += result.summary.rowsUpserted;
+
+      // For brand_campaign events, sync Mailchimp audience daily history.
+      let mailchimpOk = true;
+      let mailchimpError: string | null = null;
+      if (event.kind === "brand_campaign") {
+        try {
+          const mailchimpResult = await syncMailchimpAudienceDailyHistory(
+            supabase,
+            {
+              id: event.id,
+              user_id: event.user_id,
+              kind: event.kind,
+              mailchimp_audience_id: event.mailchimp_audience_id,
+              client_id: event.client_id,
+              client: clientRel ? (Array.isArray(clientRel) ? clientRel[0] : clientRel) as unknown as { mailchimp_account_id: string | null; mailchimp_audience_id: string | null } : null,
+            },
+            180,
+          );
+          if (!mailchimpResult.ok) {
+            mailchimpOk = false;
+            mailchimpError = mailchimpResult.error ?? "unknown";
+            console.warn(
+              `[cron rollup-sync-events] mailchimp event=${event.id} error=${mailchimpError}`,
+            );
+          } else {
+            console.log(
+              `[cron rollup-sync-events] mailchimp event=${event.id} rows=${mailchimpResult.rowsWritten} ${mailchimpResult.firstDate}..${mailchimpResult.lastDate}`,
+            );
+          }
+        } catch (err) {
+          mailchimpOk = false;
+          mailchimpError = err instanceof Error ? err.message : String(err);
+          console.error(
+            `[cron rollup-sync-events] mailchimp event=${event.id} threw: ${mailchimpError}`,
+          );
+        }
+      }
+
       const eventOk =
         result.summary.synced &&
-        (!hasGoogleAdsAccount || result.summary.googleAdsOk);
+        (!hasGoogleAdsAccount || result.summary.googleAdsOk) &&
+        mailchimpOk;
       results.push({
         eventId: event.id,
         ok: eventOk,
@@ -242,6 +288,8 @@ export async function GET(req: NextRequest) {
         tiktokError: result.summary.tiktokError,
         googleAdsOk: result.summary.googleAdsOk,
         googleAdsError: result.summary.googleAdsError,
+        mailchimpOk,
+        mailchimpError,
         rowsUpserted: result.summary.rowsUpserted,
         durationMs: Date.now() - t0,
       });
@@ -263,6 +311,8 @@ export async function GET(req: NextRequest) {
         tiktokError: message,
         googleAdsOk: false,
         googleAdsError: message,
+        mailchimpOk: false,
+        mailchimpError: message,
         rowsUpserted: 0,
         durationMs: Date.now() - t0,
       });
