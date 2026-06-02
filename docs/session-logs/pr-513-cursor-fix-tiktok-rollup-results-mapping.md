@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 513
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/513
 - **Branch:** `cursor/fix-tiktok-rollup-results-mapping`
 
 ## Summary
