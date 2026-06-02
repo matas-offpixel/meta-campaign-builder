@@ -14,6 +14,7 @@ export interface TikTokRollupDeps {
     eventCode: string;
     since: string;
     until: string;
+    eventId?: string;
   }) => Promise<TikTokDailyInsightRow[]>;
   upsertRollups: (
     supabase: SupabaseClient,
@@ -98,6 +99,7 @@ export async function runTikTokRollupLeg(
       eventCode: args.eventCode,
       since: args.since,
       until: args.until,
+      eventId: args.eventId,
       retryDelayMs: args.retryDelayMs,
       deps: args.deps,
     });
@@ -178,6 +180,7 @@ async function fetchTikTokWithOneRunnerRateLimitRetry(args: {
   eventCode: string;
   since: string;
   until: string;
+  eventId: string;
   retryDelayMs: number;
   deps: TikTokRollupDeps;
 }): Promise<TikTokDailyInsightRow[]> {

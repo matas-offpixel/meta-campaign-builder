@@ -608,7 +608,10 @@ function BrandCampaignTrendChart({
   );
 
   const aggregatedDays = useMemo(
-    () => aggregateTrendChartPoints(canonicalPoints, granularity),
+    () =>
+      aggregateTrendChartPoints(canonicalPoints, granularity, {
+        leadingAnchor: "spend_or_registrations",
+      }),
     [canonicalPoints, granularity],
   );
 

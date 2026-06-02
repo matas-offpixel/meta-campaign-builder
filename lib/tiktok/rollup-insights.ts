@@ -1,7 +1,7 @@
 import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
 import { campaignNameMatchesEventCode } from "./matching.ts";
 import { buildMetricsForCampaign } from "./insights.ts";
-import { resolveGoalInfo, resolveRollupCountsFromMetrics } from "./optimization-goal-map.ts";
+import { resolveRollupCountsFromMetrics } from "./optimization-goal-map.ts";
 
 interface TikTokIntegratedRow {
   dimensions?: Record<string, string | undefined>;
@@ -55,8 +55,31 @@ export interface FetchTikTokDailyRollupInsightsInput {
   eventCode: string;
   since: string;
   until: string;
+  /** Optional — enables structured per-campaign diagnostic logs. */
+  eventId?: string;
   /** Test hook only — production callers use the default `tiktokGet`. */
   request?: TikTokGet;
+}
+
+/**
+ * Union of all metrics needed for rollup sync across every optimization goal
+ * present in the advertiser account. Rollup uses one report call per date
+ * window (not per-goal batches) so dual-metric goals always receive conversion
+ * AND view_content in the same response payload.
+ */
+export function buildRollupReportMetrics(
+  campaignGoals: Map<string, string>,
+): string[] {
+  const metrics = new Set<string>([
+    ...buildMetricsForCampaign(""),
+    ...ROLLUP_EXTRA_METRICS,
+  ]);
+  for (const goal of new Set(campaignGoals.values())) {
+    for (const m of buildMetricsForCampaign(goal)) {
+      metrics.add(m);
+    }
+  }
+  return [...metrics];
 }
 
 /** Extra rollup metrics appended to every goal-specific fetch. */
@@ -81,23 +104,13 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
 const MAX_WINDOW_DAYS = 30;
 
-function buildRollupMetricsForGoal(goal: string): string[] {
-  const base = buildMetricsForCampaign(goal);
-  const seen = new Set(base);
-  for (const m of ROLLUP_EXTRA_METRICS) {
-    if (!seen.has(m)) base.push(m);
-  }
-  return base;
-}
-
 /**
  * TikTok analogue of Meta's `fetchEventDailyMetaMetrics`: read daily
  * campaign insights, enrich campaign names through `/campaign/get/`,
  * apply the reporting-layer event_code matcher, then aggregate by day.
  *
- * Uses per-optimization-goal metric lists (same as campaign insights).
- * VIEW_CONTENT campaigns write pixel conversions to tiktok_results and
- * view_content events to tiktok_engagement_results.
+ * Uses a unified metric list (all goals in the account) so dual-metric
+ * VIEW_CONTENT campaigns receive conversion + view_content in one response.
  */
 export async function fetchTikTokDailyRollupInsights(
   input: FetchTikTokDailyRollupInsightsInput,
@@ -130,73 +143,66 @@ export async function fetchTikTokDailyRollupInsights(
     request,
   });
 
-  const goalGroups = new Map<string, Set<string>>();
-  if (campaignGoals.size === 0) {
-    goalGroups.set("", new Set());
-  } else {
-    for (const [id, goal] of campaignGoals) {
-      const key = goal.toUpperCase();
-      const set = goalGroups.get(key) ?? new Set();
-      set.add(id);
-      goalGroups.set(key, set);
-    }
-  }
+  const metrics = buildRollupReportMetrics(campaignGoals);
 
-  for (const [goal, campaignIds] of goalGroups) {
-    const metrics = buildRollupMetricsForGoal(goal);
-    for (const window of buildDateWindows(input.since, input.until)) {
-      for (let page = 1; page <= MAX_PAGES; page += 1) {
-        const res = await request<TikTokIntegratedResponse>(
-          "/report/integrated/get/",
-          {
-            advertiser_id: input.advertiserId,
-            report_type: "BASIC",
-            data_level: "AUCTION_CAMPAIGN",
-            dimensions: DIMENSIONS,
-            metrics,
-            start_date: window.since,
-            end_date: window.until,
-            page,
-            page_size: PAGE_SIZE,
-          },
-          input.token,
-        );
+  for (const window of buildDateWindows(input.since, input.until)) {
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const res = await request<TikTokIntegratedResponse>(
+        "/report/integrated/get/",
+        {
+          advertiser_id: input.advertiserId,
+          report_type: "BASIC",
+          data_level: "AUCTION_CAMPAIGN",
+          dimensions: DIMENSIONS,
+          metrics,
+          start_date: window.since,
+          end_date: window.until,
+          page,
+          page_size: PAGE_SIZE,
+        },
+        input.token,
+      );
 
-        for (const row of res.list ?? []) {
-          const dims = row.dimensions ?? {};
-          const campaignId = dims.campaign_id;
-          const date = dims.stat_time_day;
-          if (!campaignId || !date) continue;
-          if (campaignIds.size > 0 && !campaignIds.has(campaignId)) continue;
+      for (const row of res.list ?? []) {
+        const dims = row.dimensions ?? {};
+        const campaignId = dims.campaign_id;
+        const date = dims.stat_time_day;
+        if (!campaignId || !date) continue;
 
-          const optimizationGoal = campaignGoals.get(campaignId) ?? goal;
-          const m = row.metrics ?? {};
-          const counts = resolveRollupCountsFromMetrics(optimizationGoal, m);
-          rawRows.push({
-            campaignId,
-            date: date.slice(0, 10),
-            optimizationGoal,
-            spend: numberMetric(m.spend),
-            impressions: numberMetric(m.impressions),
-            reach: numberMetric(m.reach),
-            clicks: numberMetric(m.clicks),
-            videoViews2s: numberMetric(m.video_watched_2s),
-            videoViews6s: numberMetric(m.video_watched_6s),
-            videoViews100p: numberMetric(m.video_views_p100),
-            avgPlayTimeMs: nullableNumberMetric(m.average_video_play),
-            postEngagement:
-              numberMetric(m.comments) +
-              numberMetric(m.likes) +
-              numberMetric(m.shares) +
-              numberMetric(m.follows),
-            conversionResults: counts.conversionResults,
-            engagementResults: counts.engagementResults,
-          });
+        const optimizationGoal = campaignGoals.get(campaignId) ?? "";
+        const m = row.metrics ?? {};
+        const counts = resolveRollupCountsFromMetrics(optimizationGoal, m);
+
+        if (input.eventId) {
+          console.log(
+            `[rollup-sync-tiktok] event=${input.eventId} campaign=${campaignId} goal=${optimizationGoal || "unknown"} conv=${counts.conversionResults} eng=${counts.engagementResults}`,
+          );
         }
 
-        const pageInfo = res.page_info;
-        if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
+        rawRows.push({
+          campaignId,
+          date: date.slice(0, 10),
+          optimizationGoal,
+          spend: numberMetric(m.spend),
+          impressions: numberMetric(m.impressions),
+          reach: numberMetric(m.reach),
+          clicks: numberMetric(m.clicks),
+          videoViews2s: numberMetric(m.video_watched_2s),
+          videoViews6s: numberMetric(m.video_watched_6s),
+          videoViews100p: numberMetric(m.video_views_p100),
+          avgPlayTimeMs: nullableNumberMetric(m.average_video_play),
+          postEngagement:
+            numberMetric(m.comments) +
+            numberMetric(m.likes) +
+            numberMetric(m.shares) +
+            numberMetric(m.follows),
+          conversionResults: counts.conversionResults,
+          engagementResults: counts.engagementResults,
+        });
       }
+
+      const pageInfo = res.page_info;
+      if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
     }
   }
 
