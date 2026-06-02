@@ -23,6 +23,7 @@ import {
 } from "./event-report-view";
 import type { TikTokReportBlockData } from "./tiktok-report-block";
 import type { GoogleAdsReportBlockData } from "./google-ads-report-block";
+import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 
 interface Props {
   event: EventReportViewEvent;
@@ -103,6 +104,11 @@ interface Props {
    * this client wrapper.
    */
   mailchimpSlot?: ReactNode;
+  /**
+   * Mailchimp registration metrics for the Campaign Performance header
+   * REGISTRATIONS card (brand_campaign events only).
+   */
+  registrationsData?: MailchimpRegistrationsData | null;
 }
 
 /*
@@ -147,6 +153,7 @@ export function PublicReport({
   sellOutPacing = null,
   additionalSpendSlot,
   mailchimpSlot,
+  registrationsData,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -347,6 +354,7 @@ export function PublicReport({
       sellOutPacing={sellOutPacing}
       additionalSpendSlot={additionalSpendSlot}
       mailchimpSlot={mailchimpSlot}
+      registrationsData={registrationsData}
     />
   );
 }

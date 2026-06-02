@@ -38,6 +38,8 @@ import {
   GoogleAdsReportBlock,
   type GoogleAdsReportBlockData,
 } from "./google-ads-report-block";
+import { RegistrationsCard } from "./RegistrationsCard";
+import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 /**
  * components/report/event-report-view.tsx
  *
@@ -240,6 +242,13 @@ interface Props {
    * Positioned below the event daily block.
    */
   mailchimpSlot?: ReactNode;
+  /**
+   * Mailchimp registration metrics — drives the REGISTRATIONS card in
+   * the Campaign Performance header strip for `brand_campaign` events.
+   * When null/undefined the card renders an empty state ("Mailchimp not
+   * linked") so the column is never silently dropped.
+   */
+  registrationsData?: MailchimpRegistrationsData | null;
 }
 
 export function EventReportView({
@@ -261,6 +270,7 @@ export function EventReportView({
   sellOutPacing = null,
   additionalSpendSlot,
   mailchimpSlot,
+  registrationsData,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -490,6 +500,7 @@ export function EventReportView({
             lastUpdatedIso={lastUpdatedIso}
             onManualRefresh={onManualRefresh}
             additionalSpendSlot={additionalSpendSlot}
+            registrationsData={registrationsData}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -588,6 +599,8 @@ interface MetaReportBlockProps {
   onManualRefresh?: () => Promise<void>;
   /** Below campaign performance cards, above Meta campaign stats. */
   additionalSpendSlot?: React.ReactNode;
+  /** Mailchimp registration metrics — rendered as the REGISTRATIONS card for brand_campaign events. */
+  registrationsData?: MailchimpRegistrationsData | null;
 }
 
 function MetaReportBlock({
@@ -615,6 +628,7 @@ function MetaReportBlock({
   lastUpdatedIso,
   onManualRefresh,
   additionalSpendSlot,
+  registrationsData,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -730,7 +744,14 @@ function MetaReportBlock({
             </div>
           </div>
 
-          {!isBrandCampaign ? (
+          {isBrandCampaign ? (
+            registrationsData != null ? (
+              <RegistrationsCard
+                {...registrationsData}
+                paidMediaSpent={paidSpentDisplay}
+              />
+            ) : null
+          ) : (
             <div className="rounded-md border border-border bg-card p-4">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 Tickets
@@ -778,7 +799,7 @@ function MetaReportBlock({
                 </p>
               </div>
             </div>
-          ) : null}
+          )}
         </div>
         {channelMultiActive ? (
           <ChannelBreakdownStrip

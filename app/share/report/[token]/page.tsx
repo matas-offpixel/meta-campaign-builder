@@ -83,6 +83,7 @@ import {
   MailchimpRegistrationsCard,
   type MailchimpAudienceSnapshotSummary,
 } from "@/components/report/mailchimp-registrations-card";
+import { computeRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -695,6 +696,15 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         })()
       : null;
 
+  // Registrations data for the Campaign Performance header strip card.
+  const registrationsData =
+    event.kind === "brand_campaign"
+      ? computeRegistrationsData(
+          mailchimpSnapshots as { email_subscribers: number | null; snapshot_at: string }[],
+          mailchimpAudienceId != null,
+        )
+      : null;
+
   return (
     <PublicReport
       event={{
@@ -738,6 +748,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           />
         ) : null
       }
+      registrationsData={registrationsData}
     />
   );
 }
