@@ -19,13 +19,13 @@ interface Props extends MailchimpRegistrationsData {
   onRefreshRegistrations?: () => Promise<void>;
 }
 
-function fmtPlus(n: number): string {
-  return `+${n.toLocaleString("en-GB")}`;
+function fmtTotal(n: number): string {
+  return n.toLocaleString("en-GB");
 }
 
-function fmtCpr(spent: number, newRegs: number): string | null {
-  if (newRegs <= 0 || spent <= 0) return null;
-  const cpr = spent / newRegs;
+function fmtCpr(spent: number, total: number): string | null {
+  if (total <= 0 || spent <= 0) return null;
+  const cpr = spent / total;
   return `£${cpr.toFixed(2)} cost per reg`;
 }
 
@@ -50,11 +50,12 @@ const STALE_MS = 48 * 3_600_000;
  * REGISTRATIONS summary card — rendered in the Campaign Performance
  * header strip for `brand_campaign` events.
  *
- * Mirrors the TICKETS card layout: title, large primary value,
- * secondary "cost per reg" line, optional stale warning caption.
+ * Mirrors the TICKETS card layout: large primary value = TOTAL
+ * Mailchimp subscribers (not delta vs baseline). CPR = paid spend
+ * ÷ total subscribers.
  */
 export function RegistrationsCard({
-  newSinceBaseline,
+  totalSubscribers,
   paidMediaSpent,
   lastSyncedAt,
   hasAudience,
@@ -92,11 +93,10 @@ export function RegistrationsCard({
     }
   }, [onRefreshRegistrations, isRefreshing]);
 
-  const hasGrowth =
-    newSinceBaseline != null && newSinceBaseline > 0;
+  const hasTotal = totalSubscribers != null && totalSubscribers > 0;
 
-  const cprLine = hasGrowth
-    ? fmtCpr(paidMediaSpent, newSinceBaseline!)
+  const cprLine = hasTotal
+    ? fmtCpr(paidMediaSpent, totalSubscribers!)
     : null;
 
   const refreshDisabled = !mailchimpAccountConnected;
@@ -129,7 +129,7 @@ export function RegistrationsCard({
       </div>
       <div
         className="mt-3 space-y-2 text-foreground"
-        title="New Mailchimp subscribers since launch baseline. Cost per registration = paid media spent ÷ new registrations."
+        title="Total Mailchimp subscribers on the linked audience. Cost per registration = paid media spent ÷ total subscribers."
       >
         {!hasAudience ? (
           <>
@@ -143,11 +143,11 @@ export function RegistrationsCard({
         ) : (
           <>
             <p className="font-heading text-xl tracking-wide tabular-nums">
-              {hasGrowth ? (
-                fmtPlus(newSinceBaseline!)
+              {hasTotal ? (
+                fmtTotal(totalSubscribers!)
               ) : (
                 <span>
-                  {newSinceBaseline != null ? "0" : (
+                  {totalSubscribers != null ? "0" : (
                     <span className="text-muted-foreground">—</span>
                   )}
                 </span>
@@ -160,7 +160,7 @@ export function RegistrationsCard({
                 </span>
               ) : (
                 <span className="text-sm font-normal text-muted-foreground">
-                  {newSinceBaseline != null && newSinceBaseline <= 0
+                  {totalSubscribers != null && totalSubscribers <= 0
                     ? "— awaiting growth"
                     : "—"}
                 </span>
