@@ -327,6 +327,62 @@ interface Props {
   tiktokSnapshots?: TikTokSnapshotData | null;
 }
 
+type PlatformFilterValue = "all" | "meta" | "google" | "tiktok";
+
+/** Reusable platform filter pill row (All / Meta / TikTok / Google Ads).
+ *  Renders nothing when only one platform has signal (no pill to toggle). */
+function PlatformFilterPills({
+  platformsWithSignal,
+  value,
+  onChange,
+}: {
+  platformsWithSignal: PlatformFilterValue[];
+  value: PlatformFilterValue;
+  onChange: (p: PlatformFilterValue) => void;
+}) {
+  if (platformsWithSignal.length <= 1) return null;
+  const PLATFORM_LABELS: Record<PlatformFilterValue, string> = {
+    all: "All",
+    meta: "Meta",
+    google: "Google Ads",
+    tiktok: "TikTok",
+  };
+  const PLATFORM_COLOURS: Record<Exclude<PlatformFilterValue, "all">, string> = {
+    meta: "#2563eb",
+    google: "#ea4335",
+    tiktok: "#111827",
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {platformsWithSignal.map((p) => {
+        const isActive = value === p;
+        return (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onChange(p)}
+            aria-pressed={isActive}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              isActive
+                ? "border-foreground bg-foreground text-background"
+                : "border-border bg-background text-muted-foreground hover:border-foreground/40"
+            }`}
+          >
+            {p !== "all" && (
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: PLATFORM_COLOURS[p] }}
+                aria-hidden="true"
+              />
+            )}
+            {PLATFORM_LABELS[p]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EventReportView({
   event,
   meta = null,
@@ -536,45 +592,12 @@ export function EventReportView({
         {/* Platform filter pills — brand_campaign only; shown when multiple
             platforms have data. Above the timeframe pills so they communicate
             "this selector gates what the report below shows". */}
-        {isBrandCampaign && platformsWithSignal.length > 1 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {platformsWithSignal.map((p) => {
-              const PLATFORM_LABELS: Record<PlatformFilter, string> = {
-                all: "All",
-                meta: "Meta",
-                google: "Google Ads",
-                tiktok: "TikTok",
-              };
-              const PLATFORM_COLOURS: Record<Exclude<PlatformFilter, "all">, string> = {
-                meta: "#2563eb",
-                google: "#ea4335",
-                tiktok: "#111827",
-              };
-              const isActive = platformFilter === p;
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPlatformFilter(p)}
-                  aria-pressed={isActive}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    isActive
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border bg-background text-muted-foreground hover:border-foreground/40"
-                  }`}
-                >
-                  {p !== "all" && (
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: PLATFORM_COLOURS[p] }}
-                      aria-hidden="true"
-                    />
-                  )}
-                  {PLATFORM_LABELS[p]}
-                </button>
-              );
-            })}
-          </div>
+        {isBrandCampaign ? (
+          <PlatformFilterPills
+            platformsWithSignal={platformsWithSignal}
+            value={platformFilter}
+            onChange={setPlatformFilter}
+          />
         ) : null}
 
         {/* Timeframe selector — Meta-only (drives Meta insights window).
@@ -652,6 +675,8 @@ export function EventReportView({
             tiktokStats={tiktokRollupTotals}
             showCrossPlatformCaption={isBrandCampaign && !!brandRollupSpend}
             tiktokSnapshots={tiktokSnapshots}
+            platformsWithSignal={isBrandCampaign ? platformsWithSignal : undefined}
+            onPlatformFilterChange={isBrandCampaign ? setPlatformFilter : undefined}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -782,6 +807,9 @@ interface MetaReportBlockProps {
   showCrossPlatformCaption?: boolean;
   /** Pre-loaded snapshot rows for the TikTok Audience + Active Creatives sections. */
   tiktokSnapshots?: TikTokSnapshotData | null;
+  /** Platform pills for the secondary pill row between EVENT REPORTING and META CAMPAIGN STATS. */
+  platformsWithSignal?: PlatformFilterValue[];
+  onPlatformFilterChange?: (filter: PlatformFilterValue) => void;
 }
 
 function MetaReportBlock({
@@ -819,6 +847,8 @@ function MetaReportBlock({
   tiktokStats,
   showCrossPlatformCaption = false,
   tiktokSnapshots = null,
+  platformsWithSignal,
+  onPlatformFilterChange,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -1058,6 +1088,19 @@ function MetaReportBlock({
           appear after Campaign performance but before Meta stats. */}
       {eventDailySlot ?? null}
       {mailchimpSlot ?? null}
+
+      {/* Second platform pill — lets users toggle while reading stats
+          without scrolling back to the top. Only for brand_campaign with
+          multiple platforms. */}
+      {isBrandCampaign && platformsWithSignal && onPlatformFilterChange ? (
+        <div className="mb-4 mt-2 flex justify-center">
+          <PlatformFilterPills
+            platformsWithSignal={platformsWithSignal}
+            value={platformFilter as PlatformFilterValue}
+            onChange={onPlatformFilterChange}
+          />
+        </div>
+      ) : null}
 
       {/* Platform-responsive stats blocks for brand_campaign.
           Meta pill: show only Meta.  TikTok pill: show only TikTok.

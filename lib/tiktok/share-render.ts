@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../db/database.types.ts";
 import type { TikTokAdRow } from "../types/tiktok.ts";
 import { getTikTokCredentials } from "./credentials.ts";
-import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
+import { tiktokGet, tiktokPost, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
 import { campaignNameMatchesEventCode } from "./matching.ts";
 
 type TikTokGet = typeof tiktokGet;
@@ -20,6 +20,9 @@ interface TikTokAdGetRow {
   image_ids?: string[];
   landing_page_url?: string;
   ad_text?: string;
+  tiktok_item_id?: string;
+  identity_id?: string;
+  identity_type?: string;
 }
 
 interface TikTokVideoInfoRow {
@@ -81,6 +84,12 @@ export interface TikTokShareAdRow extends TikTokAdRow {
   thumbnail_url: string | null;
   deeplink_url: string | null;
   ad_text: string | null;
+  /** Persisted for thumbnail re-resolution on cache hits. */
+  video_id?: string | null;
+  image_ids?: string[] | null;
+  tiktok_item_id?: string | null;
+  identity_id?: string | null;
+  identity_type?: string | null;
 }
 
 const AD_FIELDS = [
@@ -97,6 +106,10 @@ const AD_FIELDS = [
   "image_ids",
   "landing_page_url",
   "ad_text",
+  // Spark Ad creative identifiers — needed for /spark_ads/posts/get/ thumbnail lookup.
+  "tiktok_item_id",
+  "identity_id",
+  "identity_type",
 ];
 const AD_METRICS = [
   "spend",
@@ -205,6 +218,35 @@ export async function fetchTikTokAdsForShareUncached(
     }
   }
 
+  // Fallback: Spark Ads reference organic TikTok posts via tiktok_item_id.
+  // These cannot be resolved via /file/video/ad/info/ or /file/image/ad/info/.
+  const sparkItems = [...ads.values()]
+    .filter(
+      (ad): ad is NormalizedAd & { tiktokItemId: string; identityId: string; identityType: string } =>
+        !ad.thumbnailUrl &&
+        Boolean(ad.tiktokItemId) &&
+        Boolean(ad.identityId) &&
+        Boolean(ad.identityType),
+    )
+    .map((ad) => ({
+      itemId: ad.tiktokItemId,
+      identityId: ad.identityId,
+      identityType: ad.identityType,
+    }));
+  if (sparkItems.length > 0) {
+    const sparkInfo = await fetchSparkAdInfo({
+      advertiserId,
+      token: credentials.access_token,
+      items: sparkItems,
+    });
+    for (const ad of ads.values()) {
+      if (!ad.thumbnailUrl && ad.tiktokItemId) {
+        const url = sparkInfo.get(ad.tiktokItemId);
+        if (url) ad.thumbnailUrl = url;
+      }
+    }
+  }
+
   const metricsByAd = await fetchAdMetrics({
     advertiserId,
     token: credentials.access_token,
@@ -260,6 +302,11 @@ export async function fetchTikTokAdsForShareUncached(
           thumbnail_url: ad.thumbnailUrl,
           deeplink_url: ad.previewUrl ?? ad.landingPageUrl,
           ad_text: ad.adText,
+          video_id: ad.videoId,
+          image_ids: ad.imageIds,
+          tiktok_item_id: ad.tiktokItemId,
+          identity_id: ad.identityId,
+          identity_type: ad.identityType,
           cost: metrics.cost,
           impressions: metrics.impressions,
           impressions_raw: null,
@@ -312,6 +359,9 @@ async function fetchAllAds(input: {
         secondaryStatus: row.secondary_status ?? "UNKNOWN",
         videoId: row.video_id ?? null,
         imageIds: row.image_ids?.length ? row.image_ids : null,
+        tiktokItemId: row.tiktok_item_id ?? null,
+        identityId: row.identity_id ?? null,
+        identityType: row.identity_type ?? null,
         thumbnailUrl: null,
         previewUrl: null,
         landingPageUrl: row.landing_page_url ?? null,
@@ -384,6 +434,56 @@ async function fetchImageInfo(input: {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[tiktok-share-render] image info skipped: ${message}`);
+    }
+  }
+  return out;
+}
+
+/** Resolve thumbnails for Spark Ads via POST /v1.3/spark_ads/posts/get/.
+ *  Spark Ads reference an organic TikTok post (tiktok_item_id) attached to a
+ *  TikTok identity — the video is not in the ad library and cannot be resolved
+ *  via /file/video/ad/info/.  Different identities require separate API calls.
+ *  Returns Map<tiktok_item_id, video_cover_image_url>. */
+async function fetchSparkAdInfo(input: {
+  advertiserId: string;
+  token: string;
+  items: Array<{ itemId: string; identityId: string; identityType: string }>;
+}): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (input.items.length === 0) return out;
+
+  // Group by (identity_id, identity_type) — each identity needs its own call.
+  const byIdentity = new Map<string, typeof input.items>();
+  for (const item of input.items) {
+    const key = `${item.identityId}::${item.identityType}`;
+    const group = byIdentity.get(key) ?? [];
+    group.push(item);
+    byIdentity.set(key, group);
+  }
+
+  for (const group of byIdentity.values()) {
+    const { identityId, identityType } = group[0];
+    const itemIds = group.map((g) => g.itemId);
+    try {
+      const res = await tiktokPost<{
+        data?: { list?: Array<{ item_id?: string; video_cover_image_url?: string }> };
+      }>(
+        "/v1.3/spark_ads/posts/get/",
+        {
+          advertiser_id: input.advertiserId,
+          identity_id: identityId,
+          identity_type: identityType,
+          item_ids: itemIds,
+        },
+        input.token,
+      );
+      for (const row of res.data?.list ?? []) {
+        if (!row.item_id || !row.video_cover_image_url) continue;
+        out.set(row.item_id, row.video_cover_image_url);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[tiktok-share-render] spark ad info skipped (identity=${identityId}): ${message}`);
     }
   }
   return out;
@@ -516,6 +616,9 @@ interface NormalizedAd {
   secondaryStatus: string;
   videoId: string | null;
   imageIds: string[] | null;
+  tiktokItemId: string | null;
+  identityId: string | null;
+  identityType: string | null;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   landingPageUrl: string | null;
