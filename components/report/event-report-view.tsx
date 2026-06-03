@@ -62,6 +62,38 @@ import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-l
  * needing to know which surface it's rendering on.
  */
 
+// ─── TikTok snapshot types ────────────────────────────────────────────────
+// Serialised from tiktok_breakdown_snapshots / tiktok_active_creatives_snapshots
+// and passed as a plain prop so platform-filter state in EventReportView can
+// gate visibility without a separate fetch round-trip.
+
+export interface TikTokSnapshotBreakdown {
+  dimension: string;
+  dimension_value: string;
+  spend: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  ctr: number | null;
+}
+
+export interface TikTokSnapshotCreative {
+  ad_id: string;
+  ad_name: string | null;
+  spend: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  ctr: number | null;
+  video_views_2s: number | null;
+  video_views_100p: number | null;
+  thumbnail_url: string | null;
+  deeplink_url: string | null;
+}
+
+export interface TikTokSnapshotData {
+  breakdowns: TikTokSnapshotBreakdown[];
+  creatives: TikTokSnapshotCreative[];
+}
+
 export interface EventReportViewEvent {
   name: string;
   venueName: string | null;
@@ -276,6 +308,15 @@ interface Props {
    * brand_campaign events. Omit for regular events.
    */
   tiktokRollupTotals?: TikTokRollupTotals | null;
+  /**
+   * Pre-loaded rows from `tiktok_breakdown_snapshots` +
+   * `tiktok_active_creatives_snapshots` for this event.
+   * When provided, replaces the "coming soon" / "syncing" placeholder
+   * copy inside the TikTok Audience and Active Creatives sections.
+   * Optional — brand_campaign share page only; internal report + regular
+   * event share pages leave this undefined and keep the existing copy.
+   */
+  tiktokSnapshots?: TikTokSnapshotData | null;
 }
 
 export function EventReportView({
@@ -301,6 +342,7 @@ export function EventReportView({
   onRefreshRegistrations,
   brandRollupSpend,
   tiktokRollupTotals,
+  tiktokSnapshots,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -592,6 +634,7 @@ export function EventReportView({
             brandRollupSpend={brandRollupSpend}
             tiktokStats={tiktokRollupTotals}
             showCrossPlatformCaption={isBrandCampaign && !!brandRollupSpend}
+            tiktokSnapshots={tiktokSnapshots}
           />
         ) : creativesSlot ? (
           // Headline-failed partial-render path. `meta` is null but the
@@ -729,6 +772,8 @@ interface MetaReportBlockProps {
    * when brandRollupSpend is provided.
    */
   showCrossPlatformCaption?: boolean;
+  /** Pre-loaded snapshot rows for the TikTok Audience + Active Creatives sections. */
+  tiktokSnapshots?: TikTokSnapshotData | null;
 }
 
 function MetaReportBlock({
@@ -763,6 +808,7 @@ function MetaReportBlock({
   brandRollupSpend = null,
   tiktokStats,
   showCrossPlatformCaption = false,
+  tiktokSnapshots = null,
 }: MetaReportBlockProps) {
   const dailyBudget = meta.dailyBudgetSet;
   const ticketsSub = resolveTicketsSoldSub(event);
@@ -1022,14 +1068,18 @@ function MetaReportBlock({
       ) : null}
 
       {/* Creative section.
-          - TikTok pill + brand_campaign: show TikTok "coming soon" placeholder only.
-          - All pill + brand_campaign: show Meta creatives + TikTok placeholder below.
+          - TikTok pill + brand_campaign: show TikTok creatives (or placeholder if no snapshot).
+          - All pill + brand_campaign: show Meta creatives + TikTok creatives below.
           - All other cases: Meta creative performance. */}
       {isBrandCampaign && platformFilter === "tiktok" ? (
         <Section title="Active creatives">
-          <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-            TikTok creative + demographic breakdowns coming soon.
-          </p>
+          {tiktokSnapshots && tiktokSnapshots.creatives.length > 0 ? (
+            <TikTokCreativesGrid creatives={tiktokSnapshots.creatives} />
+          ) : (
+            <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+              TikTok creative + demographic breakdowns coming soon.
+            </p>
+          )}
         </Section>
       ) : (
         <>
@@ -1044,20 +1094,28 @@ function MetaReportBlock({
           )}
           {isBrandCampaign && platformFilter === "all" ? (
             <Section title="TikTok active creatives">
-              <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-                TikTok creative + demographic breakdowns coming soon.
-              </p>
+              {tiktokSnapshots && tiktokSnapshots.creatives.length > 0 ? (
+                <TikTokCreativesGrid creatives={tiktokSnapshots.creatives} />
+              ) : (
+                <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+                  TikTok creative + demographic breakdowns coming soon.
+                </p>
+              )}
             </Section>
           ) : null}
         </>
       )}
 
-      {/* TikTok audience placeholder — visible on All and TikTok pills for brand_campaign. */}
+      {/* TikTok audience — visible on All and TikTok pills for brand_campaign. */}
       {isBrandCampaign && (platformFilter === "tiktok" || platformFilter === "all") ? (
         <Section title="TikTok audience">
-          <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-            TikTok audience breakdown syncing — check back in 24h.
-          </p>
+          {tiktokSnapshots && tiktokSnapshots.breakdowns.length > 0 ? (
+            <TikTokAudienceSection breakdowns={tiktokSnapshots.breakdowns} />
+          ) : (
+            <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+              TikTok audience breakdown syncing — check back in 24h.
+            </p>
+          )}
         </Section>
       ) : null}
 
@@ -1232,6 +1290,261 @@ function ChannelBreakdownStrip({
       ) : null}
     </div>
   );
+}
+
+// ─── TikTok snapshot rendering ───────────────────────────────────────────
+// These components render data from tiktok_active_creatives_snapshots and
+// tiktok_breakdown_snapshots. They live here (client component) so the
+// platform-filter state in MetaReportBlock can gate visibility without an
+// extra data-loading round-trip.
+
+function TikTokCreativesGrid({
+  creatives,
+}: {
+  creatives: TikTokSnapshotCreative[];
+}) {
+  const sorted = [...creatives]
+    .filter((c) => (c.spend ?? 0) > 0 || (c.impressions ?? 0) > 0)
+    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
+  if (sorted.length === 0) return null;
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {sorted.map((c) => (
+        <TikTokCreativeCard key={c.ad_id} creative={c} />
+      ))}
+    </div>
+  );
+}
+
+function TikTokCreativeCard({
+  creative: c,
+}: {
+  creative: TikTokSnapshotCreative;
+}) {
+  const rawName = c.ad_name?.trim() || `Ad ${c.ad_id.slice(-6)}`;
+  const card = (
+    <div className="rounded-md border border-border bg-card overflow-hidden">
+      <div className="aspect-[9/16] w-full overflow-hidden bg-muted">
+        {c.thumbnail_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={c.thumbnail_url}
+            alt={rawName}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <span className="text-[10px] text-muted-foreground">No preview</span>
+          </div>
+        )}
+      </div>
+      <div className="p-2 space-y-1.5">
+        <p className="text-[11px] font-medium text-foreground leading-snug line-clamp-3">
+          {rawName}
+        </p>
+        <div className="grid grid-cols-2 gap-x-2 text-[10px]">
+          <span className="text-muted-foreground">Spend</span>
+          <span className="text-right tabular-nums text-foreground">
+            {fmtCurrency(c.spend ?? 0)}
+          </span>
+          <span className="text-muted-foreground">Impr.</span>
+          <span className="text-right tabular-nums text-foreground">
+            {snapFmtInt(c.impressions)}
+          </span>
+          <span className="text-muted-foreground">Clicks</span>
+          <span className="text-right tabular-nums text-foreground">
+            {snapFmtInt(c.clicks)}
+          </span>
+          <span className="text-muted-foreground">CTR</span>
+          <span className="text-right tabular-nums text-foreground">
+            {c.ctr != null ? `${c.ctr.toFixed(2)}%` : "—"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+  if (c.deeplink_url) {
+    return (
+      <a
+        href={c.deeplink_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block hover:opacity-90 transition-opacity"
+      >
+        {card}
+      </a>
+    );
+  }
+  return card;
+}
+
+function TikTokAudienceSection({
+  breakdowns,
+}: {
+  breakdowns: TikTokSnapshotBreakdown[];
+}) {
+  const geoRows = [...breakdowns]
+    .filter((r) => r.dimension === "country" || r.dimension === "region")
+    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
+    .slice(0, 10);
+  const ageRows = [...breakdowns]
+    .filter((r) => r.dimension === "age" && r.dimension_value !== "NONE")
+    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
+  const genderRows = [...breakdowns]
+    .filter((r) => r.dimension === "gender" && r.dimension_value !== "NONE")
+    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
+  const interestRows = [...breakdowns]
+    .filter((r) => r.dimension === "interest_category")
+    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
+    .slice(0, 15);
+
+  return (
+    <div className="space-y-6">
+      {geoRows.length > 0 && (
+        <TikTokBreakdownSubSection title="Top Regions">
+          <SnapBreakdownTable
+            headers={["Region", "Type", "Spend", "Impr.", "Clicks", "CTR"]}
+            rows={geoRows.map((r) => [
+              fmtDimensionValue(r.dimension, r.dimension_value),
+              r.dimension === "country" ? "Country" : "Region",
+              fmtCurrency(r.spend ?? 0),
+              snapFmtInt(r.impressions),
+              snapFmtInt(r.clicks),
+              r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
+            ])}
+          />
+        </TikTokBreakdownSubSection>
+      )}
+      {ageRows.length > 0 && (
+        <TikTokBreakdownSubSection title="Demographics by Age">
+          <SnapBreakdownTable
+            headers={["Age", "Spend", "Impr.", "Clicks", "CTR"]}
+            rows={ageRows.map((r) => [
+              fmtDimensionValue(r.dimension, r.dimension_value),
+              fmtCurrency(r.spend ?? 0),
+              snapFmtInt(r.impressions),
+              snapFmtInt(r.clicks),
+              r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
+            ])}
+          />
+        </TikTokBreakdownSubSection>
+      )}
+      {genderRows.length > 0 && (
+        <TikTokBreakdownSubSection title="Demographics by Gender">
+          <SnapBreakdownTable
+            headers={["Gender", "Spend", "Impr.", "Clicks", "CTR"]}
+            rows={genderRows.map((r) => [
+              fmtDimensionValue(r.dimension, r.dimension_value),
+              fmtCurrency(r.spend ?? 0),
+              snapFmtInt(r.impressions),
+              snapFmtInt(r.clicks),
+              r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
+            ])}
+          />
+        </TikTokBreakdownSubSection>
+      )}
+      {interestRows.length > 0 && (
+        <TikTokBreakdownSubSection title="Cross Contextual Interests">
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            TikTok interest segments your audience engages with. Ranked by
+            spend.
+          </p>
+          <SnapBreakdownTable
+            headers={["Segment", "Spend", "Impr.", "Clicks", "CTR"]}
+            rows={interestRows.map((r) => [
+              fmtDimensionValue(r.dimension, r.dimension_value),
+              fmtCurrency(r.spend ?? 0),
+              snapFmtInt(r.impressions),
+              snapFmtInt(r.clicks),
+              r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
+            ])}
+          />
+        </TikTokBreakdownSubSection>
+      )}
+    </div>
+  );
+}
+
+function TikTokBreakdownSubSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function SnapBreakdownTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: string[][];
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            {headers.map((h, i) => (
+              <th key={h} className={`pb-2 ${i === 0 ? "" : "text-right"}`}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} className="border-t border-border/40 text-foreground">
+              {row.map((cell, ci) => (
+                <td
+                  key={ci}
+                  className={`py-1.5 tabular-nums ${ci === 0 ? "" : "text-right"}`}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Snapshot format helpers ──────────────────────────────────────────────
+
+function snapFmtInt(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return Math.round(n).toLocaleString();
+}
+
+function fmtDimensionValue(dimension: string, value: string): string {
+  if (dimension === "age") {
+    const match = /^AGE_(\d+)_(\d+)$/.exec(value);
+    if (match) {
+      const [, lo, hi] = match;
+      return Number(hi) >= 100 ? `${lo}+` : `${lo}–${hi}`;
+    }
+    return value;
+  }
+  if (dimension === "gender") {
+    if (value === "MALE") return "Male";
+    if (value === "FEMALE") return "Female";
+    return value;
+  }
+  if (dimension === "interest_category") {
+    return `Segment #${value}`;
+  }
+  return value;
 }
 
 // ─── Formatters ────────────────────────────────────────────────────────────

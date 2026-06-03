@@ -602,6 +602,45 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     `[share/report] token=${token} meta=${metaPayload ? "ok" : metaErrorReason ?? "null"} tiktok=${tiktokRowResolved ? tiktokRowResolved.id : "null"} googleAds=${googleAdsBlock ? "ok" : "null"} creatives=${creativesHaveContent ? "ok" : "null"}`,
   );
 
+  // TikTok snapshot data — loaded for brand_campaign events with a TikTok account.
+  // Soft-fail: missing rows simply leave tiktokSnapshots null (placeholders remain).
+  const tiktokSnapshots =
+    event.kind === "brand_campaign" && event.tiktokAccountId
+      ? await (async () => {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const db = admin as unknown as any;
+            const [bdRes, crRes] = await Promise.all([
+              db
+                .from("tiktok_breakdown_snapshots")
+                .select(
+                  "dimension,dimension_value,spend,impressions,clicks,ctr",
+                )
+                .eq("event_id", event_id)
+                .order("spend", { ascending: false }),
+              db
+                .from("tiktok_active_creatives_snapshots")
+                .select(
+                  "ad_id,ad_name,spend,impressions,clicks,ctr,video_views_2s,video_views_100p,thumbnail_url,deeplink_url",
+                )
+                .eq("event_id", event_id)
+                .eq("kind", "ok")
+                .order("spend", { ascending: false }),
+            ]);
+            const breakdowns = (bdRes.data ?? []) as import("@/components/report/event-report-view").TikTokSnapshotBreakdown[];
+            const creatives = (crRes.data ?? []) as import("@/components/report/event-report-view").TikTokSnapshotCreative[];
+            console.log(
+              `[share/report] tiktok_snapshots breakdown_rows=${breakdowns.length} creative_rows=${creatives.length}`,
+            );
+            if (breakdowns.length === 0 && creatives.length === 0) return null;
+            return { breakdowns, creatives };
+          } catch (err) {
+            console.error("[share/report] tiktok_snapshots load failed:", err);
+            return null;
+          }
+        })()
+      : null;
+
   // Final fatal branch: only when there is genuinely nothing to
   // render — no Meta payload, no TikTok live/manual block, and no
   // usable creatives.
@@ -835,6 +874,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       registrationsData={registrationsData}
       brandRollupSpend={brandRollupSpend}
       tiktokRollupTotals={tiktokRollupTotals}
+      tiktokSnapshots={tiktokSnapshots}
     />
   );
 }

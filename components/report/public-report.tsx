@@ -20,6 +20,7 @@ import type { SellOutPacingResult } from "@/lib/dashboard/report-pacing";
 import {
   EventReportView,
   type EventReportViewEvent,
+  type TikTokSnapshotData,
 } from "./event-report-view";
 import type { TikTokReportBlockData } from "./tiktok-report-block";
 import type { TikTokRollupTotals } from "./meta-insights-sections";
@@ -122,6 +123,8 @@ interface Props {
    * for the TIKTOK CAMPAIGN STATS block. brand_campaign share pages only.
    */
   tiktokRollupTotals?: TikTokRollupTotals | null;
+  /** Pre-loaded TikTok snapshot rows — brand_campaign share pages only. */
+  tiktokSnapshots?: TikTokSnapshotData | null;
 }
 
 /*
@@ -169,6 +172,7 @@ export function PublicReport({
   registrationsData,
   brandRollupSpend,
   tiktokRollupTotals,
+  tiktokSnapshots,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -372,6 +376,7 @@ export function PublicReport({
       registrationsData={registrationsData}
       brandRollupSpend={brandRollupSpend}
       tiktokRollupTotals={tiktokRollupTotals}
+      tiktokSnapshots={tiktokSnapshots}
     />
   );
 }
