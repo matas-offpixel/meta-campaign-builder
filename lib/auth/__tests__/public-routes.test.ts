@@ -69,6 +69,34 @@ describe("isPublicPath — event-code lifetime meta backfill carve-out", () => {
   });
 });
 
+describe("isPublicPath — creative thumbnail proxy carve-out", () => {
+  it("admits /api/proxy/creative-thumbnail without session", () => {
+    assert.equal(isPublicPath("/api/proxy/creative-thumbnail"), true);
+  });
+
+  it("admits /api/meta/thumbnail-proxy without session", () => {
+    assert.equal(isPublicPath("/api/meta/thumbnail-proxy"), true);
+  });
+
+  it("admits thumbnail proxy with share_token query (img src on share page)", () => {
+    const params = new URLSearchParams({
+      ad_id: "123",
+      share_token: "af1e8e47ec993550",
+    });
+    assert.equal(
+      isPublicPath("/api/proxy/creative-thumbnail", params),
+      true,
+    );
+  });
+
+  it("rejects sibling paths under the proxy prefix", () => {
+    assert.equal(
+      isPublicPath("/api/proxy/creative-thumbnail/leak"),
+      false,
+    );
+  });
+});
+
 describe("isPublicPath — pre-existing rules still hold", () => {
   it("admits /share/* prefixes", () => {
     assert.equal(isPublicPath("/share/client/abcdef1234"), true);

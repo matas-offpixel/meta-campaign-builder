@@ -51,17 +51,26 @@ const PUBLIC_PREFIXES: readonly string[] = [
 ];
 
 /**
+ * Thumbnail proxy routes enforce their own auth (share_token or session +
+ * client_id) inside the handler — middleware must not redirect unauthenticated
+ * `<img src>` requests to /login before that logic runs.
+ */
+const PUBLIC_API_ROUTES: readonly string[] = [
+  "/api/proxy/creative-thumbnail",
+  "/api/meta/thumbnail-proxy",
+];
+
+/**
  * Meta thumbnail proxy with `share_token` must bypass cookie middleware so
  * `<img src>` on public share pages can load (same pattern as `/api/share/*`).
  */
-function isThumbnailProxyShareRequest(searchParams: URLSearchParams): boolean {
-  const t = searchParams.get("share_token");
-  return typeof t === "string" && t.length >= 12 && t.length <= 128;
+function isPublicApiRoute(pathname: string): boolean {
+  return PUBLIC_API_ROUTES.some((route) => pathname === route);
 }
 
 export function isPublicPath(
   pathname: string,
-  searchParams?: URLSearchParams,
+  _searchParams?: URLSearchParams,
 ): boolean {
   // `/api/admin/meta-enhancement-probe` validates CRON_SECRET or session in
   // the route — bearer-only curls must reach the handler (see probe doc).
@@ -112,13 +121,7 @@ export function isPublicPath(
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
-  if (
-    pathname === "/api/meta/thumbnail-proxy" &&
-    searchParams &&
-    isThumbnailProxyShareRequest(searchParams)
-  ) {
-    return true;
-  }
+  if (isPublicApiRoute(pathname)) return true;
   for (const prefix of PUBLIC_PREFIXES) {
     if (pathname.startsWith(prefix)) return true;
   }
