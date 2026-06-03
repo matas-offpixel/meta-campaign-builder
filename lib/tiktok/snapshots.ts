@@ -38,6 +38,11 @@ interface SnapshotRow {
   deeplink_url: string | null;
   ad_text: string | null;
   fetched_at: string;
+  video_id: string | null;
+  image_ids: string[] | null;
+  tiktok_item_id: string | null;
+  identity_id: string | null;
+  identity_type: string | null;
 }
 
 export async function readActiveTikTokCreativesSnapshot(
@@ -48,7 +53,7 @@ export async function readActiveTikTokCreativesSnapshot(
   const { data, error } = await asAny(supabase)
     .from(TABLE)
     .select(
-      "ad_id, ad_name, campaign_id, campaign_name, status, spend, impressions, reach, clicks, ctr, video_views_2s, video_views_6s, video_views_100p, thumbnail_url, deeplink_url, ad_text, fetched_at",
+      "ad_id, ad_name, campaign_id, campaign_name, status, spend, impressions, reach, clicks, ctr, video_views_2s, video_views_6s, video_views_100p, thumbnail_url, deeplink_url, ad_text, fetched_at, video_id, image_ids, tiktok_item_id, identity_id, identity_type",
     )
     .eq("event_id", eventId)
     .eq("window_since", window.since)
@@ -107,6 +112,11 @@ export async function writeActiveTikTokCreativesSnapshot(
     kind: "ok",
     error_message: null,
     fetched_at: fetchedAt,
+    video_id: row.video_id ?? null,
+    image_ids: row.image_ids ?? null,
+    tiktok_item_id: row.tiktok_item_id ?? null,
+    identity_id: row.identity_id ?? null,
+    identity_type: row.identity_type ?? null,
   }));
 
   if (rows.length === 0) return true;
@@ -183,6 +193,11 @@ function rowToAd(row: SnapshotRow): TikTokShareAdRow {
     avg_play_time_per_video_view: null,
     interactive_addon_impressions: null,
     interactive_addon_destination_clicks: null,
+    video_id: row.video_id,
+    image_ids: row.image_ids,
+    tiktok_item_id: row.tiktok_item_id,
+    identity_id: row.identity_id,
+    identity_type: row.identity_type,
   };
 }
 
