@@ -177,6 +177,7 @@ describe("filterBreakdownsByDimension", () => {
     dimension_value,
     spend: 100,
     impressions: 500,
+    reach: null,
     clicks: 10,
     ctr: 2.0,
   });

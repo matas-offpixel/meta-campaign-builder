@@ -614,7 +614,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
               db
                 .from("tiktok_breakdown_snapshots")
                 .select(
-                  "dimension,dimension_value,spend,impressions,clicks,ctr",
+                  "dimension,dimension_value,spend,impressions,reach,clicks,ctr",
                 )
                 .eq("event_id", event_id)
                 .order("spend", { ascending: false }),

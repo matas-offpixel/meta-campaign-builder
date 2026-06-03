@@ -404,7 +404,7 @@ export function TikTokCampaignStatsSection({
   );
 }
 
-function BreakdownSection({
+export function BreakdownSection({
   title,
   defaultOpen = false,
   children,

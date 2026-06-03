@@ -105,7 +105,7 @@ export async function writeActiveTikTokCreativesSnapshot(
     video_views_6s: row.video_views_6s,
     video_views_100p: row.video_views_p100,
     thumbnail_url: row.thumbnail_url,
-    deeplink_url: row.deeplink_url ?? row.post_url ?? null,
+    deeplink_url: row.deeplink_url ?? row.post_url ?? (row.tiktok_item_id ? `https://www.tiktok.com/video/${row.tiktok_item_id}` : null),
     ad_text: row.ad_text,
     window_since: key.window.since,
     window_until: key.window.until,
