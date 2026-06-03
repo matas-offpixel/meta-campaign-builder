@@ -441,26 +441,52 @@ async function fetchSparkAdInfo(itemIds: string[]): Promise<Map<string, string>>
   const out = new Map<string, string>();
   if (itemIds.length === 0) return out;
 
-  console.log(
-    `[tiktok-share-render] fetchSparkAdInfo: resolving ${itemIds.length} Spark Ad thumbnail(s) via OEmbed`,
-    itemIds,
-  );
+  // console.error — Vercel reliably surfaces error-level logs; console.log/warn
+  // can be filtered under load (observed in PR #514).
+  console.error(`[spark-oembed] start: ${itemIds.length} items to resolve`, itemIds);
 
   for (const itemId of itemIds) {
     try {
       const url = `https://www.tiktok.com/oembed?url=${encodeURIComponent(`https://www.tiktok.com/video/${itemId}`)}`;
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(url, {
+        cache: "no-store",
+        headers: {
+          // TikTok's OEmbed endpoint blocks requests with the bare Node.js
+          // fetch User-Agent (or no UA). Supply a browser UA to match the
+          // behaviour of local curl / browser testing where OEmbed works.
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+          Accept: "application/json",
+        },
+      });
+      const bodyText = await res.text();
       if (!res.ok) {
-        console.warn(`[tiktok-share-render] OEmbed ${res.status} for item_id=${itemId}`);
+        console.error(
+          `[spark-oembed] non-OK ${res.status} item=${itemId} body=${bodyText.slice(0, 200)}`,
+        );
         continue;
       }
-      const json = (await res.json()) as { thumbnail_url?: string };
+      let json: { thumbnail_url?: string };
+      try {
+        json = JSON.parse(bodyText) as { thumbnail_url?: string };
+      } catch {
+        console.error(
+          `[spark-oembed] non-JSON item=${itemId} body=${bodyText.slice(0, 200)}`,
+        );
+        continue;
+      }
       if (json.thumbnail_url) {
         out.set(itemId, json.thumbnail_url);
+        console.error(`[spark-oembed] resolved item=${itemId}`);
+      } else {
+        console.error(
+          `[spark-oembed] no thumbnail_url item=${itemId} body=${bodyText.slice(0, 200)}`,
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[tiktok-share-render] OEmbed failed for item_id=${itemId}: ${message}`);
+      console.error(`[spark-oembed] threw item=${itemId} message=${message}`);
     }
   }
   return out;
