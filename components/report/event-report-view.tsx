@@ -852,6 +852,9 @@ function MetaReportBlock({
         metaClicks: meta.totals.clicks,
         tiktokClicks: tiktokStats.clicks,
         googleClicks: 0,
+        metaReach: meta.totals.reachSum ?? 0,
+        tiktokReach: tiktokStats.reach ?? 0,
+        googleReach: 0,
       },
     );
     return {
@@ -862,6 +865,7 @@ function MetaReportBlock({
         impressions: combined.impressions,
         clicks: combined.clicks,
         cpm: combined.cpm ?? meta.totals.cpm,
+        reachSum: combined.reach,
       },
     };
   }, [meta, isBrandCampaign, platformFilter, brandRollupSpend, tiktokStats]);

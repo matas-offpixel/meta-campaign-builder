@@ -12,6 +12,8 @@ const IRONWORKS = {
   tiktokImpressions: 536_995,
   metaClicks: 11_193,
   tiktokClicks: 2_704,
+  metaReach: 198_432,
+  tiktokReach: 47_210,
 };
 
 describe("computeCrossPlatformRateMetrics — Ironworks fixture", () => {
@@ -105,6 +107,46 @@ describe("computeCrossPlatformRateMetrics — Ironworks fixture", () => {
     const expected = 3763.51 / clicks;
     assert.ok(Math.abs((result.cpc ?? 0) - expected) < 0.01);
     assert.ok(Math.abs((result.cpc ?? 0) - 0.27) < 0.02);
+  });
+
+  it("reach = metaReach + tiktokReach (additive, no deduplication)", () => {
+    const result = computeCrossPlatformRateMetrics(
+      {
+        metaSpend: IRONWORKS.metaSpend,
+        tiktokSpend: IRONWORKS.tiktokSpend,
+        googleSpend: 0,
+      },
+      {
+        metaImpressions: IRONWORKS.metaImpressions,
+        tiktokImpressions: IRONWORKS.tiktokImpressions,
+        googleImpressions: 0,
+        metaClicks: IRONWORKS.metaClicks,
+        tiktokClicks: IRONWORKS.tiktokClicks,
+        googleClicks: 0,
+        metaReach: IRONWORKS.metaReach,
+        tiktokReach: IRONWORKS.tiktokReach,
+        googleReach: 0,
+      },
+    );
+    assert.strictEqual(result.reach, IRONWORKS.metaReach + IRONWORKS.tiktokReach);
+    assert.ok(result.reach > IRONWORKS.metaReach, "All-pill reach must exceed Meta-only reach");
+    assert.ok(result.reach > IRONWORKS.tiktokReach, "All-pill reach must exceed TikTok-only reach");
+  });
+
+  it("reach defaults to 0 when reach inputs are omitted (backward-compat)", () => {
+    const result = computeCrossPlatformRateMetrics(
+      { metaSpend: 100, tiktokSpend: 50, googleSpend: 0 },
+      {
+        metaImpressions: 1000,
+        tiktokImpressions: 500,
+        googleImpressions: 0,
+        metaClicks: 10,
+        tiktokClicks: 5,
+        googleClicks: 0,
+        // no metaReach / tiktokReach / googleReach
+      },
+    );
+    assert.strictEqual(result.reach, 0);
   });
 });
 

@@ -18,12 +18,18 @@ export interface CrossPlatformDeliveryInputs {
   metaClicks: number;
   tiktokClicks: number;
   googleClicks: number;
+  /** Platform reach sums — additive across platforms (not deduplicated). Optional; defaults to 0. */
+  metaReach?: number;
+  tiktokReach?: number;
+  googleReach?: number;
 }
 
 export interface CrossPlatformRateMetrics {
   spend: number;
   impressions: number;
   clicks: number;
+  /** Additive cross-platform reach (per-platform sums; not deduplicated). */
+  reach: number;
   ctr: number | null;
   cpm: number | null;
   cpc: number | null;
@@ -42,11 +48,14 @@ export function computeCrossPlatformRateMetrics(
     delivery.metaImpressions + delivery.tiktokImpressions + delivery.googleImpressions;
   const clicks =
     delivery.metaClicks + delivery.tiktokClicks + delivery.googleClicks;
+  const reach =
+    (delivery.metaReach ?? 0) + (delivery.tiktokReach ?? 0) + (delivery.googleReach ?? 0);
 
   return {
     spend: totalSpend,
     impressions,
     clicks,
+    reach,
     ctr: impressions > 0 ? (clicks / impressions) * 100 : null,
     cpm: impressions > 0 ? (totalSpend / impressions) * 1000 : null,
     cpc: clicks > 0 ? totalSpend / clicks : null,
