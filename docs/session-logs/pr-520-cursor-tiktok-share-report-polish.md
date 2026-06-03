@@ -1,4 +1,4 @@
-# Session Log — PR pending: cursor/tiktok-share-report-polish
+# Session Log — PR #520: cursor/tiktok-share-report-polish
 
 ## Branch
 `cursor/tiktok-share-report-polish`
