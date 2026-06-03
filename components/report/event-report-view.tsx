@@ -423,6 +423,9 @@ export function EventReportView({
   );
 
   const daysUntil = computeDaysUntil(event.eventDate);
+  const showDaysUntilEventCard =
+    event.kind !== "brand_campaign" && event.eventDate != null;
+  const showBudgetStatCards = !meta;
   const paidMediaCap = event.paidMediaBudget ?? 0;
   const windowDays = resolvePresetToDays(datePreset, customRange);
   const windowDaySet = windowDays === null ? null : new Set(windowDays);
@@ -559,37 +562,41 @@ export function EventReportView({
         ) : null}
 
         {/* Top row — event-level facts */}
-        <section
-          className={`grid grid-cols-1 gap-3 ${!meta ? "sm:grid-cols-3" : ""}`}
-        >
-          <StatCard
-            label="Days until event"
-            value={daysUntil != null ? daysUntilLabel(daysUntil) : "—"}
-            sub={event.eventDate ? fmtDate(event.eventDate) : null}
-          />
-          {!meta ? (
-            <StatCard
-              label="Total marketing budget"
-              value={
-                totalMarketingAllocated > 0
-                  ? fmtCurrency(totalMarketingAllocated)
-                  : "—"
-              }
-              sub={
-                paidMediaCap > 0 || otherSpendLifetime > 0
-                  ? `${fmtCurrency(paidMediaCap)} Paid media + ${fmtCurrency(otherSpendLifetime)} Additional`
-                  : null
-              }
-            />
-          ) : null}
-          {!meta ? (
-            <StatCard
-              label="Paid media budget"
-              value={paidMediaCap > 0 ? fmtCurrency(paidMediaCap) : "—"}
-              sub={null}
-            />
-          ) : null}
-        </section>
+        {showDaysUntilEventCard || showBudgetStatCards ? (
+          <section
+            className={`grid grid-cols-1 gap-3 ${showBudgetStatCards ? "sm:grid-cols-3" : ""}`}
+          >
+            {showDaysUntilEventCard ? (
+              <StatCard
+                label="Days until event"
+                value={daysUntil != null ? daysUntilLabel(daysUntil) : "—"}
+                sub={event.eventDate ? fmtDate(event.eventDate) : null}
+              />
+            ) : null}
+            {showBudgetStatCards ? (
+              <StatCard
+                label="Total marketing budget"
+                value={
+                  totalMarketingAllocated > 0
+                    ? fmtCurrency(totalMarketingAllocated)
+                    : "—"
+                }
+                sub={
+                  paidMediaCap > 0 || otherSpendLifetime > 0
+                    ? `${fmtCurrency(paidMediaCap)} Paid media + ${fmtCurrency(otherSpendLifetime)} Additional`
+                    : null
+                }
+              />
+            ) : null}
+            {showBudgetStatCards ? (
+              <StatCard
+                label="Paid media budget"
+                value={paidMediaCap > 0 ? fmtCurrency(paidMediaCap) : "—"}
+                sub={null}
+              />
+            ) : null}
+          </section>
+        ) : null}
 
         {/* Platform filter pills — brand_campaign only; shown when multiple
             platforms have data. Above the timeframe pills so they communicate
