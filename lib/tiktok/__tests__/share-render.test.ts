@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   buildDateWindows,
   fetchTikTokAdsForShareUncached,
+  resolveAdvertiserIdForAccount,
   type FetchTikTokAdsForShareInput,
 } from "../share-render.ts";
 
@@ -155,5 +156,55 @@ describe("fetchTikTokAdsForShare", () => {
       { since: "2026-01-31", until: "2026-03-01" },
       { since: "2026-03-02", until: "2026-03-15" },
     ]);
+  });
+});
+
+describe("resolveAdvertiserIdForAccount", () => {
+  it("prefers tiktok_accounts.tiktok_advertiser_id over advertiser_ids[0]", async () => {
+    const supabaseStub = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: { tiktok_advertiser_id: "adv-stored" },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    };
+    const result = await resolveAdvertiserIdForAccount(
+      supabaseStub as never,
+      "account-uuid",
+      { access_token: "tok", advertiser_ids: ["adv-wrong-first", "adv-stored"] },
+    );
+    assert.equal(result, "adv-stored");
+  });
+
+  it("falls back to advertiser_ids[0] when tiktok_accounts row has no stored ID", async () => {
+    const supabaseStub = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: { tiktok_advertiser_id: null }, error: null }),
+          }),
+        }),
+      }),
+    };
+    const result = await resolveAdvertiserIdForAccount(
+      supabaseStub as never,
+      "account-uuid",
+      { access_token: "tok", advertiser_ids: ["adv-fallback"] },
+    );
+    assert.equal(result, "adv-fallback");
+  });
+
+  it("returns null when no account ID and no credentials", async () => {
+    const result = await resolveAdvertiserIdForAccount(
+      {} as never,
+      null,
+      null,
+    );
+    assert.equal(result, null);
   });
 });

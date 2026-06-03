@@ -661,7 +661,7 @@ export function EventDailyReportBlock(props: Props) {
       <EventTrendChart
         timeline={chartTimeline}
         kind={event.kind}
-        defaultGranularity={event.report_cadence ?? "daily"}
+        defaultGranularity={event.kind === "brand_campaign" ? "daily" : (event.report_cadence ?? "daily")}
         awarenessPlatform={awarenessPlatform}
         onAwarenessPlatformChange={setAwarenessPlatform}
         mailchimpSnapshots={shareMailchimpSnapshots}

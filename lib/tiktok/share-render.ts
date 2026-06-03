@@ -125,10 +125,23 @@ export async function fetchTikTokAdsForShareUncached(
   }
   if (!input.tiktokAccountId || !input.eventCode?.trim()) return [];
 
+  const credentialsFromInput = input.credentials != null;
   const credentials =
-    input.credentials ??
-    (await getTikTokCredentials(input.supabase, input.tiktokAccountId));
-  const advertiserId = credentials?.advertiser_ids[0];
+    credentialsFromInput
+      ? input.credentials
+      : (await getTikTokCredentials(input.supabase, input.tiktokAccountId));
+
+  // When credentials are provided directly (test hook) use advertiser_ids[0].
+  // In production — credentials fetched from DB — prefer the explicitly-stored
+  // tiktok_accounts.tiktok_advertiser_id over advertiser_ids[0], which is just
+  // the first entry across ALL accounts the OAuth token has access to.
+  const advertiserId = credentialsFromInput
+    ? credentials?.advertiser_ids[0]
+    : await resolveAdvertiserIdForAccount(
+        input.supabase,
+        input.tiktokAccountId,
+        credentials,
+      );
   if (!credentials?.access_token || !advertiserId) return [];
 
   const request = input.request ?? tiktokGet;
@@ -528,4 +541,32 @@ function formatYmdUtc(date: Date): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Look up the primary TikTok advertiser ID for this account row.
+ *
+ * The OAuth token's `advertiser_ids` array lists every account the token has
+ * been granted access to. Index 0 is NOT the account we configured —
+ * `tiktok_accounts.tiktok_advertiser_id` is the explicitly-stored primary
+ * advertiser. Fall back to `advertiser_ids[0]` only when the row is missing.
+ *
+ * Exported for unit testing.
+ */
+export async function resolveAdvertiserIdForAccount(
+  supabase: SupabaseClient<Database>,
+  tiktokAccountId: string | null,
+  credentials: { access_token: string; advertiser_ids: string[] } | null | undefined,
+): Promise<string | null> {
+  if (tiktokAccountId) {
+    const { data } = await supabase
+      .from("tiktok_accounts")
+      .select("tiktok_advertiser_id")
+      .eq("id", tiktokAccountId)
+      .maybeSingle();
+    const storedId = (data as { tiktok_advertiser_id: string | null } | null)
+      ?.tiktok_advertiser_id;
+    if (storedId) return storedId;
+  }
+  return credentials?.advertiser_ids[0] ?? null;
 }
