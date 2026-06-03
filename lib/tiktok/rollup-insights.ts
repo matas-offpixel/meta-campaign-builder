@@ -20,6 +20,7 @@ interface TikTokCampaignGetRow {
   campaign_id?: string;
   campaign_name?: string;
   optimization_goal?: string;
+  objective_type?: string;
 }
 
 interface TikTokCampaignGetResponse {
@@ -137,11 +138,12 @@ export async function fetchTikTokDailyRollupInsights(
     engagementResults: number;
   }> = [];
 
-  const campaignGoals = await fetchAllCampaignGoals({
-    advertiserId: input.advertiserId,
-    token: input.token,
-    request,
-  });
+  const { goals: campaignGoals, objectives: campaignObjectives } =
+    await fetchAllCampaignGoals({
+      advertiserId: input.advertiserId,
+      token: input.token,
+      request,
+    });
 
   const metrics = buildRollupReportMetrics(campaignGoals);
 
@@ -174,12 +176,17 @@ export async function fetchTikTokDailyRollupInsights(
         if (!campaignId || !date) continue;
 
         const optimizationGoal = campaignGoals.get(campaignId) ?? "";
+        const objectiveType = campaignObjectives.get(campaignId) ?? "";
         const m = row.metrics ?? {};
-        const counts = resolveRollupCountsFromMetrics(optimizationGoal, m);
+        const counts = resolveRollupCountsFromMetrics(
+          optimizationGoal,
+          m,
+          objectiveType,
+        );
 
         if (input.eventId) {
           console.log(
-            `[rollup-sync-tiktok] event=${input.eventId} campaign=${campaignId} goal=${optimizationGoal || "unknown"} conv=${counts.conversionResults} eng=${counts.engagementResults}`,
+            `[rollup-sync-tiktok] event=${input.eventId} campaign=${campaignId} goal=${optimizationGoal || "unknown"} objective=${objectiveType || "unknown"} conv=${counts.conversionResults} eng=${counts.engagementResults}`,
           );
         }
 
@@ -287,28 +294,34 @@ async function fetchAllCampaignGoals(input: {
   advertiserId: string;
   token: string;
   request: TikTokGet;
-}): Promise<Map<string, string>> {
+}): Promise<{ goals: Map<string, string>; objectives: Map<string, string> }> {
   const goals = new Map<string, string>();
+  const objectives = new Map<string, string>();
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const res = await input.request<TikTokCampaignGetResponse>(
       "/campaign/get/",
       {
         advertiser_id: input.advertiserId,
-        fields: ["campaign_id", "campaign_name", "optimization_goal"],
+        fields: [
+          "campaign_id",
+          "campaign_name",
+          "optimization_goal",
+          "objective_type",
+        ],
         page_size: PAGE_SIZE,
         page,
       },
       input.token,
     );
     for (const row of res.list ?? []) {
-      if (row.campaign_id && row.optimization_goal) {
-        goals.set(row.campaign_id, row.optimization_goal);
-      }
+      if (!row.campaign_id) continue;
+      if (row.optimization_goal) goals.set(row.campaign_id, row.optimization_goal);
+      if (row.objective_type) objectives.set(row.campaign_id, row.objective_type);
     }
     const pageInfo = res.page_info;
     if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
   }
-  return goals;
+  return { goals, objectives };
 }
 
 async function fetchTikTokCampaignNames(input: {

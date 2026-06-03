@@ -12,10 +12,12 @@ import {
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
+// `city` (city_id) is rejected by TikTok even under the AUDIENCE report type,
+// so it is intentionally excluded. `fetchTikTokBreakdowns` also isolates each
+// dimension, so any future unsupported dimension degrades gracefully.
 const BREAKDOWN_DIMENSIONS: TikTokBreakdownDimension[] = [
   "country",
   "region",
-  "city",
   "age",
   "gender",
   "age_gender",

@@ -106,54 +106,67 @@ export async function fetchTikTokBreakdowns(
   const rawRows: Array<TikTokBreakdownRow & { campaignId: string }> = [];
 
   for (const dimension of input.dimensions) {
-    const apiDimensions = ["campaign_id", ...DIMENSION_MAP[dimension]];
-    for (const window of buildDateWindows(input.since, input.until)) {
-      for (let page = 1; page <= MAX_PAGES; page += 1) {
-        const res = await requestWithOneRateLimitRetry(
-          request,
-          "/report/integrated/get/",
-          {
-            advertiser_id: input.advertiserId,
-            report_type: "BASIC",
-            data_level: "AUCTION_CAMPAIGN",
-            dimensions: apiDimensions,
-            metrics: METRICS,
-            start_date: window.since,
-            end_date: window.until,
-            page,
-            page_size: PAGE_SIZE,
-          },
-          input.token,
-          retryDelayMs,
-          sleep,
-        );
+    // Per-dimension isolation: TikTok rejects the whole call when a single
+    // dimension is unsupported for the account/level (e.g. `city_id`). One
+    // bad dimension must never discard rows already gathered for the others.
+    try {
+      const apiDimensions = ["campaign_id", ...DIMENSION_MAP[dimension]];
+      for (const window of buildDateWindows(input.since, input.until)) {
+        for (let page = 1; page <= MAX_PAGES; page += 1) {
+          const res = await requestWithOneRateLimitRetry(
+            request,
+            "/report/integrated/get/",
+            {
+              advertiser_id: input.advertiserId,
+              // Audience/geo/interest breakdowns are only valid under the
+              // AUDIENCE report type. Under BASIC, only `country_code` is
+              // accepted and everything else 400s ("not supported").
+              report_type: "AUDIENCE",
+              data_level: "AUCTION_CAMPAIGN",
+              dimensions: apiDimensions,
+              metrics: METRICS,
+              start_date: window.since,
+              end_date: window.until,
+              page,
+              page_size: PAGE_SIZE,
+            },
+            input.token,
+            retryDelayMs,
+            sleep,
+          );
 
-        for (const row of res.list ?? []) {
-          const campaignId = row.dimensions?.campaign_id;
-          if (!campaignId) continue;
-          const dimensionValue = valueForDimension(dimension, row.dimensions ?? {});
-          if (!dimensionValue) continue;
-          campaignIds.add(campaignId);
-          const metrics = row.metrics ?? {};
-          rawRows.push({
-            campaignId,
-            dimension,
-            dimension_value: dimensionValue,
-            spend: numberMetric(metrics.spend),
-            impressions: numberMetric(metrics.impressions),
-            reach: numberMetric(metrics.reach),
-            clicks: numberMetric(metrics.clicks),
-            ctr: nullableNumberMetric(metrics.ctr),
-            video_views_2s: numberMetric(metrics.video_watched_2s),
-            video_views_6s: numberMetric(metrics.video_watched_6s),
-            video_views_100p: numberMetric(metrics.video_views_p100),
-            avg_play_time_ms: nullableNumberMetric(metrics.average_video_play),
-          });
+          for (const row of res.list ?? []) {
+            const campaignId = row.dimensions?.campaign_id;
+            if (!campaignId) continue;
+            const dimensionValue = valueForDimension(dimension, row.dimensions ?? {});
+            if (!dimensionValue) continue;
+            campaignIds.add(campaignId);
+            const metrics = row.metrics ?? {};
+            rawRows.push({
+              campaignId,
+              dimension,
+              dimension_value: dimensionValue,
+              spend: numberMetric(metrics.spend),
+              impressions: numberMetric(metrics.impressions),
+              reach: numberMetric(metrics.reach),
+              clicks: numberMetric(metrics.clicks),
+              ctr: nullableNumberMetric(metrics.ctr),
+              video_views_2s: numberMetric(metrics.video_watched_2s),
+              video_views_6s: numberMetric(metrics.video_watched_6s),
+              video_views_100p: numberMetric(metrics.video_views_p100),
+              avg_play_time_ms: nullableNumberMetric(metrics.average_video_play),
+            });
+          }
+
+          const pageInfo = res.page_info;
+          if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
         }
-
-        const pageInfo = res.page_info;
-        if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[tiktok-breakdowns] dimension=${dimension} skipped: ${message}`,
+      );
     }
   }
 

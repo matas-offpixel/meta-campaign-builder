@@ -78,6 +78,80 @@ describe("fetchTikTokBreakdowns", () => {
     assert.equal(rows[0].avg_play_time_ms, 4200);
   });
 
+  it("requests the AUDIENCE report type for breakdown dimensions", async () => {
+    const reportTypes: unknown[] = [];
+    const request: Request = async <T,>(
+      path: string,
+      params: Record<string, unknown>,
+    ): Promise<T> => {
+      if (path === "/campaign/get/") {
+        return {
+          list: [{ campaign_id: "campaign-1", campaign_name: "[EVT] Campaign" }],
+        } as T;
+      }
+      reportTypes.push(params.report_type);
+      return { list: [], page_info: { page: 1, total_page: 1 } } as T;
+    };
+
+    await fetchTikTokBreakdowns({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      eventCode: "EVT",
+      since: "2026-04-01",
+      until: "2026-04-30",
+      dimensions: ["country", "age"],
+      request,
+    });
+
+    assert.deepEqual(reportTypes, ["AUDIENCE", "AUDIENCE"]);
+  });
+
+  it("isolates a failing dimension without discarding the others", async () => {
+    const request: Request = async <T,>(
+      path: string,
+      params: Record<string, unknown>,
+    ): Promise<T> => {
+      if (path === "/campaign/get/") {
+        return {
+          list: [{ campaign_id: "campaign-1", campaign_name: "[EVT] Campaign" }],
+        } as T;
+      }
+      const dims = params.dimensions as string[];
+      if (dims.includes("province_id")) {
+        throw new TikTokApiError(
+          "Invalid value for dimensions: province_id is not supported.",
+          40002,
+          "req-x",
+          200,
+        );
+      }
+      return {
+        list: [
+          {
+            dimensions: { campaign_id: "campaign-1", country_code: "GB" },
+            metrics: { spend: "10", impressions: "1000", clicks: "5" },
+          },
+        ],
+        page_info: { page: 1, total_page: 1 },
+      } as T;
+    };
+
+    const rows = await fetchTikTokBreakdowns({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      eventCode: "EVT",
+      since: "2026-04-01",
+      until: "2026-04-30",
+      dimensions: ["region", "country"],
+      request,
+    });
+
+    assert.deepEqual(
+      rows.map((row) => [row.dimension, row.dimension_value]),
+      [["country", "GB"]],
+    );
+  });
+
   it("retries TikTok 50001 once for report calls", async () => {
     let calls = 0;
     const request: Request = async <T,>(path: string): Promise<T> => {
