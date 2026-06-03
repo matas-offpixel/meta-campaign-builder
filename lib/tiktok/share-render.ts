@@ -176,6 +176,35 @@ export async function fetchTikTokAdsForShareUncached(
     }
   }
 
+  // Fallback: for ads that still lack a thumbnail but carry image_ids
+  // (image-only or hybrid ad formats), resolve via /file/image/ad/info/.
+  const imageIdsNeeded = [
+    ...new Set(
+      [...ads.values()]
+        .filter((ad) => !ad.thumbnailUrl && ad.imageIds?.length)
+        .flatMap((ad) => ad.imageIds ?? []),
+    ),
+  ];
+  if (imageIdsNeeded.length > 0) {
+    const imageInfo = await fetchImageInfo({
+      advertiserId,
+      token: credentials.access_token,
+      imageIds: imageIdsNeeded,
+      request,
+    });
+    for (const ad of ads.values()) {
+      if (!ad.thumbnailUrl && ad.imageIds?.length) {
+        for (const imageId of ad.imageIds) {
+          const url = imageInfo.get(imageId);
+          if (url) {
+            ad.thumbnailUrl = url;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   const metricsByAd = await fetchAdMetrics({
     advertiserId,
     token: credentials.access_token,
@@ -282,6 +311,7 @@ async function fetchAllAds(input: {
         status: row.operation_status ?? "UNKNOWN",
         secondaryStatus: row.secondary_status ?? "UNKNOWN",
         videoId: row.video_id ?? null,
+        imageIds: row.image_ids?.length ? row.image_ids : null,
         thumbnailUrl: null,
         previewUrl: null,
         landingPageUrl: row.landing_page_url ?? null,
@@ -323,6 +353,37 @@ async function fetchVideoInfo(input: {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(`[tiktok-active-creatives] video info skipped: ${message}`);
+    }
+  }
+  return out;
+}
+
+async function fetchImageInfo(input: {
+  advertiserId: string;
+  token: string;
+  imageIds: string[];
+  request: TikTokGet;
+}): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (input.imageIds.length === 0) return out;
+  const CHUNK = 60;
+  for (let i = 0; i < input.imageIds.length; i += CHUNK) {
+    const chunk = input.imageIds.slice(i, i + CHUNK);
+    try {
+      const res = await input.request<{
+        list?: Array<{ image_id?: string; image_url?: string }>;
+      }>(
+        "/file/image/ad/info/",
+        { advertiser_id: input.advertiserId, image_ids: chunk },
+        input.token,
+      );
+      for (const row of res.list ?? []) {
+        if (!row.image_id || !row.image_url) continue;
+        out.set(row.image_id, row.image_url);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[tiktok-share-render] image info skipped: ${message}`);
     }
   }
   return out;
@@ -454,6 +515,7 @@ interface NormalizedAd {
   status: string;
   secondaryStatus: string;
   videoId: string | null;
+  imageIds: string[] | null;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   landingPageUrl: string | null;

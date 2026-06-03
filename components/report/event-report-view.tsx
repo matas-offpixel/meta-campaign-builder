@@ -608,6 +608,13 @@ export function EventReportView({
           <div className="mt-6 space-y-4">{additionalSpendSlot}</div>
         ) : null}
 
+        {!meta ? (
+          <>
+            {eventDailySlot ?? null}
+            {mailchimpSlot ?? null}
+          </>
+        ) : null}
+
         {/* ─── Meta block ───────────────────────────────────────── */}
         {meta ? (
           <MetaReportBlock
@@ -635,6 +642,8 @@ export function EventReportView({
             lastUpdatedIso={lastUpdatedIso}
             onManualRefresh={onManualRefresh}
             additionalSpendSlot={additionalSpendSlot}
+            eventDailySlot={eventDailySlot}
+            mailchimpSlot={mailchimpSlot}
             registrationsData={registrationsData}
             onRefreshRegistrations={onRefreshRegistrations}
             platformFilter={isBrandCampaign ? platformFilter : "all"}
@@ -659,19 +668,6 @@ export function EventReportView({
 
         {/* ─── Google Ads block ─────────────────────────────────── */}
         {googleAds ? <GoogleAdsReportBlock data={googleAds} /> : null}
-
-        {/* ─── Event daily report block ─────────────────────────── */
-         /* Server-rendered from the unified timeline (live rollups +
-            manual daily entries) so it renders on the public share
-            page with no extra client fetch. The slot owns its own
-            section heading + summary/chart/table. */}
-        {eventDailySlot ?? null}
-
-        {/* ─── Mailchimp registrations card ─────────────────────── */
-         /* Server-rendered. Only present on brand-awareness share
-            pages with a resolved Mailchimp audience and ≥1 snapshot
-            row. Slot is composed by the share RSC. */}
-        {mailchimpSlot ?? null}
       </div>
 
       {/* PR #63 — the "Last updated …" + manual Refresh button now
@@ -741,6 +737,10 @@ interface MetaReportBlockProps {
   onManualRefresh?: () => Promise<void>;
   /** Below campaign performance cards, above Meta campaign stats. */
   additionalSpendSlot?: React.ReactNode;
+  /** Daily trend chart + tracker — rendered between campaign performance and Meta campaign stats. */
+  eventDailySlot?: React.ReactNode;
+  /** Mailchimp registrations card — rendered between campaign performance and Meta campaign stats. */
+  mailchimpSlot?: React.ReactNode;
   /** Mailchimp registration metrics — rendered as the REGISTRATIONS card for brand_campaign events. */
   registrationsData?: MailchimpRegistrationsData | null;
   /**
@@ -809,6 +809,8 @@ function MetaReportBlock({
   lastUpdatedIso,
   onManualRefresh,
   additionalSpendSlot,
+  eventDailySlot,
+  mailchimpSlot,
   registrationsData,
   onRefreshRegistrations,
   platformFilter = "all",
@@ -1047,6 +1049,11 @@ function MetaReportBlock({
           <div className="mt-6 space-y-4">{additionalSpendSlot}</div>
         ) : null}
       </Section>
+
+      {/* ─── Event daily report + Mailchimp — rendered here so they
+          appear after Campaign performance but before Meta stats. */}
+      {eventDailySlot ?? null}
+      {mailchimpSlot ?? null}
 
       {/* Platform-responsive stats blocks for brand_campaign.
           Meta pill: show only Meta.  TikTok pill: show only TikTok.
@@ -1438,7 +1445,7 @@ function TikTokAudienceSection({
   breakdowns: TikTokSnapshotBreakdown[];
 }) {
   const geoRows = [...breakdowns]
-    .filter((r) => r.dimension === "country" || r.dimension === "region")
+    .filter((r) => r.dimension === "country")
     .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
     .slice(0, 10);
   const ageRows = [...breakdowns]
@@ -1447,20 +1454,15 @@ function TikTokAudienceSection({
   const genderRows = [...breakdowns]
     .filter((r) => r.dimension === "gender" && r.dimension_value !== "NONE")
     .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
-  const interestRows = [...breakdowns]
-    .filter((r) => r.dimension === "interest_category")
-    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
-    .slice(0, 15);
 
   return (
     <div className="space-y-6">
       {geoRows.length > 0 && (
-        <TikTokBreakdownSubSection title="Top Regions">
+        <TikTokBreakdownSubSection title="Top Countries">
           <SnapBreakdownTable
-            headers={["Region", "Type", "Spend", "Impr.", "Clicks", "CTR"]}
+            headers={["Country", "Spend", "Impr.", "Clicks", "CTR"]}
             rows={geoRows.map((r) => [
               fmtDimensionValue(r.dimension, r.dimension_value),
-              r.dimension === "country" ? "Country" : "Region",
               fmtCurrency(r.spend ?? 0),
               snapFmtInt(r.impressions),
               snapFmtInt(r.clicks),
@@ -1488,24 +1490,6 @@ function TikTokAudienceSection({
           <SnapBreakdownTable
             headers={["Gender", "Spend", "Impr.", "Clicks", "CTR"]}
             rows={genderRows.map((r) => [
-              fmtDimensionValue(r.dimension, r.dimension_value),
-              fmtCurrency(r.spend ?? 0),
-              snapFmtInt(r.impressions),
-              snapFmtInt(r.clicks),
-              r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
-            ])}
-          />
-        </TikTokBreakdownSubSection>
-      )}
-      {interestRows.length > 0 && (
-        <TikTokBreakdownSubSection title="Cross Contextual Interests">
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            TikTok interest segments your audience engages with. Ranked by
-            spend.
-          </p>
-          <SnapBreakdownTable
-            headers={["Segment", "Spend", "Impr.", "Clicks", "CTR"]}
-            rows={interestRows.map((r) => [
               fmtDimensionValue(r.dimension, r.dimension_value),
               fmtCurrency(r.spend ?? 0),
               snapFmtInt(r.impressions),
