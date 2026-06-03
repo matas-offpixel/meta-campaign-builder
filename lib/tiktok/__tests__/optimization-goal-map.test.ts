@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   resolveGoalInfo,
+  resolveRollupCountsFromMetrics,
   FALLBACK_GOAL_INFO,
 } from "../optimization-goal-map.ts";
 
@@ -95,5 +96,49 @@ describe("resolveGoalInfo", () => {
     const info = resolveGoalInfo("CONVERT");
     assert.equal(info.resultKind, "conversion");
     assert.equal(info.resultsLabel, "Conversions");
+  });
+});
+
+describe("resolveRollupCountsFromMetrics — Ironworks fixture", () => {
+  // optimization_goal is never returned at campaign level, so all three IRWOHD
+  // campaigns arrive with an empty goal; objective_type is the real signal.
+  it("LEAD_GENERATION campaign: conversion → results, engagement 0", () => {
+    const counts = resolveRollupCountsFromMetrics(
+      "",
+      { spend: "530.70", conversion: "109", view_content: "0", follows: "116" },
+      "LEAD_GENERATION",
+    );
+    assert.equal(counts.conversionResults, 109);
+    assert.equal(counts.engagementResults, 0);
+  });
+
+  it("ENGAGEMENT campaign: follows → engagement, conversion 0 (view_content is 0)", () => {
+    const counts = resolveRollupCountsFromMetrics(
+      "",
+      { spend: "137.37", conversion: "0", view_content: "0", follows: "257" },
+      "ENGAGEMENT",
+    );
+    assert.equal(counts.engagementResults, 257);
+    assert.equal(counts.conversionResults, 0);
+  });
+
+  it("ENGAGEMENT campaign falls back to real_time_conversion for incidental results", () => {
+    const counts = resolveRollupCountsFromMetrics(
+      "",
+      { conversion: "0", real_time_conversion: "4", follows: "30" },
+      "ENGAGEMENT",
+    );
+    assert.equal(counts.conversionResults, 4);
+    assert.equal(counts.engagementResults, 30);
+  });
+
+  it("no objective_type preserves prior fallback behavior (conversion + view_content)", () => {
+    const counts = resolveRollupCountsFromMetrics("", {
+      conversion: "65",
+      view_content: "0",
+      follows: "73",
+    });
+    assert.equal(counts.conversionResults, 65);
+    assert.equal(counts.engagementResults, 0);
   });
 });

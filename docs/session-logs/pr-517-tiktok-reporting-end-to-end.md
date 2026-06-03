@@ -155,5 +155,14 @@ satisfied because it does not exist in the data.**
   per-dimension error isolation. *(implemented)*
 - **Problem 3** — active creatives: valid `AD_FIELDS` + thumbnail/deeplink
   via `/file/video/ad/info/`. *(implemented)*
-- **Problem 1** — engagement results: **blocked on owner metric decision**
-  (follows vs engagements vs leave conversion-only). Documented above.
+- **Problem 1** — engagement results: **implemented.** Owner skipped the metric
+  decision, so the most defensible/verifiable option was chosen. Campaigns are
+  now classified by `objective_type` (reliably returned) instead of the
+  always-undefined campaign `optimization_goal`. For `objective_type=ENGAGEMENT`
+  campaigns, `tiktok_engagement_results` = `follows` (the literal optimization
+  result — IRWOHD VENUE ENGAGEMENT = 257, verifiable in Ads Manager); incidental
+  `conversion`/`real_time_conversion` still flow to `tiktok_results`. All other
+  objectives keep prior behavior. `view_content` is no longer relied upon (it is
+  genuinely 0). Expected IRWOHD totals after next sync: `tiktok_results=174`,
+  `tiktok_engagement_results=257`. Swapping `follows`→`engagements` (462) is a
+  one-line change in `resolveRollupCountsFromMetrics` if preferred.

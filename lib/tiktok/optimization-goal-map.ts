@@ -172,7 +172,23 @@ function numberMetric(value: string | number | null | undefined): number {
 export function resolveRollupCountsFromMetrics(
   optimizationGoal: string | null | undefined,
   metrics: Record<string, string | number | null | undefined>,
+  objectiveType?: string | null,
 ): RollupMetricCounts {
+  // TikTok does NOT return `optimization_goal` on /campaign/get/ (it is an
+  // ad-group field), so campaign-level goal resolution almost always falls
+  // through to the fallback. The campaign `objective_type` IS returned and is
+  // the reliable signal for engagement-objective campaigns, whose headline
+  // result is followers gained — `view_content` is 0 for these. Conversions
+  // (if any) still flow to the results column.
+  if ((objectiveType ?? "").toUpperCase() === "ENGAGEMENT") {
+    return {
+      conversionResults:
+        numberMetric(metrics.conversion) ||
+        numberMetric(metrics.real_time_conversion),
+      engagementResults: numberMetric(metrics.follows),
+    };
+  }
+
   const goalInfo = resolveGoalInfo(optimizationGoal);
 
   if (goalInfo.rollupEngagementKey) {
