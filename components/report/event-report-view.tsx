@@ -30,6 +30,7 @@ import {
   Section,
   Metric,
   fmtInt,
+  BreakdownSection,
 } from "./meta-insights-sections";
 import { RefreshReportButton } from "./refresh-report-button";
 import { CustomRangePicker, TimeframeSelector } from "./timeframe-controls";
@@ -76,6 +77,7 @@ export interface TikTokSnapshotBreakdown {
   dimension_value: string;
   spend: number | null;
   impressions: number | null;
+  reach: number | null;
   clicks: number | null;
   ctr: number | null;
 }
@@ -1130,16 +1132,31 @@ function MetaReportBlock({
       ) : null}
 
       {/* Creative section.
-          - TikTok pill + brand_campaign: show TikTok creatives (or placeholder if no snapshot).
-          - All pill + brand_campaign: show Meta creatives + TikTok creatives below.
+          - TikTok pill + brand_campaign: TikTok audience (demographics) first, then TikTok creatives last.
+          - All pill + brand_campaign: Meta creatives + TikTok audience + TikTok creatives.
           - All other cases: Meta creative performance. */}
+
+      {/* TikTok audience (demographics) — rendered BEFORE creatives so layout matches Meta order */}
+      {isBrandCampaign && (platformFilter === "tiktok" || platformFilter === "all") ? (
+        tiktokSnapshots && tiktokSnapshots.breakdowns.length > 0 ? (
+          <TikTokAudienceSection breakdowns={tiktokSnapshots.breakdowns} />
+        ) : (
+          <Section title="TikTok audience">
+            <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
+              TikTok audience breakdown syncing — check back in 24h.
+            </p>
+          </Section>
+        )
+      ) : null}
+
+      {/* Active creatives — always last (matches Meta order) */}
       {isBrandCampaign && platformFilter === "tiktok" ? (
         <Section title="Active creatives">
           {tiktokSnapshots && tiktokSnapshots.creatives.length > 0 ? (
             <TikTokCreativesGrid creatives={tiktokSnapshots.creatives} />
           ) : (
             <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-              TikTok creative + demographic breakdowns coming soon.
+              TikTok creative breakdowns coming soon.
             </p>
           )}
         </Section>
@@ -1160,26 +1177,13 @@ function MetaReportBlock({
                 <TikTokCreativesGrid creatives={tiktokSnapshots.creatives} />
               ) : (
                 <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-                  TikTok creative + demographic breakdowns coming soon.
+                  TikTok creative breakdowns coming soon.
                 </p>
               )}
             </Section>
           ) : null}
         </>
       )}
-
-      {/* TikTok audience — visible on All and TikTok pills for brand_campaign. */}
-      {isBrandCampaign && (platformFilter === "tiktok" || platformFilter === "all") ? (
-        <Section title="TikTok audience">
-          {tiktokSnapshots && tiktokSnapshots.breakdowns.length > 0 ? (
-            <TikTokAudienceSection breakdowns={tiktokSnapshots.breakdowns} />
-          ) : (
-            <p className="rounded-md border border-dashed border-border bg-card p-4 text-center text-xs text-muted-foreground">
-              TikTok audience breakdown syncing — check back in 24h.
-            </p>
-          )}
-        </Section>
-      ) : null}
 
       {/* "Last updated …" + manual Refresh button (PR #63 — moved up
           from the page-level footer so the share page's button sits
@@ -1503,50 +1507,50 @@ function TikTokAudienceSection({
     .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
 
   return (
-    <div className="space-y-6">
+    <>
       {geoRows.length > 0 && (
-        <TikTokBreakdownSubSection title="Top Countries">
+        <BreakdownSection title="Top countries" defaultOpen>
           <SnapBreakdownTable
-            headers={["Country", "Spend", "Impr.", "Clicks", "CTR"]}
             rows={geoRows.map((r) => [
               fmtDimensionValue(r.dimension, r.dimension_value),
               fmtCurrency(r.spend ?? 0),
               snapFmtInt(r.impressions),
+              snapFmtInt(r.reach),
               snapFmtInt(r.clicks),
               r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
             ])}
           />
-        </TikTokBreakdownSubSection>
+        </BreakdownSection>
       )}
       {ageRows.length > 0 && (
-        <TikTokBreakdownSubSection title="Demographics by Age">
+        <BreakdownSection title="Demographics — Age" defaultOpen>
           <SnapBreakdownTable
-            headers={["Age", "Spend", "Impr.", "Clicks", "CTR"]}
             rows={ageRows.map((r) => [
               fmtDimensionValue(r.dimension, r.dimension_value),
               fmtCurrency(r.spend ?? 0),
               snapFmtInt(r.impressions),
+              snapFmtInt(r.reach),
               snapFmtInt(r.clicks),
               r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
             ])}
           />
-        </TikTokBreakdownSubSection>
+        </BreakdownSection>
       )}
       {genderRows.length > 0 && (
-        <TikTokBreakdownSubSection title="Demographics by Gender">
+        <BreakdownSection title="Demographics — Gender" defaultOpen>
           <SnapBreakdownTable
-            headers={["Gender", "Spend", "Impr.", "Clicks", "CTR"]}
             rows={genderRows.map((r) => [
               fmtDimensionValue(r.dimension, r.dimension_value),
               fmtCurrency(r.spend ?? 0),
               snapFmtInt(r.impressions),
+              snapFmtInt(r.reach),
               snapFmtInt(r.clicks),
               r.ctr != null ? `${r.ctr.toFixed(2)}%` : "—",
             ])}
           />
-        </TikTokBreakdownSubSection>
+        </BreakdownSection>
       )}
-    </div>
+    </>
   );
 }
 
@@ -1568,10 +1572,8 @@ function TikTokBreakdownSubSection({
 }
 
 function SnapBreakdownTable({
-  headers,
   rows,
 }: {
-  headers: string[];
   rows: string[][];
 }) {
   return (
@@ -1579,11 +1581,12 @@ function SnapBreakdownTable({
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-            {headers.map((h, i) => (
-              <th key={h} className={`pb-2 ${i === 0 ? "" : "text-right"}`}>
-                {h}
-              </th>
-            ))}
+            <th className="pb-2">Segment</th>
+            <th className="pb-2 text-right">Spend</th>
+            <th className="pb-2 text-right">Impr.</th>
+            <th className="pb-2 text-right">Reach</th>
+            <th className="pb-2 text-right">Clicks</th>
+            <th className="pb-2 text-right">CTR</th>
           </tr>
         </thead>
         <tbody>
