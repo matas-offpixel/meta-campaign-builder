@@ -252,7 +252,7 @@ export async function fetchTikTokDailyRollupInsights(
     existing.tiktok_impressions += row.impressions;
     existing.tiktok_reach += row.reach;
     existing.tiktok_clicks += row.clicks;
-    existing.tiktok_video_views += row.videoViews100p;
+    existing.tiktok_video_views += row.videoViews2s;
     existing.tiktok_video_views_2s += row.videoViews2s;
     existing.tiktok_video_views_6s += row.videoViews6s;
     existing.tiktok_video_views_100p += row.videoViews100p;
