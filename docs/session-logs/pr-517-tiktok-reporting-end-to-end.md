@@ -1,7 +1,7 @@
 # PR pending — fix(tiktok): complete reporting integration
 
 Branch: `cursor/tiktok-reporting-end-to-end`
-PR: pending
+PR: [#517](https://github.com/matas-offpixel/meta-campaign-builder/pull/517)
 Date: 2026-06-03
 
 ---
