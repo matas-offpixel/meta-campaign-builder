@@ -157,6 +157,58 @@ describe("fetchTikTokAdsForShare", () => {
       { since: "2026-03-02", until: "2026-03-15" },
     ]);
   });
+
+  it("resolves Spark Ad thumbnails via OEmbed when video_id is absent", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.startsWith("https://www.tiktok.com/oembed")) {
+        return new Response(
+          JSON.stringify({ thumbnail_url: "https://cdn.tiktok.com/spark-thumb.jpg" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${urlStr}`);
+    }) as typeof fetch;
+
+    try {
+      const rows = await fetchTikTokAdsForShareUncached({
+        supabase: {} as never,
+        tiktokAccountId: "account-1",
+        eventCode: "IRWOHD",
+        since: "2026-06-01",
+        until: "2026-06-30",
+        credentials: { access_token: "token", advertiser_ids: ["adv-1"] },
+        request: (async <T,>(path: string): Promise<T> => {
+          if (path === "/ad/get/") {
+            return {
+              list: [
+                {
+                  ad_id: "ad-spark-1",
+                  ad_name: "VID 1 IRWOHD",
+                  campaign_id: "camp-1",
+                  campaign_name: "[IRWOHD] awareness",
+                  operation_status: "ACTIVE",
+                  tiktok_item_id: "item-7644514580277808406",
+                  identity_id: "identity-abc",
+                  identity_type: "BC_AUTH_TT",
+                  // no video_id — this is a Spark Ad
+                },
+              ],
+              page_info: { page: 1, total_page: 1 },
+            } as T;
+          }
+          return { list: [], page_info: { page: 1, total_page: 1 } } as T;
+        }) as Request,
+      });
+
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].ad_name, "VID 1 IRWOHD");
+      assert.equal(rows[0].thumbnail_url, "https://cdn.tiktok.com/spark-thumb.jpg");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("resolveAdvertiserIdForAccount", () => {

@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../db/database.types.ts";
 import type { TikTokAdRow } from "../types/tiktok.ts";
 import { getTikTokCredentials } from "./credentials.ts";
-import { tiktokGet, tiktokPost, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
+import { tiktokGet, TIKTOK_CHUNK_CONCURRENCY } from "./client.ts";
 import { campaignNameMatchesEventCode } from "./matching.ts";
 
 type TikTokGet = typeof tiktokGet;
@@ -220,25 +220,17 @@ export async function fetchTikTokAdsForShareUncached(
 
   // Fallback: Spark Ads reference organic TikTok posts via tiktok_item_id.
   // These cannot be resolved via /file/video/ad/info/ or /file/image/ad/info/.
-  const sparkItems = [...ads.values()]
-    .filter(
-      (ad): ad is NormalizedAd & { tiktokItemId: string; identityId: string; identityType: string } =>
-        !ad.thumbnailUrl &&
-        Boolean(ad.tiktokItemId) &&
-        Boolean(ad.identityId) &&
-        Boolean(ad.identityType),
-    )
-    .map((ad) => ({
-      itemId: ad.tiktokItemId,
-      identityId: ad.identityId,
-      identityType: ad.identityType,
-    }));
-  if (sparkItems.length > 0) {
-    const sparkInfo = await fetchSparkAdInfo({
-      advertiserId,
-      token: credentials.access_token,
-      items: sparkItems,
-    });
+  // TikTok's Marketing API has no accessible endpoint for this; use the public
+  // OEmbed endpoint which needs only the item_id and no auth.
+  const sparkItemIds = [
+    ...new Set(
+      [...ads.values()]
+        .filter((ad) => !ad.thumbnailUrl && Boolean(ad.tiktokItemId))
+        .map((ad) => ad.tiktokItemId as string),
+    ),
+  ];
+  if (sparkItemIds.length > 0) {
+    const sparkInfo = await fetchSparkAdInfo(sparkItemIds);
     for (const ad of ads.values()) {
       if (!ad.thumbnailUrl && ad.tiktokItemId) {
         const url = sparkInfo.get(ad.tiktokItemId);
@@ -439,51 +431,36 @@ async function fetchImageInfo(input: {
   return out;
 }
 
-/** Resolve thumbnails for Spark Ads via POST /v1.3/spark_ads/posts/get/.
- *  Spark Ads reference an organic TikTok post (tiktok_item_id) attached to a
- *  TikTok identity — the video is not in the ad library and cannot be resolved
- *  via /file/video/ad/info/.  Different identities require separate API calls.
- *  Returns Map<tiktok_item_id, video_cover_image_url>. */
-async function fetchSparkAdInfo(input: {
-  advertiserId: string;
-  token: string;
-  items: Array<{ itemId: string; identityId: string; identityType: string }>;
-}): Promise<Map<string, string>> {
+/** Resolve thumbnails for Spark Ads via TikTok's public OEmbed endpoint.
+ *  Spark Ads reference an organic TikTok post (tiktok_item_id).  TikTok's
+ *  Marketing API has no accessible endpoint for fetching organic post info;
+ *  the public OEmbed endpoint (https://www.tiktok.com/oembed) works instead,
+ *  requires no authentication, and returns thumbnail_url directly.
+ *  Returns Map<tiktok_item_id, thumbnail_url>. */
+async function fetchSparkAdInfo(itemIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  if (input.items.length === 0) return out;
+  if (itemIds.length === 0) return out;
 
-  // Group by (identity_id, identity_type) — each identity needs its own call.
-  const byIdentity = new Map<string, typeof input.items>();
-  for (const item of input.items) {
-    const key = `${item.identityId}::${item.identityType}`;
-    const group = byIdentity.get(key) ?? [];
-    group.push(item);
-    byIdentity.set(key, group);
-  }
+  console.log(
+    `[tiktok-share-render] fetchSparkAdInfo: resolving ${itemIds.length} Spark Ad thumbnail(s) via OEmbed`,
+    itemIds,
+  );
 
-  for (const group of byIdentity.values()) {
-    const { identityId, identityType } = group[0];
-    const itemIds = group.map((g) => g.itemId);
+  for (const itemId of itemIds) {
     try {
-      const res = await tiktokPost<{
-        data?: { list?: Array<{ item_id?: string; video_cover_image_url?: string }> };
-      }>(
-        "/v1.3/spark_ads/posts/get/",
-        {
-          advertiser_id: input.advertiserId,
-          identity_id: identityId,
-          identity_type: identityType,
-          item_ids: itemIds,
-        },
-        input.token,
-      );
-      for (const row of res.data?.list ?? []) {
-        if (!row.item_id || !row.video_cover_image_url) continue;
-        out.set(row.item_id, row.video_cover_image_url);
+      const url = `https://www.tiktok.com/oembed?url=${encodeURIComponent(`https://www.tiktok.com/video/${itemId}`)}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        console.warn(`[tiktok-share-render] OEmbed ${res.status} for item_id=${itemId}`);
+        continue;
+      }
+      const json = (await res.json()) as { thumbnail_url?: string };
+      if (json.thumbnail_url) {
+        out.set(itemId, json.thumbnail_url);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[tiktok-share-render] spark ad info skipped (identity=${identityId}): ${message}`);
+      console.warn(`[tiktok-share-render] OEmbed failed for item_id=${itemId}: ${message}`);
     }
   }
   return out;
