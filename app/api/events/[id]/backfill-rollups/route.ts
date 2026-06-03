@@ -53,7 +53,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, kind, event_code, event_timezone, event_date, client_id, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
+      "id, user_id, kind, event_code, event_timezone, event_date, event_start_at, client_id, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -82,6 +82,7 @@ export async function POST(
   const eventKind = (event.kind as string | null) ?? null;
   const clientId = (event.client_id as string | null) ?? null;
   const eventMailchimpAudienceId = (event.mailchimp_audience_id as string | null) ?? null;
+  const eventStartAt = (event.event_start_at as string | null) ?? null;
   const eventTikTokAccountId =
     (event.tiktok_account_id as string | null) ?? null;
   const eventGoogleAdsAccountId =
@@ -140,6 +141,7 @@ export async function POST(
           user_id: user.id,
           kind: eventKind,
           mailchimp_audience_id: eventMailchimpAudienceId,
+          event_start_at: eventStartAt,
           client_id: clientId,
           client: clientMailchimpAccountId != null || clientMailchimpAudienceId != null
             ? { mailchimp_account_id: clientMailchimpAccountId, mailchimp_audience_id: clientMailchimpAudienceId }

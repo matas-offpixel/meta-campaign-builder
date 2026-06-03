@@ -20,6 +20,13 @@ export interface DailyCumulative {
   cumulative: number;   // end-of-day active subscriber count
 }
 
+export interface ReconstructDailyOptions {
+  /** YYYY-MM-DD — drop activity before campaign launch. */
+  eventStartAt?: string | null;
+  /** Max calendar gap between consecutive API activity rows (default 2). */
+  maxActivityGapDays?: number;
+}
+
 export interface AudienceIdResolvable {
   mailchimp_audience_id: string | null;
   client: { mailchimp_audience_id: string | null } | { mailchimp_audience_id: string | null }[] | null;
@@ -32,42 +39,76 @@ export function resolveMailchimpAudienceId(event: AudienceIdResolvable): string 
   return client?.mailchimp_audience_id ?? null;
 }
 
+function daysBetweenUtc(earlierYmd: string, laterYmd: string): number {
+  const earlier = Date.parse(`${earlierYmd}T00:00:00Z`);
+  const later = Date.parse(`${laterYmd}T00:00:00Z`);
+  if (!Number.isFinite(earlier) || !Number.isFinite(later)) return Number.POSITIVE_INFINITY;
+  return Math.round((later - earlier) / 86_400_000);
+}
+
 /**
- * Given an array of per-day DELTA activity rows and the current live total,
- * returns an array of per-day CUMULATIVE subscriber counts sorted
- * chronologically (oldest first).
+ * Given per-day DELTA activity rows and the current live total, returns
+ * per-day CUMULATIVE subscriber counts sorted chronologically (oldest first).
+ *
+ * Only emits days where the backward reconstruction is trustworthy:
+ *   - on/after `eventStartAt` when provided
+ *   - within a contiguous activity window (no gap > maxActivityGapDays)
+ *   - before the running total goes negative (incomplete history signal)
+ *   - cumulative > 0 (never write fabricated zero rows)
  *
  * `currentActiveTotal` should be `member_count - unsubscribe_count - cleaned_count`
- * from the Mailchimp audience stats API — i.e. the count of active subscribers
- * right now.
+ * from the Mailchimp audience stats API.
  */
 export function reconstructDailyCumulatives(
   activityRows: ActivityDeltaRow[],
   currentActiveTotal: number,
+  options?: ReconstructDailyOptions,
 ): DailyCumulative[] {
   if (activityRows.length === 0) return [];
 
-  // Sort newest-first so we can walk backwards from the known current total.
-  const sorted = [...activityRows].sort((a, b) => b.day.localeCompare(a.day));
+  const maxGap = options?.maxActivityGapDays ?? 2;
+  const eventStartAt = options?.eventStartAt?.slice(0, 10) ?? null;
+
+  let filtered = activityRows;
+  if (eventStartAt) {
+    filtered = filtered.filter((row) => row.day >= eventStartAt);
+  }
+  if (filtered.length === 0) return [];
+
+  const sorted = [...filtered].sort((a, b) => b.day.localeCompare(a.day));
 
   const results: DailyCumulative[] = [];
   let runningTotal = currentActiveTotal;
+  let newerDay: string | null = null;
 
   for (const row of sorted) {
+    if (newerDay !== null) {
+      const gap = daysBetweenUtc(row.day, newerDay);
+      if (gap > maxGap) break;
+    }
+
+    if (runningTotal < 0) break;
+
+    results.push({ day: row.day, cumulative: runningTotal });
+
     const netChange =
       row.subs -
       row.unsubs +
       (row.other_adds ?? 0) -
       (row.other_removes ?? 0);
 
-    // End-of-day count for this day = current running total.
-    results.push({ day: row.day, cumulative: Math.max(0, runningTotal) });
+    runningTotal -= netChange;
+    newerDay = row.day;
 
-    // Move one day further back in time.
-    runningTotal = runningTotal - netChange;
+    if (runningTotal < 0) break;
   }
 
-  // Return chronological order (oldest first).
-  results.reverse();
-  return results;
+  return results
+    .reverse()
+    .filter((row) => row.cumulative > 0);
+}
+
+/** Whether a reconstructed day should be persisted to mailchimp_audience_snapshots. */
+export function isWritableMailchimpDailySnapshot(cumulative: number): boolean {
+  return cumulative > 0;
 }

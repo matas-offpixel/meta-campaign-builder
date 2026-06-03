@@ -92,11 +92,11 @@ describe("reconstructDailyCumulatives", () => {
     assert.equal(result[1]!.cumulative, 100);
   });
 
-  it("never returns negative cumulative (floors at 0)", () => {
-    // Pathological: more unsubs than subs on a day, so cumulative goes negative.
+  it("stops backward walk when prior cumulative would go negative", () => {
     const activity = [row("2026-06-01", 0, 200)];
     const result = reconstructDailyCumulatives(activity, 50);
-    assert.ok(result[0]!.cumulative >= 0, "cumulative should be >= 0");
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.cumulative, 50);
   });
 
   it("Ironworks shape: 22 May to 2 Jun, anchored at 3006", () => {
