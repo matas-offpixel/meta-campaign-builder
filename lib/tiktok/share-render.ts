@@ -16,10 +16,20 @@ interface TikTokAdGetRow {
   campaign_name?: string;
   operation_status?: string;
   secondary_status?: string;
-  thumbnail_url?: string;
-  preview_url?: string;
+  video_id?: string;
+  image_ids?: string[];
   landing_page_url?: string;
   ad_text?: string;
+}
+
+interface TikTokVideoInfoRow {
+  video_id?: string;
+  video_cover_url?: string;
+  preview_url?: string;
+}
+
+interface TikTokVideoInfoResponse {
+  list?: TikTokVideoInfoRow[];
 }
 
 interface TikTokAdGetResponse {
@@ -80,8 +90,11 @@ const AD_FIELDS = [
   "campaign_name",
   "operation_status",
   "secondary_status",
-  "thumbnail_url",
-  "preview_url",
+  // NOTE: `thumbnail_url` / `preview_url` are NOT valid /ad/get/ fields and
+  // cause the entire call to 400. Thumbnails + previews are resolved from
+  // the creative's `video_id` via /file/video/ad/info/ instead.
+  "video_id",
+  "image_ids",
   "landing_page_url",
   "ad_text",
 ];
@@ -125,6 +138,30 @@ export async function fetchTikTokAdsForShareUncached(
     request,
   });
   if (ads.size === 0) return [];
+
+  // Resolve thumbnails + previews from the creative's video (best-effort —
+  // /ad/get/ does not expose thumbnail_url/preview_url). Ads without a
+  // video_id fall back to their landing page for the deeplink.
+  const videoIds = [
+    ...new Set(
+      [...ads.values()]
+        .map((ad) => ad.videoId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const videoInfo = await fetchVideoInfo({
+    advertiserId,
+    token: credentials.access_token,
+    videoIds,
+    request,
+  });
+  for (const ad of ads.values()) {
+    const info = ad.videoId ? videoInfo.get(ad.videoId) : undefined;
+    if (info) {
+      ad.thumbnailUrl = info.cover ?? ad.thumbnailUrl;
+      ad.previewUrl = info.preview ?? ad.previewUrl;
+    }
+  }
 
   const metricsByAd = await fetchAdMetrics({
     advertiserId,
@@ -231,14 +268,49 @@ async function fetchAllAds(input: {
         campaignName: row.campaign_name ?? null,
         status: row.operation_status ?? "UNKNOWN",
         secondaryStatus: row.secondary_status ?? "UNKNOWN",
-        thumbnailUrl: row.thumbnail_url ?? null,
-        previewUrl: row.preview_url ?? null,
+        videoId: row.video_id ?? null,
+        thumbnailUrl: null,
+        previewUrl: null,
         landingPageUrl: row.landing_page_url ?? null,
         adText: row.ad_text ?? null,
       });
     }
     const pageInfo = res.page_info;
     if (!pageInfo?.total_page || page >= pageInfo.total_page) break;
+  }
+  return out;
+}
+
+async function fetchVideoInfo(input: {
+  advertiserId: string;
+  token: string;
+  videoIds: string[];
+  request: TikTokGet;
+}): Promise<Map<string, { cover: string | null; preview: string | null }>> {
+  const out = new Map<string, { cover: string | null; preview: string | null }>();
+  if (input.videoIds.length === 0) return out;
+  // /file/video/ad/info/ caps video_ids per call; chunk defensively. Failures
+  // are non-fatal — thumbnails are cosmetic and must never block the snapshot.
+  const CHUNK = 60;
+  for (let i = 0; i < input.videoIds.length; i += CHUNK) {
+    const chunk = input.videoIds.slice(i, i + CHUNK);
+    try {
+      const res = await input.request<TikTokVideoInfoResponse>(
+        "/file/video/ad/info/",
+        { advertiser_id: input.advertiserId, video_ids: chunk },
+        input.token,
+      );
+      for (const row of res.list ?? []) {
+        if (!row.video_id) continue;
+        out.set(row.video_id, {
+          cover: row.video_cover_url ?? null,
+          preview: row.preview_url ?? null,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[tiktok-active-creatives] video info skipped: ${message}`);
+    }
   }
   return out;
 }
@@ -368,6 +440,7 @@ interface NormalizedAd {
   campaignName: string | null;
   status: string;
   secondaryStatus: string;
+  videoId: string | null;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   landingPageUrl: string | null;

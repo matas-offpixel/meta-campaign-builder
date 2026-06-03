@@ -33,12 +33,22 @@ describe("fetchTikTokAdsForShare", () => {
                 campaign_id: "camp-1",
                 campaign_name: "[BB26-RIANBRAZIL] awareness",
                 operation_status: "ACTIVE",
-                thumbnail_url: "https://example.com/thumb.jpg",
-                preview_url: "https://www.tiktok.com/@x/video/1",
+                video_id: "video-1",
                 ad_text: "Ad copy",
               },
             ],
             page_info: { page: 1, total_page: 1 },
+          } as T;
+        }
+        if (path === "/file/video/ad/info/") {
+          return {
+            list: [
+              {
+                video_id: "video-1",
+                video_cover_url: "https://example.com/thumb.jpg",
+                preview_url: "https://www.tiktok.com/@x/video/1",
+              },
+            ],
           } as T;
         }
         if (path === "/report/integrated/get/") {
@@ -110,6 +120,33 @@ describe("fetchTikTokAdsForShare", () => {
       rows.map((row) => row.ad_id),
       ["ad-1"],
     );
+  });
+
+  it("never requests the invalid ad/get fields that 400 the call", async () => {
+    let adGetFields: unknown = null;
+    await fetchTikTokAdsForShareUncached({
+      supabase: {} as never,
+      tiktokAccountId: "account-1",
+      eventCode: "BB26-RIANBRAZIL",
+      since: "2026-04-01",
+      until: "2026-04-30",
+      credentials: { access_token: "token", advertiser_ids: ["adv-1"] },
+      request: (async <T,>(
+        path: string,
+        params: Record<string, unknown>,
+      ): Promise<T> => {
+        if (path === "/ad/get/") {
+          adGetFields = params.fields;
+          return { list: [], page_info: { page: 1, total_page: 1 } } as T;
+        }
+        return { list: [], page_info: { page: 1, total_page: 1 } } as T;
+      }) as Request,
+    });
+
+    const fields = adGetFields as string[];
+    assert.ok(!fields.includes("thumbnail_url"));
+    assert.ok(!fields.includes("preview_url"));
+    assert.ok(fields.includes("video_id"));
   });
 
   it("chunks long windows into TikTok-safe 30 day spans", () => {
