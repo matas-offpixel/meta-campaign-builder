@@ -55,6 +55,7 @@ interface EventToSync {
   event_code: string | null;
   event_timezone: string | null;
   event_date: string | null;
+  event_start_at: string | null;
   general_sale_at: string | null;
   mailchimp_audience_id: string | null;
   tiktok_account_id: string | null;
@@ -173,7 +174,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, client_id, kind, event_code, event_timezone, event_date, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
+      "id, user_id, client_id, kind, event_code, event_timezone, event_date, event_start_at, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .in("id", eligibility.eligibleIds);
   if (eventErr) {
@@ -252,6 +253,7 @@ export async function GET(req: NextRequest) {
               user_id: event.user_id,
               kind: event.kind,
               mailchimp_audience_id: event.mailchimp_audience_id,
+              event_start_at: event.event_start_at,
               client_id: event.client_id,
               client: clientRel ? (Array.isArray(clientRel) ? clientRel[0] : clientRel) as unknown as { mailchimp_account_id: string | null; mailchimp_audience_id: string | null } : null,
             },

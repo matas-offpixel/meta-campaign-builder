@@ -9,7 +9,7 @@ import {
   type MailchimpAudience,
 } from "@/lib/mailchimp/client";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
-import { reconstructDailyCumulatives, resolveMailchimpAudienceId } from "@/lib/mailchimp/activity-reconstruct";
+import { reconstructDailyCumulatives, resolveMailchimpAudienceId, isWritableMailchimpDailySnapshot } from "@/lib/mailchimp/activity-reconstruct";
 
 export { resolveMailchimpAudienceId };
 
@@ -18,6 +18,7 @@ export interface MailchimpSyncEventRow {
   user_id: string;
   kind: string | null;
   mailchimp_audience_id: string | null;
+  event_start_at?: string | null;
   client: { mailchimp_account_id: string | null; mailchimp_audience_id: string | null } | null;
 }
 
@@ -248,7 +249,16 @@ export async function syncMailchimpAudienceDailyHistory(
   }
 
   // Reconstruct per-day cumulative totals via pure helper (testable without server-only).
-  const dailyCumulatives = reconstructDailyCumulatives(activityRows, currentActiveTotal);
+  const dailyCumulatives = reconstructDailyCumulatives(activityRows, currentActiveTotal, {
+    eventStartAt: event.event_start_at ?? null,
+  }).filter(({ cumulative }) => isWritableMailchimpDailySnapshot(cumulative));
+
+  if (dailyCumulatives.length === 0) {
+    console.warn(
+      `[mailchimp-daily-sync] event=${event.id} ok but no trustworthy daily rows after reconstruction`,
+    );
+    return { ok: true, rowsWritten: 0 };
+  }
 
   const firstDate = dailyCumulatives[0]!.day;
   const lastDate = dailyCumulatives[dailyCumulatives.length - 1]!.day;
