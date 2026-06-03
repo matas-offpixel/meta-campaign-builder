@@ -43,6 +43,10 @@ import {
 } from "./google-ads-report-block";
 import { RegistrationsCard } from "./RegistrationsCard";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
+import {
+  groupTikTokCreatives,
+  type TikTokCreativeGroup,
+} from "@/lib/reporting/group-tiktok-creatives";
 /**
  * components/report/event-report-view.tsx
  *
@@ -79,11 +83,15 @@ export interface TikTokSnapshotBreakdown {
 export interface TikTokSnapshotCreative {
   ad_id: string;
   ad_name: string | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
   spend: number | null;
   impressions: number | null;
+  reach: number | null;
   clicks: number | null;
   ctr: number | null;
   video_views_2s: number | null;
+  video_views_6s: number | null;
   video_views_100p: number | null;
   thumbnail_url: string | null;
   deeplink_url: string | null;
@@ -647,7 +655,7 @@ export function EventReportView({
         ) : null}
 
         {/* ─── TikTok block ─────────────────────────────────────── */}
-        {hasTikTokSignal && tiktok ? <TikTokReportBlock data={tiktok} /> : null}
+        {hasTikTokSignal && tiktok && !(isBrandCampaign && tiktokSnapshots) ? <TikTokReportBlock data={tiktok} /> : null}
 
         {/* ─── Google Ads block ─────────────────────────────────── */}
         {googleAds ? <GoogleAdsReportBlock data={googleAds} /> : null}
@@ -1303,33 +1311,33 @@ function TikTokCreativesGrid({
 }: {
   creatives: TikTokSnapshotCreative[];
 }) {
-  const sorted = [...creatives]
-    .filter((c) => (c.spend ?? 0) > 0 || (c.impressions ?? 0) > 0)
-    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0));
-  if (sorted.length === 0) return null;
+  const filtered = creatives.filter(
+    (c) => (c.spend ?? 0) > 0 || (c.impressions ?? 0) > 0,
+  );
+  if (filtered.length === 0) return null;
+  const groups = groupTikTokCreatives(filtered);
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {sorted.map((c) => (
-        <TikTokCreativeCard key={c.ad_id} creative={c} />
+      {groups.map((g) => (
+        <TikTokCreativeCard key={g.group_key} group={g} />
       ))}
     </div>
   );
 }
 
-function TikTokCreativeCard({
-  creative: c,
-}: {
-  creative: TikTokSnapshotCreative;
-}) {
-  const rawName = c.ad_name?.trim() || `Ad ${c.ad_id.slice(-6)}`;
+function TikTokCreativeCard({ group: g }: { group: TikTokCreativeGroup }) {
+  const cpm =
+    g.cpm != null ? `${g.cpm.toFixed(2)}` : null;
+  const costPerPlay =
+    g.cost_per_video_play != null ? fmtCurrency(g.cost_per_video_play) : null;
   const card = (
     <div className="rounded-md border border-border bg-card overflow-hidden">
       <div className="aspect-[9/16] w-full overflow-hidden bg-muted">
-        {c.thumbnail_url ? (
+        {g.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={c.thumbnail_url}
-            alt={rawName}
+            src={g.thumbnail_url}
+            alt={g.display_name}
             className="h-full w-full object-cover"
           />
         ) : (
@@ -1340,33 +1348,79 @@ function TikTokCreativeCard({
       </div>
       <div className="p-2 space-y-1.5">
         <p className="text-[11px] font-medium text-foreground leading-snug line-clamp-3">
-          {rawName}
+          {g.display_name}
         </p>
+        {g.ad_count > 1 && (
+          <p className="text-[10px] text-muted-foreground">
+            {g.ad_count} ads
+            {g.campaign_count > 0 ? ` · ${g.campaign_count} campaign${g.campaign_count > 1 ? "s" : ""}` : ""}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-x-2 text-[10px]">
           <span className="text-muted-foreground">Spend</span>
           <span className="text-right tabular-nums text-foreground">
-            {fmtCurrency(c.spend ?? 0)}
+            {fmtCurrency(g.spend)}
           </span>
           <span className="text-muted-foreground">Impr.</span>
           <span className="text-right tabular-nums text-foreground">
-            {snapFmtInt(c.impressions)}
+            {snapFmtInt(g.impressions)}
+          </span>
+          <span className="text-muted-foreground">Reach</span>
+          <span className="text-right tabular-nums text-foreground">
+            {snapFmtInt(g.reach)}
           </span>
           <span className="text-muted-foreground">Clicks</span>
           <span className="text-right tabular-nums text-foreground">
-            {snapFmtInt(c.clicks)}
+            {snapFmtInt(g.clicks)}
           </span>
           <span className="text-muted-foreground">CTR</span>
           <span className="text-right tabular-nums text-foreground">
-            {c.ctr != null ? `${c.ctr.toFixed(2)}%` : "—"}
+            {g.ctr != null ? `${g.ctr.toFixed(2)}%` : "—"}
           </span>
+          <span className="text-muted-foreground">CPM</span>
+          <span className="text-right tabular-nums text-foreground">
+            {cpm != null ? `£${cpm}` : "—"}
+          </span>
+          {g.video_views_2s != null && (
+            <>
+              <span className="text-muted-foreground">2s Views</span>
+              <span className="text-right tabular-nums text-foreground">
+                {snapFmtInt(g.video_views_2s)}
+              </span>
+            </>
+          )}
+          {g.video_views_6s != null && (
+            <>
+              <span className="text-muted-foreground">6s Views</span>
+              <span className="text-right tabular-nums text-foreground">
+                {snapFmtInt(g.video_views_6s)}
+              </span>
+            </>
+          )}
+          {g.video_views_100p != null && (
+            <>
+              <span className="text-muted-foreground">100% Views</span>
+              <span className="text-right tabular-nums text-foreground">
+                {snapFmtInt(g.video_views_100p)}
+              </span>
+            </>
+          )}
+          {costPerPlay != null && (
+            <>
+              <span className="text-muted-foreground">Cost/Play</span>
+              <span className="text-right tabular-nums text-foreground">
+                {costPerPlay}
+              </span>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
-  if (c.deeplink_url) {
+  if (g.deeplink_url) {
     return (
       <a
-        href={c.deeplink_url}
+        href={g.deeplink_url}
         target="_blank"
         rel="noopener noreferrer"
         className="block hover:opacity-90 transition-opacity"

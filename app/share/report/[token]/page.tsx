@@ -621,7 +621,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
               db
                 .from("tiktok_active_creatives_snapshots")
                 .select(
-                  "ad_id,ad_name,spend,impressions,clicks,ctr,video_views_2s,video_views_100p,thumbnail_url,deeplink_url",
+                  "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,video_views_2s,video_views_6s,video_views_100p,thumbnail_url,deeplink_url",
                 )
                 .eq("event_id", event_id)
                 .eq("kind", "ok")
