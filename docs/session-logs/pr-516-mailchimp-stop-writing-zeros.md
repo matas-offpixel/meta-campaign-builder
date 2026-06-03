@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 516
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/516
 - **Branch:** `cursor/mailchimp-stop-writing-zeros`
 
 ## Summary
