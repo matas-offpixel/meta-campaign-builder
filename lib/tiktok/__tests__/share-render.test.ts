@@ -160,8 +160,10 @@ describe("fetchTikTokAdsForShare", () => {
 
   it("resolves Spark Ad thumbnails via OEmbed when video_id is absent", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string | URL | Request) => {
+    const fetchedHeaders: Record<string, string>[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = String(url);
+      fetchedHeaders.push(Object.fromEntries(Object.entries(init?.headers ?? {})));
       if (urlStr.startsWith("https://www.tiktok.com/oembed")) {
         return new Response(
           JSON.stringify({ thumbnail_url: "https://cdn.tiktok.com/spark-thumb.jpg" }),
@@ -205,6 +207,11 @@ describe("fetchTikTokAdsForShare", () => {
       assert.equal(rows.length, 1);
       assert.equal(rows[0].ad_name, "VID 1 IRWOHD");
       assert.equal(rows[0].thumbnail_url, "https://cdn.tiktok.com/spark-thumb.jpg");
+      // Verify a browser User-Agent was sent so TikTok's OEmbed doesn't block us.
+      assert.ok(
+        fetchedHeaders.some((h) => h["User-Agent"]?.includes("Mozilla")),
+        "OEmbed fetch must include a browser User-Agent header",
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }
