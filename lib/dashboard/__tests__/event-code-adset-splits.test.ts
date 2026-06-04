@@ -8,8 +8,8 @@
  * 4. Combined O2 + SWG3 = same total as before (conservation)
  *
  * Numbers are derived from the hardcoded campaign 6925933901665 snapshot:
- *   spend £6,562.92, reach 915,207, link_clicks 84,725, LPV 52,839
- *   Split: O2 74.54 %, SWG3 25.46 %
+ *   spend £7,784.08, reach 1,006,656, link_clicks 87,591, LPV 62,679
+ *   Split: O2 78.53 %, SWG3 21.47 % (snapshot 2026-06-03)
  */
 
 import { describe, it } from "node:test";
@@ -51,8 +51,8 @@ function cacheRow(
 
 // Snapshot totals from CAMPAIGN_SPLITS config
 const SNAP = CAMPAIGN_SPLITS[0]!.snapshotTotals;
-const SWG3_SHARE = 0.2546; // 25.46 %
-const O2_SHARE = 0.7454;   // 74.54 %
+const SWG3_SHARE = 0.2147; // 21.47 %
+const O2_SHARE = 0.7853;   // 78.53 %
 
 // ── getSpendAdjustmentGbp ─────────────────────────────────────────────────────
 
@@ -158,7 +158,7 @@ describe("applyAdsetSplitsToLifetimeMeta", () => {
     assert.equal(manchesterOut.meta_landing_page_views, 20000);
   });
 
-  it("O2 reach is reduced by 25.46 % of campaign snapshot reach", () => {
+  it("O2 reach is reduced by 21.47 % of campaign snapshot reach", () => {
     const o2Out = adjusted.find((r) => r.event_code === "WC26-GLASGOW-O2")!;
     const expectedReach = PRE_SPLIT_O2_REACH - SNAP.reach * SWG3_SHARE;
     assert.ok(
@@ -167,7 +167,7 @@ describe("applyAdsetSplitsToLifetimeMeta", () => {
     );
   });
 
-  it("SWG3 reach is increased by 25.46 % of campaign snapshot reach", () => {
+  it("SWG3 reach is increased by 21.47 % of campaign snapshot reach", () => {
     const swg3Out = adjusted.find((r) => r.event_code === "WC26-GLASGOW-SWG3")!;
     const expectedReach = PRE_SPLIT_SWG3_REACH + SNAP.reach * SWG3_SHARE;
     assert.ok(
@@ -176,7 +176,7 @@ describe("applyAdsetSplitsToLifetimeMeta", () => {
     );
   });
 
-  it("O2 link_clicks is reduced by 25.46 % of campaign snapshot clicks", () => {
+  it("O2 link_clicks is reduced by 21.47 % of campaign snapshot clicks", () => {
     const o2Out = adjusted.find((r) => r.event_code === "WC26-GLASGOW-O2")!;
     const expected = PRE_SPLIT_O2_CLICKS - SNAP.linkClicks * SWG3_SHARE;
     assert.ok(
@@ -185,7 +185,7 @@ describe("applyAdsetSplitsToLifetimeMeta", () => {
     );
   });
 
-  it("SWG3 link_clicks is increased by 25.46 % of campaign snapshot clicks", () => {
+  it("SWG3 link_clicks is increased by 21.47 % of campaign snapshot clicks", () => {
     const swg3Out = adjusted.find((r) => r.event_code === "WC26-GLASGOW-SWG3")!;
     const expected = PRE_SPLIT_SWG3_CLICKS + SNAP.linkClicks * SWG3_SHARE;
     assert.ok(
@@ -228,8 +228,8 @@ describe("applyAdsetSplitsToLifetimeMeta", () => {
     ]);
     const expected = preSplitO2Reach - SNAP.reach * SWG3_SHARE;
     assert.ok(
-      out!.meta_reach != null && out.meta_reach > 680000 && out.meta_reach < 700000,
-      `Post-split O2 reach ${out!.meta_reach} should be in the 680k–700k band`,
+      out!.meta_reach != null && out.meta_reach > 695000 && out.meta_reach < 710000,
+      `Post-split O2 reach ${out!.meta_reach} should be in the 695k–710k band`,
     );
     assert.ok(
       Math.abs(out!.meta_reach! - expected) < 1,
