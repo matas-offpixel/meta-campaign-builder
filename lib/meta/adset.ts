@@ -216,11 +216,41 @@ function isRealMetaId(id: string): boolean {
 }
 
 /**
- * Convert a YYYY-MM-DD date string to a Unix timestamp (seconds).
- * Treats the date as midnight UTC — timezone awareness is a Phase 5 TODO.
+ * Convert a date string to a Unix timestamp (seconds, UTC).
+ *
+ * Accepted formats:
+ *   - "YYYY-MM-DD"          legacy / date-only → treated as midnight UTC
+ *   - "YYYY-MM-DDTHH:mm"    current wizard (datetime-local, no zone) → treated as UTC
+ *   - "YYYY-MM-DDTHH:mm:ssZ" already-ISO with Z suffix → parsed as-is
+ *
+ * Timezone awareness is a Phase 5 TODO; until then all inputs are UTC.
+ * Throws on invalid input — callers must not pass a malformed date string
+ * (fail loudly rather than silently send NaN / null to Meta).
  */
 function toUnixTs(dateStr: string): number {
-  return Math.floor(new Date(`${dateStr}T00:00:00Z`).getTime() / 1000);
+  let iso: string;
+  if (dateStr.includes("T")) {
+    // datetime-local ("2026-08-06T12:00") or already-ISO ("2026-08-06T12:00:00Z")
+    // Normalise to a full Z-suffixed ISO string so Date() parses as UTC.
+    if (dateStr.endsWith("Z")) {
+      iso = dateStr;
+    } else {
+      // Append seconds if missing, then add Z for UTC.
+      // "2026-08-06T12:00"    → "2026-08-06T12:00:00Z"
+      // "2026-08-06T12:00:00" → "2026-08-06T12:00:00Z"
+      const withSeconds = dateStr.length === 16 ? `${dateStr}:00` : dateStr;
+      iso = `${withSeconds}Z`;
+    }
+  } else {
+    // Date-only: "2026-08-06" → midnight UTC
+    iso = `${dateStr}T00:00:00Z`;
+  }
+
+  const ts = Math.floor(new Date(iso).getTime() / 1000);
+  if (!Number.isFinite(ts)) {
+    throw new Error(`toUnixTs: invalid date input "${dateStr}"`);
+  }
+  return ts;
 }
 
 // ─── Targeting builder ────────────────────────────────────────────────────────
@@ -644,6 +674,18 @@ export function buildAdSetPayload(
     `\n  age mode:          ${ageMode} (${adSet.ageMin}–${adSet.ageMax})`,
     `\n  location:          ${adSet.locationLabel ?? "default GB"}`,
     `\n  Full payload: ${JSON.stringify(payload, null, 2)}`,
+  );
+
+  // Explicit end_time audit — use console.error so it surfaces in Vercel
+  // Function logs (console.log is filtered). A missing end_time means Meta
+  // will treat the ad set as "Ongoing"; if the draft had an endDate this is
+  // a bug and should be visible in logs immediately.
+  console.error(
+    `[buildAdSetPayload] schedule for "${adSet.name}":`,
+    `start_time=${payload.start_time ?? "(not set — Meta defaults to now)"}`,
+    `end_time=${payload.end_time ?? "(not set — ad set will run Ongoing)"}`,
+    `rawStartDate=${budgetSchedule.startDate ?? "(none)"}`,
+    `rawEndDate=${budgetSchedule.endDate ?? "(none)"}`,
   );
 
   return payload;
