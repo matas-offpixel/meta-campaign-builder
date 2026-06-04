@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 532
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/532
 - **Branch:** `cursor/ops/remotion-docs-supersede-aws-path`
 
 ## Summary
