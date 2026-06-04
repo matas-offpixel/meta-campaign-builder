@@ -191,15 +191,21 @@ export function ClientPortal({
   // Multi-event-code groups without allocation data are now correctly
   // deduped per (event_code, date) instead of returning 0, fixing the
   // "£9,672 spend vs £21,182 expected" inconsistency (BUG-1).
+  // londonPresaleSpend is summed with londonOnsaleSpend here so both
+  // umbrella event spends reach the Topline aggregator. The two events
+  // are excluded from `events` (client-portal-server.ts:719-726) to
+  // avoid rendering them as a phantom venue group, so their spend must
+  // be injected explicitly via extraAdSpend. Previously only ONSALE was
+  // passed; PRESALE (£878.26) was silently dropped (Bug D, PR #536 audit).
   const allBucketTotals = useMemo(
     () =>
       aggregateAllBuckets(
         events,
         dailyRollups,
         additionalSpend,
-        londonOnsaleSpend ?? 0,
+        (londonOnsaleSpend ?? 0) + (londonPresaleSpend ?? 0),
       ),
-    [events, dailyRollups, additionalSpend, londonOnsaleSpend],
+    [events, dailyRollups, additionalSpend, londonOnsaleSpend, londonPresaleSpend],
   );
   const clientWideTotals = allBucketTotals.active;
 

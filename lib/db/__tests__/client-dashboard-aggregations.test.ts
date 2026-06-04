@@ -1714,6 +1714,111 @@ describe("aggregateAllBuckets", () => {
   });
 });
 
+// ─── London umbrella spend threading (Bug D, PR #536 + PR #541) ─────────────
+//
+// WC26-LONDON-ONSALE and WC26-LONDON-PRESALE are excluded from the events
+// list to prevent a phantom "London, London" venue group. Their spend must
+// reach the Topline aggregator via the extraAdSpend scalar.
+//
+// The call-site fix (PR #541): pass
+//   (londonOnsaleSpend ?? 0) + (londonPresaleSpend ?? 0)
+// as extraAdSpend. Tests here guard the aggregator's extraAdSpend parameter
+// for all four nullable combinations so a future refactor can't silently drop
+// either umbrella spend.
+
+describe("aggregateAllBuckets — London umbrella spend (ONSALE + PRESALE) nullable combinations", () => {
+  const TODAY = "2026-05-11";
+  const now = new Date(`${TODAY}T12:00:00Z`);
+  const futureDate = offsetDateForRecency(TODAY, +7);
+
+  const activeEv = ev({
+    id: "ev-london",
+    event_code: "WC26-LONDON-MAIN",
+    event_date: futureDate,
+    tickets_sold: 100,
+    latest_snapshot: { tickets_sold: 100, revenue: null },
+  });
+
+  const ONSALE = 1729.6;   // WC26-LONDON-ONSALE meta_spend_cached
+  const PRESALE = 878.26;  // WC26-LONDON-PRESALE meta_spend_cached
+
+  it("both present: active adSpend = ONSALE + PRESALE", () => {
+    const buckets = aggregateAllBuckets(
+      [activeEv],
+      [],
+      [],
+      ONSALE + PRESALE,
+      now,
+    );
+    assert.ok(
+      Math.abs(buckets.active.adSpend - (ONSALE + PRESALE)) < 0.01,
+      `expected adSpend ≈ ${ONSALE + PRESALE}, got ${buckets.active.adSpend}`,
+    );
+  });
+
+  it("null PRESALE (londonPresaleSpend ?? 0): active adSpend = ONSALE only", () => {
+    const buckets = aggregateAllBuckets(
+      [activeEv],
+      [],
+      [],
+      (ONSALE) + (0),   // ?? 0 applied at call site
+      now,
+    );
+    assert.ok(
+      Math.abs(buckets.active.adSpend - ONSALE) < 0.01,
+      `expected adSpend ≈ ${ONSALE}, got ${buckets.active.adSpend}`,
+    );
+  });
+
+  it("null ONSALE (londonOnsaleSpend ?? 0): active adSpend = PRESALE only", () => {
+    const buckets = aggregateAllBuckets(
+      [activeEv],
+      [],
+      [],
+      (0) + (PRESALE),
+      now,
+    );
+    assert.ok(
+      Math.abs(buckets.active.adSpend - PRESALE) < 0.01,
+      `expected adSpend ≈ ${PRESALE}, got ${buckets.active.adSpend}`,
+    );
+  });
+
+  it("both null: active adSpend = 0 (no phantom spend)", () => {
+    const buckets = aggregateAllBuckets(
+      [activeEv],
+      [],
+      [],
+      (0) + (0),
+      now,
+    );
+    assert.equal(buckets.active.adSpend, 0, "both null → zero umbrella spend");
+  });
+
+  it("umbrella spend does NOT credit the past or cancelled buckets", () => {
+    const pastDate = offsetDateForRecency(TODAY, -2);
+    const pastEv = ev({
+      id: "ev-past",
+      event_code: "WC26-PAST",
+      event_date: pastDate,
+      tickets_sold: 50,
+      latest_snapshot: { tickets_sold: 50, revenue: null },
+    });
+    const buckets = aggregateAllBuckets(
+      [pastEv],
+      [],
+      [],
+      ONSALE + PRESALE,
+      now,
+    );
+    assert.equal(
+      buckets.past.adSpend,
+      0,
+      "umbrella extraAdSpend must not bleed into past bucket",
+    );
+  });
+});
+
 // ─── BUG-1: multi-event-code unallocated spend deduplication ────────────────
 
 describe("aggregateClientWideTotals — multi-event-code unallocated spend deduplication (BUG-1)", () => {
