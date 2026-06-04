@@ -8,6 +8,10 @@ import {
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { validateAssetFile, type UploadAssetResult } from "@/lib/meta/upload";
 
+// 28 MB videos can take 60-90s to upload to Meta over a slow link.
+// Without this, Vercel's default 10s (Hobby) / 60s (Pro) limit kills the function.
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const supabase = await createClient();
@@ -60,12 +64,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       uploadPath: "Supabase Storage → Meta",
     });
 
-    // Step 1: create a signed URL so we can download the file.
+    // ── Step 1: create a signed URL so we can download the file ──────────────
     // Retry with exponential backoff to handle Storage index propagation lag
     // that surfaces as "Object not found" on parallel dual-asset uploads.
+    console.error("[upload-asset] start", {
+      storagePath,
+      storageBucket,
+      fileNameLen: fileName?.length,
+    });
+
     const RETRY_DELAYS_MS = [0, 250, 1000];
     let signedData: { signedUrl: string } | null = null;
     let signedError: { message: string } | null = null;
+    let signedAttempt = -1;
 
     for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
       if (RETRY_DELAYS_MS[attempt] > 0) {
@@ -79,7 +90,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       signedData = result.data;
       signedError = result.error as { message: string } | null;
 
-      if (!signedError && signedData?.signedUrl) break;
+      if (!signedError && signedData?.signedUrl) {
+        signedAttempt = attempt;
+        break;
+      }
+
+      // Log EVERY failed attempt so we can see the exact Supabase error
+      // message, regardless of whether it matches the "not found" pattern.
+      console.error(
+        "[upload-asset] signed-URL attempt failed n=",
+        attempt + 1,
+        "error=",
+        signedError?.message ?? "(no message)",
+      );
 
       const isNotFound = /object not found|not found|does not exist/i.test(
         signedError?.message ?? "",
@@ -101,6 +124,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 500 },
       );
     }
+
+    console.error("[upload-asset] signed URL ok", {
+      signedUrlPresent: !!signedData?.signedUrl,
+      attempt: signedAttempt,
+    });
 
     // Step 2: fetch the video from storage
     let videoBlob: Blob;
@@ -151,6 +179,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
+    console.error("[upload-asset] starting Meta upload", {
+      sizeMB: (file.size / 1024 / 1024).toFixed(2),
+    });
+
     try {
       const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, resolvedFileName, uploadToken);
       const result: UploadAssetResult = {
@@ -163,6 +195,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       await cleanup();
       return NextResponse.json(result, { status: 201 });
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errName = err instanceof Error ? err.name : "unknown";
+      console.error("[upload-asset] Meta upload threw", {
+        name: errName,
+        message: errMsg.slice(0, 200),
+      });
       await cleanup();
       throw err;
     }
