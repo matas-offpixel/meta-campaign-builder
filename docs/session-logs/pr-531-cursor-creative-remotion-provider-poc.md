@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 531
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/531
 - **Branch:** `cursor/creative/remotion-provider-poc`
 
 ## Summary
@@ -16,7 +16,7 @@ Adds Remotion as a fifth `CreativeProvider` behind `FEATURE_REMOTION`, with a ha
 - `lib/creatives/registry.ts` — registry entry
 - `lib/creatives/remotion/provider.ts` — provider implementation
 - `lib/creatives/remotion/provider.test.ts` — gating + validation tests
-- `src/remotion/index.ts` + `src/remotion/compositions/FourTfCityStatic.tsx` — composition
+- `src/remotion/index.tsx` + `src/remotion/compositions/FourTfCityStatic.tsx` — composition
 - `scripts/bundle-remotion.ts` — pre-build bundle (Remotion cannot bundle inside Next API routes)
 - `app/api/admin/remotion/render/route.ts` — admin render API
 - `app/admin/render-test/page.tsx` + `components/admin/render-test-form.tsx` — smoke-test UI
@@ -29,7 +29,7 @@ Adds Remotion as a fifth `CreativeProvider` behind `FEATURE_REMOTION`, with a ha
 - [x] `node --test lib/creatives/remotion/provider.test.ts` — 4/4 pass
 - [x] `npm run lint` (touched files)
 - [x] `npm run build` — exit 0
-- [x] `scripts/smoke-remotion-render.ts` — 49,693 byte PNG in ~195ms (after Chrome download)
+- [x] Offline render smoke test — 49,693 byte PNG in ~195ms (after Chrome download)
 - [ ] Local `/admin/render-test` with `FEATURE_REMOTION=1` + signed URL (manual — requires login session)
 
 ## Notes
