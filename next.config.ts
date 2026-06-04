@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@remotion/renderer", "@remotion/bundler", "remotion"],
   experimental: {
     // Raise the default 1 MB body cap for Server Actions and the shared
     // body-parsing pipeline.

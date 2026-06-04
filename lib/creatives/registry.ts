@@ -13,11 +13,13 @@ import { canvaProvider } from "@/lib/creatives/canva/provider";
 import { bannerbearProvider } from "@/lib/creatives/bannerbear/provider";
 import { placidProvider } from "@/lib/creatives/placid/provider";
 import { manualProvider } from "@/lib/creatives/manual/provider";
+import { remotionProvider } from "@/lib/creatives/remotion/provider";
 
 const providers: Record<CreativeProviderName, CreativeProvider> = {
   canva: canvaProvider,
   bannerbear: bannerbearProvider,
   placid: placidProvider,
+  remotion: remotionProvider,
   manual: manualProvider,
 };
 
