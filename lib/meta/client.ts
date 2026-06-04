@@ -1759,7 +1759,7 @@ export async function createMetaCampaign(params: {
   /** OAuth or system token. When supplied uses graphPostWithToken instead of the env-var graphPost. */
   token?: string;
 }): Promise<{ id: string }> {
-  const { adAccountId, name, objective, status = "PAUSED", token } = params;
+  const { adAccountId, name, objective, status = "ACTIVE", token } = params;
   const accountPath = withActPrefix(adAccountId);
 
   // Minimal valid payload — only fields that belong at campaign level.
