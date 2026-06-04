@@ -639,7 +639,10 @@ export function buildAdSetPayload(
     // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
     bid_strategy: mapBidStrategy(effectiveGoal),
     targeting: buildMetaTargeting(adSet, audiences),
-    status: "PAUSED",
+    // Ad sets are created ACTIVE so spend begins immediately when the campaign
+    // is also ACTIVE. A safety beacon log below records this at every launch so
+    // there is always a Vercel log entry if anyone wonders why spending started.
+    status: "ACTIVE",
     // start_time and end_time are added below only when explicitly set —
     // sending null / 0 is rejected by Meta as "Invalid parameter".
   };
@@ -676,12 +679,12 @@ export function buildAdSetPayload(
     `\n  Full payload: ${JSON.stringify(payload, null, 2)}`,
   );
 
-  // Explicit end_time audit — use console.error so it surfaces in Vercel
-  // Function logs (console.log is filtered). A missing end_time means Meta
-  // will treat the ad set as "Ongoing"; if the draft had an endDate this is
-  // a bug and should be visible in logs immediately.
+  // Schedule audit + ACTIVE status safety beacon.
+  // console.error surfaces in Vercel Function logs where console.log is filtered.
+  // The status=ACTIVE line is intentional: if anyone questions why a campaign
+  // started spending immediately after launch, this log entry is the answer.
   console.error(
-    `[buildAdSetPayload] schedule for "${adSet.name}":`,
+    `[buildAdSetPayload] "${adSet.name}" status=ACTIVE (spending begins on launch)`,
     `start_time=${payload.start_time ?? "(not set — Meta defaults to now)"}`,
     `end_time=${payload.end_time ?? "(not set — ad set will run Ongoing)"}`,
     `rawStartDate=${budgetSchedule.startDate ?? "(none)"}`,

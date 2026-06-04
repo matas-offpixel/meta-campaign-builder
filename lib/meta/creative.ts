@@ -453,7 +453,8 @@ export function buildAdPayload(
     name,
     adset_id: metaAdSetId,
     creative: { creative_id: metaCreativeId },
-    status: "PAUSED",
+    // ACTIVE matches the ad set status — ads must be ACTIVE to serve.
+    status: "ACTIVE",
   };
 }
 
