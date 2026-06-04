@@ -60,10 +60,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       uploadPath: "Supabase Storage → Meta",
     });
 
-    // Step 1: create a signed URL so we can download the file
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from(storageBucket)
-      .createSignedUrl(storagePath, 120); // 2-minute window
+    // Step 1: create a signed URL so we can download the file.
+    // Retry with exponential backoff to handle Storage index propagation lag
+    // that surfaces as "Object not found" on parallel dual-asset uploads.
+    const RETRY_DELAYS_MS = [0, 250, 1000];
+    let signedData: { signedUrl: string } | null = null;
+    let signedError: { message: string } | null = null;
+
+    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+      if (RETRY_DELAYS_MS[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+      }
+
+      const result = await supabase.storage
+        .from(storageBucket)
+        .createSignedUrl(storagePath, 120); // 2-minute window
+
+      signedData = result.data;
+      signedError = result.error as { message: string } | null;
+
+      if (!signedError && signedData?.signedUrl) break;
+
+      const isNotFound = /object not found|not found|does not exist/i.test(
+        signedError?.message ?? "",
+      );
+      if (attempt < RETRY_DELAYS_MS.length - 1 && isNotFound) {
+        console.error(
+          "[upload-asset] signed-URL retry n=",
+          attempt + 1,
+          "error=",
+          signedError?.message,
+        );
+      }
+    }
 
     if (signedError || !signedData?.signedUrl) {
       console.error("[upload-asset] Failed to create signed URL:", signedError);
