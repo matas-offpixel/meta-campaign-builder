@@ -1,7 +1,7 @@
 # Session log — dashboard truth audit (2026-06-04)
 
 - **Branch:** `cursor/dashboard-truth-audit-2026-06-04`
-- **PR:** _pending_
+- **PR:** #536 — https://github.com/matas-offpixel/meta-campaign-builder/pull/536
 - **Type:** Audit-only (no production code changed). Single deliverable: `docs/dashboard-truth-audit-2026-06-04.md`.
 
 ## Scope
