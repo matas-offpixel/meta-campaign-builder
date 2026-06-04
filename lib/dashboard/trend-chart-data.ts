@@ -18,6 +18,18 @@ export interface TrendChartPoint {
    * is a proportional estimate rather than a live cron snapshot.
    */
   ticketsSmoothed?: boolean;
+  /**
+   * When true, every `ticket_sales_snapshots` row that contributed to the
+   * tickets value on this date has a source in
+   * `RECONCILIATION_SNAPSHOT_SOURCES` (manual/xlsx_import). These rows
+   * raise the envelope ceiling so lifetime totals stay accurate, but they
+   * must NOT emit a per-day delta in the daily tracker — the jump is an
+   * operator reconciliation write, not an organic sale.
+   *
+   * Consumed by `ticketDeltasFromCumulativeTimeline`; ignored by chart
+   * renderers.
+   */
+  isReconciliation?: boolean;
 }
 
 export interface TrendChartDay extends TrendChartPoint {

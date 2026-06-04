@@ -29,7 +29,9 @@ import {
   buildCorroboratedDailyDeltas,
   buildEventCumulativeTicketTimeline,
   corroboratedDailyDeltas,
+  RECONCILIATION_SNAPSHOT_SOURCES,
   shiftYmd,
+  ticketDeltasFromCumulativeTimeline,
 } from "../venue-trend-points.ts";
 import type { WeeklyTicketSnapshotRow } from "../../db/client-portal-server.ts";
 import type { TierChannelDailyHistoryRow } from "../../db/tier-channel-daily-history.ts";
@@ -431,6 +433,237 @@ describe("buildCorroboratedDailyDeltas — manual_backfill bypasses rollup gate 
       0,
       "without bypass, zero rollup activity means zero deltas (old broken path)",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug H (PR #536 audit) — reconciliation-source rows in ticket_sales_snapshots
+// must not emit per-day deltas in the tracker.
+//
+// Verified mechanism (2026-06-04):
+//   PR #530 inserted source='manual' rows for Glasgow O2 (+403),
+//   SWG3 (+794), Manchester (+66). The snapshot envelope reader picked up
+//   the jump as a same-day sale before the daily_history cron ran.
+//   Fix: mark source IN ('manual','xlsx_import') steps isReconciliation=true
+//   in buildEventCumulativeTicketTimeline and suppress delta emission in
+//   ticketDeltasFromCumulativeTimeline while still advancing the baseline.
+// ---------------------------------------------------------------------------
+
+describe("RECONCILIATION_SNAPSHOT_SOURCES — correct members", () => {
+  it("contains manual and xlsx_import, nothing else", () => {
+    assert.ok(RECONCILIATION_SNAPSHOT_SOURCES.has("manual"));
+    assert.ok(RECONCILIATION_SNAPSHOT_SOURCES.has("xlsx_import"));
+    assert.equal(RECONCILIATION_SNAPSHOT_SOURCES.has("eventbrite"), false);
+    assert.equal(RECONCILIATION_SNAPSHOT_SOURCES.has("fourthefans"), false);
+    assert.equal(RECONCILIATION_SNAPSHOT_SOURCES.has("foursomething"), false);
+  });
+});
+
+describe("ticketDeltasFromCumulativeTimeline — reconciliation suppression", () => {
+  // 5-day fixture: baseline organic → organic → manual reconciliation (+100) →
+  // organic (+15) → flat.
+  // The reconciliation step must: (a) NOT emit a delta, (b) advance the
+  // baseline so the subsequent organic +15 is correct.
+  const timeline = [
+    { date: "2026-06-01", cumulative: 50 },
+    { date: "2026-06-02", cumulative: 65 },
+    { date: "2026-06-03", cumulative: 165, isReconciliation: true }, // manual +100
+    { date: "2026-06-04", cumulative: 180 },                         // organic +15
+    { date: "2026-06-05", cumulative: 180 },                         // flat
+  ];
+
+  it("suppresses delta on reconciliation step", () => {
+    const deltas = ticketDeltasFromCumulativeTimeline(timeline);
+    assert.equal(
+      deltas.has("2026-06-03"),
+      false,
+      "manual reconciliation step must not emit a delta",
+    );
+  });
+
+  it("organic delta after reconciliation is re-based from the raised ceiling", () => {
+    const deltas = ticketDeltasFromCumulativeTimeline(timeline);
+    assert.equal(
+      deltas.get("2026-06-04"),
+      15,
+      "organic delta must be 180−165=15, not 180−65=115 (baseline correctly advanced)",
+    );
+  });
+
+  it("lifetime sum of emitted deltas covers the organic portion only", () => {
+    const deltas = ticketDeltasFromCumulativeTimeline(timeline);
+    const sum = [...deltas.values()].reduce((a, b) => a + b, 0);
+    // day1=50, day2=15, day3=suppressed, day4=15, day5=0 → 80
+    assert.equal(sum, 80);
+  });
+
+  it("flat step at end does not emit a delta", () => {
+    const deltas = ticketDeltasFromCumulativeTimeline(timeline);
+    assert.equal(deltas.has("2026-06-05"), false, "flat step must not emit");
+  });
+
+  it("non-reconciliation timeline is unaffected", () => {
+    const plain = [
+      { date: "2026-06-01", cumulative: 50 },
+      { date: "2026-06-02", cumulative: 65 },
+    ];
+    const deltas = ticketDeltasFromCumulativeTimeline(plain);
+    assert.equal(deltas.get("2026-06-01"), 50);
+    assert.equal(deltas.get("2026-06-02"), 15);
+  });
+});
+
+describe("buildEventCumulativeTicketTimeline — manual snapshot steps tagged isReconciliation", () => {
+  const snap = (
+    date: string,
+    tickets: number,
+    source: WeeklyTicketSnapshotRow["source"],
+  ): WeeklyTicketSnapshotRow =>
+    ({ event_id: "e", snapshot_at: date, tickets_sold: tickets, source }) as unknown as WeeklyTicketSnapshotRow;
+
+  // 5-day fixture: two organic eventbrite rows, one manual (+100), one
+  // organic, one flat.
+  const rows = [
+    snap("2026-06-01", 50, "eventbrite"),
+    snap("2026-06-02", 65, "eventbrite"),
+    snap("2026-06-03", 165, "manual"),   // +100 reconciliation
+    snap("2026-06-04", 180, "eventbrite"), // +15 organic
+    snap("2026-06-05", 180, "eventbrite"), // flat
+  ];
+
+  it("marks the manual step isReconciliation=true", () => {
+    const steps = buildEventCumulativeTicketTimeline(rows, null, "2026-06-05");
+    const step3 = steps.find((s) => s.date === "2026-06-03");
+    assert.ok(step3, "day-3 step must exist");
+    assert.equal(step3?.isReconciliation, true, "manual step must be reconciliation");
+  });
+
+  it("marks organic steps as not reconciliation", () => {
+    const steps = buildEventCumulativeTicketTimeline(rows, null, "2026-06-05");
+    const step4 = steps.find((s) => s.date === "2026-06-04");
+    assert.ok(!step4?.isReconciliation, "organic step must not be reconciliation");
+  });
+
+  it("manual step suppressed, organic +15 correct, envelope ceiling = 180", () => {
+    const steps = buildEventCumulativeTicketTimeline(rows, null, "2026-06-05");
+    const deltas = ticketDeltasFromCumulativeTimeline(
+      steps.map((s) => ({
+        date: s.date,
+        cumulative: s.cumulative,
+        isReconciliation: s.isReconciliation,
+      })),
+    );
+    assert.equal(deltas.has("2026-06-03"), false, "manual reconciliation must be suppressed");
+    assert.equal(deltas.get("2026-06-04"), 15, "organic +15 must surface");
+    const maxCum = Math.max(...steps.map((s) => s.cumulative));
+    assert.equal(maxCum, 180, "envelope ceiling must reach 180 — manual row still raises it");
+  });
+
+  it("xlsx_import also tagged isReconciliation", () => {
+    const xlsxRows = [
+      snap("2026-06-01", 50, "eventbrite"),
+      snap("2026-06-03", 200, "xlsx_import"), // reconciliation import
+      snap("2026-06-04", 210, "eventbrite"),  // organic +10
+    ];
+    const steps = buildEventCumulativeTicketTimeline(xlsxRows, null, "2026-06-04");
+    const stepXlsx = steps.find((s) => s.date === "2026-06-03");
+    assert.equal(stepXlsx?.isReconciliation, true, "xlsx_import must be reconciliation");
+    const deltas = ticketDeltasFromCumulativeTimeline(
+      steps.map((s) => ({
+        date: s.date,
+        cumulative: s.cumulative,
+        isReconciliation: s.isReconciliation,
+      })),
+    );
+    assert.equal(deltas.has("2026-06-03"), false, "xlsx_import jump must be suppressed");
+    assert.equal(deltas.get("2026-06-04"), 10, "organic +10 after xlsx must surface");
+  });
+
+  it("gap-fill carry-forward does not re-emit the reconciliation jump", () => {
+    // No day 2 or day 4 — the manual row on day 3 is carried forward to
+    // day 5 by the sort + running-max walk. The carry-forward step at day 5
+    // reads cumulative=165 (still below 180), so delta = 15. Day 3 itself
+    // is tagged reconciliation and must remain suppressed.
+    const gapRows = [
+      snap("2026-06-01", 50, "eventbrite"),
+      snap("2026-06-03", 165, "manual"),      // no day 2 or day 4
+      snap("2026-06-05", 180, "eventbrite"),
+    ];
+    const steps = buildEventCumulativeTicketTimeline(gapRows, null, "2026-06-05");
+    const deltas = ticketDeltasFromCumulativeTimeline(
+      steps.map((s) => ({
+        date: s.date,
+        cumulative: s.cumulative,
+        isReconciliation: s.isReconciliation,
+      })),
+    );
+    assert.equal(deltas.has("2026-06-03"), false, "reconciliation step must not emit even in gap");
+    assert.equal(deltas.get("2026-06-05"), 15, "organic day 5 = 180−165 = 15");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Manchester Jun-4 regression: daily_history cron (+19) wins over manual
+// snapshot topup (+43 naïve). Source of truth for the per-day tracker is the
+// daily_history corroborated path, NOT the snapshot envelope.
+// ---------------------------------------------------------------------------
+
+describe("Manchester Jun-4 regression — daily_history corroborated delta = +19, not +43", () => {
+  // Snapshot (naïve view):
+  //   Jun-3 eventbrite cumulative = 958
+  //   Jun-4 manual cumulative     = 1001  → naïve diff +43
+  //
+  // daily_history (all-channel cron, the truth):
+  //   Jun-3 snapshot_date = 2026-06-03, cumulative = 982
+  //   Jun-4 snapshot_date = 2026-06-04, cumulative = 1001  → delta +19
+  //
+  // Rollup: Jun-4 tickets_sold = 19 (cron, corroborates the +19 history delta)
+  // The true sale day is Jun-3 (snapshot_date − 1 = 1-day shift).
+  const cumulativeTickets = [
+    { date: "2026-06-03", cumulative: 982 },
+    { date: "2026-06-04", cumulative: 1001 }, // +19 from cron, not +43 from snapshot
+  ];
+  const cumulativeRevenue = [
+    { date: "2026-06-03", cumulative: 10234 },
+    { date: "2026-06-04", cumulative: 10432 },
+  ];
+  const rollups = [
+    // Jun-4 rollup = 19 (cron) → falls in ±1 window of true-sale Jun-3 ✓
+    { date: "2026-06-04", tickets_sold: 19, revenue: 198 },
+  ];
+
+  it("emits +19 on Jun-3 (true sale day), corroborated by Jun-4 rollup", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+    });
+    assert.equal(
+      tickets.get("2026-06-03"),
+      19,
+      "true sale day = Jun-3 (snapshot Jun-4 − 1), delta = 1001 − 982 = 19",
+    );
+  });
+
+  it("does NOT emit +43 (the naïve snapshot diff that contaminated the Jun-4 client view)", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+    });
+    assert.ok(
+      ![...tickets.values()].includes(43),
+      "+43 naïve snapshot diff must never appear — history truth wins",
+    );
+  });
+
+  it("Jun-3 baseline (982) is NOT emitted as a sale (day-0 suppression)", () => {
+    const { tickets } = buildCorroboratedDailyDeltas({
+      cumulativeTickets,
+      cumulativeRevenue,
+      rollups,
+    });
+    assert.equal(tickets.has("2026-06-02"), false, "Jun-3 history baseline must not surface as a sale");
   });
 });
 
