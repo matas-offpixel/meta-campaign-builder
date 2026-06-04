@@ -1,3 +1,7 @@
+> ℹ️ **2026-06-04 update.** Section 2 ("Build / buy on Remotion") is partially superseded — the Lambda recommendation flipped to in-process Vercel render when the output spec narrowed to ≤30s. AWS Lambda remains the right call IF we later add long-form video output (>1 min). Currently we do not.
+>
+> Week-1 POC shipped via PR #531 using the Vercel-only path.
+
 # Remotion scope — Sprint C commercial unlock
 
 **Date:** 2026-05-20
