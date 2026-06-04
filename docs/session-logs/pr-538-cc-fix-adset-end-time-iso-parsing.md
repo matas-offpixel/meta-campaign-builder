@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 538
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/538
 - **Branch:** `cc/fix-adset-end-time-iso-parsing`
 
 ## Summary
