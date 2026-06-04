@@ -63,13 +63,42 @@ export interface TierChannelSalesAnchorRow {
  * source_kind = 'smoothed_historical'. The value is a proportional
  * estimate rather than a live snapshot, so the trend chart tooltip
  * shows "(est.)" for those days.
+ *
+ * `isReconciliation` is true when EVERY `ticket_sales_snapshots` row that
+ * set the cumulative on this date has a source in
+ * `RECONCILIATION_SNAPSHOT_SOURCES` (manual/xlsx_import). The cumulative
+ * value is still correct (the row raises the envelope ceiling), but the
+ * delta for this date must NOT be emitted as a daily sale — it is an
+ * operator reconciliation write.
  */
 export interface CumulativeTicketStep {
   date: string;
   cumulative: number;
   cumulativeRevenue: number | null;
   isSmoothed?: boolean;
+  isReconciliation?: boolean;
 }
+
+/**
+ * `ticket_sales_snapshots.source` values that represent operator
+ * reconciliation writes rather than real-time ticketing API events.
+ *
+ * Rows with these sources raise the envelope ceiling (lifetime totals stay
+ * accurate) but must NOT emit a per-day delta in the daily tracker, because
+ * the cumulative jump is a deliberate back-fill, not an organic sale on that
+ * calendar day.
+ *
+ * DO NOT include real-time sources (eventbrite, fourthefans, foursomething)
+ * here — those must continue to produce deltas.  Per
+ * `feedback_collapse_strategy_per_consumer`: keep this separate from
+ * `MANUAL_SOURCE_KINDS` (which lives on `tier_channel_sales_daily_history`
+ * and has OPPOSITE semantics — it BYPASSES the corroboration gate instead
+ * of suppressing emission).
+ */
+export const RECONCILIATION_SNAPSHOT_SOURCES: ReadonlySet<string> = new Set([
+  "manual",
+  "xlsx_import",
+]);
 
 /**
  * Build the monotonic cumulative envelope for a single event.
@@ -121,13 +150,34 @@ export function buildEventCumulativeTicketTimeline(
   //    across sources for each date so a higher-coverage source
   //    (xlsx_import all-channel) wins over a narrower one
   //    (fourthefans 4TF-only) on the same day.
+  //
+  //    Also track whether EVERY snapshot row for a given date is a
+  //    reconciliation source (manual/xlsx_import). Those dates advance the
+  //    envelope ceiling but must NOT emit a per-day delta in the tracker —
+  //    the jump is an operator reconciliation write, not a real organic sale.
+  //    See `RECONCILIATION_SNAPSHOT_SOURCES`.
+  //
+  //    After `collapseTrendPerEventStitched` there is at most one row per
+  //    date (highest-priority source wins per day). A date is
+  //    reconciliation-only when that winning source is in
+  //    `RECONCILIATION_SNAPSHOT_SOURCES`.
   const maxByDate = new Map<string, number>();
+  const reconciliationOnlyDates = new Set<string>();
   for (const row of rows) {
     const date = row.snapshot_at;
     const cur = maxByDate.get(date);
     const value = row.tickets_sold;
     if (cur === undefined || value > cur) {
       maxByDate.set(date, value);
+    }
+    if (RECONCILIATION_SNAPSHOT_SOURCES.has(row.source)) {
+      if (!maxByDate.has(date) || cur === undefined) {
+        reconciliationOnlyDates.add(date);
+      }
+    } else {
+      // Any non-reconciliation row on this date means the date has real
+      // organic signal — it must NOT be suppressed.
+      reconciliationOnlyDates.delete(date);
     }
   }
 
@@ -136,8 +186,10 @@ export function buildEventCumulativeTicketTimeline(
   const sortedDates = [...allDates].sort();
 
   // 4. Walk ascending. For each date:
-  //    - If daily_history covers it → use that value (already cumulative)
-  //    - Otherwise → apply running max over the envelope value
+  //    - If daily_history covers it → use that value (already cumulative).
+  //      daily_history steps are NEVER reconciliation (they come from the
+  //      cron or smoothed estimates, never from snapshot manual writes).
+  //    - Otherwise → apply running max over the envelope value.
   //    Running max is always applied to guarantee monotonicity when
   //    the two sources are mixed.
   const steps: CumulativeTicketStep[] = [];
@@ -153,11 +205,18 @@ export function buildEventCumulativeTicketTimeline(
         cumulative: runningMax,
         cumulativeRevenue: hist.revenue,
         isSmoothed: hist.isSmoothed,
+        // daily_history is authoritative cron data — never reconciliation.
+        isReconciliation: false,
       });
     } else {
       const value = maxByDate.get(date) ?? 0;
       if (value > runningMax) runningMax = value;
-      steps.push({ date, cumulative: runningMax, cumulativeRevenue: null });
+      steps.push({
+        date,
+        cumulative: runningMax,
+        cumulativeRevenue: null,
+        isReconciliation: reconciliationOnlyDates.has(date),
+      });
     }
   }
 
@@ -333,6 +392,9 @@ export function buildVenueTicketSnapshotPoints(
   // cumulative on or before that date (carry-forward per event).
   // If ANY contributing step is smoothed, the combined point is also
   // marked smoothed so the tooltip shows "(est.)".
+  // A date is isReconciliation only when ALL events' contributing steps
+  // are isReconciliation — mixed real+reconciliation dates still emit
+  // deltas (the organic portion is real).
   const sortedDates = [...dates].sort();
   return sortedDates.map((date) => {
     let total = 0;
@@ -340,6 +402,7 @@ export function buildVenueTicketSnapshotPoints(
     let hasTickets = false;
     let hasRevenue = false;
     let anySmoothed = false;
+    let allReconciliation = true; // falsified by any non-reconciliation contributing step
     for (const timeline of timelinesByEvent.values()) {
       for (let i = timeline.length - 1; i >= 0; i--) {
         const step = timeline[i]!;
@@ -351,6 +414,7 @@ export function buildVenueTicketSnapshotPoints(
             hasRevenue = true;
           }
           if (step.isSmoothed) anySmoothed = true;
+          if (!step.isReconciliation) allReconciliation = false;
           break;
         }
       }
@@ -363,6 +427,7 @@ export function buildVenueTicketSnapshotPoints(
       linkClicks: null,
       ticketsKind: "cumulative_snapshot" as const,
       ticketsSmoothed: anySmoothed || undefined,
+      isReconciliation: hasTickets && allReconciliation ? true : undefined,
     };
   });
 }
@@ -374,6 +439,10 @@ export function buildVenueTicketSnapshotPoints(
  *
  * Always returns a sorted-asc array. Empty when the venue has no
  * snapshots and no tier_channel_sales rows.
+ *
+ * Preserves `isReconciliation` from `buildVenueTicketSnapshotPoints` so
+ * `ticketDeltasFromCumulativeTimeline` can suppress phantom daily sales
+ * from operator reconciliation writes.
  */
 export function buildVenueCumulativeTicketTimeline(
   weeklyTicketSnapshots: WeeklyTicketSnapshotRow[],
@@ -383,7 +452,7 @@ export function buildVenueCumulativeTicketTimeline(
     todayIso?: string;
     dailyHistory?: TierChannelDailyHistoryRow[];
   },
-): Array<{ date: string; cumulative: number }> {
+): Array<{ date: string; cumulative: number; isReconciliation?: boolean }> {
   const points = buildVenueTicketSnapshotPoints(
     weeklyTicketSnapshots,
     venueEventIds,
@@ -394,7 +463,11 @@ export function buildVenueCumulativeTicketTimeline(
       (p): p is TrendChartPoint & { tickets: number } =>
         p.tickets != null && Number.isFinite(p.tickets),
     )
-    .map((p) => ({ date: p.date, cumulative: p.tickets }));
+    .map((p) => ({
+      date: p.date,
+      cumulative: p.tickets,
+      isReconciliation: p.isReconciliation,
+    }));
 }
 
 // Re-export TierChannelDailyHistoryRow so callers can import from this
@@ -483,16 +556,25 @@ export function buildVenueDailyHistoryTimelines(
  * delta are emitted. Day 0 (the earliest cumulative) emits its full
  * cumulative value as the initial delta so the tracker shows
  * "first day of sales = N tickets".
+ *
+ * When a step is flagged `isReconciliation`, the baseline (`prev`) is
+ * still advanced to keep subsequent organic deltas correct, but the
+ * delta itself is NOT emitted — it is an operator reconciliation write,
+ * not an organic sale. See `RECONCILIATION_SNAPSHOT_SOURCES`.
  */
 export function ticketDeltasFromCumulativeTimeline(
-  timeline: Array<{ date: string; cumulative: number }>,
+  timeline: Array<{ date: string; cumulative: number; isReconciliation?: boolean }>,
 ): Map<string, number> {
   const deltas = new Map<string, number>();
   let prev = 0;
   for (const step of timeline) {
     const delta = Math.max(0, step.cumulative - prev);
+    // Always advance the baseline so subsequent organic steps are delta'd
+    // against the correct cumulative floor, even on suppressed dates.
     prev = step.cumulative;
-    if (delta > 0) deltas.set(step.date, delta);
+    if (delta > 0 && !step.isReconciliation) {
+      deltas.set(step.date, delta);
+    }
   }
   return deltas;
 }

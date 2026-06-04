@@ -17,7 +17,10 @@ import type {
   PortalEvent,
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
-import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
+import {
+  RECONCILIATION_SNAPSHOT_SOURCES,
+  type TierChannelDailyHistoryRow,
+} from "@/lib/dashboard/venue-trend-points";
 import {
   aggregateAllocationByEvent,
   aggregateVenueCampaignPerformance,
@@ -866,6 +869,19 @@ export function ClientPortalVenueTable({
     () => new Date().toISOString().slice(0, 10),
     [],
   );
+  // Strip reconciliation-source rows (manual/xlsx_import) from the
+  // snapshot set used for WoW ticket deltas. Manual topups inserted as
+  // reconciliation writes would otherwise inflate the "current week"
+  // cumulative (high source priority = 4) and produce phantom WoW gains
+  // (Bug H from the 2026-06-04 audit). The deduped organic sources
+  // (fourthefans, eventbrite) are the right WoW baseline.
+  const wowTicketSnapshots = useMemo(
+    () =>
+      weeklyTicketSnapshots?.filter(
+        (r) => !RECONCILIATION_SNAPSHOT_SOURCES.has(r.source),
+      ),
+    [weeklyTicketSnapshots],
+  );
   const wowByVenue = useMemo(() => {
     const map = new Map<string, VenueWoWTotals>();
     for (const g of venues) {
@@ -878,11 +894,11 @@ export function ClientPortalVenueTable({
       // regression from PR 2's brief.
       map.set(
         g.key,
-        aggregateVenueWoW(g.events, dailyRollups, todayIso, weeklyTicketSnapshots),
+        aggregateVenueWoW(g.events, dailyRollups, todayIso, wowTicketSnapshots),
       );
     }
     return map;
-  }, [venues, dailyRollups, todayIso, weeklyTicketSnapshots]);
+  }, [venues, dailyRollups, todayIso, wowTicketSnapshots]);
 
   // Expand/collapse state — every card defaults to collapsed so a
   // 16-venue roster reads as a clean topline. The URL hash is the
