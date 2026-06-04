@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
   uploadImageAsset,
   uploadVideoAsset,
@@ -22,6 +22,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!user) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
+
+  // ── Service-role client for storage operations ────────────────────────────
+  // The campaign-assets bucket has no SELECT RLS policy (intentional — prevents
+  // cross-user path enumeration). createSignedUrl and object deletion therefore
+  // must use the service-role client, which bypasses RLS. Auth is already
+  // enforced above; storagePaths are UUIDs; signed-URL TTL is 120 s.
+  const storage = createServiceRoleClient();
 
   // ── Resolve token ─────────────────────────────────────────────────────────
   let uploadToken: string | undefined;
@@ -65,57 +72,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     // ── Step 1: create a signed URL so we can download the file ──────────────
-    // Retry with exponential backoff to handle Storage index propagation lag
-    // that surfaces as "Object not found" on parallel dual-asset uploads.
+    // Uses the service-role client so RLS on storage.objects doesn't block the
+    // read. The bucket has no SELECT policy by design — adding one would allow
+    // any authenticated user to enumerate other users' uploads by path. Auth is
+    // already enforced above; the storagePath is a UUID; TTL is 120 s.
     console.error("[upload-asset] start", {
       storagePath,
       storageBucket,
       fileNameLen: fileName?.length,
     });
 
-    const RETRY_DELAYS_MS = [0, 250, 1000];
-    let signedData: { signedUrl: string } | null = null;
-    let signedError: { message: string } | null = null;
-    let signedAttempt = -1;
-
-    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
-      if (RETRY_DELAYS_MS[attempt] > 0) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
-      }
-
-      const result = await supabase.storage
-        .from(storageBucket)
-        .createSignedUrl(storagePath, 120); // 2-minute window
-
-      signedData = result.data;
-      signedError = result.error as { message: string } | null;
-
-      if (!signedError && signedData?.signedUrl) {
-        signedAttempt = attempt;
-        break;
-      }
-
-      // Log EVERY failed attempt so we can see the exact Supabase error
-      // message, regardless of whether it matches the "not found" pattern.
-      console.error(
-        "[upload-asset] signed-URL attempt failed n=",
-        attempt + 1,
-        "error=",
-        signedError?.message ?? "(no message)",
-      );
-
-      const isNotFound = /object not found|not found|does not exist/i.test(
-        signedError?.message ?? "",
-      );
-      if (attempt < RETRY_DELAYS_MS.length - 1 && isNotFound) {
-        console.error(
-          "[upload-asset] signed-URL retry n=",
-          attempt + 1,
-          "error=",
-          signedError?.message,
-        );
-      }
-    }
+    const { data: signedData, error: signedError } = await storage.storage
+      .from(storageBucket)
+      .createSignedUrl(storagePath, 120); // 2-minute window
 
     if (signedError || !signedData?.signedUrl) {
       console.error("[upload-asset] Failed to create signed URL:", signedError);
@@ -124,11 +93,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 500 },
       );
     }
-
-    console.error("[upload-asset] signed URL ok", {
-      signedUrlPresent: !!signedData?.signedUrl,
-      attempt: signedAttempt,
-    });
 
     // Step 2: fetch the video from storage
     let videoBlob: Blob;
@@ -159,12 +123,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { isValid, error: validationError } = validateAssetFile(file, type);
     if (!isValid) {
       // Clean up storage
-      await supabase.storage.from(storageBucket).remove([storagePath]).catch(() => {});
+      await storage.storage.from(storageBucket).remove([storagePath]).catch(() => {});
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     // Step 4: upload to Meta
-    const cleanup = () => supabase.storage.from(storageBucket).remove([storagePath]).catch(() => {});
+    const cleanup = () => storage.storage.from(storageBucket).remove([storagePath]).catch(() => {});
 
     if (type === "image") {
       try {
@@ -178,10 +142,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         throw err;
       }
     }
-
-    console.error("[upload-asset] starting Meta upload", {
-      sizeMB: (file.size / 1024 / 1024).toFixed(2),
-    });
 
     try {
       const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, resolvedFileName, uploadToken);
