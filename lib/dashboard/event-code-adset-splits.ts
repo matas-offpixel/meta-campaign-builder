@@ -87,33 +87,37 @@ export interface CampaignSplit {
  * Add new entries here as needed; code paths short-circuit when no rule
  * matches, so non-Glasgow venues are unaffected.
  *
- * SNAPSHOT DATE: 2026-05-29 (Meta MCP pull, verified against Excel WC26
- * cross-reference `docs/WC26_funnel_cross_reference.xlsx`).
+ * SNAPSHOT DATE: 2026-06-03 (Meta MCP pull). Previous snapshot 2026-05-29
+ * drifted ~£1,651 on O2 over 5 days as TOFU/MOFU O2 ad sets grew while SWG3
+ * stayed paused. Refresh again when (a) any SWG3 ad set unpauses, (b) O2 ad
+ * sets enter a new flight, or (c) quarterly.
  */
 export const CAMPAIGN_SPLITS: CampaignSplit[] = [
   {
     campaignId: "6925933901665",
     campaignName: "[WC26-GLASGOW-O2] TRAFFIC",
     snapshotTotals: {
-      spend: 6562.92,
-      reach: 915207,
-      linkClicks: 84725,
-      landingPageViews: 52839,
+      spend: 7784.08,
+      reach: 1006656,
+      linkClicks: 87591,
+      landingPageViews: 62679,
     },
     splits: [
       {
         eventCode: "WC26-GLASGOW-O2",
-        sharePercent: 0.7454,
+        sharePercent: 0.7853,
         rationale:
-          "5 ad sets with '- O2 academy' suffix (BOFU, MOFU, TOFU, Lookalikes, Advantage+). " +
-          "Share computed from ad-set-level lifetime spend via Meta MCP 2026-05-29.",
+          "5 ad sets with '- O2 academy' suffix (BOFU Copy, MOFU, TOFU, Lookalikes, Advantage+). " +
+          "Share computed from ad-set-level lifetime spend via Meta MCP 2026-06-03. " +
+          "O2 share grew from 74.54% → 78.53% as TOFU/MOFU O2 ad sets kept spending while all SWG3 ad sets paused.",
       },
       {
         eventCode: "WC26-GLASGOW-SWG3",
-        sharePercent: 0.2546,
+        sharePercent: 0.2147,
         rationale:
-          "4 ad sets with '- SWG3' suffix (Football Prospecting, Lookalikes, " +
-          "4thefans Fans, Advantage+). Share computed from ad-set-level lifetime spend.",
+          "4 ad sets with '- SWG3' suffix (Football Prospecting, Lookalikes, 4thefans Fans, Advantage+). " +
+          "All 4 PAUSED — share computed from ad-set-level lifetime spend frozen at 2026-04-07 (last active day). " +
+          "Verified via Meta MCP 2026-06-03.",
       },
     ],
   },
