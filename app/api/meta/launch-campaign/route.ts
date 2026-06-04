@@ -813,6 +813,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const phase1Start = Date.now();
+  console.error(
+    `[launch-campaign] launching campaign "${draft.settings.campaignName}" — ` +
+      `all layers will be created ACTIVE (campaigns auto-activate by default per 2026-06-04 product decision)`,
+  );
   let metaCampaignId: string;
   // Captured in attach_adset so Phase 2 can seed adSetMetaIds without
   // re-fetching, and so logging can include the verified live names.

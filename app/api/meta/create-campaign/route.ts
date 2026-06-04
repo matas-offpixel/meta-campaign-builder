@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Validation failed", fields: errors }, { status: 400 });
   }
 
-  const { metaAdAccountId, name, objective, status = "PAUSED" } =
+  const { metaAdAccountId, name, objective, status = "ACTIVE" } =
     body as CreateCampaignRequest;
 
   // ── 4. Call Meta ──────────────────────────────────────────────────────────
