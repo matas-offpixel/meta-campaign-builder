@@ -16,6 +16,7 @@ export type CreativeProviderName =
   | "canva"
   | "bannerbear"
   | "placid"
+  | "remotion"
   | "manual";
 
 export type CreativeChannel =
@@ -141,4 +142,7 @@ export function isBannerbearEnabled(): boolean {
 }
 export function isPlacidEnabled(): boolean {
   return flagOn("FEATURE_PLACID");
+}
+export function isRemotionEnabled(): boolean {
+  return flagOn("FEATURE_REMOTION");
 }
