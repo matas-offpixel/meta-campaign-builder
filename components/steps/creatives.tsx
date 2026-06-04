@@ -26,6 +26,10 @@ import {
   validatePlacementSelection,
 } from "@/lib/meta/placements";
 import { useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
+import {
+  applyVariationUpdate,
+  type AssetVariationUpdater,
+} from "@/lib/creatives/asset-variation-updater";
 import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/meta/upload";
 import { CTA_OPTIONS } from "@/lib/mock-data";
 import {
@@ -157,9 +161,11 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
 
   const updateAd = useCallback(
     (id: string, patch: Partial<AdCreativeDraft>) => {
-      onChange(creatives.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+      // Read from ref so this callback is never stale even if it's captured
+      // inside a useEffect or async handler.
+      onChange(creativesRef.current.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     },
-    [creatives, onChange]
+    [onChange], // no longer depends on `creatives` — reads from ref instead
   );
 
   const handlePageChange = (adId: string, pageId: string) => {
@@ -236,15 +242,16 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
     updateAd(adId, { assetVariations: vars.filter((v) => v.id !== varId) });
   };
 
-  const updateAssetVariation = (adId: string, varId: string, patch: Partial<AssetVariation>) => {
-    const ad = creatives.find((c) => c.id === adId);
-    if (!ad) return;
-    updateAd(adId, {
-      assetVariations: (ad.assetVariations ?? []).map((v) =>
-        v.id === varId ? { ...v, ...patch } : v
-      ),
-    });
-  };
+  // Accepts either a plain patch or a function mapping the current variation to
+  // a patch. The functional form is required for parallel uploads: each slot's
+  // upload completion calls onUpdate((prev) => ...) so the write is always
+  // applied to the freshest variation state, not a stale closure snapshot.
+  const updateAssetVariation = useCallback(
+    (adId: string, varId: string, updater: AssetVariationUpdater) => {
+      onChange(applyVariationUpdate(creativesRef.current, adId, varId, updater));
+    },
+    [onChange],
+  );
 
   // ─── Captions ───
   const addCaption = (adId: string) => {
@@ -1874,7 +1881,7 @@ function AssetVariationCard({
   mediaType: "image" | "video";
   adAccountId?: string;
   canRemove: boolean;
-  onUpdate: (patch: Partial<AssetVariation>) => void;
+  onUpdate: (updater: AssetVariationUpdater) => void;
   onRemove: () => void;
 }) {
   const [expanded, setExpanded] = useState(index === 0);
@@ -1883,9 +1890,12 @@ function AssetVariationCard({
   const allDone = slots.length > 0 && uploadedCount === slots.length;
 
   function updateAsset(assetId: string, patch: Partial<Asset>) {
-    onUpdate({
-      assets: slots.map((a) => (a.id === assetId ? { ...a, ...patch } : a)),
-    });
+    // Use the functional form so the update reads `prev.assets` from current
+    // state rather than the render-time `slots` snapshot. Without this,
+    // parallel uploads (e.g. dual 4:5 + 9:16) each clobber the other's result.
+    onUpdate((prev) => ({
+      assets: (prev.assets ?? []).map((a) => (a.id === assetId ? { ...a, ...patch } : a)),
+    }));
   }
 
   return (
