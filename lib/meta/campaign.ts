@@ -99,7 +99,7 @@ export interface CreateCampaignRequest {
   metaAdAccountId: string;
   name: string;
   objective: CampaignObjective;
-  /** Defaults to PAUSED — campaigns are never created live automatically */
+  /** Explicitly passed at launch — the route always passes ACTIVE so spending begins immediately */
   status?: "ACTIVE" | "PAUSED";
 }
 

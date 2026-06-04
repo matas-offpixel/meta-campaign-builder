@@ -11,7 +11,7 @@
  *
  * Lookalike audience creation does NOT block standard ad set/creative creation.
  * After all phases complete, the published draft is saved to Supabase.
- * All campaigns, ad sets, and ads are created in PAUSED status.
+ * All campaigns, ad sets, and ads are created in ACTIVE status — spending begins immediately on launch.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -1008,7 +1008,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         adAccountId,
         name: draft.settings.campaignName.trim(),
         objective: draft.settings.objective,
-        status: "PAUSED" as const,
+        // ACTIVE so the campaign can serve as soon as ad sets and ads are created.
+        status: "ACTIVE" as const,
         token: launchToken,
       };
       console.log(
