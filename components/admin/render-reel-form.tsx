@@ -14,7 +14,11 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ReelRenderForm() {
+interface ReelRenderFormProps {
+  zoom: boolean;
+}
+
+export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RenderResult | null>(null);
@@ -56,8 +60,12 @@ export function ReelRenderForm() {
             14.93s @ 30 fps, h264 MP4.
           </p>
           <p className="text-sm text-muted-foreground">
-            Source: <code>scratch/j2-bridge-render-input.json</code> (must exist on
-            server — run the upload script first).
+            Ken-Burns zoom:{" "}
+            <span className={zoom ? "font-medium text-amber-700" : "font-medium text-zinc-500"}>
+              {zoom ? "ON (1.00→1.04 per photo)" : "OFF (static photos)"}
+            </span>
+            {" "}— toggle via <code>zoom</code> field in{" "}
+            <code>scratch/j2-bridge-render-input.json</code>.
           </p>
           <p className="text-sm text-muted-foreground">
             Requires <code>FEATURE_REMOTION=1</code>. Render time: ~5–10 min on
