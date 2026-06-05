@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 543
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/543
 - **Branch:** `cursor/dashboard-fix-s6-presale-overattribution-audit`
 
 ## Summary
