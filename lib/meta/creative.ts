@@ -47,6 +47,13 @@ interface MetaVideoData {
   video_id: string;
   message: string;
   title?: string;
+  /**
+   * Thumbnail image URL for the video creative. Meta requires either
+   * image_url OR image_hash in video_data (code=100, subcode=1443226 when
+   * absent). Populated from the asset's thumbnailUrl (set by uploadVideoAsset
+   * via POST /act_X/advideos → previewUrl).
+   */
+  image_url?: string;
   // description is NOT a valid field inside video_data — Meta rejects it
   call_to_action: MetaCallToAction;
 }
@@ -184,12 +191,26 @@ function pickPrimaryImageHash(creative: AdCreativeDraft): string | undefined {
 
 /**
  * Pick the best Meta video ID from the first AssetVariation.
+ * @deprecated Use pickPrimaryVideoAsset to also get the thumbnail.
  */
 function pickPrimaryVideoId(creative: AdCreativeDraft): string | undefined {
+  return pickPrimaryVideoAsset(creative)?.videoId;
+}
+
+/**
+ * Pick the best video asset (videoId + thumbnailUrl) from the first AssetVariation.
+ * Returns the same asset that would have been chosen by the old pickPrimaryVideoId so
+ * the thumbnail is guaranteed to belong to the same file as the video ID.
+ *
+ * Priority: 9:16 → 4:5 → 1:1 (matches VIDEO_PRIORITY).
+ */
+function pickPrimaryVideoAsset(
+  creative: AdCreativeDraft,
+): { videoId: string; thumbnailUrl?: string } | undefined {
   const assets = creative.assetVariations?.[0]?.assets ?? [];
   for (const ratio of VIDEO_PRIORITY) {
     const a = assets.find((x) => x.aspectRatio === ratio && x.videoId);
-    if (a?.videoId) return a.videoId;
+    if (a?.videoId) return { videoId: a.videoId, thumbnailUrl: a.thumbnailUrl };
   }
   return undefined;
 }
@@ -265,14 +286,15 @@ function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
 }
 
 function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
-  const videoId = pickPrimaryVideoId(creative);
-  if (!videoId) {
+  const videoAsset = pickPrimaryVideoAsset(creative);
+  if (!videoAsset) {
     throw new Error(
       "Video creative requires an uploaded Meta video ID. " +
         "Upload the video asset first via the Creatives step.",
     );
   }
 
+  const { videoId, thumbnailUrl } = videoAsset;
   const caption = pickPrimaryCaption(creative);
   const cta = mapCTAToMeta(creative.cta);
 
@@ -284,9 +306,19 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
       value: { link: creative.destinationUrl },
     },
   };
+
   // title is valid in video_data; description is NOT — omit it
   if (creative.headline) {
     videoData.title = creative.headline;
+  }
+
+  // Meta requires image_url OR image_hash in video_data (code=100, subcode=1443226
+  // when absent). thumbnailUrl comes from uploadVideoAsset → POST /advideos →
+  // previewUrl, stored on Asset.thumbnailUrl. For drafts created before this fix,
+  // thumbnailUrl may be undefined — in that case omit the field and let Meta
+  // auto-generate a thumbnail rather than throwing.
+  if (thumbnailUrl) {
+    videoData.image_url = thumbnailUrl;
   }
 
   // page_id + video_data only — no instagram_actor_id for same reasons as
@@ -296,12 +328,17 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
     video_data: videoData,
   };
 
-  console.log(
-    `[buildVideoCreative] "${creative.name}": new_ad` +
-      `\n  page_id = ${spec.page_id}` +
-      `\n  instagram_actor_id = OMITTED (page-only identity)` +
-      `\n  payload keys: [name, object_story_spec{page_id, video_data}]`,
+  const hasThumbnail = Boolean(videoData.image_url);
+  console.error(
+    `[buildVideoCreative] "${creative.name}": videoId=${videoId} thumbnail=${thumbnailUrl ?? "(none — Meta will auto-generate)"}`,
   );
+  if (!hasThumbnail) {
+    console.error(
+      `[buildVideoCreative] WARNING: no image_url set for "${creative.name}" — ` +
+        `Meta may reject with code=100 subcode=1443226. ` +
+        `Re-upload the video asset to capture thumbnailUrl.`,
+    );
+  }
 
   return {
     name: creative.name || "Ad Creative",
