@@ -106,7 +106,14 @@ GOOGLE_ADS_TOKEN_KEY=
 EVENTBRITE_TOKEN_KEY=
 ANTHROPIC_API_KEY=
 ENABLE_AI_AUTOTAG=
+GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
+GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ```
+
+> **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
+> are required for the 4theFans Asset Queue. The service account must have Viewer access to each
+> client's Google Sheet. `PRIVATE_KEY` uses literal `\n` in the Vercel env var value. Never log
+> these values — the scrape route omits them from all error output.
 
 > **`ENABLE_AI_AUTOTAG`** must be set to `"1"` in Vercel prod env vars for the
 > AI creative auto-tagger to run inside the `refresh-active-creatives` cron.
