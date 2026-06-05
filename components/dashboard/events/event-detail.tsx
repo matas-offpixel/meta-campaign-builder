@@ -606,6 +606,14 @@ export function EventDetail({
                         Bulk attach creatives
                       </Button>
                     </Link>
+                    <Link
+                      href={`/events/${event.id}/customer-audience${event.client?.meta_ad_account_id ? `?adAccountId=${event.client.meta_ad_account_id}` : ""}`}
+                    >
+                      <Button variant="outline" size="sm">
+                        <Plus className="h-3.5 w-3.5" />
+                        Upload customer audience
+                      </Button>
+                    </Link>
                     <Link href="/">
                       <Button variant="outline" size="sm">
                         All campaigns
