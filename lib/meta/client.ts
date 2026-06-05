@@ -22,6 +22,7 @@ import type {
 } from "./creative";
 import type { UploadAssetResult } from "./upload";
 import { withActPrefix } from "./ad-account-id.ts";
+import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -1737,11 +1738,18 @@ export async function uploadVideoAsset(
     );
   }
 
-  console.log("[uploadVideoAsset] success — videoId:", json.id ?? json.video_id);
-  return {
-    videoId: (json.id ?? json.video_id) as string,
-    previewUrl: (json.picture as string) ?? (json.preview_image_url as string) ?? "",
-  };
+  const videoId = (json.id ?? json.video_id) as string;
+  console.log("[uploadVideoAsset] success — videoId:", videoId);
+
+  // ── Post-upload thumbnail fetch ────────────────────────────────────────
+  // Meta's POST /advideos response does NOT include `picture` or
+  // `preview_image_url` — the video is still ENCODING. We poll the video
+  // node directly to get the auto-generated thumbnail.
+  // Two attempts × 3 s apart = 6 s max extra latency (well within the
+  // route's maxDuration=300). Failure falls through to empty previewUrl.
+  const previewUrl = await fetchVideoThumbnailWithRetry(videoId, effectiveToken);
+
+  return { videoId, previewUrl };
 }
 
 /**
