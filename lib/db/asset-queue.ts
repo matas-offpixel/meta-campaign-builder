@@ -25,6 +25,8 @@ export interface AssetQueueRow {
   nation: string | null;
   location: string | null;
   funnel: string | null;
+  /** All funnel labels from the sheet cell (may be more than one). */
+  funnels: string[] | null;
   media_type: string | null;
   asset_name: string | null;
   dropbox_url: string | null;
@@ -35,7 +37,12 @@ export interface AssetQueueRow {
   resolved_event_codes_multi: string[] | null;
   status: AssetQueueStatus;
   error_message: string | null;
+  /** First (or only) uploaded file path — kept for backward compat. */
   asset_blob_url: string | null;
+  /** All uploaded file paths for folder-based rows (jsonb array of strings). */
+  asset_blob_urls: string[] | null;
+  /** Number of files successfully uploaded from a folder row. */
+  media_file_count: number | null;
   generated_copy: string | null;
   generated_cta: string | null;
   generated_url: string | null;
@@ -103,6 +110,8 @@ export interface NewQueueRow {
   nation: string;
   location: string;
   funnel: string;
+  /** All funnel labels from the sheet cell. */
+  funnels: string[];
   media_type: string;
   asset_name: string;
   dropbox_url: string;
@@ -142,7 +151,11 @@ export async function updateQueueRowStatus(
 export async function updateQueueRowPrepared(
   id: string,
   opts: {
+    /** First (or only) file path — kept in asset_blob_url for backward compat. */
     assetBlobUrl: string;
+    /** All uploaded file paths (array, even for single files). */
+    assetBlobUrls: string[];
+    mediaFileCount: number;
     generatedCopy: string;
     generatedCta: string;
     generatedUrl: string;
@@ -154,6 +167,8 @@ export async function updateQueueRowPrepared(
     .from("client_asset_queue")
     .update({
       asset_blob_url: opts.assetBlobUrl,
+      asset_blob_urls: opts.assetBlobUrls,
+      media_file_count: opts.mediaFileCount,
       generated_copy: opts.generatedCopy,
       generated_cta: opts.generatedCta,
       generated_url: opts.generatedUrl,

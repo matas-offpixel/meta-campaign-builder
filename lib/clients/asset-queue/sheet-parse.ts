@@ -7,11 +7,15 @@
  * Joe's 4theFans sheet layout (columns A–G):
  *   A: Nation      (England / Scotland / All)
  *   B: Location    (venue name or "All")
- *   C: Funnel      (TOFU / MOFU / BOFU)
+ *   C: Funnel      (TOFU / MOFU / BOFU, optionally comma-separated)
  *   D: Media type  (Graphic / Video)  ← asset TYPE, not the name
  *   E: Asset       (descriptive name, e.g. "Brighton UGC FPV Videos")
  *   F: Link        (Dropbox share URL)
  *   G: Notes
+ *
+ * Column C may contain comma-separated funnels ("TOFU, MOFU, BOFU").
+ * `funnel` (single) is set to the highest-intent value (BOFU > MOFU > TOFU).
+ * `funnels` holds the full parsed array.
  *
  * Empty header rows and rows with no asset name are skipped silently.
  */
@@ -21,7 +25,10 @@ import { createHash } from "crypto";
 export interface AssetSheetRow {
   nation: string;
   location: string;
+  /** Highest-intent funnel (BOFU > MOFU > TOFU) for single Anthropic call */
   funnel: string;
+  /** All funnel labels from the cell (may be more than one) */
+  funnels: string[];
   /** "Graphic" | "Video" or whatever Joe writes in column D */
   mediaType: string;
   /** Descriptive asset name from column E (e.g. "Brighton UGC FPV Videos") */
@@ -34,6 +41,9 @@ export interface AssetSheetRow {
 
 const HEADER_KEYWORDS = new Set(["nation", "location", "funnel", "asset"]);
 
+/** Priority for funnel selection — higher number = higher intent */
+const FUNNEL_PRIORITY: Record<string, number> = { BOFU: 3, MOFU: 2, TOFU: 1 };
+
 function normalise(v: unknown): string {
   if (v == null) return "";
   return String(v).trim().replace(/\s+/g, " ");
@@ -42,6 +52,36 @@ function normalise(v: unknown): string {
 function isHeaderRow(cells: string[]): boolean {
   const first = cells[0]?.toLowerCase() ?? "";
   return HEADER_KEYWORDS.has(first);
+}
+
+/**
+ * Parses a funnel cell that may contain comma-separated values.
+ *
+ * Returns `funnel` (highest-intent known label) and `funnels` (all parsed labels).
+ * Unknown/raw values are kept as-is in both fields.
+ */
+export function parseMultiFunnel(raw: string): { funnel: string; funnels: string[] } {
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+
+  const known = parts.filter((p) => p === "TOFU" || p === "MOFU" || p === "BOFU");
+
+  if (known.length === 0) {
+    // Unknown label (or empty) — preserve raw value
+    const single = raw.trim();
+    return { funnel: single, funnels: single ? [single] : [] };
+  }
+
+  // Pick the highest-intent label
+  const best = known.reduce<string>((a, b) =>
+    (FUNNEL_PRIORITY[a] ?? 0) >= (FUNNEL_PRIORITY[b] ?? 0) ? a : b,
+  );
+
+  // Deduplicate while preserving order
+  const funnels = [...new Set(known)];
+  return { funnel: best, funnels };
 }
 
 /** Deterministic SHA-256 over the meaningful columns of a row. */
@@ -74,7 +114,7 @@ export function parseSheetRows(clientId: string, rawRows: unknown[][]): AssetShe
 
     const nation     = normalise(cells[0]);
     const location   = normalise(cells[1]);
-    const funnel     = normalise(cells[2]);
+    const funnelRaw  = normalise(cells[2]);
     const mediaType  = normalise(cells[3]); // column D: "Graphic" | "Video"
     const assetName  = normalise(cells[4]); // column E: descriptive name
     const dropboxUrl = normalise(cells[5]); // column F: Dropbox link
@@ -83,9 +123,12 @@ export function parseSheetRows(clientId: string, rawRows: unknown[][]): AssetShe
     // Rows without a real asset name or Dropbox link are meaningless
     if (!assetName && !dropboxUrl) continue;
 
+    const { funnel, funnels } = parseMultiFunnel(funnelRaw);
+
+    // Hash uses the highest-intent funnel for stability across re-scrapes
     const rowHash = hashRow(clientId, nation, location, funnel, assetName, dropboxUrl);
 
-    results.push({ nation, location, funnel, mediaType, assetName, dropboxUrl, notes, rowHash });
+    results.push({ nation, location, funnel, funnels, mediaType, assetName, dropboxUrl, notes, rowHash });
   }
 
   return results;

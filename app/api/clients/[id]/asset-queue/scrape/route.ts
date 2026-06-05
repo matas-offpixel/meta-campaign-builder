@@ -181,6 +181,7 @@ export async function POST(
       nation: row.nation,
       location: row.location,
       funnel: row.funnel,
+      funnels: row.funnels,
       media_type: row.mediaType,
       asset_name: row.assetName,
       dropbox_url: row.dropboxUrl,

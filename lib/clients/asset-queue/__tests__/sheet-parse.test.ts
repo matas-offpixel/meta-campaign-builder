@@ -1,4 +1,4 @@
-import { parseSheetRows, filterNewRows } from "../sheet-parse";
+import { parseSheetRows, filterNewRows, parseMultiFunnel } from "../sheet-parse";
 
 const CLIENT_ID = "test-client-id";
 
@@ -123,6 +123,60 @@ describe("parseSheetRows — Joe's 7-column layout", () => {
     rowC[4] = "Different Asset Name"; // change assetName
     const r3 = parseSheetRows(CLIENT_ID, [rowC]);
     expect(r1[0].rowHash).not.toBe(r3[0].rowHash);
+  });
+});
+
+describe("parseMultiFunnel", () => {
+  it("single TOFU → funnel=TOFU, funnels=[TOFU]", () => {
+    const result = parseMultiFunnel("TOFU");
+    expect(result.funnel).toBe("TOFU");
+    expect(result.funnels).toEqual(["TOFU"]);
+  });
+
+  it("comma-separated TOFU,MOFU → funnel=MOFU (higher intent)", () => {
+    const result = parseMultiFunnel("TOFU, MOFU");
+    expect(result.funnel).toBe("MOFU");
+    expect(result.funnels).toContain("TOFU");
+    expect(result.funnels).toContain("MOFU");
+  });
+
+  it("TOFU,MOFU,BOFU → funnel=BOFU (highest intent)", () => {
+    expect(parseMultiFunnel("TOFU, MOFU, BOFU").funnel).toBe("BOFU");
+  });
+
+  it("is case-insensitive", () => {
+    expect(parseMultiFunnel("tofu, bofu").funnel).toBe("BOFU");
+  });
+
+  it("deduplicates repeated labels", () => {
+    const result = parseMultiFunnel("MOFU, MOFU");
+    expect(result.funnels).toHaveLength(1);
+  });
+
+  it("handles unknown label gracefully", () => {
+    const result = parseMultiFunnel("CUSTOM");
+    expect(result.funnel).toBe("CUSTOM");
+    expect(result.funnels).toEqual(["CUSTOM"]);
+  });
+
+  it("handles empty string", () => {
+    const result = parseMultiFunnel("");
+    expect(result.funnel).toBe("");
+    expect(result.funnels).toHaveLength(0);
+  });
+});
+
+describe("parseSheetRows — multi-funnel column C", () => {
+  it("sets funnel to highest-intent when column C has comma-separated values", () => {
+    const raw = [["England", "Brighton", "TOFU, MOFU", "Video", "My Asset", "https://dropbox.com/s/x", ""]];
+    const rows = parseSheetRows(CLIENT_ID, raw);
+    expect(rows[0].funnel).toBe("MOFU");
+    expect(rows[0].funnels).toEqual(["TOFU", "MOFU"]);
+  });
+
+  it("single funnel row still populates funnels array", () => {
+    const rows = parseSheetRows(CLIENT_ID, [JOE_ROW_VIDEO]);
+    expect(rows[0].funnels).toEqual(["TOFU"]);
   });
 });
 
