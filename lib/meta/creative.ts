@@ -771,7 +771,21 @@ export function buildCreativePayload(
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
     const plan = detectMultiPlacement(creative);
     if (plan) {
-      return buildMultiPlacementCreative(creative, plan, validatedIgActorId);
+      const _mpp = buildMultiPlacementCreative(creative, plan, validatedIgActorId);
+      // TODO(2026-06-12): remove after Aberdeen relaunch confirms instagram_actor_id in wire payload.
+      // Payload has no tokens — no redaction needed beyond this comment.
+      console.error(
+        "[WIRE_CREATIVE_PAYLOAD]",
+        JSON.stringify({
+          creativeName: creative.name,
+          path: "multi_placement",
+          instagramActorId: _mpp.object_story_spec?.instagram_actor_id ?? null,
+          pageId: _mpp.object_story_spec?.page_id ?? null,
+          hasAssetFeedSpec: !!_mpp.asset_feed_spec,
+          objectStorySpec: _mpp.object_story_spec ?? null,
+        }),
+      );
+      return _mpp;
     }
     // Log why we fell through to the single-asset path even though the flag is on.
     const assets = creative.assetVariations?.[0]?.assets ?? [];
@@ -798,11 +812,25 @@ export function buildCreativePayload(
     );
   }
 
-  if (hasVideoId) {
-    return buildVideoCreative(creative, validatedIgActorId);
-  }
+  const _payload = hasVideoId
+    ? buildVideoCreative(creative, validatedIgActorId)
+    : buildLinkCreative(creative, validatedIgActorId);
 
-  return buildLinkCreative(creative, validatedIgActorId);
+  // TODO(2026-06-12): remove after Aberdeen relaunch confirms instagram_actor_id in wire payload.
+  // Payload has no tokens — no redaction needed beyond this comment.
+  console.error(
+    "[WIRE_CREATIVE_PAYLOAD]",
+    JSON.stringify({
+      creativeName: creative.name,
+      path: hasVideoId ? "video" : "link",
+      instagramActorId: _payload.object_story_spec?.instagram_actor_id ?? null,
+      pageId: _payload.object_story_spec?.page_id ?? null,
+      hasAssetFeedSpec: !!_payload.asset_feed_spec,
+      objectStorySpec: _payload.object_story_spec ?? null,
+    }),
+  );
+
+  return _payload;
 }
 
 // ─── Ad payload builder ───────────────────────────────────────────────────────

@@ -2273,6 +2273,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const validatedIgActorId =
         rawIgActorId ? await igValidator.validate(rawIgActorId) : null;
 
+      // TODO(2026-06-12): remove after Aberdeen relaunch confirms validator result.
+      console.error(
+        "[IG_VALIDATOR_RESULT]",
+        JSON.stringify({
+          adAccountId,
+          requestedIgId: rawIgActorId || "(none)",
+          validatedIgId: validatedIgActorId,
+          returnedNull: validatedIgActorId === null,
+        }),
+      );
+
       if (!validatedIgActorId && rawIgActorId) {
         console.error(
           `[buildCreativePayload] IG actor validation failed: page=${creative.identity.pageId} ` +

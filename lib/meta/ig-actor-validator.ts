@@ -85,9 +85,11 @@ export function createIgActorValidator(
       }
       const data = (await res.json()) as { data?: { id: string }[] };
       authorisedIds = (data.data ?? []).map((a) => a.id);
+      // TODO(2026-06-12): remove after Aberdeen relaunch confirms validator list.
+      // IDs are IG account identifiers, not tokens — no redaction needed.
       console.error(
-        `[ig-actor-validator] adAccount=${adAccountId} has ${authorisedIds.length} ` +
-          `authorised IG account(s)`,
+        `[ig-actor-validator] adAccount=${adAccountId} instagram_accounts response: ` +
+          `count=${authorisedIds.length} ids=[${authorisedIds.join(",")}]`,
       );
       return authorisedIds;
     } catch (err) {

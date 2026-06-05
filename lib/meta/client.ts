@@ -1567,6 +1567,16 @@ export async function createMetaAd(
   token?: string,
 ): Promise<{ id: string }> {
   const accountPath = withActPrefix(adAccountId);
+  // TODO(2026-06-12): remove after Aberdeen relaunch confirms wire payload.
+  // creative_id / ad_set_id / name are logged verbatim. No tokens in payload.
+  console.error(
+    "[META_WIRE_PAYLOAD] /ads POST",
+    JSON.stringify({
+      adAccountId,
+      traceId: crypto.randomUUID(),
+      body: payload,
+    }),
+  );
   return graphPost<{ id: string }>(
     `/${accountPath}/ads`,
     payload as unknown as Record<string, unknown>,
