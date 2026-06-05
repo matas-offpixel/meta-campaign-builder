@@ -9,7 +9,17 @@ const nextConfig: NextConfig = {
   // in the route's Lambda. Without this, runtime fails with
   // ENOENT: /var/task/.remotion/bundle/bundle.js.map.
   outputFileTracingIncludes: {
-    "/api/admin/remotion/**": ["./.remotion/bundle/**/*"],
+    "/api/admin/remotion/**": [
+      "./.remotion/bundle/**/*",
+      // Remotion's native compositor binary is dynamically required at runtime
+      // (not statically importable), so Next can't trace it. Glob covers
+      // every platform target; Vercel will only have the linux-x64-gnu one
+      // installed post-npm-install but the wildcard is harmless.
+      "./node_modules/@remotion/compositor-*/**/*",
+      // The renderer itself ships sub-packages with worker entrypoints that
+      // get dynamically required; include them too to be safe.
+      "./node_modules/@remotion/renderer/**/*",
+    ],
   },
   experimental: {
     // Raise the default 1 MB body cap for Server Actions and the shared
