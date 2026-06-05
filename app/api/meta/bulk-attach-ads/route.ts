@@ -1,33 +1,40 @@
 /**
  * POST /api/meta/bulk-attach-ads
  *
- * Bulk-attaches new creatives to ALL ad sets across N existing live Meta
- * campaigns in a single operation. Designed for the agency workflow "I just
- * made 3 new video variations — drop them across all 5 campaigns."
+ * Bulk-attaches new creatives to explicitly-selected ad sets across N existing
+ * live Meta campaigns. The user picks which ad sets to target in Step 1 of the
+ * UI (via GET /api/meta/bulk-attach-ads/list-adsets); this route receives the
+ * final explicit selection and executes the launch.
+ *
+ * Body shape:
+ *   {
+ *     adAccountId: string;
+ *     campaignAdSets: Record<string, string[]>; // campaignId → adSetId[]
+ *     newCreatives: AdCreativeDraft[];
+ *   }
  *
  * Architecture:
- *   1. Auth + token resolve (same pattern as launch-campaign)
- *   2. Hard-cap guard: refuse if metaCampaignIds.length > 8
- *   3. For each campaign (SERIAL, 1s sleep between):
- *      a. Fetch all active/paused ad sets for that campaign
- *      b. For each creative:
- *         - Build the Meta creative payload from the AdCreativeDraft
- *         - POST ONE creative per campaign (Meta lets one creative attach to N
- *           ads in the same account — no need to re-create per ad set)
- *         - For each ad set: POST one ad linking that creative
- *   4. Return per-campaign success/fail summary (partial success acceptable)
+ *   1. Auth + token resolve
+ *   2. Hard-cap guard: refuse if Object.keys(campaignAdSets).length > 8
+ *   3. Validate: each campaign's adSetIds array must be non-empty
+ *   4. Validate: total ads (sum of all adSetIds × creatives) must be ≤ 200
+ *   5. For each campaign (SERIAL, 1s sleep between):
+ *      a. For each creative:
+ *         - Build Meta creative payload
+ *         - POST ONE creative per campaign (reused across all ad sets in campaign)
+ *         - For each pre-selected ad set: POST one ad
+ *   6. Return per-campaign success/fail summary (partial success acceptable)
  *
  * Rate-limit safety:
  *   - Serial campaigns + 1s sleep guards against #80004 ad-account bucket
  *   - classifyLaunchMetaCode / mapLaunchTokenError surface #4/#17/#80004 as
  *     429s with rateLimited:true — NOT a tokenExpired prompt
- *   - Hard cap of 8 campaigns per batch prevents runaway API debt
+ *   - 8-campaign hard cap + 200-total-ad cap prevent runaway API debt
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
-  fetchAdSetsForCampaign,
   createMetaCreative,
   createMetaAd,
   MetaApiError,
@@ -49,15 +56,23 @@ export const maxDuration = 600;
 
 export interface BulkAttachRequest {
   adAccountId: string;
-  /** Verified live Meta campaign IDs. Hard cap: max 8. */
-  metaCampaignIds: string[];
+  /**
+   * Explicit per-campaign ad set selection from the ad-set picker (Step 1).
+   * Key = Meta campaign ID, value = array of Meta ad set IDs to target.
+   * Each array must be non-empty (validated before launch).
+   * Max 8 campaigns (keys).
+   */
+  campaignAdSets: Record<string, string[]>;
   /** Standard wizard creative shape — assets already uploaded to Meta. */
   newCreatives: AdCreativeDraft[];
 }
 
 export interface CampaignAttachResult {
   campaignId: string;
+  /** How many ad sets were targeted (equals the pre-selected count). */
   adSetsFound: number;
+  /** Ad set IDs that were targeted — surfaces in the result summary. */
+  adSetIds: string[];
   adsCreated: number;
   adsFailed: number;
   creativesCreated: { name: string; metaCreativeId: string }[];
@@ -77,6 +92,7 @@ export interface BulkAttachResult {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const BULK_ATTACH_CAP = 8;
+export const TOTAL_ADS_CAP = 200;
 const CAMPAIGN_SLEEP_MS = 1000;
 
 function sleep(ms: number): Promise<void> {
@@ -111,8 +127,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     body = await req.json();
     if (!body?.adAccountId) throw new Error("Missing adAccountId");
-    if (!Array.isArray(body.metaCampaignIds) || body.metaCampaignIds.length === 0) {
-      throw new Error("Missing or empty metaCampaignIds");
+    if (!body.campaignAdSets || typeof body.campaignAdSets !== "object" || Array.isArray(body.campaignAdSets)) {
+      throw new Error("Missing or invalid campaignAdSets (must be an object)");
+    }
+    if (Object.keys(body.campaignAdSets).length === 0) {
+      throw new Error("campaignAdSets must have at least one campaign");
     }
     if (!Array.isArray(body.newCreatives) || body.newCreatives.length === 0) {
       throw new Error("Missing or empty newCreatives");
@@ -124,15 +143,44 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { adAccountId, metaCampaignIds, newCreatives } = body;
+  const { adAccountId, campaignAdSets, newCreatives } = body;
+  const campaignIds = Object.keys(campaignAdSets);
 
-  // ── Hard cap ─────────────────────────────────────────────────────────────
-  if (metaCampaignIds.length > BULK_ATTACH_CAP) {
+  // ── Hard cap on campaign count ────────────────────────────────────────────
+  if (campaignIds.length > BULK_ATTACH_CAP) {
     return NextResponse.json(
       {
         error: `Bulk attach limited to ${BULK_ATTACH_CAP} campaigns per run to avoid Meta rate limits. Split into smaller batches.`,
-        count: metaCampaignIds.length,
+        count: campaignIds.length,
         cap: BULK_ATTACH_CAP,
+      },
+      { status: 400 },
+    );
+  }
+
+  // ── Validate: each campaign must have ≥1 ad set selected ─────────────────
+  const emptyAdSetCampaigns = campaignIds.filter(
+    (cid) => !Array.isArray(campaignAdSets[cid]) || campaignAdSets[cid].length === 0,
+  );
+  if (emptyAdSetCampaigns.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Each campaign must have at least one ad set selected. Empty: ${emptyAdSetCampaigns.join(", ")}`,
+        emptyAdSetCampaigns,
+      },
+      { status: 400 },
+    );
+  }
+
+  // ── Validate: total ads cap ───────────────────────────────────────────────
+  const totalAdSets = campaignIds.reduce((sum, cid) => sum + campaignAdSets[cid].length, 0);
+  const totalAds = totalAdSets * newCreatives.length;
+  if (totalAds > TOTAL_ADS_CAP) {
+    return NextResponse.json(
+      {
+        error: `Total ads to create (${totalAds}) exceeds the limit of ${TOTAL_ADS_CAP}. Reduce the number of campaigns, ad sets, or creatives.`,
+        totalAds,
+        cap: TOTAL_ADS_CAP,
       },
       { status: 400 },
     );
@@ -172,7 +220,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   console.error(
-    `[bulk-attach-ads] start: adAccountId=${adAccountId} campaigns=${metaCampaignIds.length} creatives=${newCreatives.length}`,
+    `[bulk-attach-ads] start: adAccountId=${adAccountId} campaigns=${campaignIds.length} ` +
+      `totalAdSets=${totalAdSets} creatives=${newCreatives.length} totalAds=${totalAds}`,
   );
 
   // ── Per-campaign serial execution ────────────────────────────────────────
@@ -181,60 +230,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let totalAdsFailed = 0;
   let rateLimited = false;
 
-  for (let ci = 0; ci < metaCampaignIds.length; ci++) {
-    const campaignId = metaCampaignIds[ci];
-    if (ci > 0) {
-      await sleep(CAMPAIGN_SLEEP_MS);
-    }
+  for (let ci = 0; ci < campaignIds.length; ci++) {
+    const campaignId = campaignIds[ci];
+    const adSetIds = campaignAdSets[campaignId]; // pre-selected by the user
 
-    console.error(`[bulk-attach-ads] campaign ${ci + 1}/${metaCampaignIds.length}: ${campaignId}`);
+    if (ci > 0) await sleep(CAMPAIGN_SLEEP_MS);
+
+    console.error(
+      `[bulk-attach-ads] campaign ${ci + 1}/${campaignIds.length}: ${campaignId} ` +
+        `(${adSetIds.length} ad set(s) selected)`,
+    );
 
     const result: CampaignAttachResult = {
       campaignId,
-      adSetsFound: 0,
+      adSetsFound: adSetIds.length,
+      adSetIds,
       adsCreated: 0,
       adsFailed: 0,
       creativesCreated: [],
       creativesFailed: [],
     };
 
-    // ── Fetch ad sets for this campaign ──────────────────────────────────
-    let adSetIds: { id: string; name: string }[];
-    try {
-      // "all" to include both ACTIVE and PAUSED (same as existing picker behaviour)
-      const { data: rawAdSets } = await fetchAdSetsForCampaign({
-        campaignId,
-        filter: "relevant",
-        token,
-      });
-      adSetIds = rawAdSets.map((a) => ({ id: a.id, name: a.name ?? a.id }));
-      result.adSetsFound = adSetIds.length;
-      console.error(
-        `[bulk-attach-ads]   ${adSetIds.length} ad set(s) found for campaign ${campaignId}`,
-      );
-    } catch (err) {
-      const metaErr = err instanceof MetaApiError ? err : null;
-      const kind = classifyLaunchMetaCode(metaErr?.code);
-      if (kind === "rate_limit") {
-        rateLimited = true;
-        const mapping = mapLaunchTokenError(metaErr?.code);
-        result.error = mapping.message;
-      } else {
-        result.error = `Failed to fetch ad sets: ${formatMetaError(err)}`;
-      }
-      results.push(result);
-      continue;
-    }
-
-    if (adSetIds.length === 0) {
-      result.error = "No active or paused ad sets found in this campaign.";
-      results.push(result);
-      continue;
-    }
-
     // ── For each creative: create ONE Meta creative, then one ad per ad set ─
     for (const creative of newCreatives) {
-      // Build the Meta creative payload from the wizard draft.
       let metaPayload;
       try {
         metaPayload = buildCreativePayload(creative);
@@ -246,7 +264,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      // Create ONE creative per campaign (reuse across all ad sets in this campaign).
+      // One creative per campaign — reused across all selected ad sets.
       let metaCreativeId: string;
       try {
         const { id } = await createMetaCreative(adAccountId, metaPayload, token);
@@ -271,14 +289,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      // Create one ad per ad set, linking to the single creative.
-      for (const adSet of adSetIds) {
-        const adName = `${creative.name} — ${adSet.name}`;
-        const adPayload = buildAdPayload(adName, metaCreativeId, adSet.id);
+      // One ad per selected ad set.
+      for (const adSetId of adSetIds) {
+        const adName = `${creative.name} — ${adSetId}`;
+        const adPayload = buildAdPayload(adName, metaCreativeId, adSetId);
         try {
           await createMetaAd(adAccountId, adPayload, token);
           result.adsCreated++;
-          console.error(`[bulk-attach-ads]   ad created: "${adName}" → adSet ${adSet.id}`);
+          console.error(
+            `[bulk-attach-ads]   ad created: "${adName}" → adSet ${adSetId}`,
+          );
         } catch (err) {
           const metaErr = err instanceof MetaApiError ? err : null;
           const kind = classifyLaunchMetaCode(metaErr?.code);
@@ -297,7 +317,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   console.error(
-    `[bulk-attach-ads] done: totalAdsCreated=${totalAdsCreated} totalAdsFailed=${totalAdsFailed} rateLimited=${rateLimited}`,
+    `[bulk-attach-ads] done: totalAdsCreated=${totalAdsCreated} totalAdsFailed=${totalAdsFailed} ` +
+      `rateLimited=${rateLimited}`,
   );
 
   const responseBody: BulkAttachResult = {
@@ -307,7 +328,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ...(rateLimited && { rateLimited: true }),
   };
 
-  // Return 429 if every campaign was rate-limited; 207 for partial success; 200 for full success.
   const allRateLimited =
     rateLimited && results.every((r) => r.error?.includes("rate limit"));
   if (allRateLimited) {
