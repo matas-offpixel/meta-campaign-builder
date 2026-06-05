@@ -585,7 +585,7 @@ export function EventDetail({
                       jump back into the library to find an existing draft.
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
                     <Button
                       onClick={handleOpenCreator}
                       disabled={creatingDraft}
@@ -598,6 +598,14 @@ export function EventDetail({
                       )}
                       Open campaign creator
                     </Button>
+                    <Link
+                      href={`/events/${event.id}/bulk-attach${event.client?.meta_ad_account_id ? `?adAccountId=${event.client.meta_ad_account_id}` : ""}`}
+                    >
+                      <Button variant="outline" size="sm">
+                        <Plus className="h-3.5 w-3.5" />
+                        Bulk attach creatives
+                      </Button>
+                    </Link>
                     <Link href="/">
                       <Button variant="outline" size="sm">
                         All campaigns
