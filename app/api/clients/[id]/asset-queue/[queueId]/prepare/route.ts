@@ -117,6 +117,7 @@ export async function POST(
   const generated = await generateCopy(
     {
       assetName: row.asset_name ?? "",
+      mediaType: row.media_type ?? "",
       funnel: row.funnel ?? "MOFU",
       location: row.location ?? "",
       eventName,
