@@ -1,0 +1,56 @@
+{
+  "event": "Junction 2 Melodic 2026-07-26",
+  "stage": "Bridge (Hard Techno cut)",
+  "source_year": 2025,
+  "photographers": [
+    "Jake Davis (@jakephilipdavis)",
+    "Rob Jones (@hirobjones)",
+    "Sienna Lorraine Gray (@siennalorrainegray)"
+  ],
+  "photographer_collective": "@khromacollective",
+  "audio_reference": {
+    "title": "Ghosts",
+    "artists": ["Miss Monique", "Nicolas Taboada", "FRANCO BA"],
+    "label": "Siona Records",
+    "youtube_url": "https://www.youtube.com/watch?v=K2xqmHHwPlY",
+    "bpm": 130,
+    "note": "Audio is NOT baked into the render. Sync in CapCut post-render."
+  },
+  "render": {
+    "width": 720,
+    "height": 1280,
+    "fps": 30,
+    "cadence": "half-beat at 130 BPM",
+    "frames_per_photo": 7,
+    "total_frames": 434,
+    "duration_sec": 14.47
+  },
+  "supabase_storage": {
+    "bucket": "campaign-assets",
+    "prefix": "remotion-source/j2-melodic-bridgehard-2025/",
+    "filename_pattern": "bridgehard-{INDEX:02d}.jpeg",
+    "resize_target": {"width": 1080, "height": 1620, "fit": "cover"}
+  },
+  "photos": [
+    {"index": 1, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7049.jpeg", "target_filename": "bridgehard-01.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 2, "source_filename": "250725_JUNCTION2_2025_RobJones_@hirobjones_@khromacollective-1174.jpeg", "target_filename": "bridgehard-02.jpeg", "photographer": "Rob", "date": "250725"},
+    {"index": 3, "source_filename": "250725_JUNCTION2_2025_SiennaLorraineGray_@siennalorrainegray_@khromacollective-1014.jpeg", "target_filename": "bridgehard-03.jpeg", "photographer": "Sienna", "date": "250725"},
+    {"index": 4, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7053.jpeg", "target_filename": "bridgehard-04.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 5, "source_filename": "250725_JUNCTION2_2025_RobJones_@hirobjones_@khromacollective-8716.jpeg", "target_filename": "bridgehard-05.jpeg", "photographer": "Rob", "date": "250725"},
+    {"index": 6, "source_filename": "250725_JUNCTION2_2025_SiennaLorraineGray_@siennalorrainegray_@khromacollective-1034.jpeg", "target_filename": "bridgehard-06.jpeg", "photographer": "Sienna", "date": "250725"},
+    {"index": 7, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7094.jpeg", "target_filename": "bridgehard-07.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 8, "source_filename": "250725_JUNCTION2_2025_RobJones_@hirobjones_@khromacollective-9042.jpeg", "target_filename": "bridgehard-08.jpeg", "photographer": "Rob", "date": "250725"},
+    {"index": 9, "source_filename": "250725_JUNCTION2_2025_SiennaLorraineGray_@siennalorrainegray_@khromacollective-1054.jpeg", "target_filename": "bridgehard-09.jpeg", "photographer": "Sienna", "date": "250725"},
+    {"index": 10, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7441.jpeg", "target_filename": "bridgehard-10.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 11, "source_filename": "250725_JUNCTION2_2025_RobJones_@hirobjones_@khromacollective-9140.jpeg", "target_filename": "bridgehard-11.jpeg", "photographer": "Rob", "date": "250725"},
+    {"index": 12, "source_filename": "250725_JUNCTION2_2025_SiennaLorraineGray_@siennalorrainegray_@khromacollective-223.jpeg", "target_filename": "bridgehard-12.jpeg", "photographer": "Sienna", "date": "250725"},
+    {"index": 13, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7469.jpeg", "target_filename": "bridgehard-13.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 14, "source_filename": "250725_JUNCTION2_2025_RobJones_@hirobjones_@khromacollective-9439.jpeg", "target_filename": "bridgehard-14.jpeg", "photographer": "Rob", "date": "250725"},
+    {"index": 15, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7523.jpeg", "target_filename": "bridgehard-15.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 16, "source_filename": "250725_JUNCTION2_2025_RobJones_@hirobjones_@khromacollective-9781.jpeg", "target_filename": "bridgehard-16.jpeg", "photographer": "Rob", "date": "250725"},
+    {"index": 17, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7606.jpeg", "target_filename": "bridgehard-17.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 18, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7617.jpeg", "target_filename": "bridgehard-18.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 19, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7780.jpeg", "target_filename": "bridgehard-19.jpeg", "photographer": "Jake", "date": "250725"},
+    {"index": 20, "source_filename": "250725_JUNCTION2_2025_JakeDavis_@jakephilipdavis_@khromacollective-7849.jpeg", "target_filename": "bridgehard-20.jpeg", "photographer": "Jake", "date": "250725"}
+  ]
+}

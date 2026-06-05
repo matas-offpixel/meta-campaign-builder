@@ -9,18 +9,14 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * /admin/render-reel?reel={slug} — one-shot MP4 render for the selected reel.
  *
+ * Reels are discovered at request time by scanning scratch/ for files matching
+ * j2-{slug}-manifest.json. Adding a future reel = drop a manifest into scratch/.
+ *
  * Auth: cookie-bound Supabase session.
- * Manifest at scratch/j2-{slug}-manifest.json drives the page metadata.
- * Render-input at scratch/j2-{slug}-render-input.json drives the actual render.
  */
 
-const AVAILABLE_REELS = ["bridge", "woods"] as const;
-type ReelSlug = (typeof AVAILABLE_REELS)[number];
-const DEFAULT_REEL: ReelSlug = "bridge";
-
-function isReelSlug(value: string | undefined): value is ReelSlug {
-  return typeof value === "string" && (AVAILABLE_REELS as readonly string[]).includes(value);
-}
+const MANIFEST_RE = /^j2-([a-z0-9-]+)-manifest\.json$/;
+const FALLBACK_REEL = "bridge";
 
 interface ReelManifest {
   event: string;
@@ -46,7 +42,23 @@ interface RenderInput {
   inputProps?: { zoom?: boolean; photos?: unknown[] };
 }
 
-async function loadManifest(reel: ReelSlug): Promise<ReelManifest | null> {
+async function getAvailableReels(): Promise<string[]> {
+  try {
+    const scratchDir = path.join(process.cwd(), "scratch");
+    const files = await fs.readdir(scratchDir);
+    return files
+      .map((f) => {
+        const m = f.match(MANIFEST_RE);
+        return m ? m[1] : null;
+      })
+      .filter((slug): slug is string => slug !== null)
+      .sort();
+  } catch {
+    return [FALLBACK_REEL];
+  }
+}
+
+async function loadManifest(reel: string): Promise<ReelManifest | null> {
   try {
     const raw = await fs.readFile(
       path.join(process.cwd(), `scratch/j2-${reel}-manifest.json`),
@@ -58,7 +70,7 @@ async function loadManifest(reel: ReelSlug): Promise<ReelManifest | null> {
   }
 }
 
-async function loadRenderInput(reel: ReelSlug): Promise<RenderInput | null> {
+async function loadRenderInput(reel: string): Promise<RenderInput | null> {
   try {
     const raw = await fs.readFile(
       path.join(process.cwd(), `scratch/j2-${reel}-render-input.json`),
@@ -82,8 +94,11 @@ export default async function AdminRenderReelPage({
 
   if (!user) redirect("/login");
 
+  const availableReels = await getAvailableReels();
   const params = await searchParams;
-  const reel: ReelSlug = isReelSlug(params.reel) ? params.reel : DEFAULT_REEL;
+  const requestedRaw = params.reel?.toLowerCase().replace(/[^a-z0-9-]/g, "") ?? "";
+  const fallback = availableReels.includes(FALLBACK_REEL) ? FALLBACK_REEL : availableReels[0] ?? FALLBACK_REEL;
+  const reel = availableReels.includes(requestedRaw) ? requestedRaw : fallback;
 
   const [manifest, renderInput] = await Promise.all([
     loadManifest(reel),
@@ -126,9 +141,9 @@ export default async function AdminRenderReelPage({
           </span>
         </div>
         <p className="text-sm text-muted-foreground">{subtitle}</p>
-        <div className="flex items-center gap-2 pt-2 text-xs">
+        <div className="flex items-center gap-2 pt-2 text-xs flex-wrap">
           <span className="text-muted-foreground">Reel:</span>
-          {AVAILABLE_REELS.map((slug) => (
+          {availableReels.map((slug) => (
             <Link
               key={slug}
               href={`/admin/render-reel?reel=${slug}`}
