@@ -106,7 +106,15 @@ GOOGLE_ADS_TOKEN_KEY=
 EVENTBRITE_TOKEN_KEY=
 ANTHROPIC_API_KEY=
 ENABLE_AI_AUTOTAG=
+GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
+GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ```
+
+> **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
+> are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape
+> route now reads sheets via the public CSV export endpoint — no service account needed. The env
+> vars are retained here in case they are needed for a future feature; leave them unset on Vercel
+> unless you have a specific use case.
 
 > **`ENABLE_AI_AUTOTAG`** must be set to `"1"` in Vercel prod env vars for the
 > AI creative auto-tagger to run inside the `refresh-active-creatives` cron.

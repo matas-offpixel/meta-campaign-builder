@@ -35,6 +35,7 @@ import { D2CTemplateEditor } from "@/components/dashboard/clients/d2c-template-e
 import { ClientPortal } from "@/components/share/client-portal";
 import { ClientCampaignsTab } from "@/components/dashboard/campaigns/client-campaigns-tab";
 import type { ClientCampaignsData } from "@/lib/dashboard/campaigns-loader";
+import { AssetQueuePanel } from "@/components/dashboard/clients/asset-queue-panel";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -69,7 +70,8 @@ type ClientTab =
   | "d2c"
   | "campaigns"
   | "creatives"
-  | "invoicing";
+  | "invoicing"
+  | "asset-queue";
 
 /**
  * Connection rows arrive from the server with credentials redacted.
@@ -315,14 +317,6 @@ export function ClientDetail({
               <Rocket className="h-3.5 w-3.5" />
               Rollout
             </Button>
-            {client.meta_ad_account_id && (
-              <Button
-                variant="outline"
-                onClick={() => router.push(`/clients/${client.id}/customer-audience`)}
-              >
-                Upload customer audience
-              </Button>
-            )}
             {hasTaggedEvents && (
               <Button
                 variant="outline"
@@ -418,6 +412,7 @@ export function ClientDetail({
                 count: creativeCount,
               },
               { id: "invoicing", label: "Invoicing", count: invoiceCount },
+              { id: "asset-queue", label: "Asset Queue" },
             ]}
             activeTab={activeTab}
             onTabChange={(id) => setActiveTab(id as ClientTab)}
@@ -707,6 +702,9 @@ export function ClientDetail({
             />
           </TabPanel>
 
+          <TabPanel active={activeTab === "asset-queue"}>
+            <AssetQueuePanel clientId={client.id} />
+          </TabPanel>
         </div>
       </main>
       <NewEventKindModal
