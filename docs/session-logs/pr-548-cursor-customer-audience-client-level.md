@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 548
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/548
 - **Branch:** `cursor/customer-audience-client-level`
 - **Follows:** PR #547 (`cursor/customer-audience-upload`)
 
