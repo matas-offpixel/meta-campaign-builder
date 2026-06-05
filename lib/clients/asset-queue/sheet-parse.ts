@@ -77,7 +77,7 @@ export function parseMultiFunnel(raw: string): { funnel: string; funnels: string
   // Pick the highest-intent label
   const best = known.reduce<string>((a, b) =>
     (FUNNEL_PRIORITY[a] ?? 0) >= (FUNNEL_PRIORITY[b] ?? 0) ? a : b,
-  );
+  known[0]);
 
   // Deduplicate while preserving order
   const funnels = [...new Set(known)];
