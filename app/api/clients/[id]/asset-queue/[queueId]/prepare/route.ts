@@ -46,9 +46,9 @@ export async function POST(
   if (!row || row.client_id !== clientId) {
     return NextResponse.json({ error: "Queue row not found" }, { status: 404 });
   }
-  if (row.status !== "matched") {
+  if (row.status !== "matched" && row.status !== "matched_umbrella") {
     return NextResponse.json(
-      { error: `Row status is '${row.status}' — only 'matched' rows can be prepared` },
+      { error: `Row status is '${row.status}' — only 'matched' or 'matched_umbrella' rows can be prepared` },
       { status: 400 },
     );
   }
@@ -97,14 +97,21 @@ export async function POST(
   }
 
   // ── Load event info for copy generation ──────────────────────────────────
-  let eventName = row.resolved_event_code ?? row.location ?? "";
-  if (row.resolved_event_id) {
-    const { data: event } = await supabase
-      .from("events")
-      .select("name, event_code")
-      .eq("id", row.resolved_event_id)
-      .maybeSingle();
-    if (event) eventName = event.name ?? event.event_code ?? eventName;
+  let eventName: string;
+  if (row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0) {
+    // Umbrella row — use a synthetic name describing the group
+    const nation = row.nation ?? "All";
+    eventName = `All ${nation} venues`;
+  } else {
+    eventName = row.resolved_event_code ?? row.location ?? "";
+    if (row.resolved_event_id) {
+      const { data: event } = await supabase
+        .from("events")
+        .select("name, event_code")
+        .eq("id", row.resolved_event_id)
+        .maybeSingle();
+      if (event) eventName = event.name ?? event.event_code ?? eventName;
+    }
   }
 
   // ── Load sheet config for defaults ────────────────────────────────────────

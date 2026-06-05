@@ -12,6 +12,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 export type AssetQueueStatus =
   | "pending"
   | "matched"
+  | "matched_umbrella"
   | "confirmed"
   | "launched"
   | "skipped"
@@ -30,6 +31,8 @@ export interface AssetQueueRow {
   notes: string | null;
   resolved_event_id: string | null;
   resolved_event_code: string | null;
+  /** Populated for matched_umbrella rows — all event codes this umbrella covers. */
+  resolved_event_codes_multi: string[] | null;
   status: AssetQueueStatus;
   error_message: string | null;
   asset_blob_url: string | null;
@@ -106,6 +109,8 @@ export interface NewQueueRow {
   notes: string;
   resolved_event_id: string | null;
   resolved_event_code: string | null;
+  /** Populated for matched_umbrella rows — all event codes this umbrella covers. */
+  resolved_event_codes_multi?: string[] | null;
   status: AssetQueueStatus;
   error_message: string | null;
 }

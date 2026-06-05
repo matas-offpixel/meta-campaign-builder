@@ -236,6 +236,41 @@ describe("POST /api/clients/[id]/asset-queue/scrape", () => {
     expect(inserted[0].error_message).toBe("no_venue_mapping");
   });
 
+  it("inserts matched_umbrella rows when location=All and mappings exist", async () => {
+    (getAssetSheetConfig as jest.Mock).mockResolvedValue({
+      google_sheet_id: "sheet-id",
+      sheet_range: "Assets!A:G",
+    });
+
+    // Umbrella row: location=All, nation=England
+    const UMBRELLA_CSV = [
+      "Nation,Location,Funnel,Column 6,Asset,Link,Notes",
+      "England,All,TOFU,Video,England-Wide Hype,https://db.com/s/all,",
+    ].join("\n");
+    mockFetchOk(UMBRELLA_CSV);
+
+    (getExistingHashes as jest.Mock).mockResolvedValue(new Set());
+    (listVenueMappings as jest.Mock).mockResolvedValue([
+      { id: "1", client_id: CLIENT_ID, sheet_label: "Brighton", event_code: "WC26-BRIGHTON", nation_label: "England" },
+      { id: "2", client_id: CLIENT_ID, sheet_label: "Manchester", event_code: "UTB0046-NEW", nation_label: "England" },
+    ]);
+
+    // mockFrom already returns [] for events — simulate no resolved IDs
+    (insertQueueRows as jest.Mock).mockResolvedValue([]);
+    (touchLastScrapedAt as jest.Mock).mockResolvedValue(undefined);
+
+    const res = await POST(makeRequest(), { params: paramsFor(CLIENT_ID) });
+    const json = await res.json();
+    expect(json.matched).toBe(1);
+
+    const inserted = (insertQueueRows as jest.Mock).mock.calls[0][0];
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].status).toBe("matched_umbrella");
+    expect(inserted[0].resolved_event_codes_multi).toContain("WC26-BRIGHTON");
+    expect(inserted[0].resolved_event_codes_multi).toContain("UTB0046-NEW");
+    expect(inserted[0].resolved_event_code).toBeNull();
+  });
+
   it("returns { new: 0 } when all rows are already in the queue", async () => {
     (getAssetSheetConfig as jest.Mock).mockResolvedValue({
       google_sheet_id: "sheet-id",

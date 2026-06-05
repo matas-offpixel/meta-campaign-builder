@@ -15,7 +15,7 @@
  * The existing CampaignPicker is NOT modified — this is an additive surface.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, RefreshCw, Search as SearchIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,14 @@ interface CampaignMultiPickerProps {
   /** Parent-managed selection — survives Load More pagination. */
   selectedIds: Set<string>;
   onToggle: (campaign: MetaCampaignSummary) => void;
+  /**
+   * When supplied, campaigns whose names contain any of these strings
+   * (case-insensitive) are auto-selected once on first load. Respects
+   * the BULK_ATTACH_CAP passed to onPreselectLoad.
+   */
+  preselectCodes?: string[];
+  /** Called once with the full list of campaigns that matched preselectCodes. */
+  onPreselectLoad?: (campaigns: MetaCampaignSummary[]) => void;
 }
 
 function Spinner({ className = "h-3.5 w-3.5" }: { className?: string }) {
@@ -57,10 +65,13 @@ export function CampaignMultiPicker({
   adAccountId,
   selectedIds,
   onToggle,
+  preselectCodes,
+  onPreselectLoad,
 }: CampaignMultiPickerProps) {
   const [filter, setFilter] = useState<"relevant" | "all">("relevant");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const preselectAppliedRef = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -72,6 +83,27 @@ export function CampaignMultiPicker({
     filter,
     search: debouncedSearch || undefined,
   });
+
+  // Auto-select campaigns whose names contain any preselect code — fires once on first load.
+  // Use a ref (not state) to track the guard so we don't cause a second render from the effect.
+  useEffect(() => {
+    if (
+      preselectAppliedRef.current ||
+      !preselectCodes ||
+      preselectCodes.length === 0 ||
+      campaigns.status !== "success" ||
+      !onPreselectLoad
+    ) return;
+
+    preselectAppliedRef.current = true;
+    const needles = preselectCodes.map((c) => c.toLowerCase());
+    const matched = (campaigns.data ?? []).filter(
+      (c) => c.compatible && needles.some((n) => c.name.toLowerCase().includes(n)),
+    );
+    if (matched.length > 0) {
+      onPreselectLoad(matched);
+    }
+  }, [campaigns.status, campaigns.data, preselectCodes, onPreselectLoad]);
 
   if (!adAccountId) {
     return (
@@ -163,6 +195,11 @@ export function CampaignMultiPicker({
 
       {campaigns.status === "success" && (
         <>
+          {preselectCodes && preselectCodes.length > 0 && (
+            <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-200">
+              Auto-selecting campaigns matching: <strong>{preselectCodes.join(", ")}</strong>
+            </div>
+          )}
           <ul className="max-h-[28rem] space-y-1.5 overflow-y-auto rounded-lg border border-border bg-card p-1.5">
             {campaigns.data.map((c) => {
               const checked = selectedIds.has(c.id);
