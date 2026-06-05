@@ -20,6 +20,8 @@ const MODEL = "claude-haiku-4-5";
 
 export interface CopyInput {
   assetName: string;
+  /** "Graphic" | "Video" from column D of the sheet */
+  mediaType: string;
   funnel: string;          // TOFU | MOFU | BOFU
   location: string;
   eventName: string;
@@ -53,7 +55,8 @@ Return ONLY valid JSON with exactly these keys: primary_text (string, max 100 ch
 No markdown, no explanation, no extra keys. UK English. Energetic and direct tone.`;
 
 function buildUserPrompt(input: CopyInput): string {
-  return `Asset: ${input.assetName}
+  return `Asset name: ${input.assetName}
+Asset type: ${input.mediaType || "Unknown"}
 Funnel stage: ${input.funnel}
 Venue/Location: ${input.location}
 Event name: ${input.eventName}

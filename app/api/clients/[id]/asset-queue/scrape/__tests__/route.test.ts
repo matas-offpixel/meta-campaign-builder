@@ -42,15 +42,15 @@ import { getExistingHashes, insertQueueRows } from "@/lib/db/asset-queue";
 const CLIENT_ID = "client-uuid-123";
 const USER_ID = "user-uuid-456";
 
-/** Minimal CSV representing the three-row sheet (header + 2 data rows). */
+/** Joe's 7-column CSV format: Nation,Location,Funnel,MediaType,AssetName,Link,Notes */
 const SHEET_CSV_TWO_ROWS = [
-  "Nation,Location,Funnel,Asset name,Dropbox link,Notes",
-  "England,Brighton,TOFU,Asset A,https://db.com/s/a,",
-  "Scotland,Glasgow,MOFU,Asset B,https://db.com/s/b,",
+  "Nation,Location,Funnel,Column 6,Asset,Link,Notes",
+  "England,Brighton,TOFU,Video,Asset A,https://db.com/s/a,",
+  "Scotland,Glasgow,MOFU,Graphic,Asset B,https://db.com/s/b,",
 ].join("\n");
 
 const SHEET_CSV_ONE_ROW = [
-  "England,Liverpool,BOFU,Some Asset,https://db.com/s/x,",
+  "England,Liverpool,BOFU,Video,Some Asset,https://db.com/s/x,",
 ].join("\n");
 
 function mockFetchOk(csv: string) {
@@ -193,8 +193,9 @@ describe("POST /api/clients/[id]/asset-queue/scrape", () => {
     mockFetchOk(SHEET_CSV_TWO_ROWS);
 
     const { parseSheetRows } = await import("@/lib/clients/asset-queue/sheet-parse");
+    // 7-column format: Nation, Location, Funnel, MediaType, AssetName, Link, Notes
     const rows = parseSheetRows(CLIENT_ID, [
-      ["England", "Brighton", "TOFU", "Asset A", "https://db.com/s/a", ""],
+      ["England", "Brighton", "TOFU", "Video", "Asset A", "https://db.com/s/a", ""],
     ]);
     (getExistingHashes as jest.Mock).mockResolvedValue(new Set([rows[0].rowHash]));
     (listVenueMappings as jest.Mock).mockResolvedValue([]);
@@ -211,6 +212,7 @@ describe("POST /api/clients/[id]/asset-queue/scrape", () => {
     const inserted = (insertQueueRows as jest.Mock).mock.calls[0][0];
     expect(inserted).toHaveLength(1);
     expect(inserted[0].asset_name).toBe("Asset B");
+    expect(inserted[0].media_type).toBe("Graphic");
   });
 
   it("marks row as error when no venue mapping found", async () => {
@@ -243,8 +245,8 @@ describe("POST /api/clients/[id]/asset-queue/scrape", () => {
 
     const { parseSheetRows } = await import("@/lib/clients/asset-queue/sheet-parse");
     const rows = parseSheetRows(CLIENT_ID, [
-      ["England", "Brighton", "TOFU", "Asset A", "https://db.com/s/a", ""],
-      ["Scotland", "Glasgow", "MOFU", "Asset B", "https://db.com/s/b", ""],
+      ["England", "Brighton", "TOFU", "Video", "Asset A", "https://db.com/s/a", ""],
+      ["Scotland", "Glasgow", "MOFU", "Graphic", "Asset B", "https://db.com/s/b", ""],
     ]);
     (getExistingHashes as jest.Mock).mockResolvedValue(new Set(rows.map((r) => r.rowHash)));
     (touchLastScrapedAt as jest.Mock).mockResolvedValue(undefined);

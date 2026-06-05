@@ -24,6 +24,7 @@ export interface AssetQueueRow {
   nation: string | null;
   location: string | null;
   funnel: string | null;
+  media_type: string | null;
   asset_name: string | null;
   dropbox_url: string | null;
   notes: string | null;
@@ -99,6 +100,7 @@ export interface NewQueueRow {
   nation: string;
   location: string;
   funnel: string;
+  media_type: string;
   asset_name: string;
   dropbox_url: string;
   notes: string;
