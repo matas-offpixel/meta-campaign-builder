@@ -7,6 +7,7 @@ interface RenderResult {
   assetUrl: string;
   durationSec: number;
   sizeBytes: number;
+  reel?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -15,10 +16,12 @@ function formatBytes(bytes: number): string {
 }
 
 interface ReelRenderFormProps {
+  reel: string;
   zoom: boolean;
+  renderInputReady: boolean;
 }
 
-export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
+export function ReelRenderForm({ reel, zoom, renderInputReady }: ReelRenderFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RenderResult | null>(null);
@@ -29,9 +32,10 @@ export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
     setResult(null);
 
     try {
-      const res = await fetch("/api/admin/remotion/render-reel", {
-        method: "POST",
-      });
+      const res = await fetch(
+        `/api/admin/remotion/render-reel?reel=${encodeURIComponent(reel)}`,
+        { method: "POST" },
+      );
 
       const data = (await res.json()) as RenderResult & { error?: string };
 
@@ -51,13 +55,16 @@ export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
     }
   }
 
+  const renderInputPath = `scratch/j2-${reel}-render-input.json`;
+  const downloadFilename = `j2-${reel}-reel.mp4`;
+  const disabled = loading || !renderInputReady;
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="rounded-lg border border-border bg-card p-6 space-y-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">
-            Composition: <code>PhotoReelStatic</code> — 64 photos, 7 frames each,
-            14.93s @ 30 fps, h264 MP4.
+            Composition: <code>PhotoReelStatic</code> · h264 MP4 · 1080×1920 @ 30 fps.
           </p>
           <p className="text-sm text-muted-foreground">
             Ken-Burns zoom:{" "}
@@ -65,18 +72,24 @@ export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
               {zoom ? "ON (1.00→1.04 per photo)" : "OFF (static photos)"}
             </span>
             {" "}— toggle via <code>zoom</code> field in{" "}
-            <code>scratch/j2-bridge-render-input.json</code>.
+            <code>{renderInputPath}</code>.
           </p>
           <p className="text-sm text-muted-foreground">
-            Requires <code>FEATURE_REMOTION=1</code>. Render time: ~5–10 min on
-            Vercel cold start.
+            Requires <code>FEATURE_REMOTION=1</code>. Render time: ~5–10 min on Vercel cold start.
           </p>
+          {!renderInputReady ? (
+            <p className="text-sm text-amber-700">
+              ⚠ Render input missing — run{" "}
+              <code>REEL_TARGET={reel} npx tsx scripts/upload-reel-photos.ts</code>{" "}
+              locally and commit <code>{renderInputPath}</code>.
+            </p>
+          ) : null}
         </div>
 
         <button
           type="button"
           onClick={handleRender}
-          disabled={loading}
+          disabled={disabled}
           className="inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
         >
           {loading ? (
@@ -88,7 +101,7 @@ export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
               Rendering… (this takes several minutes)
             </span>
           ) : (
-            "Render J2 Bridge reel"
+            `Render ${reel} reel`
           )}
         </button>
       </div>
@@ -104,6 +117,8 @@ export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
           <p className="text-sm font-medium text-green-600">Render complete</p>
 
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <dt className="text-muted-foreground">Reel</dt>
+            <dd>{result.reel ?? reel}</dd>
             <dt className="text-muted-foreground">Duration</dt>
             <dd>{result.durationSec.toFixed(2)}s</dd>
             <dt className="text-muted-foreground">File size</dt>
@@ -123,7 +138,7 @@ export function ReelRenderForm({ zoom }: ReelRenderFormProps) {
             </a>
             <a
               href={result.assetUrl}
-              download="j2-bridge-reel.mp4"
+              download={downloadFilename}
               className="text-sm text-muted-foreground underline"
             >
               Download MP4

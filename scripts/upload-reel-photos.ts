@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * One-shot upload script for Junction 2 Melodic Bridge reel photos.
+ * One-shot upload script for reel photos.
  *
- * Reads source photos from REEL_SOURCE_DIR, resizes with sharp,
- * uploads to Supabase Storage, then writes scratch/j2-bridge-render-input.json.
+ * Reads source photos from REEL_SOURCE_DIR, resizes via sharp, uploads to
+ * Supabase Storage, writes scratch/j2-{target}-render-input.json.
+ *
+ * Multi-reel: REEL_TARGET selects which reel (default "bridge"). Manifest +
+ * render-input + storage prefix all derive from the slug.
  *
  * Usage:
- *   REEL_SOURCE_DIR="/path/to/photos" npx tsx scripts/upload-reel-photos.ts
- *   REEL_SOURCE_DIR="/path/to/photos" npx tsx scripts/upload-reel-photos.ts --force
+ *   REEL_SOURCE_DIR="/path" npx tsx scripts/upload-reel-photos.ts                  # bridge (default)
+ *   REEL_SOURCE_DIR="/path" REEL_TARGET=woods npx tsx scripts/upload-reel-photos.ts
+ *   ... --force                                                                     # re-upload existing
  */
 
 import fs from "node:fs/promises";
@@ -20,9 +24,6 @@ import sharp from "sharp";
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.join(path.dirname(__filename), "..");
 
-// ---------------------------------------------------------------------------
-// Minimal .env.local reader (no dotenv dependency needed)
-// ---------------------------------------------------------------------------
 async function loadEnvLocal(): Promise<void> {
   try {
     const content = await fs.readFile(path.join(ROOT, ".env.local"), "utf-8");
@@ -48,22 +49,12 @@ async function loadEnvLocal(): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 const BUCKET = "campaign-assets";
-const STORAGE_PREFIX = "remotion-source/j2-melodic-bridge-2025";
-const MANIFEST_PATH = path.join(ROOT, "scratch/j2-bridge-manifest.json");
-const RENDER_INPUT_PATH = path.join(ROOT, "scratch/j2-bridge-render-input.json");
-
 const RESIZE_WIDTH = 1080;
 const RESIZE_HEIGHT = 1620;
 const JPEG_QUALITY = 82;
 const FRAMES_PER_PHOTO = 7;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 interface ManifestPhoto {
   index: number;
   source_filename: string;
@@ -71,6 +62,7 @@ interface ManifestPhoto {
 }
 
 interface Manifest {
+  supabase_storage?: { prefix?: string };
   photos: ManifestPhoto[];
 }
 
@@ -79,22 +71,29 @@ interface RenderInput {
   inputProps: {
     photos: string[];
     framesPerPhoto: number;
+    zoom?: boolean;
   };
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
+function sanitizeSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+}
+
 async function main(): Promise<void> {
   await loadEnvLocal();
 
   const force = process.argv.includes("--force");
+  const reelTarget = sanitizeSlug(process.env.REEL_TARGET || "bridge");
+  if (!reelTarget) {
+    throw new Error("REEL_TARGET resolved to empty after sanitisation. Set to e.g. bridge or woods.");
+  }
+
   const sourceDir = process.env.REEL_SOURCE_DIR;
   if (!sourceDir) {
     throw new Error(
-      "REEL_SOURCE_DIR env var is required. " +
-        'Set it to the folder containing the Bridge JPEGs, e.g.:\n' +
-        '  REEL_SOURCE_DIR="~/Documents/OFF Pixel/Junction 2/Melodic/Photos/Bridge" npx tsx scripts/upload-reel-photos.ts',
+      "REEL_SOURCE_DIR env var is required. Example:\n" +
+        '  REEL_SOURCE_DIR="~/Documents/OFF Pixel/Junction 2/Melodic/Photos/Bridge" ' +
+        "REEL_TARGET=bridge npx tsx scripts/upload-reel-photos.ts",
     );
   }
 
@@ -106,20 +105,35 @@ async function main(): Promise<void> {
     );
   }
 
+  const manifestPath = path.join(ROOT, `scratch/j2-${reelTarget}-manifest.json`);
+  const renderInputPath = path.join(ROOT, `scratch/j2-${reelTarget}-render-input.json`);
+
+  let manifestRaw: string;
+  try {
+    manifestRaw = await fs.readFile(manifestPath, "utf-8");
+  } catch {
+    throw new Error(
+      `Manifest not found at ${manifestPath}.\n` +
+        `Generate one (or add another reel) before running this script.`,
+    );
+  }
+  const manifest = JSON.parse(manifestRaw) as Manifest;
+  const photos = manifest.photos;
+
+  const rawPrefix = manifest.supabase_storage?.prefix || `remotion-source/j2-melodic-${reelTarget}-2025/`;
+  const STORAGE_PREFIX = rawPrefix.replace(/\/+$/, "");
+
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
   });
 
-  const manifestRaw = await fs.readFile(MANIFEST_PATH, "utf-8");
-  const manifest = JSON.parse(manifestRaw) as Manifest;
-  const photos = manifest.photos;
-
-  console.info(`[upload-reel-photos] ${photos.length} photos to process`);
+  console.info(`[upload-reel-photos] target=${reelTarget} photos=${photos.length}`);
   console.info(`[upload-reel-photos] source dir: ${sourceDir}`);
   console.info(`[upload-reel-photos] bucket: ${BUCKET}/${STORAGE_PREFIX}`);
+  console.info(`[upload-reel-photos] manifest: ${manifestPath}`);
+  console.info(`[upload-reel-photos] output: ${renderInputPath}`);
   if (force) console.info("[upload-reel-photos] --force: re-uploading existing files");
 
-  // List existing objects under the prefix (for idempotency check)
   const { data: existingList } = await supabase.storage
     .from(BUCKET)
     .list(STORAGE_PREFIX, { limit: 1000 });
@@ -128,7 +142,7 @@ async function main(): Promise<void> {
   const publicUrls: string[] = [];
 
   for (const photo of photos) {
-    const targetName = photo.target_filename; // e.g. bridge-01.jpeg
+    const targetName = photo.target_filename;
     const storagePath = `${STORAGE_PREFIX}/${targetName}`;
 
     if (!force && existingNames.has(targetName)) {
@@ -168,19 +182,33 @@ async function main(): Promise<void> {
     publicUrls.push(urlData.publicUrl);
   }
 
+  // Preserve existing zoom setting if render-input already exists, otherwise default false.
+  let existingZoom: boolean | undefined;
+  try {
+    const existingRaw = await fs.readFile(renderInputPath, "utf-8");
+    const existing = JSON.parse(existingRaw) as { inputProps?: { zoom?: boolean } };
+    existingZoom = existing.inputProps?.zoom;
+  } catch {
+    // No existing render-input — that's fine.
+  }
+
   const renderInput: RenderInput = {
     compositionId: "PhotoReelStatic",
     inputProps: {
       photos: publicUrls,
       framesPerPhoto: FRAMES_PER_PHOTO,
+      ...(existingZoom !== undefined ? { zoom: existingZoom } : {}),
     },
   };
 
-  await fs.writeFile(RENDER_INPUT_PATH, JSON.stringify(renderInput, null, 2) + "\n", "utf-8");
+  await fs.writeFile(renderInputPath, JSON.stringify(renderInput, null, 2) + "\n", "utf-8");
 
-  console.info(`[upload-reel-photos] wrote ${RENDER_INPUT_PATH}`);
+  console.info(`[upload-reel-photos] wrote ${renderInputPath}`);
   console.info(`[upload-reel-photos] done — ${publicUrls.length} photos, framesPerPhoto=${FRAMES_PER_PHOTO}`);
-  console.info(`[upload-reel-photos] total frames: ${publicUrls.length * FRAMES_PER_PHOTO} (${(publicUrls.length * FRAMES_PER_PHOTO / 30).toFixed(2)}s @ 30fps)`);
+  console.info(
+    `[upload-reel-photos] total frames: ${publicUrls.length * FRAMES_PER_PHOTO} ` +
+      `(${((publicUrls.length * FRAMES_PER_PHOTO) / 30).toFixed(2)}s @ 30fps)`,
+  );
 }
 
 main().catch((err) => {
