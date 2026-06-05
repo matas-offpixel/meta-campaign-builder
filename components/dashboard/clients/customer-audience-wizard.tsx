@@ -55,7 +55,7 @@ import type { ExistingAudience } from "@/app/api/meta/customer-audience-upload/l
 export interface CustomerAudienceWizardProps {
   clientId: string;
   clientName: string;
-  /** Pulled from client.meta_ad_account_id server-side. Empty string = unconfigured. */
+  /** From client.meta_ad_account_id server-side. Empty string = unconfigured. */
   adAccountId: string;
 }
 
@@ -123,8 +123,8 @@ function PiiBanner() {
       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
       <p>
         <span className="font-semibold">Customer data is hashed in your browser before upload.</span>{" "}
-        Off/Pixel servers never see raw emails or phone numbers. Make sure you have consent
-        under UK GDPR before uploading.
+        Off/Pixel servers never see raw emails or phone numbers. Make sure you have
+        consent under UK GDPR before uploading.
       </p>
     </div>
   );
@@ -187,31 +187,28 @@ export function CustomerAudienceWizard({
 }: CustomerAudienceWizardProps) {
   const backHref = `/clients/${clientId}`;
 
-  // ── Shared state ────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>(0);
   const [instanceKey, setInstanceKey] = useState(0);
 
-  // ── Step 0: Mode ────────────────────────────────────────────────────────────
+  // Step 0 — mode
   const [mode, setMode] = useState<UploadMode>("create");
   const [audienceName, setAudienceName] = useState("");
   const [audienceDescription, setAudienceDescription] = useState("");
   const [retentionDays, setRetentionDays] = useState(180);
-
-  // Append-mode fields
   const [existingAudiences, setExistingAudiences] = useState<ExistingAudience[]>([]);
   const [existingLoading, setExistingLoading] = useState(false);
   const [existingError, setExistingError] = useState<string | null>(null);
   const [selectedAudienceId, setSelectedAudienceId] = useState("");
   const [selectedAudienceName, setSelectedAudienceName] = useState("");
 
-  // ── Step 1: Files ────────────────────────────────────────────────────────────
+  // Step 1 — files
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [fileErrors, setFileErrors] = useState<string[]>([]);
 
-  // ── Step 2: Column mapping ───────────────────────────────────────────────────
+  // Step 2 — columns
   const [columnMap, setColumnMap] = useState<Record<string, ColumnRole>>({});
 
-  // ── Step 3: Upload ───────────────────────────────────────────────────────────
+  // Step 3 — upload
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     phase: "hashing" | "uploading";
@@ -223,12 +220,14 @@ export function CustomerAudienceWizard({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const abortRef = useRef(false);
 
-  // ── Fetch existing audiences (append mode) ──────────────────────────────────
+  // Fetch existing audiences when append mode selected
   useEffect(() => {
     if (mode !== "append" || !adAccountId) return;
     setExistingLoading(true);
     setExistingError(null);
-    fetch(`/api/meta/customer-audience-upload/list?adAccountId=${encodeURIComponent(adAccountId)}`)
+    fetch(
+      `/api/meta/customer-audience-upload/list?adAccountId=${encodeURIComponent(adAccountId)}`,
+    )
       .then(async (res) => {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Failed to load audiences");
@@ -240,58 +239,55 @@ export function CustomerAudienceWizard({
       .finally(() => setExistingLoading(false));
   }, [mode, adAccountId]);
 
-  // Sync selectedAudienceName when id changes
   useEffect(() => {
     const found = existingAudiences.find((a) => a.id === selectedAudienceId);
     setSelectedAudienceName(found?.name ?? "");
   }, [selectedAudienceId, existingAudiences]);
 
-  // ── File handling ────────────────────────────────────────────────────────────
-  const handleFiles = useCallback(async (incoming: File[]) => {
-    const all = [...fileEntries.map((e) => e.file), ...incoming];
-    const errors = validateFiles(all);
-    if (errors.length) {
-      setFileErrors(errors);
-      return;
-    }
-    setFileErrors([]);
+  const handleFiles = useCallback(
+    async (incoming: File[]) => {
+      const all = [...fileEntries.map((e) => e.file), ...incoming];
+      const errors = validateFiles(all);
+      if (errors.length) { setFileErrors(errors); return; }
+      setFileErrors([]);
 
-    const newEntries: FileEntry[] = incoming.map((f) => ({ file: f, status: "pending" }));
-    setFileEntries((prev) => [...prev, ...newEntries]);
+      const newEntries: FileEntry[] = incoming.map((f) => ({ file: f, status: "pending" }));
+      setFileEntries((prev) => [...prev, ...newEntries]);
 
-    for (const entry of newEntries) {
-      setFileEntries((prev) =>
-        prev.map((e) => (e.file === entry.file ? { ...e, status: "parsing" } : e)),
-      );
-      try {
-        const parsed = await parseCsv(entry.file);
-        console.info(
-          `[CustomerAudienceWizard] Parsed "${entry.file.name}": ${parsed.rowCount} rows`,
-        );
+      for (const entry of newEntries) {
         setFileEntries((prev) =>
-          prev.map((e) =>
-            e.file === entry.file ? { ...e, status: "done", parsed } : e,
-          ),
+          prev.map((e) => (e.file === entry.file ? { ...e, status: "parsing" } : e)),
         );
-      } catch (err) {
-        const msg =
-          typeof err === "object" && err !== null && "message" in err
-            ? String((err as { message: string }).message)
-            : "Parse error";
-        setFileEntries((prev) =>
-          prev.map((e) =>
-            e.file === entry.file ? { ...e, status: "error", error: msg } : e,
-          ),
-        );
+        try {
+          const parsed = await parseCsv(entry.file);
+          console.info(
+            `[CustomerAudienceWizard] Parsed "${entry.file.name}": ${parsed.rowCount} rows`,
+          );
+          setFileEntries((prev) =>
+            prev.map((e) =>
+              e.file === entry.file ? { ...e, status: "done", parsed } : e,
+            ),
+          );
+        } catch (err) {
+          const msg =
+            typeof err === "object" && err !== null && "message" in err
+              ? String((err as { message: string }).message)
+              : "Parse error";
+          setFileEntries((prev) =>
+            prev.map((e) =>
+              e.file === entry.file ? { ...e, status: "error", error: msg } : e,
+            ),
+          );
+        }
       }
-    }
-  }, [fileEntries]);
+    },
+    [fileEntries],
+  );
 
   const removeFile = useCallback((file: File) => {
     setFileEntries((prev) => prev.filter((e) => e.file !== file));
   }, []);
 
-  // ── Column detection ─────────────────────────────────────────────────────────
   const parsedFiles = fileEntries.filter((e) => e.status === "done" && e.parsed);
   const allHeaders = Array.from(
     new Set(parsedFiles.flatMap((e) => e.parsed!.headers)),
@@ -302,29 +298,22 @@ export function CustomerAudienceWizard({
       setColumnMap((prev) => {
         const detected = autoDetectColumns(allHeaders);
         const merged: Record<string, ColumnRole> = {};
-        for (const h of allHeaders) {
-          merged[h] = prev[h] ?? detected[h];
-        }
+        for (const h of allHeaders) merged[h] = prev[h] ?? detected[h];
         return merged;
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // ── Validation ────────────────────────────────────────────────────────────────
   const step0Valid =
     mode === "create" ? audienceName.trim().length > 0 : selectedAudienceId.length > 0;
-
   const totalRawRows = parsedFiles.reduce((s, e) => s + (e.parsed?.rowCount ?? 0), 0);
   const step1Valid = parsedFiles.length > 0;
-
   const emailCol = Object.entries(columnMap).find(([, r]) => r === "email")?.[0];
   const phoneCol = Object.entries(columnMap).find(([, r]) => r === "phone")?.[0];
   const step2Valid = !!(emailCol || phoneCol);
-
   const targetAudienceName = mode === "create" ? audienceName.trim() : selectedAudienceName;
 
-  // ── Upload ────────────────────────────────────────────────────────────────────
   const handleUpload = async () => {
     if (uploading) return;
     abortRef.current = false;
@@ -340,13 +329,11 @@ export function CustomerAudienceWizard({
         })),
       );
 
-      const includeEmail = !!emailCol;
-      const includePhone = !!phoneCol;
       const { schema, data, emailCount, phoneCount, skippedCount } =
-        await hashAudienceBatch(rawRows, includeEmail, includePhone);
+        await hashAudienceBatch(rawRows, !!emailCol, !!phoneCol);
 
       console.info(
-        `[CustomerAudienceWizard] Hashing complete: emails=${emailCount} phones=${phoneCount} skipped=${skippedCount} total=${data.length}`,
+        `[CustomerAudienceWizard] Hashing done: emails=${emailCount} phones=${phoneCount} skipped=${skippedCount} total=${data.length}`,
       );
 
       if (data.length === 0) {
@@ -357,16 +344,10 @@ export function CustomerAudienceWizard({
       const chunks = chunkData(data);
       const sessionId = Math.floor(Math.random() * 2_147_483_647);
 
-      setUploadProgress({
-        phase: "uploading",
-        hashedCount: data.length,
-        chunksDone: 0,
-        chunksTotal: chunks.length,
-      });
+      setUploadProgress({ phase: "uploading", hashedCount: data.length, chunksDone: 0, chunksTotal: chunks.length });
 
       let resolvedAudienceId: string | undefined =
         mode === "append" ? selectedAudienceId : undefined;
-
       let totalReceived = 0;
       let totalInvalid = 0;
 
@@ -395,27 +376,15 @@ export function CustomerAudienceWizard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-
         const json = await res.json();
 
-        if (!res.ok) {
-          setUploadError(json.error ?? "Upload failed");
-          return;
-        }
+        if (!res.ok) { setUploadError(json.error ?? "Upload failed"); return; }
 
-        if (isFirst && !resolvedAudienceId) {
-          resolvedAudienceId = json.audienceId;
-        }
-
+        if (isFirst && !resolvedAudienceId) resolvedAudienceId = json.audienceId;
         totalReceived += json.numReceived ?? chunks[i].length;
         totalInvalid += json.numInvalid ?? 0;
 
-        setUploadProgress({
-          phase: "uploading",
-          hashedCount: data.length,
-          chunksDone: i + 1,
-          chunksTotal: chunks.length,
-        });
+        setUploadProgress({ phase: "uploading", hashedCount: data.length, chunksDone: i + 1, chunksTotal: chunks.length });
       }
 
       setUploadResult({
@@ -433,27 +402,16 @@ export function CustomerAudienceWizard({
     }
   };
 
-  // ── Clear all ─────────────────────────────────────────────────────────────────
   const handleClear = () => {
     abortRef.current = true;
     setInstanceKey((k) => k + 1);
-    setStep(0);
-    setMode("create");
-    setAudienceName("");
-    setAudienceDescription("");
-    setRetentionDays(180);
-    setSelectedAudienceId("");
-    setSelectedAudienceName("");
-    setFileEntries([]);
-    setFileErrors([]);
-    setColumnMap({});
-    setUploading(false);
-    setUploadProgress(null);
-    setUploadResult(null);
-    setUploadError(null);
+    setStep(0); setMode("create");
+    setAudienceName(""); setAudienceDescription(""); setRetentionDays(180);
+    setSelectedAudienceId(""); setSelectedAudienceName("");
+    setFileEntries([]); setFileErrors([]); setColumnMap({});
+    setUploading(false); setUploadProgress(null);
+    setUploadResult(null); setUploadError(null);
   };
-
-  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
     <div key={instanceKey} className="mx-auto max-w-2xl space-y-6 px-4 py-8">
@@ -478,11 +436,9 @@ export function CustomerAudienceWizard({
       </div>
 
       <PiiBanner />
-
-      {/* Step indicator */}
       {!uploadResult && <StepIndicator step={step} />}
 
-      {/* ── Results ──────────────────────────────────────────────────────────── */}
+      {/* Results */}
       {uploadResult && (
         <div className="space-y-4">
           <div className="rounded-lg border border-success/30 bg-success/5 p-5">
@@ -508,9 +464,7 @@ export function CustomerAudienceWizard({
               {uploadResult.numInvalid > 0 && (
                 <div className="flex gap-2">
                   <dt className="min-w-[140px] text-muted-foreground">Invalid entries</dt>
-                  <dd className="text-destructive">
-                    {uploadResult.numInvalid.toLocaleString()}
-                  </dd>
+                  <dd className="text-destructive">{uploadResult.numInvalid.toLocaleString()}</dd>
                 </div>
               )}
               <div className="flex gap-2">
@@ -533,40 +487,23 @@ export function CustomerAudienceWizard({
         </div>
       )}
 
-      {/* ── Step 0: Mode ─────────────────────────────────────────────────────── */}
+      {/* Step 0 — Mode */}
       {!uploadResult && step === 0 && (
         <div className="space-y-4">
           <div className="space-y-4 rounded-lg border border-border bg-card p-5">
             <h2 className="font-medium text-sm">Choose upload mode</h2>
-
             <div className="space-y-3">
               <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="radio"
-                  name="mode"
-                  value="create"
-                  checked={mode === "create"}
-                  onChange={() => setMode("create")}
-                  className="mt-0.5"
-                />
+                <input type="radio" name="mode" value="create" checked={mode === "create"} onChange={() => setMode("create")} className="mt-0.5" />
                 <div>
                   <p className="text-sm font-medium">Create new audience</p>
                   <p className="text-xs text-muted-foreground">
-                    A brand-new Custom Audience will be created on{" "}
-                    {clientName}&apos;s ad account.
+                    A brand-new Custom Audience will be created on {clientName}&apos;s ad account.
                   </p>
                 </div>
               </label>
-
               <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="radio"
-                  name="mode"
-                  value="append"
-                  checked={mode === "append"}
-                  onChange={() => setMode("append")}
-                  className="mt-0.5"
-                />
+                <input type="radio" name="mode" value="append" checked={mode === "append"} onChange={() => setMode("append")} className="mt-0.5" />
                 <div>
                   <p className="text-sm font-medium">Add to existing audience</p>
                   <p className="text-xs text-muted-foreground">
@@ -576,7 +513,6 @@ export function CustomerAudienceWizard({
               </label>
             </div>
 
-            {/* Create-mode fields */}
             {mode === "create" && (
               <div className="space-y-3 border-t border-border pt-3">
                 <div>
@@ -593,8 +529,7 @@ export function CustomerAudienceWizard({
                 </div>
                 <div>
                   <label className="text-xs font-medium text-foreground">
-                    Description{" "}
-                    <span className="text-muted-foreground">(optional)</span>
+                    Description <span className="text-muted-foreground">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -605,9 +540,7 @@ export function CustomerAudienceWizard({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-foreground">
-                    Retention period
-                  </label>
+                  <label className="text-xs font-medium text-foreground">Retention period</label>
                   <select
                     value={retentionDays}
                     onChange={(e) => setRetentionDays(Number(e.target.value))}
@@ -623,16 +556,12 @@ export function CustomerAudienceWizard({
               </div>
             )}
 
-            {/* Append-mode picker */}
             {mode === "append" && (
               <div className="space-y-3 border-t border-border pt-3">
                 {!adAccountId ? (
                   <p className="text-xs text-destructive">
                     {clientName} has no Meta ad account configured.{" "}
-                    <Link href={`/clients/${clientId}/edit`} className="underline">
-                      Add one in Edit
-                    </Link>{" "}
-                    first.
+                    <Link href={`/clients/${clientId}/edit`} className="underline">Add one in Edit</Link> first.
                   </p>
                 ) : existingLoading ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -641,9 +570,7 @@ export function CustomerAudienceWizard({
                 ) : existingError ? (
                   <p className="text-xs text-destructive">{existingError}</p>
                 ) : existingAudiences.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No custom audiences found on this ad account.
-                  </p>
+                  <p className="text-xs text-muted-foreground">No custom audiences found on this ad account.</p>
                 ) : (
                   <div>
                     <label className="text-xs font-medium text-foreground">
@@ -658,9 +585,7 @@ export function CustomerAudienceWizard({
                       {existingAudiences.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.name}
-                          {a.approximateSize != null
-                            ? ` (~${a.approximateSize.toLocaleString()})`
-                            : ""}
+                          {a.approximateSize != null ? ` (~${a.approximateSize.toLocaleString()})` : ""}
                         </option>
                       ))}
                     </select>
@@ -671,11 +596,7 @@ export function CustomerAudienceWizard({
           </div>
 
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={() => setStep(1)}
-              disabled={!step0Valid || !adAccountId}
-            >
+            <Button size="sm" onClick={() => setStep(1)} disabled={!step0Valid || !adAccountId}>
               Continue <ChevronRight className="ml-1 h-3.5 w-3.5" />
             </Button>
           </div>
@@ -683,16 +604,13 @@ export function CustomerAudienceWizard({
           {!adAccountId && (
             <p className="text-center text-xs text-destructive">
               {clientName} has no Meta ad account configured.{" "}
-              <Link href={`/clients/${clientId}/edit`} className="underline">
-                Add one in Edit
-              </Link>
-              .
+              <Link href={`/clients/${clientId}/edit`} className="underline">Add one in Edit</Link>.
             </p>
           )}
         </div>
       )}
 
-      {/* ── Step 1: Upload files ──────────────────────────────────────────────── */}
+      {/* Step 1 — Upload files */}
       {!uploadResult && step === 1 && (
         <div className="space-y-4">
           <div className="space-y-4 rounded-lg border border-border bg-card p-5">
@@ -708,9 +626,7 @@ export function CustomerAudienceWizard({
             {fileErrors.length > 0 && (
               <div className="space-y-1">
                 {fileErrors.map((e, i) => (
-                  <p key={i} className="text-xs text-destructive">
-                    {e}
-                  </p>
+                  <p key={i} className="text-xs text-destructive">{e}</p>
                 ))}
               </div>
             )}
@@ -718,40 +634,22 @@ export function CustomerAudienceWizard({
             {fileEntries.length > 0 && (
               <ul className="space-y-2">
                 {fileEntries.map((entry) => (
-                  <li
-                    key={entry.file.name}
-                    className="flex items-start gap-3 rounded-md border border-border px-3 py-2.5 text-xs"
-                  >
+                  <li key={entry.file.name} className="flex items-start gap-3 rounded-md border border-border px-3 py-2.5 text-xs">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{entry.file.name}</p>
-                      {entry.status === "parsing" && (
-                        <p className="text-muted-foreground">Parsing…</p>
-                      )}
+                      {entry.status === "parsing" && <p className="text-muted-foreground">Parsing…</p>}
                       {entry.status === "done" && entry.parsed && (
                         <p className="text-muted-foreground">
-                          {entry.parsed.rowCount.toLocaleString()} rows ·{" "}
-                          {entry.parsed.headers.join(", ")}
+                          {entry.parsed.rowCount.toLocaleString()} rows · {entry.parsed.headers.join(", ")}
                         </p>
                       )}
-                      {entry.status === "error" && (
-                        <p className="text-destructive">{entry.error}</p>
-                      )}
+                      {entry.status === "error" && <p className="text-destructive">{entry.error}</p>}
                     </div>
                     <div className="flex items-center gap-2">
-                      {entry.status === "parsing" && (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                      )}
-                      {entry.status === "done" && (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                      )}
-                      {entry.status === "error" && (
-                        <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                      )}
-                      <button
-                        onClick={() => removeFile(entry.file)}
-                        className="text-muted-foreground hover:text-foreground"
-                        aria-label="Remove file"
-                      >
+                      {entry.status === "parsing" && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      {entry.status === "done" && <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
+                      {entry.status === "error" && <AlertCircle className="h-3.5 w-3.5 text-destructive" />}
+                      <button onClick={() => removeFile(entry.file)} className="text-muted-foreground hover:text-foreground" aria-label="Remove file">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -762,12 +660,10 @@ export function CustomerAudienceWizard({
 
             {step1Valid && (
               <p className="text-xs text-muted-foreground">
-                Total: {totalRawRows.toLocaleString()} raw rows across {parsedFiles.length}{" "}
-                file{parsedFiles.length !== 1 ? "s" : ""}
+                Total: {totalRawRows.toLocaleString()} raw rows across {parsedFiles.length} file{parsedFiles.length !== 1 ? "s" : ""}
               </p>
             )}
           </div>
-
           <div className="flex justify-end">
             <Button size="sm" onClick={() => setStep(2)} disabled={!step1Valid}>
               Map columns <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -776,7 +672,7 @@ export function CustomerAudienceWizard({
         </div>
       )}
 
-      {/* ── Step 2: Column mapping ────────────────────────────────────────────── */}
+      {/* Step 2 — Column mapping */}
       {!uploadResult && step === 2 && (
         <div className="space-y-4">
           <div className="space-y-4 rounded-lg border border-border bg-card p-5">
@@ -786,13 +682,10 @@ export function CustomerAudienceWizard({
                 <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
               </Button>
             </div>
-
             <p className="text-xs text-muted-foreground">
-              Assign each detected column to <strong>email</strong>,{" "}
-              <strong>phone</strong>, or <strong>skip</strong>. Only one column can be
-              mapped to each match key.
+              Assign each detected column to <strong>email</strong>, <strong>phone</strong>, or <strong>skip</strong>.
+              Only one column can be mapped to each match key.
             </p>
-
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
@@ -831,14 +724,10 @@ export function CustomerAudienceWizard({
                 ))}
               </tbody>
             </table>
-
             {!step2Valid && (
-              <p className="text-xs text-destructive">
-                Map at least one column to email or phone to continue.
-              </p>
+              <p className="text-xs text-destructive">Map at least one column to email or phone to continue.</p>
             )}
           </div>
-
           <div className="flex justify-end">
             <Button size="sm" onClick={() => setStep(3)} disabled={!step2Valid}>
               Review <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -847,22 +736,16 @@ export function CustomerAudienceWizard({
         </div>
       )}
 
-      {/* ── Step 3: Review & upload ───────────────────────────────────────────── */}
+      {/* Step 3 — Review & upload */}
       {!uploadResult && step === 3 && (
         <div className="space-y-4">
           <div className="space-y-4 rounded-lg border border-border bg-card p-5">
             <div className="flex items-center justify-between">
               <h2 className="font-medium text-sm">Review &amp; upload</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setStep(2)}
-                disabled={uploading}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setStep(2)} disabled={uploading}>
                 <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
               </Button>
             </div>
-
             <dl className="space-y-2 text-sm">
               <div className="flex gap-2">
                 <dt className="min-w-[140px] text-muted-foreground">Client</dt>
@@ -878,9 +761,7 @@ export function CustomerAudienceWizard({
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[140px] text-muted-foreground">Source files</dt>
-                <dd>
-                  {parsedFiles.length} file{parsedFiles.length !== 1 ? "s" : ""}
-                </dd>
+                <dd>{parsedFiles.length} file{parsedFiles.length !== 1 ? "s" : ""}</dd>
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[140px] text-muted-foreground">Raw rows</dt>
@@ -888,9 +769,7 @@ export function CustomerAudienceWizard({
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[140px] text-muted-foreground">Match keys</dt>
-                <dd>
-                  {[emailCol && "Email", phoneCol && "Phone"].filter(Boolean).join(" + ")}
-                </dd>
+                <dd>{[emailCol && "Email", phoneCol && "Phone"].filter(Boolean).join(" + ")}</dd>
               </div>
               {mode === "create" && (
                 <div className="flex gap-2">
@@ -911,8 +790,7 @@ export function CustomerAudienceWizard({
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>
-                      Uploading chunk {uploadProgress.chunksDone + 1} of{" "}
-                      {uploadProgress.chunksTotal} —{" "}
+                      Uploading chunk {uploadProgress.chunksDone + 1} of {uploadProgress.chunksTotal} —{" "}
                       {uploadProgress.hashedCount.toLocaleString()} hashed rows total
                     </span>
                   </div>
@@ -930,20 +808,13 @@ export function CustomerAudienceWizard({
 
           <div className="flex justify-end gap-2">
             {uploading && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => { abortRef.current = true; }}
-              >
+              <Button variant="outline" size="sm" onClick={() => { abortRef.current = true; }}>
                 Cancel
               </Button>
             )}
             <Button onClick={handleUpload} disabled={uploading} size="sm">
               {uploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading…
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…</>
               ) : (
                 "Upload to Meta"
               )}

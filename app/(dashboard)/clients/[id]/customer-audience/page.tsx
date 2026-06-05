@@ -4,8 +4,8 @@
  * Server-wrapper page for the Customer Audience Upload wizard.
  *
  * Loads the client's name and Meta ad account ID server-side (RLS-scoped),
- * then passes them as props to the browser-side wizard. The wizard handles all
- * CSV parsing, PII hashing (Web Crypto API), and chunked upload — raw PII
+ * then hands them to the browser-side wizard. The wizard handles all CSV
+ * parsing, PII hashing (Web Crypto API), and chunked upload — raw PII
  * never leaves the browser.
  */
 

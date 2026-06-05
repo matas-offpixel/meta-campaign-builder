@@ -84,6 +84,12 @@ export function AudienceListActions({
       >
         New audience
       </Link>
+      <Link
+        href={`/clients/${clientId}/customer-audience`}
+        className="inline-flex h-9 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium hover:bg-card"
+      >
+        Upload customer list
+      </Link>
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-3xl rounded-lg border border-border bg-card p-5 shadow-xl">

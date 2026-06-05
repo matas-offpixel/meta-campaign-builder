@@ -315,6 +315,14 @@ export function ClientDetail({
               <Rocket className="h-3.5 w-3.5" />
               Rollout
             </Button>
+            {client.meta_ad_account_id && (
+              <Button
+                variant="outline"
+                onClick={() => router.push(`/clients/${client.id}/customer-audience`)}
+              >
+                Upload customer audience
+              </Button>
+            )}
             {hasTaggedEvents && (
               <Button
                 variant="outline"
@@ -698,6 +706,7 @@ export function ClientDetail({
               defaults={defaults}
             />
           </TabPanel>
+
         </div>
       </main>
       <NewEventKindModal
