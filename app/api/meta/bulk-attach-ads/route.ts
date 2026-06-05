@@ -265,17 +265,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       // One creative per campaign — reused across all selected ad sets.
+      // Log payload shape (counts only — no raw IDs/hashes which are effectively secrets).
+      const isMultiPlacement = !!metaPayload.asset_feed_spec?.asset_customization_rules?.length;
+      console.error(
+        `[bulk-attach-ads]   creative "${creative.name}" payload shape:`,
+        JSON.stringify({
+          path: isMultiPlacement ? "multi_placement" : "single_asset",
+          hasObjectStorySpec: !!metaPayload.object_story_spec,
+          hasVideoData: !!metaPayload.object_story_spec?.video_data,
+          hasLinkData: !!metaPayload.object_story_spec?.link_data,
+          hasAssetFeedSpec: !!metaPayload.asset_feed_spec,
+          assetFeedVideoCount: metaPayload.asset_feed_spec?.videos?.length ?? 0,
+          assetFeedImageCount: metaPayload.asset_feed_spec?.images?.length ?? 0,
+          rulesCount: metaPayload.asset_feed_spec?.asset_customization_rules?.length ?? 0,
+          adFormats: metaPayload.asset_feed_spec?.ad_formats,
+          optimizationType: metaPayload.asset_feed_spec?.optimization_type,
+        }),
+      );
+
       let metaCreativeId: string;
       try {
         const { id } = await createMetaCreative(adAccountId, metaPayload, token);
         metaCreativeId = id;
         console.error(
-          `[bulk-attach-ads]   creative "${creative.name}" → metaCreativeId=${metaCreativeId}`,
+          `[bulk-attach-ads]   creative "${creative.name}" → metaCreativeId=${metaCreativeId} path=${isMultiPlacement ? "multi_placement" : "single_asset"}`,
         );
         result.creativesCreated.push({ name: creative.name, metaCreativeId });
       } catch (err) {
         const metaErr = err instanceof MetaApiError ? err : null;
         const kind = classifyLaunchMetaCode(metaErr?.code);
+        // Surface enough detail to diagnose asset_feed_spec rejections (code=100).
+        console.error(
+          `[bulk-attach-ads]   creative "${creative.name}" FAILED:`,
+          JSON.stringify({
+            path: isMultiPlacement ? "multi_placement" : "single_asset",
+            code: metaErr?.code,
+            subcode: metaErr?.subcode,
+            userMsg: metaErr?.userMsg,
+            message: metaErr?.message ?? String(err),
+          }),
+        );
         if (kind === "rate_limit") {
           rateLimited = true;
           const mapping = mapLaunchTokenError(metaErr?.code);

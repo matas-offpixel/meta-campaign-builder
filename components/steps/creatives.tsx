@@ -1939,6 +1939,15 @@ function AssetVariationCard({
             onChange={(e) => onUpdate({ name: e.target.value })}
             placeholder={`Variation ${index + 1}`}
           />
+          {slots.length > 1 && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Each aspect ratio renders in its matching placement: the{" "}
+              <span className="font-medium text-foreground">4:5</span> asset shows in
+              Feed placements (Facebook Feed, Instagram Feed), and the{" "}
+              <span className="font-medium text-foreground">9:16</span> asset shows in
+              Stories and Reels.
+            </p>
+          )}
           <div className={`grid gap-4 ${
             slots.length === 1
               ? "max-w-[150px] grid-cols-1"

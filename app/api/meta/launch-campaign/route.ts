@@ -2349,6 +2349,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
+      const isMultiPlacement = !!creativePayload.asset_feed_spec?.asset_customization_rules?.length;
+      console.log(
+        `[launch-campaign] Phase 3 — POSTing creative "${creative.name}" to Meta:`,
+        JSON.stringify({
+          path: isMultiPlacement ? "multi_placement" : "single_asset",
+          hasAssetFeedSpec: !!creativePayload.asset_feed_spec,
+          assetFeedVideoCount: creativePayload.asset_feed_spec?.videos?.length ?? 0,
+          assetFeedImageCount: creativePayload.asset_feed_spec?.images?.length ?? 0,
+          rulesCount: creativePayload.asset_feed_spec?.asset_customization_rules?.length ?? 0,
+          adFormats: creativePayload.asset_feed_spec?.ad_formats,
+          optimizationType: creativePayload.asset_feed_spec?.optimization_type,
+          hasVideoData: !!creativePayload.object_story_spec?.video_data,
+          hasLinkData: !!creativePayload.object_story_spec?.link_data,
+          strictMode,
+        }),
+      );
+
       let metaCreativeId: string;
       try {
         const creativeRes = await createMetaCreative(adAccountId, creativePayload, launchToken);
@@ -2356,7 +2373,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const dur = elapsed(cStart);
         console.log(
           `[launch-campaign] Phase 3 ✓  creative: ${creative.name} → ${metaCreativeId}` +
-            ` (${dur}ms) strictMode=${strictMode}`,
+            ` (${dur}ms) path=${isMultiPlacement ? "multi_placement" : "single_asset"} strictMode=${strictMode}`,
         );
 
         const cIdx = updatedCreatives.findIndex((c) => c.id === creative.id);
@@ -2399,7 +2416,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             `Original error: ${rawMessage}`
           : rawMessage;
 
-        console.error("[launch-campaign] Phase 3 ✗  creative failed:", creative.name, ":", message);
+        console.error(
+          `[launch-campaign] Phase 3 ✗  creative failed: "${creative.name}"`,
+          JSON.stringify({
+            path: isMultiPlacement ? "multi_placement" : "single_asset",
+            code: isMetaErr ? (err as MetaApiError).code : undefined,
+            subcode: isMetaErr ? (err as MetaApiError).subcode : undefined,
+            userMsg,
+            message: rawMessage,
+          }),
+        );
         creativesFailed.push({
           name: creative.name,
           error: message,
