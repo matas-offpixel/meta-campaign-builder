@@ -19,6 +19,8 @@
  *   buildCreativePayload(creative, { validatedIgActorId: validated ?? undefined });
  */
 
+import { withActPrefix } from "./ad-account-id.ts";
+
 const META_API_VERSION = "v23.0";
 
 export interface IgActorValidator {
@@ -55,9 +57,21 @@ export function createIgActorValidator(
   async function fetchAuthorisedIds(): Promise<string[]> {
     if (authorisedIds !== null) return authorisedIds;
 
+    // withActPrefix is idempotent — adAccountId is already `act_`-prefixed in the
+    // launch routes (same value passed to createMetaCreative/createMetaAd). Using
+    // the raw `act_${adAccountId}` here produced `act_act_{id}` → Graph HTTP 400 →
+    // validator returned null → instagram_actor_id dropped → 1772103
+    // (see docs/AUDIT_IG_VALIDATOR_POST_MERGE_2026-06-05.md).
     const url =
-      `https://graph.facebook.com/${META_API_VERSION}/act_${adAccountId}/instagram_accounts` +
+      `https://graph.facebook.com/${META_API_VERSION}/${withActPrefix(adAccountId)}/instagram_accounts` +
       `?fields=id&limit=100&access_token=${accessToken}`;
+
+    // TODO(2026-06-12): drop this URL log once the Aberdeen relaunch confirms the
+    // prefix fix in prod. Token is stripped from the logged URL.
+    console.error(
+      `[ig-actor-validator] resolving instagram_accounts via ` +
+        url.replace(/access_token=[^&]+/, "access_token=REDACTED"),
+    );
 
     try {
       const res = await fetch(url);
