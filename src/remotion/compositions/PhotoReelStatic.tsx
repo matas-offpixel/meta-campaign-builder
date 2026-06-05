@@ -23,11 +23,10 @@ interface PhotoSlideProps {
  * Single photo slot inside a Sequence.
  * useCurrentFrame() here returns the frame local to this Sequence (0-indexed).
  *
- * Layout: single <Img> centred on the parent AbsoluteFill's black background.
- * The previous dual-layer design (blurred-cover bg + contained foreground)
- * OOM'd the 3 GB Vercel Lambda even at blur(20px) + concurrency=1, because
- * each active slide held two decoded 1080x1620 bitmaps + a GPU blur buffer.
- * Removing the background layer halves per-slide memory.
+ * Layout: single <Img> filling the parent AbsoluteFill (1080×1920) with
+ * objectFit: cover — photo is scaled up to cover the frame and cropped on
+ * the long axis. For 2:3 portrait sources this trims ~10% off top + bottom.
+ * Background blur layer was removed earlier to fit the 3 GB Vercel Lambda.
  */
 function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
   const frame = useCurrentFrame();
@@ -39,20 +38,15 @@ function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
     : 1;
 
   return (
-    <AbsoluteFill
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
+    <AbsoluteFill>
       <Img
         src={url}
         pauseWhenLoading
         style={{
-          width: 1080,
-          height: 1620,
-          objectFit: "contain",
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          objectPosition: "center center",
           transform: `scale(${scale})`,
           transformOrigin: "center center",
         }}
@@ -65,8 +59,8 @@ function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
  * PhotoReelStatic — generic 1080×1920 photo reel at 30 fps.
  *
  * Hard cuts between photos. No cross-dissolves.
- * Photos sit centered on solid black (1080×1920) with minimal letterbox bars
- * top/bottom for portrait sources (2:3 → 9:16 leaves ~150px black each side).
+ * Photos fill the entire 1080×1920 frame via objectFit: cover (crops the
+ * long axis ~10% for 2:3 portrait sources). No background layer.
  * Ken Burns zoom (1.00→1.04) is opt-in via `zoom: true`; default is static.
  *
  * durationInFrames = photos.length * framesPerPhoto (calculated via
