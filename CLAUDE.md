@@ -106,6 +106,7 @@ GOOGLE_ADS_TOKEN_KEY=
 EVENTBRITE_TOKEN_KEY=
 ANTHROPIC_API_KEY=
 ENABLE_AI_AUTOTAG=
+DROPBOX_ACCESS_TOKEN=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ```
@@ -116,6 +117,11 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 > vars are retained here in case they are needed for a future feature; leave them unset on Vercel
 > unless you have a specific use case.
 
+> **`DROPBOX_ACCESS_TOKEN`** is required for the asset queue's folder listing to
+> work in production. Generate a long-lived token from the "Off Pixel DB" Dropbox
+> app (scopes: `sharing.read` + `files.metadata.read`). Without it the prepare
+> route falls back to HTML scraping, which is unreliable for some folders.
+>
 > **`ENABLE_AI_AUTOTAG`** must be set to `"1"` in Vercel prod env vars for the
 > AI creative auto-tagger to run inside the `refresh-active-creatives` cron.
 > Without it the tagger silently skips (no error, no tags written). Requires
