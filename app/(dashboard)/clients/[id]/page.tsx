@@ -39,6 +39,7 @@ const ALLOWED_TABS = new Set([
   "campaigns",
   "creatives",
   "invoicing",
+  "asset-queue",
 ]);
 
 type ClientTab =
@@ -48,7 +49,8 @@ type ClientTab =
   | "d2c"
   | "campaigns"
   | "creatives"
-  | "invoicing";
+  | "invoicing"
+  | "asset-queue";
 
 export default async function ClientDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
