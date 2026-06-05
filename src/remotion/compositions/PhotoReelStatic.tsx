@@ -22,6 +22,12 @@ interface PhotoSlideProps {
 /**
  * Single photo slot inside a Sequence.
  * useCurrentFrame() here returns the frame local to this Sequence (0-indexed).
+ *
+ * Layout: single <Img> centred on the parent AbsoluteFill's black background.
+ * The previous dual-layer design (blurred-cover bg + contained foreground)
+ * OOM'd the 3 GB Vercel Lambda even at blur(20px) + concurrency=1, because
+ * each active slide held two decoded 1080x1620 bitmaps + a GPU blur buffer.
+ * Removing the background layer halves per-slide memory.
  */
 function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
   const frame = useCurrentFrame();
@@ -33,48 +39,24 @@ function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
     : 1;
 
   return (
-    <AbsoluteFill>
-      {/* Background: full-cover, blurred, dark overlay */}
-      <AbsoluteFill style={{ overflow: "hidden" }}>
-        <Img
-          src={url}
-          pauseWhenLoading
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            // Dropped from blur(50px) to blur(20px) — Chromium GPU memory for
-            // gaussian blur is roughly O(radius²). 50px OOMs the 3 GB Lambda
-            // even at concurrency=1; 20px is visually equivalent for a heavily
-            // darkened bg layer and uses ~6× less memory per frame.
-            filter: "blur(20px)",
-          }}
-        />
-        <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.35)" }} />
-      </AbsoluteFill>
-
-      {/* Foreground: contain 1080×1620, centered. Ken Burns zoom applied when zoom=true. */}
-      <AbsoluteFill
+    <AbsoluteFill
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Img
+        src={url}
+        pauseWhenLoading
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          width: 1080,
+          height: 1620,
+          objectFit: "contain",
+          transform: `scale(${scale})`,
+          transformOrigin: "center center",
         }}
-      >
-        <Img
-          src={url}
-          pauseWhenLoading
-          style={{
-            width: 1080,
-            height: 1620,
-            objectFit: "contain",
-            transform: `scale(${scale})`,
-            transformOrigin: "center center",
-          }}
-        />
-      </AbsoluteFill>
+      />
     </AbsoluteFill>
   );
 }
@@ -83,7 +65,8 @@ function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
  * PhotoReelStatic — generic 1080×1920 photo reel at 30 fps.
  *
  * Hard cuts between photos. No cross-dissolves.
- * Background is a blurred, darkened version of the same photo.
+ * Photos sit centered on solid black (1080×1920) with minimal letterbox bars
+ * top/bottom for portrait sources (2:3 → 9:16 leaves ~150px black each side).
  * Ken Burns zoom (1.00→1.04) is opt-in via `zoom: true`; default is static.
  *
  * durationInFrames = photos.length * framesPerPhoto (calculated via
