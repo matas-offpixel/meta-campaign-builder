@@ -65,11 +65,19 @@ export interface DropboxFileEntry {
 }
 
 /**
- * Lists all files inside a public Dropbox shared folder.
+ * Lists all files inside a Dropbox shared folder.
  *
  * Strategy:
- *   1. Try the unauthenticated Dropbox API endpoint.
- *   2. On failure (auth required), fall back to HTML-scraping __INITIAL_PROPS__.
+ *   1. Try the official Dropbox API with Bearer token (DROPBOX_ACCESS_TOKEN).
+ *      Required for production — Dropbox rejects unauthenticated API calls.
+ *   2. If the token is absent (local dev) or the API returns a non-fatal error,
+ *      fall back to HTML-scraping __INITIAL_PROPS__.
+ *
+ * Note: single-page only. Dropbox paginates via cursor when a folder has many
+ * files. For Joe's folders (< 50 files) this is not an issue, but adding cursor
+ * support is a known follow-up if needed.
+ *
+ * Env: DROPBOX_ACCESS_TOKEN — long-lived token from the Off Pixel DB Dropbox app.
  */
 export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxFileEntry[]> {
   const apiResult = await tryDropboxApiList(shareUrl);
@@ -78,28 +86,74 @@ export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxF
 }
 
 async function tryDropboxApiList(shareUrl: string): Promise<DropboxFileEntry[] | null> {
-  try {
-    const res = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_link_files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: shareUrl }),
-    });
-    if (!res.ok) return null; // Auth required or API unavailable — fall back
+  const token = process.env.DROPBOX_ACCESS_TOKEN;
 
-    const data = (await res.json()) as { entries?: unknown[] };
-    const raw = data.entries ?? [];
-
-    return raw
-      .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
-      .filter((e) => e[".tag"] === "file" || (typeof e.name === "string" && !e.is_dir))
-      .map((e) => ({
-        name: String(e.name ?? ""),
-        url: String(e.url ?? e.path_lower ?? ""),
-        size: Number(e.size ?? 0),
-      }));
-  } catch {
+  if (!token) {
+    // No token in env — skip the API call and fall through to HTML scrape.
+    // This keeps local dev working without credentials.
+    console.error("[dropbox] DROPBOX_ACCESS_TOKEN not set — falling back to HTML scrape for folder listing");
     return null;
   }
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.dropboxapi.com/2/sharing/list_shared_link_files", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ url: shareUrl }),
+    });
+  } catch {
+    // Network failure — fall through to HTML scrape
+    return null;
+  }
+
+  if (res.status === 401) {
+    throw new DropboxFetchError(
+      "forbidden",
+      "Dropbox access token rejected — regenerate the token in the Off Pixel DB app console and update the DROPBOX_ACCESS_TOKEN env var",
+    );
+  }
+
+  if (res.status === 404) {
+    throw new DropboxFetchError(
+      "not_found",
+      "Folder not found or no longer shared — check the share URL is still active",
+    );
+  }
+
+  if (res.status === 429) {
+    throw new DropboxFetchError(
+      "forbidden",
+      "Dropbox rate limit hit — retry in a few minutes",
+    );
+  }
+
+  if (!res.ok) {
+    // Non-fatal — log status for debugging but fall through to HTML scrape
+    let snippet = "";
+    try { snippet = (await res.text()).slice(0, 200); } catch { /* ignore */ }
+    console.error("[dropbox] API returned unexpected status", { status: res.status, body: snippet });
+    return null;
+  }
+
+  const data = (await res.json()) as { entries?: unknown[]; has_more?: boolean; cursor?: string };
+
+  // Note: if data.has_more is true there are more pages behind data.cursor.
+  // For now we return only the first page (sufficient for Joe's small folders).
+  const raw = data.entries ?? [];
+
+  return raw
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+    .filter((e) => e[".tag"] === "file")          // skip .tag === "folder" sub-folders
+    .map((e) => ({
+      name: String(e.name ?? ""),
+      // "url" from the API is a share link → toDirectDownloadUrl adds ?dl=1
+      url: String(e.url ?? ""),
+      size: Number(e.size ?? 0),
+    }));
 }
 
 async function scrapeDropboxFolderPage(shareUrl: string): Promise<DropboxFileEntry[]> {
