@@ -9,23 +9,28 @@ import {
 export interface PhotoReelStaticProps {
   photos: string[];
   framesPerPhoto: number;
+  /** Enable Ken-Burns slow zoom-in on each photo. Default false (static photos). */
+  zoom?: boolean;
 }
 
 interface PhotoSlideProps {
   url: string;
   framesPerPhoto: number;
+  zoom: boolean;
 }
 
 /**
  * Single photo slot inside a Sequence.
  * useCurrentFrame() here returns the frame local to this Sequence (0-indexed).
  */
-function PhotoSlide({ url, framesPerPhoto }: PhotoSlideProps) {
+function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
   const frame = useCurrentFrame();
-  const scale = interpolate(frame, [0, Math.max(1, framesPerPhoto - 1)], [1.0, 1.04], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  const scale = zoom
+    ? interpolate(frame, [0, Math.max(1, framesPerPhoto - 1)], [1.0, 1.04], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      })
+    : 1;
 
   return (
     <AbsoluteFill>
@@ -46,7 +51,7 @@ function PhotoSlide({ url, framesPerPhoto }: PhotoSlideProps) {
         <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.35)" }} />
       </AbsoluteFill>
 
-      {/* Foreground: contain 1080×1620, centered, Ken Burns zoom */}
+      {/* Foreground: contain 1080×1620, centered. Ken Burns zoom applied when zoom=true. */}
       <AbsoluteFill
         style={{
           display: "flex",
@@ -74,13 +79,13 @@ function PhotoSlide({ url, framesPerPhoto }: PhotoSlideProps) {
  * PhotoReelStatic — generic 1080×1920 photo reel at 30 fps.
  *
  * Hard cuts between photos. No cross-dissolves.
- * Each photo gets a subtle 1.00→1.04 Ken Burns zoom over its window.
  * Background is a blurred, darkened version of the same photo.
+ * Ken Burns zoom (1.00→1.04) is opt-in via `zoom: true`; default is static.
  *
  * durationInFrames = photos.length * framesPerPhoto (calculated via
  * calculateMetadata in src/remotion/index.tsx).
  */
-export function PhotoReelStatic({ photos, framesPerPhoto }: PhotoReelStaticProps) {
+export function PhotoReelStatic({ photos, framesPerPhoto, zoom = false }: PhotoReelStaticProps) {
   if (photos.length === 0) {
     return <AbsoluteFill style={{ backgroundColor: "#000" }} />;
   }
@@ -93,7 +98,7 @@ export function PhotoReelStatic({ photos, framesPerPhoto }: PhotoReelStaticProps
           from={i * framesPerPhoto}
           durationInFrames={framesPerPhoto}
         >
-          <PhotoSlide url={url} framesPerPhoto={framesPerPhoto} />
+          <PhotoSlide url={url} framesPerPhoto={framesPerPhoto} zoom={zoom} />
         </Sequence>
       ))}
     </AbsoluteFill>

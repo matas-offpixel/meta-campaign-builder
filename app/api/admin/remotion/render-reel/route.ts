@@ -37,6 +37,8 @@ interface RenderInput {
   inputProps: {
     photos: string[];
     framesPerPhoto: number;
+    /** Enable Ken-Burns slow zoom-in on each photo. Default false (static photos). */
+    zoom?: boolean;
   };
 }
 
@@ -142,6 +144,7 @@ export async function POST(): Promise<NextResponse> {
     const inputProps = {
       photos: renderInput.inputProps.photos,
       framesPerPhoto: renderInput.inputProps.framesPerPhoto,
+      zoom: renderInput.inputProps.zoom ?? false,
     };
 
     console.error(
