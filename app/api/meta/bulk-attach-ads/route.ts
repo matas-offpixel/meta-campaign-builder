@@ -44,6 +44,7 @@ import {
   buildAdPayload,
   validateCreativePayload,
 } from "@/lib/meta/creative";
+import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import {
   classifyLaunchMetaCode,
   mapLaunchTokenError,
@@ -224,6 +225,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `totalAdSets=${totalAdSets} creatives=${newCreatives.length} totalAds=${totalAds}`,
   );
 
+  // One validator per launch — fetches /instagram_accounts at most once.
+  const igValidator = createIgActorValidator(adAccountId, token);
+
   // ── Per-campaign serial execution ────────────────────────────────────────
   const results: CampaignAttachResult[] = [];
   let totalAdsCreated = 0;
@@ -253,9 +257,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // ── For each creative: create ONE Meta creative, then one ad per ad set ─
     for (const creative of newCreatives) {
+      // Validate IG actor once per creative (validator caches the list).
+      const rawIgActorId = creative.identity.instagramActorId ?? "";
+      const validatedIgActorId =
+        rawIgActorId ? await igValidator.validate(rawIgActorId) : null;
+
+      if (!validatedIgActorId && rawIgActorId) {
+        console.error(
+          `[buildCreativePayload] IG actor validation failed: page=${creative.identity.pageId} ` +
+            `ig=${rawIgActorId} adAccount=${adAccountId} — falling back to page-only`,
+        );
+      }
+
       let metaPayload;
       try {
-        metaPayload = buildCreativePayload(creative);
+        metaPayload = buildCreativePayload(creative, {
+          validatedIgActorId: validatedIgActorId ?? undefined,
+        });
       } catch (err) {
         result.creativesFailed.push({
           name: creative.name,

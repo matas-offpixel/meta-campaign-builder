@@ -320,7 +320,10 @@ function pickPrimaryCaption(creative: AdCreativeDraft): string {
 
 // ─── Creative payload builders ────────────────────────────────────────────────
 
-function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
+function buildLinkCreative(
+  creative: AdCreativeDraft,
+  validatedIgActorId?: string,
+): MetaCreativePayload {
   const caption = pickPrimaryCaption(creative);
   const cta = mapCTAToMeta(creative.cta);
 
@@ -344,20 +347,23 @@ function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
     if (imageUrl) linkData.image_url = imageUrl;
   }
 
-  // page_id + link_data only — no instagram_actor_id.
-  // Sending instagram_actor_id for link/image creatives triggers (#100)
-  // when the id is not in the ad account's authorised actor list.
-  // The Page identity alone is sufficient for standard link/image ads.
+  // page_id + link_data. instagram_actor_id is added only when the caller has
+  // pre-validated it via createIgActorValidator — avoids Meta code=100
+  // "unauthorised actor" (#100) for unverified ids while restoring IG identity
+  // for authorised ones (fixes subcode=1772103 for Instagram placements).
   const spec: MetaObjectStorySpec = {
     page_id: creative.identity.pageId,
     link_data: linkData,
   };
+  if (validatedIgActorId) {
+    spec.instagram_actor_id = validatedIgActorId;
+  }
 
   console.log(
     `[buildLinkCreative] "${creative.name}": new_ad` +
       `\n  page_id = ${spec.page_id}` +
-      `\n  instagram_actor_id = OMITTED (page-only identity)` +
-      `\n  payload keys: [name, object_story_spec{page_id, link_data}]`,
+      `\n  instagram_actor_id = ${validatedIgActorId ? "SET (validated)" : "OMITTED (page-only identity)"}` +
+      `\n  payload keys: [name, object_story_spec{page_id, link_data${validatedIgActorId ? ", instagram_actor_id" : ""}}]`,
   );
 
   return {
@@ -366,7 +372,10 @@ function buildLinkCreative(creative: AdCreativeDraft): MetaCreativePayload {
   };
 }
 
-function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
+function buildVideoCreative(
+  creative: AdCreativeDraft,
+  validatedIgActorId?: string,
+): MetaCreativePayload {
   const videoAsset = pickPrimaryVideoAsset(creative);
   if (!videoAsset) {
     throw new Error(
@@ -402,16 +411,19 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
     videoData.image_url = thumbnailUrl;
   }
 
-  // page_id + video_data only — no instagram_actor_id for same reasons as
-  // buildLinkCreative. Page identity is sufficient for video ads.
+  // page_id + video_data. instagram_actor_id added when caller has pre-validated
+  // via createIgActorValidator — same logic as buildLinkCreative.
   const spec: MetaObjectStorySpec = {
     page_id: creative.identity.pageId,
     video_data: videoData,
   };
+  if (validatedIgActorId) {
+    spec.instagram_actor_id = validatedIgActorId;
+  }
 
   const hasThumbnail = Boolean(videoData.image_url);
   console.error(
-    `[buildVideoCreative] "${creative.name}": videoId=${videoId} thumbnail=${thumbnailUrl ?? "(none — Meta will auto-generate)"}`,
+    `[buildVideoCreative] "${creative.name}": videoId=${videoId} thumbnail=${thumbnailUrl ?? "(none — Meta will auto-generate)"} instagram_actor_id=${validatedIgActorId ? "SET (validated)" : "OMITTED"}`,
   );
   if (!hasThumbnail) {
     console.error(
@@ -521,6 +533,7 @@ const STORY_LABEL = "story_asset";
 function buildMultiPlacementCreative(
   creative: AdCreativeDraft,
   plan: MultiPlacementPlan,
+  validatedIgActorId?: string,
 ): MetaCreativePayload {
   const caption = pickPrimaryCaption(creative);
   const cta = mapCTAToMeta(creative.cta);
@@ -595,8 +608,11 @@ function buildMultiPlacementCreative(
 
   return {
     name: creative.name || "Ad Creative",
-    // page_id only — assets are in asset_feed_spec.
-    object_story_spec: { page_id: creative.identity.pageId },
+    // page_id (+ optional instagram_actor_id) — assets are in asset_feed_spec.
+    object_story_spec: {
+      page_id: creative.identity.pageId,
+      ...(validatedIgActorId ? { instagram_actor_id: validatedIgActorId } : {}),
+    },
     asset_feed_spec: spec,
   };
 }
@@ -696,10 +712,29 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
  *   1. Any asset in any variation has a videoId  → video creative path
  *   2. Otherwise                                 → image/link creative path
  */
-export function buildCreativePayload(creative: AdCreativeDraft): MetaCreativePayload {
+/**
+ * Options for buildCreativePayload.
+ *
+ * `validatedIgActorId`: pre-validated Instagram actor id returned by
+ * `createIgActorValidator`. When present and truthy the builders set
+ * `object_story_spec.instagram_actor_id`, enabling Instagram placement
+ * rendering. When absent/undefined the creative falls back to page-only
+ * identity (safe for Facebook-only placements, avoids Meta code=100
+ * "unauthorised actor" for unverified accounts).
+ */
+export interface BuildCreativePayloadOpts {
+  validatedIgActorId?: string;
+}
+
+export function buildCreativePayload(
+  creative: AdCreativeDraft,
+  opts?: BuildCreativePayloadOpts,
+): MetaCreativePayload {
   if (creative.sourceType === "existing_post") {
     return buildExistingPostCreative(creative);
   }
+
+  const { validatedIgActorId } = opts ?? {};
 
   // Determine effective type from what was actually uploaded, not the draft flag.
   const hasVideoId = (creative.assetVariations ?? []).some((v) =>
@@ -736,7 +771,7 @@ export function buildCreativePayload(creative: AdCreativeDraft): MetaCreativePay
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
     const plan = detectMultiPlacement(creative);
     if (plan) {
-      return buildMultiPlacementCreative(creative, plan);
+      return buildMultiPlacementCreative(creative, plan, validatedIgActorId);
     }
     // Log why we fell through to the single-asset path even though the flag is on.
     const assets = creative.assetVariations?.[0]?.assets ?? [];
@@ -764,10 +799,10 @@ export function buildCreativePayload(creative: AdCreativeDraft): MetaCreativePay
   }
 
   if (hasVideoId) {
-    return buildVideoCreative(creative);
+    return buildVideoCreative(creative, validatedIgActorId);
   }
 
-  return buildLinkCreative(creative);
+  return buildLinkCreative(creative, validatedIgActorId);
 }
 
 // ─── Ad payload builder ───────────────────────────────────────────────────────

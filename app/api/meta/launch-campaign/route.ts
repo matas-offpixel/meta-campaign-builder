@@ -58,6 +58,7 @@ import {
   validateCreativePayload,
   sanitizeCreativeForStrictMode,
 } from "@/lib/meta/creative";
+import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import {
   resolveAdSetPlacementTargeting,
   validatePlacementSelection,
@@ -2252,6 +2253,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const creativeCreationPromise = (async () => {
     console.log("[launch-campaign] Phase 3 — creating", launchCreatives.length, "creatives");
 
+    // One validator per launch — fetches /instagram_accounts at most once and
+    // caches the authorised-id list for all creatives in this launch.
+    const igValidator = createIgActorValidator(adAccountId, launchToken);
+
     for (const creative of launchCreatives) {
       const cStart = Date.now();
 
@@ -2262,9 +2267,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
+      // Validate the IG actor id once per creative (validator caches the
+      // /instagram_accounts list so subsequent creatives don't re-fetch).
+      const rawIgActorId = creative.identity.instagramActorId ?? "";
+      const validatedIgActorId =
+        rawIgActorId ? await igValidator.validate(rawIgActorId) : null;
+
+      if (!validatedIgActorId && rawIgActorId) {
+        console.error(
+          `[buildCreativePayload] IG actor validation failed: page=${creative.identity.pageId} ` +
+            `ig=${rawIgActorId} adAccount=${adAccountId} — falling back to page-only`,
+        );
+      }
+
       let creativePayload;
       try {
-        creativePayload = buildCreativePayload(creative);
+        creativePayload = buildCreativePayload(creative, {
+          validatedIgActorId: validatedIgActorId ?? undefined,
+        });
 
         // ── Creative Integrity Mode (strict sanitizer) ─────────────────────
         // Default ON; settable per-draft via `creativeIntegrityMode`. The
