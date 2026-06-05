@@ -1,24 +1,26 @@
 "use client";
 
 /**
- * /events/[id]/customer-audience
+ * CustomerAudienceWizard
  *
- * Customer Audience Upload — four-step flow:
+ * Four-step browser-side wizard for uploading customer CSV lists into a
+ * Meta Custom Audience bound to the client's ad account.
  *
  *   Step 0 — Mode: "Create new audience" vs "Add to existing audience"
  *   Step 1 — Upload CSV files (multi-file drag-drop)
- *   Step 2 — Column mapping (email / phone / skip per column)
- *   Step 3 — Review & upload (hash in browser, post chunks to API)
+ *   Step 2 — Column mapping (email / phone / skip per detected column)
+ *   Step 3 — Review & upload (hash in browser → post chunks to API)
  *
  * PII Safety:
  *   - Raw PII never leaves the browser. Parsing, normalisation, SHA-256
- *     hashing all happen here via hash-client.ts (Web Crypto API).
+ *     hashing all happen here via lib/customer-audience/hash-client.ts
+ *     (Web Crypto API). The API route receives only hashed values.
  *   - No PII in localStorage, sessionStorage, or any persistence.
- *   - console.log counts only ("hashed 2,341 emails") — never values.
- *   - CSV files held in React state only; cleared on "Clear all" / unmount.
+ *   - console.log shows counts only ("hashed 2,341 emails") — never values.
+ *   - CSV files held in React state only; cleared on "Clear all" or unmount.
  */
 
-import { useState, useCallback, useEffect, use, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -50,13 +52,14 @@ import type { ExistingAudience } from "@/app/api/meta/customer-audience-upload/l
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface PageProps {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<{ adAccountId?: string; audienceName?: string }>;
+export interface CustomerAudienceWizardProps {
+  clientId: string;
+  clientName: string;
+  /** Pulled from client.meta_ad_account_id server-side. Empty string = unconfigured. */
+  adAccountId: string;
 }
 
 type Step = 0 | 1 | 2 | 3;
-
 type UploadMode = "create" | "append";
 
 interface FileEntry {
@@ -168,7 +171,6 @@ function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           if (files.length) onFiles(files);
-          // Reset input so same file can be re-added after removal
           e.target.value = "";
         }}
       />
@@ -176,23 +178,22 @@ function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Wizard ───────────────────────────────────────────────────────────────────
 
-export default function CustomerAudiencePage({ params, searchParams }: PageProps) {
-  const { id: eventId } = use(params);
-  const { adAccountId: adAccountIdRaw, audienceName: prefilledName } = use(searchParams);
+export function CustomerAudienceWizard({
+  clientId,
+  clientName,
+  adAccountId,
+}: CustomerAudienceWizardProps) {
+  const backHref = `/clients/${clientId}`;
 
-  const adAccountId = adAccountIdRaw ?? "";
-
-  // ── Shared state ──────────────────────────────────────────────────────────
+  // ── Shared state ────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>(0);
-  const [instanceKey, setInstanceKey] = useState(0); // increment to clear all
+  const [instanceKey, setInstanceKey] = useState(0);
 
-  // ── Step 0: Mode ──────────────────────────────────────────────────────────
+  // ── Step 0: Mode ────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<UploadMode>("create");
-
-  // Create-mode fields
-  const [audienceName, setAudienceName] = useState(prefilledName ?? "");
+  const [audienceName, setAudienceName] = useState("");
   const [audienceDescription, setAudienceDescription] = useState("");
   const [retentionDays, setRetentionDays] = useState(180);
 
@@ -203,15 +204,14 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
   const [selectedAudienceId, setSelectedAudienceId] = useState("");
   const [selectedAudienceName, setSelectedAudienceName] = useState("");
 
-  // ── Step 1: Files ─────────────────────────────────────────────────────────
+  // ── Step 1: Files ────────────────────────────────────────────────────────────
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [fileErrors, setFileErrors] = useState<string[]>([]);
 
-  // ── Step 2: Column mapping ────────────────────────────────────────────────
-  // Merged headers across all files
+  // ── Step 2: Column mapping ───────────────────────────────────────────────────
   const [columnMap, setColumnMap] = useState<Record<string, ColumnRole>>({});
 
-  // ── Step 3: Upload state ──────────────────────────────────────────────────
+  // ── Step 3: Upload ───────────────────────────────────────────────────────────
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     phase: "hashing" | "uploading";
@@ -223,7 +223,7 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
   const [uploadError, setUploadError] = useState<string | null>(null);
   const abortRef = useRef(false);
 
-  // ── Fetch existing audiences when mode === "append" ───────────────────────
+  // ── Fetch existing audiences (append mode) ──────────────────────────────────
   useEffect(() => {
     if (mode !== "append" || !adAccountId) return;
     setExistingLoading(true);
@@ -240,13 +240,13 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
       .finally(() => setExistingLoading(false));
   }, [mode, adAccountId]);
 
-  // ── Sync selectedAudienceName when id changes ─────────────────────────────
+  // Sync selectedAudienceName when id changes
   useEffect(() => {
     const found = existingAudiences.find((a) => a.id === selectedAudienceId);
     setSelectedAudienceName(found?.name ?? "");
   }, [selectedAudienceId, existingAudiences]);
 
-  // ── Handle files dropped / selected ──────────────────────────────────────
+  // ── File handling ────────────────────────────────────────────────────────────
   const handleFiles = useCallback(async (incoming: File[]) => {
     const all = [...fileEntries.map((e) => e.file), ...incoming];
     const errors = validateFiles(all);
@@ -256,23 +256,17 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
     }
     setFileErrors([]);
 
-    // Add pending entries for new files only
-    const newEntries: FileEntry[] = incoming.map((f) => ({
-      file: f,
-      status: "pending",
-    }));
+    const newEntries: FileEntry[] = incoming.map((f) => ({ file: f, status: "pending" }));
     setFileEntries((prev) => [...prev, ...newEntries]);
 
-    // Parse each new file
     for (const entry of newEntries) {
       setFileEntries((prev) =>
         prev.map((e) => (e.file === entry.file ? { ...e, status: "parsing" } : e)),
       );
       try {
         const parsed = await parseCsv(entry.file);
-        // Log count only — no values
         console.info(
-          `[CustomerAudienceUpload] Parsed "${entry.file.name}": ${parsed.rowCount} rows`,
+          `[CustomerAudienceWizard] Parsed "${entry.file.name}": ${parsed.rowCount} rows`,
         );
         setFileEntries((prev) =>
           prev.map((e) =>
@@ -280,9 +274,10 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
           ),
         );
       } catch (err) {
-        const msg = typeof err === "object" && err !== null && "message" in err
-          ? String((err as { message: string }).message)
-          : "Parse error";
+        const msg =
+          typeof err === "object" && err !== null && "message" in err
+            ? String((err as { message: string }).message)
+            : "Parse error";
         setFileEntries((prev) =>
           prev.map((e) =>
             e.file === entry.file ? { ...e, status: "error", error: msg } : e,
@@ -292,26 +287,20 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
     }
   }, [fileEntries]);
 
-  // ── Remove a file ─────────────────────────────────────────────────────────
   const removeFile = useCallback((file: File) => {
     setFileEntries((prev) => prev.filter((e) => e.file !== file));
   }, []);
 
-  // ── Derived: merged headers + auto-detected mapping ───────────────────────
+  // ── Column detection ─────────────────────────────────────────────────────────
+  const parsedFiles = fileEntries.filter((e) => e.status === "done" && e.parsed);
   const allHeaders = Array.from(
-    new Set(
-      fileEntries
-        .filter((e) => e.status === "done" && e.parsed)
-        .flatMap((e) => e.parsed!.headers),
-    ),
+    new Set(parsedFiles.flatMap((e) => e.parsed!.headers)),
   );
 
-  // Auto-detect when we advance to step 2
   useEffect(() => {
     if (step === 2 && allHeaders.length > 0) {
       setColumnMap((prev) => {
         const detected = autoDetectColumns(allHeaders);
-        // Preserve any manual overrides
         const merged: Record<string, ColumnRole> = {};
         for (const h of allHeaders) {
           merged[h] = prev[h] ?? detected[h];
@@ -322,26 +311,20 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // ── Step 0 → 1 validation ─────────────────────────────────────────────────
+  // ── Validation ────────────────────────────────────────────────────────────────
   const step0Valid =
-    mode === "create"
-      ? audienceName.trim().length > 0
-      : selectedAudienceId.length > 0;
+    mode === "create" ? audienceName.trim().length > 0 : selectedAudienceId.length > 0;
 
-  // ── Step 1 → 2 validation ─────────────────────────────────────────────────
-  const parsedFiles = fileEntries.filter((e) => e.status === "done" && e.parsed);
-  const step1Valid = parsedFiles.length > 0;
   const totalRawRows = parsedFiles.reduce((s, e) => s + (e.parsed?.rowCount ?? 0), 0);
+  const step1Valid = parsedFiles.length > 0;
 
-  // ── Step 2 → 3 validation ─────────────────────────────────────────────────
   const emailCol = Object.entries(columnMap).find(([, r]) => r === "email")?.[0];
   const phoneCol = Object.entries(columnMap).find(([, r]) => r === "phone")?.[0];
   const step2Valid = !!(emailCol || phoneCol);
 
-  // ── Computed review summary ───────────────────────────────────────────────
   const targetAudienceName = mode === "create" ? audienceName.trim() : selectedAudienceName;
 
-  // ── Upload handler ────────────────────────────────────────────────────────
+  // ── Upload ────────────────────────────────────────────────────────────────────
   const handleUpload = async () => {
     if (uploading) return;
     abortRef.current = false;
@@ -350,7 +333,6 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
     setUploadProgress({ phase: "hashing", hashedCount: 0, chunksDone: 0, chunksTotal: 0 });
 
     try {
-      // Gather all raw rows from parsed files
       const rawRows = parsedFiles.flatMap((e) =>
         (e.parsed?.rows ?? []).map((row) => ({
           email: emailCol ? row[emailCol] : undefined,
@@ -358,15 +340,13 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
         })),
       );
 
-      // Hash everything in the browser — PII stays here
       const includeEmail = !!emailCol;
       const includePhone = !!phoneCol;
       const { schema, data, emailCount, phoneCount, skippedCount } =
         await hashAudienceBatch(rawRows, includeEmail, includePhone);
 
-      // Log counts only — never values or hashes
       console.info(
-        `[CustomerAudienceUpload] Hashing complete: emails=${emailCount} phones=${phoneCount} skipped=${skippedCount} total=${data.length}`,
+        `[CustomerAudienceWizard] Hashing complete: emails=${emailCount} phones=${phoneCount} skipped=${skippedCount} total=${data.length}`,
       );
 
       if (data.length === 0) {
@@ -391,11 +371,7 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
       let totalInvalid = 0;
 
       for (let i = 0; i < chunks.length; i++) {
-        if (abortRef.current) {
-          // Force last_batch_flag on whatever chunk is in flight by sending an
-          // empty finaliser — here we just stop (in-flight is already gone).
-          break;
-        }
+        if (abortRef.current) break;
 
         const isFirst = i === 0;
         const body: Record<string, unknown> = {
@@ -403,7 +379,8 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
           mode: isFirst && mode === "create" ? "create" : "append",
           audienceId: resolvedAudienceId,
           audienceName: isFirst && mode === "create" ? audienceName.trim() : undefined,
-          audienceDescription: isFirst && mode === "create" ? audienceDescription.trim() || undefined : undefined,
+          audienceDescription:
+            isFirst && mode === "create" ? audienceDescription.trim() || undefined : undefined,
           retentionDays: isFirst && mode === "create" ? retentionDays : undefined,
           schema: schema as MatchSchema[],
           data: chunks[i],
@@ -426,7 +403,6 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
           return;
         }
 
-        // After first chunk (create mode), capture the audience ID for subsequent chunks
         if (isFirst && !resolvedAudienceId) {
           resolvedAudienceId = json.audienceId;
         }
@@ -457,13 +433,13 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
     }
   };
 
-  // ── Clear all ─────────────────────────────────────────────────────────────
+  // ── Clear all ─────────────────────────────────────────────────────────────────
   const handleClear = () => {
     abortRef.current = true;
     setInstanceKey((k) => k + 1);
     setStep(0);
     setMode("create");
-    setAudienceName(prefilledName ?? "");
+    setAudienceName("");
     setAudienceDescription("");
     setRetentionDays(180);
     setSelectedAudienceId("");
@@ -477,13 +453,13 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
     setUploadError(null);
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
     <div key={instanceKey} className="mx-auto max-w-2xl space-y-6 px-4 py-8">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link href={`/events/${eventId}?tab=campaigns`}>
+        <Link href={backHref}>
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
           </Button>
@@ -491,7 +467,7 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
         <div className="min-w-0 flex-1">
           <h1 className="font-heading text-lg tracking-wide">Upload customer audience</h1>
           <p className="text-xs text-muted-foreground">
-            Hash & upload email/phone lists to a Meta Custom Audience.
+            {clientName} · Hash &amp; upload email/phone lists to a Meta Custom Audience.
           </p>
         </div>
         {!uploadResult && (
@@ -506,7 +482,7 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
       {/* Step indicator */}
       {!uploadResult && <StepIndicator step={step} />}
 
-      {/* ── Results ─────────────────────────────────────────────────────────── */}
+      {/* ── Results ──────────────────────────────────────────────────────────── */}
       {uploadResult && (
         <div className="space-y-4">
           <div className="rounded-lg border border-success/30 bg-success/5 p-5">
@@ -516,25 +492,29 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
             </div>
             <dl className="space-y-2 text-sm">
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Audience name</dt>
+                <dt className="min-w-[140px] text-muted-foreground">Audience name</dt>
                 <dd className="font-medium">{uploadResult.audienceName}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Audience ID</dt>
+                <dt className="min-w-[140px] text-muted-foreground">Audience ID</dt>
                 <dd className="font-mono text-xs">{uploadResult.audienceId}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Records uploaded</dt>
-                <dd className="font-semibold text-success">{uploadResult.totalUploaded.toLocaleString()}</dd>
+                <dt className="min-w-[140px] text-muted-foreground">Records uploaded</dt>
+                <dd className="font-semibold text-success">
+                  {uploadResult.totalUploaded.toLocaleString()}
+                </dd>
               </div>
               {uploadResult.numInvalid > 0 && (
                 <div className="flex gap-2">
-                  <dt className="text-muted-foreground min-w-[140px]">Invalid entries</dt>
-                  <dd className="text-destructive">{uploadResult.numInvalid.toLocaleString()}</dd>
+                  <dt className="min-w-[140px] text-muted-foreground">Invalid entries</dt>
+                  <dd className="text-destructive">
+                    {uploadResult.numInvalid.toLocaleString()}
+                  </dd>
                 </div>
               )}
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Chunks sent</dt>
+                <dt className="min-w-[140px] text-muted-foreground">Chunks sent</dt>
                 <dd>{uploadResult.numChunks}</dd>
               </div>
             </dl>
@@ -542,25 +522,25 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
               Meta typically takes 30–60 minutes to process and activate the audience.
             </p>
           </div>
-          <div className="flex gap-2 justify-end">
+          <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={handleClear}>
               Upload another list
             </Button>
-            <Link href={`/events/${eventId}?tab=campaigns`}>
-              <Button size="sm">Back to event</Button>
+            <Link href={backHref}>
+              <Button size="sm">Back to {clientName}</Button>
             </Link>
           </div>
         </div>
       )}
 
-      {/* ── Step 0: Mode ────────────────────────────────────────────────────── */}
+      {/* ── Step 0: Mode ─────────────────────────────────────────────────────── */}
       {!uploadResult && step === 0 && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-5">
             <h2 className="font-medium text-sm">Choose upload mode</h2>
 
             <div className="space-y-3">
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex cursor-pointer items-start gap-3">
                 <input
                   type="radio"
                   name="mode"
@@ -572,12 +552,13 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
                 <div>
                   <p className="text-sm font-medium">Create new audience</p>
                   <p className="text-xs text-muted-foreground">
-                    A brand-new Custom Audience will be created on the client&apos;s ad account.
+                    A brand-new Custom Audience will be created on{" "}
+                    {clientName}&apos;s ad account.
                   </p>
                 </div>
               </label>
 
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex cursor-pointer items-start gap-3">
                 <input
                   type="radio"
                   name="mode"
@@ -597,7 +578,7 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
 
             {/* Create-mode fields */}
             {mode === "create" && (
-              <div className="space-y-3 pt-2 border-t border-border">
+              <div className="space-y-3 border-t border-border pt-3">
                 <div>
                   <label className="text-xs font-medium text-foreground">
                     Audience name <span className="text-destructive">*</span>
@@ -606,13 +587,14 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
                     type="text"
                     value={audienceName}
                     onChange={(e) => setAudienceName(e.target.value)}
-                    placeholder="e.g. WC26 London — Customer upload"
+                    placeholder={`e.g. ${clientName} — Customer upload`}
                     className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-foreground">
-                    Description <span className="text-muted-foreground">(optional)</span>
+                    Description{" "}
+                    <span className="text-muted-foreground">(optional)</span>
                   </label>
                   <input
                     type="text"
@@ -623,7 +605,9 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-foreground">Retention period</label>
+                  <label className="text-xs font-medium text-foreground">
+                    Retention period
+                  </label>
                   <select
                     value={retentionDays}
                     onChange={(e) => setRetentionDays(Number(e.target.value))}
@@ -641,11 +625,14 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
 
             {/* Append-mode picker */}
             {mode === "append" && (
-              <div className="space-y-3 pt-2 border-t border-border">
+              <div className="space-y-3 border-t border-border pt-3">
                 {!adAccountId ? (
                   <p className="text-xs text-destructive">
-                    No ad account ID available for this event. Ensure the client has a
-                    Meta ad account configured.
+                    {clientName} has no Meta ad account configured.{" "}
+                    <Link href={`/clients/${clientId}/edit`} className="underline">
+                      Add one in Edit
+                    </Link>{" "}
+                    first.
                   </p>
                 ) : existingLoading ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -694,17 +681,21 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
           </div>
 
           {!adAccountId && (
-            <p className="text-xs text-center text-destructive">
-              This event has no Meta ad account configured — cannot upload audiences.
+            <p className="text-center text-xs text-destructive">
+              {clientName} has no Meta ad account configured.{" "}
+              <Link href={`/clients/${clientId}/edit`} className="underline">
+                Add one in Edit
+              </Link>
+              .
             </p>
           )}
         </div>
       )}
 
-      {/* ── Step 1: Upload files ─────────────────────────────────────────────── */}
+      {/* ── Step 1: Upload files ──────────────────────────────────────────────── */}
       {!uploadResult && step === 1 && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-5">
             <div className="flex items-center justify-between">
               <h2 className="font-medium text-sm">Upload CSV files</h2>
               <Button variant="ghost" size="sm" onClick={() => setStep(0)}>
@@ -724,7 +715,6 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
               </div>
             )}
 
-            {/* File list */}
             {fileEntries.length > 0 && (
               <ul className="space-y-2">
                 {fileEntries.map((entry) => (
@@ -732,8 +722,8 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
                     key={entry.file.name}
                     className="flex items-start gap-3 rounded-md border border-border px-3 py-2.5 text-xs"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{entry.file.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{entry.file.name}</p>
                       {entry.status === "parsing" && (
                         <p className="text-muted-foreground">Parsing…</p>
                       )}
@@ -772,8 +762,8 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
 
             {step1Valid && (
               <p className="text-xs text-muted-foreground">
-                Total: {totalRawRows.toLocaleString()} raw rows across {parsedFiles.length} file
-                {parsedFiles.length !== 1 ? "s" : ""}
+                Total: {totalRawRows.toLocaleString()} raw rows across {parsedFiles.length}{" "}
+                file{parsedFiles.length !== 1 ? "s" : ""}
               </p>
             )}
           </div>
@@ -786,10 +776,10 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
         </div>
       )}
 
-      {/* ── Step 2: Column mapping ───────────────────────────────────────────── */}
+      {/* ── Step 2: Column mapping ────────────────────────────────────────────── */}
       {!uploadResult && step === 2 && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-5">
             <div className="flex items-center justify-between">
               <h2 className="font-medium text-sm">Map columns</h2>
               <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
@@ -798,8 +788,9 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Assign each detected column to <strong>email</strong>, <strong>phone</strong>, or{" "}
-              <strong>skip</strong>. Only one column can be mapped to each match key.
+              Assign each detected column to <strong>email</strong>,{" "}
+              <strong>phone</strong>, or <strong>skip</strong>. Only one column can be
+              mapped to each match key.
             </p>
 
             <table className="w-full text-xs">
@@ -820,12 +811,9 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
                           const newRole = e.target.value as ColumnRole;
                           setColumnMap((prev) => {
                             const next = { ...prev };
-                            // Clear any column that was already using this role
                             if (newRole !== "skip") {
                               for (const [key, role] of Object.entries(next)) {
-                                if (role === newRole && key !== h) {
-                                  next[key] = "skip";
-                                }
+                                if (role === newRole && key !== h) next[key] = "skip";
                               }
                             }
                             next[h] = newRole;
@@ -859,12 +847,12 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
         </div>
       )}
 
-      {/* ── Step 3: Review & upload ──────────────────────────────────────────── */}
+      {/* ── Step 3: Review & upload ───────────────────────────────────────────── */}
       {!uploadResult && step === 3 && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-5">
             <div className="flex items-center justify-between">
-              <h2 className="font-medium text-sm">Review & upload</h2>
+              <h2 className="font-medium text-sm">Review &amp; upload</h2>
               <Button
                 variant="ghost"
                 size="sm"
@@ -877,47 +865,49 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
 
             <dl className="space-y-2 text-sm">
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Target audience</dt>
-                <dd className="font-medium">{targetAudienceName || "(new audience)"}</dd>
+                <dt className="min-w-[140px] text-muted-foreground">Client</dt>
+                <dd className="font-medium">{clientName}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Ad account</dt>
+                <dt className="min-w-[140px] text-muted-foreground">Ad account</dt>
                 <dd className="font-mono text-xs">{adAccountId}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Source files</dt>
-                <dd>{parsedFiles.length} file{parsedFiles.length !== 1 ? "s" : ""}</dd>
+                <dt className="min-w-[140px] text-muted-foreground">Target audience</dt>
+                <dd className="font-medium">{targetAudienceName || "(new audience)"}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Raw rows</dt>
-                <dd>{totalRawRows.toLocaleString()} (deduplication + normalisation applied)</dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="text-muted-foreground min-w-[140px]">Match keys</dt>
+                <dt className="min-w-[140px] text-muted-foreground">Source files</dt>
                 <dd>
-                  {[emailCol && "Email", phoneCol && "Phone"]
-                    .filter(Boolean)
-                    .join(" + ")}
+                  {parsedFiles.length} file{parsedFiles.length !== 1 ? "s" : ""}
+                </dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[140px] text-muted-foreground">Raw rows</dt>
+                <dd>{totalRawRows.toLocaleString()} (deduplicated after hashing)</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[140px] text-muted-foreground">Match keys</dt>
+                <dd>
+                  {[emailCol && "Email", phoneCol && "Phone"].filter(Boolean).join(" + ")}
                 </dd>
               </div>
               {mode === "create" && (
                 <div className="flex gap-2">
-                  <dt className="text-muted-foreground min-w-[140px]">Retention</dt>
+                  <dt className="min-w-[140px] text-muted-foreground">Retention</dt>
                   <dd>{retentionDays} days</dd>
                 </div>
               )}
             </dl>
 
-            {/* Upload progress */}
             {uploading && uploadProgress && (
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs space-y-1">
-                {uploadProgress.phase === "hashing" && (
+              <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs">
+                {uploadProgress.phase === "hashing" ? (
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Hashing rows in browser… (counts only logged, no values)</span>
+                    <span>Hashing rows in browser… (counts only, no values)</span>
                   </div>
-                )}
-                {uploadProgress.phase === "uploading" && (
+                ) : (
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>
@@ -930,7 +920,6 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
               </div>
             )}
 
-            {/* Error */}
             {uploadError && (
               <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -944,9 +933,7 @@ export default function CustomerAudiencePage({ params, searchParams }: PageProps
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  abortRef.current = true;
-                }}
+                onClick={() => { abortRef.current = true; }}
               >
                 Cancel
               </Button>

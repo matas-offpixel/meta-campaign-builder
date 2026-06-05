@@ -1,5 +1,10 @@
 # Session log — Customer Audience Upload
 
+> **Superseded by PR #548** (`cursor/customer-audience-client-level`).
+> The upload tool was relocated from event-scoped (`/events/[id]/customer-audience`)
+> to client-scoped (`/clients/[id]/customer-audience`). Backend route unchanged.
+> See `docs/session-logs/pr-548-cursor-customer-audience-client-level.md`.
+
 ## PR
 
 - **Number:** 547
