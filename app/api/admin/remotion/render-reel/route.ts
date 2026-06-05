@@ -176,6 +176,11 @@ export async function POST(): Promise<NextResponse> {
       crf: 23,
       muted: true,
       browserExecutable,
+      // Vercel 3 GB Lambda can't hold Remotion's default parallel-frame
+      // concurrency (multiple Chrome tabs × 1080×1920 × blur(50px) bg = OOM,
+      // surfaces as "Could not take a screenshot ... ran out of memory").
+      // Single-frame render. Adds ~2-3 min wall clock on this composition.
+      concurrency: 1,
     });
 
     const renderMs = Date.now() - renderStart;
