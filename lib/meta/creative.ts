@@ -566,10 +566,31 @@ function buildMultiPlacementCreative(
     ];
   }
 
+  const rules = spec.asset_customization_rules ?? [];
   console.error(
-    `[buildMultiPlacementCreative] "${creative.name}": ${plan.mediaKind} per-placement` +
-      ` — feed=${plan.feed.aspectRatio} story=${plan.vertical.aspectRatio}` +
-      ` rules=${spec.asset_customization_rules.length}`,
+    `[buildMultiPlacementCreative] "${creative.name}" multi-placement payload:`,
+    JSON.stringify({
+      mediaKind: plan.mediaKind,
+      feedAspect: plan.feed.aspectRatio,
+      storyAspect: plan.vertical.aspectRatio,
+      hasFeedVideoId: plan.mediaKind === "video" ? !!plan.feed.videoId : undefined,
+      hasStoryVideoId: plan.mediaKind === "video" ? !!plan.vertical.videoId : undefined,
+      hasFeedHash: plan.mediaKind === "image" ? !!plan.feed.assetHash : undefined,
+      hasStoryHash: plan.mediaKind === "image" ? !!plan.vertical.assetHash : undefined,
+      hasFeedThumb: plan.mediaKind === "video" ? !!plan.feed.thumbnailUrl : undefined,
+      hasStoryThumb: plan.mediaKind === "video" ? !!plan.vertical.thumbnailUrl : undefined,
+      adFormat: spec.ad_formats?.[0],
+      optimizationType: spec.optimization_type,
+      rulesCount: rules.length,
+      ruleSpecs: rules.map((r) => ({
+        labelField: "video_label" in r ? "video_label" : "image_label",
+        labelName: (r.video_label ?? r.image_label)?.name,
+        specKeys: Object.keys(r.customization_spec ?? {}),
+        platforms: r.customization_spec?.publisher_platforms,
+        fbPositions: r.customization_spec?.facebook_positions,
+        igPositions: r.customization_spec?.instagram_positions,
+      })),
+    }),
   );
 
   return {
@@ -717,6 +738,29 @@ export function buildCreativePayload(creative: AdCreativeDraft): MetaCreativePay
     if (plan) {
       return buildMultiPlacementCreative(creative, plan);
     }
+    // Log why we fell through to the single-asset path even though the flag is on.
+    const assets = creative.assetVariations?.[0]?.assets ?? [];
+    const hasVertical = assets.some((a) => a.aspectRatio === "9:16" && (a.videoId || a.assetHash));
+    const hasFeed = FEED_RATIOS.some((r) => assets.some((a) => a.aspectRatio === r && (a.videoId || a.assetHash)));
+    const vertAsset = assets.find((a) => a.aspectRatio === "9:16");
+    const feedAsset = FEED_RATIOS.map((r) => assets.find((a) => a.aspectRatio === r)).find(Boolean);
+    const mixedMedia =
+      hasVertical && hasFeed &&
+      !!vertAsset?.videoId !== !!feedAsset?.videoId;
+    const reason: string = !hasVertical || !hasFeed
+      ? "only_one_aspect"
+      : mixedMedia
+        ? "mixed_media"
+        : "missing_id_on_one_aspect";
+    console.error(
+      `[buildCreativePayload] "${creative.name}" → SINGLE-ASSET path` +
+        ` (multi-placement flag ON but fallthrough: ${reason})` +
+        ` hasVertical=${hasVertical} hasFeed=${hasFeed} mixedMedia=${mixedMedia}`,
+    );
+  } else {
+    console.error(
+      `[buildCreativePayload] "${creative.name}" → SINGLE-ASSET path (multi-placement: flag_off)`,
+    );
   }
 
   if (hasVideoId) {
