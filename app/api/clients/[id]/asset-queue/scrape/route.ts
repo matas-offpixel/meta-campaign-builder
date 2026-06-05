@@ -21,7 +21,7 @@ import { getAssetSheetConfig, touchLastScrapedAt } from "@/lib/db/asset-sheet-co
 import { listVenueMappings } from "@/lib/db/venue-mappings";
 import { getExistingHashes, insertQueueRows, type NewQueueRow } from "@/lib/db/asset-queue";
 import { parseSheetRows, filterNewRows } from "@/lib/clients/asset-queue/sheet-parse";
-import { buildVenueResolutionMap } from "@/lib/clients/asset-queue/venue-resolve";
+import { buildVenueResolutionMap, venueResolutionKey } from "@/lib/clients/asset-queue/venue-resolve";
 import type { VenueMapping } from "@/lib/clients/asset-queue/venue-resolve";
 
 export const maxDuration = 60;
@@ -141,22 +141,27 @@ export async function POST(
     nationLabel: m.nation_label,
   }));
 
-  const locations = newRows.map((r) => r.location);
-  const resolutionMap = buildVenueResolutionMap(locations, typedMappings);
+  // Build composite-key resolution map: key = `${location}::${nation}`
+  const locationNationPairs = newRows.map((r) => ({ location: r.location, nation: r.nation }));
+  const resolutionMap = buildVenueResolutionMap(locationNationPairs, typedMappings);
 
-  // Fetch resolved event IDs in one query
-  const resolvedEventCodes = [...new Set(
-    [...resolutionMap.values()]
-      .filter(Boolean)
-      .map((v) => v!.eventCode),
-  )];
+  // Collect all event codes that need ID lookups (single-venue + umbrella anchor)
+  const allResolvedCodes = new Set<string>();
+  for (const v of resolutionMap.values()) {
+    if (!v) continue;
+    if (v.isUmbrella) {
+      v.eventCodes.forEach((c) => allResolvedCodes.add(c));
+    } else {
+      allResolvedCodes.add(v.eventCode);
+    }
+  }
 
   const eventCodeToId = new Map<string, string>();
-  if (resolvedEventCodes.length > 0) {
+  if (allResolvedCodes.size > 0) {
     const { data: events } = await supabase
       .from("events")
       .select("id, event_code")
-      .in("event_code", resolvedEventCodes);
+      .in("event_code", [...allResolvedCodes]);
     for (const e of events ?? []) {
       eventCodeToId.set(e.event_code, e.id);
     }
@@ -167,21 +172,28 @@ export async function POST(
   const errorDetails: Array<{ assetName: string; location: string; reason: string }> = [];
 
   for (const row of newRows) {
-    const resolved = resolutionMap.get(row.location);
+    const key = venueResolutionKey(row.location, row.nation);
+    const resolved = resolutionMap.get(key);
+
+    const base = {
+      client_id: clientId,
+      source_sheet_row_hash: row.rowHash,
+      nation: row.nation,
+      location: row.location,
+      funnel: row.funnel,
+      funnels: row.funnels,
+      media_type: row.mediaType,
+      asset_name: row.assetName,
+      dropbox_url: row.dropboxUrl,
+      notes: row.notes,
+    };
 
     if (!resolved) {
       toInsert.push({
-        client_id: clientId,
-        source_sheet_row_hash: row.rowHash,
-        nation: row.nation,
-        location: row.location,
-        funnel: row.funnel,
-        media_type: row.mediaType,
-        asset_name: row.assetName,
-        dropbox_url: row.dropboxUrl,
-        notes: row.notes,
+        ...base,
         resolved_event_id: null,
         resolved_event_code: null,
+        resolved_event_codes_multi: null,
         status: "error",
         error_message: "no_venue_mapping",
       });
@@ -190,20 +202,27 @@ export async function POST(
         location: row.location,
         reason: "no_venue_mapping",
       });
+    } else if (resolved.isUmbrella) {
+      // Umbrella: matches all venues for the nation. Store all codes; use
+      // first event ID as anchor for bulk-attach URL routing.
+      const anchorId = resolved.eventCodes.length > 0
+        ? (eventCodeToId.get(resolved.eventCodes[0]) ?? null)
+        : null;
+      toInsert.push({
+        ...base,
+        resolved_event_id: anchorId,      // anchor event for URL routing
+        resolved_event_code: null,
+        resolved_event_codes_multi: resolved.eventCodes,
+        status: "matched_umbrella",
+        error_message: null,
+      });
     } else {
       const eventId = eventCodeToId.get(resolved.eventCode) ?? null;
       toInsert.push({
-        client_id: clientId,
-        source_sheet_row_hash: row.rowHash,
-        nation: row.nation,
-        location: row.location,
-        funnel: row.funnel,
-        media_type: row.mediaType,
-        asset_name: row.assetName,
-        dropbox_url: row.dropboxUrl,
-        notes: row.notes,
+        ...base,
         resolved_event_id: eventId,
         resolved_event_code: resolved.eventCode,
+        resolved_event_codes_multi: null,
         status: "matched",
         error_message: null,
       });
@@ -213,7 +232,7 @@ export async function POST(
   await insertQueueRows(toInsert);
   await touchLastScrapedAt(clientId);
 
-  const matched = toInsert.filter((r) => r.status === "matched").length;
+  const matched = toInsert.filter((r) => r.status === "matched" || r.status === "matched_umbrella").length;
   const errors = toInsert.filter((r) => r.status === "error").length;
 
   console.error("[asset-queue/scrape] complete", {

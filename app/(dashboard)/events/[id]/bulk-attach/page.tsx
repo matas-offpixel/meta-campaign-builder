@@ -53,7 +53,7 @@ const BULK_ATTACH_CAP = 8;
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ adAccountId?: string }>;
+  searchParams: Promise<{ adAccountId?: string; preselectCodes?: string }>;
 }
 
 type Step = 0 | 1 | 2 | 3;
@@ -133,7 +133,12 @@ function StepIndicator({ step }: { step: Step }) {
 
 export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const { id: eventId } = use(params);
-  const { adAccountId: initialAdAccountId } = use(searchParams);
+  const { adAccountId: initialAdAccountId, preselectCodes: preselectCodesParam } = use(searchParams);
+
+  // Comma-separated event codes from umbrella asset-queue rows
+  const preselectCodes = preselectCodesParam
+    ? preselectCodesParam.split(",").map((c) => c.trim()).filter(Boolean)
+    : undefined;
 
   const router = useRouter();
   const lsKey = `bulk-attach-unsaved-${eventId}`;
@@ -158,6 +163,18 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       } else {
         if (next.size >= BULK_ATTACH_CAP) return prev;
         next.set(campaign.id, campaign);
+      }
+      return next;
+    });
+  }, []);
+
+  /** Batch-adds campaigns from umbrella preselectCodes — called once by CampaignMultiPicker. */
+  const handlePreselectLoad = useCallback((campaigns: MetaCampaignSummary[]) => {
+    setSelectedCampaigns((prev) => {
+      const next = new Map(prev);
+      for (const c of campaigns) {
+        if (next.size >= BULK_ATTACH_CAP) break;
+        if (!next.has(c.id)) next.set(c.id, c);
       }
       return next;
     });
@@ -782,6 +799,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   adAccountId={adAccountId}
                   selectedIds={selectedIds}
                   onToggle={handleToggleCampaign}
+                  preselectCodes={preselectCodes}
+                  onPreselectLoad={handlePreselectLoad}
                 />
               </div>
 
