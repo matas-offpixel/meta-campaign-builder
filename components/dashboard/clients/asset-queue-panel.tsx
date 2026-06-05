@@ -401,6 +401,102 @@ function CopyFields({ primaryText, setPrimaryText, headline, setHeadline, ctaVal
   );
 }
 
+// ─── Override URL form ────────────────────────────────────────────────────────
+
+/**
+ * Error codes where Dropbox folder listing has failed and the user can rescue
+ * the row by pasting individual /scl/fi/ file URLs.
+ */
+const OVERRIDEABLE_CODES = new Set([
+  "network",
+  "folder_too_large",
+  "empty_folder",
+  "not_found",
+  "forbidden",
+]);
+
+function isOverrideable(errorMessage: string | null): boolean {
+  if (!errorMessage) return false;
+  return OVERRIDEABLE_CODES.has(errorMessage);
+}
+
+interface OverrideUrlsFormProps {
+  clientId: string;
+  queueId: string;
+  onSuccess: () => void;
+}
+
+function OverrideUrlsForm({ clientId, queueId, onSuccess }: OverrideUrlsFormProps) {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    const urls = input.split(",").map((u) => u.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      setError("Paste at least one Dropbox file URL.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/clients/${clientId}/asset-queue/${queueId}/override-urls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Override failed");
+        return;
+      }
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-amber-200 bg-amber-50/50 px-3 pb-3 pt-2 dark:border-amber-800 dark:bg-amber-950/20">
+      <p className="mb-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+        Override: paste direct file URL(s)
+      </p>
+      <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">
+        Open the Dropbox folder in your browser, click each file, copy its individual share link
+        (format: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">dropbox.com/scl/fi/…</code>),
+        then paste them here comma-separated.
+      </p>
+      <div className="flex items-start gap-2">
+        <textarea
+          className="min-h-[52px] flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="https://www.dropbox.com/scl/fi/..., https://www.dropbox.com/scl/fi/..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={loading}
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !input.trim()}
+          className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+        >
+          {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+          Override &amp; prepare
+        </button>
+      </div>
+      {error && (
+        <p className="mt-1.5 text-xs text-destructive">
+          <AlertCircle className="mr-1 inline-block h-3 w-3" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Queue row card ───────────────────────────────────────────────────────────
 
 function QueueRowCard({
@@ -577,12 +673,27 @@ function QueueRowCard({
         </div>
 
         {row.status === "error" && (
-          <div className="border-t border-border px-3 pb-3 pt-2 text-xs text-destructive">
-            <AlertCircle className="mr-1 inline-block h-3.5 w-3.5" />
-            {row.error_message === "no_venue_mapping"
-              ? `No venue mapping found for "${row.location}". Add one in Venue Mappings.`
-              : row.error_message ?? "Unknown error"}
-          </div>
+          <>
+            <div className="border-t border-border px-3 pb-3 pt-2 text-xs text-destructive">
+              <AlertCircle className="mr-1 inline-block h-3.5 w-3.5" />
+              {row.error_message === "no_venue_mapping"
+                ? `No venue mapping found for "${row.location}". Add one in Venue Mappings.`
+                : row.error_message === "network"
+                  ? "Dropbox folder listing failed (network error). Use the override below to paste direct file links."
+                  : row.error_message === "folder_too_large"
+                    ? "Folder exceeds the 500 MB limit. Use the override below to paste individual file links."
+                    : row.error_message === "empty_folder"
+                      ? "No media files found in the Dropbox folder. Use the override below to paste direct file links."
+                      : row.error_message ?? "Unknown error"}
+            </div>
+            {isOverrideable(row.error_message) && (
+              <OverrideUrlsForm
+                clientId={clientId}
+                queueId={row.id}
+                onSuccess={onUpdate}
+              />
+            )}
+          </>
         )}
 
         {row.status === "launched" && expanded && (
