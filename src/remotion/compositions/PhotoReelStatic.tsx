@@ -45,7 +45,11 @@ function PhotoSlide({ url, framesPerPhoto, zoom }: PhotoSlideProps) {
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            filter: "blur(50px)",
+            // Dropped from blur(50px) to blur(20px) — Chromium GPU memory for
+            // gaussian blur is roughly O(radius²). 50px OOMs the 3 GB Lambda
+            // even at concurrency=1; 20px is visually equivalent for a heavily
+            // darkened bg layer and uses ~6× less memory per frame.
+            filter: "blur(20px)",
           }}
         />
         <AbsoluteFill style={{ backgroundColor: "rgba(0,0,0,0.35)" }} />
