@@ -11,11 +11,9 @@
  *   Step 2 — Configure creatives (stripped-down wizard step)
  *   Step 3 — Review & launch    (Asset × Campaign matrix + actual ad counts)
  *
- * Draft persistence:
- *   - localStorage autosave on every state change (convenience, non-authoritative)
- *   - Explicit "Save draft" → POST /api/bulk-attach-drafts (Supabase, user-scoped RLS)
- *   - "Resume draft" modal on Step 0 lists saved drafts for the event
- *   - On mount: if localStorage has unsaved state, show "Resume previous session?" banner
+ * Persistence:
+ *   Drafts  — saves in-progress wizard state per event (PR #552)
+ *   Templates — saves reusable match patterns + creative config across events (PR #553)
  *
  * All new ads created ACTIVE (codebase default since PRs #540/#541).
  */
@@ -33,6 +31,7 @@ import {
   FolderOpen,
   Trash2,
   X,
+  LayoutTemplate,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -46,6 +45,7 @@ import {
   hasMeaningfulState,
   defaultDraftName,
 } from "@/lib/bulk-attach/draft-state";
+import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
 import type { AdCreativeDraft, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
 
@@ -58,12 +58,37 @@ interface PageProps {
 
 type Step = 0 | 1 | 2 | 3;
 
-/** Minimal shape of a saved draft row returned by the API. */
+// ─── Shared list-item types ───────────────────────────────────────────────────
+
 interface DraftListItem {
   id: string;
   name: string;
   updated_at: string;
   event_id: string | null;
+}
+
+interface TemplateListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  match_pattern: { campaign_name_contains?: string[]; ad_set_name_contains?: string[] };
+  creative_config: {
+    headline?: string;
+    description?: string;
+    cta?: string;
+    destination_url?: string;
+  };
+  use_count: number;
+  updated_at: string;
+}
+
+interface TemplateApplyPreview {
+  matchedCampaignIds: string[];
+  unmatchedCampaignPatterns: string[];
+  suggestionConfidence: "high" | "low";
+  adSetMatchPattern: string[];
+  /** Full MetaCampaignSummary objects for the matched IDs. */
+  matchedCampaigns: MetaCampaignSummary[];
 }
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
@@ -161,16 +186,19 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const [launchResult, setLaunchResult] = useState<BulkAttachResult | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
 
+  // ── Active template match pattern (from applied template, step 1) ─────────
+  const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
+
   // ── Draft save state ──────────────────────────────────────────────────────
   const [draftId, setDraftId] = useState<string | null>(null);
-  const [showNameInput, setShowNameInput] = useState(false);
+  const [showDraftNameInput, setShowDraftNameInput] = useState(false);
   const [draftNameInput, setDraftNameInput] = useState("");
   const [savingDraft, setSavingDraft] = useState(false);
-  const [savedToast, setSavedToast] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedDraftToast, setSavedDraftToast] = useState(false);
+  const [saveDraftError, setSaveDraftError] = useState<string | null>(null);
 
-  // ── Resume modal state ────────────────────────────────────────────────────
-  const [showResumeModal, setShowResumeModal] = useState(false);
+  // ── Draft resume modal state ──────────────────────────────────────────────
+  const [showDraftModal, setShowDraftModal] = useState(false);
   const [draftsList, setDraftsList] = useState<DraftListItem[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -178,6 +206,25 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   // ── Unsaved-changes banner ────────────────────────────────────────────────
   const [showUnsavedBanner, setShowUnsavedBanner] = useState(false);
   const mountedRef = useRef(false);
+
+  // ── Template save form state ──────────────────────────────────────────────
+  const [showTemplateSaveForm, setShowTemplateSaveForm] = useState(false);
+  const [templateSaveName, setTemplateSaveName] = useState("");
+  const [templateSaveDescription, setTemplateSaveDescription] = useState("");
+  const [templateCampaignFilter, setTemplateCampaignFilter] = useState("");
+  const [templateAdSetFilter, setTemplateAdSetFilter] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [savedTemplateToast, setSavedTemplateToast] = useState(false);
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
+
+  // ── Template load modal state ─────────────────────────────────────────────
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templatesList, setTemplatesList] = useState<TemplateListItem[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateListItem | null>(null);
+  const [templatePreview, setTemplatePreview] = useState<TemplateApplyPreview | null>(null);
+  const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
 
   // ── Computed totals ───────────────────────────────────────────────────────
   const totalSelectedAdSets = Array.from(campaignAdSets.values()).reduce(
@@ -187,10 +234,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const totalAdsToCreate = totalSelectedAdSets * creatives.length;
 
   // ── localStorage autosave ─────────────────────────────────────────────────
-  // Runs on every meaningful state change. Not debounced — the serialisation is
-  // cheap. Never assume this is authoritative (server draft is the source of truth).
   useEffect(() => {
-    if (!mountedRef.current) return; // skip the initial render
+    if (!mountedRef.current) return;
     if (!adAccountId) return;
     try {
       const serialised = serialiseDraftState({
@@ -202,7 +247,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       });
       localStorage.setItem(lsKey, JSON.stringify(serialised));
     } catch {
-      // localStorage may be full or disabled — fail silently
+      // localStorage may be full or disabled
     }
   }, [step, selectedCampaigns, campaignAdSets, creatives, adAccountId, lsKey]);
 
@@ -212,11 +257,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     try {
       const raw = localStorage.getItem(lsKey);
       if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const live = deserialiseDraftState(parsed);
-      if (live && hasMeaningfulState(live)) {
-        setShowUnsavedBanner(true);
-      }
+      const live = deserialiseDraftState(JSON.parse(raw));
+      if (live && hasMeaningfulState(live)) setShowUnsavedBanner(true);
     } catch {
       // ignore corrupt storage
     }
@@ -242,54 +284,43 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     }
   };
 
-  // ── Save draft to Supabase ────────────────────────────────────────────────
-  const openSaveNameInput = () => {
+  // ── Save draft ────────────────────────────────────────────────────────────
+  const openDraftNameInput = () => {
     setDraftNameInput(defaultDraftName(eventId));
-    setShowNameInput(true);
-    setSaveError(null);
+    setShowDraftNameInput(true);
+    setSaveDraftError(null);
   };
 
   const handleSaveDraft = async () => {
     if (!draftNameInput.trim()) return;
     setSavingDraft(true);
-    setSaveError(null);
+    setSaveDraftError(null);
     try {
       const state = serialiseDraftState({
-        adAccountId,
-        step,
-        selectedCampaigns,
-        campaignAdSets,
-        creatives,
+        adAccountId, step, selectedCampaigns, campaignAdSets, creatives,
       });
       const res = await fetch("/api/bulk-attach-drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: draftId ?? undefined,
-          eventId,
-          name: draftNameInput.trim(),
-          state,
-        }),
+        body: JSON.stringify({ id: draftId ?? undefined, eventId, name: draftNameInput.trim(), state }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Save failed");
       setDraftId(data.draft.id);
-      setShowNameInput(false);
-      // Clear localStorage — server is now authoritative
+      setShowDraftNameInput(false);
       try { localStorage.removeItem(lsKey); } catch { /**/ }
-      // Show "Draft saved" toast for 3 s
-      setSavedToast(true);
-      setTimeout(() => setSavedToast(false), 3000);
+      setSavedDraftToast(true);
+      setTimeout(() => setSavedDraftToast(false), 3000);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed");
+      setSaveDraftError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSavingDraft(false);
     }
   };
 
-  // ── Load drafts list ──────────────────────────────────────────────────────
-  const handleOpenResumeModal = async () => {
-    setShowResumeModal(true);
+  // ── Draft modal ───────────────────────────────────────────────────────────
+  const handleOpenDraftModal = async () => {
+    setShowDraftModal(true);
     setDraftsLoading(true);
     try {
       const res = await fetch(`/api/bulk-attach-drafts?eventId=${eventId}`);
@@ -302,7 +333,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     }
   };
 
-  // ── Load a specific draft ─────────────────────────────────────────────────
   const handleLoadDraft = async (id: string) => {
     try {
       const res = await fetch(`/api/bulk-attach-drafts/${id}`);
@@ -317,14 +347,13 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       setSelectedCampaigns(live.selectedCampaigns);
       setCampaignAdSets(live.campaignAdSets);
       setCreatives(live.creatives);
-      setShowResumeModal(false);
+      setShowDraftModal(false);
       setShowUnsavedBanner(false);
     } catch {
-      // ignore — state unchanged on error
+      // state unchanged on error
     }
   };
 
-  // ── Delete a draft ────────────────────────────────────────────────────────
   const handleDeleteDraft = async (id: string) => {
     setDeletingDraftId(id);
     try {
@@ -336,6 +365,149 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     } finally {
       setDeletingDraftId(null);
     }
+  };
+
+  // ── Save template ─────────────────────────────────────────────────────────
+  const openTemplateSaveForm = () => {
+    setTemplateSaveName("");
+    setTemplateSaveDescription("");
+    // Auto-derive filter hints from the current selection
+    const campaignNames = Array.from(selectedCampaigns.values()).map((c) => c.name ?? "");
+    setTemplateCampaignFilter(campaignNames.length > 0 ? "" : "");
+    setTemplateAdSetFilter("");
+    setSaveTemplateError(null);
+    setShowTemplateSaveForm(true);
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!templateSaveName.trim()) return;
+    setSavingTemplate(true);
+    setSaveTemplateError(null);
+
+    const matchPattern = {
+      ...(templateCampaignFilter.trim()
+        ? { campaign_name_contains: parsePatternTerms(templateCampaignFilter) }
+        : {}),
+      ...(templateAdSetFilter.trim()
+        ? { ad_set_name_contains: parsePatternTerms(templateAdSetFilter) }
+        : {}),
+    };
+
+    // Build creative_config from the first creative's fields
+    const firstCreative = creatives[0];
+    const creativeConfig = {
+      headline: firstCreative?.headline ?? undefined,
+      description: firstCreative?.description ?? undefined,
+      cta: firstCreative?.cta ?? undefined,
+      destination_url: firstCreative?.destinationUrl ?? undefined,
+    };
+
+    try {
+      const res = await fetch("/api/bulk-attach-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: templateSaveName.trim(),
+          description: templateSaveDescription.trim() || null,
+          matchPattern,
+          creativeConfig,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      setShowTemplateSaveForm(false);
+      setSavedTemplateToast(true);
+      setTimeout(() => setSavedTemplateToast(false), 3000);
+    } catch (err) {
+      setSaveTemplateError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  // ── Load template modal ───────────────────────────────────────────────────
+  const handleOpenTemplateModal = async () => {
+    setSelectedTemplate(null);
+    setTemplatePreview(null);
+    setShowTemplateModal(true);
+    setTemplatesLoading(true);
+    try {
+      const res = await fetch("/api/bulk-attach-templates");
+      const data = await res.json();
+      setTemplatesList((data.templates ?? []) as TemplateListItem[]);
+    } catch {
+      setTemplatesList([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    setDeletingTemplateId(id);
+    try {
+      await fetch(`/api/bulk-attach-templates/${id}`, { method: "DELETE" });
+      setTemplatesList((prev) => prev.filter((t) => t.id !== id));
+      if (selectedTemplate?.id === id) {
+        setSelectedTemplate(null);
+        setTemplatePreview(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  };
+
+  const handlePreviewTemplate = async (template: TemplateListItem) => {
+    setSelectedTemplate(template);
+    setTemplatePreview(null);
+    setTemplatePreviewLoading(true);
+    try {
+      // Fetch live campaigns to match against
+      const campaignRes = await fetch(
+        `/api/meta/campaigns?adAccountId=${encodeURIComponent(adAccountId)}&filter=relevant&limit=50`,
+      );
+      const campaignData = await campaignRes.json();
+      const allCampaigns: MetaCampaignSummary[] = (campaignData.data ?? []) as MetaCampaignSummary[];
+
+      // Run server-side match
+      const applyRes = await fetch(`/api/bulk-attach-templates/${template.id}/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaigns: allCampaigns.map((c) => ({ id: c.id, name: c.name })),
+        }),
+      });
+      const applyData = await applyRes.json();
+
+      const matchedIds = new Set<string>(applyData.matchedCampaignIds ?? []);
+      const matchedCampaigns = allCampaigns.filter((c) => matchedIds.has(c.id));
+
+      setTemplatePreview({
+        matchedCampaignIds: applyData.matchedCampaignIds ?? [],
+        unmatchedCampaignPatterns: applyData.unmatchedCampaignPatterns ?? [],
+        suggestionConfidence: applyData.suggestionConfidence ?? "low",
+        adSetMatchPattern: applyData.adSetMatchPattern ?? [],
+        matchedCampaigns,
+      });
+    } catch {
+      setTemplatePreview(null);
+    } finally {
+      setTemplatePreviewLoading(false);
+    }
+  };
+
+  const handleApplyTemplate = () => {
+    if (!templatePreview || !selectedTemplate) return;
+    // Cap to BULK_ATTACH_CAP
+    const capped = templatePreview.matchedCampaigns.slice(0, BULK_ATTACH_CAP);
+    const nextMap = new Map<string, MetaCampaignSummary>(capped.map((c) => [c.id, c]));
+    setSelectedCampaigns(nextMap);
+    setCampaignAdSets(new Map()); // clear selections — AdSetPicker will re-populate with pattern
+    setAdSetMatchPattern(templatePreview.adSetMatchPattern);
+    setShowTemplateModal(false);
+    setSelectedTemplate(null);
+    setTemplatePreview(null);
   };
 
   // ── Ad account commit ─────────────────────────────────────────────────────
@@ -357,11 +529,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       const res = await fetch("/api/meta/bulk-attach-ads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          adAccountId,
-          campaignAdSets: campaignAdSetsPayload,
-          newCreatives: creatives,
-        }),
+        body: JSON.stringify({ adAccountId, campaignAdSets: campaignAdSetsPayload, newCreatives: creatives }),
       });
       const data = await res.json();
       if (!res.ok && res.status !== 207) {
@@ -384,6 +552,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     setCampaignAdSets(new Map());
     setCreatives([createDefaultCreative()]);
     setDraftId(null);
+    setAdSetMatchPattern([]);
     try { localStorage.removeItem(lsKey); } catch { /**/ }
   };
 
@@ -392,7 +561,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <Link href={`/events/${eventId}`}>
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
@@ -404,14 +573,23 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
             Upload new assets once, attach across multiple live campaigns.
           </p>
         </div>
-        {/* Save draft controls */}
-        <div className="flex shrink-0 items-center gap-2">
-          {savedToast && (
-            <span className="text-xs text-success font-medium">Draft saved</span>
-          )}
-          {!launchResult && (
-            <>
-              {showNameInput ? (
+        {/* Draft + template controls */}
+        {!launchResult && (
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            {/* Toast messages */}
+            <div className="flex items-center gap-3 text-xs">
+              {savedDraftToast && (
+                <span className="font-medium text-success">Draft saved</span>
+              )}
+              {savedTemplateToast && (
+                <span className="font-medium text-success">Template saved</span>
+              )}
+            </div>
+
+            {/* Button row */}
+            <div className="flex items-center gap-2">
+              {/* Save draft */}
+              {showDraftNameInput ? (
                 <div className="flex items-center gap-1.5">
                   <input
                     autoFocus
@@ -420,29 +598,119 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                     onChange={(e) => setDraftNameInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleSaveDraft();
-                      if (e.key === "Escape") setShowNameInput(false);
+                      if (e.key === "Escape") setShowDraftNameInput(false);
                     }}
                     placeholder="Draft name…"
-                    className="w-44 rounded-md border border-border bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-40 rounded-md border border-border bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                   <Button size="sm" onClick={handleSaveDraft} disabled={savingDraft || !draftNameInput.trim()}>
                     {savingDraft ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowNameInput(false)}>
+                  <Button variant="ghost" size="sm" onClick={() => setShowDraftNameInput(false)}>
                     <X className="h-3 w-3" />
                   </Button>
-                  {saveError && <span className="text-xs text-destructive">{saveError}</span>}
+                  {saveDraftError && <span className="text-xs text-destructive">{saveDraftError}</span>}
                 </div>
               ) : (
-                <Button variant="outline" size="sm" onClick={openSaveNameInput} disabled={!adAccountId}>
-                  <Save className="mr-1 h-3.5 w-3.5" />
-                  Save draft
+                <Button variant="outline" size="sm" onClick={openDraftNameInput} disabled={!adAccountId}>
+                  <Save className="mr-1 h-3.5 w-3.5" /> Save draft
                 </Button>
               )}
-            </>
-          )}
-        </div>
+
+              {/* Save as template */}
+              {!showTemplateSaveForm && (
+                <Button variant="outline" size="sm" onClick={openTemplateSaveForm} disabled={!adAccountId}>
+                  <LayoutTemplate className="mr-1 h-3.5 w-3.5" /> Save as template
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Template save form (inline below header) */}
+      {showTemplateSaveForm && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Save as template</p>
+            <Button variant="ghost" size="sm" onClick={() => setShowTemplateSaveForm(false)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Templates save match criteria (campaign + ad set name patterns) for reuse across events.
+            They do not store campaign or ad set IDs — only fuzzy name filters.
+          </p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Name <span className="text-destructive">*</span></label>
+              <input
+                autoFocus
+                type="text"
+                value={templateSaveName}
+                onChange={(e) => setTemplateSaveName(e.target.value)}
+                placeholder="e.g. UTB Lookalike template"
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Description</label>
+              <input
+                type="text"
+                value={templateSaveDescription}
+                onChange={(e) => setTemplateSaveDescription(e.target.value)}
+                placeholder="Optional notes"
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Campaign filter</label>
+              <input
+                type="text"
+                value={templateCampaignFilter}
+                onChange={(e) => setTemplateCampaignFilter(e.target.value)}
+                placeholder="e.g. UTB, Summer (comma-separated)"
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Campaigns whose name contains ANY of these terms will be pre-selected.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Ad set filter</label>
+              <input
+                type="text"
+                value={templateAdSetFilter}
+                onChange={(e) => setTemplateAdSetFilter(e.target.value)}
+                placeholder="e.g. Lookalike, Remarketing (comma-separated)"
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Ad sets whose name contains ANY of these terms will be pre-selected.
+              </p>
+            </div>
+          </div>
+
+          {saveTemplateError && (
+            <p className="text-xs text-destructive">{saveTemplateError}</p>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowTemplateSaveForm(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSaveTemplate}
+              disabled={savingTemplate || !templateSaveName.trim()}
+            >
+              {savingTemplate ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+              Save template
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Unsaved changes banner */}
       {showUnsavedBanner && (
@@ -502,9 +770,11 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   <h2 className="font-medium text-sm">Select campaigns</h2>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">Max {BULK_ATTACH_CAP}</span>
-                    <Button variant="ghost" size="sm" onClick={handleOpenResumeModal}>
-                      <FolderOpen className="mr-1 h-3.5 w-3.5" />
-                      Saved drafts
+                    <Button variant="ghost" size="sm" onClick={handleOpenDraftModal}>
+                      <FolderOpen className="mr-1 h-3.5 w-3.5" /> Saved drafts
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={handleOpenTemplateModal}>
+                      <LayoutTemplate className="mr-1 h-3.5 w-3.5" /> Load template
                     </Button>
                   </div>
                 </div>
@@ -550,15 +820,33 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                     <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
                   </Button>
                 </div>
-                <p className="mb-4 text-xs text-muted-foreground">
-                  New ads will be created in the checked ad sets only. All ad sets are
-                  pre-selected — uncheck any you want to skip.
-                </p>
+                {adSetMatchPattern.length > 0 ? (
+                  <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+                    <LayoutTemplate className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>Template filter active:</span>
+                    {adSetMatchPattern.map((t) => (
+                      <code key={t} className="rounded bg-muted px-1.5 py-0.5 font-mono">{t}</code>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setAdSetMatchPattern([])}
+                      className="ml-auto text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    New ads will be created in the checked ad sets only. All ad sets are
+                    pre-selected — uncheck any you want to skip.
+                  </p>
+                )}
                 <AdSetPicker
                   adAccountId={adAccountId}
                   campaigns={selectedCampaigns}
                   selection={campaignAdSets}
                   onSelectionChange={setCampaignAdSets}
+                  adSetMatchPattern={adSetMatchPattern.length > 0 ? adSetMatchPattern : undefined}
                 />
               </div>
 
@@ -683,9 +971,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="flex justify-end">
                 <Button onClick={handleLaunch} disabled={launching}>
                   {launching ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Launching…
-                    </>
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Launching…</>
                   ) : (
                     "Launch"
                   )}
@@ -707,9 +993,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   </div>
                   {launchResult.totalAdsFailed > 0 && (
                     <div>
-                      <span className="font-semibold text-destructive">
-                        {launchResult.totalAdsFailed}
-                      </span>
+                      <span className="font-semibold text-destructive">{launchResult.totalAdsFailed}</span>
                       <span className="ml-1 text-muted-foreground">ads failed</span>
                     </div>
                   )}
@@ -723,8 +1007,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                 <ul className="space-y-2">
                   {launchResult.campaigns.map((r) => {
                     const name = selectedCampaigns.get(r.campaignId)?.name ?? r.campaignId;
-                    const ok =
-                      !r.error && r.creativesFailed.length === 0 && r.adsFailed === 0;
+                    const ok = !r.error && r.creativesFailed.length === 0 && r.adsFailed === 0;
                     return (
                       <li
                         key={r.campaignId}
@@ -776,16 +1059,15 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       )}
 
       {/* ── Resume drafts modal ───────────────────────────────────────────── */}
-      {showResumeModal && (
+      {showDraftModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <h2 className="font-medium text-sm">Saved drafts for this event</h2>
-              <Button variant="ghost" size="sm" onClick={() => setShowResumeModal(false)}>
+              <Button variant="ghost" size="sm" onClick={() => setShowDraftModal(false)}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
-
             <div className="max-h-80 overflow-y-auto px-5 py-3">
               {draftsLoading ? (
                 <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
@@ -798,50 +1080,209 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               ) : (
                 <ul className="space-y-2">
                   {draftsList.map((d) => (
-                    <li
-                      key={d.id}
-                      className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5"
-                    >
+                    <li key={d.id} className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{d.name}</p>
                         <p className="text-[11px] text-muted-foreground">
                           {new Date(d.updated_at).toLocaleString("en-GB", {
-                            day: "numeric",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
+                            day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
                           })}
                         </p>
                       </div>
+                      <Button size="sm" variant="outline" onClick={() => handleLoadDraft(d.id)}>Resume</Button>
                       <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleLoadDraft(d.id)}
-                      >
-                        Resume
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
+                        size="sm" variant="ghost"
                         onClick={() => handleDeleteDraft(d.id)}
                         disabled={deletingDraftId === d.id}
-                        title="Delete draft"
                       >
-                        {deletingDraftId === d.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        )}
+                        {deletingDraftId === d.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />}
                       </Button>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-
             <div className="border-t border-border px-5 py-3 flex justify-end">
-              <Button variant="outline" size="sm" onClick={() => setShowResumeModal(false)}>
-                Close
+              <Button variant="outline" size="sm" onClick={() => setShowDraftModal(false)}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Load template modal ───────────────────────────────────────────── */}
+      {showTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h2 className="font-medium text-sm">Load template</h2>
+              <Button variant="ghost" size="sm" onClick={() => setShowTemplateModal(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex max-h-[32rem] divide-x divide-border overflow-hidden">
+              {/* Template list */}
+              <div className="w-1/2 overflow-y-auto px-4 py-3">
+                {templatesLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                  </div>
+                ) : templatesList.length === 0 ? (
+                  <p className="py-8 text-center text-xs text-muted-foreground">
+                    No saved templates yet. Use &ldquo;Save as template&rdquo; to create one.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {templatesList.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewTemplate(t)}
+                          className={`w-full rounded-md border px-3 py-2.5 text-left transition-colors
+                            ${selectedTemplate?.id === t.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-muted/40"}`}
+                        >
+                          <p className="truncate text-sm font-medium">{t.name}</p>
+                          {t.description && (
+                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                              {t.description}
+                            </p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {(t.match_pattern.campaign_name_contains ?? []).map((term) => (
+                              <code key={term} className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">
+                                campaign:{term}
+                              </code>
+                            ))}
+                            {(t.match_pattern.ad_set_name_contains ?? []).map((term) => (
+                              <code key={term} className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">
+                                ad set:{term}
+                              </code>
+                            ))}
+                          </div>
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Used {t.use_count}× · updated{" "}
+                            {new Date(t.updated_at).toLocaleDateString("en-GB")}
+                          </p>
+                        </button>
+                        <div className="mt-1 flex justify-end">
+                          <Button
+                            size="sm" variant="ghost"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
+                            disabled={deletingTemplateId === t.id}
+                          >
+                            {deletingTemplateId === t.id
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <Trash2 className="h-3 w-3 text-muted-foreground" />}
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Preview pane */}
+              <div className="w-1/2 overflow-y-auto px-4 py-3">
+                {!selectedTemplate ? (
+                  <p className="py-8 text-center text-xs text-muted-foreground">
+                    Select a template to preview the match.
+                  </p>
+                ) : templatePreviewLoading ? (
+                  <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <p>Matching against live campaigns…</p>
+                  </div>
+                ) : templatePreview ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      {templatePreview.suggestionConfidence === "high" ? (
+                        <CheckCircle2 className="h-4 w-4 text-success" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-warning" />
+                      )}
+                      <p className="text-sm font-medium">
+                        {templatePreview.matchedCampaigns.length} campaign
+                        {templatePreview.matchedCampaigns.length !== 1 ? "s" : ""} matched
+                      </p>
+                    </div>
+
+                    {templatePreview.matchedCampaigns.length > 0 ? (
+                      <ul className="space-y-1">
+                        {templatePreview.matchedCampaigns.map((c) => (
+                          <li key={c.id} className="flex items-center gap-2 text-sm">
+                            <CheckCircle2 className="h-3 w-3 shrink-0 text-success" />
+                            <span className="truncate">{c.name || c.id}</span>
+                          </li>
+                        ))}
+                        {templatePreview.matchedCampaigns.length === BULK_ATTACH_CAP &&
+                          templatePreview.matchedCampaignIds.length > BULK_ATTACH_CAP && (
+                            <li className="text-xs text-muted-foreground">
+                              (capped at {BULK_ATTACH_CAP} — some matches excluded)
+                            </li>
+                          )}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No live campaigns match the template pattern.
+                      </p>
+                    )}
+
+                    {templatePreview.unmatchedCampaignPatterns.length > 0 && (
+                      <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+                        Pattern(s) not found in any campaign:{" "}
+                        {templatePreview.unmatchedCampaignPatterns.map((p) => (
+                          <code key={p} className="mx-0.5 rounded bg-warning/10 px-1 font-mono">
+                            {p}
+                          </code>
+                        ))}
+                      </div>
+                    )}
+
+                    {templatePreview.adSetMatchPattern.length > 0 && (
+                      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+                        <p className="font-medium">Ad set filter</p>
+                        <p className="mt-0.5 text-muted-foreground">
+                          At step 1, only ad sets matching{" "}
+                          {templatePreview.adSetMatchPattern.map((t) => (
+                            <code key={t} className="mx-0.5 rounded bg-muted px-1 font-mono">{t}</code>
+                          ))}{" "}
+                          will be pre-selected.
+                        </p>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-muted-foreground">
+                      You can adjust the selection on step 0 and step 1 before launching.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="py-8 text-center text-xs text-destructive">
+                    Could not fetch match preview. Check your connection.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+              <Button variant="outline" size="sm" onClick={() => setShowTemplateModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApplyTemplate}
+                disabled={
+                  !templatePreview ||
+                  templatePreview.matchedCampaigns.length === 0 ||
+                  templatePreviewLoading
+                }
+              >
+                Apply{templatePreview?.matchedCampaigns.length
+                  ? ` (${Math.min(templatePreview.matchedCampaigns.length, BULK_ATTACH_CAP)} campaigns)`
+                  : ""}
               </Button>
             </div>
           </div>
