@@ -2257,6 +2257,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // caches the authorised-id list for all creatives in this launch.
     const igValidator = createIgActorValidator(adAccountId, launchToken);
 
+    // Pre-resolve page access tokens for the page-level IG actor fallback.
+    // One resolvePageIdentity call per unique pageId; validator caches per-page
+    // IG lists so subsequent validate() calls for the same page don't re-fetch.
+    // This covers agency setups (e.g. 4thefans) where the IG account is linked
+    // to the Page but NOT registered as a BM asset on the ad account (PR #567).
+    const pageTokenMap = new Map<string, string | null>();
+    const phasePageIds = [
+      ...new Set(
+        launchCreatives
+          .map((c) => c.identity.pageId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    for (const pid of phasePageIds) {
+      try {
+        const ident = await resolvePageIdentity(pid, userFbToken);
+        pageTokenMap.set(pid, ident.pageAccessToken ?? null);
+      } catch {
+        pageTokenMap.set(pid, null);
+      }
+    }
+
     for (const creative of launchCreatives) {
       const cStart = Date.now();
 
@@ -2267,11 +2289,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      // Validate the IG actor id once per creative (validator caches the
-      // /instagram_accounts list so subsequent creatives don't re-fetch).
+      // Validate the IG actor id — BM-asset first, page-level fallback second.
+      // Validator caches each list so multiple creatives on the same page/account
+      // don't re-fetch.
       const rawIgActorId = creative.identity.instagramActorId ?? "";
-      const validatedIgActorId =
-        rawIgActorId ? await igValidator.validate(rawIgActorId) : null;
+      const creativePageId = creative.identity.pageId ?? "";
+      const creativePageToken = pageTokenMap.get(creativePageId) ?? null;
+      const validatedIgActorId = rawIgActorId
+        ? await igValidator.validate(rawIgActorId, {
+            pageId: creativePageId || undefined,
+            pageToken: creativePageToken,
+          })
+        : null;
 
       // TODO(2026-06-12): remove after Aberdeen relaunch confirms validator result.
       console.error(
@@ -2283,13 +2312,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           returnedNull: validatedIgActorId === null,
         }),
       );
-
-      if (!validatedIgActorId && rawIgActorId) {
-        console.error(
-          `[buildCreativePayload] IG actor validation failed: page=${creative.identity.pageId} ` +
-            `ig=${rawIgActorId} adAccount=${adAccountId} — falling back to page-only`,
-        );
-      }
 
       let creativePayload;
       try {

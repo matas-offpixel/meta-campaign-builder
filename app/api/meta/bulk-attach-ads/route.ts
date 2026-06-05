@@ -45,6 +45,7 @@ import {
   validateCreativePayload,
 } from "@/lib/meta/creative";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
+import { resolvePageIdentity } from "@/lib/meta/page-token";
 import {
   classifyLaunchMetaCode,
   mapLaunchTokenError,
@@ -228,6 +229,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // One validator per launch — fetches /instagram_accounts at most once.
   const igValidator = createIgActorValidator(adAccountId, token);
 
+  // Pre-resolve page access tokens for the page-level IG actor fallback.
+  // Covers agency setups (e.g. 4thefans) where the IG is linked to the Page
+  // but not registered as a BM asset on the ad account (PR #567).
+  const pageTokenMap = new Map<string, string | null>();
+  const uniquePageIds = [
+    ...new Set(
+      newCreatives
+        .map((c) => c.identity.pageId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  for (const pid of uniquePageIds) {
+    try {
+      const ident = await resolvePageIdentity(pid, token);
+      pageTokenMap.set(pid, ident.pageAccessToken ?? null);
+    } catch {
+      pageTokenMap.set(pid, null);
+    }
+  }
+
   // ── Per-campaign serial execution ────────────────────────────────────────
   const results: CampaignAttachResult[] = [];
   let totalAdsCreated = 0;
@@ -257,17 +278,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // ── For each creative: create ONE Meta creative, then one ad per ad set ─
     for (const creative of newCreatives) {
-      // Validate IG actor once per creative (validator caches the list).
+      // Validate IG actor — BM-asset first, page-level fallback second.
       const rawIgActorId = creative.identity.instagramActorId ?? "";
-      const validatedIgActorId =
-        rawIgActorId ? await igValidator.validate(rawIgActorId) : null;
-
-      if (!validatedIgActorId && rawIgActorId) {
-        console.error(
-          `[buildCreativePayload] IG actor validation failed: page=${creative.identity.pageId} ` +
-            `ig=${rawIgActorId} adAccount=${adAccountId} — falling back to page-only`,
-        );
-      }
+      const creativePageId = creative.identity.pageId ?? "";
+      const creativePageToken = pageTokenMap.get(creativePageId) ?? null;
+      const validatedIgActorId = rawIgActorId
+        ? await igValidator.validate(rawIgActorId, {
+            pageId: creativePageId || undefined,
+            pageToken: creativePageToken,
+          })
+        : null;
 
       let metaPayload;
       try {
