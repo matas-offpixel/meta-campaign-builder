@@ -16,6 +16,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
+import chromium from "@sparticuz/chromium";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
@@ -149,10 +150,17 @@ export async function POST(): Promise<NextResponse> {
         `renderId=${renderId} cwd=${process.cwd()} bundlePath=${bundlePath}`,
     );
 
+    // Resolve a Lambda-friendly Chromium binary. @sparticuz/chromium ships
+    // the bundled shared libs (libnspr4, libnss3, fonts, etc.) that Vercel's
+    // Node runtime lacks. Without this Remotion's default Chrome download
+    // fails to launch with "libnspr4.so: cannot open shared object file".
+    const browserExecutable = await chromium.executablePath();
+
     const composition = await selectComposition({
       serveUrl: bundlePath,
       id: COMPOSITION_ID,
       inputProps,
+      browserExecutable,
     });
 
     const renderStart = Date.now();
@@ -167,6 +175,7 @@ export async function POST(): Promise<NextResponse> {
       pixelFormat: "yuv420p",
       crf: 23,
       muted: true,
+      browserExecutable,
     });
 
     const renderMs = Date.now() - renderStart;

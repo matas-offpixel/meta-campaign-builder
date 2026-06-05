@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
       // The renderer itself ships sub-packages with worker entrypoints that
       // get dynamically required; include them too to be safe.
       "./node_modules/@remotion/renderer/**/*",
+      // @sparticuz/chromium ships a Lambda-friendly Chromium binary + its
+      // required shared libs. Force-include so the Vercel function can launch
+      // Chrome (the stock Vercel Node runtime is missing libnspr4, libnss3,
+      // fonts, etc.). Without this Remotion fails to launch any browser.
+      "./node_modules/@sparticuz/chromium/**/*",
     ],
   },
   experimental: {
