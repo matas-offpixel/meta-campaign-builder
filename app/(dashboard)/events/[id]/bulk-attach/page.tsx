@@ -3,18 +3,17 @@
 /**
  * /events/[id]/bulk-attach
  *
- * Three-step flow for attaching new creatives to multiple live Meta campaigns:
- *   Step 0 — Select campaigns (multi-select picker, sticky footer)
- *   Step 1 — Upload & configure creatives (stripped-down wizard Creatives step)
- *   Step 2 — Review & launch (Asset × Campaign matrix + launch button)
+ * Four-step flow for attaching new creatives to explicitly-selected ad sets
+ * across multiple live Meta campaigns:
  *
- * No audiences, budget, or scheduling — those are inherited from the existing
- * ad sets on Meta's side. New ads are created ACTIVE (codebase default since
- * PRs #540/#541).
+ *   Step 0 — Select campaigns   (multi-select picker)
+ *   Step 1 — Select ad sets     (per-campaign ad set picker, all pre-selected)
+ *   Step 2 — Configure creatives (stripped-down wizard step)
+ *   Step 3 — Review & launch    (Asset × Campaign matrix + actual ad counts)
+ *
+ * All new ads created ACTIVE (codebase default since PRs #540/#541).
  *
  * Usage: /events/[id]/bulk-attach?adAccountId=act_xxx
- * The adAccountId is required to fetch live campaigns. If absent, the page
- * shows an input for the user to enter it.
  */
 
 import { useState, useCallback, use } from "react";
@@ -25,6 +24,7 @@ import { ArrowLeft, CheckCircle2, AlertCircle, Loader2, ChevronRight } from "luc
 import { Button } from "@/components/ui/button";
 import { Creatives } from "@/components/steps/creatives";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
+import { AdSetPicker } from "@/components/bulk-attach/ad-set-picker";
 import { createDefaultCreative } from "@/lib/campaign-defaults";
 import type { AdCreativeDraft, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
@@ -36,14 +36,14 @@ interface PageProps {
   searchParams: Promise<{ adAccountId?: string }>;
 }
 
-type Step = 0 | 1 | 2;
+type Step = 0 | 1 | 2 | 3;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Step indicator ───────────────────────────────────────────────────────────
 
 function StepIndicator({ step }: { step: Step }) {
-  const labels = ["Select campaigns", "Configure creatives", "Review & launch"];
+  const labels = ["Select campaigns", "Select ad sets", "Configure creatives", "Review & launch"];
   return (
-    <ol className="flex items-center gap-0 text-xs">
+    <ol className="flex flex-wrap items-center gap-0 text-xs">
       {labels.map((label, i) => {
         const active = step === i;
         const done = step > i;
@@ -56,7 +56,13 @@ function StepIndicator({ step }: { step: Step }) {
               {done ? "✓" : i + 1}
             </span>
             <span
-              className={active ? "font-medium text-foreground" : done ? "text-foreground/70" : "text-muted-foreground"}
+              className={
+                active
+                  ? "font-medium text-foreground"
+                  : done
+                    ? "text-foreground/70"
+                    : "text-muted-foreground"
+              }
             >
               {label}
             </span>
@@ -78,26 +84,25 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
 
   const router = useRouter();
 
-  // ── Ad account (required for campaign picker) ─────────────────────────────
+  // ── Ad account ────────────────────────────────────────────────────────────
   const [adAccountId, setAdAccountId] = useState(initialAdAccountId ?? "");
   const [adAccountInput, setAdAccountInput] = useState(initialAdAccountId ?? "");
 
-  // ── Step state ────────────────────────────────────────────────────────────
+  // ── Step ──────────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>(0);
 
-  // Step 0: multi-select campaign selection
-  // Set<campaignId> lives here (parent) so it survives Load More pagination.
+  // ── Step 0: campaign selection ────────────────────────────────────────────
   const [selectedCampaigns, setSelectedCampaigns] = useState<Map<string, MetaCampaignSummary>>(
     new Map(),
   );
 
-  const handleToggle = useCallback((campaign: MetaCampaignSummary) => {
+  const handleToggleCampaign = useCallback((campaign: MetaCampaignSummary) => {
     setSelectedCampaigns((prev) => {
       const next = new Map(prev);
       if (next.has(campaign.id)) {
         next.delete(campaign.id);
       } else {
-        if (next.size >= BULK_ATTACH_CAP) return prev; // hard cap enforced in UI too
+        if (next.size >= BULK_ATTACH_CAP) return prev;
         next.set(campaign.id, campaign);
       }
       return next;
@@ -106,13 +111,35 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
 
   const selectedIds = new Set(selectedCampaigns.keys());
 
-  // Step 1: creatives
+  // ── Step 1: ad set selection ──────────────────────────────────────────────
+  // Map<campaignId, Set<adSetId>> — parent-owned for back/forward persistence
+  const [campaignAdSets, setCampaignAdSets] = useState<Map<string, Set<string>>>(new Map());
+
+  // Validation: every campaign must have ≥1 ad set selected
+  const allCampaignsHaveAdSets =
+    campaignAdSets.size > 0 &&
+    Array.from(selectedCampaigns.keys()).every(
+      (cid) => (campaignAdSets.get(cid)?.size ?? 0) > 0,
+    );
+
+  const adSetValidationError = !allCampaignsHaveAdSets
+    ? "Each selected campaign must have at least one ad set selected."
+    : null;
+
+  // ── Step 2: creatives ─────────────────────────────────────────────────────
   const [creatives, setCreatives] = useState<AdCreativeDraft[]>([createDefaultCreative()]);
 
-  // Step 2: launch state
+  // ── Step 3: launch ────────────────────────────────────────────────────────
   const [launching, setLaunching] = useState(false);
   const [launchResult, setLaunchResult] = useState<BulkAttachResult | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
+
+  // ── Computed totals ───────────────────────────────────────────────────────
+  const totalSelectedAdSets = Array.from(campaignAdSets.values()).reduce(
+    (sum, s) => sum + s.size,
+    0,
+  );
+  const totalAdsToCreate = totalSelectedAdSets * creatives.length;
 
   // ── Ad account commit ─────────────────────────────────────────────────────
   const commitAdAccount = () => {
@@ -125,13 +152,20 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const handleLaunch = async () => {
     setLaunching(true);
     setLaunchError(null);
+
+    // Convert Map<campaignId, Set<adSetId>> → Record<campaignId, adSetId[]>
+    const campaignAdSetsPayload: Record<string, string[]> = {};
+    for (const [cid, adSetSet] of campaignAdSets.entries()) {
+      campaignAdSetsPayload[cid] = Array.from(adSetSet);
+    }
+
     try {
       const res = await fetch("/api/meta/bulk-attach-ads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           adAccountId,
-          metaCampaignIds: Array.from(selectedCampaigns.keys()),
+          campaignAdSets: campaignAdSetsPayload,
           newCreatives: creatives,
         }),
       });
@@ -146,6 +180,15 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     } finally {
       setLaunching(false);
     }
+  };
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
+  const handleReset = () => {
+    setLaunchResult(null);
+    setStep(0);
+    setSelectedCampaigns(new Map());
+    setCampaignAdSets(new Map());
+    setCreatives([createDefaultCreative()]);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -170,12 +213,13 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       {/* Step indicator */}
       <StepIndicator step={step} />
 
-      {/* ── Ad account guard ──────────────────────────────────────────────── */}
+      {/* ── Ad account guard ───────────────────────────────────────────────── */}
       {!adAccountId && (
         <div className="rounded-lg border border-border bg-card p-5 space-y-3">
           <p className="text-sm font-medium">Enter the Meta ad account ID</p>
           <p className="text-xs text-muted-foreground">
-            Format: <code className="rounded bg-muted px-1.5 py-0.5">act_1234567890</code> or just
+            Format:{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5">act_1234567890</code> or just
             the numeric part.
           </p>
           <div className="flex gap-2">
@@ -196,24 +240,21 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
 
       {adAccountId && (
         <>
-          {/* ── STEP 0: Select campaigns ────────────────────────────────── */}
+          {/* ── STEP 0: Select campaigns ─────────────────────────────────── */}
           {step === 0 && (
             <div className="space-y-4">
               <div className="rounded-lg border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-medium text-sm">Select campaigns</h2>
-                  <span className="text-xs text-muted-foreground">
-                    Max {BULK_ATTACH_CAP} per batch
-                  </span>
+                  <span className="text-xs text-muted-foreground">Max {BULK_ATTACH_CAP}</span>
                 </div>
                 <CampaignMultiPicker
                   adAccountId={adAccountId}
                   selectedIds={selectedIds}
-                  onToggle={handleToggle}
+                  onToggle={handleToggleCampaign}
                 />
               </div>
 
-              {/* Sticky footer */}
               {selectedCampaigns.size > 0 && (
                 <div className="sticky bottom-4 rounded-lg border border-primary/30 bg-card px-4 py-3 shadow-lg flex items-center justify-between gap-4">
                   <div className="text-sm">
@@ -227,9 +268,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                         .map((c) => c.name || c.id)
                         .join(", ")
                         .slice(0, 60)}
-                      {Array.from(selectedCampaigns.values())
-                        .map((c) => c.name || c.id)
-                        .join(", ").length > 60 && "…"}
+                      {Array.from(selectedCampaigns.values()).map((c) => c.name || c.id).join(", ")
+                        .length > 60 && "…"}
                     </span>
                   </div>
                   <Button size="sm" onClick={() => setStep(1)}>
@@ -240,19 +280,58 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
             </div>
           )}
 
-          {/* ── STEP 1: Configure creatives ─────────────────────────────── */}
+          {/* ── STEP 1: Select ad sets ───────────────────────────────────── */}
           {step === 1 && (
             <div className="space-y-4">
               <div className="rounded-lg border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-medium text-sm">Configure creatives</h2>
+                  <h2 className="font-medium text-sm">Select ad sets</h2>
                   <Button variant="ghost" size="sm" onClick={() => setStep(0)}>
                     <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
                   </Button>
                 </div>
                 <p className="mb-4 text-xs text-muted-foreground">
-                  Assets are uploaded once and attached to all selected campaigns. No
-                  audiences, budget, or scheduling — those come from the existing ad sets.
+                  New ads will be created in the checked ad sets only. All ad sets are
+                  pre-selected — uncheck any you want to skip.
+                </p>
+                <AdSetPicker
+                  adAccountId={adAccountId}
+                  campaigns={selectedCampaigns}
+                  selection={campaignAdSets}
+                  onSelectionChange={setCampaignAdSets}
+                />
+              </div>
+
+              {adSetValidationError && (
+                <p className="text-xs text-destructive">{adSetValidationError}</p>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => setStep(2)}
+                  disabled={!allCampaignsHaveAdSets}
+                  title={adSetValidationError ?? undefined}
+                >
+                  Continue <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 2: Configure creatives ──────────────────────────────── */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-card p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="font-medium text-sm">Configure creatives</h2>
+                  <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
+                    <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
+                  </Button>
+                </div>
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Assets are uploaded once. No audiences, budget, or scheduling — those come
+                  from the existing ad sets.
                 </p>
                 <Creatives
                   creatives={creatives}
@@ -264,7 +343,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="flex justify-end">
                 <Button
                   size="sm"
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(3)}
                   disabled={
                     creatives.length === 0 ||
                     !creatives.every((c) =>
@@ -280,18 +359,18 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
             </div>
           )}
 
-          {/* ── STEP 2: Review & launch ──────────────────────────────────── */}
-          {step === 2 && !launchResult && (
+          {/* ── STEP 3: Review & launch ──────────────────────────────────── */}
+          {step === 3 && !launchResult && (
             <div className="space-y-4">
               <div className="rounded-lg border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-medium text-sm">Review</h2>
-                  <Button variant="ghost" size="sm" onClick={() => setStep(1)} disabled={launching}>
+                  <Button variant="ghost" size="sm" onClick={() => setStep(2)} disabled={launching}>
                     <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
                   </Button>
                 </div>
 
-                {/* Asset × Campaign matrix */}
+                {/* Asset × Campaign matrix with actual ad counts */}
                 <div className="mb-4 overflow-x-auto rounded-md border border-border">
                   <table className="w-full text-xs">
                     <thead className="bg-muted/60">
@@ -313,11 +392,14 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                       {creatives.map((cr) => (
                         <tr key={cr.id} className="border-t border-border">
                           <td className="px-3 py-2 font-medium">{cr.name || "(untitled)"}</td>
-                          {Array.from(selectedCampaigns.keys()).map((cid) => (
-                            <td key={cid} className="px-3 py-2 text-muted-foreground">
-                              1 creative + ads per ad set
-                            </td>
-                          ))}
+                          {Array.from(selectedCampaigns.keys()).map((cid) => {
+                            const count = campaignAdSets.get(cid)?.size ?? 0;
+                            return (
+                              <td key={cid} className="px-3 py-2 text-muted-foreground">
+                                {count} ad{count !== 1 ? "s" : ""}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -326,8 +408,9 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
 
                 <p className="text-xs text-muted-foreground">
                   {creatives.length} creative{creatives.length !== 1 ? "s" : ""} ×{" "}
-                  {selectedCampaigns.size} campaign{selectedCampaigns.size !== 1 ? "s" : ""}.
-                  New ads will be <strong>ACTIVE</strong> immediately.
+                  {selectedCampaigns.size} campaign{selectedCampaigns.size !== 1 ? "s" : ""} ={" "}
+                  <strong>{totalAdsToCreate} ad{totalAdsToCreate !== 1 ? "s" : ""}</strong> to be
+                  created <strong>ACTIVE</strong>.
                 </p>
 
                 {launchError && (
@@ -358,7 +441,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="rounded-lg border border-border bg-card p-5">
                 <h2 className="mb-4 font-medium text-sm">Launch results</h2>
 
-                {/* Summary row */}
                 <div className="mb-4 flex flex-wrap gap-4 text-sm">
                   <div>
                     <span className="font-semibold text-success">{launchResult.totalAdsCreated}</span>
@@ -379,12 +461,11 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   )}
                 </div>
 
-                {/* Per-campaign breakdown */}
                 <ul className="space-y-2">
                   {launchResult.campaigns.map((r) => {
-                    const name =
-                      selectedCampaigns.get(r.campaignId)?.name ?? r.campaignId;
-                    const ok = !r.error && r.creativesFailed.length === 0 && r.adsFailed === 0;
+                    const name = selectedCampaigns.get(r.campaignId)?.name ?? r.campaignId;
+                    const ok =
+                      !r.error && r.creativesFailed.length === 0 && r.adsFailed === 0;
                     return (
                       <li
                         key={r.campaignId}
@@ -406,7 +487,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                                 {r.adsCreated} ad{r.adsCreated !== 1 ? "s" : ""} created
                                 {r.adsFailed > 0 && `, ${r.adsFailed} failed`}
                                 {" · "}
-                                {r.adSetsFound} ad set{r.adSetsFound !== 1 ? "s" : ""}
+                                {r.adSetsFound} ad set{r.adSetsFound !== 1 ? "s" : ""} targeted
                               </p>
                             )}
                             {r.creativesFailed.map((cf) => (
@@ -423,16 +504,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               </div>
 
               <div className="flex gap-2 justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setLaunchResult(null);
-                    setStep(0);
-                    setSelectedCampaigns(new Map());
-                    setCreatives([createDefaultCreative()]);
-                  }}
-                >
+                <Button variant="outline" size="sm" onClick={handleReset}>
                   Start another batch
                 </Button>
                 <Button size="sm" onClick={() => router.push(`/events/${eventId}`)}>
