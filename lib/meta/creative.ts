@@ -83,10 +83,91 @@ export interface DegreesOfFreedomSpec {
   creative_features_spec?: Record<string, CreativeFeatureOptOut>;
 }
 
+// ─── asset_feed_spec types (Placement Asset Customization) ────────────────────
+//
+// Per-placement creative: one asset per placement bucket via
+// asset_customization_rules. Used by buildMultiPlacementCreative so Feed renders
+// the 4:5 asset and Stories/Reels render the 9:16 asset.
+//
+// Reference: Meta Marketing API → Placement Asset Customization
+//   https://developers.facebook.com/documentation/ads-commerce/marketing-api/dynamic-creative/placement-asset-customization
+
+export interface MetaAdLabel {
+  name: string;
+}
+
+export interface AssetFeedImage {
+  hash: string;
+  adlabels: MetaAdLabel[];
+}
+
+export interface AssetFeedVideo {
+  video_id: string;
+  thumbnail_url?: string;
+  adlabels: MetaAdLabel[];
+}
+
+export interface AssetFeedText {
+  text: string;
+  adlabels?: MetaAdLabel[];
+}
+
+export interface AssetFeedLinkUrl {
+  website_url: string;
+  adlabels?: MetaAdLabel[];
+}
+
+/**
+ * Placement targeting for one customization rule. An **empty object** (`{}`)
+ * marks the default / catch-all rule (matches every placement not claimed by a
+ * more specific rule) — this is the documented fallback mechanism, see the
+ * Threads example in Meta's Placement Asset Customization guide.
+ */
+export interface CustomizationSpec {
+  publisher_platforms?: string[];
+  facebook_positions?: string[];
+  instagram_positions?: string[];
+}
+
+export interface AssetCustomizationRule {
+  customization_spec: CustomizationSpec;
+  /** Required for SINGLE_IMAGE rules — references an image's adlabel name. */
+  image_label?: MetaAdLabel;
+  /** Required for SINGLE_VIDEO rules — references a video's adlabel name. */
+  video_label?: MetaAdLabel;
+}
+
+export interface AssetFeedSpec {
+  images?: AssetFeedImage[];
+  videos?: AssetFeedVideo[];
+  bodies?: AssetFeedText[];
+  titles?: AssetFeedText[];
+  descriptions?: AssetFeedText[];
+  link_urls?: AssetFeedLinkUrl[];
+  call_to_action_types?: string[];
+  /** ["SINGLE_VIDEO"] or ["SINGLE_IMAGE"] — single-format per placement. */
+  ad_formats?: string[];
+  /** "PLACEMENT" for Placement Asset Customization. */
+  optimization_type?: string;
+  /**
+   * The per-placement rules. **At least two are required** by Meta for any
+   * asset_feed_spec that uses customization rules. The presence of this
+   * (non-empty) array is what distinguishes a user-configured placement spec
+   * from an Advantage+ / Dynamic-Creative auto spec (which has no rules).
+   */
+  asset_customization_rules?: AssetCustomizationRule[];
+}
+
 export interface MetaCreativePayload {
   name: string;
   /** Used for new ads (link / image) */
   object_story_spec?: MetaObjectStorySpec;
+  /**
+   * Per-placement asset feed. When present, `object_story_spec` carries only
+   * `page_id` (no link_data / video_data) — the assets live here. See
+   * {@link buildMultiPlacementCreative}.
+   */
+  asset_feed_spec?: AssetFeedSpec;
   /** Used for existing FB Page post boosts: "{pageId}_{postId}" */
   object_story_id?: string;
   /**
@@ -346,6 +427,159 @@ function buildVideoCreative(creative: AdCreativeDraft): MetaCreativePayload {
   };
 }
 
+// ─── Per-placement (multi-aspect-ratio) creative ──────────────────────────────
+
+/**
+ * Placement bucket for the **vertical** (9:16) asset → Stories & Reels.
+ *
+ * The Feed bucket is intentionally NOT enumerated: its rule uses an empty
+ * `customization_spec` ({}) so it acts as the catch-all default, covering Feed
+ * plus every placement the vertical rule does not claim (marketplace, search,
+ * right-hand column, audience network, …). This guarantees full placement
+ * coverage with no gaps — critical because the ad sets use automatic
+ * placements, so every placement is eligible.
+ */
+const STORIES_REELS_SPEC: CustomizationSpec = {
+  publisher_platforms: ["facebook", "instagram"],
+  facebook_positions: ["story", "facebook_reels"],
+  instagram_positions: ["story", "reels"],
+};
+
+const FEED_RATIOS = ["4:5", "1:1"] as const;
+const VERTICAL_RATIO = "9:16" as const;
+
+interface MultiPlacementPlan {
+  mediaKind: "video" | "image";
+  /** 4:5 (preferred) or 1:1 — the Feed / default asset. */
+  feed: { videoId?: string; assetHash?: string; thumbnailUrl?: string; aspectRatio: string };
+  /** 9:16 — the Stories/Reels asset. */
+  vertical: { videoId?: string; assetHash?: string; thumbnailUrl?: string; aspectRatio: string };
+}
+
+/**
+ * Detect whether a creative has both a Feed (4:5/1:1) asset AND a vertical
+ * (9:16) asset of the **same media kind**, each with a valid uploaded ID.
+ *
+ * Returns null (→ caller falls through to the single-asset path) when:
+ *   - only one aspect ratio is filled, or
+ *   - the two filled buckets are mixed media (image + video), or
+ *   - there is no 9:16 asset (no Stories/Reels target).
+ *
+ * Only looks at `assetVariations[0]` — same scope as the single-asset pickers.
+ */
+function detectMultiPlacement(creative: AdCreativeDraft): MultiPlacementPlan | null {
+  const assets = creative.assetVariations?.[0]?.assets ?? [];
+
+  const vertical = assets.find((a) => a.aspectRatio === VERTICAL_RATIO);
+  const feed = FEED_RATIOS.map((r) => assets.find((a) => a.aspectRatio === r)).find(Boolean);
+  if (!vertical || !feed) return null;
+
+  const bothVideo = !!vertical.videoId && !!feed.videoId;
+  const bothImage = !!vertical.assetHash && !!feed.assetHash;
+
+  // Same-media only. Mixed image+video per-placement is a documented follow-up.
+  if (!bothVideo && !bothImage) return null;
+
+  const mediaKind: "video" | "image" = bothVideo ? "video" : "image";
+  return {
+    mediaKind,
+    feed: {
+      videoId: feed.videoId,
+      assetHash: feed.assetHash,
+      thumbnailUrl: feed.thumbnailUrl,
+      aspectRatio: feed.aspectRatio,
+    },
+    vertical: {
+      videoId: vertical.videoId,
+      assetHash: vertical.assetHash,
+      thumbnailUrl: vertical.thumbnailUrl,
+      aspectRatio: vertical.aspectRatio,
+    },
+  };
+}
+
+const FEED_LABEL = "feed_asset";
+const STORY_LABEL = "story_asset";
+
+/**
+ * Build a per-placement creative using `asset_feed_spec` +
+ * `asset_customization_rules`: the 4:5/1:1 asset renders in Feed (and all
+ * non-vertical placements), the 9:16 asset renders in Stories & Reels.
+ *
+ * Shape follows Meta's Placement Asset Customization guide:
+ *   - `object_story_spec` carries ONLY `page_id` — assets live in
+ *     `asset_feed_spec`. (Do NOT also send link_data / video_data here; mixing
+ *     them with asset_feed_spec triggers code=100.)
+ *   - Two rules (Meta requires ≥2): the vertical rule (explicit Stories/Reels
+ *     placements) and the Feed default rule (empty customization_spec catch-all).
+ *   - `bodies` / `titles` / `descriptions` / `link_urls` carry no adlabels, so
+ *     they apply across every placement (copy is not customized per placement).
+ *
+ * Caller (`buildCreativePayload`) only routes here when `detectMultiPlacement`
+ * returns a plan, so both buckets are guaranteed present and same-media.
+ */
+function buildMultiPlacementCreative(
+  creative: AdCreativeDraft,
+  plan: MultiPlacementPlan,
+): MetaCreativePayload {
+  const caption = pickPrimaryCaption(creative);
+  const cta = mapCTAToMeta(creative.cta);
+
+  const spec: AssetFeedSpec = {
+    bodies: [{ text: caption }],
+    link_urls: [{ website_url: creative.destinationUrl }],
+    call_to_action_types: [cta],
+    optimization_type: "PLACEMENT",
+  };
+
+  if (creative.headline) spec.titles = [{ text: creative.headline }];
+  if (creative.description) spec.descriptions = [{ text: creative.description }];
+
+  if (plan.mediaKind === "video") {
+    spec.ad_formats = ["SINGLE_VIDEO"];
+    spec.videos = [
+      {
+        video_id: plan.feed.videoId!,
+        ...(plan.feed.thumbnailUrl ? { thumbnail_url: plan.feed.thumbnailUrl } : {}),
+        adlabels: [{ name: FEED_LABEL }],
+      },
+      {
+        video_id: plan.vertical.videoId!,
+        ...(plan.vertical.thumbnailUrl ? { thumbnail_url: plan.vertical.thumbnailUrl } : {}),
+        adlabels: [{ name: STORY_LABEL }],
+      },
+    ];
+    spec.asset_customization_rules = [
+      { customization_spec: STORIES_REELS_SPEC, video_label: { name: STORY_LABEL } },
+      // Default catch-all (empty spec) → Feed asset. Must be last.
+      { customization_spec: {}, video_label: { name: FEED_LABEL } },
+    ];
+  } else {
+    spec.ad_formats = ["SINGLE_IMAGE"];
+    spec.images = [
+      { hash: plan.feed.assetHash!, adlabels: [{ name: FEED_LABEL }] },
+      { hash: plan.vertical.assetHash!, adlabels: [{ name: STORY_LABEL }] },
+    ];
+    spec.asset_customization_rules = [
+      { customization_spec: STORIES_REELS_SPEC, image_label: { name: STORY_LABEL } },
+      { customization_spec: {}, image_label: { name: FEED_LABEL } },
+    ];
+  }
+
+  console.error(
+    `[buildMultiPlacementCreative] "${creative.name}": ${plan.mediaKind} per-placement` +
+      ` — feed=${plan.feed.aspectRatio} story=${plan.vertical.aspectRatio}` +
+      ` rules=${spec.asset_customization_rules.length}`,
+  );
+
+  return {
+    name: creative.name || "Ad Creative",
+    // page_id only — assets are in asset_feed_spec.
+    object_story_spec: { page_id: creative.identity.pageId },
+    asset_feed_spec: spec,
+  };
+}
+
 function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePayload {
   const source = creative.existingPost?.source ?? "facebook";
   const postId = creative.existingPost?.postId ?? "";
@@ -472,6 +706,19 @@ export function buildCreativePayload(creative: AdCreativeDraft): MetaCreativePay
     );
   }
 
+  // ── Per-placement (multi-aspect-ratio) creative ──────────────────────────
+  // Feature-flagged for safe rollback: when ENABLE_MULTI_PLACEMENT_ASSETS !== "1"
+  // we always use the legacy single-asset path (current production behaviour).
+  // When ON, a creative that has BOTH a Feed (4:5/1:1) and a vertical (9:16)
+  // asset of the same media kind is sent with asset_feed_spec so each placement
+  // renders its own asset. Single-aspect creatives are untouched.
+  if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
+    const plan = detectMultiPlacement(creative);
+    if (plan) {
+      return buildMultiPlacementCreative(creative, plan);
+    }
+  }
+
   if (hasVideoId) {
     return buildVideoCreative(creative);
   }
@@ -593,9 +840,16 @@ const STRICT_MODE_LINK_DATA_STRIPS: readonly string[] = [
   "branded_content_shared_to_sponsor_status",
 ];
 
-/** Top-level keys on the creative payload that imply auto-content. */
+/**
+ * Top-level keys on the creative payload that imply auto-content.
+ *
+ * NOTE: `asset_feed_spec` is deliberately NOT in this unconditional list.
+ * It is handled specially in {@link sanitizeCreativeForStrictMode}: a
+ * user-configured Placement Asset Customization spec (one that has
+ * `asset_customization_rules`) is **preserved**, while an Advantage+ /
+ * Dynamic-Creative auto spec (no rules) is **stripped**.
+ */
 const STRICT_MODE_TOP_LEVEL_STRIPS: readonly string[] = [
-  "asset_feed_spec",
   "dynamic_ad_voice",
   "product_set_id",
   "applink_treatment",
@@ -622,6 +876,14 @@ export interface StrictModeSanitizationReport {
   strippedLinkData: string[];
   /** `creative_features_spec` keys we forced to OPT_OUT. */
   optedOutFeatures: string[];
+  /**
+   * How the top-level `asset_feed_spec` (if any) was handled:
+   *   - "preserved" — user-configured Placement Asset Customization
+   *     (has `asset_customization_rules`); kept intact.
+   *   - "stripped"  — Advantage+ / Dynamic-Creative auto spec (no rules); removed.
+   *   - "absent"    — no `asset_feed_spec` on the payload.
+   */
+  assetFeedSpec: "preserved" | "stripped" | "absent";
 }
 
 /**
@@ -631,10 +893,13 @@ export interface StrictModeSanitizationReport {
  *
  * Concretely this:
  *   1. Removes top-level fields that introduce auto content
- *      (`asset_feed_spec`, `product_set_id`, `template_url_spec`, …).
- *   2. Strips known sitelink / dynamic-children / app-link fields from
+ *      (`product_set_id`, `template_url_spec`, …).
+ *   2. Conditionally handles `asset_feed_spec`: preserves a user-configured
+ *      Placement Asset Customization spec (one with `asset_customization_rules`)
+ *      and strips an Advantage+ / Dynamic-Creative auto spec (no rules).
+ *   3. Strips known sitelink / dynamic-children / app-link fields from
  *      `object_story_spec.link_data`.
- *   3. Adds `degrees_of_freedom_spec.creative_features_spec` with every
+ *   4. Adds `degrees_of_freedom_spec.creative_features_spec` with every
  *      enhancement forced to `enroll_status: "OPT_OUT"`.
  *
  * Inputs that the user explicitly chose are **never touched**: page id,
@@ -658,6 +923,27 @@ export function sanitizeCreativeForStrictMode(
     if (key in bag) {
       delete bag[key];
       strippedTopLevel.push(key);
+    }
+  }
+
+  // ── asset_feed_spec: preserve user-configured, strip Advantage+ auto ──────
+  // Discrimination (doc-backed):
+  //   - Placement Asset Customization (ours) ALWAYS has asset_customization_rules
+  //     with explicit placements → user configured this → PRESERVE.
+  //   - Dynamic Creative / Advantage+ uses asset_feed_spec WITHOUT customization
+  //     rules ("For Dynamic Creative, asset_feed_spec should not have
+  //     customization rules" — Meta docs) → auto-generated → STRIP.
+  let assetFeedSpec: StrictModeSanitizationReport["assetFeedSpec"] = "absent";
+  if ("asset_feed_spec" in bag && bag.asset_feed_spec) {
+    const afs = bag.asset_feed_spec as { asset_customization_rules?: unknown };
+    const rules = afs.asset_customization_rules;
+    const hasRules = Array.isArray(rules) && rules.length > 0;
+    if (hasRules) {
+      assetFeedSpec = "preserved";
+    } else {
+      delete bag.asset_feed_spec;
+      strippedTopLevel.push("asset_feed_spec");
+      assetFeedSpec = "stripped";
     }
   }
 
@@ -706,5 +992,6 @@ export function sanitizeCreativeForStrictMode(
     strippedTopLevel,
     strippedLinkData,
     optedOutFeatures,
+    assetFeedSpec,
   };
 }

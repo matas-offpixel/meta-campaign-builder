@@ -109,6 +109,7 @@ ENABLE_AI_AUTOTAG=
 DROPBOX_ACCESS_TOKEN=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
+ENABLE_MULTI_PLACEMENT_ASSETS=
 ```
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
@@ -127,6 +128,26 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 > Without it the tagger silently skips (no error, no tags written). Requires
 > `ANTHROPIC_API_KEY` to also be present. Check cron logs for
 > `autotag_enabled=false` to confirm the env var state.
+
+> **`ENABLE_MULTI_PLACEMENT_ASSETS`** must be set to `"1"` in Vercel prod env
+> vars to activate **per-placement creative rendering**. When ON, a creative
+> with both a Feed (4:5/1:1) and a vertical (9:16) asset of the same media kind
+> is sent to Meta with `asset_feed_spec` + `asset_customization_rules` so Feed
+> renders the 4:5 asset and Stories/Reels render the 9:16 asset (see
+> `buildMultiPlacementCreative` in `lib/meta/creative.ts`). When unset/`"0"` the
+> legacy single-asset path runs (one priority-chosen asset cross-published to all
+> placements) — this is the safe rollback. Single-aspect and mixed-media (image +
+> video) creatives always use the legacy path regardless of the flag. Applies to
+> BOTH the standalone wizard launch and bulk-attach (shared `buildCreativePayload`).
+>
+> **Known limitation (pre-fix launches):** every launch before this fix shipped a
+> single priority-chosen asset cross-published to all placements, regardless of
+> how many aspect ratios were uploaded. Stories/Reels viewers saw Feed assets
+> cropped to vertical. Already-running ads (e.g. Innervisions, J2 Melodic, Black
+> Butter, Deep House Bible, 4thefans, BB26) keep serving cross-published creative
+> until their next refresh/relaunch. Only NEW launches with the flag ON serve
+> correct per-placement creative. Background + root-cause: see
+> `docs/AUDIT_DUAL_PLACEMENT_ASSET_2026-06-05.md` (PR #560).
 
 ### Database
 
