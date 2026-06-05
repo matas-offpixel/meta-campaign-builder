@@ -11,21 +11,41 @@
  *   Step 2 — Configure creatives (stripped-down wizard step)
  *   Step 3 — Review & launch    (Asset × Campaign matrix + actual ad counts)
  *
- * All new ads created ACTIVE (codebase default since PRs #540/#541).
+ * Draft persistence:
+ *   - localStorage autosave on every state change (convenience, non-authoritative)
+ *   - Explicit "Save draft" → POST /api/bulk-attach-drafts (Supabase, user-scoped RLS)
+ *   - "Resume draft" modal on Step 0 lists saved drafts for the event
+ *   - On mount: if localStorage has unsaved state, show "Resume previous session?" banner
  *
- * Usage: /events/[id]/bulk-attach?adAccountId=act_xxx
+ * All new ads created ACTIVE (codebase default since PRs #540/#541).
  */
 
-import { useState, useCallback, use } from "react";
+import { useState, useCallback, use, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, AlertCircle, Loader2, ChevronRight } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  ChevronRight,
+  Save,
+  FolderOpen,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Creatives } from "@/components/steps/creatives";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
 import { AdSetPicker } from "@/components/bulk-attach/ad-set-picker";
 import { createDefaultCreative } from "@/lib/campaign-defaults";
+import {
+  serialiseDraftState,
+  deserialiseDraftState,
+  hasMeaningfulState,
+  defaultDraftName,
+} from "@/lib/bulk-attach/draft-state";
 import type { AdCreativeDraft, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
 
@@ -37,6 +57,14 @@ interface PageProps {
 }
 
 type Step = 0 | 1 | 2 | 3;
+
+/** Minimal shape of a saved draft row returned by the API. */
+interface DraftListItem {
+  id: string;
+  name: string;
+  updated_at: string;
+  event_id: string | null;
+}
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
@@ -83,6 +111,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const { adAccountId: initialAdAccountId } = use(searchParams);
 
   const router = useRouter();
+  const lsKey = `bulk-attach-unsaved-${eventId}`;
 
   // ── Ad account ────────────────────────────────────────────────────────────
   const [adAccountId, setAdAccountId] = useState(initialAdAccountId ?? "");
@@ -112,10 +141,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const selectedIds = new Set(selectedCampaigns.keys());
 
   // ── Step 1: ad set selection ──────────────────────────────────────────────
-  // Map<campaignId, Set<adSetId>> — parent-owned for back/forward persistence
   const [campaignAdSets, setCampaignAdSets] = useState<Map<string, Set<string>>>(new Map());
 
-  // Validation: every campaign must have ≥1 ad set selected
   const allCampaignsHaveAdSets =
     campaignAdSets.size > 0 &&
     Array.from(selectedCampaigns.keys()).every(
@@ -134,12 +161,182 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const [launchResult, setLaunchResult] = useState<BulkAttachResult | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
 
+  // ── Draft save state ──────────────────────────────────────────────────────
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [showNameInput, setShowNameInput] = useState(false);
+  const [draftNameInput, setDraftNameInput] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // ── Resume modal state ────────────────────────────────────────────────────
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [draftsList, setDraftsList] = useState<DraftListItem[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(false);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
+
+  // ── Unsaved-changes banner ────────────────────────────────────────────────
+  const [showUnsavedBanner, setShowUnsavedBanner] = useState(false);
+  const mountedRef = useRef(false);
+
   // ── Computed totals ───────────────────────────────────────────────────────
   const totalSelectedAdSets = Array.from(campaignAdSets.values()).reduce(
     (sum, s) => sum + s.size,
     0,
   );
   const totalAdsToCreate = totalSelectedAdSets * creatives.length;
+
+  // ── localStorage autosave ─────────────────────────────────────────────────
+  // Runs on every meaningful state change. Not debounced — the serialisation is
+  // cheap. Never assume this is authoritative (server draft is the source of truth).
+  useEffect(() => {
+    if (!mountedRef.current) return; // skip the initial render
+    if (!adAccountId) return;
+    try {
+      const serialised = serialiseDraftState({
+        adAccountId,
+        step,
+        selectedCampaigns,
+        campaignAdSets,
+        creatives,
+      });
+      localStorage.setItem(lsKey, JSON.stringify(serialised));
+    } catch {
+      // localStorage may be full or disabled — fail silently
+    }
+  }, [step, selectedCampaigns, campaignAdSets, creatives, adAccountId, lsKey]);
+
+  // ── Mount: check localStorage for unsaved state ───────────────────────────
+  useEffect(() => {
+    mountedRef.current = true;
+    try {
+      const raw = localStorage.getItem(lsKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const live = deserialiseDraftState(parsed);
+      if (live && hasMeaningfulState(live)) {
+        setShowUnsavedBanner(true);
+      }
+    } catch {
+      // ignore corrupt storage
+    }
+  }, [lsKey]);
+
+  // ── Restore from localStorage ─────────────────────────────────────────────
+  const handleRestoreFromLocalStorage = () => {
+    try {
+      const raw = localStorage.getItem(lsKey);
+      if (!raw) return;
+      const live = deserialiseDraftState(JSON.parse(raw));
+      if (!live) return;
+      setAdAccountId(live.adAccountId);
+      setAdAccountInput(live.adAccountId);
+      setStep(live.step as Step);
+      setSelectedCampaigns(live.selectedCampaigns);
+      setCampaignAdSets(live.campaignAdSets);
+      setCreatives(live.creatives);
+    } catch {
+      // ignore
+    } finally {
+      setShowUnsavedBanner(false);
+    }
+  };
+
+  // ── Save draft to Supabase ────────────────────────────────────────────────
+  const openSaveNameInput = () => {
+    setDraftNameInput(defaultDraftName(eventId));
+    setShowNameInput(true);
+    setSaveError(null);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!draftNameInput.trim()) return;
+    setSavingDraft(true);
+    setSaveError(null);
+    try {
+      const state = serialiseDraftState({
+        adAccountId,
+        step,
+        selectedCampaigns,
+        campaignAdSets,
+        creatives,
+      });
+      const res = await fetch("/api/bulk-attach-drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: draftId ?? undefined,
+          eventId,
+          name: draftNameInput.trim(),
+          state,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed");
+      setDraftId(data.draft.id);
+      setShowNameInput(false);
+      // Clear localStorage — server is now authoritative
+      try { localStorage.removeItem(lsKey); } catch { /**/ }
+      // Show "Draft saved" toast for 3 s
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 3000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // ── Load drafts list ──────────────────────────────────────────────────────
+  const handleOpenResumeModal = async () => {
+    setShowResumeModal(true);
+    setDraftsLoading(true);
+    try {
+      const res = await fetch(`/api/bulk-attach-drafts?eventId=${eventId}`);
+      const data = await res.json();
+      setDraftsList((data.drafts ?? []) as DraftListItem[]);
+    } catch {
+      setDraftsList([]);
+    } finally {
+      setDraftsLoading(false);
+    }
+  };
+
+  // ── Load a specific draft ─────────────────────────────────────────────────
+  const handleLoadDraft = async (id: string) => {
+    try {
+      const res = await fetch(`/api/bulk-attach-drafts/${id}`);
+      const data = await res.json();
+      if (!res.ok || !data.draft) return;
+      const live = deserialiseDraftState(data.draft.state);
+      if (!live) return;
+      setDraftId(id);
+      setAdAccountId(live.adAccountId);
+      setAdAccountInput(live.adAccountId);
+      setStep(live.step as Step);
+      setSelectedCampaigns(live.selectedCampaigns);
+      setCampaignAdSets(live.campaignAdSets);
+      setCreatives(live.creatives);
+      setShowResumeModal(false);
+      setShowUnsavedBanner(false);
+    } catch {
+      // ignore — state unchanged on error
+    }
+  };
+
+  // ── Delete a draft ────────────────────────────────────────────────────────
+  const handleDeleteDraft = async (id: string) => {
+    setDeletingDraftId(id);
+    try {
+      await fetch(`/api/bulk-attach-drafts/${id}`, { method: "DELETE" });
+      setDraftsList((prev) => prev.filter((d) => d.id !== id));
+      if (draftId === id) setDraftId(null);
+    } catch {
+      // ignore
+    } finally {
+      setDeletingDraftId(null);
+    }
+  };
 
   // ── Ad account commit ─────────────────────────────────────────────────────
   const commitAdAccount = () => {
@@ -152,13 +349,10 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const handleLaunch = async () => {
     setLaunching(true);
     setLaunchError(null);
-
-    // Convert Map<campaignId, Set<adSetId>> → Record<campaignId, adSetId[]>
     const campaignAdSetsPayload: Record<string, string[]> = {};
     for (const [cid, adSetSet] of campaignAdSets.entries()) {
       campaignAdSetsPayload[cid] = Array.from(adSetSet);
     }
-
     try {
       const res = await fetch("/api/meta/bulk-attach-ads", {
         method: "POST",
@@ -189,6 +383,8 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
     setSelectedCampaigns(new Map());
     setCampaignAdSets(new Map());
     setCreatives([createDefaultCreative()]);
+    setDraftId(null);
+    try { localStorage.removeItem(lsKey); } catch { /**/ }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -202,13 +398,71 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
             <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
           </Button>
         </Link>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="font-heading text-lg tracking-wide">Bulk attach creatives</h1>
           <p className="text-xs text-muted-foreground">
             Upload new assets once, attach across multiple live campaigns.
           </p>
         </div>
+        {/* Save draft controls */}
+        <div className="flex shrink-0 items-center gap-2">
+          {savedToast && (
+            <span className="text-xs text-success font-medium">Draft saved</span>
+          )}
+          {!launchResult && (
+            <>
+              {showNameInput ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={draftNameInput}
+                    onChange={(e) => setDraftNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveDraft();
+                      if (e.key === "Escape") setShowNameInput(false);
+                    }}
+                    placeholder="Draft name…"
+                    className="w-44 rounded-md border border-border bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <Button size="sm" onClick={handleSaveDraft} disabled={savingDraft || !draftNameInput.trim()}>
+                    {savingDraft ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setShowNameInput(false)}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                  {saveError && <span className="text-xs text-destructive">{saveError}</span>}
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={openSaveNameInput} disabled={!adAccountId}>
+                  <Save className="mr-1 h-3.5 w-3.5" />
+                  Save draft
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Unsaved changes banner */}
+      {showUnsavedBanner && (
+        <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <span className="flex-1">You have unsaved changes from a previous session.</span>
+          <Button size="sm" variant="outline" onClick={handleRestoreFromLocalStorage}>
+            Resume
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setShowUnsavedBanner(false);
+              try { localStorage.removeItem(lsKey); } catch { /**/ }
+            }}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
 
       {/* Step indicator */}
       <StepIndicator step={step} />
@@ -246,7 +500,13 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="rounded-lg border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-medium text-sm">Select campaigns</h2>
-                  <span className="text-xs text-muted-foreground">Max {BULK_ATTACH_CAP}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Max {BULK_ATTACH_CAP}</span>
+                    <Button variant="ghost" size="sm" onClick={handleOpenResumeModal}>
+                      <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                      Saved drafts
+                    </Button>
+                  </div>
                 </div>
                 <CampaignMultiPicker
                   adAccountId={adAccountId}
@@ -370,7 +630,6 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   </Button>
                 </div>
 
-                {/* Asset × Campaign matrix with actual ad counts */}
                 <div className="mb-4 overflow-x-auto rounded-md border border-border">
                   <table className="w-full text-xs">
                     <thead className="bg-muted/60">
@@ -514,6 +773,79 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Resume drafts modal ───────────────────────────────────────────── */}
+      {showResumeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h2 className="font-medium text-sm">Saved drafts for this event</h2>
+              <Button variant="ghost" size="sm" onClick={() => setShowResumeModal(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto px-5 py-3">
+              {draftsLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </div>
+              ) : draftsList.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No saved drafts for this event yet.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {draftsList.map((d) => (
+                    <li
+                      key={d.id}
+                      className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{d.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {new Date(d.updated_at).toLocaleString("en-GB", {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleLoadDraft(d.id)}
+                      >
+                        Resume
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteDraft(d.id)}
+                        disabled={deletingDraftId === d.id}
+                        title="Delete draft"
+                      >
+                        {deletingDraftId === d.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="border-t border-border px-5 py-3 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setShowResumeModal(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
