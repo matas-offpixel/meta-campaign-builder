@@ -2302,17 +2302,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           })
         : null;
 
-      // TODO(2026-06-12): remove after Aberdeen relaunch confirms validator result.
-      console.error(
-        "[IG_VALIDATOR_RESULT]",
-        JSON.stringify({
-          adAccountId,
-          requestedIgId: rawIgActorId || "(none)",
-          validatedIgId: validatedIgActorId,
-          returnedNull: validatedIgActorId === null,
-        }),
-      );
-
       let creativePayload;
       try {
         creativePayload = buildCreativePayload(creative, {
@@ -2349,9 +2338,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         })();
 
         // Branch-specific identity fields:
-        //   ig_existing_post  → instagram_user_id (content account id that owns the post)
+        //   ig_existing_post  → instagram_user_id at top level (content account id)
         //   fb_existing_post  → object_story_id only; no IG field needed
-        //   new_ad            → page_id only; instagram_actor_id intentionally omitted
+        //   new_ad            → object_story_spec.instagram_user_id when validated,
+        //                       otherwise page_id only (page-only identity)
         const isIgExistingPost = creativeBranch === "ig_existing_post";
         const isFbExistingPost = creativeBranch === "fb_existing_post";
         const igUserIdFinal = creativePayload.instagram_user_id ?? "(NOT SET)";
@@ -2376,10 +2366,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             );
           }
           if (isFbExistingPost) {
-            return `\n  [instagram_actor_id]      OMITTED ✓ (fb_existing_post uses object_story_id)`;
+            return `\n  [instagram_user_id]       OMITTED ✓ (fb_existing_post uses object_story_id)`;
           }
-          // new_ad: page_id only, no IG actor needed
-          return `\n  [instagram_actor_id]      OMITTED ✓ (page-only identity for new_ad)`;
+          // new_ad: instagram_user_id inside object_story_spec when validated;
+          // omitted when validator returned null (page-only fallback).
+          const newAdIgId = creativePayload.object_story_spec?.instagram_user_id;
+          return newAdIgId
+            ? `\n  [instagram_user_id]       SET ✓ (${newAdIgId}) — IG placements enabled`
+            : `\n  [instagram_user_id]       OMITTED (page-only identity — IG placements via page)`;
         })();
 
         console.log(
