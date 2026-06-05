@@ -123,6 +123,20 @@ export async function POST(): Promise<NextResponse> {
   const storagePath = `remotion-renders/${user.id}/${renderId}.mp4`;
   const tempFile = path.join(os.tmpdir(), `remotion-reel-${renderId}.mp4`);
 
+  // === Vercel Lambda writable-fs workaround ===
+  // process.cwd() is /var/task on Vercel and that filesystem is read-only.
+  // Remotion's Chrome download path is derived from process.cwd() — it tries
+  // mkdir('/var/task/.remotion/chrome-headless-shell') and fails with ENOENT.
+  // Redirect cwd to /tmp (writable, ephemeral 512 MB) for the duration of the
+  // render. `bundlePath` was already captured above as an ABSOLUTE path so
+  // the cwd swap doesn't break bundle resolution. We restore the original cwd
+  // in the finally block so subsequent requests on the same warm instance
+  // aren't affected.
+  const ORIGINAL_CWD = process.cwd();
+  const REMOTION_TMP_CWD = "/tmp/remotion-cwd";
+  await fs.mkdir(REMOTION_TMP_CWD, { recursive: true });
+  process.chdir(REMOTION_TMP_CWD);
+
   try {
     const inputProps = {
       photos: renderInput.inputProps.photos,
@@ -132,7 +146,7 @@ export async function POST(): Promise<NextResponse> {
     console.error(
       `[render-reel] START compositionId=${COMPOSITION_ID} ` +
         `photos=${inputProps.photos.length} framesPerPhoto=${inputProps.framesPerPhoto} ` +
-        `renderId=${renderId}`,
+        `renderId=${renderId} cwd=${process.cwd()} bundlePath=${bundlePath}`,
     );
 
     const composition = await selectComposition({
@@ -198,6 +212,11 @@ export async function POST(): Promise<NextResponse> {
     console.error(`[render-reel] ERROR renderId=${renderId}:`, message);
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
+    try {
+      process.chdir(ORIGINAL_CWD);
+    } catch (cwdErr) {
+      console.error(`[render-reel] failed to restore cwd: ${cwdErr instanceof Error ? cwdErr.message : cwdErr}`);
+    }
     await fs.unlink(tempFile).catch(() => {});
   }
 }
