@@ -16,53 +16,63 @@ Meta ad account — which is a client-level resource — not to a single event.
 A 4thefans buyer list applies across all 4thefans events.
 
 The backend route (`POST /api/meta/customer-audience-upload`) is unchanged —
-it already accepts `adAccountId` in the body, not `eventId`.
+it already accepts `adAccountId` in the body.
 
 ## Scope / files
 
 **New:**
 - `components/dashboard/clients/customer-audience-wizard.tsx` — "use client" 4-step wizard,
-  adapted from the event page in PR #547 (props: `clientId`, `clientName`, `adAccountId`)
+  adapted from the event page in PR #547. Props: `clientId`, `clientName`, `adAccountId`.
+  Back button + success link → `/clients/{id}`.
 - `app/(dashboard)/clients/[id]/customer-audience/page.tsx` — server wrapper: loads
-  `client.name` + `client.meta_ad_account_id` via `getClientByIdServer`, renders wizard
+  `client.name` + `client.meta_ad_account_id` via `getClientByIdServer` (RLS-scoped),
+  renders the wizard.
 
 **Modified:**
-- `app/(dashboard)/audiences/[clientId]/audience-list-actions.tsx` — adds "Upload customer list"
-  pill linking to `/clients/${clientId}/customer-audience`
-- `components/dashboard/clients/client-detail.tsx` — adds "Upload customer audience" button in
-  PageHeader actions (conditional on `client.meta_ad_account_id` being set)
-- `docs/session-logs/pr-547-cursor-customer-audience-upload.md` — adds "Superseded by PR #548"
-  notice at top
+- `app/(dashboard)/audiences/[clientId]/audience-list-actions.tsx` — "Upload customer list"
+  pill added after "New audience", linking to `/clients/${clientId}/customer-audience`
+- `components/dashboard/clients/client-detail.tsx` — "Upload customer audience" button added
+  to PageHeader actions after "Rollout", conditional on `client.meta_ad_account_id` being set
+- `docs/session-logs/pr-547-cursor-customer-audience-upload.md` — "Superseded by PR #548"
+  notice added at top
 
 **Deleted:**
-- `app/(dashboard)/events/[id]/customer-audience/page.tsx` — removed (no 404; file gone)
+- `app/(dashboard)/events/[id]/customer-audience/page.tsx` — event-scoped page removed;
+  no 404 guard needed since Next.js returns 404 for missing routes automatically
 
-**Cleaned from event-detail:**
-- `components/dashboard/events/event-detail.tsx` — "Upload customer audience" button removed from
-  Campaigns tab (PR #547 added it; this PR removes it per the new architecture)
+**Cleaned:**
+- `components/dashboard/events/event-detail.tsx` — "Upload customer audience" button removed
+  from Campaigns tab (was added by PR #547; this PR removes it — customer audiences are
+  not event-scoped)
+
+**Backend unchanged:**
+- `app/api/meta/customer-audience-upload/route.ts` — no changes
+- `app/api/meta/customer-audience-upload/list/route.ts` — no changes
+- `lib/customer-audience/` — no changes
+- All tests from PR #547 remain valid
 
 ## PII Safety
 
 All PII safety properties from PR #547 are preserved:
 - Hashing still happens in the browser (`CustomerAudienceWizard` → `hashAudienceBatch`)
-- Server route only receives SHA-256 hashes
-- No PII in localStorage or logs
-- "Clear all" re-mounts the wizard (flushes in-memory state)
+- Server route receives only SHA-256 hashes + audience config
+- No PII in localStorage or server logs
+- "Clear all" re-mounts the wizard, flushing in-memory state
 
 ## Validation
 
 - [x] `npx eslint` on all changed files — 0 errors
-- [x] `npx tsc --noEmit` — no new errors in customer-audience files
+- [x] `npx tsc --noEmit` — no new errors in new files
 - [ ] Vercel preview build green
-- [ ] Click-through: `/clients/[id]` → "Upload customer audience" → wizard flows → success panel
+- [ ] Click-through: `/clients/[id]` → "Upload customer audience" (visible only when ad account set) → wizard → success panel → "Back to [client name]"
 - [ ] Click-through: `/audiences/[clientId]` → "Upload customer list" pill → same wizard
-- [ ] Confirm `/events/[id]/customer-audience` returns 404 (file deleted)
-- [ ] Confirm event detail Campaigns tab no longer shows the upload button
+- [ ] Confirm `/events/[id]/customer-audience` returns 404
+- [ ] Confirm event detail Campaigns tab has NO upload button
 
 ## Notes
 
-- The server page uses `getClientByIdServer` (RLS-scoped) to enforce ownership.
-- The button in client-detail is conditional: only shown when `client.meta_ad_account_id`
-  is set. The wizard itself also shows a helpful "no ad account" message if the ID is empty.
-- The Audience Builder pill always shows (the clientId there equals the client UUID, same
-  as `/clients/[id]`). If the client has no ad account, the wizard will surface the error.
+- `getClientByIdServer` enforces RLS so only the owning user can load the client.
+- Button in client-detail is conditional on `client.meta_ad_account_id` — clients without
+  a Meta ad account don't see it (the wizard shows a helpful error if id is empty).
+- The Audience Builder pill always shows regardless of ad account, mirroring how all other
+  audience actions work.
