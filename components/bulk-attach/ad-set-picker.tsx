@@ -21,6 +21,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { MetaCampaignSummary } from "@/lib/types";
 import type { ListAdSetsResult, AdSetInfo } from "@/app/api/meta/bulk-attach-ads/list-adsets/route";
+import { adSetNameMatches } from "@/lib/bulk-attach/template-matcher";
 
 interface AdSetPickerProps {
   adAccountId: string;
@@ -33,6 +34,14 @@ interface AdSetPickerProps {
    */
   selection: Map<string, Set<string>>;
   onSelectionChange: (updated: Map<string, Set<string>>) => void;
+  /**
+   * When set (from a loaded template), only ad sets whose names match ANY of
+   * these case-insensitive substrings are pre-selected. Matched rows get a
+   * green "Template match" badge; unmatched patterns trigger an amber warning.
+   *
+   * Empty array or undefined = original "select all" behaviour.
+   */
+  adSetMatchPattern?: string[];
 }
 
 // ─── Badge helpers ────────────────────────────────────────────────────────────
@@ -53,11 +62,16 @@ export function AdSetPicker({
   campaigns,
   selection,
   onSelectionChange,
+  adSetMatchPattern,
 }: AdSetPickerProps) {
   const [fetchedAdSets, setFetchedAdSets] = useState<Map<string, AdSetInfo[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [partialWarning, setPartialWarning] = useState<string | null>(null);
+
+  // Whether template matching is active
+  const hasMatchPattern = (adSetMatchPattern?.length ?? 0) > 0;
+  const matchPattern = { ad_set_name_contains: adSetMatchPattern ?? [] };
 
   useEffect(() => {
     const campaignIds = Array.from(campaigns.keys());
@@ -99,12 +113,18 @@ export function AdSetPicker({
           );
         }
 
-        // Pre-select all ad sets, but only for campaigns that have NO existing
-        // selection yet (so back-navigation preserves the user's edits).
+        // Pre-select ad sets for campaigns with no existing selection.
+        // With a match pattern: only select pattern-matching ad sets.
+        // Without: select all (original behaviour).
         const next = new Map(selection);
         for (const [campaignId, adSets] of metaMap.entries()) {
           if (!next.has(campaignId) || next.get(campaignId)!.size === 0) {
-            next.set(campaignId, new Set(adSets.map((a) => a.id)));
+            const idsToSelect = hasMatchPattern
+              ? adSets
+                  .filter((a) => adSetNameMatches(matchPattern, a.name))
+                  .map((a) => a.id)
+              : adSets.map((a) => a.id);
+            next.set(campaignId, new Set(idsToSelect));
           }
         }
         onSelectionChange(next);
@@ -217,6 +237,23 @@ export function AdSetPicker({
             </div>
 
             {/* Ad set list */}
+            {/* Unmatched pattern warning for this campaign */}
+            {hasMatchPattern && (() => {
+              const unmatched = (adSetMatchPattern ?? []).filter(
+                (t) => !adSets.some((a) => a.name.toLowerCase().includes(t.toLowerCase())),
+              );
+              return unmatched.length > 0 ? (
+                <div className="border-b border-border bg-warning/5 px-4 py-2 text-xs text-warning flex items-center gap-1.5">
+                  <span>Template pattern not found in this campaign:</span>
+                  {unmatched.map((t) => (
+                    <code key={t} className="rounded bg-warning/10 px-1.5 py-0.5 font-mono">
+                      {t}
+                    </code>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+
             {adSets.length === 0 ? (
               <p className="px-4 py-4 text-sm text-muted-foreground">
                 No ad sets found for this campaign.
@@ -225,6 +262,8 @@ export function AdSetPicker({
               <ul className="divide-y divide-border">
                 {adSets.map((adSet) => {
                   const checked = selectedSet.has(adSet.id);
+                  const isTemplateMatch =
+                    hasMatchPattern && adSetNameMatches(matchPattern, adSet.name);
                   return (
                     <li key={adSet.id}>
                       <label className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors">
@@ -237,6 +276,11 @@ export function AdSetPicker({
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {adSet.name}
                         </span>
+                        {isTemplateMatch && (
+                          <Badge variant="success" className="shrink-0 text-[10px]">
+                            Template match
+                          </Badge>
+                        )}
                         <AdSetStatusBadge status={adSet.status} />
                       </label>
                     </li>
