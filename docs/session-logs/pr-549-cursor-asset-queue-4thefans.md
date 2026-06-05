@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number: 549
+- **URL: https://github.com/matas-offpixel/meta-campaign-builder/pull/549
 - **Branch:** `cursor/asset-queue-4thefans`
 
 ## Summary
