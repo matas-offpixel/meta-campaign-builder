@@ -49,8 +49,13 @@ function RemotionRoot() {
           };
         }}
         fps={30}
-        width={1080}
-        height={1920}
+        // 720x1280 (down from 1080x1920): the 3 GB Vercel Lambda OOMs on the
+        // larger size with 40+ photos. 720p vertical is still natively accepted
+        // by Reels (>=540p) and TikTok (>=540p). Cover-fit Img in PhotoReelStatic
+        // uses width: "100%" / height: "100%" so no composition-side changes
+        // are required to follow the frame size down.
+        width={720}
+        height={1280}
         defaultProps={photoReelDefaultProps}
       />
     </>
