@@ -86,13 +86,6 @@ export function createIgActorValidator(
       `https://graph.facebook.com/${META_API_VERSION}/${withActPrefix(adAccountId)}/instagram_accounts` +
       `?fields=id&limit=100&access_token=${accessToken}`;
 
-    // TODO(2026-06-12): drop this URL log once Aberdeen relaunch confirms the
-    // prefix fix in prod. Token is stripped from the logged URL.
-    console.error(
-      `[ig-actor-validator] resolving instagram_accounts via ` +
-        url.replace(/access_token=[^&]+/, "access_token=REDACTED"),
-    );
-
     try {
       const res = await fetch(url);
       if (!res.ok) {
@@ -105,11 +98,6 @@ export function createIgActorValidator(
       }
       const data = (await res.json()) as { data?: { id: string }[] };
       authorisedIds = (data.data ?? []).map((a) => a.id);
-      // TODO(2026-06-12): remove after Aberdeen relaunch confirms validator list.
-      console.error(
-        `[ig-actor-validator] adAccount=${adAccountId} instagram_accounts response: ` +
-          `count=${authorisedIds.length} ids=[${authorisedIds.join(",")}]`,
-      );
       return authorisedIds;
     } catch (err) {
       console.error(

@@ -1548,6 +1548,18 @@ export async function createMetaCreative(
   token?: string,
 ): Promise<{ id: string }> {
   const accountPath = withActPrefix(adAccountId);
+  // TODO(2026-06-12): remove after Aberdeen relaunch confirms instagram_user_id rename.
+  // Logs the IG identity field present in the wire payload — no tokens.
+  console.error(
+    "[adcreatives POST]",
+    JSON.stringify({
+      adAccountId,
+      creativeName: payload.name,
+      instagram_user_id_in_spec: payload.object_story_spec?.instagram_user_id ?? null,
+      instagram_user_id_top: payload.instagram_user_id ?? null,
+      has_asset_feed_spec: !!payload.asset_feed_spec,
+    }),
+  );
   return graphPost<{ id: string }>(
     `/${accountPath}/adcreatives`,
     payload as unknown as Record<string, unknown>,
@@ -1567,16 +1579,6 @@ export async function createMetaAd(
   token?: string,
 ): Promise<{ id: string }> {
   const accountPath = withActPrefix(adAccountId);
-  // TODO(2026-06-12): remove after Aberdeen relaunch confirms wire payload.
-  // creative_id / ad_set_id / name are logged verbatim. No tokens in payload.
-  console.error(
-    "[META_WIRE_PAYLOAD] /ads POST",
-    JSON.stringify({
-      adAccountId,
-      traceId: crypto.randomUUID(),
-      body: payload,
-    }),
-  );
   return graphPost<{ id: string }>(
     `/${accountPath}/ads`,
     payload as unknown as Record<string, unknown>,

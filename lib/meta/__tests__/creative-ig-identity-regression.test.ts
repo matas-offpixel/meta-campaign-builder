@@ -1,30 +1,26 @@
 /**
- * Regression test for Meta code=100 subcode=1772103
- * "Select an Instagram account or Facebook Page".
+ * Regression tests for IG identity in new-ad creative payloads.
  *
- * Root cause (see docs/AUDIT_DUAL_IMAGE_1772103_2026-06-05.md):
- *   Commit b57a98e removed `instagram_actor_id` from new-ad link/video
- *   creatives, so `buildCreativePayload` emitted a PAGE-ONLY object_story_spec.
- *   When the ad set serves Instagram placements (Stories/Reels — exactly what a
- *   dual 4:5 + 9:16 upload targets), Meta rejected the /ads call with 1772103
- *   because the creative had no Instagram identity to render IG placements.
- *
- * Fix (PR #563):
- *   `buildCreativePayload` now accepts `opts.validatedIgActorId`. When the
- *   caller passes a pre-validated actor id (verified against the ad account's
- *   /instagram_accounts list via `createIgActorValidator`), the builders set
- *   `object_story_spec.instagram_actor_id` — enabling Instagram placements
- *   while avoiding the b57a98e "unauthorised actor" (#100) regression for
- *   accounts where the IG id is not in the authorised list.
+ * History:
+ *   b57a98e — removed instagram_user_id from new-ad payloads entirely
+ *             → caused 1772103 (IG placements rejected for page-only creatives)
+ *   PR #563 — re-added the field but used the legacy key `instagram_actor_id`
+ *             → Meta rejected with (#100) even when the id was valid
+ *   PR #569 — audit proved the issue: `instagram_actor_id` is rejected by Meta
+ *             v21+ on this account; `instagram_user_id` is accepted (proven via
+ *             validate_only probes on v21.0 and v23.0)
+ *   PR #570 — renamed `instagram_actor_id` → `instagram_user_id` in all three
+ *             new-ad builders (link, video, multi-placement)
  *
  * Test cases:
- *   A — validated IG actor → instagram_actor_id present in payload
- *   B — unvalidated IG actor (validation returned null) → field omitted
- *   C — no IG account on the draft → field omitted
+ *   A — validated IG id → `instagram_user_id` present in object_story_spec
+ *   B — unvalidated IG id (validator returned null) → field omitted (b57a98e protection)
+ *   C — no IG account on draft → field omitted
+ *   D — field-name guard: `instagram_actor_id` must NEVER appear in the payload
  */
 
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 
 import { buildCreativePayload } from "../creative.ts";
 import type { AdCreativeDraft } from "../../types.ts";
@@ -46,8 +42,8 @@ function imageCreative(): AdCreativeDraft {
     assetMode: "dual",
     identity: {
       pageId: "PAGE_4THEFANS",
-      instagramAccountId: "1750802446345627",
-      instagramActorId: "1750802446345627",
+      instagramAccountId: "17841407313865620",
+      instagramActorId: "17841407313865620",
     },
     assetVariations: [
       {
@@ -94,77 +90,113 @@ function videoCreative(): AdCreativeDraft {
 
 function creativeNoIgActor(): AdCreativeDraft {
   const c = imageCreative();
-  // No IG actor — pure page-only creative (e.g. Facebook-only campaign)
   c.identity = { pageId: "PAGE_4THEFANS" };
   return c;
 }
 
-// ── Test case A: validated IG actor → instagram_actor_id present ─────────────
+// ── Case A: validated IG id → instagram_user_id present ──────────────────────
 
-describe("Case A — validated IG actor: instagram_actor_id present in payload", () => {
-  it("image creative with validated actor id includes instagram_actor_id", () => {
+describe("Case A — validated IG id: instagram_user_id present in payload", () => {
+  it("image creative with validated id includes instagram_user_id in object_story_spec", () => {
     const payload = buildCreativePayload(imageCreative(), {
-      validatedIgActorId: "1750802446345627",
+      validatedIgActorId: "17841407313865620",
     });
     assert.equal(
-      payload.object_story_spec?.instagram_actor_id,
-      "1750802446345627",
-      "image creative must send instagram_actor_id when caller provides a validated id — " +
+      payload.object_story_spec?.instagram_user_id,
+      "17841407313865620",
+      "image creative must send instagram_user_id when caller provides a validated id — " +
         "page-only identity causes Meta 1772103 at /ads creation for IG placements",
     );
   });
 
-  it("video creative with validated actor id includes instagram_actor_id", () => {
+  it("video creative with validated id includes instagram_user_id in object_story_spec", () => {
     const payload = buildCreativePayload(videoCreative(), {
-      validatedIgActorId: "1750802446345627",
+      validatedIgActorId: "17841407313865620",
     });
     assert.equal(
-      payload.object_story_spec?.instagram_actor_id,
-      "1750802446345627",
-      "video creative must send instagram_actor_id when caller provides a validated id",
+      payload.object_story_spec?.instagram_user_id,
+      "17841407313865620",
+      "video creative must send instagram_user_id when caller provides a validated id",
     );
   });
 });
 
-// ── Test case B: unvalidated IG actor → field omitted, no exception ──────────
-// This is the b57a98e protection: an id that is NOT in the ad account's
-// /instagram_accounts list returns null from the validator. The builder must
-// omit the field rather than sending an unauthorised id (which causes #100).
+// ── Case B: unvalidated IG id → field omitted (b57a98e protection) ───────────
 
-describe("Case B — unvalidated IG actor: instagram_actor_id omitted", () => {
+describe("Case B — unvalidated IG id: instagram_user_id omitted", () => {
   it("image creative falls back to page-only when validatedIgActorId is undefined", () => {
-    // Simulates validator.validate() returning null → caller passes undefined
     const payload = buildCreativePayload(imageCreative(), {
       validatedIgActorId: undefined,
     });
     assert.equal(
-      payload.object_story_spec?.instagram_actor_id,
+      payload.object_story_spec?.instagram_user_id,
       undefined,
-      "must omit instagram_actor_id when validation returned null (unauthorised actor guard — b57a98e protection)",
+      "must omit instagram_user_id when validation returned null (b57a98e protection — " +
+        "sending an unauthorised id causes Meta #100)",
     );
-    assert.ok(
-      payload.object_story_spec?.page_id,
-      "page_id must still be present for page-only fallback",
-    );
+    assert.ok(payload.object_story_spec?.page_id, "page_id must still be present");
   });
 
   it("video creative falls back to page-only when validatedIgActorId is undefined", () => {
     const payload = buildCreativePayload(videoCreative(), {
       validatedIgActorId: undefined,
     });
-    assert.equal(payload.object_story_spec?.instagram_actor_id, undefined);
+    assert.equal(payload.object_story_spec?.instagram_user_id, undefined);
     assert.ok(payload.object_story_spec?.page_id);
   });
 });
 
-// ── Test case C: no IG account on draft → field omitted, no error ────────────
+// ── Case C: no IG account on draft → field omitted ───────────────────────────
 
-describe("Case C — no IG account: instagram_actor_id omitted without error", () => {
-  it("creative with no instagramActorId omits instagram_actor_id", () => {
-    // No opts.validatedIgActorId — because identity has no IG actor, the route
-    // would not call validator.validate() and passes no opts.
+describe("Case C — no IG account: instagram_user_id omitted without error", () => {
+  it("creative with no instagramActorId omits instagram_user_id", () => {
     const payload = buildCreativePayload(creativeNoIgActor());
-    assert.equal(payload.object_story_spec?.instagram_actor_id, undefined);
+    assert.equal(payload.object_story_spec?.instagram_user_id, undefined);
     assert.ok(payload.object_story_spec?.page_id);
+  });
+});
+
+// ── Case D: field-name guard — instagram_actor_id must NEVER appear ───────────
+//
+// Meta Marketing API (v21+ confirmed via validate_only) rejects payloads that
+// use the legacy `instagram_actor_id` field even when the id value is correct.
+// This test prevents any regression back to the wrong field name (PR #569).
+
+describe("Case D — field-name guard: instagram_actor_id must not appear in payload", () => {
+  it("image creative with validated id uses instagram_user_id, NOT instagram_actor_id", () => {
+    const payload = buildCreativePayload(imageCreative(), {
+      validatedIgActorId: "17841407313865620",
+    });
+    const raw = JSON.stringify(payload);
+    assert.equal(
+      payload.object_story_spec?.instagram_user_id,
+      "17841407313865620",
+      "instagram_user_id must be set",
+    );
+    assert.ok(
+      !raw.includes("instagram_actor_id"),
+      `payload must not contain the legacy field "instagram_actor_id" — Meta v21+ rejects it (#100). ` +
+        `Payload: ${raw}`,
+    );
+  });
+
+  it("video creative with validated id uses instagram_user_id, NOT instagram_actor_id", () => {
+    const payload = buildCreativePayload(videoCreative(), {
+      validatedIgActorId: "17841407313865620",
+    });
+    const raw = JSON.stringify(payload);
+    assert.ok(
+      !raw.includes("instagram_actor_id"),
+      `video payload must not contain legacy "instagram_actor_id". Payload: ${raw}`,
+    );
+  });
+
+  it("image creative without validated id also omits instagram_actor_id", () => {
+    const payload = buildCreativePayload(imageCreative());
+    const raw = JSON.stringify(payload);
+    assert.ok(
+      !raw.includes("instagram_actor_id"),
+      `page-only payload must not contain "instagram_actor_id". Payload: ${raw}`,
+    );
   });
 });

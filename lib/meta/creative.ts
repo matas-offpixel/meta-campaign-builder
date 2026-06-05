@@ -60,8 +60,18 @@ interface MetaVideoData {
 
 interface MetaObjectStorySpec {
   page_id: string;
-  /** Instagram account ID for placements. Maps to creative.identity.instagramAccountId. */
-  instagram_actor_id?: string;
+  /**
+   * Instagram account id for new-ad placements. Required for IG Stories/Reels
+   * rendering when the creative is a new_ad (not an existing post).
+   *
+   * Use `instagram_user_id` — the Marketing API (v21+) rejects the legacy
+   * `instagram_actor_id` field name with (#100) even when the id is valid.
+   * Proven via validate_only probes on v21.0 and v23.0 (PR #569 audit).
+   *
+   * Value = the IG business account id from /{pageId}/instagram_accounts or
+   * the BM-asset list (validated by createIgActorValidator / PR #568).
+   */
+  instagram_user_id?: string;
   link_data?: MetaLinkData;
   video_data?: MetaVideoData;
 }
@@ -177,24 +187,23 @@ export interface MetaCreativePayload {
    *
    * Correct payload shape (Meta Marketing API):
    *   { name, source_instagram_media_id, instagram_user_id }
-   *   — do NOT combine with instagram_actor_id or object_story_spec.
+   *   — do NOT combine with object_story_spec.
    */
   source_instagram_media_id?: string;
   /**
-   * IG business/creator account id that owns the `source_instagram_media_id`
-   * post. This is the **content account id** (`instagram_business_account.id`
-   * from the Page), NOT the ad-account actor id.
+   * IG business/creator account id — used in two contexts:
    *
-   * Used ONLY with `source_instagram_media_id`. Do NOT send alongside
-   * `instagram_actor_id` — they are mutually exclusive for this creative type.
+   * 1. **Existing-post boosts**: the content account that owns the
+   *    `source_instagram_media_id` post. Send alongside `source_instagram_media_id`,
+   *    NOT with `object_story_spec`.
+   * 2. **New-ad creatives** (v21+): also use `instagram_user_id` inside
+   *    `object_story_spec` (via `MetaObjectStorySpec.instagram_user_id`). The
+   *    legacy `instagram_actor_id` field is rejected by Meta with (#100) even
+   *    when the id value is correct — proven on v21.0 and v23.0 (PR #569).
+   *
+   * Value = IG business account id validated by `createIgActorValidator`.
    */
   instagram_user_id?: string;
-  /**
-   * @deprecated  Use `instagram_user_id` for `source_instagram_media_id` posts.
-   * Still present for `object_story_spec`-based new-ad creatives where
-   * `spec.instagram_actor_id` is set instead.
-   */
-  instagram_actor_id?: string;
   /**
    * Strict-mode opt-outs for Advantage+ creative enhancements. Populated by
    * {@link sanitizeCreativeForStrictMode}; never set directly by the
@@ -347,23 +356,25 @@ function buildLinkCreative(
     if (imageUrl) linkData.image_url = imageUrl;
   }
 
-  // page_id + link_data. instagram_actor_id is added only when the caller has
+  // page_id + link_data. instagram_user_id is added only when the caller has
   // pre-validated it via createIgActorValidator — avoids Meta code=100
-  // "unauthorised actor" (#100) for unverified ids while restoring IG identity
+  // "unauthorised actor" for unverified ids while restoring IG identity
   // for authorised ones (fixes subcode=1772103 for Instagram placements).
+  // NOTE: field is instagram_user_id, NOT instagram_actor_id. The legacy key
+  // is rejected by Meta v21+ even when the id value is correct (PR #569).
   const spec: MetaObjectStorySpec = {
     page_id: creative.identity.pageId,
     link_data: linkData,
   };
   if (validatedIgActorId) {
-    spec.instagram_actor_id = validatedIgActorId;
+    spec.instagram_user_id = validatedIgActorId;
   }
 
   console.log(
     `[buildLinkCreative] "${creative.name}": new_ad` +
       `\n  page_id = ${spec.page_id}` +
-      `\n  instagram_actor_id = ${validatedIgActorId ? "SET (validated)" : "OMITTED (page-only identity)"}` +
-      `\n  payload keys: [name, object_story_spec{page_id, link_data${validatedIgActorId ? ", instagram_actor_id" : ""}}]`,
+      `\n  instagram_user_id = ${validatedIgActorId ? "SET (validated)" : "OMITTED (page-only identity)"}` +
+      `\n  payload keys: [name, object_story_spec{page_id, link_data${validatedIgActorId ? ", instagram_user_id" : ""}}]`,
   );
 
   return {
@@ -411,19 +422,20 @@ function buildVideoCreative(
     videoData.image_url = thumbnailUrl;
   }
 
-  // page_id + video_data. instagram_actor_id added when caller has pre-validated
+  // page_id + video_data. instagram_user_id added when caller has pre-validated
   // via createIgActorValidator — same logic as buildLinkCreative.
+  // NOTE: instagram_user_id, not instagram_actor_id (PR #569).
   const spec: MetaObjectStorySpec = {
     page_id: creative.identity.pageId,
     video_data: videoData,
   };
   if (validatedIgActorId) {
-    spec.instagram_actor_id = validatedIgActorId;
+    spec.instagram_user_id = validatedIgActorId;
   }
 
   const hasThumbnail = Boolean(videoData.image_url);
   console.error(
-    `[buildVideoCreative] "${creative.name}": videoId=${videoId} thumbnail=${thumbnailUrl ?? "(none — Meta will auto-generate)"} instagram_actor_id=${validatedIgActorId ? "SET (validated)" : "OMITTED"}`,
+    `[buildVideoCreative] "${creative.name}": videoId=${videoId} thumbnail=${thumbnailUrl ?? "(none — Meta will auto-generate)"} instagram_user_id=${validatedIgActorId ? "SET (validated)" : "OMITTED"}`,
   );
   if (!hasThumbnail) {
     console.error(
@@ -608,10 +620,11 @@ function buildMultiPlacementCreative(
 
   return {
     name: creative.name || "Ad Creative",
-    // page_id (+ optional instagram_actor_id) — assets are in asset_feed_spec.
+    // page_id (+ optional instagram_user_id) — assets are in asset_feed_spec.
+    // NOTE: instagram_user_id, not instagram_actor_id (PR #569).
     object_story_spec: {
       page_id: creative.identity.pageId,
-      ...(validatedIgActorId ? { instagram_actor_id: validatedIgActorId } : {}),
+      ...(validatedIgActorId ? { instagram_user_id: validatedIgActorId } : {}),
     },
     asset_feed_spec: spec,
   };
@@ -772,19 +785,6 @@ export function buildCreativePayload(
     const plan = detectMultiPlacement(creative);
     if (plan) {
       const _mpp = buildMultiPlacementCreative(creative, plan, validatedIgActorId);
-      // TODO(2026-06-12): remove after Aberdeen relaunch confirms instagram_actor_id in wire payload.
-      // Payload has no tokens — no redaction needed beyond this comment.
-      console.error(
-        "[WIRE_CREATIVE_PAYLOAD]",
-        JSON.stringify({
-          creativeName: creative.name,
-          path: "multi_placement",
-          instagramActorId: _mpp.object_story_spec?.instagram_actor_id ?? null,
-          pageId: _mpp.object_story_spec?.page_id ?? null,
-          hasAssetFeedSpec: !!_mpp.asset_feed_spec,
-          objectStorySpec: _mpp.object_story_spec ?? null,
-        }),
-      );
       return _mpp;
     }
     // Log why we fell through to the single-asset path even though the flag is on.
@@ -812,25 +812,9 @@ export function buildCreativePayload(
     );
   }
 
-  const _payload = hasVideoId
+  return hasVideoId
     ? buildVideoCreative(creative, validatedIgActorId)
     : buildLinkCreative(creative, validatedIgActorId);
-
-  // TODO(2026-06-12): remove after Aberdeen relaunch confirms instagram_actor_id in wire payload.
-  // Payload has no tokens — no redaction needed beyond this comment.
-  console.error(
-    "[WIRE_CREATIVE_PAYLOAD]",
-    JSON.stringify({
-      creativeName: creative.name,
-      path: hasVideoId ? "video" : "link",
-      instagramActorId: _payload.object_story_spec?.instagram_actor_id ?? null,
-      pageId: _payload.object_story_spec?.page_id ?? null,
-      hasAssetFeedSpec: !!_payload.asset_feed_spec,
-      objectStorySpec: _payload.object_story_spec ?? null,
-    }),
-  );
-
-  return _payload;
 }
 
 // ─── Ad payload builder ───────────────────────────────────────────────────────
