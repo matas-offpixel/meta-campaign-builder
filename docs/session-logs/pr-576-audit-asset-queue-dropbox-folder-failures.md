@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 576
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/576
 - **Branch:** `cursor/audit-asset-queue-dropbox-folder-failures`
 
 ## Summary
