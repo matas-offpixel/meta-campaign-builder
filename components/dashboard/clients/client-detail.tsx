@@ -676,6 +676,7 @@ export function ClientDetail({
               clientId={client.id}
               data={campaignsData}
               eventIds={events.map((e) => e.id)}
+              adAccountId={client.meta_ad_account_id ?? null}
             />
           </TabPanel>
 
