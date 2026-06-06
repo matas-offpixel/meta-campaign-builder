@@ -346,9 +346,23 @@ export async function fetchDropboxFileContent(
  *
  * @throws {DropboxFetchError} on 403, 404, size cap, or network error
  */
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const star = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      return star[1];
+    }
+  }
+  const plain = header.match(/filename="?([^";]+)"?/i);
+  return plain?.[1]?.trim() ?? null;
+}
+
 export async function downloadDropboxAsset(
   shareUrl: string,
-): Promise<{ buffer: Buffer; extension: string }> {
+): Promise<{ buffer: Buffer; extension: string; name: string }> {
   const directUrl = toDirectDownloadUrl(shareUrl);
 
   let response: Response;
@@ -382,7 +396,19 @@ export async function downloadDropboxAsset(
   }
 
   const extension = inferExtension(response, directUrl);
-  return { buffer, extension };
+  const dispositionName = filenameFromContentDisposition(
+    response.headers.get("content-disposition"),
+  );
+  const urlName = (() => {
+    try {
+      const segment = new URL(directUrl).pathname.split("/").pop();
+      return segment?.includes(".") ? decodeURIComponent(segment) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const name = dispositionName ?? urlName ?? `asset.${extension}`;
+  return { buffer, extension, name };
 }
 
 // ─── Folder download ──────────────────────────────────────────────────────────

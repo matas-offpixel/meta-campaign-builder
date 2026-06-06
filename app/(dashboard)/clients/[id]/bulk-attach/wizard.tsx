@@ -51,6 +51,14 @@ import {
 } from "@/lib/bulk-attach/draft-state";
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
+import {
+  applyUploadedAssetsToCreative,
+  formatAutoUploadSummary,
+  inferAssetModeFromAspects,
+  MAX_QUEUE_META_UPLOAD,
+  type UploadedQueueAsset,
+} from "@/lib/clients/asset-queue/queue-creative-bind";
+import type { AssetRatio } from "@/lib/types";
 import type { AdCreativeDraft, CTAType, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
 
@@ -172,7 +180,7 @@ function QueueContextBanner({
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         Copy, CTA, and destination URL are pre-filled from the prepared asset.
-        Upload assets from Supabase Storage via the file picker below.
+        Assets auto-upload to Meta when you reach this step — override manually if needed.
       </p>
       {paths.length > 0 && (
         <ul className="mt-2 space-y-1 text-xs">
@@ -274,6 +282,13 @@ function StepIndicator({ step }: { step: Step }) {
 
 // ─── Wizard ───────────────────────────────────────────────────────────────────
 
+type AutoUploadState =
+  | { status: "idle" }
+  | { status: "loading"; message: string }
+  | { status: "success"; message: string }
+  | { status: "partial"; message: string }
+  | { status: "error"; message: string };
+
 export function ClientBulkAttachWizard({
   clientId,
   clientName,
@@ -346,6 +361,11 @@ export function ClientBulkAttachWizard({
       ? buildCreativesFromQueueContext(queueContext, clientSlug)
       : [createDefaultCreative()],
   );
+
+  const [autoUploadState, setAutoUploadState] = useState<AutoUploadState>({
+    status: "idle",
+  });
+  const autoUploadStartedRef = useRef(false);
 
   // ── Step 3: launch ───────────────────────────────────────────────────────────
   const [launching, setLaunching] = useState(false);
@@ -423,6 +443,121 @@ export function ClientBulkAttachWizard({
       // localStorage may be full or disabled
     }
   }, [step, selectedCampaigns, campaignAdSets, creatives, adAccountId, lsKey]);
+
+  // ── Queue auto-upload (step 2, once per mount) ───────────────────────────────
+  useEffect(() => {
+    if (step !== 2 || !queueContext || autoUploadStartedRef.current) return;
+
+    const paths =
+      queueContext.assetBlobUrls.length > 0
+        ? queueContext.assetBlobUrls
+        : queueContext.assetBlobUrl
+          ? [queueContext.assetBlobUrl]
+          : [];
+    if (paths.length === 0) return;
+
+    autoUploadStartedRef.current = true;
+    const controller = new AbortController();
+
+    const run = async () => {
+      const limitNote =
+        paths.length > MAX_QUEUE_META_UPLOAD
+          ? `${paths.length} assets prepared, Meta limit is ${MAX_QUEUE_META_UPLOAD} — uploading the first ${MAX_QUEUE_META_UPLOAD} by aspect priority. `
+          : "";
+      setAutoUploadState({
+        status: "loading",
+        message: `${limitNote}Auto-uploading ${Math.min(paths.length, MAX_QUEUE_META_UPLOAD)} assets…`,
+      });
+
+      try {
+        const res = await fetch(
+          `/api/clients/${clientId}/asset-queue/${queueContext.queueId}/upload-to-meta`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adAccountId }),
+            signal: controller.signal,
+          },
+        );
+
+        const data = (await res.json()) as {
+          assets?: UploadedQueueAsset[];
+          errors?: { fileName: string; error: string }[];
+          truncated?: boolean;
+        };
+
+        if (!res.ok) {
+          throw new Error(
+            typeof data === "object" && data && "error" in data
+              ? String((data as { error?: string }).error)
+              : `Upload failed (${res.status})`,
+          );
+        }
+
+        const uploads = (data.assets ?? []).map((asset) => ({
+          ...asset,
+          aspect: asset.aspect as UploadedQueueAsset["aspect"],
+        }));
+
+        for (const err of data.errors ?? []) {
+          console.error(
+            `[queue auto-upload] failed for ${err.fileName}:`,
+            err.error,
+          );
+        }
+
+        if (uploads.length === 0) {
+          setAutoUploadState({
+            status: "error",
+            message:
+              "Auto-upload failed — use the file picker below to upload manually.",
+          });
+          return;
+        }
+
+        const preferred = inferMediaTypeFromQueue(queueContext);
+        const standardAspects = uploads
+          .map((u) => u.aspect)
+          .filter((a): a is AssetRatio => a !== "other");
+        const assetMode = inferAssetModeFromAspects(standardAspects);
+
+        setCreatives((prev) => {
+          if (prev.length === 0) return prev;
+          const { creative, skippedMediaType, skippedAspect } =
+            applyUploadedAssetsToCreative(prev[0], uploads, preferred);
+          const next = [...prev];
+          next[0] = creative;
+          if (skippedMediaType > 0 || skippedAspect > 0) {
+            console.warn("[queue auto-upload] skipped assets", {
+              skippedMediaType,
+              skippedAspect,
+            });
+          }
+          return next;
+        });
+
+        const summary = formatAutoUploadSummary(uploads, assetMode);
+
+        setAutoUploadState({
+          status: (data.errors?.length ?? 0) > 0 ? "partial" : "success",
+          message: summary,
+        });
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error("[queue auto-upload]", err);
+        setAutoUploadState({
+          status: "error",
+          message:
+            err instanceof Error
+              ? `Auto-upload failed: ${err.message}. Upload manually below.`
+              : "Auto-upload failed — upload manually below.",
+        });
+      }
+    };
+
+    void run();
+    return () => controller.abort();
+  }, [step, queueContext, clientId, adAccountId, clientSlug]);
 
   // ── Mount: check localStorage for unsaved state ──────────────────────────────
   useEffect(() => {
@@ -1134,6 +1269,27 @@ export function ClientBulkAttachWizard({
               those come from the existing ad sets.
             </p>
             {queueContext && <QueueContextBanner queueContext={queueContext} />}
+            {queueContext && autoUploadState.status === "loading" && (
+              <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {autoUploadState.message}
+              </div>
+            )}
+            {queueContext && autoUploadState.status === "success" && (
+              <div className="mb-4 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-200">
+                {autoUploadState.message}
+              </div>
+            )}
+            {queueContext && autoUploadState.status === "partial" && (
+              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                {autoUploadState.message} Some assets failed — upload those manually.
+              </div>
+            )}
+            {queueContext && autoUploadState.status === "error" && (
+              <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {autoUploadState.message}
+              </div>
+            )}
             <Creatives
               creatives={creatives}
               onChange={setCreatives}

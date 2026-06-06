@@ -30,6 +30,7 @@ import {
 } from "@/lib/clients/asset-queue/dropbox";
 import { generateCopy } from "@/lib/clients/asset-queue/copy-generator";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
+import { buildQueueStoragePath } from "@/lib/clients/asset-queue/storage-filename";
 
 export const maxDuration = 300;
 
@@ -93,9 +94,10 @@ export async function POST(
       throw err;
     }
 
-    for (let i = 0; i < folderFiles.length; i++) {
-      const { buffer, extension } = folderFiles[i];
-      const storagePath = `queue/${queueId}/${i}.${extension}`;
+    const usedPaths = new Set<string>();
+    for (const file of folderFiles) {
+      const { buffer, name, extension } = file;
+      const storagePath = buildQueueStoragePath(queueId, name, usedPaths);
       const { error: uploadError } = await serviceClient.storage
         .from("campaign-assets")
         .upload(storagePath, buffer, { contentType: mimeFor(extension), upsert: true });
