@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 586
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/586
 - **Branch:** `cursor/asset-queue-venue-match-and-copy-fixes`
 
 ## Summary
