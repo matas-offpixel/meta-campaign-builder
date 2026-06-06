@@ -24,11 +24,11 @@
  * path as the path argument (e.g. { path: "/V2", shared_link: { url } }). All files
  * from all subfolders are aggregated; no version-pick heuristics are applied.
  *
- * NOTE: When list_folder is called with a shared_link parameter, Dropbox returns folder
- * entries WITHOUT a path_lower field (only "id", "name", ".tag" are present). Files DO
- * include path_lower. parseEntries() handles this: it prefers entry.path_lower when present,
- * and constructs the path from basePath + "/" + name otherwise to avoid the "" fallback
- * re-listing the root and hitting the depth cap.
+ * NOTE: When list_folder is called with a shared_link parameter, Dropbox omits path_lower
+ * from BOTH folder entries AND root-level file entries (only "id", "name", ".tag", "size",
+ * timestamps are present). Files inside subfolders (e.g. /V2/file.mp4) DO include path_lower.
+ * parseEntries() handles both cases: it prefers entry.path_lower when present, and constructs
+ * the path from basePath + "/" + name otherwise to avoid the "" fallback.
  *
  * If a URL returns 403/404 we throw a DropboxFetchError with a code so
  * the caller can set a user-visible error message WITHOUT logging the URL.
@@ -239,9 +239,8 @@ async function listFolderRecursive(
  * Does NOT filter by media extension — that happens in downloadDropboxFolderFiles.
  *
  * When list_folder is called with a shared_link argument, Dropbox omits path_lower
- * from folder entries (only "id", "name", ".tag" are present). In that case we
- * construct the path from basePath + "/" + name to avoid falling back to "" and
- * re-listing the root on every recursion.
+ * from both folder entries AND root-level file entries. In both cases we construct
+ * the path from basePath + "/" + name when path_lower is absent.
  */
 function parseEntries(
   raw: unknown[],
@@ -253,11 +252,14 @@ function parseEntries(
     if (!e || typeof e !== "object") continue;
     const entry = e as Record<string, unknown>;
     if (entry[".tag"] === "file") {
-      files.push({
-        name: String(entry.name ?? ""),
-        path_lower: String(entry.path_lower ?? ""),
-        size: Number(entry.size ?? 0),
-      });
+      const name = String(entry.name ?? "");
+      // Prefer path_lower when Dropbox includes it; fall back to constructing
+      // from basePath + name when it is absent (shared_link listing behaviour for
+      // root-level files — subfolder files always include path_lower).
+      const pathLower = entry.path_lower
+        ? String(entry.path_lower)
+        : `${basePath}/${name}`;
+      files.push({ name, path_lower: pathLower, size: Number(entry.size ?? 0) });
     } else if (entry[".tag"] === "folder") {
       const name = String(entry.name ?? "");
       // Prefer path_lower when Dropbox includes it; fall back to constructing
