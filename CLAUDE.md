@@ -106,7 +106,9 @@ GOOGLE_ADS_TOKEN_KEY=
 EVENTBRITE_TOKEN_KEY=
 ANTHROPIC_API_KEY=
 ENABLE_AI_AUTOTAG=
-DROPBOX_ACCESS_TOKEN=
+DROPBOX_REFRESH_TOKEN=
+DROPBOX_APP_KEY=
+DROPBOX_APP_SECRET=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ENABLE_MULTI_PLACEMENT_ASSETS=
@@ -118,10 +120,18 @@ ENABLE_MULTI_PLACEMENT_ASSETS=
 > vars are retained here in case they are needed for a future feature; leave them unset on Vercel
 > unless you have a specific use case.
 
-> **`DROPBOX_ACCESS_TOKEN`** is required for the asset queue's folder listing to
-> work in production. Generate a long-lived token from the "Off Pixel DB" Dropbox
-> app (scopes: `sharing.read` + `files.metadata.read`). Without it the prepare
-> route falls back to HTML scraping, which is unreliable for some folders.
+> **Dropbox credentials (asset queue folder listing):** Three env vars are required:
+> - `DROPBOX_REFRESH_TOKEN` — long-lived OAuth refresh token; never expires unless
+>   explicitly revoked. Mint via OAuth offline flow with `token_access_type=offline`
+>   (scopes: `sharing.read` + `files.metadata.read`). If the asset queue starts
+>   returning `forbidden` errors after a long idle period, regenerate this token.
+> - `DROPBOX_APP_KEY` — public client_id for the Off Pixel DB Dropbox app. Safe to log.
+> - `DROPBOX_APP_SECRET` — client_secret. Never log.
+>
+> The integration auto-refreshes the short-lived access token using the refresh token
+> before each Dropbox API call. Access tokens are cached in-memory with a 5-minute
+> safety margin on the TTL (default 4h). Refresh tokens never expire. `DROPBOX_ACCESS_TOKEN`
+> has been removed — do not set it anywhere.
 >
 > **`ENABLE_AI_AUTOTAG`** must be set to `"1"` in Vercel prod env vars for the
 > AI creative auto-tagger to run inside the `refresh-active-creatives` cron.
