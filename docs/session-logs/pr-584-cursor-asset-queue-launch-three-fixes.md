@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 584
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/584
 - **Branch:** `cursor/asset-queue-launch-three-fixes`
 
 ## Summary
