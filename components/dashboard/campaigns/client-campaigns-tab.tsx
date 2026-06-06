@@ -23,7 +23,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { Paperclip, RefreshCw } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import type { ClientCampaignsData } from "@/lib/dashboard/campaigns-loader";
@@ -35,9 +36,8 @@ interface Props {
   /**
    * Reserved for future per-client-scoped fetches (e.g. hitting a
    * `/api/clients/[id]/campaigns/refresh` endpoint that fans out
-   * server-side instead of via the per-event loop). Currently unused
-   * — the manual refresh button drives the existing per-event
-   * `/api/internal/refresh-active-creatives` route directly.
+   * server-side instead of via the per-event loop). Used to generate
+   * the "Bulk Attach Creatives" deep-link.
    */
   clientId: string;
   data: ClientCampaignsData | null;
@@ -47,9 +47,11 @@ interface Props {
    * endpoint is single-event single-preset).
    */
   eventIds: string[];
+  /** Meta ad account ID for this client — gates the bulk-attach button. */
+  adAccountId?: string | null;
 }
 
-export function ClientCampaignsTab({ data, eventIds }: Props) {
+export function ClientCampaignsTab({ clientId, data, eventIds, adAccountId }: Props) {
   const router = useRouter();
   const [activeSub, setActiveSub] = useState<SubTab>("meta");
   const [refreshing, startRefresh] = useTransition();
@@ -115,18 +117,28 @@ export function ClientCampaignsTab({ data, eventIds }: Props) {
             </span>
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing || eventIds.length === 0}
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-            aria-hidden="true"
-          />
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {adAccountId && (
+            <Link href={`/clients/${clientId}/bulk-attach`}>
+              <Button variant="outline" size="sm">
+                <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                Bulk Attach Creatives
+              </Button>
+            </Link>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing || eventIds.length === 0}
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+              aria-hidden="true"
+            />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
       </div>
 
       <SubTabsNav active={activeSub} onChange={setActiveSub} />
