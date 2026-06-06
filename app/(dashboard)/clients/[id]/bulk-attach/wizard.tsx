@@ -50,6 +50,7 @@ import {
   defaultDraftName,
 } from "@/lib/bulk-attach/draft-state";
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
+import { buildMetaAdsManagerAdsUrl } from "@/lib/bulk-attach/meta-ads-manager-url";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
   applyUploadedAssetsToCreative,
@@ -1469,6 +1470,10 @@ export function ClientBulkAttachWizard({
                   !r.error &&
                   r.creativesFailed.length === 0 &&
                   r.adsFailed === 0;
+                const metaUrl = buildMetaAdsManagerAdsUrl(
+                  adAccountId,
+                  r.adSetIds ?? [],
+                );
                 return (
                   <li
                     key={r.campaignId}
@@ -1504,6 +1509,16 @@ export function ClientBulkAttachWizard({
                           </p>
                         ))}
                       </div>
+                      {metaUrl && ok && (
+                        <a
+                          href={metaUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 text-xs font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+                        >
+                          View in Meta →
+                        </a>
+                      )}
                     </div>
                   </li>
                 );
