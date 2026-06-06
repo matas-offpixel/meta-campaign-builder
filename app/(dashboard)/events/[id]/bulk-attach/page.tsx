@@ -48,6 +48,7 @@ import {
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
 import type { AdCreativeDraft, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
+import { buildMetaAdsManagerAdsUrl } from "@/lib/bulk-attach/meta-ads-manager-url";
 
 const BULK_ATTACH_CAP = 8;
 
@@ -1027,6 +1028,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                   {launchResult.campaigns.map((r) => {
                     const name = selectedCampaigns.get(r.campaignId)?.name ?? r.campaignId;
                     const ok = !r.error && r.creativesFailed.length === 0 && r.adsFailed === 0;
+                    const metaUrl = buildMetaAdsManagerAdsUrl(adAccountId, r.adSetIds ?? []);
                     return (
                       <li
                         key={r.campaignId}
@@ -1057,6 +1059,16 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                               </p>
                             ))}
                           </div>
+                          {metaUrl && ok && (
+                            <a
+                              href={metaUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="shrink-0 text-xs font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+                            >
+                              View in Meta →
+                            </a>
+                          )}
                         </div>
                       </li>
                     );
