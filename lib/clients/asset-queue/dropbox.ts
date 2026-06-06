@@ -21,8 +21,14 @@
  * Recursive listing: Dropbox REJECTS list_folder with recursive=true when a shared_link
  * parameter is present ("Recursive list folder is not supported for shared link"). Subfolders
  * are instead walked client-side via listFolderRecursive — each subfolder is listed with its
- * path_lower as the path argument (e.g. { path: "/V2", shared_link: { url } }). All files
+ * path as the path argument (e.g. { path: "/V2", shared_link: { url } }). All files
  * from all subfolders are aggregated; no version-pick heuristics are applied.
+ *
+ * NOTE: When list_folder is called with a shared_link parameter, Dropbox returns folder
+ * entries WITHOUT a path_lower field (only "id", "name", ".tag" are present). Files DO
+ * include path_lower. parseEntries() handles this: it prefers entry.path_lower when present,
+ * and constructs the path from basePath + "/" + name otherwise to avoid the "" fallback
+ * re-listing the root and hitting the depth cap.
  *
  * If a URL returns 403/404 we throw a DropboxFetchError with a code so
  * the caller can set a user-visible error message WITHOUT logging the URL.
@@ -175,7 +181,7 @@ async function listFolderRecursive(
     }
 
     const data = (await res.json()) as { entries?: unknown[]; has_more?: boolean; cursor?: string };
-    parseEntries(data.entries ?? [], collectedFiles, subfolderPaths);
+    parseEntries(data.entries ?? [], collectedFiles, subfolderPaths, basePath);
 
     // ── Pagination for this path ─────────────────────────────────────────
     let cursor = data.has_more && data.cursor ? data.cursor : undefined;
@@ -207,7 +213,7 @@ async function listFolderRecursive(
         throw new DropboxFetchError("network", `Dropbox list_folder/continue returned HTTP ${contRes.status}`);
       }
       const contData = (await contRes.json()) as { entries?: unknown[]; has_more?: boolean; cursor?: string };
-      parseEntries(contData.entries ?? [], collectedFiles, subfolderPaths);
+      parseEntries(contData.entries ?? [], collectedFiles, subfolderPaths, basePath);
       cursor = contData.has_more && contData.cursor ? contData.cursor : undefined;
     }
   }
@@ -231,11 +237,17 @@ async function listFolderRecursive(
 /**
  * Parses raw Dropbox entries, splitting into files and subfolder paths.
  * Does NOT filter by media extension — that happens in downloadDropboxFolderFiles.
+ *
+ * When list_folder is called with a shared_link argument, Dropbox omits path_lower
+ * from folder entries (only "id", "name", ".tag" are present). In that case we
+ * construct the path from basePath + "/" + name to avoid falling back to "" and
+ * re-listing the root on every recursion.
  */
 function parseEntries(
   raw: unknown[],
   files: DropboxFileEntry[],
   subfolderPaths: string[],
+  basePath: string,
 ): void {
   for (const e of raw) {
     if (!e || typeof e !== "object") continue;
@@ -247,7 +259,13 @@ function parseEntries(
         size: Number(entry.size ?? 0),
       });
     } else if (entry[".tag"] === "folder") {
-      subfolderPaths.push(String(entry.path_lower ?? ""));
+      const name = String(entry.name ?? "");
+      // Prefer path_lower when Dropbox includes it; fall back to constructing
+      // from basePath + name when it is absent (shared_link listing behaviour).
+      const pathLower = entry.path_lower
+        ? String(entry.path_lower)
+        : `${basePath}/${name}`;
+      if (pathLower) subfolderPaths.push(pathLower);
     }
   }
 }
