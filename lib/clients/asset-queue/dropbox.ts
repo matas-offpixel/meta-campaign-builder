@@ -18,6 +18,12 @@
  * access token is obtained before each batch of API calls. DROPBOX_ACCESS_TOKEN has
  * been removed — the integration now uses DROPBOX_REFRESH_TOKEN + app credentials.
  *
+ * Recursive listing: Dropbox REJECTS list_folder with recursive=true when a shared_link
+ * parameter is present ("Recursive list folder is not supported for shared link"). Subfolders
+ * are instead walked client-side via listFolderRecursive — each subfolder is listed with its
+ * path_lower as the path argument (e.g. { path: "/V2", shared_link: { url } }). All files
+ * from all subfolders are aggregated; no version-pick heuristics are applied.
+ *
  * If a URL returns 403/404 we throw a DropboxFetchError with a code so
  * the caller can set a user-visible error message WITHOUT logging the URL.
  */
@@ -77,22 +83,52 @@ export interface DropboxFileEntry {
   size: number;
 }
 
+const MAX_DEPTH = 5;
+
 /**
- * Lists all files inside a Dropbox shared folder via the live
- * POST /2/files/list_folder endpoint with a shared_link argument.
+ * Lists all files inside a Dropbox shared folder, recursively walking subfolders
+ * client-side (Dropbox rejects recursive=true when shared_link is set).
  *
  * Requires DROPBOX_REFRESH_TOKEN + app credentials (via dropbox-auth.ts).
  * Throws DropboxFetchError("config_missing") when credentials are absent.
  *
- * Handles pagination via /2/files/list_folder/continue when has_more is true.
+ * All subfolders are walked regardless of name — no version-pick heuristics.
+ * Subfolders are visited sequentially (no parallel calls) for rate-limit safety.
+ * Depth is capped at 5 levels to guard against pathological structures.
  */
 export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxFileEntry[]> {
   const token = await getDropboxAccessToken();
+  const files = await listFolderRecursive(shareUrl, token, "", 0);
+  console.log("[dropbox] listFolderRecursive completed", { totalFiles: files.length });
+  return files;
+}
 
-  const allEntries: DropboxFileEntry[] = [];
-  let cursor: string | undefined;
+/**
+ * Internal recursive helper. Lists one path within the shared folder, collects
+ * file entries, then recurses into any sub-folder entries found on this page.
+ *
+ * @param shareUrl  — the shared folder URL (constant across all recursive calls)
+ * @param token     — the access token (fetched once by the public caller)
+ * @param basePath  — path within the shared folder ("" = root, "/V2" = V2 subfolder)
+ * @param depth     — current recursion depth; throws at MAX_DEPTH to prevent infinite loops
+ */
+async function listFolderRecursive(
+  shareUrl: string,
+  token: string,
+  basePath: string,
+  depth: number,
+): Promise<DropboxFileEntry[]> {
+  if (depth > MAX_DEPTH) {
+    throw new DropboxFetchError(
+      "network",
+      `Dropbox folder nesting exceeds ${MAX_DEPTH} levels — restructure the folder or contact ops`,
+    );
+  }
 
-  // First page
+  const collectedFiles: DropboxFileEntry[] = [];
+  const subfolderPaths: string[] = [];
+
+  // ── First page (list_folder with shared_link) ────────────────────────────
   {
     let res: Response;
     try {
@@ -102,10 +138,13 @@ export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxF
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ path: "", shared_link: { url: shareUrl } }),
+        body: JSON.stringify({ path: basePath, shared_link: { url: shareUrl } }),
       });
     } catch (err) {
-      throw new DropboxFetchError("network", `Network error listing folder: ${(err as Error).message}`);
+      throw new DropboxFetchError(
+        "network",
+        `Network error listing folder at "${basePath}": ${(err as Error).message}`,
+      );
     }
 
     if (res.status === 401) {
@@ -127,56 +166,89 @@ export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxF
     if (!res.ok) {
       let snippet = "";
       try { snippet = (await res.text()).slice(0, 200); } catch { /* ignore */ }
-      console.error("[dropbox] list_folder returned unexpected status", { status: res.status, body: snippet });
+      console.error("[dropbox] list_folder returned unexpected status", {
+        status: res.status,
+        path: basePath,
+        body: snippet,
+      });
       throw new DropboxFetchError("network", `Dropbox list_folder returned HTTP ${res.status}`);
     }
 
     const data = (await res.json()) as { entries?: unknown[]; has_more?: boolean; cursor?: string };
-    appendFileEntries(data.entries ?? [], allEntries);
-    if (data.has_more && data.cursor) {
-      cursor = data.cursor;
+    parseEntries(data.entries ?? [], collectedFiles, subfolderPaths);
+
+    // ── Pagination for this path ─────────────────────────────────────────
+    let cursor = data.has_more && data.cursor ? data.cursor : undefined;
+    while (cursor) {
+      let contRes: Response;
+      try {
+        contRes = await fetch("https://api.dropboxapi.com/2/files/list_folder/continue", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ cursor }),
+        });
+      } catch (err) {
+        throw new DropboxFetchError(
+          "network",
+          `Network error listing folder/continue at "${basePath}": ${(err as Error).message}`,
+        );
+      }
+      if (!contRes.ok) {
+        let snippet = "";
+        try { snippet = (await contRes.text()).slice(0, 200); } catch { /* ignore */ }
+        console.error("[dropbox] list_folder/continue returned unexpected status", {
+          status: contRes.status,
+          path: basePath,
+          body: snippet,
+        });
+        throw new DropboxFetchError("network", `Dropbox list_folder/continue returned HTTP ${contRes.status}`);
+      }
+      const contData = (await contRes.json()) as { entries?: unknown[]; has_more?: boolean; cursor?: string };
+      parseEntries(contData.entries ?? [], collectedFiles, subfolderPaths);
+      cursor = contData.has_more && contData.cursor ? contData.cursor : undefined;
     }
   }
 
-  // Subsequent pages (pagination)
-  while (cursor) {
-    let res: Response;
-    try {
-      res = await fetch("https://api.dropboxapi.com/2/files/list_folder/continue", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ cursor }),
-      });
-    } catch (err) {
-      throw new DropboxFetchError("network", `Network error listing folder (continue): ${(err as Error).message}`);
-    }
-    if (!res.ok) {
-      let snippet = "";
-      try { snippet = (await res.text()).slice(0, 200); } catch { /* ignore */ }
-      console.error("[dropbox] list_folder/continue returned unexpected status", { status: res.status, body: snippet });
-      throw new DropboxFetchError("network", `Dropbox list_folder/continue returned HTTP ${res.status}`);
-    }
-    const data = (await res.json()) as { entries?: unknown[]; has_more?: boolean; cursor?: string };
-    appendFileEntries(data.entries ?? [], allEntries);
-    cursor = data.has_more && data.cursor ? data.cursor : undefined;
+  console.log("[dropbox] list_folder", {
+    path: basePath || "/",
+    files: collectedFiles.length,
+    subfolders: subfolderPaths.length,
+    depth,
+  });
+
+  // ── Recurse into subfolders (sequential, no parallelism) ─────────────────
+  for (const subPath of subfolderPaths) {
+    const subFiles = await listFolderRecursive(shareUrl, token, subPath, depth + 1);
+    collectedFiles.push(...subFiles);
   }
 
-  return allEntries;
+  return collectedFiles;
 }
 
-function appendFileEntries(raw: unknown[], out: DropboxFileEntry[]): void {
+/**
+ * Parses raw Dropbox entries, splitting into files and subfolder paths.
+ * Does NOT filter by media extension — that happens in downloadDropboxFolderFiles.
+ */
+function parseEntries(
+  raw: unknown[],
+  files: DropboxFileEntry[],
+  subfolderPaths: string[],
+): void {
   for (const e of raw) {
     if (!e || typeof e !== "object") continue;
     const entry = e as Record<string, unknown>;
-    if (entry[".tag"] !== "file") continue; // skip sub-folders
-    out.push({
-      name: String(entry.name ?? ""),
-      path_lower: String(entry.path_lower ?? ""),
-      size: Number(entry.size ?? 0),
-    });
+    if (entry[".tag"] === "file") {
+      files.push({
+        name: String(entry.name ?? ""),
+        path_lower: String(entry.path_lower ?? ""),
+        size: Number(entry.size ?? 0),
+      });
+    } else if (entry[".tag"] === "folder") {
+      subfolderPaths.push(String(entry.path_lower ?? ""));
+    }
   }
 }
 

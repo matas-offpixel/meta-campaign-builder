@@ -1,15 +1,21 @@
 /**
  * Tests for the refactored Dropbox folder-listing integration.
  *
- * Authentication is now handled by dropbox-auth.ts (refresh-token flow).
+ * Authentication is handled by dropbox-auth.ts (refresh-token flow).
  * These tests mock both the OAuth2 token endpoint AND the Dropbox API
- * endpoints. A shared helper mockFetch() routes calls by URL.
+ * endpoints. The shared fetch mock routes calls by URL + request body.path
+ * to simulate the recursive subfolder walk.
  *
  * Covers:
- *   listDropboxFolderFiles:
+ *   listDropboxFolderFiles — recursive walk:
  *     - Missing credentials → DropboxFetchError("config_missing") via auth layer
- *     - list_folder 200 success → returns file entries, skips .tag==="folder"
- *     - list_folder with pagination (has_more → continue) → all pages merged
+ *     - Root with files only (no subfolders) → backward compat, returns root files
+ *     - Root with V1 + V2 subfolders → all files aggregated (3 total)
+ *     - Root with only a subfolder, no root files → returns subfolder files (not empty_folder)
+ *     - Deep nesting (root → A → B → file.png) → returns file with path /a/b/file.png
+ *     - Pathological depth (7 levels) → throws DropboxFetchError("network", depth exceeded)
+ *     - Subfolder with has_more=true → paginated, all files returned
+ *     - POST body does NOT contain recursive=true at any depth
  *     - list_folder 401 → DropboxFetchError("forbidden")
  *     - list_folder 404 → DropboxFetchError("not_found")
  *     - list_folder 429 → DropboxFetchError("forbidden")
@@ -60,7 +66,7 @@ function makeResponse(opts: FetchReturn): Response {
   } as unknown as Response;
 }
 
-const TOKEN_URL      = "https://api.dropbox.com/oauth2/token";
+const TOKEN_URL       = "https://api.dropbox.com/oauth2/token";
 const LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder";
 const CONTINUE_URL    = "https://api.dropboxapi.com/2/files/list_folder/continue";
 const DOWNLOAD_URL    = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
@@ -74,6 +80,30 @@ function tokenOk() {
     ok: true,
     body: { access_token: "sl.test_tok", expires_in: 14400, token_type: "bearer" },
   });
+}
+
+/** Builds a list_folder success response with the given entries. */
+function listOk(
+  entries: unknown[],
+  opts: { has_more?: boolean; cursor?: string } = {},
+) {
+  return makeResponse({
+    status: 200,
+    ok: true,
+    body: { entries, has_more: opts.has_more ?? false, cursor: opts.cursor },
+  });
+}
+
+/** Parse the path from a list_folder request body. */
+function bodyPath(init?: RequestInit): string {
+  const body = JSON.parse((init?.body as string) ?? "{}") as { path?: string };
+  return body.path ?? "";
+}
+
+/** Parse the cursor from a list_folder/continue request body. */
+function bodyCursor(init?: RequestInit): string {
+  const body = JSON.parse((init?.body as string) ?? "{}") as { cursor?: string };
+  return body.cursor ?? "";
 }
 
 // ─── Env + cache harness ─────────────────────────────────────────────────────
@@ -99,9 +129,9 @@ afterEach(() => {
   mock.restoreAll();
 });
 
-// ─── listDropboxFolderFiles ───────────────────────────────────────────────────
+// ─── listDropboxFolderFiles — recursive walk ─────────────────────────────────
 
-describe("listDropboxFolderFiles", () => {
+describe("listDropboxFolderFiles — recursive walk", () => {
   it("throws config_missing when credentials are absent (auth layer)", async () => {
     delete process.env.DROPBOX_REFRESH_TOKEN;
     delete process.env.DROPBOX_APP_KEY;
@@ -116,68 +146,224 @@ describe("listDropboxFolderFiles", () => {
     );
   });
 
-  it("returns file entries on 200, skipping sub-folder entries", async () => {
+  it("returns root files when root contains only files (backward compatible)", async () => {
     setValidEnv();
     mock.method(globalThis, "fetch", async (url: string) => {
       if (url === TOKEN_URL) return tokenOk();
       assert.equal(url, LIST_FOLDER_URL);
-      return makeResponse({
-        status: 200,
-        ok: true,
-        body: {
-          entries: [
-            { ".tag": "file", name: "video.mp4", path_lower: "/video.mp4", size: 10_000_000 },
-            { ".tag": "folder", name: "subfolder", path_lower: "/subfolder", size: 0 },
-            { ".tag": "file", name: "thumb.jpg", path_lower: "/thumb.jpg", size: 50_000 },
-          ],
-          has_more: false,
-        },
-      });
+      return listOk([
+        { ".tag": "file", name: "video.mp4", path_lower: "/video.mp4", size: 10_000_000 },
+        { ".tag": "file", name: "thumb.jpg", path_lower: "/thumb.jpg", size: 50_000 },
+      ]);
     });
-
     const entries = await listDropboxFolderFiles(SHARE_URL);
-    assert.equal(entries.length, 2, "2 files returned, folder entry skipped");
+    assert.equal(entries.length, 2);
     assert.equal(entries[0].name, "video.mp4");
-    assert.equal(entries[0].path_lower, "/video.mp4");
-    assert.equal(entries[0].size, 10_000_000);
     assert.equal(entries[1].name, "thumb.jpg");
   });
 
-  it("merges pages when has_more=true (pagination via /continue)", async () => {
+  it("does NOT send recursive=true in any list_folder POST body", async () => {
     setValidEnv();
-    let callCount = 0;
-    mock.method(globalThis, "fetch", async (url: string) => {
+    const bodies: string[] = [];
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
       if (url === TOKEN_URL) return tokenOk();
-      callCount++;
       if (url === LIST_FOLDER_URL) {
-        return makeResponse({
-          status: 200,
-          ok: true,
-          body: {
-            entries: [{ ".tag": "file", name: "a.mp4", path_lower: "/a.mp4", size: 1 }],
-            has_more: true,
-            cursor: "cursor_abc",
-          },
-        });
+        bodies.push(init?.body as string);
+        return listOk([{ ".tag": "file", name: "a.mp4", path_lower: "/a.mp4", size: 1 }]);
       }
-      if (url === CONTINUE_URL) {
-        return makeResponse({
-          status: 200,
-          ok: true,
-          body: {
-            entries: [{ ".tag": "file", name: "b.mp4", path_lower: "/b.mp4", size: 2 }],
-            has_more: false,
-          },
-        });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    await listDropboxFolderFiles(SHARE_URL);
+    for (const body of bodies) {
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+      assert.ok(!("recursive" in parsed), `recursive key found in body: ${body}`);
+    }
+  });
+
+  it("aggregates files from V1 + V2 subfolders (multi-level fixture)", async () => {
+    setValidEnv();
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        const path = bodyPath(init);
+        if (path === "") {
+          // Root: two subfolders, no root files
+          return listOk([
+            { ".tag": "folder", name: "V1", path_lower: "/v1" },
+            { ".tag": "folder", name: "V2", path_lower: "/v2" },
+          ]);
+        }
+        if (path === "/v1") {
+          return listOk([
+            { ".tag": "file", name: "old.mp4", path_lower: "/v1/old.mp4", size: 5_000_000 },
+          ]);
+        }
+        if (path === "/v2") {
+          return listOk([
+            { ".tag": "file", name: "file1.mp4", path_lower: "/v2/file1.mp4", size: 8_000_000 },
+            { ".tag": "file", name: "file2.jpg", path_lower: "/v2/file2.jpg", size: 100_000 },
+          ]);
+        }
+        throw new Error(`Unexpected list_folder path: ${path}`);
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
     const entries = await listDropboxFolderFiles(SHARE_URL);
-    assert.equal(entries.length, 2, "both pages merged");
-    assert.equal(entries[0].name, "a.mp4");
-    assert.equal(entries[1].name, "b.mp4");
-    assert.equal(callCount, 2, "first page + one continue call");
+    assert.equal(entries.length, 3);
+    const names = entries.map((e) => e.name).sort();
+    assert.deepEqual(names, ["file1.mp4", "file2.jpg", "old.mp4"]);
+    // paths must be the full path_lower as Dropbox returned
+    assert.ok(entries.some((e) => e.path_lower === "/v1/old.mp4"));
+    assert.ok(entries.some((e) => e.path_lower === "/v2/file1.mp4"));
+    assert.ok(entries.some((e) => e.path_lower === "/v2/file2.jpg"));
+  });
+
+  it("returns subfolder files when root has no files (no empty_folder error)", async () => {
+    setValidEnv();
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        const path = bodyPath(init);
+        if (path === "") {
+          return listOk([{ ".tag": "folder", name: "Assets", path_lower: "/assets" }]);
+        }
+        if (path === "/assets") {
+          return listOk([
+            { ".tag": "file", name: "hero.mp4", path_lower: "/assets/hero.mp4", size: 20_000_000 },
+          ]);
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const entries = await listDropboxFolderFiles(SHARE_URL);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].name, "hero.mp4");
+    assert.equal(entries[0].path_lower, "/assets/hero.mp4");
+  });
+
+  it("handles deep nesting: root → A → B → file.png (depth 2)", async () => {
+    setValidEnv();
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        const path = bodyPath(init);
+        if (path === "") return listOk([{ ".tag": "folder", name: "A", path_lower: "/a" }]);
+        if (path === "/a") return listOk([{ ".tag": "folder", name: "B", path_lower: "/a/b" }]);
+        if (path === "/a/b") {
+          return listOk([{ ".tag": "file", name: "file.png", path_lower: "/a/b/file.png", size: 500 }]);
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const entries = await listDropboxFolderFiles(SHARE_URL);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].path_lower, "/a/b/file.png");
+  });
+
+  it("throws network error when depth exceeds 5 levels", async () => {
+    setValidEnv();
+    // 7 levels deep: root → /1 → /1/2 → /1/2/3 → /1/2/3/4 → /1/2/3/4/5 → /1/2/3/4/5/6
+    const depthFolders: Record<string, string> = {
+      "": "/1",
+      "/1": "/1/2",
+      "/1/2": "/1/2/3",
+      "/1/2/3": "/1/2/3/4",
+      "/1/2/3/4": "/1/2/3/4/5",
+      "/1/2/3/4/5": "/1/2/3/4/5/6",
+    };
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        const path = bodyPath(init);
+        if (path in depthFolders) {
+          const nextPath = depthFolders[path];
+          return listOk([{ ".tag": "folder", name: nextPath.split("/").pop(), path_lower: nextPath }]);
+        }
+        return listOk([{ ".tag": "file", name: "deep.mp4", path_lower: `${path}/deep.mp4`, size: 1 }]);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await assert.rejects(
+      () => listDropboxFolderFiles(SHARE_URL),
+      (err: unknown) => {
+        assert.ok(err instanceof DropboxFetchError);
+        assert.equal(err.code, "network");
+        assert.ok(
+          err.message.includes("nesting exceeds"),
+          `Expected depth-exceeded message, got: ${err.message}`,
+        );
+        return true;
+      },
+    );
+  });
+
+  it("paginates within a subfolder (subfolder has_more=true → continue)", async () => {
+    setValidEnv();
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        const path = bodyPath(init);
+        if (path === "") {
+          return listOk([{ ".tag": "folder", name: "Videos", path_lower: "/videos" }]);
+        }
+        if (path === "/videos") {
+          // First page of /videos — has more
+          return listOk(
+            [{ ".tag": "file", name: "clip_a.mp4", path_lower: "/videos/clip_a.mp4", size: 1 }],
+            { has_more: true, cursor: "subfolder_cursor_1" },
+          );
+        }
+        throw new Error(`Unexpected list_folder path: ${path}`);
+      }
+      if (url === CONTINUE_URL) {
+        const cursor = bodyCursor(init);
+        if (cursor === "subfolder_cursor_1") {
+          return listOk([{ ".tag": "file", name: "clip_b.mp4", path_lower: "/videos/clip_b.mp4", size: 2 }]);
+        }
+        throw new Error(`Unexpected cursor: ${cursor}`);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const entries = await listDropboxFolderFiles(SHARE_URL);
+    assert.equal(entries.length, 2);
+    assert.ok(entries.some((e) => e.name === "clip_a.mp4"));
+    assert.ok(entries.some((e) => e.name === "clip_b.mp4"));
+  });
+
+  it("paginates root via /continue and recurses into subfolder on page 2", async () => {
+    setValidEnv();
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        const path = bodyPath(init);
+        if (path === "") {
+          return listOk(
+            [{ ".tag": "file", name: "a.mp4", path_lower: "/a.mp4", size: 1 }],
+            { has_more: true, cursor: "root_cursor_1" },
+          );
+        }
+        if (path === "/sub") {
+          return listOk([{ ".tag": "file", name: "b.mp4", path_lower: "/sub/b.mp4", size: 2 }]);
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      }
+      if (url === CONTINUE_URL) {
+        return listOk([{ ".tag": "folder", name: "sub", path_lower: "/sub" }]);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const entries = await listDropboxFolderFiles(SHARE_URL);
+    assert.equal(entries.length, 2);
+    assert.ok(entries.some((e) => e.name === "a.mp4"));
+    assert.ok(entries.some((e) => e.name === "b.mp4"));
   });
 
   it("throws forbidden on 401 from list_folder", async () => {
