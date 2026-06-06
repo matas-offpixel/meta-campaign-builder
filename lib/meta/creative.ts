@@ -705,6 +705,55 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
 }
 
 /**
+ * Build a single-asset creative using the 9:16 VERTICAL asset from a
+ * multi-placement plan. Used as the BOOK_NOW fallback: when the user has
+ * uploaded both a 4:5 feed asset and a 9:16 vertical asset but chosen
+ * BOOK_NOW as the CTA, per-placement AFS routing is unavailable (Meta API
+ * subcode=1885396). We cross-publish the vertical asset across all placements
+ * so that Stories/Reels receive their native ratio. Feed will auto-crop.
+ *
+ * The CTA is preserved exactly as configured — no silent substitution.
+ */
+function buildSingleAssetFromVertical(
+  creative: AdCreativeDraft,
+  plan: MultiPlacementPlan,
+  validatedIgActorId?: string,
+): MetaCreativePayload {
+  if (plan.mediaKind === "video") {
+    // Build a video creative but force the vertical video id + thumbnail.
+    // We construct a minimal proxy creative whose only asset is the 9:16 video
+    // so that buildVideoCreative's pickPrimaryVideoAsset returns it.
+    const caption = pickPrimaryCaption(creative);
+    const cta = mapCTAToMeta(creative.cta);
+    const videoData: MetaVideoData = {
+      video_id: plan.vertical.videoId!,
+      message: caption,
+      call_to_action: { type: cta, value: { link: creative.destinationUrl } },
+    };
+    if (creative.headline) videoData.title = creative.headline;
+    if (plan.vertical.thumbnailUrl) videoData.image_url = plan.vertical.thumbnailUrl;
+    const spec: MetaObjectStorySpec = { page_id: creative.identity.pageId, video_data: videoData };
+    if (validatedIgActorId) spec.instagram_user_id = validatedIgActorId;
+    return { name: creative.name || "Ad Creative", object_story_spec: spec };
+  } else {
+    // Build a link creative but force the vertical image hash.
+    const caption = pickPrimaryCaption(creative);
+    const cta = mapCTAToMeta(creative.cta);
+    const linkData: MetaLinkData = {
+      message: caption,
+      link: creative.destinationUrl,
+      name: creative.headline || undefined,
+      description: creative.description || undefined,
+      call_to_action: { type: cta, value: { link: creative.destinationUrl } },
+      image_hash: plan.vertical.assetHash,
+    };
+    const spec: MetaObjectStorySpec = { page_id: creative.identity.pageId, link_data: linkData };
+    if (validatedIgActorId) spec.instagram_user_id = validatedIgActorId;
+    return { name: creative.name || "Ad Creative", object_story_spec: spec };
+  }
+}
+
+/**
  * Build the Meta ad creative payload for a given AdCreativeDraft.
  *
  * Per-type behaviour:
@@ -781,11 +830,31 @@ export function buildCreativePayload(
   // When ON, a creative that has BOTH a Feed (4:5/1:1) and a vertical (9:16)
   // asset of the same media kind is sent with asset_feed_spec so each placement
   // renders its own asset. Single-aspect creatives are untouched.
+  //
+  // BOOK_NOW exception (Meta API constraint, PR #574/#575):
+  // asset_feed_spec.call_to_action_types: ["BOOK_NOW"] returns subcode=1885396
+  // for any objective and any media type — this is a Meta platform restriction,
+  // not a wizard bug. When CTA is BOOK_NOW and dual-mode is detected we fall
+  // through to the single-asset path using the 9:16 VERTICAL asset so that:
+  //   1. The CTA stays BOOK_NOW (never silently substituted).
+  //   2. The vertical asset cross-publishes more acceptably across placements
+  //      than 4:5 would (Stories/Reels receive the native ratio; Feed auto-crops).
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
     const plan = detectMultiPlacement(creative);
     if (plan) {
-      const _mpp = buildMultiPlacementCreative(creative, plan, validatedIgActorId);
-      return _mpp;
+      const metaCta = mapCTAToMeta(creative.cta);
+      if (metaCta === "BOOK_NOW") {
+        // BOOK_NOW is blocked in asset_feed_spec.call_to_action_types (Meta
+        // subcode 1885396). Fall through to single-asset using the vertical
+        // (9:16) asset. CTA is preserved as-is in link_data / video_data.
+        console.error(
+          `[buildCreativePayload] "${creative.name}" → SINGLE-ASSET path` +
+            ` (BOOK_NOW blocked in AFS per Meta API constraint 1885396;` +
+            ` using ${plan.mediaKind} vertical 9:16 asset for all placements)`,
+        );
+        return buildSingleAssetFromVertical(creative, plan, validatedIgActorId);
+      }
+      return buildMultiPlacementCreative(creative, plan, validatedIgActorId);
     }
     // Log why we fell through to the single-asset path even though the flag is on.
     const assets = creative.assetVariations?.[0]?.assets ?? [];
