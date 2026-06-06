@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { getAssetQueueRow } from "@/lib/db/asset-queue";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
+import { loadResolvedEventContext } from "@/lib/clients/asset-queue/resolve-queue-venue";
 import { ClientBulkAttachWizard, type QueueContextProps } from "./wizard";
 
 interface Props {
@@ -56,15 +57,13 @@ export default async function ClientBulkAttachPage({ params, searchParams }: Pro
   if (queueId) {
     const row = await getAssetQueueRow(queueId);
     if (row && row.client_id === clientId && row.status === "pending") {
-      let venueCity: string | null = null;
-      if (row.resolved_event_id) {
-        const { data: event } = await supabase
-          .from("events")
-          .select("venue_city")
-          .eq("id", row.resolved_event_id)
-          .maybeSingle();
-        venueCity = event?.venue_city ?? null;
-      }
+      const event = await loadResolvedEventContext(
+        supabase,
+        clientId,
+        row.resolved_event_id,
+        row.resolved_event_code,
+      );
+      const venueCity = event?.venue_city ?? null;
 
       const generatedUrl =
         row.generated_url?.trim() ||
@@ -73,8 +72,8 @@ export default async function ClientBulkAttachPage({ params, searchParams }: Pro
 
       queueContext = {
         queueId: row.id,
-        eventCode: row.resolved_event_code ?? null,
-        eventId: row.resolved_event_id ?? null,
+        eventCode: row.resolved_event_code ?? event?.event_code ?? null,
+        eventId: row.resolved_event_id ?? event?.id ?? null,
         assetName: row.asset_name ?? null,
         generatedCopy: row.generated_copy ?? null,
         generatedCta: row.generated_cta ?? null,

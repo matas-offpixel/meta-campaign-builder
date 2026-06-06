@@ -48,11 +48,20 @@ jest.mock("@/lib/clients/asset-queue/copy-generator", () => ({
   generateCopy: jest.fn(),
 }));
 
+jest.mock("@/lib/clients/asset-queue/resolve-queue-venue", () => ({
+  resolveQueueRowVenue: jest.fn(),
+  loadResolvedEventContext: jest.fn(),
+}));
+
 import { POST } from "../route";
 import { getAssetQueueRow, updateQueueRowStatus, updateQueueRowPrepared } from "@/lib/db/asset-queue";
 import { getAssetSheetConfig } from "@/lib/db/asset-sheet-config";
 import { downloadDropboxAsset } from "@/lib/clients/asset-queue/dropbox";
 import { generateCopy } from "@/lib/clients/asset-queue/copy-generator";
+import {
+  loadResolvedEventContext,
+  resolveQueueRowVenue,
+} from "@/lib/clients/asset-queue/resolve-queue-venue";
 
 const CLIENT_ID = "client-uuid";
 const USER_ID = "user-uuid";
@@ -91,7 +100,10 @@ describe("POST /api/clients/[id]/asset-queue/[queueId]/prepare", () => {
         return {
           select: () => ({
             eq: () => ({
-              maybeSingle: () => Promise.resolve({ data: { id: CLIENT_ID, user_id: USER_ID } }),
+              maybeSingle: () =>
+                Promise.resolve({
+                  data: { id: CLIENT_ID, user_id: USER_ID, slug: "4thefans" },
+                }),
             }),
           }),
         };
@@ -121,6 +133,8 @@ describe("POST /api/clients/[id]/asset-queue/[queueId]/prepare", () => {
       fromFallback: false,
     });
     mockStorageUpload.mockResolvedValue({ error: null });
+    (resolveQueueRowVenue as jest.Mock).mockResolvedValue(null);
+    (loadResolvedEventContext as jest.Mock).mockResolvedValue(null);
     (updateQueueRowPrepared as jest.Mock).mockResolvedValue(undefined);
     (updateQueueRowStatus as jest.Mock).mockResolvedValue(undefined);
   });
@@ -197,6 +211,54 @@ describe("POST /api/clients/[id]/asset-queue/[queueId]/prepare", () => {
     const res = await POST(makeRequest(), { params: paramsFor(CLIENT_ID, QUEUE_ID) });
     expect(res.status).toBe(500);
     expect(updateQueueRowStatus).toHaveBeenCalledWith(QUEUE_ID, "error", { error_message: "storage_upload_failed" });
+  });
+
+  it("re-resolves NULL resolved_event_code and persists venue + organiser URL", async () => {
+    (getAssetQueueRow as jest.Mock).mockResolvedValue({
+      ...BASE_ROW,
+      resolved_event_code: null,
+      resolved_event_id: null,
+      asset_name: "Colin Hendry Assets Glasgow",
+      location: "Scotland",
+      nation: "Scotland",
+      event_match_ambiguous: false,
+    });
+    (resolveQueueRowVenue as jest.Mock).mockResolvedValue({
+      resolvedEventCode: "WC26-GLASGOW-O2",
+      resolvedEventId: "glasgow-event-id",
+      eventMatchAmbiguous: true,
+    });
+    (loadResolvedEventContext as jest.Mock).mockResolvedValue({
+      id: "glasgow-event-id",
+      name: "Glasgow O2 Fanpark",
+      event_code: "WC26-GLASGOW-O2",
+      venue_name: "O2 Academy Glasgow",
+      venue_city: "Glasgow",
+    });
+    (getAssetSheetConfig as jest.Mock).mockResolvedValue({
+      cta_defaults: { TOFU: "BOOK_NOW" },
+      copy_templates: {},
+      destination_url_pattern: {},
+    });
+    (downloadDropboxAsset as jest.Mock).mockResolvedValue({
+      buffer: Buffer.from("data"),
+      extension: "png",
+      name: "Hendry4x5.png",
+    });
+
+    const res = await POST(makeRequest(), { params: paramsFor(CLIENT_ID, QUEUE_ID) });
+    expect(res.status).toBe(200);
+
+    expect(resolveQueueRowVenue).toHaveBeenCalled();
+    expect(updateQueueRowPrepared).toHaveBeenCalledWith(
+      QUEUE_ID,
+      expect.objectContaining({
+        resolvedEventCode: "WC26-GLASGOW-O2",
+        resolvedEventId: "glasgow-event-id",
+        eventMatchAmbiguous: true,
+        generatedUrl: "https://4thefans.tv/organiser/glasgow/",
+      }),
+    );
   });
 
   it("still writes prepared state even when generateCopy falls back", async () => {

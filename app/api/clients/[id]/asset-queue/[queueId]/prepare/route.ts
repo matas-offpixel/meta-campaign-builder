@@ -30,6 +30,10 @@ import {
 } from "@/lib/clients/asset-queue/dropbox";
 import { generateCopy } from "@/lib/clients/asset-queue/copy-generator";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
+import {
+  loadResolvedEventContext,
+  resolveQueueRowVenue,
+} from "@/lib/clients/asset-queue/resolve-queue-venue";
 import { buildQueueStoragePath } from "@/lib/clients/asset-queue/storage-filename";
 
 export const maxDuration = 300;
@@ -69,6 +73,35 @@ export async function POST(
   if (!row.dropbox_url) {
     await updateQueueRowStatus(queueId, "error", { error_message: "no_dropbox_url" });
     return NextResponse.json({ error: "Row has no Dropbox URL" }, { status: 400 });
+  }
+
+  // Re-resolve venue when event_code was cleared (SQL reset, legacy scrape, etc.)
+  let resolvedEventCode = row.resolved_event_code;
+  let resolvedEventId = row.resolved_event_id;
+  let eventMatchAmbiguous = row.event_match_ambiguous ?? false;
+
+  const isUmbrella = !!(row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0);
+  if (!isUmbrella && !resolvedEventCode) {
+    const reResolved = await resolveQueueRowVenue(supabase, clientId, row);
+    if (reResolved) {
+      resolvedEventCode = reResolved.resolvedEventCode;
+      resolvedEventId = reResolved.resolvedEventId;
+      eventMatchAmbiguous = reResolved.eventMatchAmbiguous;
+      console.error("[asset-queue/prepare] re-resolved venue from asset_name", {
+        clientId,
+        queueId,
+        assetName: row.asset_name,
+        resolvedEventCode,
+        eventMatchAmbiguous,
+      });
+    } else {
+      console.error("[asset-queue/prepare] could not re-resolve venue — proceeding with NULL event_code", {
+        clientId,
+        queueId,
+        assetName: row.asset_name,
+        location: row.location,
+      });
+    }
   }
 
   const serviceClient = createServiceRoleClient();
@@ -165,22 +198,23 @@ export async function POST(
   let eventName: string;
   let venueCity: string | null = null;
   let venueName: string | null = null;
-  if (row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0) {
+  if (isUmbrella) {
     const nation = row.nation ?? "All";
     eventName = `All ${nation} venues`;
   } else {
-    eventName = row.resolved_event_code ?? row.location ?? "";
-    if (row.resolved_event_id) {
-      const { data: event } = await supabase
-        .from("events")
-        .select("name, event_code, venue_name, venue_city")
-        .eq("id", row.resolved_event_id)
-        .maybeSingle();
-      if (event) {
-        eventName = event.name ?? event.event_code ?? eventName;
-        venueName = event.venue_name ?? null;
-        venueCity = event.venue_city ?? null;
-      }
+    eventName = resolvedEventCode ?? row.location ?? "";
+    const event = await loadResolvedEventContext(
+      supabase,
+      clientId,
+      resolvedEventId,
+      resolvedEventCode,
+    );
+    if (event) {
+      eventName = event.name ?? event.event_code ?? eventName;
+      venueName = event.venue_name ?? null;
+      venueCity = event.venue_city ?? null;
+      resolvedEventId = event.id;
+      resolvedEventCode = event.event_code;
     }
   }
 
@@ -198,7 +232,7 @@ export async function POST(
       funnel: row.funnel ?? "MOFU",    // already highest-intent from sheet parser
       location: row.location ?? "",
       eventName,
-      eventCode: row.resolved_event_code ?? "",
+      eventCode: resolvedEventCode ?? "",
       venueName,
       venueCity,
     },
@@ -207,10 +241,21 @@ export async function POST(
   );
 
   const patternUrl = urlPattern[row.funnel ?? ""]?.trim() ?? "";
-  const generatedUrl =
-    patternUrl ||
-    resolveOrganiserDestinationUrl(client.slug, venueCity) ||
-    "";
+  const organiserUrl = resolveOrganiserDestinationUrl(client.slug, venueCity);
+  const generatedUrl = patternUrl || organiserUrl || "";
+
+  if (!generatedUrl) {
+    console.error("[asset-queue/prepare] destination URL empty after fallbacks", {
+      clientId,
+      queueId,
+      clientSlug: client.slug,
+      venueCity,
+      resolvedEventCode,
+      funnel: row.funnel,
+      hadPatternUrl: !!patternUrl,
+      hadOrganiserBase: !!organiserUrl || venueCity == null,
+    });
+  }
 
   // ── Persist results ───────────────────────────────────────────────────────
   const firstPath = uploadedPaths[0];
@@ -221,6 +266,9 @@ export async function POST(
     generatedCopy: generated.primaryText,
     generatedCta: generated.ctaValue,
     generatedUrl,
+    resolvedEventId: isUmbrella ? row.resolved_event_id : resolvedEventId,
+    resolvedEventCode: isUmbrella ? null : resolvedEventCode,
+    eventMatchAmbiguous: isUmbrella ? false : eventMatchAmbiguous,
   });
 
   console.error("[asset-queue/prepare] complete", {

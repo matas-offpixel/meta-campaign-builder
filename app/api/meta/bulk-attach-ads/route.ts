@@ -58,6 +58,8 @@ export const maxDuration = 600;
 
 export interface BulkAttachRequest {
   adAccountId: string;
+  /** When launching from the asset queue wizard — enables richer payload diagnostics. */
+  launchContext?: { source: "asset_queue"; queueId: string };
   /**
    * Explicit per-campaign ad set selection from the ad-set picker (Step 1).
    * Key = Meta campaign ID, value = array of Meta ad set IDs to target.
@@ -308,21 +310,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // One creative per campaign — reused across all selected ad sets.
       // Log payload shape (counts only — no raw IDs/hashes which are effectively secrets).
       const isMultiPlacement = !!metaPayload.asset_feed_spec?.asset_customization_rules?.length;
+      const payloadShape = {
+        path: isMultiPlacement ? "multi_placement" : "single_asset",
+        hasObjectStorySpec: !!metaPayload.object_story_spec,
+        hasVideoData: !!metaPayload.object_story_spec?.video_data,
+        hasLinkData: !!metaPayload.object_story_spec?.link_data,
+        hasAssetFeedSpec: !!metaPayload.asset_feed_spec,
+        assetFeedVideoCount: metaPayload.asset_feed_spec?.videos?.length ?? 0,
+        assetFeedImageCount: metaPayload.asset_feed_spec?.images?.length ?? 0,
+        rulesCount: metaPayload.asset_feed_spec?.asset_customization_rules?.length ?? 0,
+        adFormats: metaPayload.asset_feed_spec?.ad_formats,
+        optimizationType: metaPayload.asset_feed_spec?.optimization_type,
+      };
       console.error(
         `[bulk-attach-ads]   creative "${creative.name}" payload shape:`,
-        JSON.stringify({
-          path: isMultiPlacement ? "multi_placement" : "single_asset",
-          hasObjectStorySpec: !!metaPayload.object_story_spec,
-          hasVideoData: !!metaPayload.object_story_spec?.video_data,
-          hasLinkData: !!metaPayload.object_story_spec?.link_data,
-          hasAssetFeedSpec: !!metaPayload.asset_feed_spec,
-          assetFeedVideoCount: metaPayload.asset_feed_spec?.videos?.length ?? 0,
-          assetFeedImageCount: metaPayload.asset_feed_spec?.images?.length ?? 0,
-          rulesCount: metaPayload.asset_feed_spec?.asset_customization_rules?.length ?? 0,
-          adFormats: metaPayload.asset_feed_spec?.ad_formats,
-          optimizationType: metaPayload.asset_feed_spec?.optimization_type,
-        }),
+        JSON.stringify(payloadShape),
       );
+
+      if (body.launchContext?.source === "asset_queue") {
+        const afs = metaPayload.asset_feed_spec;
+        console.error(
+          `[bulk-attach-ads] asset_queue wire payload queueId=${body.launchContext.queueId}`,
+          JSON.stringify({
+            creativeName: creative.name,
+            cta: creative.cta,
+            assetMode: creative.assetMode,
+            mediaType: creative.mediaType,
+            aspects: creative.assetVariations?.[0]?.assets?.map((a) => ({
+              ratio: a.aspectRatio,
+              uploaded: a.uploadStatus === "uploaded",
+              hasHash: !!a.assetHash,
+              hasVideoId: !!a.videoId,
+            })),
+            ...payloadShape,
+            afsImageAdLabels: afs?.images?.map((img) => img.adlabels),
+            afsVideoAdLabels: afs?.videos?.map((vid) => vid.adlabels),
+            afsCustomizationRules: afs?.asset_customization_rules,
+            linkDataImageHash: metaPayload.object_story_spec?.link_data?.image_hash,
+            videoDataVideoId: metaPayload.object_story_spec?.video_data?.video_id,
+          }),
+        );
+      }
 
       let metaCreativeId: string;
       try {

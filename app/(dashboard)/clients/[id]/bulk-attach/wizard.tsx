@@ -51,6 +51,7 @@ import {
 } from "@/lib/bulk-attach/draft-state";
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
 import { buildMetaAdsManagerAdsUrl } from "@/lib/bulk-attach/meta-ads-manager-url";
+import { parseAspectFromFilename } from "@/lib/clients/asset-queue/aspect-detect";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
   applyUploadedAssetsToCreative,
@@ -87,6 +88,19 @@ interface Props {
   clientSlug?: string | null;
   adAccountId: string;
   queueContext?: QueueContextProps;
+}
+
+function isBookNowQueueCta(metaCta: string | null | undefined): boolean {
+  return (metaCta ?? "").trim().toUpperCase() === "BOOK_NOW";
+}
+
+function queueHasDualAspectFromPaths(paths: string[]): boolean {
+  const aspects = new Set(
+    paths
+      .map((p) => parseAspectFromFilename(p.split("/").pop() ?? ""))
+      .filter((a): a is AssetRatio => a === "4:5" || a === "9:16" || a === "1:1"),
+  );
+  return aspects.has("4:5") && aspects.has("9:16");
 }
 
 function mapMetaCtaToDraft(metaCta: string | null | undefined): CTAType {
@@ -163,6 +177,10 @@ function QueueContextBanner({
         ? [queueContext.assetBlobUrl]
         : [];
 
+  const showBookNowDualWarning =
+    isBookNowQueueCta(queueContext.generatedCta) &&
+    queueHasDualAspectFromPaths(paths);
+
   if (variant === "review") {
     return (
       <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
@@ -170,6 +188,12 @@ function QueueContextBanner({
           Launching from queue row: {queueContext.assetName ?? "Asset"}
           {queueContext.eventCode ? ` → Event ${queueContext.eventCode}` : ""}
         </p>
+        {showBookNowDualWarning && (
+          <p className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+            BOOK_NOW will use the 9:16 asset on all placements — per-placement Feed/Stories
+            split is not available with this CTA.
+          </p>
+        )}
       </div>
     );
   }
@@ -184,6 +208,13 @@ function QueueContextBanner({
         Copy, CTA, and destination URL are pre-filled from the prepared asset.
         Assets auto-upload to Meta when you reach this step — override manually if needed.
       </p>
+      {showBookNowDualWarning && (
+        <p className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          <strong>BOOK_NOW + dual aspects:</strong> Meta blocks per-placement routing for
+          BOOK_NOW, so all placements will use the 9:16 asset. For separate 4:5 Feed and 9:16
+          Stories/Reels creatives, change the CTA to Learn More or Get Tickets before launch.
+        </p>
+      )}
       {paths.length > 0 && (
         <ul className="mt-2 space-y-1 text-xs">
           {paths.map((path) => (
@@ -867,6 +898,9 @@ export function ClientBulkAttachWizard({
           adAccountId,
           campaignAdSets: campaignAdSetsPayload,
           newCreatives: creatives,
+          launchContext: queueContext
+            ? { source: "asset_queue" as const, queueId: queueContext.queueId }
+            : undefined,
         }),
       });
       const data = await res.json();

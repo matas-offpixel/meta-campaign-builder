@@ -19,4 +19,9 @@ describe("parseAspectFromFilename", () => {
     assert.equal(parseAspectFromFilename("Bournemouth vertical reel.mp4"), "9:16");
     assert.equal(parseAspectFromFilename("Bournemouth feed post.jpg"), "4:5");
   });
+
+  it("reads compact ratio tokens in filenames", () => {
+    assert.equal(parseAspectFromFilename("Hendry4x5.png"), "4:5");
+    assert.equal(parseAspectFromFilename("Hendry9x16.png"), "9:16");
+  });
 });

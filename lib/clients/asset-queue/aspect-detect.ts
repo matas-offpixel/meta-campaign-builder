@@ -42,6 +42,10 @@ export function parseAspectFromFilename(filename: string): StandardAspect | null
   if (/\b4\s*:\s*5\b/.test(name)) return "4:5";
   if (/\b1\s*:\s*1\b/.test(name)) return "1:1";
 
+  // Compact tokens without colons (e.g. Hendry4x5.png, Hendry9x16.png)
+  if (/(?:^|[^0-9])9x16(?:[^0-9]|$)/.test(name)) return "9:16";
+  if (/(?:^|[^0-9])4x5(?:[^0-9]|$)/.test(name)) return "4:5";
+
   if (/\b(vert|vertical|story|stories|reel|reels)\b/.test(name)) return "9:16";
   if (/\b(feed|post)\b/.test(name)) return "4:5";
 

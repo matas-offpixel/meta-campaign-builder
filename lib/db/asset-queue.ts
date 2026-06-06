@@ -162,6 +162,9 @@ export async function updateQueueRowPrepared(
     generatedCopy: string;
     generatedCta: string;
     generatedUrl: string;
+    resolvedEventId?: string | null;
+    resolvedEventCode?: string | null;
+    eventMatchAmbiguous?: boolean;
   },
 ): Promise<void> {
   // Service-role so the write isn't blocked by RLS on the Storage-path column
@@ -175,6 +178,15 @@ export async function updateQueueRowPrepared(
       generated_copy: opts.generatedCopy,
       generated_cta: opts.generatedCta,
       generated_url: opts.generatedUrl,
+      ...(opts.resolvedEventId !== undefined
+        ? { resolved_event_id: opts.resolvedEventId }
+        : {}),
+      ...(opts.resolvedEventCode !== undefined
+        ? { resolved_event_code: opts.resolvedEventCode }
+        : {}),
+      ...(opts.eventMatchAmbiguous !== undefined
+        ? { event_match_ambiguous: opts.eventMatchAmbiguous }
+        : {}),
       status: "pending" as AssetQueueStatus,
       updated_at: new Date().toISOString(),
     })
