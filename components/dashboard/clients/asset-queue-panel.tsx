@@ -406,6 +406,7 @@ function CopyFields({ primaryText, setPrimaryText, headline, setHeadline, ctaVal
 /**
  * Error codes where Dropbox folder listing has failed and the user can rescue
  * the row by pasting individual /scl/fi/ file URLs.
+ * "config_missing" is NOT overrideable — it requires ops to set the env var.
  */
 const OVERRIDEABLE_CODES = new Set([
   "network",
@@ -678,13 +679,17 @@ function QueueRowCard({
               <AlertCircle className="mr-1 inline-block h-3.5 w-3.5" />
               {row.error_message === "no_venue_mapping"
                 ? `No venue mapping found for "${row.location}". Add one in Venue Mappings.`
-                : row.error_message === "network"
-                  ? "Dropbox folder listing failed (network error). Use the override below to paste direct file links."
-                  : row.error_message === "folder_too_large"
-                    ? "Folder exceeds the 500 MB limit. Use the override below to paste individual file links."
-                    : row.error_message === "empty_folder"
-                      ? "No media files found in the Dropbox folder. Use the override below to paste direct file links."
-                      : row.error_message ?? "Unknown error"}
+                : row.error_message === "config_missing"
+                  ? "Dropbox integration not configured — contact ops to set DROPBOX_ACCESS_TOKEN in Vercel env."
+                  : row.error_message === "not_found"
+                    ? "Dropbox folder not accessible — check the share link is still active in Joe's sheet. Use the override below to paste direct file links."
+                    : row.error_message === "network"
+                      ? "Dropbox folder listing failed (network error). Use the override below to paste direct file links."
+                      : row.error_message === "folder_too_large"
+                        ? "Folder exceeds the 500 MB limit. Use the override below to paste individual file links."
+                        : row.error_message === "empty_folder"
+                          ? "No media files found in the Dropbox folder. Use the override below to paste direct file links."
+                          : row.error_message ?? "Unknown error"}
             </div>
             {isOverrideable(row.error_message) && (
               <OverrideUrlsForm
