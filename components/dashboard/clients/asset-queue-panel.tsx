@@ -486,6 +486,11 @@ function QueueRowCard({
                 : row.resolved_event_code
                   ? ` → ${row.resolved_event_code}`
                   : null}
+              {row.event_match_ambiguous && (
+                <span className="ml-1 text-amber-600 dark:text-amber-400">
+                  · ambiguous match — verify venue
+                </span>
+              )}
             </div>
           </div>
 

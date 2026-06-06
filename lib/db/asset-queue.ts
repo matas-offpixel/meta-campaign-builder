@@ -35,6 +35,8 @@ export interface AssetQueueRow {
   resolved_event_code: string | null;
   /** Populated for matched_umbrella rows — all event codes this umbrella covers. */
   resolved_event_codes_multi: string[] | null;
+  /** True when asset_name matched multiple events and the first event_code was chosen. */
+  event_match_ambiguous: boolean;
   status: AssetQueueStatus;
   error_message: string | null;
   /** First (or only) uploaded file path — kept for backward compat. */
@@ -120,6 +122,7 @@ export interface NewQueueRow {
   resolved_event_code: string | null;
   /** Populated for matched_umbrella rows — all event codes this umbrella covers. */
   resolved_event_codes_multi?: string[] | null;
+  event_match_ambiguous?: boolean;
   status: AssetQueueStatus;
   error_message: string | null;
 }
