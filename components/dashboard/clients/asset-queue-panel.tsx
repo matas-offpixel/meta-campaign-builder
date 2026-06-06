@@ -8,7 +8,7 @@
  *   - Configured → Scrape button + queue table grouped by status
  *
  * Status flows:
- *   matched / matched_umbrella → [Prepare] → pending
+ *   matched / matched_umbrella → [Prepare & Launch] → pending + bulk-attach wizard
  *   pending (single-venue)     → [Confirm & Launch] → bulk-attach wizard → launched
  *   pending (umbrella)         → [Review & Confirm modal] → confirmed
  *   confirmed (umbrella)       → [Open Bulk Attach] → (external bulk-attach)
@@ -361,6 +361,7 @@ function QueueRowCard({
 }) {
   const router = useRouter();
   const [preparing, setPreparing] = useState(false);
+  const [prepareElapsed, setPrepareElapsed] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [showUmbrellaReview, setShowUmbrellaReview] = useState(false);
   const [openingBulkAttach, setOpeningBulkAttach] = useState(false);
@@ -368,10 +369,46 @@ function QueueRowCard({
   const isUmbrella = !!(row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0);
   const isCollapsed = row.status === "launched" || row.status === "skipped";
 
-  async function handlePrepare() {
+  useEffect(() => {
+    if (!preparing) {
+      setPrepareElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => {
+      setPrepareElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [preparing]);
+
+  function formatElapsed(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  async function handlePrepareAndLaunch() {
     setPreparing(true);
     try {
-      await fetch(`/api/clients/${clientId}/asset-queue/${row.id}/prepare`, { method: "POST" });
+      const res = await fetch(
+        `/api/clients/${clientId}/asset-queue/${row.id}/prepare`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || data.error || data.ok === false) {
+        onUpdate();
+        return;
+      }
+
+      if (!isUmbrella) {
+        router.push(`/clients/${clientId}/bulk-attach?queueId=${row.id}`);
+        return;
+      }
+
       onUpdate();
     } finally {
       setPreparing(false);
@@ -455,12 +492,16 @@ function QueueRowCard({
           <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
             {(row.status === "matched" || row.status === "matched_umbrella") && (
               <button
-                onClick={handlePrepare}
+                onClick={handlePrepareAndLaunch}
                 disabled={preparing}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 {preparing && <Loader2 className="h-3 w-3 animate-spin" />}
-                Prepare
+                {preparing
+                  ? `Preparing… ${formatElapsed(prepareElapsed)}`
+                  : isUmbrella
+                    ? "Prepare"
+                    : "Prepare & Launch"}
               </button>
             )}
             {row.status === "pending" && !isUmbrella && (
