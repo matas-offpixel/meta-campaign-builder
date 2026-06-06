@@ -9,7 +9,7 @@
  *
  * Status flows:
  *   matched / matched_umbrella → [Prepare] → pending
- *   pending (single-venue)     → [Confirm & Launch modal] → launched
+ *   pending (single-venue)     → [Confirm & Launch] → bulk-attach wizard → launched
  *   pending (umbrella)         → [Review & Confirm modal] → confirmed
  *   confirmed (umbrella)       → [Open Bulk Attach] → (external bulk-attach)
  *   error                      → [Retry / Skip]
@@ -66,133 +66,6 @@ function StatusBadge({ status }: { status: AssetQueueStatus }) {
       {status === "matched_umbrella" && <Globe className="h-3 w-3" />}
       {STATUS_LABEL[status]}
     </span>
-  );
-}
-
-// ─── Confirm modal (single-venue) ─────────────────────────────────────────────
-
-interface ConfirmModalProps {
-  row: AssetQueueRow;
-  clientId: string;
-  onClose: () => void;
-  onLaunched: () => void;
-}
-
-function ConfirmModal({ row, clientId, onClose, onLaunched }: ConfirmModalProps) {
-  const [primaryText, setPrimaryText] = useState(row.generated_copy ?? "");
-  const [headline, setHeadline] = useState("");
-  const [ctaValue, setCtaValue] = useState(row.generated_cta ?? "LEARN_MORE");
-  const [destUrl, setDestUrl] = useState(row.generated_url ?? "");
-  const [adAccountId, setAdAccountId] = useState("");
-  const [campaignId, setCampaignId] = useState("");
-  const [adSetIds, setAdSetIds] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleLaunch() {
-    if (!adAccountId || !campaignId || !adSetIds) {
-      setError("Ad Account ID, Campaign ID, and Ad Set IDs are required.");
-      return;
-    }
-    const adSetIdList = adSetIds.split(",").map((s) => s.trim()).filter(Boolean);
-    if (adSetIdList.length === 0) {
-      setError("Enter at least one ad set ID.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      await fetch(`/api/clients/${clientId}/asset-queue/${row.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "confirm",
-          overrides: { primaryText, headline, ctaValue, destUrl },
-        }),
-      });
-
-      const creative = {
-        primaryText,
-        headline,
-        callToAction: ctaValue,
-        destinationUrl: destUrl,
-        storageAssetPath: row.asset_blob_url,
-      };
-
-      const bulkRes = await fetch("/api/meta/bulk-attach-ads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          adAccountId,
-          campaignAdSets: { [campaignId]: adSetIdList },
-          newCreatives: [creative],
-        }),
-      });
-
-      const bulkData = await bulkRes.json();
-      if (!bulkRes.ok) {
-        setError(bulkData.error ?? "Launch failed");
-        return;
-      }
-
-      const metaAdIds: string[] = [];
-      for (const campaign of Object.values(bulkData.campaigns ?? {})) {
-        const c = campaign as { ads?: Array<{ adId: string }> };
-        for (const ad of c.ads ?? []) {
-          if (ad.adId) metaAdIds.push(ad.adId);
-        }
-      }
-
-      await fetch(`/api/clients/${clientId}/asset-queue/${row.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "launched", metaAdIds }),
-      });
-
-      onLaunched();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <ModalShell title="Confirm & Launch" subtitle={`${row.asset_name} · ${row.funnel} · ${row.location}`} onClose={onClose}>
-      <AssetPreview row={row} />
-
-      <div className="space-y-3">
-        <InfoRow label="Event">{row.resolved_event_code ?? "—"}</InfoRow>
-        <CopyFields
-          primaryText={primaryText} setPrimaryText={setPrimaryText}
-          headline={headline} setHeadline={setHeadline}
-          ctaValue={ctaValue} setCtaValue={setCtaValue}
-          destUrl={destUrl} setDestUrl={setDestUrl}
-        />
-
-        <hr className="border-border" />
-
-        <TextInput label="Ad Account ID" placeholder="act_..." value={adAccountId} onChange={setAdAccountId} />
-        <TextInput label="Campaign ID" value={campaignId} onChange={setCampaignId} />
-        <TextInput label="Ad Set IDs (comma-separated)" value={adSetIds} onChange={setAdSetIds} />
-
-        {error && <ErrorBox>{error}</ErrorBox>}
-      </div>
-
-      <div className="mt-5 flex justify-end gap-2">
-        <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
-        <button
-          onClick={handleLaunch}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Launch to Meta
-        </button>
-      </div>
-    </ModalShell>
   );
 }
 
@@ -318,29 +191,6 @@ function AssetPreview({ row }: { row: AssetQueueRow }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/api/storage-proxy?path=${encodeURIComponent(row.asset_blob_url)}`} alt={row.asset_name ?? "Asset preview"} className="max-h-48 w-full object-contain" />
       )}
-    </div>
-  );
-}
-
-function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
-      <p className="mt-0.5 text-sm">{children}</p>
-    </div>
-  );
-}
-
-function TextInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-muted-foreground mb-1">{label}</label>
-      <input
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
     </div>
   );
 }
@@ -512,7 +362,6 @@ function QueueRowCard({
   const router = useRouter();
   const [preparing, setPreparing] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [showUmbrellaReview, setShowUmbrellaReview] = useState(false);
   const [openingBulkAttach, setOpeningBulkAttach] = useState(false);
 
@@ -568,14 +417,6 @@ function QueueRowCard({
 
   return (
     <>
-      {showConfirm && !isUmbrella && (
-        <ConfirmModal
-          row={row}
-          clientId={clientId}
-          onClose={() => setShowConfirm(false)}
-          onLaunched={() => { setShowConfirm(false); onUpdate(); }}
-        />
-      )}
       {showUmbrellaReview && (
         <UmbrellaReviewModal
           row={row}
@@ -623,12 +464,12 @@ function QueueRowCard({
               </button>
             )}
             {row.status === "pending" && !isUmbrella && (
-              <button
-                onClick={() => setShowConfirm(true)}
+              <Link
+                href={`/clients/${clientId}/bulk-attach?queueId=${row.id}`}
                 className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
               >
                 Confirm &amp; Launch
-              </button>
+              </Link>
             )}
             {row.status === "pending" && isUmbrella && (
               <button

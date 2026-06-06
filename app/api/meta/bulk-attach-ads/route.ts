@@ -79,6 +79,8 @@ export interface CampaignAttachResult {
   adsFailed: number;
   creativesCreated: { name: string; metaCreativeId: string }[];
   creativesFailed: { name: string; error: string }[];
+  /** Meta ad IDs created for this campaign — used by queue launched_meta_ad_ids. */
+  adIds: string[];
   /** Set when the entire campaign batch failed before any ad creation. */
   error?: string;
 }
@@ -274,6 +276,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       adsFailed: 0,
       creativesCreated: [],
       creativesFailed: [],
+      adIds: [],
     };
 
     // ── For each creative: create ONE Meta creative, then one ad per ad set ─
@@ -361,10 +364,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const adName = `${creative.name} — ${adSetId}`;
         const adPayload = buildAdPayload(adName, metaCreativeId, adSetId);
         try {
-          await createMetaAd(adAccountId, adPayload, token);
+          const { id: adId } = await createMetaAd(adAccountId, adPayload, token);
           result.adsCreated++;
+          result.adIds.push(adId);
           console.error(
-            `[bulk-attach-ads]   ad created: "${adName}" → adSet ${adSetId}`,
+            `[bulk-attach-ads]   ad created: "${adName}" → adSet ${adSetId} adId=${adId}`,
           );
         } catch (err) {
           const metaErr = err instanceof MetaApiError ? err : null;
