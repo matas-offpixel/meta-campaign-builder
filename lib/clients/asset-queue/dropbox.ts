@@ -14,9 +14,9 @@
  * to the folder root. These are the live endpoints as of 2026-06 — the previously-used
  * POST /2/sharing/list_shared_link_files was retired by Dropbox and returns an HTML 404.
  *
- * DROPBOX_ACCESS_TOKEN is a hard requirement for folder listing. The old HTML-scrape
- * fallback (window.__INITIAL_PROPS__) has been removed — Dropbox removed that anchor
- * from all folder pages. There is no unauthenticated fallback path.
+ * Authentication: uses a refresh-token-based OAuth flow (dropbox-auth.ts). A fresh
+ * access token is obtained before each batch of API calls. DROPBOX_ACCESS_TOKEN has
+ * been removed — the integration now uses DROPBOX_REFRESH_TOKEN + app credentials.
  *
  * If a URL returns 403/404 we throw a DropboxFetchError with a code so
  * the caller can set a user-visible error message WITHOUT logging the URL.
@@ -27,6 +27,8 @@ const MAX_FOLDER_BYTES      = 500 * 1024 * 1024; // 500 MB total for folders
 
 /** Media extensions we will accept from folder listings */
 const MEDIA_EXTENSIONS = new Set(["mp4", "mov", "webm", "jpg", "jpeg", "png", "gif", "webp"]);
+
+import { getDropboxAccessToken } from "./dropbox-auth.ts";
 
 export class DropboxFetchError extends Error {
   readonly code: "not_found" | "forbidden" | "too_large" | "folder_too_large" | "empty_folder" | "network" | "config_missing";
@@ -79,19 +81,13 @@ export interface DropboxFileEntry {
  * Lists all files inside a Dropbox shared folder via the live
  * POST /2/files/list_folder endpoint with a shared_link argument.
  *
- * Requires DROPBOX_ACCESS_TOKEN. Throws DropboxFetchError("config_missing")
- * when the token is absent — there is no unauthenticated fallback.
+ * Requires DROPBOX_REFRESH_TOKEN + app credentials (via dropbox-auth.ts).
+ * Throws DropboxFetchError("config_missing") when credentials are absent.
  *
  * Handles pagination via /2/files/list_folder/continue when has_more is true.
  */
 export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxFileEntry[]> {
-  const token = process.env.DROPBOX_ACCESS_TOKEN;
-  if (!token) {
-    throw new DropboxFetchError(
-      "config_missing",
-      "DROPBOX_ACCESS_TOKEN not set — folder listing unavailable. Set it in Vercel env vars.",
-    );
-  }
+  const token = await getDropboxAccessToken();
 
   const allEntries: DropboxFileEntry[] = [];
   let cursor: string | undefined;
@@ -115,7 +111,8 @@ export async function listDropboxFolderFiles(shareUrl: string): Promise<DropboxF
     if (res.status === 401) {
       throw new DropboxFetchError(
         "forbidden",
-        "Dropbox access token rejected — regenerate the token in the Off Pixel DB app console and update the DROPBOX_ACCESS_TOKEN env var",
+        "Dropbox access token rejected by list_folder — refresh token may have been revoked. " +
+          "Regenerate DROPBOX_REFRESH_TOKEN via OAuth offline flow.",
       );
     }
     if (res.status === 404) {
@@ -192,19 +189,13 @@ function appendFileEntries(raw: unknown[], out: DropboxFileEntry[]): void {
  * The path_lower is relative to the shared folder root (e.g. "/video.mp4").
  * The API streams raw file bytes in the response body.
  *
- * @throws {DropboxFetchError} on missing token, auth error, 404, size cap, or network failure
+ * @throws {DropboxFetchError} on missing credentials, auth error, 404, size cap, or network failure
  */
 export async function fetchDropboxFileContent(
   folderShareUrl: string,
   entry: Pick<DropboxFileEntry, "name" | "path_lower">,
 ): Promise<{ buffer: Buffer; extension: string }> {
-  const token = process.env.DROPBOX_ACCESS_TOKEN;
-  if (!token) {
-    throw new DropboxFetchError(
-      "config_missing",
-      "DROPBOX_ACCESS_TOKEN not set — cannot download file from folder.",
-    );
-  }
+  const token = await getDropboxAccessToken();
 
   const apiArg = JSON.stringify({ url: folderShareUrl, path: entry.path_lower });
 
@@ -224,7 +215,8 @@ export async function fetchDropboxFileContent(
   if (response.status === 401) {
     throw new DropboxFetchError(
       "forbidden",
-      "Dropbox access token rejected — regenerate the token and update DROPBOX_ACCESS_TOKEN",
+      "Dropbox access token rejected by get_shared_link_file — refresh token may have been revoked. " +
+        "Regenerate DROPBOX_REFRESH_TOKEN via OAuth offline flow.",
     );
   }
   if (response.status === 404) {
