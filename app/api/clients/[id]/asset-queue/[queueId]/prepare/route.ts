@@ -106,7 +106,7 @@ export async function POST(
         console.error("[asset-queue/prepare] Storage upload failed for folder file", {
           clientId,
           queueId,
-          index: i,
+          storagePath,
           error: uploadError.message,
         });
         await updateQueueRowStatus(queueId, "error", { error_message: "storage_upload_failed" });
@@ -118,8 +118,9 @@ export async function POST(
     // ── Single file branch ────────────────────────────────────────────────
     let buffer: Buffer;
     let extension: string;
+    let originalName: string;
     try {
-      ({ buffer, extension } = await downloadDropboxAsset(row.dropbox_url));
+      ({ buffer, extension, name: originalName } = await downloadDropboxAsset(row.dropbox_url));
     } catch (err) {
       if (err instanceof DropboxFetchError) {
         console.error("[asset-queue/prepare] Dropbox fetch error", {
@@ -133,7 +134,12 @@ export async function POST(
       throw err;
     }
 
-    const storagePath = `queue/${queueId}.${extension}`;
+    const usedPaths = new Set<string>();
+    const storagePath = buildQueueStoragePath(
+      queueId,
+      originalName || row.asset_name || `asset.${extension}`,
+      usedPaths,
+    );
     const { error: uploadError } = await serviceClient.storage
       .from("campaign-assets")
       .upload(storagePath, buffer, { contentType: mimeFor(extension), upsert: true });
