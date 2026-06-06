@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 577
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/577
 - **Branch:** `cursor/client-level-bulk-attach-entry-point`
 
 ## Summary
