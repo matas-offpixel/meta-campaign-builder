@@ -38,6 +38,8 @@ interface CampaignMultiPickerProps {
   preselectCodes?: string[];
   /** Called once with the full list of campaigns that matched preselectCodes. */
   onPreselectLoad?: (campaigns: MetaCampaignSummary[]) => void;
+  /** Pre-fills the search field on mount (e.g. "[WC26-BOURNEMOUTH]"). */
+  defaultSearchQuery?: string;
 }
 
 function Spinner({ className = "h-3.5 w-3.5" }: { className?: string }) {
@@ -68,11 +70,20 @@ export function CampaignMultiPicker({
   onToggle,
   preselectCodes,
   onPreselectLoad,
+  defaultSearchQuery,
 }: CampaignMultiPickerProps) {
   const [filter, setFilter] = useState<"relevant" | "all">("relevant");
-  const [searchInput, setSearchInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(defaultSearchQuery ?? "");
+  const [debouncedSearch, setDebouncedSearch] = useState(defaultSearchQuery?.trim() ?? "");
   const preselectAppliedRef = useRef(false);
+  const defaultSearchAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (defaultSearchAppliedRef.current || !defaultSearchQuery?.trim()) return;
+    defaultSearchAppliedRef.current = true;
+    setSearchInput(defaultSearchQuery);
+    setDebouncedSearch(defaultSearchQuery.trim());
+  }, [defaultSearchQuery]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
