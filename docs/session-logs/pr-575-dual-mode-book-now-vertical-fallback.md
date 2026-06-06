@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 575
+- **URL:** 575
 - **Branch:** `cursor/dual-mode-book-now-vertical-fallback`
 
 ## Summary
