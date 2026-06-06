@@ -100,9 +100,7 @@ export function CampaignMultiPicker({
     const matched = (campaigns.data ?? []).filter(
       (c) => c.compatible && needles.some((n) => c.name.toLowerCase().includes(n)),
     );
-    if (matched.length > 0) {
-      onPreselectLoad(matched);
-    }
+    onPreselectLoad(matched);
   }, [campaigns.status, campaigns.data, preselectCodes, onPreselectLoad]);
 
   if (!adAccountId) {

@@ -10,11 +10,11 @@
  *
  * Differences from the event-scoped wizard:
  *   - adAccountId is a required prop (no guard / input form)
- *   - Back link → /clients/[id]?tab=campaigns
+ *   - Back link → /clients/[id]?tab=campaigns (or ?tab=asset-queue when queueId handoff)
  *   - Draft persistence: clientId stored instead of eventId
  *   - Draft listing: all user drafts (no event_id filter)
  *   - localStorage key: bulk-attach-unsaved-client-[clientId]
- *   - No preselectCodes (event-specific feature)
+ *   - Optional queueContext from ?queueId= pre-fills campaigns, copy, CTA, URL
  *
  * All shared components, API endpoints, hard caps, serial execution,
  * and creative builders are identical to the event-scoped page.
@@ -42,7 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Creatives } from "@/components/steps/creatives";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
 import { AdSetPicker } from "@/components/bulk-attach/ad-set-picker";
-import { createDefaultCreative } from "@/lib/campaign-defaults";
+import { createDefaultCreative, createDefaultCaption } from "@/lib/campaign-defaults";
 import {
   serialiseDraftState,
   deserialiseDraftState,
@@ -50,15 +50,133 @@ import {
   defaultDraftName,
 } from "@/lib/bulk-attach/draft-state";
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
-import type { AdCreativeDraft, MetaCampaignSummary } from "@/lib/types";
+import type { AdCreativeDraft, CTAType, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
 
 const BULK_ATTACH_CAP = 8;
+
+export interface QueueContextProps {
+  queueId: string;
+  eventCode: string | null;
+  eventId: string | null;
+  assetName: string | null;
+  generatedCopy: string | null;
+  generatedCta: string | null;
+  generatedUrl: string | null;
+  assetBlobUrl: string | null;
+  assetBlobUrls: string[];
+  mediaType: string | null;
+  funnel: string | null;
+}
 
 interface Props {
   clientId: string;
   clientName: string;
   adAccountId: string;
+  queueContext?: QueueContextProps;
+}
+
+function mapMetaCtaToDraft(metaCta: string | null | undefined): CTAType {
+  const upper = (metaCta ?? "").toUpperCase();
+  if (upper === "SIGN_UP") return "sign_up";
+  if (
+    upper === "BOOK_NOW" ||
+    upper === "BUY_TICKETS" ||
+    upper === "GET_TICKETS" ||
+    upper === "BOOK_TRAVEL"
+  ) {
+    return "book_now";
+  }
+  return "learn_more";
+}
+
+function inferMediaTypeFromQueue(ctx: QueueContextProps): "image" | "video" {
+  if (ctx.mediaType?.toLowerCase().includes("video")) return "video";
+  const paths =
+    ctx.assetBlobUrls.length > 0
+      ? ctx.assetBlobUrls
+      : ctx.assetBlobUrl
+        ? [ctx.assetBlobUrl]
+        : [];
+  if (paths.some((p) => /\.(mp4|mov|webm)$/i.test(p))) return "video";
+  return "image";
+}
+
+function buildCreativesFromQueueContext(ctx: QueueContextProps): AdCreativeDraft[] {
+  const creative = createDefaultCreative();
+  const caption = createDefaultCaption();
+  caption.text = ctx.generatedCopy ?? "";
+  creative.captions = [caption];
+  creative.name = ctx.assetName ?? "";
+  creative.destinationUrl = ctx.generatedUrl ?? "";
+  creative.cta = mapMetaCtaToDraft(ctx.generatedCta);
+  creative.mediaType = inferMediaTypeFromQueue(ctx);
+  return [creative];
+}
+
+function extractAdIdsFromResult(result: BulkAttachResult): string[] {
+  const ids: string[] = [];
+  for (const campaign of result.campaigns) {
+    for (const adId of campaign.adIds ?? []) {
+      ids.push(adId);
+    }
+  }
+  return ids;
+}
+
+function QueueContextBanner({
+  queueContext,
+  variant = "creative",
+}: {
+  queueContext: QueueContextProps;
+  variant?: "creative" | "review";
+}) {
+  const paths =
+    queueContext.assetBlobUrls.length > 0
+      ? queueContext.assetBlobUrls
+      : queueContext.assetBlobUrl
+        ? [queueContext.assetBlobUrl]
+        : [];
+
+  if (variant === "review") {
+    return (
+      <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+        <p className="font-medium">
+          Launching from queue row: {queueContext.assetName ?? "Asset"}
+          {queueContext.eventCode ? ` → Event ${queueContext.eventCode}` : ""}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+      <p className="font-medium">
+        Launching from queue: {queueContext.assetName ?? "Asset"}
+        {queueContext.eventCode ? ` → [${queueContext.eventCode}]` : ""}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Copy, CTA, and destination URL are pre-filled from the prepared asset.
+        Upload assets from Supabase Storage via the file picker below.
+      </p>
+      {paths.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs">
+          {paths.map((path) => (
+            <li key={path}>
+              <a
+                href={`/api/storage-proxy?path=${encodeURIComponent(path)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2"
+              >
+                {path.split("/").pop() ?? path}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 type Step = 0 | 1 | 2 | 3;
@@ -145,9 +263,16 @@ export function ClientBulkAttachWizard({
   clientId,
   clientName,
   adAccountId,
+  queueContext,
 }: Props) {
   const router = useRouter();
   const lsKey = `bulk-attach-unsaved-client-${clientId}`;
+  const backHref = queueContext
+    ? `/clients/${clientId}?tab=asset-queue`
+    : `/clients/${clientId}?tab=campaigns`;
+  const queuePreselectCodes = queueContext?.eventCode
+    ? [`[${queueContext.eventCode}]`]
+    : undefined;
 
   // ── Step ────────────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>(0);
@@ -173,6 +298,18 @@ export function ClientBulkAttachWizard({
     [],
   );
 
+  const [queuePreselectChecked, setQueuePreselectChecked] = useState(!queueContext);
+
+  const handleQueuePreselectLoad = useCallback((campaigns: MetaCampaignSummary[]) => {
+    setQueuePreselectChecked(true);
+    const active = campaigns.filter(
+      (c) => (c.effectiveStatus ?? c.status).toUpperCase() === "ACTIVE",
+    );
+    setSelectedCampaigns(
+      new Map(active.slice(0, BULK_ATTACH_CAP).map((c) => [c.id, c])),
+    );
+  }, []);
+
   const selectedIds = new Set(selectedCampaigns.keys());
 
   // ── Step 1: ad set selection ─────────────────────────────────────────────────
@@ -191,9 +328,9 @@ export function ClientBulkAttachWizard({
     : null;
 
   // ── Step 2: creatives ────────────────────────────────────────────────────────
-  const [creatives, setCreatives] = useState<AdCreativeDraft[]>([
-    createDefaultCreative(),
-  ]);
+  const [creatives, setCreatives] = useState<AdCreativeDraft[]>(() =>
+    queueContext ? buildCreativesFromQueueContext(queueContext) : [createDefaultCreative()],
+  );
 
   // ── Step 3: launch ───────────────────────────────────────────────────────────
   const [launching, setLaunching] = useState(false);
@@ -571,7 +708,17 @@ export function ClientBulkAttachWizard({
         setLaunchError(data.error ?? "Launch failed");
         return;
       }
-      setLaunchResult(data as BulkAttachResult);
+      const result = data as BulkAttachResult;
+      setLaunchResult(result);
+
+      if (queueContext && result.totalAdsCreated > 0) {
+        const metaAdIds = extractAdIdsFromResult(result);
+        await fetch(`/api/clients/${clientId}/asset-queue/${queueContext.queueId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "launched", metaAdIds }),
+        });
+      }
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : "Network error");
     } finally {
@@ -585,7 +732,9 @@ export function ClientBulkAttachWizard({
     setStep(0);
     setSelectedCampaigns(new Map());
     setCampaignAdSets(new Map());
-    setCreatives([createDefaultCreative()]);
+    setCreatives(
+      queueContext ? buildCreativesFromQueueContext(queueContext) : [createDefaultCreative()],
+    );
     setDraftId(null);
     setAdSetMatchPattern([]);
     try {
@@ -601,7 +750,7 @@ export function ClientBulkAttachWizard({
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
       {/* Header */}
       <div className="flex items-start gap-3">
-        <Link href={`/clients/${clientId}?tab=campaigns`}>
+        <Link href={backHref}>
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
           </Button>
@@ -854,7 +1003,15 @@ export function ClientBulkAttachWizard({
               adAccountId={adAccountId}
               selectedIds={selectedIds}
               onToggle={handleToggleCampaign}
+              preselectCodes={queuePreselectCodes}
+              onPreselectLoad={queueContext ? handleQueuePreselectLoad : undefined}
             />
+            {queueContext && queuePreselectChecked && selectedCampaigns.size === 0 && (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                No active campaigns matched [{queueContext.eventCode}] — select
+                campaigns manually or check Meta for active campaigns.
+              </div>
+            )}
           </div>
 
           {selectedCampaigns.size > 0 && (
@@ -961,6 +1118,7 @@ export function ClientBulkAttachWizard({
               Assets are uploaded once. No audiences, budget, or scheduling —
               those come from the existing ad sets.
             </p>
+            {queueContext && <QueueContextBanner queueContext={queueContext} />}
             <Creatives
               creatives={creatives}
               onChange={setCreatives}
@@ -1002,6 +1160,10 @@ export function ClientBulkAttachWizard({
                 <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
               </Button>
             </div>
+
+            {queueContext && (
+              <QueueContextBanner queueContext={queueContext} variant="review" />
+            )}
 
             <div className="mb-4 overflow-x-auto rounded-md border border-border">
               <table className="w-full text-xs">
@@ -1160,11 +1322,9 @@ export function ClientBulkAttachWizard({
             </Button>
             <Button
               size="sm"
-              onClick={() =>
-                router.push(`/clients/${clientId}?tab=campaigns`)
-              }
+              onClick={() => router.push(backHref)}
             >
-              Back to campaigns
+              {queueContext ? "Back to asset queue" : "Back to campaigns"}
             </Button>
           </div>
         </div>

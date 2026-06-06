@@ -2,14 +2,17 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getClientByIdServer } from "@/lib/db/clients-server";
-import { ClientBulkAttachWizard } from "./wizard";
+import { getAssetQueueRow } from "@/lib/db/asset-queue";
+import { ClientBulkAttachWizard, type QueueContextProps } from "./wizard";
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ queueId?: string }>;
 }
 
-export default async function ClientBulkAttachPage({ params }: Props) {
+export default async function ClientBulkAttachPage({ params, searchParams }: Props) {
   const { id: clientId } = await params;
+  const { queueId } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -47,11 +50,33 @@ export default async function ClientBulkAttachPage({ params }: Props) {
     );
   }
 
+  let queueContext: QueueContextProps | undefined;
+
+  if (queueId) {
+    const row = await getAssetQueueRow(queueId);
+    if (row && row.client_id === clientId && row.status === "pending") {
+      queueContext = {
+        queueId: row.id,
+        eventCode: row.resolved_event_code ?? null,
+        eventId: row.resolved_event_id ?? null,
+        assetName: row.asset_name ?? null,
+        generatedCopy: row.generated_copy ?? null,
+        generatedCta: row.generated_cta ?? null,
+        generatedUrl: row.generated_url ?? null,
+        assetBlobUrl: row.asset_blob_url ?? null,
+        assetBlobUrls: row.asset_blob_urls ?? [],
+        mediaType: row.media_type ?? null,
+        funnel: row.funnel ?? null,
+      };
+    }
+  }
+
   return (
     <ClientBulkAttachWizard
       clientId={clientId}
       clientName={client.name}
       adAccountId={adAccountId}
+      queueContext={queueContext}
     />
   );
 }
