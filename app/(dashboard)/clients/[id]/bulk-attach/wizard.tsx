@@ -302,11 +302,8 @@ export function ClientBulkAttachWizard({
 
   const handleQueuePreselectLoad = useCallback((campaigns: MetaCampaignSummary[]) => {
     setQueuePreselectChecked(true);
-    const active = campaigns.filter(
-      (c) => (c.effectiveStatus ?? c.status).toUpperCase() === "ACTIVE",
-    );
     setSelectedCampaigns(
-      new Map(active.slice(0, BULK_ATTACH_CAP).map((c) => [c.id, c])),
+      new Map(campaigns.slice(0, BULK_ATTACH_CAP).map((c) => [c.id, c])),
     );
   }, []);
 
