@@ -21,6 +21,7 @@ import { AlertCircle, RefreshCw, Search as SearchIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
+import { isCampaignRuntimeActive } from "@/lib/bulk-attach/campaign-active";
 import type { MetaCampaignSummary } from "@/lib/types";
 import { useFetchCampaigns } from "@/lib/hooks/useMeta";
 
@@ -100,7 +101,8 @@ export function CampaignMultiPicker({
     const matched = (campaigns.data ?? []).filter(
       (c) => c.compatible && needles.some((n) => c.name.toLowerCase().includes(n)),
     );
-    onPreselectLoad(matched);
+    const activeMatched = matched.filter(isCampaignRuntimeActive);
+    onPreselectLoad(activeMatched);
   }, [campaigns.status, campaigns.data, preselectCodes, onPreselectLoad]);
 
   if (!adAccountId) {
