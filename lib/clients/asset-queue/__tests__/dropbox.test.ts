@@ -9,7 +9,8 @@
  * Covers:
  *   listDropboxFolderFiles — recursive walk:
  *     - Missing credentials → DropboxFetchError("config_missing") via auth layer
- *     - Root with files only (no subfolders) → backward compat, returns root files
+ *     - Root files WITHOUT path_lower → path constructed as /${name} (real Dropbox behaviour)
+ *     - Root files WITH path_lower → path_lower preferred (subfolder context / future-proofing)
  *     - Root with V1 + V2 subfolders (NO path_lower on folder entries) → walks /V1 /V2 correctly
  *     - Root with only a subfolder, no root files → returns subfolder files (not empty_folder)
  *     - Folder entries WITH path_lower → prefer path_lower over constructed path
@@ -148,20 +149,40 @@ describe("listDropboxFolderFiles — recursive walk", () => {
     );
   });
 
-  it("returns root files when root contains only files (backward compatible)", async () => {
+  it("constructs path_lower from name when root file entries have no path_lower (real Dropbox shared_link behaviour)", async () => {
     setValidEnv();
     mock.method(globalThis, "fetch", async (url: string) => {
       if (url === TOKEN_URL) return tokenOk();
       assert.equal(url, LIST_FOLDER_URL);
+      // No path_lower — matches actual Dropbox shared_link list_folder response for root files
       return listOk([
-        { ".tag": "file", name: "video.mp4", path_lower: "/video.mp4", size: 10_000_000 },
-        { ".tag": "file", name: "thumb.jpg", path_lower: "/thumb.jpg", size: 50_000 },
+        { ".tag": "file", name: "Bournemouth Generic 1080x1350.jpg", size: 1_083_841 },
+        { ".tag": "file", name: "Bournemouth Reel.mp4", size: 45_000_000 },
       ]);
     });
     const entries = await listDropboxFolderFiles(SHARE_URL);
     assert.equal(entries.length, 2);
-    assert.equal(entries[0].name, "video.mp4");
-    assert.equal(entries[1].name, "thumb.jpg");
+    assert.equal(entries[0].name, "Bournemouth Generic 1080x1350.jpg");
+    assert.equal(entries[0].path_lower, "/Bournemouth Generic 1080x1350.jpg");
+    assert.equal(entries[1].name, "Bournemouth Reel.mp4");
+    assert.equal(entries[1].path_lower, "/Bournemouth Reel.mp4");
+  });
+
+  it("prefers path_lower on file entries when Dropbox includes it (subfolder context)", async () => {
+    setValidEnv();
+    mock.method(globalThis, "fetch", async (url: string) => {
+      if (url === TOKEN_URL) return tokenOk();
+      assert.equal(url, LIST_FOLDER_URL);
+      // Files from a subfolder context always include path_lower
+      return listOk([
+        { ".tag": "file", name: "video.mp4", path_lower: "/v2/video.mp4", size: 10_000_000 },
+        { ".tag": "file", name: "thumb.jpg", path_lower: "/v2/thumb.jpg", size: 50_000 },
+      ]);
+    });
+    const entries = await listDropboxFolderFiles(SHARE_URL);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].path_lower, "/v2/video.mp4");
+    assert.equal(entries[1].path_lower, "/v2/thumb.jpg");
   });
 
   it("does NOT send recursive=true in any list_folder POST body", async () => {
