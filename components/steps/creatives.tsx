@@ -932,6 +932,11 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                           options={CTA_OPTIONS}
                         />
                       </div>
+                      {active.cta === "book_now" && (active.assetMode === "dual" || active.assetMode === "full") && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          <strong>Book Now + multi-placement assets:</strong> Meta does not support this combination in the API. The ad will use the 9:16 vertical asset for all placements — the 4:5 feed asset will not be used. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to preserve per-placement asset routing.
+                        </p>
+                      )}
                     </div>
                   </Card>
                 </>

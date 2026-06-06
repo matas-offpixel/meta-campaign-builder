@@ -2397,10 +2397,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       const isMultiPlacement = !!creativePayload.asset_feed_spec?.asset_customization_rules?.length;
+      // Detect BOOK_NOW + dual-mode fallback: dual assets were uploaded but the
+      // creative landed on the single-asset path AND the CTA is BOOK_NOW.
+      // This signals the per-placement fallback fired (Meta subcode 1885396).
+      const isBookNowVerticalFallback =
+        !isMultiPlacement &&
+        creative.cta === "book_now" &&
+        (creative.assetVariations?.[0]?.assets ?? []).filter(
+          (a) => (a.videoId || a.assetHash) && (a.aspectRatio === "4:5" || a.aspectRatio === "1:1" || a.aspectRatio === "9:16"),
+        ).length >= 2;
+      if (isBookNowVerticalFallback) {
+        console.error(
+          `[launch-campaign] ⚠ BOOK_NOW + dual-aspect: per-placement routing unavailable` +
+            ` (Meta API constraint 1885396). Creative "${creative.name}" is using the 9:16 vertical` +
+            ` asset for all placements. 4:5 feed asset NOT used.` +
+            ` To preserve per-placement routing, switch CTA to LEARN_MORE, SIGN_UP, or BUY_TICKETS.`,
+        );
+      }
       console.log(
         `[launch-campaign] Phase 3 — POSTing creative "${creative.name}" to Meta:`,
         JSON.stringify({
           path: isMultiPlacement ? "multi_placement" : "single_asset",
+          bookNowVerticalFallback: isBookNowVerticalFallback,
           hasAssetFeedSpec: !!creativePayload.asset_feed_spec,
           assetFeedVideoCount: creativePayload.asset_feed_spec?.videos?.length ?? 0,
           assetFeedImageCount: creativePayload.asset_feed_spec?.images?.length ?? 0,

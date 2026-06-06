@@ -9,6 +9,7 @@
  *   - Mixed media (image + video) → falls through to single-asset path
  *   - Feature flag OFF → legacy single-asset path even for multi-ratio
  *   - Sanitizer: user-configured asset_feed_spec preserved; Advantage+ stripped
+ *   - BOOK_NOW + dual-mode → vertical fallback (Meta API constraint 1885396)
  *
  * Run: node --test (the repo's test runner). The build path is gated behind
  * ENABLE_MULTI_PLACEMENT_ASSETS — these tests set/unset it per-case.
@@ -53,8 +54,9 @@ function baseCreative(overrides: Partial<AdCreativeDraft> = {}): AdCreativeDraft
   };
 }
 
-function dualVideoCreative(): AdCreativeDraft {
+function dualVideoCreative(cta: "learn_more" | "book_now" | "sign_up" = "learn_more"): AdCreativeDraft {
   return baseCreative({
+    cta,
     mediaType: "video",
     assetVariations: [
       {
@@ -81,8 +83,9 @@ function dualVideoCreative(): AdCreativeDraft {
   });
 }
 
-function dualImageCreative(): AdCreativeDraft {
+function dualImageCreative(cta: "learn_more" | "book_now" | "sign_up" = "learn_more"): AdCreativeDraft {
   return baseCreative({
+    cta,
     mediaType: "image",
     assetVariations: [
       {
@@ -206,7 +209,7 @@ describe("buildMultiPlacementCreative — image (flag ON)", () => {
     assert.equal(afs.titles?.[0].text, "Buy tickets now");
     assert.equal(afs.descriptions?.[0].text, "Limited availability");
     assert.equal(afs.link_urls?.[0].website_url, "https://example.com/tickets");
-    assert.deepEqual(afs.call_to_action_types, ["BOOK_NOW"]);
+    assert.deepEqual(afs.call_to_action_types, ["LEARN_MORE"]);
     assert.equal(afs.optimization_type, "PLACEMENT");
   });
 });
@@ -327,5 +330,91 @@ describe("sanitizeCreativeForStrictMode — asset_feed_spec discrimination", () 
     };
     const report = sanitizeCreativeForStrictMode(payload);
     assert.equal(report.assetFeedSpec, "absent");
+  });
+});
+
+// ─── BOOK_NOW + dual-mode → vertical (9:16) fallback ─────────────────────────
+//
+// Meta API constraint (subcode=1885396): asset_feed_spec.call_to_action_types
+// rejects "BOOK_NOW" for every objective and every media type.  The wizard must
+// fall through to single-asset using the 9:16 vertical asset while preserving
+// the CTA in link_data / video_data.
+
+describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
+  it("dual image + BOOK_NOW → no asset_feed_spec, link_data uses 9:16 hash", () => {
+    process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
+    const payload = buildCreativePayload(dualImageCreative("book_now"));
+
+    assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
+
+    const ld = payload.object_story_spec?.link_data;
+    assert.ok(ld, "link_data present");
+    assert.equal(ld!.image_hash, "hash_916", "uses 9:16 hash, NOT 4:5");
+    assert.equal(ld!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
+  });
+
+  it("dual video + BOOK_NOW → no asset_feed_spec, video_data uses 9:16 video", () => {
+    process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
+    const payload = buildCreativePayload(dualVideoCreative("book_now"));
+
+    assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
+
+    const vd = payload.object_story_spec?.video_data;
+    assert.ok(vd, "video_data present");
+    assert.equal(vd!.video_id, "vid_916", "uses 9:16 video_id, NOT 4:5");
+    assert.equal(vd!.image_url, "https://cdn/thumb_916.jpg", "uses 9:16 thumbnail");
+    assert.equal(vd!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
+  });
+
+  it("dual image + BOOK_NOW + AWARENESS → same vertical fallback (constraint is universal)", () => {
+    process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
+    // Objective is not encoded on the creative draft itself — the same payload
+    // builder is used regardless of objective.  This test confirms the fallback
+    // fires based solely on CTA + dual assets, independent of objective context.
+    const payload = buildCreativePayload(dualImageCreative("book_now"));
+    assert.equal(payload.asset_feed_spec, undefined);
+    assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_916");
+    assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW");
+  });
+
+  it("dual image + LEARN_MORE → asset_feed_spec PRESENT (LEARN_MORE not affected)", () => {
+    process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
+    const payload = buildCreativePayload(dualImageCreative("learn_more"));
+
+    assert.ok(payload.asset_feed_spec, "asset_feed_spec present for non-BOOK_NOW CTA");
+    assert.deepEqual(
+      payload.asset_feed_spec?.call_to_action_types,
+      ["LEARN_MORE"],
+      "LEARN_MORE in AFS call_to_action_types",
+    );
+    assert.ok(
+      (payload.asset_feed_spec?.asset_customization_rules?.length ?? 0) >= 2,
+      "placement rules intact",
+    );
+  });
+
+  it("dual video + LEARN_MORE → asset_feed_spec PRESENT (regression: LEARN_MORE path unchanged)", () => {
+    process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
+    const payload = buildCreativePayload(dualVideoCreative("learn_more"));
+
+    assert.ok(payload.asset_feed_spec, "asset_feed_spec present for LEARN_MORE");
+    const videos = payload.asset_feed_spec?.videos ?? [];
+    assert.equal(videos.length, 2, "both video assets in AFS");
+    assert.deepEqual(
+      payload.asset_feed_spec?.call_to_action_types,
+      ["LEARN_MORE"],
+    );
+  });
+
+  it("dual image + BOOK_NOW + flag OFF → single-asset path (4:5 HASH_PRIORITY, flag unrelated)", () => {
+    delete process.env.ENABLE_MULTI_PLACEMENT_ASSETS;
+    const payload = buildCreativePayload(dualImageCreative("book_now"));
+    assert.equal(payload.asset_feed_spec, undefined, "flag off → no AFS");
+    // flag off → legacy pickPrimaryImageHash picks 4:5 (HASH_PRIORITY order)
+    assert.equal(
+      payload.object_story_spec?.link_data?.image_hash,
+      "hash_45",
+      "flag off: 4:5 hash picked by legacy HASH_PRIORITY",
+    );
   });
 });
