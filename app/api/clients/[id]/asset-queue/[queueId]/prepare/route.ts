@@ -29,6 +29,7 @@ import {
   DropboxFetchError,
 } from "@/lib/clients/asset-queue/dropbox";
 import { generateCopy } from "@/lib/clients/asset-queue/copy-generator";
+import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
 
 export const maxDuration = 300;
 
@@ -47,7 +48,7 @@ export async function POST(
 
   const { data: client } = await supabase
     .from("clients")
-    .select("id, user_id")
+    .select("id, user_id, slug")
     .eq("id", clientId)
     .maybeSingle();
   if (!client) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -152,8 +153,9 @@ export async function POST(
     return NextResponse.json({ error: "No files were uploaded" }, { status: 500 });
   }
 
-  // ── Load event info for copy generation ──────────────────────────────────
+  // ── Load event info for copy generation + destination URL ─────────────────
   let eventName: string;
+  let venueCity: string | null = null;
   if (row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0) {
     const nation = row.nation ?? "All";
     eventName = `All ${nation} venues`;
@@ -162,10 +164,13 @@ export async function POST(
     if (row.resolved_event_id) {
       const { data: event } = await supabase
         .from("events")
-        .select("name, event_code")
+        .select("name, event_code, venue_city")
         .eq("id", row.resolved_event_id)
         .maybeSingle();
-      if (event) eventName = event.name ?? event.event_code ?? eventName;
+      if (event) {
+        eventName = event.name ?? event.event_code ?? eventName;
+        venueCity = event.venue_city ?? null;
+      }
     }
   }
 
@@ -189,7 +194,11 @@ export async function POST(
     ctaDefaults,
   );
 
-  const generatedUrl = urlPattern[row.funnel ?? ""] ?? "";
+  const patternUrl = urlPattern[row.funnel ?? ""]?.trim() ?? "";
+  const generatedUrl =
+    patternUrl ||
+    resolveOrganiserDestinationUrl(client.slug, venueCity) ||
+    "";
 
   // ── Persist results ───────────────────────────────────────────────────────
   const firstPath = uploadedPaths[0];

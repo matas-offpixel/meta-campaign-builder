@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { getAssetQueueRow } from "@/lib/db/asset-queue";
+import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
 import { ClientBulkAttachWizard, type QueueContextProps } from "./wizard";
 
 interface Props {
@@ -55,6 +56,21 @@ export default async function ClientBulkAttachPage({ params, searchParams }: Pro
   if (queueId) {
     const row = await getAssetQueueRow(queueId);
     if (row && row.client_id === clientId && row.status === "pending") {
+      let venueCity: string | null = null;
+      if (row.resolved_event_id) {
+        const { data: event } = await supabase
+          .from("events")
+          .select("venue_city")
+          .eq("id", row.resolved_event_id)
+          .maybeSingle();
+        venueCity = event?.venue_city ?? null;
+      }
+
+      const generatedUrl =
+        row.generated_url?.trim() ||
+        resolveOrganiserDestinationUrl(client.slug, venueCity) ||
+        null;
+
       queueContext = {
         queueId: row.id,
         eventCode: row.resolved_event_code ?? null,
@@ -62,7 +78,8 @@ export default async function ClientBulkAttachPage({ params, searchParams }: Pro
         assetName: row.asset_name ?? null,
         generatedCopy: row.generated_copy ?? null,
         generatedCta: row.generated_cta ?? null,
-        generatedUrl: row.generated_url ?? null,
+        generatedUrl,
+        venueCity,
         assetBlobUrl: row.asset_blob_url ?? null,
         assetBlobUrls: row.asset_blob_urls ?? [],
         mediaType: row.media_type ?? null,
@@ -75,6 +92,7 @@ export default async function ClientBulkAttachPage({ params, searchParams }: Pro
     <ClientBulkAttachWizard
       clientId={clientId}
       clientName={client.name}
+      clientSlug={client.slug}
       adAccountId={adAccountId}
       queueContext={queueContext}
     />

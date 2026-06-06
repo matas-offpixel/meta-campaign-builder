@@ -50,6 +50,7 @@ import {
   defaultDraftName,
 } from "@/lib/bulk-attach/draft-state";
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
+import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
 import type { AdCreativeDraft, CTAType, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
 
@@ -63,6 +64,7 @@ export interface QueueContextProps {
   generatedCopy: string | null;
   generatedCta: string | null;
   generatedUrl: string | null;
+  venueCity?: string | null;
   assetBlobUrl: string | null;
   assetBlobUrls: string[];
   mediaType: string | null;
@@ -72,6 +74,7 @@ export interface QueueContextProps {
 interface Props {
   clientId: string;
   clientName: string;
+  clientSlug?: string | null;
   adAccountId: string;
   queueContext?: QueueContextProps;
 }
@@ -102,13 +105,25 @@ function inferMediaTypeFromQueue(ctx: QueueContextProps): "image" | "video" {
   return "image";
 }
 
-function buildCreativesFromQueueContext(ctx: QueueContextProps): AdCreativeDraft[] {
+function resolveQueueDestinationUrl(
+  ctx: QueueContextProps,
+  clientSlug?: string | null,
+): string {
+  const fromRow = ctx.generatedUrl?.trim();
+  if (fromRow) return fromRow;
+  return resolveOrganiserDestinationUrl(clientSlug, ctx.venueCity) ?? "";
+}
+
+function buildCreativesFromQueueContext(
+  ctx: QueueContextProps,
+  clientSlug?: string | null,
+): AdCreativeDraft[] {
   const creative = createDefaultCreative();
   const caption = createDefaultCaption();
   caption.text = ctx.generatedCopy ?? "";
   creative.captions = [caption];
   creative.name = ctx.assetName ?? "";
-  creative.destinationUrl = ctx.generatedUrl ?? "";
+  creative.destinationUrl = resolveQueueDestinationUrl(ctx, clientSlug);
   creative.cta = mapMetaCtaToDraft(ctx.generatedCta);
   creative.mediaType = inferMediaTypeFromQueue(ctx);
   return [creative];
@@ -262,6 +277,7 @@ function StepIndicator({ step }: { step: Step }) {
 export function ClientBulkAttachWizard({
   clientId,
   clientName,
+  clientSlug,
   adAccountId,
   queueContext,
 }: Props) {
@@ -326,7 +342,9 @@ export function ClientBulkAttachWizard({
 
   // ── Step 2: creatives ────────────────────────────────────────────────────────
   const [creatives, setCreatives] = useState<AdCreativeDraft[]>(() =>
-    queueContext ? buildCreativesFromQueueContext(queueContext) : [createDefaultCreative()],
+    queueContext
+      ? buildCreativesFromQueueContext(queueContext, clientSlug)
+      : [createDefaultCreative()],
   );
 
   // ── Step 3: launch ───────────────────────────────────────────────────────────
