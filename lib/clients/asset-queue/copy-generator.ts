@@ -50,11 +50,58 @@ export interface CtaDefaults {
   [key: string]: string | undefined;
 }
 
+export type AssetCopyScope = "venue-wide" | "fixture-specific";
+
+const VENUE_WIDE_KEYWORDS = [
+  "tickets",
+  "ticket",
+  "sale",
+  "loading bar",
+  "general",
+  "selling fast",
+  "running out",
+  "general admission",
+  "all matches",
+  "all games",
+  "loading",
+];
+
+const FIXTURE_KEYWORDS = [/\bvs?\b/i, /\bversus\b/i];
+
+/**
+ * Infer whether ad copy should reference the whole venue or a single fixture.
+ */
+export function detectAssetScope(assetName: string): AssetCopyScope {
+  const name = assetName.toLowerCase().trim();
+  if (!name) return "fixture-specific";
+
+  const hasVenueWide = VENUE_WIDE_KEYWORDS.some((kw) => name.includes(kw));
+  const hasFixture = FIXTURE_KEYWORDS.some((re) => re.test(name));
+
+  if (hasVenueWide && !hasFixture) return "venue-wide";
+  return "fixture-specific";
+}
+
 const SYSTEM_PROMPT = `You generate Facebook ad copy for 4theFans, a football fan event marketing agency.
 Return ONLY valid JSON with exactly these keys: primary_text (string, max 100 chars), headline (string, max 30 chars).
 No markdown, no explanation, no extra keys. UK English. Energetic and direct tone.`;
 
-function buildUserPrompt(input: CopyInput): string {
+const VENUE_WIDE_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+The asset promotes the VENUE across multiple matches — do NOT mention a specific fixture, opponent, or single game.`;
+
+function buildUserPrompt(input: CopyInput, scope: AssetCopyScope): string {
+  if (scope === "venue-wide") {
+    const venue = input.location || input.eventName;
+    return `Asset name: ${input.assetName}
+Asset type: ${input.mediaType || "Unknown"}
+Funnel stage: ${input.funnel}
+Venue: ${venue}
+Event code: ${input.eventCode}
+
+This asset promotes ticket availability across ALL games at the venue (not one specific match).
+Write venue-level copy — e.g. urgency about tickets running low at ${venue}, without naming any single fixture or opponent.`;
+  }
+
   return `Asset name: ${input.assetName}
 Asset type: ${input.mediaType || "Unknown"}
 Funnel stage: ${input.funnel}
@@ -62,7 +109,7 @@ Venue/Location: ${input.location}
 Event name: ${input.eventName}
 Event code: ${input.eventCode}
 
-Generate ad copy for this asset.`;
+Generate ad copy for this specific event/fixture asset.`;
 }
 
 function parseCopyResponse(raw: string): { primary_text: string; headline: string } | null {
@@ -85,11 +132,17 @@ function fallbackCopy(
   input: CopyInput,
   templates: CopyFallbackTemplates,
   ctaDefaults: CtaDefaults,
+  scope: AssetCopyScope,
 ): GeneratedCopy {
-  const template = templates[input.funnel] ?? `Check out ${input.eventName} at ${input.location}!`;
+  const venue = input.location || input.eventName;
+  const template =
+    scope === "venue-wide"
+      ? templates[input.funnel] ??
+        `Final tickets running low across all games at ${venue}. Don't miss your chance!`
+      : templates[input.funnel] ?? `Check out ${input.eventName} at ${input.location}!`;
   return {
     primaryText: template.slice(0, 100),
-    headline: `${input.eventName}`.slice(0, 30),
+    headline: (scope === "venue-wide" ? venue : input.eventName).slice(0, 30),
     ctaValue: ctaDefaults[input.funnel] ?? "LEARN_MORE",
     fromFallback: true,
   };
@@ -105,13 +158,14 @@ export async function generateCopy(
   ctaDefaults: CtaDefaults,
 ): Promise<GeneratedCopy> {
   const ctaValue = ctaDefaults[input.funnel] ?? "LEARN_MORE";
+  const scope = detectAssetScope(input.assetName);
 
   try {
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 256,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildUserPrompt(input) }],
+      system: scope === "venue-wide" ? VENUE_WIDE_SYSTEM_PROMPT : SYSTEM_PROMPT,
+      messages: [{ role: "user", content: buildUserPrompt(input, scope) }],
     });
 
     const rawText = response.content
@@ -125,7 +179,7 @@ export async function generateCopy(
         funnel: input.funnel,
         eventCode: input.eventCode,
       });
-      return fallbackCopy(input, fallbackTemplates, ctaDefaults);
+      return fallbackCopy(input, fallbackTemplates, ctaDefaults, scope);
     }
 
     return {
@@ -140,6 +194,6 @@ export async function generateCopy(
       eventCode: input.eventCode,
       error: err instanceof Error ? err.message : String(err),
     });
-    return fallbackCopy(input, fallbackTemplates, ctaDefaults);
+    return fallbackCopy(input, fallbackTemplates, ctaDefaults, scope);
   }
 }
