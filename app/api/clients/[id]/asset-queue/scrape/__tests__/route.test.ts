@@ -95,7 +95,9 @@ describe("POST /api/clients/[id]/asset-queue/scrape", () => {
       if (table === "events") {
         return {
           select: () => ({
-            in: () => Promise.resolve({ data: [] }),
+            eq: () => ({
+              in: () => Promise.resolve({ data: [] }),
+            }),
           }),
         };
       }

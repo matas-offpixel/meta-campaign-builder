@@ -22,7 +22,7 @@ import { listVenueMappings } from "@/lib/db/venue-mappings";
 import { getExistingHashes, insertQueueRows, type NewQueueRow } from "@/lib/db/asset-queue";
 import { parseSheetRows, filterNewRows } from "@/lib/clients/asset-queue/sheet-parse";
 import { buildVenueResolutionMap, venueResolutionKey } from "@/lib/clients/asset-queue/venue-resolve";
-import type { VenueMapping } from "@/lib/clients/asset-queue/venue-resolve";
+import type { EventVenueContext, VenueMapping } from "@/lib/clients/asset-queue/venue-resolve";
 
 export const maxDuration = 60;
 
@@ -141,38 +141,45 @@ export async function POST(
     nationLabel: m.nation_label,
   }));
 
-  // Build composite-key resolution map: key = `${location}::${nation}`
-  const locationNationPairs = newRows.map((r) => ({ location: r.location, nation: r.nation }));
-  const resolutionMap = buildVenueResolutionMap(locationNationPairs, typedMappings);
-
-  // Collect all event codes that need ID lookups (single-venue + umbrella anchor)
-  const allResolvedCodes = new Set<string>();
-  for (const v of resolutionMap.values()) {
-    if (!v) continue;
-    if (v.isUmbrella) {
-      v.eventCodes.forEach((c) => allResolvedCodes.add(c));
-    } else {
-      allResolvedCodes.add(v.eventCode);
-    }
-  }
-
+  const mappedEventCodes = [...new Set(typedMappings.map((m) => m.eventCode))];
+  const eventVenueContexts: EventVenueContext[] = [];
   const eventCodeToId = new Map<string, string>();
-  if (allResolvedCodes.size > 0) {
+
+  if (mappedEventCodes.length > 0) {
     const { data: events } = await supabase
       .from("events")
-      .select("id, event_code")
-      .in("event_code", [...allResolvedCodes]);
+      .select("id, event_code, venue_name, venue_city")
+      .eq("client_id", clientId)
+      .in("event_code", mappedEventCodes);
     for (const e of events ?? []) {
       eventCodeToId.set(e.event_code, e.id);
+      eventVenueContexts.push({
+        eventCode: e.event_code,
+        venueName: e.venue_name,
+        venueCity: e.venue_city,
+      });
     }
   }
+
+  // Build resolution map — asset_name-aware keys when present
+  const resolutionMap = buildVenueResolutionMap(
+    newRows.map((r) => ({
+      location: r.location,
+      nation: r.nation,
+      assetName: r.assetName,
+    })),
+    typedMappings,
+    eventVenueContexts,
+  );
 
   // ── Build DB rows ─────────────────────────────────────────────────────────
   const toInsert: NewQueueRow[] = [];
   const errorDetails: Array<{ assetName: string; location: string; reason: string }> = [];
 
   for (const row of newRows) {
-    const key = venueResolutionKey(row.location, row.nation);
+    const key = row.assetName
+      ? `${venueResolutionKey(row.location, row.nation)}::${row.assetName.trim().toLowerCase()}`
+      : venueResolutionKey(row.location, row.nation);
     const resolved = resolutionMap.get(key);
 
     const base = {
@@ -223,6 +230,7 @@ export async function POST(
         resolved_event_id: eventId,
         resolved_event_code: resolved.eventCode,
         resolved_event_codes_multi: null,
+        event_match_ambiguous: resolved.eventMatchAmbiguous,
         status: "matched",
         error_message: null,
       });
