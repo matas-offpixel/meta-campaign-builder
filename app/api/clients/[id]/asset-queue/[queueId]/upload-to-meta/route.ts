@@ -19,6 +19,7 @@ import {
   uploadVideoAsset,
   MetaApiError,
 } from "@/lib/meta/client";
+import { fetchVideoThumbnailWithRetry } from "@/lib/meta/video-thumbnail-poll";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { validateAssetFile } from "@/lib/meta/upload";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
@@ -36,6 +37,7 @@ interface UploadResultAsset {
   previewUrl?: string;
   hash?: string;
   videoId?: string;
+  thumbnailPending?: boolean;
 }
 
 function mimeFromPath(path: string): string {
@@ -217,14 +219,19 @@ export async function POST(
           errors.push({ fileName, error: "Meta video upload returned no video id" });
           continue;
         }
+        let thumbnailUrl = previewUrl ?? "";
+        if (!thumbnailUrl && uploadToken) {
+          thumbnailUrl = await fetchVideoThumbnailWithRetry(videoId, uploadToken);
+        }
         assets.push({
           fileName,
           aspect,
           mediaType: "video",
           metaAssetId: videoId,
-          url: previewUrl ?? "",
-          previewUrl,
+          url: thumbnailUrl,
+          previewUrl: thumbnailUrl || undefined,
           videoId,
+          thumbnailPending: !thumbnailUrl,
         });
       }
     } catch (err) {
