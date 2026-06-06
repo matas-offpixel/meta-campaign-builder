@@ -164,6 +164,7 @@ export async function POST(
   // ── Load event info for copy generation + destination URL ─────────────────
   let eventName: string;
   let venueCity: string | null = null;
+  let venueName: string | null = null;
   if (row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0) {
     const nation = row.nation ?? "All";
     eventName = `All ${nation} venues`;
@@ -172,11 +173,12 @@ export async function POST(
     if (row.resolved_event_id) {
       const { data: event } = await supabase
         .from("events")
-        .select("name, event_code, venue_city")
+        .select("name, event_code, venue_name, venue_city")
         .eq("id", row.resolved_event_id)
         .maybeSingle();
       if (event) {
         eventName = event.name ?? event.event_code ?? eventName;
+        venueName = event.venue_name ?? null;
         venueCity = event.venue_city ?? null;
       }
     }
@@ -197,6 +199,8 @@ export async function POST(
       location: row.location ?? "",
       eventName,
       eventCode: row.resolved_event_code ?? "",
+      venueName,
+      venueCity,
     },
     copyTemplates,
     ctaDefaults,

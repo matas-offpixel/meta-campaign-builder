@@ -26,6 +26,10 @@ export interface CopyInput {
   location: string;
   eventName: string;
   eventCode: string;
+  /** Ground-truth venue name from events table — never invent alternatives. */
+  venueName?: string | null;
+  /** Ground-truth city from events table — never invent alternatives. */
+  venueCity?: string | null;
 }
 
 export interface GeneratedCopy {
@@ -82,34 +86,54 @@ export function detectAssetScope(assetName: string): AssetCopyScope {
   return "fixture-specific";
 }
 
+const GROUND_TRUTH_RULES = `GROUND TRUTH RULES (mandatory):
+- Use ONLY venue names, cities, fixtures, opponents, and teams explicitly listed in the user message.
+- NEVER invent or assume venue names, stadiums, addresses, or nicknames (e.g. do not guess "Easter Road" or similar).
+- NEVER invent fixtures, opponents, matchups, or national teams unless they appear verbatim in the asset name or event name fields.
+- If no specific venue name is provided, refer only to the city or sheet location — do not name a venue.
+- Do not use real-world football knowledge beyond the provided fields.`;
+
 const SYSTEM_PROMPT = `You generate Facebook ad copy for 4theFans, a football fan event marketing agency.
 Return ONLY valid JSON with exactly these keys: primary_text (string, max 100 chars), headline (string, max 30 chars).
-No markdown, no explanation, no extra keys. UK English. Energetic and direct tone.`;
+No markdown, no explanation, no extra keys. UK English. Energetic and direct tone.
+
+${GROUND_TRUTH_RULES}`;
 
 const VENUE_WIDE_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 The asset promotes the VENUE across multiple matches — do NOT mention a specific fixture, opponent, or single game.`;
 
+function groundTruthVenueLabel(input: CopyInput): string {
+  return input.venueName || input.venueCity || input.location || input.eventName;
+}
+
+function buildGroundTruthBlock(input: CopyInput): string {
+  const lines = [
+    `Asset name: ${input.assetName}`,
+    `Asset type: ${input.mediaType || "Unknown"}`,
+    `Funnel stage: ${input.funnel}`,
+    `Sheet location: ${input.location || "(not provided)"}`,
+    `Event name: ${input.eventName || "(not provided)"}`,
+    `Event code: ${input.eventCode || "(not provided)"}`,
+    `Venue name (use exactly if provided): ${input.venueName || "(not provided)"}`,
+    `Venue city (use exactly if provided): ${input.venueCity || "(not provided)"}`,
+  ];
+  return lines.join("\n");
+}
+
 function buildUserPrompt(input: CopyInput, scope: AssetCopyScope): string {
+  const venue = groundTruthVenueLabel(input);
+
   if (scope === "venue-wide") {
-    const venue = input.location || input.eventName;
-    return `Asset name: ${input.assetName}
-Asset type: ${input.mediaType || "Unknown"}
-Funnel stage: ${input.funnel}
-Venue: ${venue}
-Event code: ${input.eventCode}
+    return `${buildGroundTruthBlock(input)}
 
 This asset promotes ticket availability across ALL games at the venue (not one specific match).
-Write venue-level copy — e.g. urgency about tickets running low at ${venue}, without naming any single fixture or opponent.`;
+Write venue-level copy about ${venue} using ONLY the ground-truth fields above — no invented venues, cities, fixtures, or opponents.`;
   }
 
-  return `Asset name: ${input.assetName}
-Asset type: ${input.mediaType || "Unknown"}
-Funnel stage: ${input.funnel}
-Venue/Location: ${input.location}
-Event name: ${input.eventName}
-Event code: ${input.eventCode}
+  return `${buildGroundTruthBlock(input)}
 
-Generate ad copy for this specific event/fixture asset.`;
+Generate ad copy for this asset using ONLY the ground-truth fields above.
+Only mention a fixture or opponent if it appears verbatim in the asset name or event name.`;
 }
 
 function parseCopyResponse(raw: string): { primary_text: string; headline: string } | null {
@@ -134,17 +158,28 @@ function fallbackCopy(
   ctaDefaults: CtaDefaults,
   scope: AssetCopyScope,
 ): GeneratedCopy {
-  const venue = input.location || input.eventName;
+  const venue = groundTruthVenueLabel(input);
   const template =
     scope === "venue-wide"
       ? templates[input.funnel] ??
         `Final tickets running low across all games at ${venue}. Don't miss your chance!`
-      : templates[input.funnel] ?? `Check out ${input.eventName} at ${input.location}!`;
+      : templates[input.funnel] ?? `Check out ${input.eventName || venue}!`;
   return {
     primaryText: template.slice(0, 100),
-    headline: (scope === "venue-wide" ? venue : input.eventName).slice(0, 30),
+    headline: (scope === "venue-wide" ? venue : (input.eventName || venue)).slice(0, 30),
     ctaValue: ctaDefaults[input.funnel] ?? "LEARN_MORE",
     fromFallback: true,
+  };
+}
+
+/** Exposed for unit tests — returns the prompt bundle sent to Anthropic. */
+export function buildCopyPromptBundle(
+  input: CopyInput,
+  scope: AssetCopyScope = detectAssetScope(input.assetName),
+): { system: string; user: string } {
+  return {
+    system: scope === "venue-wide" ? VENUE_WIDE_SYSTEM_PROMPT : SYSTEM_PROMPT,
+    user: buildUserPrompt(input, scope),
   };
 }
 
