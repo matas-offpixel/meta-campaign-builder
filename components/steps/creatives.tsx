@@ -47,12 +47,20 @@ import {
   createDefaultCaption,
 } from "@/lib/campaign-defaults";
 import { connectFacebookAccount } from "@/lib/facebook-connect";
+import {
+  bindUploadToAssetSlot,
+  type QueueLibraryItem,
+} from "@/lib/clients/asset-queue/queue-creative-bind";
+
+const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
 interface CreativesProps {
   creatives: AdCreativeDraft[];
   onChange: (creatives: AdCreativeDraft[]) => void;
   /** Meta ad account ID — required for real asset uploads */
   adAccountId?: string;
+  queueLibrary?: QueueLibraryItem[];
+  onResetQueueBinding?: () => void;
 }
 
 const ASSET_MODES: { value: AssetMode; label: string; desc: string }[] = [
@@ -94,7 +102,13 @@ function FieldStatus({ loading, error }: { loading: boolean; error: string | nul
   return null;
 }
 
-export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) {
+export function Creatives({
+  creatives,
+  onChange,
+  adAccountId,
+  queueLibrary,
+  onResetQueueBinding,
+}: CreativesProps) {
   const [activeId, setActiveId] = useState<string | null>(creatives[0]?.id ?? null);
   const [appliedField, setAppliedField] = useState<BulkField | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -251,6 +265,20 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
       onChange(applyVariationUpdate(creativesRef.current, adId, varId, updater));
     },
     [onChange],
+  );
+
+  const bindQueueAssetToSlot = useCallback(
+    (adId: string, variationId: string, slotAssetId: string, libraryId: string) => {
+      if (!queueLibrary?.length) return;
+      const libItem = queueLibrary.find((item) => item.id === libraryId);
+      if (!libItem) return;
+      updateAssetVariation(adId, variationId, (prev) => ({
+        assets: (prev.assets ?? []).map((slot) =>
+          slot.id === slotAssetId ? bindUploadToAssetSlot(slot, libItem) : slot,
+        ),
+      }));
+    },
+    [queueLibrary, updateAssetVariation],
   );
 
   // ─── Captions ───
@@ -816,6 +844,13 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                         </div>
                       </div>
 
+                      {queueLibrary && queueLibrary.length > 0 && (
+                        <QueueAssetLibrary
+                          items={queueLibrary}
+                          onReset={onResetQueueBinding}
+                        />
+                      )}
+
                       {/* ─── Asset variations ─── */}
                       <div>
                         <div className="mb-2 flex items-center justify-between">
@@ -864,6 +899,17 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
                               canRemove={(active.assetVariations ?? []).length > 1}
                               onUpdate={(patch) => updateAssetVariation(active.id, variation.id, patch)}
                               onRemove={() => removeAssetVariation(active.id, variation.id)}
+                              onQueueAssetDrop={
+                                queueLibrary?.length
+                                  ? (slotAssetId, libraryId) =>
+                                      bindQueueAssetToSlot(
+                                        active.id,
+                                        variation.id,
+                                        slotAssetId,
+                                        libraryId,
+                                      )
+                                  : undefined
+                              }
                             />
                           ))}
                         </div>
@@ -1541,6 +1587,96 @@ export function Creatives({ creatives, onChange, adAccountId }: CreativesProps) 
   );
 }
 
+// ─── Queue asset library (drag source grid) ───────────────────────────────────
+
+function QueueAssetLibrary({
+  items,
+  onReset,
+}: {
+  items: QueueLibraryItem[];
+  onReset?: () => void;
+}) {
+  return (
+    <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Auto-uploaded Library</p>
+          <p className="text-[11px] text-muted-foreground">
+            Drag assets onto variation slots below. Cards stay here after binding.
+          </p>
+        </div>
+        {onReset && (
+          <Button variant="outline" size="sm" onClick={onReset}>
+            <RefreshCw className="mr-1 h-3 w-3" />
+            Reset auto-binding
+          </Button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(QUEUE_ASSET_DRAG_MIME, item.id);
+              e.dataTransfer.effectAllowed = "copy";
+            }}
+            className="cursor-grab overflow-hidden rounded-md border border-border bg-card active:cursor-grabbing"
+            title={item.fileName}
+          >
+            <div className="relative aspect-[4/5] w-full bg-muted/40">
+              {item.mediaType === "video" ? (
+                item.previewUrl ? (
+                  <>
+                    <img
+                      src={item.previewUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      draggable={false}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-black/50">
+                        <Play className="h-3.5 w-3.5 fill-white text-white" />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                    <Video className="h-5 w-5" />
+                    {item.thumbnailPending && (
+                      <AlertCircle className="h-3.5 w-3.5 text-warning" aria-label="Thumbnail pending" />
+                    )}
+                  </div>
+                )
+              ) : item.previewUrl || item.url ? (
+                <img
+                  src={item.previewUrl ?? item.url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                </div>
+              )}
+              <Badge
+                variant="outline"
+                className="absolute left-1 top-1 bg-background/80 px-1 py-0 text-[9px]"
+              >
+                {item.aspect}
+              </Badge>
+            </div>
+            <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+              {item.fileName}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Asset Variation Sub-component ───
 
 // CSS aspect-ratio class per slot ratio
@@ -1563,11 +1699,13 @@ function AssetSlot({
   mediaType,
   adAccountId,
   onUpdate,
+  onQueueAssetDrop,
 }: {
   asset: Asset;
   mediaType: "image" | "video";
   adAccountId?: string;
   onUpdate: (patch: Partial<Asset>) => void;
+  onQueueAssetDrop?: (libraryId: string) => void;
 }) {
   const { mutate: upload } = useUploadAsset();
   const inputId = useId();
@@ -1635,9 +1773,24 @@ function AssetSlot({
     }
   }
 
+  function handleDragOver(e: React.DragEvent) {
+    if (
+      e.dataTransfer.types.includes(QUEUE_ASSET_DRAG_MIME) ||
+      !isUploaded
+    ) {
+      e.preventDefault();
+      setIsDragOver(true);
+    }
+  }
+
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDragOver(false);
+    const libraryId = e.dataTransfer.getData(QUEUE_ASSET_DRAG_MIME);
+    if (libraryId && onQueueAssetDrop) {
+      onQueueAssetDrop(libraryId);
+      return;
+    }
     const file = e.dataTransfer.files[0];
     if (file) void handleFile(file);
   }
@@ -1678,9 +1831,9 @@ function AssetSlot({
           group/slot enables the X remove button to appear on hover without
           conflicting with the inner group used for the expand overlay.        ── */}
       <div
-        onDragOver={(e) => { if (!isUploaded) { e.preventDefault(); setIsDragOver(true); } }}
+        onDragOver={handleDragOver}
         onDragLeave={() => setIsDragOver(false)}
-        onDrop={(e) => { if (!isUploaded) handleDrop(e); }}
+        onDrop={handleDrop}
         className={`group/slot relative ${aspectClass} w-full overflow-hidden rounded-xl border-2 border-dashed transition-colors
           ${isUploaded
             ? "border-primary/40 bg-primary-light"
@@ -1744,7 +1897,10 @@ function AssetSlot({
                     draggable={false}
                   />
                 ) : (
-                  <div className="absolute inset-0 bg-foreground/10" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-foreground/10">
+                    <Play className="h-5 w-5 text-muted-foreground" />
+                    <AlertCircle className="h-3.5 w-3.5 text-warning" aria-label="Thumbnail unavailable" />
+                  </div>
                 )}
                 {/* Play indicator — fades out when expand hover appears */}
                 <div className="absolute inset-0 flex items-center justify-center transition-opacity group-hover/expand:opacity-0">
@@ -1801,9 +1957,10 @@ function AssetSlot({
             />
             <Upload className="h-5 w-5 text-muted-foreground" />
             <span className="text-center text-[11px] leading-snug text-muted-foreground">
-              Drop or click<br />
+              {onQueueAssetDrop ? "Drag asset here" : "Drop or click"}
+              <br />
               <span className="font-medium text-foreground">
-                {isVideo ? "MP4 / MOV" : "JPEG / PNG"}
+                {onQueueAssetDrop ? "from library" : isVideo ? "MP4 / MOV" : "JPEG / PNG"}
               </span>
               <br />
               <span className="text-[10px] opacity-70">
@@ -1880,6 +2037,7 @@ function AssetVariationCard({
   canRemove,
   onUpdate,
   onRemove,
+  onQueueAssetDrop,
 }: {
   variation: AssetVariation;
   index: number;
@@ -1888,6 +2046,7 @@ function AssetVariationCard({
   canRemove: boolean;
   onUpdate: (updater: AssetVariationUpdater) => void;
   onRemove: () => void;
+  onQueueAssetDrop?: (slotAssetId: string, libraryId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(index === 0);
   const slots = variation.assets ?? [];
@@ -1967,6 +2126,11 @@ function AssetVariationCard({
                 mediaType={mediaType}
                 adAccountId={adAccountId}
                 onUpdate={(patch) => updateAsset(asset.id, patch)}
+                onQueueAssetDrop={
+                  onQueueAssetDrop
+                    ? (libraryId) => onQueueAssetDrop(asset.id, libraryId)
+                    : undefined
+                }
               />
             ))}
           </div>

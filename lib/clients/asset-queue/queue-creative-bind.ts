@@ -17,6 +17,11 @@ export interface UploadedQueueAsset {
   previewUrl?: string;
   hash?: string;
   videoId?: string;
+  thumbnailPending?: boolean;
+}
+
+export interface QueueLibraryItem extends UploadedQueueAsset {
+  id: string;
 }
 
 export function inferAssetModeFromAspects(aspects: Iterable<AssetRatio>): AssetMode {
@@ -33,18 +38,26 @@ export function inferAssetModeFromAspects(aspects: Iterable<AssetRatio>): AssetM
   return "dual";
 }
 
-function assetFromUpload(
-  aspect: AssetRatio,
+export function bindUploadToAssetSlot(
+  slot: Asset,
   upload: UploadedQueueAsset,
 ): Asset {
   return {
-    ...createDefaultAsset(aspect),
+    ...slot,
     uploadedUrl: upload.url,
     thumbnailUrl: upload.previewUrl ?? upload.url,
     assetHash: upload.hash,
     videoId: upload.videoId,
     uploadStatus: "uploaded",
+    error: undefined,
   };
+}
+
+function assetFromUpload(
+  aspect: AssetRatio,
+  upload: UploadedQueueAsset,
+): Asset {
+  return bindUploadToAssetSlot(createDefaultAsset(aspect), upload);
 }
 
 function emptySlot(aspect: AssetRatio): Asset {

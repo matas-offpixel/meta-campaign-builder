@@ -56,6 +56,7 @@ import {
   formatAutoUploadSummary,
   inferAssetModeFromAspects,
   MAX_QUEUE_META_UPLOAD,
+  type QueueLibraryItem,
   type UploadedQueueAsset,
 } from "@/lib/clients/asset-queue/queue-creative-bind";
 import type { AssetRatio } from "@/lib/types";
@@ -365,7 +366,32 @@ export function ClientBulkAttachWizard({
   const [autoUploadState, setAutoUploadState] = useState<AutoUploadState>({
     status: "idle",
   });
+  const [queueLibrary, setQueueLibrary] = useState<QueueLibraryItem[]>([]);
+  const queueUploadsRef = useRef<UploadedQueueAsset[]>([]);
   const autoUploadStartedRef = useRef(false);
+
+  const applyQueueUploadsToCreatives = useCallback(
+    (uploads: UploadedQueueAsset[]) => {
+      if (!queueContext || uploads.length === 0) return;
+      const preferred = inferMediaTypeFromQueue(queueContext);
+      setCreatives((prev) => {
+        if (prev.length === 0) return prev;
+        const { creative } = applyUploadedAssetsToCreative(
+          prev[0],
+          uploads,
+          preferred,
+        );
+        const next = [...prev];
+        next[0] = creative;
+        return next;
+      });
+    },
+    [queueContext],
+  );
+
+  const handleResetQueueBinding = useCallback(() => {
+    applyQueueUploadsToCreatives(queueUploadsRef.current);
+  }, [applyQueueUploadsToCreatives]);
 
   // ── Step 3: launch ───────────────────────────────────────────────────────────
   const [launching, setLaunching] = useState(false);
@@ -494,10 +520,13 @@ export function ClientBulkAttachWizard({
           );
         }
 
-        const uploads = (data.assets ?? []).map((asset) => ({
+        const uploads = (data.assets ?? []).map((asset, index) => ({
           ...asset,
           aspect: asset.aspect as UploadedQueueAsset["aspect"],
+          id: `queue-lib-${index}-${asset.fileName}`,
         }));
+        queueUploadsRef.current = uploads;
+        setQueueLibrary(uploads);
 
         for (const err of data.errors ?? []) {
           console.error(
@@ -515,26 +544,12 @@ export function ClientBulkAttachWizard({
           return;
         }
 
-        const preferred = inferMediaTypeFromQueue(queueContext);
         const standardAspects = uploads
           .map((u) => u.aspect)
           .filter((a): a is AssetRatio => a !== "other");
         const assetMode = inferAssetModeFromAspects(standardAspects);
 
-        setCreatives((prev) => {
-          if (prev.length === 0) return prev;
-          const { creative, skippedMediaType, skippedAspect } =
-            applyUploadedAssetsToCreative(prev[0], uploads, preferred);
-          const next = [...prev];
-          next[0] = creative;
-          if (skippedMediaType > 0 || skippedAspect > 0) {
-            console.warn("[queue auto-upload] skipped assets", {
-              skippedMediaType,
-              skippedAspect,
-            });
-          }
-          return next;
-        });
+        applyQueueUploadsToCreatives(uploads);
 
         const summary = formatAutoUploadSummary(uploads, assetMode);
 
@@ -557,7 +572,7 @@ export function ClientBulkAttachWizard({
 
     void run();
     return () => controller.abort();
-  }, [step, queueContext, clientId, adAccountId, clientSlug]);
+  }, [step, queueContext, clientId, adAccountId, applyQueueUploadsToCreatives]);
 
   // ── Mount: check localStorage for unsaved state ──────────────────────────────
   useEffect(() => {
@@ -1299,6 +1314,10 @@ export function ClientBulkAttachWizard({
               creatives={creatives}
               onChange={setCreatives}
               adAccountId={adAccountId}
+              queueLibrary={queueLibrary.length > 0 ? queueLibrary : undefined}
+              onResetQueueBinding={
+                queueLibrary.length > 0 ? handleResetQueueBinding : undefined
+              }
             />
           </div>
 
