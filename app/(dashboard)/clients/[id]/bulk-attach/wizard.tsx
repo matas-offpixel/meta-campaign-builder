@@ -42,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Creatives } from "@/components/steps/creatives";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
 import { AdSetPicker } from "@/components/bulk-attach/ad-set-picker";
+import { LaunchErrorPanel } from "@/components/bulk-attach/launch-error-panel";
 import { createDefaultCreative, createDefaultCaption } from "@/lib/campaign-defaults";
 import {
   serialiseDraftState,
@@ -51,6 +52,11 @@ import {
 } from "@/lib/bulk-attach/draft-state";
 import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
 import { buildMetaAdsManagerAdsUrl } from "@/lib/bulk-attach/meta-ads-manager-url";
+import {
+  assessCreativeLaunchReadiness,
+  parseLaunchValidationResponse,
+} from "@/lib/bulk-attach/launch-validation";
+import { useFetchPages } from "@/lib/hooks/useMeta";
 import { parseAspectFromFilename } from "@/lib/clients/asset-queue/aspect-detect";
 import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
@@ -272,7 +278,13 @@ interface TemplateApplyPreview {
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
-function StepIndicator({ step }: { step: Step }) {
+function StepIndicator({
+  step,
+  onStepClick,
+}: {
+  step: Step;
+  onStepClick?: (target: Step) => void;
+}) {
   const labels = [
     "Select campaigns",
     "Select ad sets",
@@ -282,27 +294,39 @@ function StepIndicator({ step }: { step: Step }) {
   return (
     <ol className="flex flex-wrap items-center gap-0 text-xs">
       {labels.map((label, i) => {
-        const active = step === i;
-        const done = step > i;
+        const stepIndex = i as Step;
+        const active = step === stepIndex;
+        const done = step > stepIndex;
+        const canNavigate = !!onStepClick && stepIndex < step;
         return (
           <li key={i} className="flex items-center gap-1">
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold
-                ${done || active ? "bg-primary text-background" : "bg-muted text-muted-foreground"}`}
+            <button
+              type="button"
+              disabled={!canNavigate}
+              onClick={() => canNavigate && onStepClick?.(stepIndex)}
+              className={`flex items-center gap-1 rounded-sm text-left transition-colors
+                ${canNavigate ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
             >
-              {done ? "✓" : i + 1}
-            </span>
-            <span
-              className={
-                active
-                  ? "font-medium text-foreground"
-                  : done
-                    ? "text-foreground/70"
-                    : "text-muted-foreground"
-              }
-            >
-              {label}
-            </span>
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold
+                  ${done || active ? "bg-primary text-background" : "bg-muted text-muted-foreground"}`}
+              >
+                {done ? "✓" : i + 1}
+              </span>
+              <span
+                className={
+                  active
+                    ? "font-medium text-foreground"
+                    : done
+                      ? canNavigate
+                        ? "text-foreground underline-offset-2 hover:underline"
+                        : "text-foreground/70"
+                      : "text-muted-foreground"
+                }
+              >
+                {label}
+              </span>
+            </button>
             {i < labels.length - 1 && (
               <ChevronRight className="mx-1 h-3 w-3 text-muted-foreground" />
             )}
@@ -431,6 +455,12 @@ export function ClientBulkAttachWizard({
     null,
   );
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchValidationDetails, setLaunchValidationDetails] = useState<string[]>([]);
+  const pages = useFetchPages(adAccountId);
+  const creativeLaunchReadiness = assessCreativeLaunchReadiness(creatives, {
+    pagesLoading: pages.loading,
+    pagesCount: pages.data.length,
+  });
 
   // ── Active template match pattern (from applied template, step 1) ────────────
   const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
@@ -883,9 +913,24 @@ export function ClientBulkAttachWizard({
   };
 
   // ── Launch ───────────────────────────────────────────────────────────────────
+  const clearLaunchErrors = useCallback(() => {
+    setLaunchError(null);
+    setLaunchValidationDetails([]);
+  }, []);
+
+  const navigateToStep = useCallback(
+    (target: Step) => {
+      if (target >= step) return;
+      if (launching) return;
+      setStep(target);
+      if (target <= 2) clearLaunchErrors();
+    },
+    [step, launching, clearLaunchErrors],
+  );
+
   const handleLaunch = async () => {
     setLaunching(true);
-    setLaunchError(null);
+    clearLaunchErrors();
     const campaignAdSetsPayload: Record<string, string[]> = {};
     for (const [cid, adSetSet] of campaignAdSets.entries()) {
       campaignAdSetsPayload[cid] = Array.from(adSetSet);
@@ -905,7 +950,9 @@ export function ClientBulkAttachWizard({
       });
       const data = await res.json();
       if (!res.ok && res.status !== 207) {
-        setLaunchError(data.error ?? "Launch failed");
+        const { message, details } = parseLaunchValidationResponse(data);
+        setLaunchError(message);
+        setLaunchValidationDetails(details);
         return;
       }
       const result = data as BulkAttachResult;
@@ -1171,7 +1218,7 @@ export function ClientBulkAttachWizard({
       )}
 
       {/* Step indicator */}
-      <StepIndicator step={step} />
+      <StepIndicator step={step} onStepClick={navigateToStep} />
 
       {/* ── STEP 0: Select campaigns ──────────────────────────────────────────── */}
       {step === 0 && (
@@ -1384,7 +1431,7 @@ export function ClientBulkAttachWizard({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setStep(2)}
+                onClick={() => navigateToStep(2)}
                 disabled={launching}
               >
                 <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
@@ -1446,15 +1493,30 @@ export function ClientBulkAttachWizard({
             </p>
 
             {launchError && (
-              <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                {launchError}
-              </div>
+              <LaunchErrorPanel
+                message={launchError}
+                details={launchValidationDetails}
+                onBackToCreatives={() => navigateToStep(2)}
+              />
             )}
           </div>
 
-          <div className="flex justify-end">
-            <Button onClick={handleLaunch} disabled={launching}>
+          <div className="flex flex-col items-end gap-2">
+            {creativeLaunchReadiness.pagesStillLoading && (
+              <p className="text-xs text-muted-foreground">
+                Waiting for Facebook Page identity to load…
+              </p>
+            )}
+            {!creativeLaunchReadiness.pagesStillLoading &&
+              creativeLaunchReadiness.missingPageId && (
+                <p className="text-xs text-muted-foreground">
+                  Select a Facebook Page for each creative before launching.
+                </p>
+              )}
+            <Button
+              onClick={handleLaunch}
+              disabled={launching || !creativeLaunchReadiness.ready}
+            >
               {launching ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Launching…
