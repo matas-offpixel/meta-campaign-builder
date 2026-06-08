@@ -41,6 +41,7 @@ import { afterEach, describe, it, mock } from "node:test";
 import {
   listDropboxFolderFiles,
   fetchDropboxFileContent,
+  downloadDropboxFolderFiles,
   DropboxFetchError,
 } from "../dropbox.ts";
 import { _clearTokenCache } from "../dropbox-auth.ts";
@@ -504,6 +505,62 @@ describe("listDropboxFolderFiles — recursive walk", () => {
       (err: unknown) => {
         assert.ok(err instanceof DropboxFetchError);
         assert.equal(err.code, "network");
+        return true;
+      },
+    );
+  });
+});
+
+// ─── downloadDropboxFolderFiles — folder size cap ───────────────────────────
+
+const GB = 1024 * 1024 * 1024;
+
+describe("downloadDropboxFolderFiles — folder size cap", () => {
+  it("accepts a folder totalling 1.5 GB", async () => {
+    setValidEnv();
+    const listedSize = Math.floor(1.5 * GB);
+    mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        return listOk([
+          { ".tag": "file", name: "presenter-a.mp4", path_lower: "/presenter-a.mp4", size: listedSize },
+        ]);
+      }
+      if (url === DOWNLOAD_URL) {
+        return makeResponse({
+          status: 200,
+          ok: true,
+          headers: { "content-type": "video/mp4" },
+          arrayBuffer: new ArrayBuffer(8),
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const files = await downloadDropboxFolderFiles(SHARE_URL);
+    assert.equal(files.length, 1);
+    assert.equal(files[0].name, "presenter-a.mp4");
+  });
+
+  it("throws folder_too_large when folder totals 2.5 GB", async () => {
+    setValidEnv();
+    const listedSize = Math.floor(2.5 * GB);
+    mock.method(globalThis, "fetch", async (url: string) => {
+      if (url === TOKEN_URL) return tokenOk();
+      if (url === LIST_FOLDER_URL) {
+        return listOk([
+          { ".tag": "file", name: "presenter-b.mp4", path_lower: "/presenter-b.mp4", size: listedSize },
+        ]);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await assert.rejects(
+      () => downloadDropboxFolderFiles(SHARE_URL),
+      (err: unknown) => {
+        assert.ok(err instanceof DropboxFetchError);
+        assert.equal(err.code, "folder_too_large");
+        assert.match(err.message, /2 GB limit/);
         return true;
       },
     );
