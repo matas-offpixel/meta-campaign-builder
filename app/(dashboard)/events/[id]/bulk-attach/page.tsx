@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Creatives } from "@/components/steps/creatives";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
 import { AdSetPicker } from "@/components/bulk-attach/ad-set-picker";
+import { LaunchErrorPanel } from "@/components/bulk-attach/launch-error-panel";
 import { createDefaultCreative } from "@/lib/campaign-defaults";
 import {
   serialiseDraftState,
@@ -49,6 +50,11 @@ import { parsePatternTerms } from "@/lib/bulk-attach/template-matcher";
 import type { AdCreativeDraft, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
 import { buildMetaAdsManagerAdsUrl } from "@/lib/bulk-attach/meta-ads-manager-url";
+import {
+  assessCreativeLaunchReadiness,
+  parseLaunchValidationResponse,
+} from "@/lib/bulk-attach/launch-validation";
+import { useFetchPages } from "@/lib/hooks/useMeta";
 
 const BULK_ATTACH_CAP = 8;
 
@@ -94,32 +100,50 @@ interface TemplateApplyPreview {
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
-function StepIndicator({ step }: { step: Step }) {
+function StepIndicator({
+  step,
+  onStepClick,
+}: {
+  step: Step;
+  onStepClick?: (target: Step) => void;
+}) {
   const labels = ["Select campaigns", "Select ad sets", "Configure creatives", "Review & launch"];
   return (
     <ol className="flex flex-wrap items-center gap-0 text-xs">
       {labels.map((label, i) => {
-        const active = step === i;
-        const done = step > i;
+        const stepIndex = i as Step;
+        const active = step === stepIndex;
+        const done = step > stepIndex;
+        const canNavigate = !!onStepClick && stepIndex < step;
         return (
           <li key={i} className="flex items-center gap-1">
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold
-                ${done ? "bg-primary text-background" : active ? "bg-primary text-background" : "bg-muted text-muted-foreground"}`}
+            <button
+              type="button"
+              disabled={!canNavigate}
+              onClick={() => canNavigate && onStepClick?.(stepIndex)}
+              className={`flex items-center gap-1 rounded-sm text-left transition-colors
+                ${canNavigate ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
             >
-              {done ? "✓" : i + 1}
-            </span>
-            <span
-              className={
-                active
-                  ? "font-medium text-foreground"
-                  : done
-                    ? "text-foreground/70"
-                    : "text-muted-foreground"
-              }
-            >
-              {label}
-            </span>
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold
+                  ${done || active ? "bg-primary text-background" : "bg-muted text-muted-foreground"}`}
+              >
+                {done ? "✓" : i + 1}
+              </span>
+              <span
+                className={
+                  active
+                    ? "font-medium text-foreground"
+                    : done
+                      ? canNavigate
+                        ? "text-foreground underline-offset-2 hover:underline"
+                        : "text-foreground/70"
+                      : "text-muted-foreground"
+                }
+              >
+                {label}
+              </span>
+            </button>
             {i < labels.length - 1 && (
               <ChevronRight className="mx-1 h-3 w-3 text-muted-foreground" />
             )}
@@ -203,6 +227,27 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   const [launching, setLaunching] = useState(false);
   const [launchResult, setLaunchResult] = useState<BulkAttachResult | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchValidationDetails, setLaunchValidationDetails] = useState<string[]>([]);
+  const pages = useFetchPages(adAccountId);
+  const creativeLaunchReadiness = assessCreativeLaunchReadiness(creatives, {
+    pagesLoading: pages.loading,
+    pagesCount: pages.data.length,
+  });
+
+  const clearLaunchErrors = useCallback(() => {
+    setLaunchError(null);
+    setLaunchValidationDetails([]);
+  }, []);
+
+  const navigateToStep = useCallback(
+    (target: Step) => {
+      if (target >= step) return;
+      if (launching) return;
+      setStep(target);
+      if (target <= 2) clearLaunchErrors();
+    },
+    [step, launching, clearLaunchErrors],
+  );
 
   // ── Active template match pattern (from applied template, step 1) ─────────
   const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
@@ -538,7 +583,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
   // ── Launch ────────────────────────────────────────────────────────────────
   const handleLaunch = async () => {
     setLaunching(true);
-    setLaunchError(null);
+    clearLaunchErrors();
     const campaignAdSetsPayload: Record<string, string[]> = {};
     for (const [cid, adSetSet] of campaignAdSets.entries()) {
       campaignAdSetsPayload[cid] = Array.from(adSetSet);
@@ -551,7 +596,9 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       });
       const data = await res.json();
       if (!res.ok && res.status !== 207) {
-        setLaunchError(data.error ?? "Launch failed");
+        const { message, details } = parseLaunchValidationResponse(data);
+        setLaunchError(message);
+        setLaunchValidationDetails(details);
         return;
       }
       setLaunchResult(data as BulkAttachResult);
@@ -751,7 +798,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
       )}
 
       {/* Step indicator */}
-      <StepIndicator step={step} />
+      <StepIndicator step={step} onStepClick={navigateToStep} />
 
       {/* ── Ad account guard ───────────────────────────────────────────────── */}
       {!adAccountId && (
@@ -933,7 +980,7 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
               <div className="rounded-lg border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-medium text-sm">Review</h2>
-                  <Button variant="ghost" size="sm" onClick={() => setStep(2)} disabled={launching}>
+                  <Button variant="ghost" size="sm" onClick={() => navigateToStep(2)} disabled={launching}>
                     <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
                   </Button>
                 </div>
@@ -981,15 +1028,30 @@ export default function BulkAttachPage({ params, searchParams }: PageProps) {
                 </p>
 
                 {launchError && (
-                  <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    {launchError}
-                  </div>
+                  <LaunchErrorPanel
+                    message={launchError}
+                    details={launchValidationDetails}
+                    onBackToCreatives={() => navigateToStep(2)}
+                  />
                 )}
               </div>
 
-              <div className="flex justify-end">
-                <Button onClick={handleLaunch} disabled={launching}>
+              <div className="flex flex-col items-end gap-2">
+                {creativeLaunchReadiness.pagesStillLoading && (
+                  <p className="text-xs text-muted-foreground">
+                    Waiting for Facebook Page identity to load…
+                  </p>
+                )}
+                {!creativeLaunchReadiness.pagesStillLoading &&
+                  creativeLaunchReadiness.missingPageId && (
+                    <p className="text-xs text-muted-foreground">
+                      Select a Facebook Page for each creative before launching.
+                    </p>
+                  )}
+                <Button
+                  onClick={handleLaunch}
+                  disabled={launching || !creativeLaunchReadiness.ready}
+                >
                   {launching ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Launching…</>
                   ) : (
