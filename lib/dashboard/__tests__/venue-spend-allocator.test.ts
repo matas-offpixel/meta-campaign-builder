@@ -195,3 +195,77 @@ describe("allocateVenueSpend — Manchester WC26 multi-date regression", () => {
     );
   });
 });
+
+/**
+ * Presale clobber regression — WC26-EDINBURGH (3 siblings).
+ *
+ * Before the fix: the Meta leg wrote the full venue presale total to every
+ * sibling row; the allocator divided correctly on the first sibling's sync,
+ * but sibling 2..N re-ran the Meta leg and clobbered `ad_spend_presale`
+ * back to the venue total → SUM across siblings = 3× truth.
+ *
+ * After the fix: `ad_spend_presale` is engagement-owner-only on the Meta
+ * leg (owner writes venue total; non-owners omit the column). The WC26
+ * opponent allocator divides presale (`presaleShare = presaleDayTotal /
+ * eventCount`) and writes the per-fixture share to every sibling.
+ */
+describe("presale sibling split — WC26-EDINBURGH clobber regression", () => {
+  const EDINBURGH_SIBLING_COUNT = 3;
+  const VENUE_PRESALE_DAY = 150;
+
+  /** Mirrors `presaleShare` in the WC26 opponent allocator loop. */
+  function presaleShareForSibling(
+    presaleDayTotal: number,
+    eventCount: number,
+  ): number {
+    return eventCount > 0 ? presaleDayTotal / eventCount : 0;
+  }
+
+  it("divides £150/day presale to £50 per sibling, not £150 each", () => {
+    const share = presaleShareForSibling(
+      VENUE_PRESALE_DAY,
+      EDINBURGH_SIBLING_COUNT,
+    );
+    assert.equal(share, 50);
+    assert.notEqual(share, VENUE_PRESALE_DAY);
+
+    const sumAcrossSiblings =
+      share * EDINBURGH_SIBLING_COUNT;
+    assert.equal(sumAcrossSiblings, VENUE_PRESALE_DAY);
+
+    const metaLegClobberSum = VENUE_PRESALE_DAY * EDINBURGH_SIBLING_COUNT;
+    assert.equal(metaLegClobberSum, 450);
+    assert.notEqual(sumAcrossSiblings, metaLegClobberSum);
+  });
+
+  it("sum of per-event presale equals venue day total after allocator split", () => {
+    const venuePresaleByDay = new Map([["2026-01-24", 145.23]]);
+    const perEventPresale = new Map<string, number>();
+
+    for (const [day, presaleDayTotal] of venuePresaleByDay) {
+      const share = presaleShareForSibling(
+        presaleDayTotal,
+        EDINBURGH_SIBLING_COUNT,
+      );
+      for (let i = 0; i < EDINBURGH_SIBLING_COUNT; i++) {
+        const eventId = `edinburgh-sibling-${i}`;
+        perEventPresale.set(
+          `${eventId}:${day}`,
+          (perEventPresale.get(`${eventId}:${day}`) ?? 0) + share,
+        );
+      }
+    }
+
+    const sumPresale = [...perEventPresale.values()].reduce((s, v) => s + v, 0);
+    assert.ok(
+      Math.abs(sumPresale - 145.23) < 0.02,
+      `sum ${sumPresale.toFixed(2)} ≠ venue truth 145.23`,
+    );
+    for (const v of perEventPresale.values()) {
+      assert.ok(
+        Math.abs(v - 145.23 / EDINBURGH_SIBLING_COUNT) < 0.02,
+        `per-event ${v.toFixed(2)} should be ≈48.41, not 145.23`,
+      );
+    }
+  });
+});

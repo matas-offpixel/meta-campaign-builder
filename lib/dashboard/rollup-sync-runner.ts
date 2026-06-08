@@ -551,6 +551,12 @@ export async function runRollupSyncForEvent(
           string,
           {
             ad_spend: number;
+            /**
+             * Engagement-owner-only post-fix: written by the owner
+             * sibling, NULL on non-owners so the venue allocator's
+             * divided per-fixture share is preserved across subsequent
+             * sibling syncs.
+             */
             ad_spend_presale: number;
             link_clicks: number;
             // Migration 099 (PR-A of issue #467): canonical LPV column
@@ -698,11 +704,16 @@ export async function runRollupSyncForEvent(
         // siblings write NULL so a SUM across siblings collapses to
         // the single event-code total instead of fanning out to N×.
         //
-        // Spend (`ad_spend`, `ad_spend_presale`) stays per-fixture —
-        // the venue allocator splits it equally across fixtures
-        // (locked decision from issue #471). Ticket fields stay per-
-        // fixture (sourced from `tier_channel_sales`, unaffected by
-        // this leg).
+        // Spend (`ad_spend`) stays per-fixture — raw venue total on each
+        // sibling row. `ad_spend_presale` is engagement-owner-only: the
+        // owner writes the venue total; non-owners pass NULL and
+        // upsertMetaRollups omits the column (preserving allocator
+        // shares). The venue allocator then divides the owner's value
+        // across every sibling. Pre-fix shape (every sibling wrote the full
+        // venue total) clobbered the allocator's divided value on
+        // siblings 2..N because the allocator is batch-deduped per
+        // (client_id, event_code). Ticket fields stay per-fixture
+        // (sourced from `tier_channel_sales`, unaffected by this leg).
         //
         // Failure mode: `isEngagementOwnerForCode` fails OPEN — a DB
         // blip preserves pre-PR-A.5 behaviour (write the values) so
@@ -721,7 +732,7 @@ export async function runRollupSyncForEvent(
           .map(([date, v]) => ({
             date,
             ad_spend: v.ad_spend,
-            ad_spend_presale: v.ad_spend_presale,
+            ad_spend_presale: ownedOrNull(v.ad_spend_presale),
             link_clicks: ownedOrNull(v.link_clicks),
             landing_page_views: ownedOrNull(v.landing_page_views),
             meta_regs: ownedOrNull(v.meta_regs),

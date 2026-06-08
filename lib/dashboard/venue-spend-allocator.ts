@@ -61,8 +61,8 @@ import {
  * Why we run after the Meta leg rather than in parallel:
  *
  *   The Meta leg writes `ad_spend` (raw venue total per-event). The
- *   allocator writes the SAME row's allocation columns. Running
- *   serially means the allocator can safely upsert without
+ *   allocator writes allocation columns including `ad_spend_presale`.
+ *   Running serially means the allocator can safely upsert without
  *   conflicting on the row's created_at / updated_at dance. The
  *   cost is a small added serial latency on the sync — an extra
  *   1-3s for typical venues.
@@ -637,8 +637,9 @@ export async function allocateVenueSpendForCode(
   }
 
   // Club Football & non-WC26 multi-fixture: equal split across siblings using
-  // rollup `ad_spend` / `ad_spend_presale` from the Meta leg (event_code is the
-  // budget unit per PR #302). WC26 keeps opponent + umbrella special cases below.
+  // rollup `ad_spend` from the Meta leg (event_code is the budget unit per
+  // PR #302). Presale is allocator-owned — read from existing allocator rows
+  // on the primary sibling when present. WC26 keeps opponent path below.
   if (!isWc26OpponentAllocatorEventCode(eventCode)) {
     return equalSplitNonWc26AllocatedSpend({
       supabase,
