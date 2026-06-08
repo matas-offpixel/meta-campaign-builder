@@ -11,8 +11,8 @@ import { getAssetQueueRow } from "@/lib/db/asset-queue";
 import {
   mergeAspectHints,
   parseAspectFromFilename,
-  probeAspectFromBuffer,
 } from "@/lib/clients/asset-queue/aspect-detect";
+import { probeAspectFromBuffer } from "@/lib/clients/asset-queue/aspect-detect.server";
 import { MAX_QUEUE_META_UPLOAD } from "@/lib/clients/asset-queue/queue-creative-bind";
 import {
   uploadImageAsset,
