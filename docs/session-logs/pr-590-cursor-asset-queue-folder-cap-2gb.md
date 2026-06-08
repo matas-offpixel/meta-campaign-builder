@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 590
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/590
 - **Branch:** `cursor/asset-queue-folder-cap-2gb`
 
 ## Summary
