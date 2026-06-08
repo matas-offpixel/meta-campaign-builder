@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 591
+- **URL:** (591)
 - **Branch:** `cursor/umbrella-bulk-attach-handoff`
 
 ## Summary
@@ -29,4 +29,4 @@ Wire umbrella asset-queue rows through the same `?queueId=` bulk-attach handoff 
 
 ## Notes
 
-Single-venue `pending` handoff and standalone bulk-attach (no `queueId`) unchanged. Umbrella URL stays operator-editable; no per-venue URL auto-substitution.
+Single-venue `591` handoff and standalone bulk-attach (no `queueId`) unchanged. Umbrella URL stays operator-editable; no per-venue URL auto-substitution.
