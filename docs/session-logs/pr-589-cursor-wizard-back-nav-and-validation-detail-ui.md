@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 589
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/589
 - **Branch:** `cursor/wizard-back-nav-and-validation-detail-ui`
 
 ## Summary
