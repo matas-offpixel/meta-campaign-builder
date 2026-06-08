@@ -107,9 +107,9 @@ export async function POST(
   if (!row || row.client_id !== clientId) {
     return NextResponse.json({ error: "Queue row not found" }, { status: 404 });
   }
-  if (row.status !== "pending") {
+  if (row.status !== "pending" && row.status !== "confirmed") {
     return NextResponse.json(
-      { error: `Row status is '${row.status}' — only pending rows can upload` },
+      { error: `Row status is '${row.status}' — only pending or confirmed rows can upload` },
       { status: 400 },
     );
   }

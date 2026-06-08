@@ -17,6 +17,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const INPUT: CopyInput = {
   assetName: "Brighton TOFU Reel",
+  mediaType: "Video",
   funnel: "TOFU",
   location: "Brighton",
   eventName: "World Cup Watch Party Brighton",
