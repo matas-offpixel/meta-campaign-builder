@@ -14,6 +14,8 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import { UMBRELLA_VENUE_WIDE_DEFAULT_COPY } from "./queue-handoff.ts";
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const MODEL = "claude-haiku-4-5";
@@ -30,6 +32,8 @@ export interface CopyInput {
   venueName?: string | null;
   /** Ground-truth city from events table — never invent alternatives. */
   venueCity?: string | null;
+  /** Multi-venue umbrella row — uses umbrella-wide fallback copy when AI fails. */
+  isUmbrella?: boolean;
 }
 
 export interface GeneratedCopy {
@@ -160,12 +164,18 @@ function fallbackCopy(
 ): GeneratedCopy {
   const venue = groundTruthVenueLabel(input);
   const template =
-    scope === "venue-wide"
-      ? templates[input.funnel] ??
-        `Final tickets running low across all games at ${venue}. Don't miss your chance!`
-      : templates[input.funnel] ?? `Check out ${input.eventName || venue}!`;
+    input.isUmbrella && scope === "venue-wide"
+      ? templates[input.funnel] ?? UMBRELLA_VENUE_WIDE_DEFAULT_COPY
+      : scope === "venue-wide"
+        ? templates[input.funnel] ??
+          `Final tickets running low across all games at ${venue}. Don't miss your chance!`
+        : templates[input.funnel] ?? `Check out ${input.eventName || venue}!`;
+  const primaryText =
+    input.isUmbrella && scope === "venue-wide"
+      ? template
+      : template.slice(0, 100);
   return {
-    primaryText: template.slice(0, 100),
+    primaryText,
     headline: (scope === "venue-wide" ? venue : (input.eventName || venue)).slice(0, 30),
     ctaValue: ctaDefaults[input.funnel] ?? "LEARN_MORE",
     fromFallback: true,

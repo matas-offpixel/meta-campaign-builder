@@ -235,6 +235,7 @@ export async function POST(
       eventCode: resolvedEventCode ?? "",
       venueName,
       venueCity,
+      isUmbrella,
     },
     copyTemplates,
     ctaDefaults,
@@ -242,9 +243,9 @@ export async function POST(
 
   const patternUrl = urlPattern[row.funnel ?? ""]?.trim() ?? "";
   const organiserUrl = resolveOrganiserDestinationUrl(client.slug, venueCity);
-  const generatedUrl = patternUrl || organiserUrl || "";
+  const generatedUrl = isUmbrella ? "" : patternUrl || organiserUrl || "";
 
-  if (!generatedUrl) {
+  if (!isUmbrella && !generatedUrl) {
     console.error("[asset-queue/prepare] destination URL empty after fallbacks", {
       clientId,
       queueId,

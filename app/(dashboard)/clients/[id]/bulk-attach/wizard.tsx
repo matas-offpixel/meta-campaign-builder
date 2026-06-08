@@ -75,6 +75,10 @@ const BULK_ATTACH_CAP = 8;
 
 export interface QueueContextProps {
   queueId: string;
+  /** Multi-venue umbrella row (resolved_event_codes_multi). */
+  umbrella?: boolean;
+  /** All venue event codes for umbrella rows; single code for single-venue. */
+  venueCodes?: string[];
   eventCode: string | null;
   eventId: string | null;
   assetName: string | null;
@@ -141,7 +145,24 @@ function resolveQueueDestinationUrl(
 ): string {
   const fromRow = ctx.generatedUrl?.trim();
   if (fromRow) return fromRow;
+  if (ctx.umbrella) return "";
   return resolveOrganiserDestinationUrl(clientSlug, ctx.venueCity) ?? "";
+}
+
+function queueCampaignPreselectCodes(ctx: QueueContextProps): string[] | undefined {
+  if (ctx.umbrella && ctx.venueCodes && ctx.venueCodes.length > 0) {
+    return ctx.venueCodes.map((code) => `[${code}]`);
+  }
+  if (ctx.eventCode) return [`[${ctx.eventCode}]`];
+  return undefined;
+}
+
+function queueDefaultCampaignSearch(ctx: QueueContextProps): string | undefined {
+  if (ctx.umbrella && ctx.venueCodes && ctx.venueCodes.length > 0) {
+    return `[${ctx.venueCodes[0]}]`;
+  }
+  if (ctx.eventCode) return `[${ctx.eventCode}]`;
+  return undefined;
 }
 
 function buildCreativesFromQueueContext(
@@ -187,12 +208,18 @@ function QueueContextBanner({
     isBookNowQueueCta(queueContext.generatedCta) &&
     queueHasDualAspectFromPaths(paths);
 
+  const venueCount = queueContext.venueCodes?.length ?? 0;
+
   if (variant === "review") {
     return (
       <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
         <p className="font-medium">
           Launching from queue row: {queueContext.assetName ?? "Asset"}
-          {queueContext.eventCode ? ` → Event ${queueContext.eventCode}` : ""}
+          {queueContext.umbrella
+            ? ` → ${venueCount} venues`
+            : queueContext.eventCode
+              ? ` → Event ${queueContext.eventCode}`
+              : ""}
         </p>
         {showBookNowDualWarning && (
           <p className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
@@ -208,12 +235,36 @@ function QueueContextBanner({
     <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
       <p className="font-medium">
         Launching from queue: {queueContext.assetName ?? "Asset"}
-        {queueContext.eventCode ? ` → [${queueContext.eventCode}]` : ""}
+        {queueContext.umbrella
+          ? ` → ${venueCount} umbrella venues`
+          : queueContext.eventCode
+            ? ` → [${queueContext.eventCode}]`
+            : ""}
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Copy, CTA, and destination URL are pre-filled from the prepared asset.
-        Assets auto-upload to Meta when you reach this step — override manually if needed.
-      </p>
+      {queueContext.umbrella && venueCount > 0 && (
+        <>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Umbrella asset for {venueCount} venues. Caption + URL will apply to all
+            attached ads — set the URL that best fits this campaign.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {queueContext.venueCodes!.map((code) => (
+              <span
+                key={code}
+                className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-medium text-teal-800 dark:text-teal-200"
+              >
+                {code}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+      {!queueContext.umbrella && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Copy, CTA, and destination URL are pre-filled from the prepared asset.
+          Assets auto-upload to Meta when you reach this step — override manually if needed.
+        </p>
+      )}
       {showBookNowDualWarning && (
         <p className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
           <strong>BOOK_NOW + dual aspects:</strong> Meta blocks per-placement routing for
@@ -358,8 +409,8 @@ export function ClientBulkAttachWizard({
   const backHref = queueContext
     ? `/clients/${clientId}?tab=asset-queue`
     : `/clients/${clientId}?tab=campaigns`;
-  const queuePreselectCodes = queueContext?.eventCode
-    ? [`[${queueContext.eventCode}]`]
+  const queuePreselectCodes = queueContext
+    ? queueCampaignPreselectCodes(queueContext)
     : undefined;
 
   // ── Step ────────────────────────────────────────────────────────────────────
@@ -1253,15 +1304,14 @@ export function ClientBulkAttachWizard({
               preselectCodes={queuePreselectCodes}
               onPreselectLoad={queueContext ? handleQueuePreselectLoad : undefined}
               defaultSearchQuery={
-                queueContext?.eventCode
-                  ? `[${queueContext.eventCode}]`
-                  : undefined
+                queueContext ? queueDefaultCampaignSearch(queueContext) : undefined
               }
             />
             {queueContext && queuePreselectChecked && selectedCampaigns.size === 0 && (
               <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                No active campaigns matched [{queueContext.eventCode}] — select
-                campaigns manually or check Meta for active campaigns.
+                {queueContext.umbrella
+                  ? "No active campaigns matched umbrella venue codes — select campaigns manually or check Meta for active campaigns."
+                  : `No active campaigns matched [${queueContext.eventCode}] — select campaigns manually or check Meta for active campaigns.`}
               </div>
             )}
           </div>

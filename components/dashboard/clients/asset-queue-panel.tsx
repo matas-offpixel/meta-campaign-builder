@@ -11,7 +11,7 @@
  *   matched / matched_umbrella → [Prepare & Launch] → pending + bulk-attach wizard
  *   pending (single-venue)     → [Confirm & Launch] → bulk-attach wizard → launched
  *   pending (umbrella)         → [Review & Confirm modal] → confirmed
- *   confirmed (umbrella)       → [Open Bulk Attach] → (external bulk-attach)
+ *   confirmed (umbrella)       → [Open Bulk Attach] → bulk-attach wizard (?queueId=)
  *   error                      → [Retry / Skip]
  */
 
@@ -23,8 +23,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { AssetQueueRow, AssetQueueStatus } from "@/lib/db/asset-queue";
-
-const BULK_ATTACH_CAP = 8;
 
 interface ScrapeResult {
   scraped: number;
@@ -364,7 +362,6 @@ function QueueRowCard({
   const [prepareElapsed, setPrepareElapsed] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [showUmbrellaReview, setShowUmbrellaReview] = useState(false);
-  const [openingBulkAttach, setOpeningBulkAttach] = useState(false);
 
   const isUmbrella = !!(row.resolved_event_codes_multi && row.resolved_event_codes_multi.length > 0);
   const isCollapsed = row.status === "launched" || row.status === "skipped";
@@ -422,34 +419,6 @@ function QueueRowCard({
       body: JSON.stringify({ action: "skip" }),
     });
     onUpdate();
-  }
-
-  /** For confirmed umbrella rows: resolve first code → event ID → navigate to bulk-attach. */
-  async function handleOpenBulkAttach() {
-    const codes = row.resolved_event_codes_multi ?? [];
-    if (codes.length === 0) return;
-
-    setOpeningBulkAttach(true);
-    try {
-      const anchorEventId = row.resolved_event_id;
-      if (!anchorEventId) {
-        // Fallback: look up via events API by first code
-        const res = await fetch(`/api/events?q=${encodeURIComponent(codes[0])}&pageSize=1`);
-        const data = await res.json();
-        const event = data.events?.[0];
-        if (!event) {
-          alert(`Could not resolve event for code "${codes[0]}". Please open Bulk Attach manually.`);
-          return;
-        }
-        const preselectCodes = codes.slice(0, BULK_ATTACH_CAP).join(",");
-        router.push(`/events/${event.id}/bulk-attach?preselectCodes=${encodeURIComponent(preselectCodes)}`);
-      } else {
-        const preselectCodes = codes.slice(0, BULK_ATTACH_CAP).join(",");
-        router.push(`/events/${anchorEventId}/bulk-attach?preselectCodes=${encodeURIComponent(preselectCodes)}`);
-      }
-    } finally {
-      setOpeningBulkAttach(false);
-    }
   }
 
   return (
@@ -526,16 +495,13 @@ function QueueRowCard({
               </button>
             )}
             {row.status === "confirmed" && isUmbrella && (
-              <button
-                onClick={handleOpenBulkAttach}
-                disabled={openingBulkAttach}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              <Link
+                href={`/clients/${clientId}/bulk-attach?queueId=${row.id}`}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
               >
-                {openingBulkAttach
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <ExternalLink className="h-3 w-3" />}
+                <ExternalLink className="h-3 w-3" />
                 Open Bulk Attach
-              </button>
+              </Link>
             )}
             {(row.status === "matched" || row.status === "matched_umbrella" || row.status === "pending" || row.status === "error") && (
               <button
