@@ -1,5 +1,3 @@
-import sharp from "sharp";
-
 import type { AssetRatio } from "@/lib/types";
 
 export type StandardAspect = AssetRatio;
@@ -13,7 +11,7 @@ const RATIO_TARGETS: { aspect: StandardAspect; value: number }[] = [
   { aspect: "9:16", value: 9 / 16 },
 ];
 
-function snapRatio(width: number, height: number): DetectedAspect {
+export function snapRatio(width: number, height: number): DetectedAspect {
   if (width <= 0 || height <= 0) return "other";
   const ratio = width / height;
   for (const { aspect, value } of RATIO_TARGETS) {
@@ -50,23 +48,6 @@ export function parseAspectFromFilename(filename: string): StandardAspect | null
   if (/\b(feed|post)\b/.test(name)) return "4:5";
 
   return null;
-}
-
-/**
- * Probe image bytes via sharp. Videos defer to filename hints only.
- */
-export async function probeAspectFromBuffer(
-  buffer: Buffer,
-  mime: string,
-): Promise<DetectedAspect> {
-  if (!mime.startsWith("image/")) return "other";
-  try {
-    const meta = await sharp(buffer).metadata();
-    if (!meta.width || !meta.height) return "other";
-    return snapRatio(meta.width, meta.height);
-  } catch {
-    return "other";
-  }
 }
 
 export function mergeAspectHints(
