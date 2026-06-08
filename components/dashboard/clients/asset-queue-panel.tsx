@@ -573,7 +573,7 @@ function QueueRowCard({
                     : row.error_message === "network"
                       ? "Dropbox folder listing failed (network error). Use the override below to paste direct file links."
                       : row.error_message === "folder_too_large"
-                        ? "Folder exceeds the 500 MB limit. Use the override below to paste individual file links."
+                        ? "Folder exceeds the 2 GB limit. Use the override below to paste individual file links."
                         : row.error_message === "empty_folder"
                           ? "No media files found in the Dropbox folder. Use the override below to paste direct file links."
                           : row.error_message ?? "Unknown error"}

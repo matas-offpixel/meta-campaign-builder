@@ -35,7 +35,7 @@
  */
 
 const MAX_SINGLE_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file
-const MAX_FOLDER_BYTES      = 500 * 1024 * 1024; // 500 MB total for folders
+const MAX_FOLDER_BYTES      = 2 * 1024 * 1024 * 1024; // 2 GB total for folders (presenter video shoots can be large)
 
 /** Media extensions we will accept from folder listings */
 const MEDIA_EXTENSIONS = new Set(["mp4", "mov", "webm", "jpg", "jpeg", "png", "gif", "webp"]);
@@ -427,7 +427,7 @@ export interface DropboxFolderFile {
  * - Downloads each file via fetchDropboxFileContent (live /2/sharing/get_shared_link_file)
  * - Filters to known media extensions (mp4, mov, jpg, jpeg, png, etc.)
  * - Rejects empty folders (no media files found)
- * - Rejects folders whose total bytes exceed 500 MB
+ * - Rejects folders whose total bytes exceed 2 GB
  * - Enforces 100 MB cap per individual file
  * - Sequential downloads — no parallelism
  *
@@ -449,7 +449,7 @@ export async function downloadDropboxFolderFiles(shareUrl: string): Promise<Drop
   if (totalBytes > MAX_FOLDER_BYTES) {
     throw new DropboxFetchError(
       "folder_too_large",
-      `Folder total size (${Math.round(totalBytes / 1024 / 1024)} MB) exceeds the 500 MB limit`,
+      `Folder total size (${Math.round(totalBytes / 1024 / 1024)} MB) exceeds the 2 GB limit`,
     );
   }
 
