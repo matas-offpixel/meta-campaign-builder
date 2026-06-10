@@ -271,6 +271,23 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
       );
     }
 
+    // Migrate single campaign → array.
+    // Older drafts only support one selected existing campaign under
+    // `existingMetaCampaign`. The wizard now supports multi-select via
+    // `existingMetaCampaigns`. Wrap the singular into an array if missing,
+    // but keep the original field so any read sites that haven't migrated
+    // yet still work.
+    if (
+      draft.settings.existingMetaCampaign &&
+      !Array.isArray(draft.settings.existingMetaCampaigns)
+    ) {
+      draft.settings.existingMetaCampaigns = [draft.settings.existingMetaCampaign];
+      console.log(
+        "[migrateDraft] migrated existingMetaCampaign → existingMetaCampaigns[1]:",
+        draft.settings.existingMetaCampaign.id,
+      );
+    }
+
     // Default Creative Integrity Mode → ON for any draft that pre-dates the
     // flag. We only fill `undefined` so an explicit `false` survives the
     // migration (future per-campaign override).

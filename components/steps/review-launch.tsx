@@ -93,7 +93,16 @@ function buildLaunchEvents(
 
   // Campaign — wording differs for the three wizard modes.
   const wizardMode = draft.settings.wizardMode ?? "new";
-  const attachedCampaignName = draft.settings.existingMetaCampaign?.name;
+  // Prefer multi-select array; fall back to legacy singular field.
+  const attachedCampaigns =
+    draft.settings.existingMetaCampaigns ??
+    (draft.settings.existingMetaCampaign ? [draft.settings.existingMetaCampaign] : []);
+  const attachedCampaignName =
+    attachedCampaigns.length === 1
+      ? attachedCampaigns[0].name
+      : attachedCampaigns.length > 1
+        ? `${attachedCampaigns.length} campaigns`
+        : (draft.settings.existingMetaCampaign?.name ?? undefined);
   const attachedAdSets =
     draft.settings.existingMetaAdSets ??
     (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
@@ -117,7 +126,9 @@ function buildLaunchEvents(
             attachedAdSetSummary ? ` ${attachedAdSetSummary}` : ""
           }${attachedCampaignName ? ` (campaign "${attachedCampaignName}")` : ""}`
         : wizardMode === "attach_campaign"
-        ? `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
+        ? attachedCampaigns.length > 1
+          ? `Attached to ${attachedCampaigns.length} existing campaigns`
+          : `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
         : `Campaign created`,
     metaId: summary.metaCampaignId,
     durationMs: summary.phaseDurations?.campaign,
@@ -254,6 +265,42 @@ function buildLaunchEvents(
       label: s.skippedReason ? `Ad set skipped — ${s.skippedReason}` : "Ad set failed",
       detail: s.error,
     });
+  }
+
+  // Multi-campaign additional campaigns (campaigns 2..N)
+  if (summary.campaignAttachResults && summary.campaignAttachResults.length > 1) {
+    for (let ci = 1; ci < summary.campaignAttachResults.length; ci++) {
+      const r = summary.campaignAttachResults[ci];
+      events.push({
+        id: uid(`mc-camp-${ci}`),
+        stage: "campaign" as EventStage,
+        entity: r.campaignName,
+        status: "success",
+        label: `Campaign ${ci + 1}/${summary.campaignAttachResults.length} — "${r.campaignName}"`,
+        metaId: r.campaignId,
+      });
+      for (const s of r.adSetsCreated) {
+        events.push({
+          id: uid(`mc-as-ok-${ci}`),
+          stage: "adset" as EventStage,
+          entity: `${s.name} [${r.campaignName}]`,
+          status: "success",
+          label: `Ad set created · ${s.ageMode === "suggested" ? "Advantage+" : "strict"} age`,
+          metaId: s.metaAdSetId,
+          durationMs: s.durationMs,
+        });
+      }
+      for (const s of r.adSetsFailed) {
+        events.push({
+          id: uid(`mc-as-fail-${ci}`),
+          stage: "adset" as EventStage,
+          entity: `${s.name} [${r.campaignName}]`,
+          status: "failed",
+          label: "Ad set failed",
+          detail: s.error,
+        });
+      }
+    }
   }
 
   // Creatives + their ads
@@ -450,9 +497,30 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
           )}
         </>
       )}
-      <CountChip ok={summary.adSetsCreated.length} failed={summary.adSetsFailed.length - asSkipped} skipped={asSkipped} label="Ad Sets" />
+      <CountChip
+        ok={
+          summary.adSetsCreated.length +
+          (summary.campaignAttachResults?.slice(1).reduce((sum, r) => sum + r.adSetsCreated.length, 0) ?? 0)
+        }
+        failed={
+          summary.adSetsFailed.length - asSkipped +
+          (summary.campaignAttachResults?.slice(1).reduce((sum, r) => sum + r.adSetsFailed.length, 0) ?? 0)
+        }
+        skipped={asSkipped}
+        label="Ad Sets"
+      />
       <CountChip ok={summary.creativesCreated.length} failed={summary.creativesFailed.length - crSkipped} skipped={crSkipped} label="Creatives" />
-      <CountChip ok={summary.adsCreated} failed={summary.adsFailed} label="Ads" />
+      <CountChip
+        ok={
+          summary.adsCreated +
+          (summary.campaignAttachResults?.slice(1).reduce((sum, r) => sum + r.adsCreated, 0) ?? 0)
+        }
+        failed={
+          summary.adsFailed +
+          (summary.campaignAttachResults?.slice(1).reduce((sum, r) => sum + r.adsFailed, 0) ?? 0)
+        }
+        label="Ads"
+      />
       {(summary.interestReplacements?.length ?? 0) > 0 && (
         <div className="flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-xs">
           <span className="font-medium text-warning">↻ {summary.interestReplacements!.length} deprecated interest{summary.interestReplacements!.length !== 1 ? "s" : ""} handled</span>
@@ -988,6 +1056,12 @@ export function ReviewLaunch({
   const wizardMode = draft.settings.wizardMode ?? "new";
   const isAttachAdSet = wizardMode === "attach_adset";
 
+  // Multi-select existing campaigns (with legacy fallback). Used by the
+  // attach_campaign summary card.
+  const attachedCampaigns =
+    draft.settings.existingMetaCampaigns ??
+    (draft.settings.existingMetaCampaign ? [draft.settings.existingMetaCampaign] : []);
+
   // Multi-select existing ad sets (with legacy fallback). Used by the
   // attach_adset summary card + the assignment summary section.
   const attachedAdSetSnapshots =
@@ -1350,38 +1424,90 @@ export function ReviewLaunch({
               </ul>
             </div>
           </div>
-        ) : wizardMode === "attach_campaign" && draft.settings.existingMetaCampaign ? (
+        ) : wizardMode === "attach_campaign" && attachedCampaigns.length > 0 ? (
           <div className="mt-3 space-y-2">
-            <p className="text-xs text-muted-foreground">
-              This launch will create <span className="font-medium text-foreground">1 new ad set</span> and its ads under an
-              existing campaign in your ad account. The campaign itself will not be modified.
-            </p>
-            <div className="divide-y divide-border">
-              <SummaryRow
-                label="Existing Campaign"
-                value={draft.settings.existingMetaCampaign.name}
-              />
-              <SummaryRow
-                label="Campaign ID"
-                value={draft.settings.existingMetaCampaign.id}
-              />
-              <SummaryRow
-                label="Objective"
-                value={
-                  draft.settings.objective.charAt(0).toUpperCase() +
-                  draft.settings.objective.slice(1) +
-                  ` (${draft.settings.existingMetaCampaign.objective})`
-                }
-              />
-              <SummaryRow
-                label="Optimisation"
-                value={draft.settings.optimisationGoal.replace(/_/g, " ")}
-              />
-              <SummaryRow
-                label="Ad Account"
-                value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
-              />
-            </div>
+            {attachedCampaigns.length > 1 ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  This launch will create{" "}
+                  <span className="font-medium text-foreground">
+                    1 new ad set per campaign ({attachedCampaigns.length} total)
+                  </span>{" "}
+                  and ads under each. Campaigns are launched serially with a 1-second gap.
+                </p>
+                <div className="divide-y divide-border">
+                  <SummaryRow
+                    label="Optimisation"
+                    value={draft.settings.optimisationGoal.replace(/_/g, " ")}
+                  />
+                  <SummaryRow
+                    label="Ad Account"
+                    value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Selected campaigns ({attachedCampaigns.length})
+                  </p>
+                  <ul className="space-y-1.5">
+                    {attachedCampaigns.map((camp, idx) => (
+                      <li
+                        key={camp.id}
+                        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-medium text-muted-foreground">
+                            #{idx + 1}
+                          </span>
+                          <span className="font-medium text-foreground">{camp.name}</span>
+                          {camp.effectiveStatus && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {camp.effectiveStatus}
+                            </Badge>
+                          )}
+                        </div>
+                        <code className="mt-0.5 block text-[10px] text-muted-foreground">
+                          {camp.id}
+                        </code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  This launch will create <span className="font-medium text-foreground">1 new ad set</span> and its ads under an
+                  existing campaign in your ad account. The campaign itself will not be modified.
+                </p>
+                <div className="divide-y divide-border">
+                  <SummaryRow
+                    label="Existing Campaign"
+                    value={attachedCampaigns[0].name}
+                  />
+                  <SummaryRow
+                    label="Campaign ID"
+                    value={attachedCampaigns[0].id}
+                  />
+                  <SummaryRow
+                    label="Objective"
+                    value={
+                      draft.settings.objective.charAt(0).toUpperCase() +
+                      draft.settings.objective.slice(1) +
+                      ` (${attachedCampaigns[0].objective})`
+                    }
+                  />
+                  <SummaryRow
+                    label="Optimisation"
+                    value={draft.settings.optimisationGoal.replace(/_/g, " ")}
+                  />
+                  <SummaryRow
+                    label="Ad Account"
+                    value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
+                  />
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className="mt-3 divide-y divide-border">

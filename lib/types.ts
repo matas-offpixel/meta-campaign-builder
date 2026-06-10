@@ -873,19 +873,27 @@ export interface CampaignSettings {
    * selection time so the review step can show the chosen campaign without
    * re-fetching, and so the launch route can re-validate against the live
    * campaign.
+   *
+   * @deprecated The wizard now supports selecting multiple existing campaigns
+   * — use {@link existingMetaCampaigns} instead. This field is kept for
+   * backward compatibility with drafts created before the multi-select rollout
+   * and is migrated forward in `migrateDraft`. Read sites should prefer
+   * `existingMetaCampaigns[0] ?? existingMetaCampaign`.
    */
-  existingMetaCampaign?: {
-    id: string;
-    name: string;
-    /** Raw Meta objective, e.g. "OUTCOME_ENGAGEMENT". */
-    objective: string;
-    /** Raw configured status, e.g. "ACTIVE", "PAUSED". */
-    status: string;
-    /** Raw effective status (delivery state), if returned by Meta. */
-    effectiveStatus?: string;
-    /** When the picker captured this snapshot. */
-    capturedAt: string;
-  };
+  existingMetaCampaign?: ExistingMetaCampaignSnapshot;
+
+  /**
+   * Snapshots of one or more live Meta campaigns selected via the multi-select
+   * campaign picker when {@link wizardMode} is `"attach_campaign"`. The wizard
+   * creates one new ad set (and its associated ads) under each selected
+   * campaign at launch, serialised with a 1 s gap between campaigns.
+   *
+   * When exactly one campaign is selected the behaviour is identical to the
+   * legacy single-campaign path. When more than one is selected the
+   * `"attach_adset"` mode is disabled (ad sets must belong to a single
+   * campaign).
+   */
+  existingMetaCampaigns?: ExistingMetaCampaignSnapshot[];
 
   /**
    * Snapshot of the live Meta ad set chosen via the ad set picker when
@@ -907,6 +915,27 @@ export interface CampaignSettings {
    * All selected ad sets must belong to {@link existingMetaCampaign}.
    */
   existingMetaAdSets?: ExistingMetaAdSetSnapshot[];
+}
+
+/**
+ * Maximum number of campaigns that can be selected in the multi-select
+ * campaign picker for the `"attach_campaign"` wizard mode.  Mirror of
+ * `BULK_ATTACH_CAP` on the bulk-attach surface.
+ */
+export const ATTACH_CAMPAIGN_CAP = 8;
+
+/** Captured-at-selection snapshot of a live Meta campaign. */
+export interface ExistingMetaCampaignSnapshot {
+  id: string;
+  name: string;
+  /** Raw Meta objective, e.g. "OUTCOME_ENGAGEMENT". */
+  objective: string;
+  /** Raw configured status, e.g. "ACTIVE", "PAUSED". */
+  status: string;
+  /** Raw effective status (delivery state), if returned by Meta. */
+  effectiveStatus?: string;
+  /** When the picker captured this snapshot. */
+  capturedAt: string;
 }
 
 /** Captured-at-selection snapshot of a live Meta ad set. */
@@ -935,6 +964,20 @@ export interface ExistingMetaAdSetSnapshot {
 
 /** Discriminated wizard mode union. See {@link CampaignSettings.wizardMode}. */
 export type WizardMode = "new" | "attach_campaign" | "attach_adset";
+
+/**
+ * Per-campaign result produced by a multi-campaign `attach_campaign` launch.
+ * Each entry in {@link LaunchSummary.campaignAttachResults} corresponds to one
+ * of the campaigns selected in the multi-select picker (Step 1).
+ */
+export interface CampaignAttachResult {
+  campaignId: string;
+  campaignName: string;
+  adSetsCreated: { name: string; metaAdSetId: string; ageMode: "strict" | "suggested"; durationMs?: number }[];
+  adSetsFailed: { name: string; error: string }[];
+  adsCreated: number;
+  adsFailed: number;
+}
 
 // ─── Live Meta campaign list (used by the "Add to existing" picker) ─────────
 
@@ -1162,6 +1205,13 @@ export interface LaunchSummary {
     launchRetryAttempted: number;
     launchRetrySucceeded: number;
   };
+  /**
+   * Per-campaign results when `wizardMode === "attach_campaign"` and more than
+   * one campaign was selected. The first entry corresponds to the primary
+   * campaign (same data as the top-level `adSetsCreated` / `adSetsFailed` /
+   * `adsCreated` fields). Absent for single-campaign launches.
+   */
+  campaignAttachResults?: CampaignAttachResult[];
   adSetsCreated: {
     name: string;
     metaAdSetId: string;
