@@ -1,24 +1,27 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type {
   CampaignSettings,
   CampaignObjective,
+  ExistingMetaCampaignSnapshot,
   ExistingMetaAdSetSnapshot,
   MetaCampaignSummary,
   MetaAdSetSummary,
   OptimisationGoal,
   WizardMode,
 } from "@/lib/types";
+import { ATTACH_CAMPAIGN_CAP } from "@/lib/types";
 import { OPTIMISATION_GOALS_BY_OBJECTIVE } from "@/lib/mock-data";
 import {
   Target, ShoppingCart, MousePointerClick, Eye, MessageSquare,
   Plus, Link2, Layers, AlertCircle, Info, X,
 } from "lucide-react";
 import { CampaignPicker } from "./campaign-picker";
+import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
 import { AdSetPicker } from "./adset-picker";
 
 interface CampaignSetupProps {
@@ -101,11 +104,13 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       // had configured before — they may want to edit it.
       const {
         existingMetaCampaign: _dropC,
+        existingMetaCampaigns: _dropCs,
         existingMetaAdSet: _dropAS,
         existingMetaAdSets: _dropASs,
         ...rest
       } = settings;
       void _dropC;
+      void _dropCs;
       void _dropAS;
       void _dropASs;
       onChange({ ...rest, wizardMode: "new" });
@@ -113,7 +118,7 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
     }
     if (next === "attach_campaign") {
       // Switching from attach_adset → attach_campaign: keep the campaign
-      // snapshot (it's still valid) but drop the ad set snapshots.
+      // snapshots (still valid) but drop the ad set snapshots.
       const {
         existingMetaAdSet: _dropAS,
         existingMetaAdSets: _dropASs,
@@ -124,12 +129,74 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       onChange({ ...rest, wizardMode: "attach_campaign" });
       return;
     }
-    // next === "attach_adset"
+    // next === "attach_adset" — only allowed when at most 1 campaign is selected
+    if (selectedCampaigns.length > 1) return;
     onChange({ ...settings, wizardMode: "attach_adset" });
   };
 
   // ── Picker selection ──────────────────────────────────────────────────────
 
+  // Authoritative list — prefer `existingMetaCampaigns` (multi-select array),
+  // fall back to wrapping the legacy singular field for backward compat.
+  const selectedCampaigns = useMemo<ExistingMetaCampaignSnapshot[]>(
+    () =>
+      settings.existingMetaCampaigns ??
+      (settings.existingMetaCampaign ? [settings.existingMetaCampaign] : []),
+    [settings.existingMetaCampaigns, settings.existingMetaCampaign],
+  );
+  const selectedCampaignIds = useMemo(
+    () => new Set(selectedCampaigns.map((c) => c.id)),
+    [selectedCampaigns],
+  );
+
+  // Multi-select toggle used by CampaignMultiPicker in attach_campaign mode.
+  const handleToggleCampaign = useCallback((campaign: MetaCampaignSummary) => {
+    if (!campaign.compatible || !campaign.internalObjective) return;
+
+    const alreadySelected = selectedCampaignIds.has(campaign.id);
+    let nextList: ExistingMetaCampaignSnapshot[];
+
+    if (alreadySelected) {
+      nextList = selectedCampaigns.filter((c) => c.id !== campaign.id);
+    } else {
+      if (selectedCampaigns.length >= ATTACH_CAMPAIGN_CAP) return; // cap enforced by picker UI too
+      const snapshot: ExistingMetaCampaignSnapshot = {
+        id: campaign.id,
+        name: campaign.name,
+        objective: campaign.objective,
+        status: campaign.status,
+        effectiveStatus: campaign.effectiveStatus,
+        capturedAt: new Date().toISOString(),
+      };
+      nextList = [...selectedCampaigns, snapshot];
+    }
+
+    // Derive optimisation goal from the FIRST selected campaign (or keep
+    // the existing goal if it's already valid for the first campaign's objective).
+    const firstCamp = nextList[0];
+    const firstInternal = firstCamp
+      ? (campaign.internalObjective ?? settings.objective)
+      : settings.objective;
+    const goals = OPTIMISATION_GOALS_BY_OBJECTIVE[firstInternal] ?? [];
+    const goalValid = goals.some((g) => g.value === settings.optimisationGoal);
+    const nextGoal = goalValid
+      ? settings.optimisationGoal
+      : goals[0]?.value ?? settings.optimisationGoal;
+
+    onChange({
+      ...settings,
+      wizardMode: "attach_campaign",
+      objective: firstCamp ? firstInternal : settings.objective,
+      optimisationGoal: nextGoal as OptimisationGoal,
+      existingMetaCampaigns: nextList,
+      // Mirror first selection into the legacy singular field for backward
+      // compat with any read sites that haven't migrated yet.
+      existingMetaCampaign: nextList[0],
+    });
+  }, [selectedCampaigns, selectedCampaignIds, settings, onChange]);
+
+  // Single-select handler — kept for attach_adset mode where the ad set
+  // picker needs exactly one parent campaign selected.
   const handlePickCampaign = (campaign: MetaCampaignSummary) => {
     if (!campaign.compatible || !campaign.internalObjective) return;
 
@@ -151,26 +218,22 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
         ? { existingMetaAdSet: undefined, existingMetaAdSets: [] }
         : {};
 
+    const snapshot: ExistingMetaCampaignSnapshot = {
+      id: campaign.id,
+      name: campaign.name,
+      objective: campaign.objective,
+      status: campaign.status,
+      effectiveStatus: campaign.effectiveStatus,
+      capturedAt: new Date().toISOString(),
+    };
+
     onChange({
       ...settings,
-      // Preserve the active mode — picker is reused by both attach modes.
       wizardMode: mode === "new" ? "attach_campaign" : mode,
-      // Mirror the live campaign's objective into settings so all downstream
-      // logic (buildAdSetPayload, validation, review summary) keeps working
-      // unchanged — that pipeline reads `settings.objective`, not the picker.
       objective: campaign.internalObjective,
       optimisationGoal: nextGoal as OptimisationGoal,
-      // Stash a snapshot so the launch route can re-validate against the
-      // live campaign and the review step can render its name without
-      // refetching.
-      existingMetaCampaign: {
-        id: campaign.id,
-        name: campaign.name,
-        objective: campaign.objective,
-        status: campaign.status,
-        effectiveStatus: campaign.effectiveStatus,
-        capturedAt: new Date().toISOString(),
-      },
+      existingMetaCampaign: snapshot,
+      existingMetaCampaigns: [snapshot],
       ...adSetSnapshotPatch,
     });
   };
@@ -187,7 +250,7 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
 
   const handleToggleAdSet = (adSet: MetaAdSetSummary) => {
     if (!adSet.compatible) return;
-    const parent = settings.existingMetaCampaign;
+    const parent = selectedExisting ?? settings.existingMetaCampaign;
     if (!parent) return; // shouldn't happen — picker only renders when set
 
     const exists = selectedAdSets.some((a) => a.id === adSet.id);
@@ -239,8 +302,10 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
     });
   };
 
-  const selectedExisting = settings.existingMetaCampaign;
+  // For attach_adset, a single campaign must be selected as the parent.
+  const selectedExisting = selectedCampaigns[0] ?? settings.existingMetaCampaign;
   const adAccountId = settings.metaAdAccountId ?? settings.adAccountId;
+  const isMultiCampaignSelected = isAttachCampaign && selectedCampaigns.length > 1;
   const selectedAdSetIds = useMemo(
     () => selectedAdSets.map((a) => a.id),
     [selectedAdSets],
@@ -273,28 +338,36 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
               label: "Create new campaign",
               desc: "The wizard provisions everything from scratch.",
               icon: Plus,
+              disabled: false,
             },
             {
               value: "attach_campaign" as const,
               label: "Add to existing campaign",
-              desc: "Pick a live campaign and add a new ad set + ads under it.",
+              desc: "Pick one or more live campaigns and add a new ad set + ads under each.",
               icon: Link2,
+              disabled: false,
             },
             {
               value: "attach_adset" as const,
               label: "Add to existing ad set",
-              desc: "Pick a live ad set and add new ads only — audience, budget and optimisation are inherited.",
+              desc: isMultiCampaignSelected
+                ? "Disabled — select a single campaign to pick an ad set."
+                : "Pick a live ad set and add new ads only — audience, budget and optimisation are inherited.",
               icon: Layers,
+              disabled: isMultiCampaignSelected,
             },
-          ]).map(({ value, label, desc, icon: Icon }) => {
+          ]).map(({ value, label, desc, icon: Icon, disabled }) => {
             const selected = mode === value;
             return (
               <button
                 key={value}
                 type="button"
-                onClick={() => setMode(value)}
+                onClick={() => !disabled && setMode(value)}
+                disabled={disabled}
                 className={`flex items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors
-                  ${selected
+                  ${disabled
+                    ? "cursor-not-allowed border-border bg-muted/30 opacity-50"
+                    : selected
                     ? "border-foreground bg-card"
                     : "border-border-strong hover:bg-card/60"}`}
               >
@@ -323,38 +396,131 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
             </div>
           )}
 
-          {/* Campaign picker */}
+          {/* Campaign picker — multi-select for attach_campaign, single-select for attach_adset */}
           <Card>
             <CardTitle>
               {isAttachAdSet
                 ? "Step 1 — Pick the parent campaign"
-                : "Pick an existing campaign"}
+                : selectedCampaigns.length > 1
+                ? `Pick existing campaigns (${selectedCampaigns.length} selected)`
+                : "Pick existing campaigns"}
             </CardTitle>
             <CardDescription>
-              Live campaigns under{" "}
-              <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
-                {adAccountId ?? "—"}
-              </code>
-              . Compatible campaigns can be selected; the rest are shown
-              greyed-out so you know they exist.
+              {isAttachCampaign
+                ? <>
+                    Select up to {ATTACH_CAMPAIGN_CAP} live campaigns — a new ad set + ads will be created
+                    under each at launch.{" "}
+                    <span className="text-foreground">
+                      Incompatible campaigns are greyed out.
+                    </span>
+                  </>
+                : <>
+                    Live campaigns under{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
+                      {adAccountId ?? "—"}
+                    </code>
+                    . Compatible campaigns can be selected; the rest are shown
+                    greyed-out so you know they exist.
+                  </>
+              }
             </CardDescription>
             <div className="mt-3">
-              <CampaignPicker
-                adAccountId={adAccountId}
-                selectedId={selectedExisting?.id}
-                onSelect={handlePickCampaign}
-              />
+              {isAttachCampaign ? (
+                <CampaignMultiPicker
+                  adAccountId={adAccountId}
+                  selectedIds={selectedCampaignIds}
+                  onToggle={handleToggleCampaign}
+                />
+              ) : (
+                <CampaignPicker
+                  adAccountId={adAccountId}
+                  selectedId={selectedExisting?.id}
+                  onSelect={handlePickCampaign}
+                />
+              )}
             </div>
           </Card>
 
-          {/* Selected campaign snapshot */}
-          {selectedExisting && (
+          {/* Selected campaigns list — attach_campaign mode */}
+          {isAttachCampaign && selectedCampaigns.length > 0 && (
+            <Card>
+              <CardTitle>
+                Selected {selectedCampaigns.length === 1 ? "campaign" : `campaigns (${selectedCampaigns.length})`}
+              </CardTitle>
+              <CardDescription>
+                {selectedCampaigns.length === 1
+                  ? "The new ad set will be created under this campaign at launch."
+                  : `One new ad set will be created under each campaign at launch, with a 1-second gap between them.`}
+              </CardDescription>
+              <ul className="mt-3 space-y-2">
+                {selectedCampaigns.map((camp) => (
+                  <li
+                    key={camp.id}
+                    className="flex items-start gap-3 rounded-md border border-primary bg-primary-light/40 p-3 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-medium">{camp.name}</span>
+                        <Badge variant="primary">
+                          {OBJECTIVE_LABELS[settings.objective] ?? camp.objective}
+                        </Badge>
+                        {camp.effectiveStatus && (
+                          <Badge variant="outline">{camp.effectiveStatus}</Badge>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <code className="rounded bg-muted px-1.5 py-0.5">{camp.id}</code>
+                        <span>Raw objective: {camp.objective}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange({
+                          ...settings,
+                          existingMetaCampaigns: selectedCampaigns.filter((c) => c.id !== camp.id),
+                          existingMetaCampaign: selectedCampaigns.filter((c) => c.id !== camp.id)[0],
+                        })
+                      }
+                      className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
+                      aria-label={`Remove ${camp.name}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Optimisation goal — applies to all new ad sets */}
+              <div className="mt-4">
+                <CardDescription className="mb-2">
+                  Optimisation goal for new ad sets
+                </CardDescription>
+                <div className="flex flex-wrap gap-2">
+                  {availableGoals.map((goal) => (
+                    <button
+                      key={goal.value}
+                      type="button"
+                      onClick={() => update({ optimisationGoal: goal.value as OptimisationGoal })}
+                      className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
+                        ${settings.optimisationGoal === goal.value
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border-strong hover:bg-card"}`}
+                    >
+                      {goal.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Selected campaign snapshot — attach_adset mode (single-select) */}
+          {isAttachAdSet && selectedExisting && (
             <Card>
               <CardTitle>Selected campaign</CardTitle>
               <CardDescription>
-                {isAttachAdSet
-                  ? "The ad set you pick below must live under this campaign."
-                  : "The new ad set will be created under this campaign at launch."}
+                The ad set you pick below must live under this campaign.
               </CardDescription>
               <div className="mt-3 space-y-2 rounded-md border border-primary bg-primary-light/40 p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
@@ -373,32 +539,6 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
                   )}
                 </div>
               </div>
-
-              {/* Optimisation goal still applies to the new ad set in
-                  attach_campaign mode. attach_adset inherits it from the
-                  live ad set so we hide the picker entirely. */}
-              {isAttachCampaign && (
-                <div className="mt-4">
-                  <CardDescription className="mb-2">
-                    Optimisation goal for the new ad set
-                  </CardDescription>
-                  <div className="flex flex-wrap gap-2">
-                    {availableGoals.map((goal) => (
-                      <button
-                        key={goal.value}
-                        type="button"
-                        onClick={() => update({ optimisationGoal: goal.value as OptimisationGoal })}
-                        className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
-                          ${settings.optimisationGoal === goal.value
-                            ? "border-foreground bg-foreground text-background"
-                            : "border-border-strong hover:bg-card"}`}
-                      >
-                        {goal.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </Card>
           )}
 
@@ -407,7 +547,9 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {isAttachAdSet
                 ? "Pick a campaign above to load its ad sets."
-                : "Pick a campaign above to continue. The rest of the wizard will build a single ad set + ads under it."}
+                : isAttachCampaign && selectedCampaigns.length === 0
+                ? "Select one or more campaigns above. A new ad set + ads will be created under each at launch."
+                : "Pick a campaign above to continue."}
             </div>
           )}
 
