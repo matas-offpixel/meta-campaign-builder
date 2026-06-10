@@ -514,6 +514,7 @@ describe("listDropboxFolderFiles — recursive walk", () => {
 // ─── downloadDropboxFolderFiles — folder size cap ───────────────────────────
 
 const GB = 1024 * 1024 * 1024;
+const MB = 1024 * 1024;
 
 describe("downloadDropboxFolderFiles — folder size cap", () => {
   it("accepts a folder totalling 1.5 GB", async () => {
@@ -665,6 +666,51 @@ describe("fetchDropboxFileContent", () => {
       (err: unknown) => {
         assert.ok(err instanceof DropboxFetchError);
         assert.equal(err.code, "not_found");
+        return true;
+      },
+    );
+  });
+
+  it("accepts a 150 MB file within the per-file cap", async () => {
+    setValidEnv();
+    const size150 = 150 * MB;
+    mock.method(globalThis, "fetch", async (url: string) => {
+      if (url === TOKEN_URL) return tokenOk();
+      assert.equal(url, DOWNLOAD_URL);
+      return makeResponse({
+        status: 200,
+        ok: true,
+        headers: { "content-type": "video/mp4" },
+        arrayBuffer: new ArrayBuffer(size150),
+      });
+    });
+
+    const { buffer } = await fetchDropboxFileContent(SHARE_URL, entry);
+    assert.equal(buffer.byteLength, size150);
+  });
+
+  it("throws too_large when content-length exceeds 200 MB", async () => {
+    setValidEnv();
+    const size250 = 250 * MB;
+    mock.method(globalThis, "fetch", async (url: string) => {
+      if (url === TOKEN_URL) return tokenOk();
+      return makeResponse({
+        status: 200,
+        ok: true,
+        headers: {
+          "content-type": "video/mp4",
+          "content-length": String(size250),
+        },
+        arrayBuffer: new ArrayBuffer(8),
+      });
+    });
+
+    await assert.rejects(
+      () => fetchDropboxFileContent(SHARE_URL, entry),
+      (err: unknown) => {
+        assert.ok(err instanceof DropboxFetchError);
+        assert.equal(err.code, "too_large");
+        assert.match(err.message, /200 MB/);
         return true;
       },
     );
