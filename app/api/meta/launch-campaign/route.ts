@@ -26,6 +26,7 @@ import {
   fetchAdAccountIgActors,
   fetchCampaignById,
   fetchAdSetById,
+  fetchAdSetsForCampaign,
   checkAudienceReadiness,
   rankSeedsByPreference,
   MetaApiError,
@@ -76,7 +77,8 @@ import type {
   ExistingMetaCampaignSnapshot,
   CampaignAttachResult,
 } from "@/lib/types";
-import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP } from "@/lib/types";
+import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
+import { assertSameObjective } from "@/lib/meta/attach-objective";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -85,6 +87,9 @@ function elapsed(startMs: number): number {
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// assertSameObjective is extracted into lib/meta/attach-objective.ts for
+// testability and reuse. Import it here for Phase 0 pre-flight checks.
 
 // ─── Error formatting ─────────────────────────────────────────────────────────
 
@@ -411,10 +416,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `[launch-campaign] creativeIntegrityMode=${strictMode ? "ON" : "OFF"}`,
   );
 
+  const isAttachAllAdSets = wizardMode === "attach_all_adsets";
+
   // Multi-select campaigns: prefer `existingMetaCampaigns` (array). Fall back
   // to wrapping the legacy singular field for drafts that pre-date the rollout.
   const attachCampaignSnapshots: ExistingMetaCampaignSnapshot[] =
-    wizardMode === "attach_campaign" || wizardMode === "attach_adset"
+    wizardMode === "attach_campaign" ||
+    wizardMode === "attach_adset" ||
+    isAttachAllAdSets
       ? (draft.settings.existingMetaCampaigns ??
          (draft.settings.existingMetaCampaign
            ? [draft.settings.existingMetaCampaign]
@@ -430,10 +439,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
   const attachAdSetIds = attachAdSetSnapshots.map((a) => a.id);
   const isMultiCampaignAttach =
-    wizardMode === "attach_campaign" && attachCampaignSnapshots.length > 1;
+    (wizardMode === "attach_campaign" || isAttachAllAdSets) &&
+    attachCampaignSnapshots.length > 1;
   console.log(
     `[launch-campaign] wizardMode=${wizardMode}` +
-      (wizardMode === "attach_campaign"
+      (wizardMode === "attach_campaign" || isAttachAllAdSets
         ? ` campaigns=${attachCampaignSnapshots.length} attachTargetId=${attachTargetId ?? "?"}` +
           (isMultiCampaignAttach ? ` (multi-campaign)` : "")
         : "") +
@@ -444,7 +454,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : ""),
   );
 
-  if (wizardMode === "attach_campaign") {
+  if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
     if (attachCampaignSnapshots.length === 0) {
       return NextResponse.json(
         { error: "Attach mode requires at least one existing campaign selected" },
@@ -457,10 +467,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
+    // GOAL 1 — pre-flight: all campaigns must share the same objective.
+    if (attachCampaignSnapshots.length > 1) {
+      const objCheck = assertSameObjective(attachCampaignSnapshots);
+      if (!objCheck.ok) {
+        return NextResponse.json(
+          {
+            error:
+              `Selected campaigns have incompatible objectives. ` +
+              `"${objCheck.campaignA}" is ${objCheck.objA} ` +
+              `while "${objCheck.campaignB}" is ${objCheck.objB}. ` +
+              `Pick campaigns with the same objective and re-try.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
   } else if (wizardMode === "attach_adset") {
-    if (!attachTargetId) {
+    if (attachCampaignSnapshots.length === 0) {
       return NextResponse.json(
-        { error: "Attach-to-ad-set mode requires the parent campaign id" },
+        { error: "Attach-to-ad-set mode requires the parent campaign to be selected" },
         { status: 400 },
       );
     }
@@ -470,13 +496,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
+    // GOAL 3 — cross-campaign: each ad set's campaignId must be one of the
+    // selected campaigns (not just the single attachTargetId).
+    const allowedCampaignIds = new Set(attachCampaignSnapshots.map((s) => s.id));
     const orphan = attachAdSetSnapshots.find(
-      (s) => s.campaignId && s.campaignId !== attachTargetId,
+      (s) => s.campaignId && !allowedCampaignIds.has(s.campaignId),
     );
     if (orphan) {
       return NextResponse.json(
         {
-          error: `Selected ad set "${orphan.name}" does not belong to the selected campaign — re-open Step 1 and re-pick.`,
+          error: `Selected ad set "${orphan.name}" does not belong to any of the selected campaigns — re-open Step 1 and re-pick.`,
         },
         { status: 400 },
       );
@@ -864,7 +893,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   };
   const attachedLiveAdSets: VerifiedLiveAdSet[] = [];
 
-  if (wizardMode === "attach_campaign" || wizardMode === "attach_adset") {
+  if (wizardMode === "attach_campaign" || wizardMode === "attach_adset" || isAttachAllAdSets) {
     // Diagnostic dump so mismatches between picker context and launch context
     // are visible in server logs before the validation fetch is attempted.
     // launchToken is already resolved above (outer scope) — no redeclaration needed.
@@ -923,20 +952,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
 
-      // Cross-check against the snapshot mirrored onto draft.settings.objective
-      // by the picker (only for attach_campaign — attach_adset doesn't mirror
-      // the campaign objective into settings.objective because the launch path
-      // never builds an ad-set payload from it).
-      if (
-        wizardMode === "attach_campaign" &&
-        internal !== draft.settings.objective
-      ) {
-        return NextResponse.json(
-          {
-            error: `Selected campaign's objective changed since you picked it (was "${draft.settings.objective}", now "${internal}"). Re-open Step 1 and re-select.`,
-          },
-          { status: 409 },
-        );
+      // GOAL 1 FIX — compare each campaign's live objective against ITS OWN
+      // snapshot, not against the global draft.settings.objective which can
+      // differ when multiple campaigns with different objectives are selected.
+      if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
+        const snap0 = attachCampaignSnapshots[0];
+        const snappedInternal = snap0?.internalObjective
+          ? snap0.internalObjective
+          : mapMetaObjectiveToInternal(snap0?.objective ?? "");
+        if (snappedInternal && internal !== snappedInternal) {
+          const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
+          return NextResponse.json(
+            {
+              error: `Campaign "${campName}" objective changed since you picked it (snapshot: "${snappedInternal}", live: "${internal}"). Re-open Step 1 and re-select.`,
+            },
+            { status: 409 },
+          );
+        }
       }
 
       metaCampaignId = live.id;
@@ -960,6 +992,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const ciInternal = mapMetaObjectiveToInternal(c.objective);
             if (!ciInternal)
               throw new Error(`Campaign "${c.name}" has an unsupported objective "${c.objective ?? "unknown"}"`);
+            // GOAL 1 — per-campaign snapshot drift detection: compare live
+            // objective against THIS campaign's own snapshot objective.
+            if (snap.objective && c.objective && c.objective !== snap.objective) {
+              throw new Error(
+                `Campaign "${c.name}" objective changed since you picked it ` +
+                `(snapshot: "${snap.objective}", live: "${c.objective}"). Re-open Step 1 and re-select.`,
+              );
+            }
             return { id: c.id, name: c.name ?? snap.id, objective: c.objective ?? "" };
           }),
         );
@@ -1005,13 +1045,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           );
         }
 
+        // GOAL 3 — cross-campaign: orphan check against ALL selected campaigns.
+        const allowedCampaignIdsP1 = new Set(attachCampaignSnapshots.map((c) => c.id));
         const orphan = results.find(
-          (r) => r.live!.campaign_id && r.live!.campaign_id !== metaCampaignId,
+          (r) => r.live!.campaign_id && !allowedCampaignIdsP1.has(r.live!.campaign_id),
         );
         if (orphan) {
           return NextResponse.json(
             {
-              error: `Selected ad set "${orphan.live!.name}" no longer belongs to the selected campaign — re-open Step 1 and re-pick.`,
+              error: `Selected ad set "${orphan.live!.name}" no longer belongs to any of the selected campaigns — re-open Step 1 and re-pick.`,
             },
             { status: 409 },
           );
@@ -2042,6 +2084,62 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Per-suggestion launch outcomes — keyed by AdSetSuggestion.id
   const adSetLaunchResults: Record<string, AdSetLaunchResult> = {};
 
+  // ── attach_all_adsets short-circuit ─────────────────────────────────────
+  // GOAL 2: fetch all active/paused ad sets for each selected campaign and
+  // seed adSetMetaIds with synthetic keys. We skip ad-set creation entirely;
+  // Phase 4 will create ads under every fetched ad set.
+  if (isAttachAllAdSets) {
+    console.log(
+      `[launch-campaign] Phase 2 (attach_all_adsets) — fetching all active/paused ad sets for ${verifiedCampaigns.length} campaign(s)`,
+    );
+    let totalFetched = 0;
+    for (const vc of verifiedCampaigns) {
+      if (totalFetched >= ATTACH_ALL_ADSETS_CAP) {
+        console.log(
+          `[launch-campaign] Phase 2 (attach_all_adsets) — reached cap of ${ATTACH_ALL_ADSETS_CAP}, skipping remaining campaigns`,
+        );
+        break;
+      }
+      try {
+        const fetchResult = await fetchAdSetsForCampaign({
+          campaignId: vc.id,
+          filter: "relevant",
+          limit: ATTACH_ALL_ADSETS_CAP,
+          token: launchToken ?? undefined,
+        });
+        for (const liveAdSet of fetchResult.data) {
+          if (totalFetched >= ATTACH_ALL_ADSETS_CAP) break;
+          const blocked = new Set(["ARCHIVED", "DELETED"]);
+          if (liveAdSet.effective_status && blocked.has(liveAdSet.effective_status)) continue;
+          const synthKey = attachedAdSetKey(liveAdSet.id);
+          adSetMetaIds.set(synthKey, liveAdSet.id);
+          adSetLaunchResults[synthKey] = { launchStatus: "created", metaAdSetId: liveAdSet.id };
+          totalFetched++;
+          console.log(
+            `[launch-campaign] Phase 2 (attach_all_adsets) — registered ad set ${liveAdSet.id}` +
+              ` ("${liveAdSet.name}") from campaign "${vc.name}"`,
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[launch-campaign] Phase 2 (attach_all_adsets) — failed to fetch ad sets for campaign "${vc.name}":`,
+          err,
+        );
+      }
+    }
+    if (adSetMetaIds.size === 0) {
+      return NextResponse.json(
+        {
+          error: `No active or paused ad sets found across the selected campaigns. Make sure each campaign has at least one active ad set.`,
+        },
+        { status: 400 },
+      );
+    }
+    console.log(
+      `[launch-campaign] Phase 2 (attach_all_adsets) ✓  registered ${adSetMetaIds.size} ad set(s) for Phase 4`,
+    );
+  }
+
   // ── attach_adset short-circuit ──────────────────────────────────────────
   // In attach_adset mode there's nothing to create here: the user picked
   // one or more live ad sets in Step 1 and we already verified them in
@@ -2693,8 +2791,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const adSetNameById = new Map<string, string>(
     draft.adSetSuggestions.map((s) => [s.id, s.name]),
   );
-  // attach_adset mode: include each synthetic key so Phase 4 logs the live
-  // ad set's name instead of the synthetic projection id.
+  // attach_adset / attach_all_adsets: include each synthetic key so Phase 4
+  // logs the live ad set's name instead of the synthetic projection id.
   if (wizardMode === "attach_adset") {
     const snapshotById = new Map(
       attachAdSetSnapshots.map((s) => [s.id, s.name] as const),
@@ -2705,12 +2803,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         liveAdSet.name || snapshotById.get(liveAdSet.id) || "Existing ad set",
       );
     }
-    // Fallback: if Phase 1 had to short-circuit before populating
-    // attachedLiveAdSets, still register names from snapshots.
     for (const s of attachAdSetSnapshots) {
       const key = attachedAdSetKey(s.id);
       if (!adSetNameById.has(key)) {
         adSetNameById.set(key, s.name);
+      }
+    }
+  }
+  // attach_all_adsets: synthetic keys registered in Phase 2 only have IDs;
+  // populate display names from the adSetMetaIds reverse map.
+  if (isAttachAllAdSets) {
+    for (const [synthKey] of adSetMetaIds) {
+      if (!adSetNameById.has(synthKey)) {
+        adSetNameById.set(synthKey, synthKey);
       }
     }
   }
@@ -2720,6 +2825,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       (wizardMode === "attach_adset"
         ? ` (attach_adset: routing ads to ${attachAdSetIds.length} existing ad set(s)` +
           ` [${attachAdSetIds.join(",")}])`
+        : "") +
+      (isAttachAllAdSets
+        ? ` (attach_all_adsets: routing all ${creativesCreated.length} creatives to ${adSetMetaIds.size} ad sets)`
         : ""),
   );
 
@@ -2730,7 +2838,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const creative = draft.creatives.find((c) => c.name === creativeEntry.name);
     if (!creative) continue;
 
-    const assignedAdSetIds = creativeToAdSetIds[creative.id] ?? [];
+    // GOAL 2 — attach_all_adsets: bypass the assignment matrix and attach to
+    // every fetched ad set (all-to-all: each creative × every ad set).
+    const assignedAdSetIds: string[] = isAttachAllAdSets
+      ? Array.from(adSetMetaIds.keys())
+      : (creativeToAdSetIds[creative.id] ?? []);
 
     for (const internalAdSetId of assignedAdSetIds) {
       const metaAdSetId = adSetMetaIds.get(internalAdSetId);

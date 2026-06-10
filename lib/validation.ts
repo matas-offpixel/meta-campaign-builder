@@ -36,26 +36,33 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   const mode = draft.settings.wizardMode ?? "new";
 
   if (mode === "attach_adset") {
-    // Attaching to one or more existing ad sets: campaign + ad set picker
-    // selections are the only Step-1 inputs. Optimisation goal, objective,
-    // audiences and budget are inherited from each live ad set.
-    const existingCampaign = draft.settings.existingMetaCampaign;
+    // Attaching to one or more existing ad sets (possibly cross-campaign).
+    // Optimisation goal, audiences and budget are inherited from each live ad
+    // set and skipped in the wizard.
+    const selectedCampaigns =
+      draft.settings.existingMetaCampaigns ??
+      (draft.settings.existingMetaCampaign
+        ? [draft.settings.existingMetaCampaign]
+        : []);
     const selectedAdSets =
       draft.settings.existingMetaAdSets ??
       (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
-    if (!existingCampaign?.id) {
-      errors.push("Pick the existing campaign that owns the ad sets");
+    if (selectedCampaigns.length === 0) {
+      errors.push("Pick the existing campaign(s) that own the ad sets");
     }
     if (selectedAdSets.length === 0) {
       errors.push("Pick at least one existing ad set to add ads to");
     }
-    if (existingCampaign?.id) {
+    // Cross-campaign check: each selected ad set must belong to one of the
+    // selected campaigns.
+    if (selectedCampaigns.length > 0 && selectedAdSets.length > 0) {
+      const allowedCampaignIds = new Set(selectedCampaigns.map((c) => c.id));
       const orphan = selectedAdSets.find(
-        (a) => a.campaignId && a.campaignId !== existingCampaign.id,
+        (a) => a.campaignId && !allowedCampaignIds.has(a.campaignId),
       );
       if (orphan) {
         errors.push(
-          `Selected ad set "${orphan.name}" does not belong to the selected campaign`,
+          `Selected ad set "${orphan.name}" does not belong to any of the selected campaigns`,
         );
       }
     }
@@ -63,19 +70,35 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   }
 
   if (mode === "attach_campaign") {
-    // Attaching a new ad set under an existing campaign: name + objective come
-    // from the live Meta campaign — only the picker selection + an
-    // optimisation goal are needed.
-    const existing = draft.settings.existingMetaCampaign;
-    if (!existing?.id) {
-      errors.push("Pick the existing campaign you want to add an ad set to");
+    // Attaching a new ad set under one or more existing campaigns: only the
+    // picker selection + an optimisation goal are needed.
+    const selectedCampaigns =
+      draft.settings.existingMetaCampaigns ??
+      (draft.settings.existingMetaCampaign
+        ? [draft.settings.existingMetaCampaign]
+        : []);
+    if (selectedCampaigns.length === 0) {
+      errors.push("Pick at least one existing campaign to add an ad set to");
     }
     if (!draft.settings.optimisationGoal) {
       errors.push("Optimisation goal is required");
     }
     if (!draft.settings.objective) {
-      // Should never trigger since handlePickCampaign sets this — defensive.
       errors.push("Selected campaign has an unsupported objective");
+    }
+    return { valid: errors.length === 0, errors };
+  }
+
+  if (mode === "attach_all_adsets") {
+    // Attaching new ads to ALL active/paused ad sets across selected campaigns.
+    // No ad set picker or budget form — those are resolved at launch time.
+    const selectedCampaigns =
+      draft.settings.existingMetaCampaigns ??
+      (draft.settings.existingMetaCampaign
+        ? [draft.settings.existingMetaCampaign]
+        : []);
+    if (selectedCampaigns.length === 0) {
+      errors.push("Pick at least one existing campaign");
     }
     return { valid: errors.length === 0, errors };
   }
@@ -87,8 +110,11 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
 }
 
 function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
-  // Inherited from the live ad set in attach_adset mode.
-  if (draft.settings.wizardMode === "attach_adset") {
+  // Inherited from live ad sets in attach_adset / attach_all_adsets mode.
+  if (
+    draft.settings.wizardMode === "attach_adset" ||
+    draft.settings.wizardMode === "attach_all_adsets"
+  ) {
     return { valid: true, errors: [] };
   }
   const errors: string[] = [];
@@ -101,8 +127,11 @@ function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
 }
 
 function validateAudiences(draft: CampaignDraft): ValidationResult {
-  // Inherited from the live ad set in attach_adset mode.
-  if (draft.settings.wizardMode === "attach_adset") {
+  // Inherited from live ad sets in attach_adset / attach_all_adsets mode.
+  if (
+    draft.settings.wizardMode === "attach_adset" ||
+    draft.settings.wizardMode === "attach_all_adsets"
+  ) {
     return { valid: true, errors: [] };
   }
   const errors: string[] = [];
@@ -191,8 +220,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
 }
 
 function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
-  // Inherited from the live ad set in attach_adset mode.
-  if (draft.settings.wizardMode === "attach_adset") {
+  // Inherited from live ad sets; budget step is skipped in these modes.
+  if (
+    draft.settings.wizardMode === "attach_adset" ||
+    draft.settings.wizardMode === "attach_all_adsets"
+  ) {
     return { valid: true, errors: [] };
   }
   const errors: string[] = [];
@@ -210,6 +242,12 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
 
 function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
+
+  // attach_all_adsets: step 6 is skipped entirely (not visible), so no
+  // assignment validation needed — all creatives go to all ad sets at launch.
+  if (draft.settings.wizardMode === "attach_all_adsets") {
+    return { valid: true, errors: [] };
+  }
 
   // attach_adset: each selected ad set is keyed in the assignment matrix by
   // `attachedAdSetKey(metaAdSetId)`. The wizard's adSetSuggestions array

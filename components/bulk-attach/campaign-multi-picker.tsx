@@ -40,6 +40,16 @@ interface CampaignMultiPickerProps {
   onPreselectLoad?: (campaigns: MetaCampaignSummary[]) => void;
   /** Pre-fills the search field on mount (e.g. "[WC26-BOURNEMOUTH]"). */
   defaultSearchQuery?: string;
+  /**
+   * Optional callback invoked for each rendered campaign. When it returns a
+   * non-empty string the campaign is shown as disabled (greyed checkbox) and
+   * the returned string is shown as a tooltip / inline reason — in addition
+   * to any API-level incompatibility already on the campaign itself.
+   *
+   * Use this to prevent selecting campaigns that are contextually incompatible
+   * with the current selection (e.g. different objective in multi-select).
+   */
+  getExtraDisabledReason?: (campaign: MetaCampaignSummary) => string | undefined;
 }
 
 function Spinner({ className = "h-3.5 w-3.5" }: { className?: string }) {
@@ -71,6 +81,7 @@ export function CampaignMultiPicker({
   preselectCodes,
   onPreselectLoad,
   defaultSearchQuery,
+  getExtraDisabledReason,
 }: CampaignMultiPickerProps) {
   const [filter, setFilter] = useState<"relevant" | "all">("relevant");
   const [searchInput, setSearchInput] = useState(defaultSearchQuery ?? "");
@@ -214,11 +225,13 @@ export function CampaignMultiPicker({
           <ul className="max-h-[28rem] space-y-1.5 overflow-y-auto rounded-lg border border-border bg-card p-1.5">
             {campaigns.data.map((c) => {
               const checked = selectedIds.has(c.id);
-              const disabled = !c.compatible;
+              const extraReason = getExtraDisabledReason?.(c);
+              const disabled = !c.compatible || Boolean(extraReason);
+              const disabledReason = c.incompatibleReason ?? extraReason ?? undefined;
               return (
                 <li key={c.id}>
                   <label
-                    title={disabled ? c.incompatibleReason : undefined}
+                    title={disabled ? disabledReason : undefined}
                     className={`flex w-full cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors
                       ${checked && !disabled
                         ? "border-primary bg-primary-light"
@@ -252,9 +265,9 @@ export function CampaignMultiPicker({
                           </span>
                         )}
                       </div>
-                      {disabled && c.incompatibleReason && (
+                      {disabled && disabledReason && (
                         <p className="mt-1 text-[11px] text-warning">
-                          {c.incompatibleReason}
+                          {disabledReason}
                         </p>
                       )}
                     </div>
