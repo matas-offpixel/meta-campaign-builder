@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 592
+- **URL:** (592)
 - **Branch:** `cursor/asset-queue-country-umbrella-and-universal-url`
 
 ## Summary
