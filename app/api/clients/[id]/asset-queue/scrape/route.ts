@@ -148,7 +148,7 @@ export async function POST(
   if (mappedEventCodes.length > 0) {
     const { data: events } = await supabase
       .from("events")
-      .select("id, event_code, venue_name, venue_city")
+      .select("id, event_code, venue_name, venue_city, venue_country")
       .eq("client_id", clientId)
       .in("event_code", mappedEventCodes);
     for (const e of events ?? []) {
@@ -157,6 +157,7 @@ export async function POST(
         eventCode: e.event_code,
         venueName: e.venue_name,
         venueCity: e.venue_city,
+        venueCountry: e.venue_country,
       });
     }
   }
