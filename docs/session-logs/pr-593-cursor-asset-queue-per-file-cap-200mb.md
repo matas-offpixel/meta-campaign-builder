@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 593
+- **URL:** (593)
 - **Branch:** `cursor/asset-queue-per-file-cap-200mb`
 
 ## Summary
