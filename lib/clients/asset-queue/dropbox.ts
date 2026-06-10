@@ -34,7 +34,7 @@
  * the caller can set a user-visible error message WITHOUT logging the URL.
  */
 
-const MAX_SINGLE_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file
+const MAX_SINGLE_FILE_BYTES = 200 * 1024 * 1024; // 200 MB per file (matches campaign-assets bucket cap)
 const MAX_FOLDER_BYTES      = 2 * 1024 * 1024 * 1024; // 2 GB total for folders (presenter video shoots can be large)
 
 /** Media extensions we will accept from folder listings */
@@ -323,12 +323,12 @@ export async function fetchDropboxFileContent(
 
   const contentLength = response.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_SINGLE_FILE_BYTES) {
-    throw new DropboxFetchError("too_large", `"${entry.name}" exceeds the 100 MB per-file limit`);
+    throw new DropboxFetchError("too_large", `"${entry.name}" exceeds the 200 MB per-file limit`);
   }
 
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.byteLength > MAX_SINGLE_FILE_BYTES) {
-    throw new DropboxFetchError("too_large", `"${entry.name}" exceeds the 100 MB per-file limit (actual: ${buffer.byteLength})`);
+    throw new DropboxFetchError("too_large", `"${entry.name}" exceeds the 200 MB per-file limit (actual: ${buffer.byteLength})`);
   }
 
   const extension = inferExtension(response, entry.name);
@@ -387,12 +387,12 @@ export async function downloadDropboxAsset(
 
   const contentLength = response.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_SINGLE_FILE_BYTES) {
-    throw new DropboxFetchError("too_large", `Asset exceeds the 100 MB limit (content-length: ${contentLength})`);
+    throw new DropboxFetchError("too_large", `Asset exceeds the 200 MB limit (content-length: ${contentLength})`);
   }
 
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.byteLength > MAX_SINGLE_FILE_BYTES) {
-    throw new DropboxFetchError("too_large", `Asset exceeds the 100 MB limit (actual: ${buffer.byteLength})`);
+    throw new DropboxFetchError("too_large", `Asset exceeds the 200 MB limit (actual: ${buffer.byteLength})`);
   }
 
   const extension = inferExtension(response, directUrl);
@@ -428,7 +428,7 @@ export interface DropboxFolderFile {
  * - Filters to known media extensions (mp4, mov, jpg, jpeg, png, etc.)
  * - Rejects empty folders (no media files found)
  * - Rejects folders whose total bytes exceed 2 GB
- * - Enforces 100 MB cap per individual file
+ * - Enforces 200 MB cap per individual file
  * - Sequential downloads — no parallelism
  *
  * @throws {DropboxFetchError} on missing token, empty folder, total size cap, or download errors
