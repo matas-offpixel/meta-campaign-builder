@@ -58,7 +58,7 @@ import {
 } from "@/lib/bulk-attach/launch-validation";
 import { useFetchPages } from "@/lib/hooks/useMeta";
 import { parseAspectFromFilename } from "@/lib/clients/asset-queue/aspect-detect";
-import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
+import { resolveOrganiserDestinationUrl, resolveUniversalClientUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
   applyUploadedAssetsToCreative,
   formatAutoUploadSummary,
@@ -145,7 +145,9 @@ function resolveQueueDestinationUrl(
 ): string {
   const fromRow = ctx.generatedUrl?.trim();
   if (fromRow) return fromRow;
-  if (ctx.umbrella) return "";
+  if (ctx.umbrella) {
+    return resolveUniversalClientUrl(clientSlug) ?? "";
+  }
   return resolveOrganiserDestinationUrl(clientSlug, ctx.venueCity) ?? "";
 }
 
@@ -192,9 +194,11 @@ function extractAdIdsFromResult(result: BulkAttachResult): string[] {
 
 function QueueContextBanner({
   queueContext,
+  clientSlug,
   variant = "creative",
 }: {
   queueContext: QueueContextProps;
+  clientSlug?: string | null;
   variant?: "creative" | "review";
 }) {
   const paths =
@@ -209,6 +213,7 @@ function QueueContextBanner({
     queueHasDualAspectFromPaths(paths);
 
   const venueCount = queueContext.venueCodes?.length ?? 0;
+  const brandHomepage = resolveUniversalClientUrl(clientSlug);
 
   if (variant === "review") {
     return (
@@ -244,8 +249,10 @@ function QueueContextBanner({
       {queueContext.umbrella && venueCount > 0 && (
         <>
           <p className="mt-1 text-xs text-muted-foreground">
-            Umbrella asset for {venueCount} venues. Caption + URL will apply to all
-            attached ads — set the URL that best fits this campaign.
+            Umbrella asset for {venueCount} venues. Caption + URL apply to all attached
+            ads.{brandHomepage
+              ? ` URL defaults to ${brandHomepage} — override per campaign if needed.`
+              : " Set the URL that best fits this campaign."}
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {queueContext.venueCodes!.map((code) => (
@@ -1420,7 +1427,9 @@ export function ClientBulkAttachWizard({
               Assets are uploaded once. No audiences, budget, or scheduling —
               those come from the existing ad sets.
             </p>
-            {queueContext && <QueueContextBanner queueContext={queueContext} />}
+            {queueContext && (
+              <QueueContextBanner queueContext={queueContext} clientSlug={clientSlug} />
+            )}
             {queueContext && autoUploadState.status === "loading" && (
               <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1489,7 +1498,11 @@ export function ClientBulkAttachWizard({
             </div>
 
             {queueContext && (
-              <QueueContextBanner queueContext={queueContext} variant="review" />
+              <QueueContextBanner
+                queueContext={queueContext}
+                clientSlug={clientSlug}
+                variant="review"
+              />
             )}
 
             <div className="mb-4 overflow-x-auto rounded-md border border-border">

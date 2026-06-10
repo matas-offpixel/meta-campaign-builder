@@ -5,10 +5,10 @@
  * When asset_name is available, three-tier matching prefers venue/city tokens
  * in the asset name over broad sheet location labels.
  *
- * Two resolution modes:
+ * Resolution modes:
  *   - Single venue: location matches a specific venue label → ResolvedVenue
- *   - Umbrella:     location='All' → UmbrellaResolution with all event codes
- *     for the given nation (or all nations when nation='All')
+ *   - Umbrella:     location='All' OR country alias OR multi-city match → UmbrellaResolution
+ *   - London hood:  known neighborhood labels → London event(s)
  */
 
 export interface VenueMapping {
@@ -23,6 +23,7 @@ export interface EventVenueContext {
   eventCode: string;
   venueName: string | null;
   venueCity: string | null;
+  venueCountry?: string | null;
 }
 
 export interface ResolvedVenue {
@@ -33,16 +34,68 @@ export interface ResolvedVenue {
   eventMatchAmbiguous: boolean;
 }
 
-/** Returned when location='All' — one row maps to N events */
+/** Returned when location spans N events (All, country, or multi-venue city). */
 export interface UmbrellaResolution {
   isUmbrella: true;
-  /** All event codes matched by this nation filter. */
+  /** All event codes matched by this filter. */
   eventCodes: string[];
-  /** Human-readable label for copy-generation (e.g. "All England events") */
+  /** Human-readable label for copy-generation (e.g. "All England venues") */
   label: string;
 }
 
 export type VenueResolution = ResolvedVenue | UmbrellaResolution;
+
+/** Country alias → venue_country values stored inconsistently in events. */
+export const COUNTRY_ALIASES: Record<string, readonly string[]> = {
+  england: ["GB", "UK", "United Kingdom"],
+  scotland: ["Scotland"],
+  ireland: ["Ireland", "Republic of Ireland"],
+  wales: ["Wales"],
+  uk: ["GB", "UK", "United Kingdom", "Scotland", "Wales", "Northern Ireland"],
+  britain: ["GB", "UK", "United Kingdom", "Scotland", "Wales"],
+  "great britain": ["GB", "UK", "United Kingdom", "Scotland", "Wales"],
+};
+
+/** 4thefans English cities — used when venue_country is null or ambiguous. */
+export const ENGLISH_CITIES = new Set([
+  "birmingham",
+  "bournemouth",
+  "brighton",
+  "bristol",
+  "leeds",
+  "london",
+  "manchester",
+  "margate",
+  "newcastle",
+  "nottingham",
+]);
+
+export const SCOTTISH_CITIES = new Set(["aberdeen", "edinburgh", "glasgow"]);
+
+export const WELSH_CITIES = new Set(["cardiff"]);
+
+export const ENGLAND_EXCLUDED_CITIES = new Set([
+  ...SCOTTISH_CITIES,
+  ...WELSH_CITIES,
+  "belfast",
+]);
+
+export const LONDON_NEIGHBORHOODS = [
+  "Shepards Bush",
+  "Shepherd's Bush",
+  "Soho",
+  "Camden",
+  "Brixton",
+  "Hackney",
+  "Islington",
+  "Notting Hill",
+  "Kensington",
+  "Westminster",
+] as const;
+
+const LONDON_NEIGHBORHOOD_NORMALISED = new Set(
+  LONDON_NEIGHBORHOODS.map((n) => normaliseLocationLabel(n)),
+);
 
 const BROAD_GEO_NAMES = new Set([
   "scotland",
@@ -53,6 +106,7 @@ const BROAD_GEO_NAMES = new Set([
   "britain",
   "great britain",
   "all",
+  ...Object.keys(COUNTRY_ALIASES),
 ]);
 
 interface ScoredToken {
@@ -64,6 +118,11 @@ function normalise(text: string): string {
   return text.trim().toLowerCase();
 }
 
+/** Location labels with apostrophe variants normalised for neighborhood match. */
+export function normaliseLocationLabel(text: string): string {
+  return text.trim().toLowerCase().replace(/'/g, "");
+}
+
 function assetHaystack(assetName: string): string {
   return normalise(assetName);
 }
@@ -71,6 +130,147 @@ function assetHaystack(assetName: string): string {
 function containsToken(haystack: string, token: string): boolean {
   if (!token) return false;
   return haystack.includes(token);
+}
+
+export function isCountryAliasLocation(location: string): boolean {
+  const key = normalise(location);
+  return key in COUNTRY_ALIASES;
+}
+
+export function isLondonNeighborhoodLocation(location: string): boolean {
+  return LONDON_NEIGHBORHOOD_NORMALISED.has(normaliseLocationLabel(location));
+}
+
+function normaliseCountryValue(country: string | null | undefined): string {
+  return (country ?? "").trim().toLowerCase();
+}
+
+function countryMatches(event: EventVenueContext, aliases: readonly string[]): boolean {
+  const vc = normaliseCountryValue(event.venueCountry);
+  if (!vc) return false;
+  return aliases.some((a) => normaliseCountryValue(a) === vc);
+}
+
+function cityInSet(event: EventVenueContext, cities: Set<string>): boolean {
+  return cities.has(normalise(event.venueCity ?? ""));
+}
+
+function mappedEvents(
+  events: EventVenueContext[],
+  mappings: VenueMapping[],
+): EventVenueContext[] {
+  const mappedCodes = new Set(mappings.map((m) => m.eventCode));
+  return events.filter((e) => mappedCodes.has(e.eventCode));
+}
+
+function toUmbrellaResolution(
+  matched: EventVenueContext[],
+  label: string,
+): UmbrellaResolution | null {
+  if (matched.length === 0) return null;
+  const eventCodes = [...new Set(matched.map((e) => e.eventCode))].sort();
+  return { isUmbrella: true, eventCodes, label };
+}
+
+function toSingleOrUmbrella(
+  matched: EventVenueContext[],
+  mappings: VenueMapping[],
+  location: string,
+  umbrellaLabel: string,
+): VenueResolution | null {
+  if (matched.length === 0) return null;
+  const eventCodes = [...new Set(matched.map((e) => e.eventCode))].sort();
+  if (eventCodes.length === 1) {
+    const mapping = mappingForEvent(eventCodes[0]!, location, mappings);
+    if (!mapping) return null;
+    return {
+      isUmbrella: false,
+      eventCode: eventCodes[0]!,
+      mappingId: mapping.id,
+      eventMatchAmbiguous: false,
+    };
+  }
+  return { isUmbrella: true, eventCodes, label: umbrellaLabel };
+}
+
+/** Filter mapped events for a normalised country alias key. */
+export function filterEventsForCountryKey(
+  countryKey: string,
+  events: EventVenueContext[],
+  mappings: VenueMapping[],
+): EventVenueContext[] {
+  const candidates = mappedEvents(events, mappings);
+  const key = normalise(countryKey);
+
+  if (key === "england") {
+    return candidates.filter((e) => {
+      const city = normalise(e.venueCity ?? "");
+      if (ENGLAND_EXCLUDED_CITIES.has(city)) return false;
+      if (ENGLISH_CITIES.has(city)) return true;
+      return countryMatches(e, COUNTRY_ALIASES.england);
+    });
+  }
+
+  if (key === "scotland") {
+    return candidates.filter(
+      (e) => cityInSet(e, SCOTTISH_CITIES) || countryMatches(e, COUNTRY_ALIASES.scotland),
+    );
+  }
+
+  if (key === "wales") {
+    return candidates.filter(
+      (e) => cityInSet(e, WELSH_CITIES) || countryMatches(e, COUNTRY_ALIASES.wales),
+    );
+  }
+
+  if (key === "ireland") {
+    return candidates.filter((e) => countryMatches(e, COUNTRY_ALIASES.ireland));
+  }
+
+  if (key === "uk" || key === "britain" || key === "great britain") {
+    const aliases = COUNTRY_ALIASES[key]!;
+    return candidates.filter((e) => {
+      const city = normalise(e.venueCity ?? "");
+      if (
+        ENGLISH_CITIES.has(city) ||
+        SCOTTISH_CITIES.has(city) ||
+        WELSH_CITIES.has(city)
+      ) {
+        return true;
+      }
+      return countryMatches(e, aliases);
+    });
+  }
+
+  return [];
+}
+
+function resolveCountryAliasLocation(
+  location: string,
+  mappings: VenueMapping[],
+  events: EventVenueContext[],
+): UmbrellaResolution | null {
+  const key = normalise(location);
+  if (!(key in COUNTRY_ALIASES)) return null;
+
+  const matched = filterEventsForCountryKey(key, events, mappings);
+  const label =
+    key === "uk" || key === "britain" || key === "great britain"
+      ? "All UK venues"
+      : `All ${location.trim()} venues`;
+  return toUmbrellaResolution(matched, label);
+}
+
+function resolveLondonNeighborhood(
+  location: string,
+  mappings: VenueMapping[],
+  events: EventVenueContext[],
+): VenueResolution | null {
+  if (!isLondonNeighborhoodLocation(location)) return null;
+  const matched = mappedEvents(events, mappings).filter(
+    (e) => normalise(e.venueCity ?? "") === "london",
+  );
+  return toSingleOrUmbrella(matched, mappings, location, "All London venues");
 }
 
 /** Build venue-specific vocabulary for Tier 1 (excludes bare city names). */
@@ -248,19 +448,34 @@ function resolveFromAssetName(
 
 /**
  * Resolves a single specific location label (non-All).
+ * Returns umbrella for country aliases and multi-London matches.
  * Returns null if no mapping found; callers should log status='error'.
  */
 export function resolveVenue(
   location: string,
   mappings: VenueMapping[],
   opts?: { assetName?: string; events?: EventVenueContext[] },
-): ResolvedVenue | null {
+): VenueResolution | null {
   const needle = location.trim().toLowerCase();
   if (needle === "all" || needle === "") return null;
 
-  if (opts?.assetName && opts.events && opts.events.length > 0) {
-    const fromAsset = resolveFromAssetName(opts.assetName, location, mappings, opts.events);
+  const events = opts?.events ?? [];
+
+  // Tier 1/2: asset_name tokens win over broad location labels.
+  if (opts?.assetName && events.length > 0) {
+    const fromAsset = resolveFromAssetName(opts.assetName, location, mappings, events);
     if (fromAsset) return fromAsset;
+  }
+
+  // London neighborhood → London event(s).
+  if (events.length > 0) {
+    const fromLondon = resolveLondonNeighborhood(location, mappings, events);
+    if (fromLondon) return fromLondon;
+  }
+
+  // Country alias → umbrella across matching venues.
+  if (events.length > 0 && isCountryAliasLocation(location)) {
+    return resolveCountryAliasLocation(location, mappings, events);
   }
 
   const match = mappings.find((m) => m.sheetLabel.trim().toLowerCase() === needle);
@@ -276,10 +491,6 @@ export function resolveVenue(
 
 /**
  * Resolves an "All" location to all venue mappings for the given nation.
- *
- * @param nation  Sheet value from column A — "England" | "Scotland" | "All"
- * @param mappings  All client_venue_mappings for the client
- * @returns UmbrellaResolution with matching event codes, or null if no mappings match
  */
 export function resolveUmbrella(
   nation: string,
@@ -289,7 +500,7 @@ export function resolveUmbrella(
 
   const matched =
     nationNeedle === "all" || nationNeedle === ""
-      ? mappings                                                        // all nations
+      ? mappings
       : mappings.filter((m) => m.nationLabel?.trim().toLowerCase() === nationNeedle);
 
   if (matched.length === 0) return null;
@@ -303,10 +514,6 @@ export function resolveUmbrella(
   return { isUmbrella: true, eventCodes, label };
 }
 
-/**
- * Map key used internally: `${location}::${nation}` (composite so two rows
- * with location='All' but different nations resolve independently).
- */
 export function venueResolutionKey(location: string, nation: string): string {
   return `${location.trim().toLowerCase()}::${nation.trim().toLowerCase()}`;
 }
@@ -319,9 +526,6 @@ export interface RowVenueInput {
 
 /**
  * Batch-resolves rows with optional per-row asset_name for Tier 1/2 matching.
- *
- * Map key: `venueResolutionKey(location, nation)` for location-only cache,
- * or `${key}::${assetName}` when asset-aware resolution is used.
  */
 export function buildVenueResolutionMap(
   rows: RowVenueInput[],
@@ -344,7 +548,7 @@ export function buildVenueResolutionMap(
         key,
         resolveVenue(location, mappings, {
           assetName,
-          events: assetName ? events : undefined,
+          events: events.length > 0 ? events : undefined,
         }),
       );
     }

@@ -3,13 +3,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getClientByIdServer } from "@/lib/db/clients-server";
 import { getAssetQueueRow } from "@/lib/db/asset-queue";
-import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
-import { loadResolvedEventContext } from "@/lib/clients/asset-queue/resolve-queue-venue";
 import {
   isQueueBulkAttachHandoffStatus,
   isUmbrellaQueueRow,
   resolveQueueHandoffCopy,
+  resolveQueueHandoffDestinationUrl,
 } from "@/lib/clients/asset-queue/queue-handoff";
+import { loadResolvedEventContext } from "@/lib/clients/asset-queue/resolve-queue-venue";
 import { ClientBulkAttachWizard, type QueueContextProps } from "./wizard";
 
 interface Props {
@@ -80,11 +80,10 @@ export default async function ClientBulkAttachPage({ params, searchParams }: Pro
       const venueCity = event?.venue_city ?? null;
       const handoffCopy = resolveQueueHandoffCopy(row);
 
-      const generatedUrl = umbrella
-        ? handoffCopy.generatedUrl?.trim() || null
-        : handoffCopy.generatedUrl?.trim() ||
-          resolveOrganiserDestinationUrl(client.slug, venueCity) ||
-          null;
+      const generatedUrl = resolveQueueHandoffDestinationUrl(row, client.slug, {
+        umbrella,
+        venueCity: umbrella ? null : venueCity,
+      });
 
       queueContext = {
         queueId: row.id,

@@ -56,7 +56,7 @@ export async function resolveQueueRowVenue(
 
   const { data: events } = await supabase
     .from("events")
-    .select("id, event_code, venue_name, venue_city")
+    .select("id, event_code, venue_name, venue_city, venue_country")
     .eq("client_id", clientId)
     .in("event_code", mappedEventCodes);
 
@@ -68,6 +68,7 @@ export async function resolveQueueRowVenue(
       eventCode: e.event_code,
       venueName: e.venue_name,
       venueCity: e.venue_city,
+      venueCountry: e.venue_country,
     });
   }
 
@@ -75,7 +76,7 @@ export async function resolveQueueRowVenue(
     assetName: row.asset_name ?? "",
     events: eventVenueContexts,
   });
-  if (!resolved) return null;
+  if (!resolved || resolved.isUmbrella) return null;
 
   return {
     resolvedEventId: eventCodeToId.get(resolved.eventCode) ?? null,
