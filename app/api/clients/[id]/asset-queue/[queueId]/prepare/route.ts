@@ -29,7 +29,7 @@ import {
   DropboxFetchError,
 } from "@/lib/clients/asset-queue/dropbox";
 import { generateCopy } from "@/lib/clients/asset-queue/copy-generator";
-import { resolveOrganiserDestinationUrl } from "@/lib/clients/asset-queue/destination-url";
+import { resolveOrganiserDestinationUrl, resolveUniversalClientUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
   loadResolvedEventContext,
   resolveQueueRowVenue,
@@ -243,7 +243,10 @@ export async function POST(
 
   const patternUrl = urlPattern[row.funnel ?? ""]?.trim() ?? "";
   const organiserUrl = resolveOrganiserDestinationUrl(client.slug, venueCity);
-  const generatedUrl = isUmbrella ? "" : patternUrl || organiserUrl || "";
+  const universalUrl = resolveUniversalClientUrl(client.slug);
+  const generatedUrl = isUmbrella
+    ? patternUrl || universalUrl || ""
+    : patternUrl || organiserUrl || "";
 
   if (!isUmbrella && !generatedUrl) {
     console.error("[asset-queue/prepare] destination URL empty after fallbacks", {

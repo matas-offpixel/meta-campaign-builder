@@ -1,4 +1,8 @@
 import type { AssetQueueRow } from "@/lib/db/asset-queue";
+import {
+  resolveOrganiserDestinationUrl,
+  resolveUniversalClientUrl,
+} from "./destination-url.ts";
 
 /** Default umbrella venue-wide copy when AI/funnel template is unavailable. */
 export const UMBRELLA_VENUE_WIDE_DEFAULT_COPY =
@@ -39,4 +43,25 @@ export function resolveQueueHandoffCopy(row: AssetQueueRow): {
     generatedCta: ctaValue ?? null,
     generatedUrl: destUrl ?? null,
   };
+}
+
+/**
+ * Destination URL for bulk-attach handoff — row/override first, then fallbacks.
+ * Umbrella rows use brand homepage; single-venue uses organiser URL (PR #584).
+ */
+export function resolveQueueHandoffDestinationUrl(
+  row: AssetQueueRow,
+  clientSlug: string | null | undefined,
+  opts?: { umbrella?: boolean; venueCity?: string | null },
+): string | null {
+  const handoff = resolveQueueHandoffCopy(row);
+  const fromRow = handoff.generatedUrl?.trim();
+  if (fromRow) return fromRow;
+
+  const umbrella = opts?.umbrella ?? isUmbrellaQueueRow(row);
+  if (umbrella) {
+    return resolveUniversalClientUrl(clientSlug);
+  }
+
+  return resolveOrganiserDestinationUrl(clientSlug, opts?.venueCity) ?? null;
 }

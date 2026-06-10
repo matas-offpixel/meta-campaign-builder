@@ -6,6 +6,7 @@ import {
   isQueueBulkAttachHandoffStatus,
   isUmbrellaQueueRow,
   resolveQueueHandoffCopy,
+  resolveQueueHandoffDestinationUrl,
   UMBRELLA_VENUE_WIDE_DEFAULT_COPY,
 } from "../queue-handoff.ts";
 
@@ -81,5 +82,49 @@ describe("queue-handoff", () => {
 
   it("exports umbrella venue-wide default copy constant", () => {
     assert.match(UMBRELLA_VENUE_WIDE_DEFAULT_COPY, /FINAL TICKETS/);
+  });
+
+  it("umbrella + 4thefans + empty generated_url → universal homepage", () => {
+    const url = resolveQueueHandoffDestinationUrl(
+      baseRow({ generated_url: "", resolved_event_codes_multi: ["WC26-BRIGHTON"] }),
+      "4thefans",
+      { umbrella: true },
+    );
+    assert.equal(url, "https://4thefans.tv/");
+  });
+
+  it("umbrella + junction-2 + empty generated_url → null", () => {
+    const url = resolveQueueHandoffDestinationUrl(
+      baseRow({ generated_url: "" }),
+      "junction-2",
+      { umbrella: true },
+    );
+    assert.equal(url, null);
+  });
+
+  it("single-venue + 4thefans + empty generated_url → organiser URL", () => {
+    const url = resolveQueueHandoffDestinationUrl(
+      baseRow({
+        generated_url: "",
+        resolved_event_codes_multi: null,
+        resolved_event_code: "WC26-BOURNEMOUTH",
+      }),
+      "4thefans",
+      { umbrella: false, venueCity: "Bournemouth" },
+    );
+    assert.equal(url, "https://4thefans.tv/organiser/bournemouth/");
+  });
+
+  it("operator modal override wins over universal fallback", () => {
+    const url = resolveQueueHandoffDestinationUrl(
+      baseRow({
+        status: "confirmed",
+        generated_url: "",
+        confirmed_overrides: { destUrl: "https://custom.example.com" },
+      }),
+      "4thefans",
+      { umbrella: true },
+    );
+    assert.equal(url, "https://custom.example.com");
   });
 });
