@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 594
+- **URL:** (594)
 - **Branch:** `cursor/asset-queue-resumable-upload`
 
 ## Summary
