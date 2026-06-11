@@ -35,6 +35,7 @@ import {
   resolveQueueRowVenue,
 } from "@/lib/clients/asset-queue/resolve-queue-venue";
 import { buildQueueStoragePath } from "@/lib/clients/asset-queue/storage-filename";
+import { uploadToStorageBucket, RESUMABLE_UPLOAD_THRESHOLD } from "@/lib/clients/asset-queue/storage-upload";
 
 export const maxDuration = 300;
 
@@ -131,9 +132,17 @@ export async function POST(
     for (const file of folderFiles) {
       const { buffer, name, extension } = file;
       const storagePath = buildQueueStoragePath(queueId, name, usedPaths);
-      const { error: uploadError } = await serviceClient.storage
-        .from("campaign-assets")
-        .upload(storagePath, buffer, { contentType: mimeFor(extension), upsert: true });
+      const sizeMB = Math.round(buffer.byteLength / 1_048_576);
+      if (buffer.byteLength > RESUMABLE_UPLOAD_THRESHOLD) {
+        console.error("[asset-queue/prepare] Using resumable upload", { storagePath, sizeMB, queueId });
+      }
+      const { error: uploadError } = await uploadToStorageBucket(
+        serviceClient,
+        "campaign-assets",
+        storagePath,
+        buffer,
+        mimeFor(extension),
+      );
 
       if (uploadError) {
         console.error("[asset-queue/prepare] Storage upload failed for folder file", {
@@ -173,9 +182,17 @@ export async function POST(
       originalName || row.asset_name || `asset.${extension}`,
       usedPaths,
     );
-    const { error: uploadError } = await serviceClient.storage
-      .from("campaign-assets")
-      .upload(storagePath, buffer, { contentType: mimeFor(extension), upsert: true });
+    const sizeMB = Math.round(buffer.byteLength / 1_048_576);
+    if (buffer.byteLength > RESUMABLE_UPLOAD_THRESHOLD) {
+      console.error("[asset-queue/prepare] Using resumable upload", { storagePath, sizeMB, queueId });
+    }
+    const { error: uploadError } = await uploadToStorageBucket(
+      serviceClient,
+      "campaign-assets",
+      storagePath,
+      buffer,
+      mimeFor(extension),
+    );
 
     if (uploadError) {
       console.error("[asset-queue/prepare] Storage upload failed", {
