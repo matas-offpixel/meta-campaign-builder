@@ -884,14 +884,14 @@ export interface CampaignSettings {
 
   /**
    * Snapshots of one or more live Meta campaigns selected via the multi-select
-   * campaign picker when {@link wizardMode} is `"attach_campaign"`. The wizard
-   * creates one new ad set (and its associated ads) under each selected
-   * campaign at launch, serialised with a 1 s gap between campaigns.
+   * campaign picker when {@link wizardMode} is `"attach_campaign"`,
+   * `"attach_adset"`, or `"attach_all_adsets"`.
    *
-   * When exactly one campaign is selected the behaviour is identical to the
-   * legacy single-campaign path. When more than one is selected the
-   * `"attach_adset"` mode is disabled (ad sets must belong to a single
-   * campaign).
+   * - `"attach_campaign"`: creates one new ad set + ads under each campaign.
+   * - `"attach_adset"`: user-selects specific ad sets; cross-campaign (>1
+   *   campaigns) is allowed when all share the same objective.
+   * - `"attach_all_adsets"`: automatically fetches ALL active/paused ad sets
+   *   across these campaigns at launch and attaches new ads to each.
    */
   existingMetaCampaigns?: ExistingMetaCampaignSnapshot[];
 
@@ -923,6 +923,10 @@ export interface CampaignSettings {
  * `BULK_ATTACH_CAP` on the bulk-attach surface.
  */
 export const ATTACH_CAMPAIGN_CAP = 8;
+/** Maximum ad sets fetched across all campaigns in `attach_all_adsets` mode. */
+export const ATTACH_ALL_ADSETS_CAP = 25;
+/** Maximum manually-selected ad sets across campaigns in cross-campaign `attach_adset` mode. */
+export const CROSS_CAMPAIGN_ADSET_CAP = 12;
 
 /** Captured-at-selection snapshot of a live Meta campaign. */
 export interface ExistingMetaCampaignSnapshot {
@@ -930,6 +934,13 @@ export interface ExistingMetaCampaignSnapshot {
   name: string;
   /** Raw Meta objective, e.g. "OUTCOME_ENGAGEMENT". */
   objective: string;
+  /**
+   * Internal objective resolved at selection time (e.g. "traffic", "purchase").
+   * Stored on the snapshot so multi-campaign objective-compatibility checks and
+   * error messages can use it without a round-trip. Falls back to
+   * `settings.objective` on older drafts that pre-date this field.
+   */
+  internalObjective?: CampaignObjective;
   /** Raw configured status, e.g. "ACTIVE", "PAUSED". */
   status: string;
   /** Raw effective status (delivery state), if returned by Meta. */
@@ -962,8 +973,25 @@ export interface ExistingMetaAdSetSnapshot {
   capturedAt: string;
 }
 
-/** Discriminated wizard mode union. See {@link CampaignSettings.wizardMode}. */
-export type WizardMode = "new" | "attach_campaign" | "attach_adset";
+/**
+ * Discriminated wizard mode union. See {@link CampaignSettings.wizardMode}.
+ *
+ * - `"new"`               — full wizard; creates campaign + ad sets + ads.
+ * - `"attach_campaign"`   — skips campaign creation; creates new ad set + ads
+ *                           under each selected existing campaign.
+ * - `"attach_adset"`      — skips campaign + ad-set creation; attaches new ads
+ *                           to one or more user-selected existing ad sets
+ *                           (cross-campaign when multiple campaigns selected).
+ * - `"attach_all_adsets"` — skips campaign + ad-set creation; automatically
+ *                           fetches ALL active/paused ad sets across the selected
+ *                           campaigns at launch time and attaches new ads to each.
+ *                           Steps 2/3/5/6 are hidden in the wizard.
+ */
+export type WizardMode =
+  | "new"
+  | "attach_campaign"
+  | "attach_adset"
+  | "attach_all_adsets";
 
 /**
  * Per-campaign result produced by a multi-campaign `attach_campaign` launch.
@@ -1320,11 +1348,17 @@ export function parseAttachedAdSetKey(key: string): string | null {
 
 /**
  * Returns the wizard step indices that should be visible (and validated) for
- * a given mode. `attach_adset` skips Optimisation, Audiences and Budget
- * because those are inherited from the live ad set.
+ * a given mode.
+ *
+ * - `"attach_adset"` skips Optimisation (2), Audiences (3) and Budget (5)
+ *   because those are inherited from the live ad set.
+ * - `"attach_all_adsets"` additionally skips Assign Creatives (6) because
+ *   all creatives are attached to all fetched ad sets at launch time with no
+ *   per-ad-set matrix needed.
  */
 export function getVisibleSteps(mode: WizardMode | undefined): WizardStep[] {
   if (mode === "attach_adset") return [0, 1, 4, 6, 7];
+  if (mode === "attach_all_adsets") return [0, 1, 4, 7];
   return [0, 1, 2, 3, 4, 5, 6, 7];
 }
 
