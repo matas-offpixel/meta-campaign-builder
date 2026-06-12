@@ -11,7 +11,7 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
-import { fetchInstagramAccounts, MetaApiError } from "@/lib/meta/client";
+import { fetchPageInstagramOptions, MetaApiError } from "@/lib/meta/client";
 import { getUserFacebookToken } from "@/lib/meta/page-token";
 
 export async function GET() {
@@ -31,8 +31,17 @@ export async function GET() {
   );
 
   try {
-    const accounts = await fetchInstagramAccounts(userToken ?? undefined);
+    const pages = await fetchPageInstagramOptions(userToken ?? undefined);
+    const accounts = pages.flatMap((page) =>
+      page.igs.map((ig) => ({
+        id: ig.igId,
+        username: ig.username.replace(/^@/, ""),
+        name: ig.displayName,
+        linkedPageId: page.pageId,
+      })),
+    );
     return Response.json({
+      pages,
       data: accounts,
       count: accounts.length,
       tokenSource: userToken ? "user" : "system",
