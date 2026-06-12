@@ -55,6 +55,7 @@ import {
   PageInstagramOverridesPanel,
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
+import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
@@ -173,18 +174,11 @@ export function Creatives({
         setLocalOverrides(overrides);
       }
 
-      // Keep any ad using this page in sync with the override.
+      // Keep any ad using this page in sync with the override (content + actor ids).
       onChange(
         creativesRef.current.map((c) =>
           c.identity?.pageId === pageId
-            ? {
-                ...c,
-                identity: {
-                  ...(c.identity ?? { pageId, instagramAccountId: "" }),
-                  pageId,
-                  instagramAccountId: igId,
-                },
-              }
+            ? applyPageInstagramOverrideToCreative(c, { [pageId]: igId })
             : c,
         ),
       );
@@ -269,13 +263,16 @@ export function Creatives({
     const pageIgs = igAccounts.data.filter((ig) => ig.linkedPageId === pageId);
     const savedOverride = pageInstagramOverrides[pageId];
     let linkedIg = "";
+    let linkedActor = "";
     if (pageIgs.length === 1) {
       linkedIg = pageIgs[0].id;
+      linkedActor = pageIgs[0].id;
     } else if (pageIgs.length >= 2 && savedOverride) {
       linkedIg = savedOverride;
+      linkedActor = savedOverride;
     }
     updateAd(adId, {
-      identity: { pageId, instagramAccountId: linkedIg },
+      identity: { pageId, instagramAccountId: linkedIg, instagramActorId: linkedActor },
     });
   };
 
@@ -306,11 +303,31 @@ export function Creatives({
       pageIgs.length <= 1 &&
       !overrideId;
 
+    // Never overwrite an operator pick with page-identity auto-resolution.
+    if (overrideId) {
+      if (
+        currentContentId === overrideId &&
+        currentActorId === overrideId
+      ) {
+        return;
+      }
+      updateAd(active.id, {
+        identity: {
+          ...(active.identity ?? { pageId: identity.pageId, instagramAccountId: "" }),
+          instagramAccountId: overrideId,
+          instagramActorId: overrideId,
+        },
+      });
+      return;
+    }
+
+    // Skip if nothing would change
+    if (currentContentId && currentActorId === resolvedActorId) return;
+
     updateAd(active.id, {
       identity: {
         ...(active.identity ?? { pageId: identity.pageId, instagramAccountId: "" }),
         instagramAccountId:
-          overrideId ||
           currentContentId ||
           (shouldAutoFillContent ? identity.ig.account.id : ""),
         instagramActorId: resolvedActorId,

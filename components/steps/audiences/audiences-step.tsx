@@ -26,6 +26,8 @@ interface AudiencesStepProps {
   onChange: (audiences: AudienceSettings) => void;
   settings: CampaignSettings;
   onSettingsChange: (settings: CampaignSettings) => void;
+  /** When set, also propagates the pick to creative.identity (wizard-shell). */
+  onPageInstagramOverride?: (pageId: string, igId: string) => void;
   /** Meta ad account ID — used to auto-load Business Manager pages */
   adAccountId?: string;
   /** Client/event context for opening the standalone Audience Creator. */
@@ -40,6 +42,7 @@ export function AudiencesStep({
   onChange,
   settings,
   onSettingsChange,
+  onPageInstagramOverride,
   adAccountId,
   clientId,
   eventId,
@@ -80,6 +83,10 @@ export function AudiencesStep({
   }, [multiIgPageIds, igAccounts.loading, onSettingsChange]);
 
   const handlePageInstagramOverride = (pageId: string, igId: string) => {
+    if (onPageInstagramOverride) {
+      onPageInstagramOverride(pageId, igId);
+      return;
+    }
     const overrides = { ...(settings.pageInstagramOverrides ?? {}) };
     if (igId) {
       overrides[pageId] = igId;

@@ -208,4 +208,19 @@ describe("createIgActorValidator", () => {
     assert.equal(result, null);
     assert.equal(fetchCount, 0, "should not fetch when igActorId is empty string");
   });
+
+  it("accepts operator override via page-level list even when BM list is empty", async () => {
+    mock.method(global, "fetch", async (url: string) => {
+      if (url.includes("/act_")) return makeIgAccountsResponse([]);
+      return makeIgAccountsResponse([IG_ID]);
+    });
+
+    const validator = createIgActorValidator("ACT_OVERRIDE", "tok_override");
+    const result = await validator.validate(IG_ID, {
+      pageId: PAGE_ID,
+      pageToken: PAGE_TOKEN,
+      operatorOverrideId: IG_ID,
+    });
+    assert.equal(result, IG_ID);
+  });
 });

@@ -31,6 +31,7 @@ import type {
 import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { validateStep } from "@/lib/validation";
+import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
 import { saveDraftToStorage, loadDraftFromStorage } from "@/lib/autosave";
 import { applyTemplate } from "@/lib/templates";
 import { createClient } from "@/lib/supabase/client";
@@ -247,6 +248,40 @@ export function WizardShell({ draftId }: WizardShellProps) {
 
   const updateCreatives = useCallback(
     (creatives: AdCreativeDraft[]) => updateDraft((d) => ({ ...d, creatives })),
+    [updateDraft],
+  );
+
+  /** Sync settings.pageInstagramOverrides AND per-creative identity ids. */
+  const handlePageInstagramOverride = useCallback(
+    (pageId: string, igId: string) => {
+      updateDraft((d) => {
+        const overrides = { ...(d.settings.pageInstagramOverrides ?? {}) };
+        if (igId) overrides[pageId] = igId;
+        else delete overrides[pageId];
+
+        const creatives = d.creatives.map((c) => {
+          if (c.identity?.pageId !== pageId) return c;
+          if (!igId) {
+            return {
+              ...c,
+              identity: {
+                ...(c.identity ?? { pageId, instagramAccountId: "" }),
+                pageId,
+                instagramAccountId: "",
+                instagramActorId: "",
+              },
+            };
+          }
+          return applyPageInstagramOverrideToCreative(c, { [pageId]: igId });
+        });
+
+        return {
+          ...d,
+          settings: { ...d.settings, pageInstagramOverrides: overrides },
+          creatives,
+        };
+      });
+    },
     [updateDraft],
   );
 
@@ -553,6 +588,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
             onChange={updateAudiences}
             settings={draft.settings}
             onSettingsChange={updateSettings}
+            onPageInstagramOverride={handlePageInstagramOverride}
             adAccountId={draft.settings.metaAdAccountId}
             clientId={draft.settings.clientId}
             eventId={draft.settings.eventId}

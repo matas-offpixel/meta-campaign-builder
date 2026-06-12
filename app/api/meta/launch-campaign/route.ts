@@ -60,6 +60,7 @@ import {
   sanitizeCreativeForStrictMode,
 } from "@/lib/meta/creative";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
+import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
 import {
   resolveAdSetPlacementTargeting,
   validatePlacementSelection,
@@ -704,6 +705,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // `launchCreatives` shadows `draft.creatives` for all downstream phases.
   let launchCreatives: AdCreativeDraft[] = draft.creatives.map((c) => ({ ...c }));
 
+  // Operator IG picks must reach creative payloads — not just Phase 1.5 pageToIg.
+  launchCreatives = applyPageInstagramOverridesToCreatives(
+    launchCreatives,
+    draft.settings.pageInstagramOverrides,
+  );
+  for (const c of launchCreatives) {
+    const pageId = c.identity?.pageId;
+    const override = pageId
+      ? draft.settings.pageInstagramOverrides?.[pageId]
+      : undefined;
+    if (!pageId || !override) continue;
+    console.log(
+      `[launch-campaign] Preflight — creative "${c.name}" — pageId=${pageId} ` +
+        `resolvedIgId=${c.identity?.instagramAccountId ?? "(unset)"} ` +
+        `(source: operator-override)`,
+    );
+  }
+
   const igExistingPostCreatives = launchCreatives.filter(
     (c) => c.sourceType === "existing_post" && c.existingPost?.source === "instagram",
   );
@@ -722,6 +741,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const pageActorMap = new Map<string, { actorId: string; contentAccountId: string | undefined; source: string }>();
 
     for (const pageId of uniquePageIds) {
+      const operatorOverride = draft.settings.pageInstagramOverrides?.[pageId];
+      if (operatorOverride) {
+        pageActorMap.set(pageId, {
+          actorId: operatorOverride,
+          contentAccountId: operatorOverride,
+          source: "operator-override",
+        });
+        console.log(
+          `[launch-campaign] Preflight 0e ✓ page ${pageId}:` +
+            ` actorId=${operatorOverride} source=operator-override`,
+        );
+        continue;
+      }
+
       console.log(
         `[launch-campaign] Preflight 0e — resolving IG actor for page=${pageId}` +
           ` adAccount=${adAccountId}` +
@@ -2523,6 +2556,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     for (const creative of launchCreatives) {
       const cStart = Date.now();
 
+      // Re-apply operator override immediately before payload build (defense in depth).
+      const pageIdForOverride = creative.identity?.pageId ?? "";
+      const operatorOverride =
+        pageIdForOverride
+          ? draft.settings.pageInstagramOverrides?.[pageIdForOverride]
+          : undefined;
+      if (operatorOverride && creative.identity) {
+        creative.identity.instagramAccountId = operatorOverride;
+        creative.identity.instagramActorId = operatorOverride;
+      }
+
+      const igIdentitySource = operatorOverride ? "operator-override" : "creative-build-time";
+      console.log(
+        `[launch-campaign] creative "${creative.name}" — pageId=${pageIdForOverride || "(unset)"} ` +
+          `resolvedIgId=${creative.identity?.instagramAccountId ?? "(unset)"} ` +
+          `(source: ${igIdentitySource})`,
+      );
+
       const { isValid, errors: valErrs } = validateCreativePayload(creative);
       if (!isValid) {
         console.warn("[launch-campaign] Phase 3 ✗  validation failed:", creative.name, valErrs);
@@ -2533,13 +2584,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Validate the IG actor id — BM-asset first, page-level fallback second.
       // Validator caches each list so multiple creatives on the same page/account
       // don't re-fetch.
-      const rawIgActorId = creative.identity.instagramActorId ?? "";
+      const rawIgActorId =
+        creative.identity.instagramActorId ??
+        creative.identity.instagramAccountId ??
+        "";
       const creativePageId = creative.identity.pageId ?? "";
       const creativePageToken = pageTokenMap.get(creativePageId) ?? null;
       const validatedIgActorId = rawIgActorId
         ? await igValidator.validate(rawIgActorId, {
             pageId: creativePageId || undefined,
             pageToken: creativePageToken,
+            operatorOverrideId: operatorOverride,
           })
         : null;
 
