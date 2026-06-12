@@ -2,8 +2,9 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 598
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/598
+- **Preview:** https://meta-campaign-builder-git-cc-cross-70eaa7-matas-8641s-projects.vercel.app/campaign/[draft-id]
 - **Branch:** `cc/cross-campaign-adset-picker-actually`
 
 ## Summary
