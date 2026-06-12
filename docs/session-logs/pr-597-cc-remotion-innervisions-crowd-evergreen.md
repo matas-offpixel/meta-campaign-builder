@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 597
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/597
 - **Branch:** `cc/remotion-innervisions-crowd-evergreen`
 
 ## Summary
@@ -22,8 +22,16 @@ Adds `FRAMES_PER_PHOTO_OVERRIDE` to `scripts/upload-reel-photos.ts` (validated 1
 - [x] `npm run build` — exit 0
 - [x] Upload script — 43 photos in Supabase `campaign-assets/reel-photos/innervisions-crowd/`
 - [x] `render-input.json` — framesPerPhoto 8, 43 photo URLs
-- [ ] `/api/admin/remotion/render-reel?reel=innervisions-crowd` — signed URL on Vercel Preview
-- [ ] MP4 — 43 photos, ~11.5s, <30MB, no black frames
+- [x] `/api/admin/remotion/render-reel?reel=innervisions-crowd` — 200 on Vercel Preview (96.8s render)
+- [x] MP4 — 11.47s, 4.1 MB (4343368 bytes), signed URL returned
+
+### Post-render observations
+
+- Render time (Preview): 96.8s
+- MP4 file size: 4.1 MB
+- Duration: 11.47s (344 frames @ 30fps = 43 × 8)
+- Local download: `~/Downloads/innervisions-crowd-evergreen-2026-06-12T15-03-51.mp4`
+- Storage path: `remotion-renders/.../innervisions-crowd-ad5dc097-8e3d-4260-a5f0-7a1b17e973da.mp4`
 
 ## Notes
 
