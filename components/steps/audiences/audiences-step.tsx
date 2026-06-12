@@ -8,14 +8,24 @@ import { PageAudiencesPanel } from "./page-audiences-panel";
 import { CustomAudiencesPanel } from "./custom-audiences-panel";
 import { SavedAudiencesPanel } from "./saved-audiences-panel";
 import { InterestGroupsPanel } from "./interest-groups-panel";
-import type { AudienceSettings, AudienceTab } from "@/lib/types";
+import type { AudienceSettings, AudienceTab, CampaignSettings } from "@/lib/types";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { FUNNEL_STAGE_LABELS } from "@/lib/audiences/metadata";
 import type { MetaCustomAudience } from "@/lib/types/audience";
+import {
+  useFetchInstagramAccounts,
+  useFetchPages,
+} from "@/lib/hooks/useMeta";
+import {
+  PageInstagramOverridesPanel,
+  deriveMultiIgPageIds,
+} from "@/components/wizard/page-instagram-overrides-panel";
 
 interface AudiencesStepProps {
   audiences: AudienceSettings;
   onChange: (audiences: AudienceSettings) => void;
+  settings: CampaignSettings;
+  onSettingsChange: (settings: CampaignSettings) => void;
   /** Meta ad account ID — used to auto-load Business Manager pages */
   adAccountId?: string;
   /** Client/event context for opening the standalone Audience Creator. */
@@ -28,12 +38,56 @@ interface AudiencesStepProps {
 export function AudiencesStep({
   audiences,
   onChange,
+  settings,
+  onSettingsChange,
   adAccountId,
   clientId,
   eventId,
   campaignName,
 }: AudiencesStepProps) {
   const [activeTab, setActiveTab] = useState<AudienceTab>("pages");
+  const igAccounts = useFetchInstagramAccounts();
+  const pages = useFetchPages(adAccountId);
+
+  const audiencePageIds = useMemo(
+    () => Array.from(new Set(audiences.pageGroups.flatMap((g) => g.pageIds))),
+    [audiences.pageGroups],
+  );
+
+  const pageNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of pages.data) {
+      if (p.id) map[p.id] = p.name;
+    }
+    return map;
+  }, [pages.data]);
+
+  const multiIgPageIds = useMemo(
+    () => deriveMultiIgPageIds(igAccounts.data),
+    [igAccounts.data],
+  );
+
+  useEffect(() => {
+    if (igAccounts.loading) return;
+    const prev = settings.multiIgPageIds ?? [];
+    const same =
+      prev.length === multiIgPageIds.length &&
+      prev.every((id, i) => id === multiIgPageIds[i]);
+    if (!same) {
+      onSettingsChange({ ...settings, multiIgPageIds });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync multiIgPageIds when IG list changes
+  }, [multiIgPageIds, igAccounts.loading, onSettingsChange]);
+
+  const handlePageInstagramOverride = (pageId: string, igId: string) => {
+    const overrides = { ...(settings.pageInstagramOverrides ?? {}) };
+    if (igId) {
+      overrides[pageId] = igId;
+    } else {
+      delete overrides[pageId];
+    }
+    onSettingsChange({ ...settings, pageInstagramOverrides: overrides });
+  };
 
   const suggestedAge = useMemo(() => suggestAgeRange(audiences), [audiences]);
   const hasPages = audiences.pageGroups.some((g) => g.pageIds.length > 0);
@@ -91,6 +145,18 @@ export function AudiencesStep({
           splalGroups={audiences.selectedPagesLookalikeGroups ?? []}
           onSplalGroupsChange={(selectedPagesLookalikeGroups) => onChange({ ...audiences, selectedPagesLookalikeGroups })}
         />
+        <div className="mt-4">
+          <PageInstagramOverridesPanel
+            pageIds={audiencePageIds}
+            igAccounts={igAccounts.data}
+            pageNames={pageNameById}
+            overrides={settings.pageInstagramOverrides ?? {}}
+            onOverrideChange={handlePageInstagramOverride}
+            loading={igAccounts.loading}
+            error={igAccounts.error}
+            title="Instagram accounts for page audiences"
+          />
+        </div>
       </TabPanel>
       <TabPanel active={activeTab === "custom"}>
         <CustomAudiencesPanel groups={audiences.customAudienceGroups} onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })} adAccountId={adAccountId} />

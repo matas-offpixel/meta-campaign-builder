@@ -1,5 +1,6 @@
 import type { CampaignDraft, WizardStep } from "./types";
 import { attachedAdSetKey, getVisibleSteps } from "./types";
+import { findMultiIgPagesMissingOverride } from "./validation/page-instagram";
 
 export interface ValidationResult {
   valid: boolean;
@@ -144,6 +145,13 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
   if (!hasPageGroups && !hasCustom && !hasSaved && !hasInterests) {
     errors.push("Select at least one audience source");
   }
+
+  for (const pageId of findMultiIgPagesMissingOverride(draft)) {
+    errors.push(
+      `Page ${pageId} has multiple linked Instagram accounts — pick one in the Instagram Account section below`,
+    );
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
@@ -215,6 +223,12 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
       if (!c.existingPost?.postId) errors.push(`${label}: Select an existing post`);
     }
   });
+
+  for (const pageId of findMultiIgPagesMissingOverride(draft)) {
+    errors.push(
+      `${pageId}: Pick the Instagram account for this Facebook Page before continuing`,
+    );
+  }
 
   return { valid: errors.length === 0, errors };
 }

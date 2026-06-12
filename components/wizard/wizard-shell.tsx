@@ -354,9 +354,27 @@ export function WizardShell({ draftId }: WizardShellProps) {
       // user-level page→IG connections, so we send the map explicitly.
       const cachedPages = getCachedUserPages();
       const igAccountMap: Record<string, string> = {};
+
+      // Highest priority: explicit operator picks (multi-IG pages).
+      for (const [pageId, igId] of Object.entries(draft.settings.pageInstagramOverrides ?? {})) {
+        if (pageId && igId) igAccountMap[pageId] = igId;
+      }
+
+      // Creative identity selections (per-ad IG dropdown).
+      for (const c of draft.creatives) {
+        const pageId = c.identity?.pageId;
+        const igId = c.identity?.instagramAccountId;
+        if (pageId && igId && !igAccountMap[pageId]) {
+          igAccountMap[pageId] = igId;
+        }
+      }
+
+      // Enriched pages cache fallback (one IG per page — may be wrong on multi-IG pages).
       for (const page of cachedPages) {
         const igId = page.instagramAccountId;
-        if (page.id && igId) igAccountMap[page.id] = igId;
+        if (page.id && igId && !igAccountMap[page.id]) {
+          igAccountMap[page.id] = igId;
+        }
       }
       console.log(
         "[WizardShell] handleLaunch — igAccountMap from cache:",
@@ -533,6 +551,8 @@ export function WizardShell({ draftId }: WizardShellProps) {
           <AudiencesStep
             audiences={draft.audiences}
             onChange={updateAudiences}
+            settings={draft.settings}
+            onSettingsChange={updateSettings}
             adAccountId={draft.settings.metaAdAccountId}
             clientId={draft.settings.clientId}
             eventId={draft.settings.eventId}
@@ -543,6 +563,8 @@ export function WizardShell({ draftId }: WizardShellProps) {
           <Creatives
             creatives={draft.creatives}
             onChange={updateCreatives}
+            settings={draft.settings}
+            onSettingsChange={updateSettings}
             adAccountId={draft.settings.metaAdAccountId}
           />
         )}

@@ -18,7 +18,7 @@ import {
 import type {
   AdCreativeDraft, CTAType, AssetMode, AssetRatio,
   AdSourceType, AssetVariation, Asset, CaptionVariant,
-  ExistingPostPlacements,
+  ExistingPostPlacements, CampaignSettings,
 } from "@/lib/types";
 import {
   defaultPlacementsFor,
@@ -51,12 +51,19 @@ import {
   bindUploadToAssetSlot,
   type QueueLibraryItem,
 } from "@/lib/clients/asset-queue/queue-creative-bind";
+import {
+  PageInstagramOverridesPanel,
+  deriveMultiIgPageIds,
+} from "@/components/wizard/page-instagram-overrides-panel";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
 interface CreativesProps {
   creatives: AdCreativeDraft[];
   onChange: (creatives: AdCreativeDraft[]) => void;
+  /** When omitted (e.g. bulk-attach), overrides are kept in component state only. */
+  settings?: CampaignSettings;
+  onSettingsChange?: (settings: CampaignSettings) => void;
   /** Meta ad account ID — required for real asset uploads */
   adAccountId?: string;
   queueLibrary?: QueueLibraryItem[];
@@ -105,10 +112,16 @@ function FieldStatus({ loading, error }: { loading: boolean; error: string | nul
 export function Creatives({
   creatives,
   onChange,
+  settings,
+  onSettingsChange,
   adAccountId,
   queueLibrary,
   onResetQueueBinding,
 }: CreativesProps) {
+  const [localOverrides, setLocalOverrides] = useState<Record<string, string>>({});
+  const pageInstagramOverrides =
+    settings?.pageInstagramOverrides ?? localOverrides;
+  const persistSettings = Boolean(settings && onSettingsChange);
   const [activeId, setActiveId] = useState<string | null>(creatives[0]?.id ?? null);
   const [appliedField, setAppliedField] = useState<BulkField | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +138,76 @@ export function Creatives({
   const pages = useFetchPages(adAccountId);
   const fbTokenExpired = useFbTokenExpired();
   const igAccounts = useFetchInstagramAccounts();
+
+  const pageNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of pages.data) {
+      if (p.id) map[p.id] = p.name;
+    }
+    return map;
+  }, [pages.data]);
+
+  const creativePageIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          creatives
+            .map((c) => c.identity?.pageId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ),
+    [creatives],
+  );
+
+  const setPageInstagramOverride = useCallback(
+    (pageId: string, igId: string) => {
+      const overrides = { ...pageInstagramOverrides };
+      if (igId) {
+        overrides[pageId] = igId;
+      } else {
+        delete overrides[pageId];
+      }
+      if (persistSettings && settings && onSettingsChange) {
+        onSettingsChange({ ...settings, pageInstagramOverrides: overrides });
+      } else {
+        setLocalOverrides(overrides);
+      }
+
+      // Keep any ad using this page in sync with the override.
+      onChange(
+        creativesRef.current.map((c) =>
+          c.identity?.pageId === pageId
+            ? {
+                ...c,
+                identity: {
+                  ...(c.identity ?? { pageId, instagramAccountId: "" }),
+                  pageId,
+                  instagramAccountId: igId,
+                },
+              }
+            : c,
+        ),
+      );
+    },
+    [onSettingsChange, onChange, settings, persistSettings, pageInstagramOverrides],
+  );
+
+  const multiIgPageIds = useMemo(
+    () => deriveMultiIgPageIds(igAccounts.data),
+    [igAccounts.data],
+  );
+
+  useEffect(() => {
+    if (!persistSettings || !settings || !onSettingsChange || igAccounts.loading) return;
+    const prev = settings.multiIgPageIds ?? [];
+    const same =
+      prev.length === multiIgPageIds.length &&
+      prev.every((id, i) => id === multiIgPageIds[i]);
+    if (!same) {
+      onSettingsChange({ ...settings, multiIgPageIds });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync multiIgPageIds when IG list changes
+  }, [multiIgPageIds, igAccounts.loading, onSettingsChange, persistSettings]);
 
   const active = creatives.find((c) => c.id === activeId);
 
@@ -183,11 +266,14 @@ export function Creatives({
   );
 
   const handlePageChange = (adId: string, pageId: string) => {
-    // Auto-link the Instagram account associated with this page, if we
-    // already know one from the account-wide IG accounts list. The
-    // per-page identity hook will refine this asynchronously and the
-    // sync effect below corrects the selection if a better IG is found.
-    const linkedIg = igAccounts.data.find((ig) => ig.linkedPageId === pageId)?.id ?? "";
+    const pageIgs = igAccounts.data.filter((ig) => ig.linkedPageId === pageId);
+    const savedOverride = pageInstagramOverrides[pageId];
+    let linkedIg = "";
+    if (pageIgs.length === 1) {
+      linkedIg = pageIgs[0].id;
+    } else if (pageIgs.length >= 2 && savedOverride) {
+      linkedIg = savedOverride;
+    }
     updateAd(adId, {
       identity: { pageId, instagramAccountId: linkedIg },
     });
@@ -211,17 +297,26 @@ export function Creatives({
     // Skip if nothing would change
     if (currentContentId && currentActorId === resolvedActorId) return;
 
+    const pageIgs = igAccounts.data.filter(
+      (ig) => ig.linkedPageId === identity.pageId,
+    );
+    const overrideId = pageInstagramOverrides[identity.pageId];
+    const shouldAutoFillContent =
+      !currentContentId &&
+      pageIgs.length <= 1 &&
+      !overrideId;
+
     updateAd(active.id, {
       identity: {
         ...(active.identity ?? { pageId: identity.pageId, instagramAccountId: "" }),
-        // Only overwrite content id if it wasn't already set (igAccounts may
-        // have populated it before page-identity resolved).
-        instagramAccountId: currentContentId || identity.ig.account.id,
-        // Always update the actor id — this is the ads-verified ID.
+        instagramAccountId:
+          overrideId ||
+          currentContentId ||
+          (shouldAutoFillContent ? identity.ig.account.id : ""),
         instagramActorId: resolvedActorId,
       },
     });
-  }, [active, activePageIdentity.data, updateAd]);
+  }, [active, activePageIdentity.data, updateAd, igAccounts.data, pageInstagramOverrides]);
 
   // ─── Asset variations ───
   const addAssetVariation = (adId: string) => {
@@ -651,6 +746,16 @@ export function Creatives({
                     </div>
                   </div>
 
+                  <PageInstagramOverridesPanel
+                    pageIds={creativePageIds}
+                    igAccounts={igAccounts.data}
+                    pageNames={pageNameById}
+                    overrides={pageInstagramOverrides}
+                    onOverrideChange={setPageInstagramOverride}
+                    loading={igAccounts.loading}
+                    error={igAccounts.error}
+                  />
+
                   {/* Identity: Page + IG */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -731,35 +836,48 @@ export function Creatives({
                             <Select
                               label="Instagram Account"
                               value={active.identity?.instagramAccountId ?? ""}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                const igId = e.target.value;
                                 updateAd(active.id, {
                                   identity: {
                                     ...(active.identity ?? { pageId: "", instagramAccountId: "" }),
-                                    instagramAccountId: e.target.value,
+                                    instagramAccountId: igId,
                                   },
-                                })
-                              }
+                                });
+                                if (selectedPageId) {
+                                  setPageInstagramOverride(selectedPageId, igId);
+                                }
+                              }}
                               placeholder={
                                 igAccounts.loading || identityLoading
                                   ? "Loading…"
                                   : !selectedPageId
                                     ? "Select a page first…"
-                                    : "Select account…"
+                                    : mergedIG.length >= 2
+                                      ? "Required — pick Instagram account…"
+                                      : "Select account…"
                               }
                               disabled={
                                 (igAccounts.loading && identityLoading) ||
                                 !selectedPageId
                               }
                               options={[
-                                { value: "", label: "— None —" },
+                                ...(mergedIG.length === 1
+                                  ? []
+                                  : [{ value: "", label: "— Select account —" }]),
                                 ...mergedIG.map((ig) => ({
                                   value: ig.id,
                                   label: ig.username
-                                    ? `@${ig.username}`
+                                    ? `@${ig.username.replace(/^@/, "")}`
                                     : (ig.name ?? ig.id),
                                 })),
                               ]}
                             />
+                            {selectedPageId && mergedIG.length >= 2 && !active.identity?.instagramAccountId && (
+                              <p className="mt-1 text-[11px] text-warning">
+                                This page has {mergedIG.length} linked Instagram accounts — pick the correct handle before continuing.
+                              </p>
+                            )}
                             <FieldStatus
                               loading={igAccounts.loading || identityLoading}
                               error={igAccounts.error ?? identityError}

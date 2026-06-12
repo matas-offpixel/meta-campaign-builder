@@ -12,6 +12,8 @@ import type {
   MetaApiPageBatch,
   MetaApiPixel,
   MetaInstagramAccount,
+  PageIgOption,
+  PageIgResponse,
   CampaignObjective,
 } from "@/lib/types";
 import { mapObjectiveToMeta } from "./campaign";
@@ -858,64 +860,77 @@ export async function fetchPixels(adAccountId: string, token?: string): Promise<
 }
 
 /**
- * Fetch Instagram Business Accounts linked to all pages the token owner
- * manages — including BM-owned pages. Returns one entry per page that
- * has a linked IG account, deduplicated by IG ID.
- * Requires: pages_show_list + instagram_basic permissions.
- *
- * @param userToken Optional user OAuth `provider_token`. When supplied it's
- *                  used for the `/me/accounts` source instead of the system
- *                  token, which is critical for Pages the system user doesn't
- *                  manage (otherwise the IG link would be invisible and the
- *                  UI would falsely report "no linked Instagram account").
- *                  The BM `/owned_pages` source still uses the system token
- *                  because that endpoint is keyed off `META_BUSINESS_ID`.
+ * Fetch all Instagram accounts linked to each Facebook Page the token can see.
+ * Combines `instagram_business_account`, `connected_instagram_account`, and
+ * `/{pageId}/instagram_accounts` (when a page access token is available).
  */
-export async function fetchInstagramAccounts(
+export async function fetchPageInstagramOptions(
   userToken?: string,
-): Promise<Array<MetaInstagramAccount & { linkedPageId: string }>> {
-  type IgResult = MetaInstagramAccount & { linkedPageId: string };
-  const seen = new Map<string, IgResult>();
+): Promise<PageIgResponse[]> {
+  type IgEntry = { id: string; username?: string; name?: string };
+  type PageAccumulator = { pageName?: string; igs: Map<string, PageIgOption>; pageToken?: string };
+  const pageMap = new Map<string, PageAccumulator>();
 
-  // Checks both instagram_business_account AND connected_instagram_account.
-  // connected_instagram_account is populated when the user connected a personal
-  // or creator IG account via Page Settings, rather than via BM / "Switch to
-  // professional". Either field is valid as an IG engagement audience source.
-  const extractIg = (pages: MetaApiPage[]) => {
+  const formatUsername = (username?: string, fallbackId?: string): string => {
+    if (username) return username.startsWith("@") ? username : `@${username}`;
+    return fallbackId ?? "";
+  };
+
+  const addIg = (
+    pageId: string,
+    pageName: string | undefined,
+    ig: IgEntry,
+    pageToken?: string,
+  ) => {
+    if (!pageId || !ig.id) return;
+    let entry = pageMap.get(pageId);
+    if (!entry) {
+      entry = { pageName, igs: new Map(), pageToken };
+      pageMap.set(pageId, entry);
+    } else if (pageName && !entry.pageName) {
+      entry.pageName = pageName;
+    }
+    if (pageToken && !entry.pageToken) {
+      entry.pageToken = pageToken;
+    }
+    if (!entry.igs.has(ig.id)) {
+      entry.igs.set(ig.id, {
+        igId: ig.id,
+        username: formatUsername(ig.username, ig.id),
+        displayName: ig.name,
+      });
+    }
+  };
+
+  const ingestPages = (pages: MetaApiPage[]) => {
     for (const page of pages) {
-      const igBusiness = page.instagram_business_account as
+      const business = page.instagram_business_account as
         | (MetaInstagramAccount & { linkedPageId?: string })
         | undefined;
-      const igConnected = page.connected_instagram_account as
+      const connected = page.connected_instagram_account as
         | (MetaInstagramAccount & { linkedPageId?: string })
         | undefined;
 
-      const ig = igBusiness?.id ? igBusiness : igConnected?.id ? igConnected : undefined;
-      if (!ig?.id) continue;
-
-      if (!seen.has(ig.id)) {
-        seen.set(ig.id, { ...ig, linkedPageId: page.id });
+      if (business?.id) {
+        addIg(page.id, page.name, business, page.access_token);
       }
-
-      if (!igBusiness?.id && igConnected?.id) {
-        console.info(
-          `[fetchInstagramAccounts] page ${page.id} (${page.name}):` +
-          ` instagram_business_account is null; using connected_instagram_account (id=${ig.id})`,
-        );
+      if (connected?.id && connected.id !== business?.id) {
+        addIg(page.id, page.name, connected, page.access_token);
+        if (!business?.id) {
+          console.info(
+            `[fetchPageInstagramOptions] page ${page.id} (${page.name}):` +
+              ` using connected_instagram_account (id=${connected.id})`,
+          );
+        }
       }
     }
   };
 
-  // Fields include both IG connection types.
   const IG_FIELDS =
-    "id,name," +
+    "id,name,access_token," +
     "instagram_business_account{id,username,name,profile_picture_url}," +
     "connected_instagram_account{id,username,name,profile_picture_url}";
 
-  // Source 1: personal token pages — prefer the user's OAuth token when
-  // available so we see the same Pages the user sees in Ads Manager.
-  // The system token's `/me/accounts` returns the System User's accounts,
-  // which usually omits the Pages the end-user manages personally.
   const meAccountsToken = userToken ?? process.env.META_ACCESS_TOKEN;
   const meAccountsTokenSource = userToken ? "user" : "system";
   if (meAccountsToken) {
@@ -926,21 +941,20 @@ export async function fetchInstagramAccounts(
         meAccountsToken,
       );
       console.info(
-        `[fetchInstagramAccounts] /me/accounts via ${meAccountsTokenSource} token` +
+        `[fetchPageInstagramOptions] /me/accounts via ${meAccountsTokenSource} token` +
           ` returned ${personal.data?.length ?? 0} pages`,
       );
-      extractIg(personal.data);
+      ingestPages(personal.data ?? []);
     } catch (err) {
       console.warn(
-        `[fetchInstagramAccounts] /me/accounts via ${meAccountsTokenSource} token failed:`,
+        `[fetchPageInstagramOptions] /me/accounts via ${meAccountsTokenSource} token failed:`,
         err,
       );
     }
   } else {
-    console.warn("[fetchInstagramAccounts] no token available for /me/accounts");
+    console.warn("[fetchPageInstagramOptions] no token available for /me/accounts");
   }
 
-  // Source 2: BM-owned pages (requires business_management permission)
   const businessId = process.env.META_BUSINESS_ID;
   if (businessId) {
     try {
@@ -948,14 +962,76 @@ export async function fetchInstagramAccounts(
         `/${businessId}/owned_pages`,
         { fields: IG_FIELDS, limit: "100" },
       );
-      extractIg(bmPages.data);
+      ingestPages(bmPages.data ?? []);
     } catch (err) {
-      console.warn("[fetchInstagramAccounts] BM owned_pages failed (may lack permission):", err);
+      console.warn("[fetchPageInstagramOptions] BM owned_pages failed:", err);
     }
   }
 
-  console.info(`[fetchInstagramAccounts] resolved ${seen.size} page→IG mappings`);
-  return Array.from(seen.values());
+  await Promise.all(
+    Array.from(pageMap.entries()).map(async ([pageId, entry]) => {
+      const token = entry.pageToken ?? meAccountsToken;
+      if (!token) return;
+      try {
+        const res = await graphGetWithToken<{ data?: IgEntry[] }>(
+          `/${pageId}/instagram_accounts`,
+          { fields: "id,username,name", limit: "25" },
+          token,
+        );
+        for (const ig of res.data ?? []) {
+          addIg(pageId, entry.pageName, ig, entry.pageToken);
+        }
+        if ((res.data?.length ?? 0) > 1) {
+          console.info(
+            `[fetchPageInstagramOptions] page ${pageId}: ` +
+              `${res.data?.length ?? 0} accounts from /instagram_accounts`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[fetchPageInstagramOptions] /${pageId}/instagram_accounts failed:`,
+          err,
+        );
+      }
+    }),
+  );
+
+  const pages = Array.from(pageMap.entries()).map(([pageId, entry]) => ({
+    pageId,
+    pageName: entry.pageName,
+    igs: Array.from(entry.igs.values()).sort((a, b) =>
+      a.username.localeCompare(b.username),
+    ),
+  }));
+
+  console.info(
+    `[fetchPageInstagramOptions] resolved ${pages.length} page(s),` +
+      ` ${pages.reduce((n, p) => n + p.igs.length, 0)} total IG option(s)`,
+  );
+  return pages;
+}
+
+/**
+ * Flat list of linked Instagram accounts (multiple entries may share the same
+ * linkedPageId when a page has 2+ IGs). Built from {@link fetchPageInstagramOptions}.
+ */
+export async function fetchInstagramAccounts(
+  userToken?: string,
+): Promise<Array<MetaInstagramAccount & { linkedPageId: string }>> {
+  const pages = await fetchPageInstagramOptions(userToken);
+  const flat: Array<MetaInstagramAccount & { linkedPageId: string }> = [];
+  for (const page of pages) {
+    for (const ig of page.igs) {
+      flat.push({
+        id: ig.igId,
+        username: ig.username.replace(/^@/, ""),
+        name: ig.displayName,
+        linkedPageId: page.pageId,
+      });
+    }
+  }
+  console.info(`[fetchInstagramAccounts] flattened ${flat.length} page→IG mappings`);
+  return flat;
 }
 
 // ─── Ad account Instagram actors ─────────────────────────────────────────────

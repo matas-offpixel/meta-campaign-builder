@@ -112,6 +112,21 @@ export interface MetaInstagramAccount {
   profile_picture_url?: string;
 }
 
+/** One linked Instagram account option for a Facebook Page. */
+export interface PageIgOption {
+  igId: string;
+  /** Display handle, e.g. "@l_w_e" */
+  username: string;
+  displayName?: string;
+}
+
+/** All linked Instagram accounts for a single Facebook Page (0..N). */
+export interface PageIgResponse {
+  pageId: string;
+  pageName?: string;
+  igs: PageIgOption[];
+}
+
 // ─── Entity types (represent data from Meta API / database) ───
 
 export interface AdAccount {
@@ -838,6 +853,21 @@ export interface CampaignSettings {
   metaPixelId?: string;
   /** Primary Instagram Business Account for this campaign */
   metaIGAccountId?: string;
+
+  /**
+   * Explicit Instagram account choice per Facebook Page when a page has 2+
+   * linked IGs. Key = fbPageId, value = igUserId. Set from the Creatives /
+   * Audiences IG picker; consumed at launch for engagement audiences and as
+   * the highest-priority source in Phase 1.5 page→IG resolution.
+   */
+  pageInstagramOverrides?: Record<string, string>;
+
+  /**
+   * Page IDs known to have 2+ linked Instagram accounts (populated when the
+   * wizard loads `/api/meta/instagram-accounts`). Used by step validation to
+   * require {@link pageInstagramOverrides} before Continue / Launch.
+   */
+  multiIgPageIds?: string[];
 
   // ── Wizard mode (additive) ────────────────────────────────────────────────
   /**

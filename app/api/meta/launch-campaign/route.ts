@@ -1202,53 +1202,102 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── Build page→IG map ─────────────────────────────────────────────────────
-  // Source 1 (preferred): client-provided map derived from the enriched pages
-  // cache. This was fetched using the user's Facebook OAuth token and correctly
-  // resolves both instagram_business_account AND connected_instagram_account.
+  // Priority: (1) operator overrides on draft.settings, (2) client igAccountMap,
+  // (3) server-side fetch. Operator overrides win for pages with multiple linked IGs.
   const pageToIg: Map<string, string> = new Map();
+  const overrideSources = new Map<string, "operator-override" | "client-cache" | "server-fetch">();
 
-  for (const [pageId, igId] of Object.entries(clientIgMap)) {
-    if (pageId && igId) pageToIg.set(pageId, igId);
+  for (const [pageId, igId] of Object.entries(draft.settings.pageInstagramOverrides ?? {})) {
+    if (pageId && igId) {
+      pageToIg.set(pageId, igId);
+      overrideSources.set(pageId, "operator-override");
+    }
   }
   console.log(
-    `[launch-campaign] Phase 1.5 — client-provided IG map: ${pageToIg.size} entries` +
+    `[launch-campaign] Phase 1.5 — operator IG overrides: ${Object.keys(draft.settings.pageInstagramOverrides ?? {}).length} entries` +
+    (pageToIg.size > 0
+      ? ": " + Array.from(pageToIg).map(([pid, igId]) => `${pid}→${igId}`).join(", ")
+      : " (none)"),
+  );
+
+  for (const [pageId, igId] of Object.entries(clientIgMap)) {
+    if (pageId && igId && !pageToIg.has(pageId)) {
+      pageToIg.set(pageId, igId);
+      overrideSources.set(pageId, "client-cache");
+    }
+  }
+  console.log(
+    `[launch-campaign] Phase 1.5 — client-provided IG map: ${pageToIg.size} entries after merge` +
     (pageToIg.size > 0
       ? ": " + Array.from(pageToIg).map(([pid, igId]) => `${pid}→${igId}`).join(", ")
       : " (no entries — server-side fetch will be attempted)"),
   );
 
-  // Source 2 (fallback): server-side fetch using META_ACCESS_TOKEN.
-  // This uses a system/app token that may not see user-level page→IG
-  // connections, but can supplement the client map for any pages not covered.
+  // Source 3 (fallback): server-side fetch using user token when available.
+  let pageIgOptions: Awaited<ReturnType<typeof import("@/lib/meta/client").fetchPageInstagramOptions>> = [];
   try {
-    const { fetchInstagramAccounts } = await import("@/lib/meta/client");
-    const igAccounts = await fetchInstagramAccounts();
+    const { fetchPageInstagramOptions } = await import("@/lib/meta/client");
+    pageIgOptions = await fetchPageInstagramOptions(userFbToken ?? undefined);
     let serverAdded = 0;
-    for (const ig of igAccounts) {
-      if (ig.linkedPageId && ig.id && !pageToIg.has(ig.linkedPageId)) {
-        pageToIg.set(ig.linkedPageId, ig.id);
-        serverAdded++;
+    for (const page of pageIgOptions) {
+      for (const ig of page.igs) {
+        if (page.pageId && ig.igId && !pageToIg.has(page.pageId)) {
+          pageToIg.set(page.pageId, ig.igId);
+          overrideSources.set(page.pageId, "server-fetch");
+          serverAdded++;
+          break; // one default per page from server when no override
+        }
       }
     }
     console.log(
-      `[launch-campaign] Phase 1.5 — server-side IG fetch: ${igAccounts.length} accounts found,` +
-      ` ${serverAdded} added to map (client entries took priority). Total: ${pageToIg.size}`,
+      `[launch-campaign] Phase 1.5 — server-side IG fetch: ${pageIgOptions.length} pages found,` +
+      ` ${serverAdded} added to map (operator + client entries took priority). Total: ${pageToIg.size}`,
     );
   } catch (err) {
     console.warn("[launch-campaign] Phase 1.5 — server-side IG fetch failed (non-fatal):", err);
   }
 
-  // Log final resolved IG IDs for all pages that will be processed.
+  // Preflight: block when a page with 2+ linked IGs has no operator override.
   const allGroupPageIds = new Set(
     draft.audiences.pageGroups.flatMap((g) => g.pageIds),
   );
+  for (const c of launchCreatives) {
+    if (c.identity?.pageId) allGroupPageIds.add(c.identity.pageId);
+  }
+
+  const multiIgPreflightErrors: string[] = [];
+  for (const page of pageIgOptions) {
+    if (page.igs.length < 2) continue;
+    if (!allGroupPageIds.has(page.pageId)) continue;
+    if (draft.settings.pageInstagramOverrides?.[page.pageId]) continue;
+
+    const handles = page.igs.map((ig) => ig.username).join(", ");
+    const pageLabel = page.pageName ?? page.pageId;
+    multiIgPreflightErrors.push(
+      `Page ${pageLabel} has multiple linked Instagram accounts (${handles}). ` +
+        `Pick one in Step 4 → Creatives → Instagram Account dropdown.`,
+    );
+  }
+
+  if (multiIgPreflightErrors.length > 0) {
+    return NextResponse.json(
+      {
+        error: "Launch preflight failed — Instagram account required for multi-IG pages",
+        details: multiIgPreflightErrors,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Log final resolved IG IDs for all pages that will be processed.
   for (const pid of allGroupPageIds) {
     const igId = pageToIg.get(pid);
+    const source = overrideSources.get(pid);
     console.log(
       `[launch-campaign] Phase 1.5 — page ${pid}:` +
       ` resolvedIgId=${igId ?? "NOT FOUND"}` +
-      (clientIgMap[pid] ? ` (source: client-cache)` :
-       igId ? ` (source: server-fetch)` : ` (no IG account available)`),
+      (source ? ` (source: ${source})` :
+       igId ? ` (source: unknown)` : ` (no IG account available)`),
     );
   }
 
