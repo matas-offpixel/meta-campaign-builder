@@ -2,8 +2,9 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (pending)
+- **Number:** 599
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/599
+- **Preview:** https://meta-campaign-builder-git-cc-wizard-e9724a-matas-8641s-projects.vercel.app
 - **Branch:** `cc/wizard-attach-multi-objective-parity`
 
 ## Audit findings
