@@ -1,9 +1,8 @@
 /**
  * Objective-compatibility helpers for the multi-campaign attach flows.
  *
- * `assertSameObjective` is used both in the launch route (Phase 0 pre-flight)
- * and in unit tests. Extracted here to keep the route file importable and
- * to colocate the logic with the Meta campaign layer.
+ * `assertSameObjective` guards attach_all_adsets launches (Phase 0) where one
+ * creative-set is distributed across N campaigns.
  */
 
 import type { ExistingMetaCampaignSnapshot } from "@/lib/types";
