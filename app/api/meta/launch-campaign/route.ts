@@ -505,10 +505,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (orphan) {
       return NextResponse.json(
         {
-          error:
-            `Ad set "${orphan.name}" belongs to campaign ` +
-            `"${orphan.campaignName ?? orphan.campaignId}" which is not in the selected set. ` +
-            `Re-pick or remove the ad set.`,
+          error: `Selected ad set "${orphan.name}" does not belong to any of the selected campaigns — re-open Step 1 and re-pick.`,
         },
         { status: 400 },
       );

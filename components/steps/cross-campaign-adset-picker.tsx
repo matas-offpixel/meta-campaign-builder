@@ -153,7 +153,7 @@ function CampaignSection({
                 const disabledReason = disabled
                   ? !a.compatible
                     ? a.incompatibleReason
-                    : "12-ad-set limit reached. Deselect one to pick another."
+                    : `Maximum ${selectedIds.length} ad sets already selected — deselect one to pick this`
                   : undefined;
                 return (
                   <button
