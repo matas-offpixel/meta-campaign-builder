@@ -126,9 +126,7 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       onChange({ ...rest, wizardMode: next });
       return;
     }
-    // next === "attach_adset" — now allowed for multi-campaign when all campaigns
-    // share the same objective (cross-campaign ad set attach, GOAL 3).
-    // The allSameObjective check is done at render time to show/hide the button.
+    // next === "attach_adset" — multi-campaign allowed (mixed objectives OK).
     onChange({ ...settings, wizardMode: "attach_adset" });
   };
 
@@ -164,6 +162,8 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
 
   // Callback passed to CampaignMultiPicker to grey out campaigns whose
   // objective differs from the currently-selected campaigns' objective.
+  // Only used in attach_all_adsets — that mode distributes one creative-set
+  // across all ad sets of N campaigns and requires a shared objective.
   const getObjectiveDisabledReason = useCallback(
     (campaign: MetaCampaignSummary): string | undefined => {
       if (!sharedRawObjective) return undefined;
@@ -180,9 +180,10 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
   const handleToggleCampaign = useCallback((campaign: MetaCampaignSummary) => {
     if (!campaign.compatible || !campaign.internalObjective) return;
 
-    // GOAL 1: prevent adding a campaign with a different objective than the
-    // existing selection (the picker already greys it out, this is a safety net).
+    // Same-objective guard — attach_all_adsets only (bulk-attach parity for
+    // attach_campaign / attach_adset: mixed objectives allowed).
     if (
+      isAttachAllAdSets &&
       selectedCampaigns.length > 0 &&
       !selectedCampaignIds.has(campaign.id) &&
       sharedRawObjective &&
@@ -252,15 +253,6 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
     (campaign: MetaCampaignSummary) => {
       if (!campaign.compatible || !campaign.internalObjective) return;
 
-      if (
-        selectedCampaigns.length > 0 &&
-        !selectedCampaignIds.has(campaign.id) &&
-        sharedRawObjective &&
-        campaign.objective !== sharedRawObjective
-      ) {
-        return;
-      }
-
       const alreadySelected = selectedCampaignIds.has(campaign.id);
       let nextList: ExistingMetaCampaignSnapshot[];
 
@@ -312,7 +304,6 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
       selectedCampaigns,
       selectedCampaignIds,
       selectedAdSets,
-      sharedRawObjective,
       settings,
       onChange,
     ],
@@ -441,14 +432,10 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
             {
               value: "attach_adset" as const,
               label: "Add to existing ad set",
-              desc: selectedCampaigns.length > 1 && !allSameObjective
-                ? "Campaigns have incompatible objectives — select campaigns with the same objective to pick ad sets."
-                : "Pick specific live ad sets and add new ads only — audience, budget and optimisation are inherited.",
+              desc: "Pick specific live ad sets and add new ads only — audience, budget and optimisation are inherited.",
               icon: Layers,
-              disabled: selectedCampaigns.length > 1 && !allSameObjective,
-              disabledTitle: selectedCampaigns.length > 1 && !allSameObjective
-                ? "All selected campaigns must share the same objective to pick cross-campaign ad sets"
-                : undefined,
+              disabled: false,
+              disabledTitle: undefined,
             },
           ]).map(({ value, label, desc, icon: Icon, disabled, disabledTitle }) => {
             // "attach_campaign" button appears selected for both attach_campaign
@@ -523,10 +510,20 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
               <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
                 {adAccountId ?? "—"}
               </code>
-              . All selected campaigns must share the same objective.{" "}
-              <span className="text-foreground">
-                Campaigns with a different objective are greyed out.
-              </span>
+              .{" "}
+              {isAttachAllAdSets ? (
+                <>
+                  All selected campaigns must share the same objective.{" "}
+                  <span className="text-foreground">
+                    Campaigns with a different objective are greyed out.
+                  </span>
+                </>
+              ) : (
+                <>
+                  Mixed objectives are allowed — each campaign keeps its own Meta
+                  objective. Unsupported objectives are greyed out.
+                </>
+              )}
             </CardDescription>
             <div className="mt-3">
               <CampaignMultiPicker
@@ -535,7 +532,9 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
                 onToggle={
                   isAttachAdSet ? handleToggleCampaignAdSet : handleToggleCampaign
                 }
-                getExtraDisabledReason={getObjectiveDisabledReason}
+                getExtraDisabledReason={
+                  isAttachAllAdSets ? getObjectiveDisabledReason : undefined
+                }
               />
             </div>
           </Card>

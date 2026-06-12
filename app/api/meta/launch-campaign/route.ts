@@ -76,6 +76,7 @@ import type {
   WizardMode,
   ExistingMetaCampaignSnapshot,
   CampaignAttachResult,
+  CampaignObjective,
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
 import { assertSameObjective } from "@/lib/meta/attach-objective";
@@ -89,7 +90,21 @@ function elapsed(startMs: number): number {
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 // assertSameObjective is extracted into lib/meta/attach-objective.ts for
-// testability and reuse. Import it here for Phase 0 pre-flight checks.
+// testability and reuse. Used in Phase 0 for attach_all_adsets only.
+
+function internalObjectiveForAttachCampaign(
+  campaignId: string,
+  snapshots: ExistingMetaCampaignSnapshot[],
+  fallback: CampaignObjective,
+): CampaignObjective {
+  const snap = snapshots.find((s) => s.id === campaignId);
+  if (snap?.internalObjective) return snap.internalObjective;
+  if (snap?.objective) {
+    const mapped = mapMetaObjectiveToInternal(snap.objective);
+    if (mapped) return mapped;
+  }
+  return fallback;
+}
 
 // ─── Error formatting ─────────────────────────────────────────────────────────
 
@@ -467,8 +482,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    // GOAL 1 — pre-flight: all campaigns must share the same objective.
-    if (attachCampaignSnapshots.length > 1) {
+    // attach_all_adsets distributes one creative-set across all ad sets of N
+    // campaigns — mixed objectives would map creative → optimization wrong.
+    if (isAttachAllAdSets && attachCampaignSnapshots.length > 1) {
       const objCheck = assertSameObjective(attachCampaignSnapshots);
       if (!objCheck.ok) {
         return NextResponse.json(
@@ -2176,6 +2192,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const standardSets = enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
   const lookalikeSets = enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
+  const phase2Objective =
+    wizardMode === "attach_campaign" || isAttachAllAdSets
+      ? internalObjectiveForAttachCampaign(
+          metaCampaignId,
+          attachCampaignSnapshots,
+          draft.settings.objective,
+        )
+      : draft.settings.objective;
+
   const adSetCreationPromise = (async () => {
     console.log("[launch-campaign] Phase 2 — creating", standardSets.length, "standard ad sets");
 
@@ -2206,7 +2231,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.audiences,
             draft.budgetSchedule,
             draft.settings.optimisationGoal,
-            draft.settings.objective,
+            phase2Objective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           );
 
@@ -2361,7 +2386,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
                 const rebuiltPayload = buildAdSetPayload(
                   adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
-                  draft.settings.optimisationGoal, draft.settings.objective,
+                  draft.settings.optimisationGoal, phase2Objective,
                   draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
@@ -2742,7 +2767,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           draft.audiences,
           draft.budgetSchedule,
           draft.settings.optimisationGoal,
-          draft.settings.objective,
+          phase2Objective,
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
         );
 
@@ -2941,6 +2966,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
 
+      const ciObjective = internalObjectiveForAttachCampaign(
+        nextCampaign.id,
+        attachCampaignSnapshots,
+        draft.settings.objective,
+      );
+
       // Standard ad sets (batches of 5, same as Phase 2).
       const CI_BATCH_SIZE = 5;
       for (let i = 0; i < standardSets.length; i += CI_BATCH_SIZE) {
@@ -2954,7 +2985,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               draft.audiences,
               draft.budgetSchedule,
               draft.settings.optimisationGoal,
-              draft.settings.objective,
+              ciObjective,
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             );
 
@@ -2994,7 +3025,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 if (replacements.length > 0) {
                   const rebuiltPayload = buildAdSetPayload(
                     adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
-                    draft.settings.optimisationGoal, draft.settings.objective,
+                    draft.settings.optimisationGoal, ciObjective,
                     draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
@@ -3044,7 +3075,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         try {
           const adSetPayload = buildAdSetPayload(
             adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
-            draft.settings.optimisationGoal, draft.settings.objective,
+            draft.settings.optimisationGoal, ciObjective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           );
           if (!hasAudienceTargeting(adSetPayload.targeting)) {
